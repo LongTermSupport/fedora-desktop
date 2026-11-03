@@ -57,8 +57,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)      | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                        |
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                 |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
-| `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies    | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00244 Task 8.8)                 |
-| `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued             | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00244 Task 8.8, X25)   |
+| `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies    | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00246 Task 8.8)                 |
+| `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued             | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)   |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1233,7 +1233,7 @@ agent is branched on.
 
 **What it is about.** Whom a client trusts, which TLS versions it speaks and which name it
 verifies are decided where the `http.Transport` and the `tls.Config` are made. A team's members
-reach their homeserver over TLS with the team's own CA pinned as the only root (Plan 00244
+reach their homeserver over TLS with the team's own CA pinned as the only root (Plan 00246
 SPEC-cross-network X16): `matrix.NewMember` builds that transport. A second place in teamchat
 that makes a transport or a TLS configuration is a second place that can trust the system's
 roots, accept a lower version or skip a name check for a connection to a homeserver, and no
@@ -1286,7 +1286,7 @@ cover is a constructor added to `matrix`.
 ### project_hostname_read
 
 **What it is about.** A handle is `<repo>.<seat>+<site>.<type>` and is permanent once issued
-(Plan 00244 SPEC-cross-network X28): it is in every roster, mention and log of the team, and a
+(Plan 00246 SPEC-cross-network X28): it is in every roster, mention and log of the team, and a
 hostname in it cannot be taken back. The site is declared per machine (`teamchat_site`, default
 `local`) and no other source feeds a handle (X25). A teamchat function that reads the machine's
 hostname, or the name an address resolves to, is a function that can put a real hostname in a

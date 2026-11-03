@@ -19,7 +19,7 @@ var ErrInvalid = errors.New("seat: invalid")
 
 const (
 	recordVersion = 1
-	// BundleVersion is seat.json's version: v 2 replaced plain_http_hosts by tls_ca (Plan 00244
+	// BundleVersion is seat.json's version: v 2 replaced plain_http_hosts by tls_ca (Plan 00246
 	// X15). The other records carry no bundle and stay at recordVersion.
 	BundleVersion = 2
 	// maxRecord bounds every record the store reads (SW3).
@@ -39,7 +39,7 @@ const (
 )
 
 // Bundle is a seat's seat.json in the pool's form (C 3.7.2): no claim and no release time.
-// TLSCA is the team CA certificate in PEM that BaseURL is pinned to (Plan 00244 X15): required
+// TLSCA is the team CA certificate in PEM that BaseURL is pinned to (Plan 00246 X15): required
 // for an https BaseURL and empty, though the key is always there, for a loopback http one.
 type Bundle struct {
 	V          int          `json:"v"`

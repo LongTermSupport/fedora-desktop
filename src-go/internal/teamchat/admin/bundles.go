@@ -23,7 +23,7 @@ type SeatBundles struct {
 }
 
 // TeamCA gives a team's CA certificate in PEM: a function of the host's files, which the seat
-// side does not read (Plan 00244 X13, X15).
+// side does not read (Plan 00246 X13, X15).
 type TeamCA func(team paths.TeamID) (string, error)
 
 // Bundle implements Bundles. No error quotes the credential's secret.

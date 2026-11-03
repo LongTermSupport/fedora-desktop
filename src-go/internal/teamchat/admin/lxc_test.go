@@ -507,7 +507,7 @@ func reachFacts(t *testing.T, w *world, sys *System, url string) map[string]any 
 	return facts
 }
 
-// Reach is guest check's stdin: v 2, team, base_url and tls_ca, nothing else (Plan 00244 X15). A
+// Reach is guest check's stdin: v 2, team, base_url and tls_ca, nothing else (Plan 00246 X15). A
 // team whose URL is plain http has no CA to carry and none is asked for.
 func TestLXCRosterReach(t *testing.T) {
 	w := newWorld(t)

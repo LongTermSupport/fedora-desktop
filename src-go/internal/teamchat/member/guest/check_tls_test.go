@@ -14,7 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 )
 
-// Plan 00244 X12, X15, X16: guest check's stdin is v 2 and carries tls_ca; an https base_url is
+// Plan 00246 X12, X15, X16: guest check's stdin is v 2 and carries tls_ca; an https base_url is
 // reached over TLS with exactly that CA.
 
 // tlsServer is a fake homeserver behind a leaf of ca for 127.0.0.1; the certificates are made on

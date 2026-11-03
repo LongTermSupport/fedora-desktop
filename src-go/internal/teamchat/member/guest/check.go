@@ -65,7 +65,7 @@ const (
 	// one.
 	reachToken = "unused"
 
-	// factsVersion is the stdin's v: 2 replaced plain_http_hosts by tls_ca (Plan 00244 X15), as
+	// factsVersion is the stdin's v: 2 replaced plain_http_hosts by tls_ca (Plan 00246 X15), as
 	// seat.json's v 2 did.
 	factsVersion = 2
 

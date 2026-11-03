@@ -16,7 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 )
 
-// A seat on a machine that does not run the team's homeserver (Plan 00244 X7, X11).
+// A seat on a machine that does not run the team's homeserver (Plan 00246 X7, X11).
 
 // unitName is how paths names a team's homeserver and fence units and the directory of the
 // homeserver's runtime state: what a take on a member machine must not depend on.

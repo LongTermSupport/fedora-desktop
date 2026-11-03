@@ -1,4 +1,4 @@
-# SPEC: cross-network membership (Plan 00244 Task 8.8)
+# SPEC: cross-network membership (Plan 00246 Task 8.8)
 
 Intended behaviour, not a replay of anything. Source: direction 7 of
 [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md) and the code map in
@@ -131,7 +131,7 @@ install are listed last, under "Owner questions".
 - **X29** On one machine with two addresses: a team declares both networks, a member connects
   through each over TLS with the bundle's CA, and a connection from an address outside the
   declared networks is refused by the filter and by the firewall rule set the render produces.
-- **X30** The success criterion of Plan 00244: a member on a second machine joins over TLS, its
+- **X30** The success criterion of Plan 00246: a member on a second machine joins over TLS, its
   credential issued over ssh by X21, and a connection from an undeclared network is refused. The
   second-machine run is a VM-lab or host check the owner's coordinator queues; the code is proven
   by X29 and by the unit and fake tests meanwhile.

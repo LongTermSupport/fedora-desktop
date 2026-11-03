@@ -446,7 +446,7 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
   the bundle's `plain_http_hosts` (3.7.2). Traffic between local processes is visible only to root
   and to the processes' own owners, who can read the tokens anyway. Traffic over a declared
   network beyond the machine is plain until the TLS of
-  [SPEC-cross-network.md](../00244-agent-bus-v2-landing-and-cross-network/SPEC-cross-network.md)
+  [SPEC-cross-network.md](../00246-agent-bus-v2-landing-and-cross-network/SPEC-cross-network.md)
   section 3 is built.
 
 ### 3.3 The host program
@@ -740,7 +740,7 @@ declaration check uses. Steps, each failing the verb with the step named:
     under a migration (`root/<team>/migration/state.json` exists, D §3.9, §5.3); later applies
     keep the value.
 
-**The team's certificates** (Plan 00244 SPEC-cross-network X13, X14; step `tls`, between steps 04
+**The team's certificates** (Plan 00246 SPEC-cross-network X13, X14; step `tls`, between steps 04
 and 05, every apply). The CA is made once with the clock and the randomness the apply is given
 (ECDSA P-256, ten years) into `root/<team>/tls/`, key first, and is never replaced. A CA the host
 cannot use (a file that cannot be parsed, a key that is not its certificate's, a lone file) fails

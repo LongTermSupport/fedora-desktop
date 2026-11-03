@@ -11,7 +11,7 @@ import (
 )
 
 // hostnameFile is the one file of teamchat that may read the machine's hostname: the reader of
-// the declaration reads it to refuse a site that spells it (Plan 00244 SPEC-cross-network X26).
+// the declaration reads it to refuse a site that spells it (Plan 00246 SPEC-cross-network X26).
 // It is matched as a path suffix on a whole element, so the fixtures and the real module share it.
 const hostnameFile = "internal/teamchat/declare/machinehost.go"
 
@@ -46,7 +46,7 @@ Test files are judged as the code is: the hostname arrives in a test through the
 The exemption is the whole path, so another file of the same package, and a file of the same
 name in another package, are judged. Nothing else is exempt, and there is no allowance table.
 
-A handle's site is declared per machine (teamchat_site) and no other source feeds it (Plan 00244
+A handle's site is declared per machine (teamchat_site) and no other source feeds it (Plan 00246
 SPEC-cross-network X25): a machine's hostname in a handle is a hostname in every roster, mention
 and log of every team the machine joins, and cannot be taken back (a handle is permanent). The
 one read of the hostname refuses a declared site that spells it (X26); it is best effort, so the

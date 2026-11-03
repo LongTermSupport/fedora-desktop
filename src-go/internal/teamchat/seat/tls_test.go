@@ -14,7 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 )
 
-// Plan 00244 X12 and X15: a seat bundle is v 2, and tls_ca (the team CA certificate in PEM)
+// Plan 00246 X12 and X15: a seat bundle is v 2, and tls_ca (the team CA certificate in PEM)
 // replaces plain_http_hosts: required for an https base_url, empty for a loopback http one.
 
 const httpsBase = "https://chat.example.org:8448"

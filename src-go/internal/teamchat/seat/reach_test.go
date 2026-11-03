@@ -9,7 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 )
 
-// Plan 00244 X10: creating a seat for a URL this machine cannot reach fails fast and names the
+// Plan 00246 X10: creating a seat for a URL this machine cannot reach fails fast and names the
 // URL; launching into a seat that exists does not ask the homeserver first.
 
 // X10: only a placement that creates a pool seat asks the homeserver; a reissue over an existing

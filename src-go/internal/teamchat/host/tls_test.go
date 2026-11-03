@@ -18,7 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 )
 
-// The tests are Plan 00244 SPEC-cross-network X13 and X14 at the host: the team's CA and the
+// The tests are Plan 00246 SPEC-cross-network X13 and X14 at the host: the team's CA and the
 // homeserver's leaf, made at `team apply`, kept in root/<team>/tls/, and the CA carried by the
 // team's backup.
 

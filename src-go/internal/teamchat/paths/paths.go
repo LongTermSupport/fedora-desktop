@@ -254,7 +254,7 @@ func FenceFile(t TeamID) string { return MigrationDir(t) + "/fence.nft" }
 func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
 
 // TLSDir is the team's certificates, a root-only directory: its CA and the leaf its homeserver
-// is reached by (Plan 00244 SPEC-cross-network X13, X14).
+// is reached by (Plan 00246 SPEC-cross-network X13, X14).
 func TLSDir(t TeamID) string { return AdminState(t) + "/tls" }
 
 // CACertFile is the team's CA certificate. It is not secret (every member bundle carries it) and

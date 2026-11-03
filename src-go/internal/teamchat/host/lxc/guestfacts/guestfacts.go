@@ -317,7 +317,7 @@ func StartTicks(stat []byte) (int64, error) {
 // `<repo>+<site>.lxc`: repo from gitConfig's origin, else the checkout's base name; site from
 // the entry, which the declaration reader fills from the machine's teamchat_site when the entry
 // names none, else local. The site is declared and nothing the guest or the machine holds feeds
-// it (Plan 00244 SPEC-cross-network X25): a hostname in a handle is permanent. A nil gitConfig
+// it (Plan 00246 SPEC-cross-network X25): a hostname in a handle is permanent. A nil gitConfig
 // is refused, since a checkout has one.
 func Prefix(m declare.LXCMember, gitConfig []byte) (proto.Prefix, error) {
 	if gitConfig == nil {

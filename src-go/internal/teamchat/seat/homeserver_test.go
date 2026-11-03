@@ -12,7 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// Plan 00244 X8, X9: the first bundle a checkout takes for a team records the team's server_name
+// Plan 00246 X8, X9: the first bundle a checkout takes for a team records the team's server_name
 // and canonical base URL in the checkout record; a later bundle with the same team id and another
 // canonical URL or server_name is refused, naming both.
 

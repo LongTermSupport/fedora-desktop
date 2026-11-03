@@ -13,7 +13,7 @@
 // https URL needs the team's CA certificate (Config.CAPEM), which is then the whole of the
 // client's trust: its root pool is that one certificate, the system's roots are not consulted,
 // TLS 1.3 is the minimum and the certificate must be valid for the URL's host at the time of the
-// injected wall clock (Plan 00244 X12, X16, X17). A failed handshake is reported with a fixed
+// injected wall clock (Plan 00246 X12, X16, X17). A failed handshake is reported with a fixed
 // detail naming the host and the pinned CA's fingerprint, never certificate text.
 // A 429 is waited out through an injected Clock.
 // net/http itself resends a GET, once, when a reused keep-alive connection closes before any
@@ -122,7 +122,7 @@ type Client struct {
 	authorize func(http.Header)
 }
 
-// NewMember builds a member-side client: the bundle's base URL rule (SPEC M14, Plan 00244 X12,
+// NewMember builds a member-side client: the bundle's base URL rule (SPEC M14, Plan 00246 X12,
 // X16, X17), the trust an https URL needs and a token.
 func NewMember(cfg Config) (*Client, error) {
 	base, err := memberBase(cfg.BaseURL, cfg.CAPEM != "")
@@ -644,7 +644,7 @@ func adminBase(raw string) (string, error) {
 
 // memberBase applies the bundle's base URL rule (SPEC M14) and gives the URL with its host
 // lower-cased. Plain http is only for a loopback IP literal and carries no CA; https needs one
-// (Plan 00244 X12, X15, X17).
+// (Plan 00246 X12, X15, X17).
 func memberBase(raw string, hasCA bool) (string, error) {
 	u, err := parseBase(raw)
 	if err != nil {
@@ -669,7 +669,7 @@ func memberBase(raw string, hasCA bool) (string, error) {
 }
 
 // CanonicalMemberBase is raw in the one normal form two bundles' base URLs are compared in (Plan
-// 00244 X9): memberBase's, judged with the CA the scheme needs (https has one, http none), so a URL
+// 00246 X9): memberBase's, judged with the CA the scheme needs (https has one, http none), so a URL
 // no bundle could carry is refused.
 func CanonicalMemberBase(raw string) (string, error) {
 	u, err := parseBase(raw)

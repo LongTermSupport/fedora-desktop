@@ -9,7 +9,7 @@ import (
 )
 
 // ErrUnreachable is a homeserver this machine cannot reach: a creation that found no answer from
-// the bundle's URL, or a take whose login found none (Plan 00244 X10). It names the URL and keeps
+// the bundle's URL, or a take whose login found none (Plan 00246 X10). It names the URL and keeps
 // the client's own error beneath it, so a person is told which URL and a launcher can tell this
 // from a refusal.
 var ErrUnreachable = errors.New("seat: the homeserver is unreachable")

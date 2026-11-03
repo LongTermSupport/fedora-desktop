@@ -38,7 +38,7 @@ type Config struct {
 	Sessions Sessions
 	// Announcer posts a disconnected notice (C 3.7.5).
 	Announcer Announcer
-	// Reach asks whether a new seat's homeserver answers from this machine (Plan 00244 X10).
+	// Reach asks whether a new seat's homeserver answers from this machine (Plan 00246 X10).
 	Reach Reacher
 }
 

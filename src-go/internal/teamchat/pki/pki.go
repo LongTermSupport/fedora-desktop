@@ -1,5 +1,5 @@
 // Package pki is a team's certificate authority and the leaf certificate its homeserver is
-// reached by (Plan 00244 SPEC-cross-network X13 and X14, and the trust half of X15 and X16). It
+// reached by (Plan 00246 SPEC-cross-network X13 and X14, and the trust half of X15 and X16). It
 // is the standard library only: crypto/ecdsa, crypto/x509 and encoding/pem.
 //
 // A team has one CA, made once. Its certificate goes to every member in the bundle and is the

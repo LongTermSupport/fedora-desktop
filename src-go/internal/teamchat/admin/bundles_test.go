@@ -53,7 +53,7 @@ func seatBundlesWith(t *testing.T, ca TeamCA) SeatBundles {
 	return SeatBundles{Clock: func() time.Time { return time.UnixMilli(t0ms) }, Digest: d, CA: ca}
 }
 
-// loopbackURL is the one plain http base URL a bundle may carry (Plan 00244 X12, X15): plain
+// loopbackURL is the one plain http base URL a bundle may carry (Plan 00246 X12, X15): plain
 // http is for a loopback literal only, and every other URL is https with the team's CA.
 const (
 	loopbackURL = "http://127.0.0.1:8448"

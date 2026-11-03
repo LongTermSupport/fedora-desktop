@@ -14,7 +14,7 @@ import (
 )
 
 // ErrHomeserverClash is a bundle for a team that the checkout has on another homeserver: another
-// canonical base URL or another server name (Plan 00244 X8). Two homeserver hosts must not both
+// canonical base URL or another server name (Plan 00246 X8). Two homeserver hosts must not both
 // declare one team id for the same checkout, since the pool and the session seat directories are
 // keyed on the team id alone.
 var ErrHomeserverClash = errors.New("seat: the team is on another homeserver in this checkout")

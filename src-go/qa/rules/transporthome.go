@@ -13,7 +13,7 @@ const pkiPkg = "internal/teamchat/pki"
 
 // transportOwners are the packages that may build a transport or a TLS configuration: matrix,
 // which holds every client of a homeserver and decides whom it trusts, and pki, which parses and
-// makes the certificates the configuration is built from. The terminator of Plan 00244 X18 will
+// makes the certificates the configuration is built from. The terminator of Plan 00246 X18 will
 // be the third, with its own package.
 var transportOwners = []string{matrixPkg, pkiPkg}
 
@@ -46,7 +46,7 @@ caller, or for a certificate pool, a key pair or a listener wrapped in a given c
 Whom a client trusts, which TLS versions it speaks and which name it verifies are decided where
 the transport is made. A second place that makes one is a second place that can trust the system's
 roots, or skip a name check, for a connection to a team's homeserver; teamchat pins the team's
-own CA in one (Plan 00244 SPEC-cross-network X16, X19).
+own CA in one (Plan 00246 SPEC-cross-network X16, X19).
 
 Not caught: an http.Client with no Transport, http.DefaultClient and http.Get (all use the
 default transport, which trusts the system's roots), a transport built by a function of another
