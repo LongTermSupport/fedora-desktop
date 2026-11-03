@@ -526,6 +526,11 @@ type world struct {
 	busErr    error
 	pinErr    error
 	members   []Target
+	// networks is every team's declared networks; bridge and bridgeErr are the answer of the
+	// host's bridge subnet (Deps.BridgeNet).
+	networks  []string
+	bridge    netip.Prefix
+	bridgeErr error
 }
 
 func newWorld(t *testing.T) *world {
@@ -544,6 +549,8 @@ func newWorld(t *testing.T) *world {
 		clock:  &fakeClock{now: time.UnixMilli(1_700_000_000_000)},
 		boot:   clock.NewFake(time.Hour, 1_700_000_000_000),
 		v1:     &fakeV1{},
+		// The default team declares the network its guests are on, and the bridge is that one.
+		networks: []string{allowNet}, bridge: netip.MustParsePrefix(allowNet),
 	}
 	w.bus = &fakeBus{log: &w.log}
 	w.lxc.log = &w.log
@@ -565,7 +572,7 @@ func (w *world) addBox(name string) *box {
 func (w *world) team(id string) declare.Team {
 	return declare.Team{
 		ID: mustTeam(w.t, id), State: declare.StatePresent, Name: id, Port: 8448,
-		URL: "http://198.51.100.1:8448", AllowFrom: []string{allowNet},
+		URL: "http://198.51.100.1:8448", Networks: w.networks,
 	}
 }
 
@@ -611,6 +618,7 @@ func (w *world) deps() Deps {
 		HostUIDs:  map[int]bool{0: true, 1000: true},
 		OwnerGID:  os.Getgid(),
 		Bridge:    "lxcbr0",
+		BridgeNet: func() (netip.Prefix, error) { return w.bridge, w.bridgeErr },
 		Refresh: func(_ context.Context, team paths.TeamID) error {
 			w.refresh = append(w.refresh, team.String())
 			return nil

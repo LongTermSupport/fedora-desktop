@@ -9,10 +9,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// narrowed is the sample input with allow_from narrowed, a reload-set change, approved in w.
+// narrowed is the sample input with its network narrowed, a reload-set change, approved in w.
 func narrowed(w *world) declare.Input {
 	doc := teamDoc()
-	docTeam(doc)["allow_from"] = []any{"203.0.113.0/24"}
+	docTeam(doc)["networks"] = []any{"203.0.113.0/24"}
 	return approved(w, doc)
 }
 
