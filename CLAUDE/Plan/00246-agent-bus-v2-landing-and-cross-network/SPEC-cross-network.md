@@ -129,7 +129,10 @@ install are listed last, under "Owner questions".
   terminator; a project rule holds it (Defence Before Fix), with a red fixture.
 - **X20** Element Desktop's profile trusts the team CA: decided by a recorded check of what
   Electron honours; until then a profile for an `https` team states in its launcher output that
-  the CA must be trusted and where it is.
+  the CA must be trusted and where it is. Built so: `teamchat-admin element check` and `apply`
+  say it on stderr, one line per `https` team (stdout stays the CHANGED lines), naming
+  `paths.CACertFile` and that the Flatpak build's honouring of an added CA has not been checked.
+  The check itself needs an Element Desktop on a real desktop, which no agent container has.
 
 ## 4. A remote seat's token is issued over ssh
 
@@ -164,6 +167,12 @@ install are listed last, under "Owner questions".
 - **X29** On one machine with two addresses: a team declares both networks, a member connects
   through each over TLS with the bundle's CA, and a connection from an address outside the
   declared networks is refused by the filter and by the firewall rule set the render produces.
+  Held by `TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused` (`host`): a real apply
+  over two interfaces, the terminator on two loopback addresses with the leaf that apply made
+  (the documentation addresses cannot be bound, so the member names each derived address while
+  dialling a loopback one), a member holding only the CA, and the filter line and the recorded
+  rules read for addresses inside and outside both networks. The refusal is of the rules as
+  rendered, not of a live firewall.
 - **X30** The success criterion of Plan 00246: a member on a second machine joins over TLS, its
   credential issued over ssh by X21, and a connection from an undeclared network is refused. The
   second-machine run is a VM-lab or host check the owner's coordinator queues; the code is proven

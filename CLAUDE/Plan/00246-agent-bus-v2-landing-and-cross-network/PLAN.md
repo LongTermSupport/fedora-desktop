@@ -115,8 +115,10 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `teamchat-tls@` (its drop-in with the IP filter, the socket bind and the leaf as credentials;
   the homeserver bound to loopback only; apply, serve and remove for the second unit, X18a to
   X18c). The health tick reads the terminator unit's state and records a problem when it is not
-  active; a probe through the terminator is not built (X18c). Remaining: S11 (Element trusting
-  the CA, the docs page, the acceptance of X29 and X30).
+  active; a probe through the terminator is not built (X18c). S11 is built: Element's check and
+  apply say the CA must be trusted and where it is (X20; whether the Flatpak build honours an added
+  CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. Remaining: X30,
+  the second-machine run, a host or VM-lab check that needs the host play and the launcher.
 
 ## Success Criteria
 
