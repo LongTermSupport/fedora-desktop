@@ -23,10 +23,14 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // The fixture guest's facts: one agent user in a guest whose /bin is a link to usr/bin (EL9).
 const (
+	// guestUsersFile is the guest's user database, /etc/passwd, as a name beneath the guest root.
+	guestUsersFile = "etc/passwd"
+
 	agentUID  = 1001
 	agent2UID = 1002
 	agentGID  = 1001
@@ -104,7 +108,7 @@ func newGuest(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeTree(t, dir, map[string]string{
-		"etc/passwd":                      "root:x:0:0:root:/root:/bin/bash\nagent1:x:1001:1001::/srv/agent1:/bin/bash\nagent2:x:1002:1001::/srv/agent2:/bin/bash\n",
+		guestUsersFile:                    "root:x:0:0:root:/root:/bin/bash\nagent1:x:1001:1001::/srv/agent1:/bin/bash\nagent2:x:1002:1001::/srv/agent2:/bin/bash\n",
 		"etc/group":                       "root:x:0:\nagents:x:1001:\n",
 		"usr/lib/systemd/systemd":         "systemd",
 		"usr/bin/tmux":                    "tmux",
@@ -723,14 +727,9 @@ func hasLine(t *testing.T, r Report, want string) {
 	}
 }
 
+// guestFile is the content of the guest path p in b, and false when the guest has no such file.
 func guestFile(t *testing.T, b *box, p string) (string, bool) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(b.dir, p))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", false
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data), true
+	data, found := testfiles.Find(t, b.dir, strings.TrimPrefix(p, "/"))
+	return string(data), found
 }

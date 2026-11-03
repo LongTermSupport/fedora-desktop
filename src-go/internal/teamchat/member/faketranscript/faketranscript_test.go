@@ -12,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/proof"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 const (
@@ -29,6 +30,7 @@ func check(t *testing.T, err error) {
 
 // world is a transcript in a private directory, on a fake clock.
 type world struct {
+	dir string
 	tr  *Transcript
 	clk *clock.Fake
 }
@@ -40,13 +42,13 @@ func newWorld(t *testing.T) world {
 	clk := clock.NewFake(time.Hour, 0)
 	tr, err := New(dir, session, clk)
 	check(t, err)
-	return world{tr: tr, clk: clk}
+	return world{dir: dir, tr: tr, clk: clk}
 }
 
-func lines(t *testing.T, path string) []string {
+// lines is the lines of path, a file in the world's directory.
+func (w world) lines(t *testing.T, path string) []string {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	check(t, err)
+	data := testfiles.Read(t, w.dir, path)
 	if len(data) == 0 {
 		return nil
 	}
@@ -112,7 +114,7 @@ func TestRecordIdleIsOneUserLine(t *testing.T) {
 	w := newWorld(t)
 	w.tr.Record(envelope, Idle, 0)
 	check(t, w.tr.Err())
-	got := lines(t, w.tr.Path())
+	got := w.lines(t, w.tr.Path())
 	if len(got) != 1 {
 		t.Fatalf("%d lines, want 1", len(got))
 	}
@@ -129,7 +131,7 @@ func TestRecordIdleIsOneUserLine(t *testing.T) {
 func TestRecordBusyIsOneQueuedCommandLine(t *testing.T) {
 	w := newWorld(t)
 	w.tr.Record(envelope, Busy, 0)
-	got := lines(t, w.tr.Path())
+	got := w.lines(t, w.tr.Path())
 	if len(got) != 1 {
 		t.Fatalf("%d lines, want 1", len(got))
 	}
@@ -160,11 +162,11 @@ func TestRecordAfterADelayWaitsForTheFakeClock(t *testing.T) {
 	w := newWorld(t)
 	w.tr.Record(envelope, Idle, 5*time.Second)
 	w.clk.Advance(4 * time.Second)
-	if got := lines(t, w.tr.Path()); len(got) != 0 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 0 {
 		t.Fatalf("%d lines before the delay, want none", len(got))
 	}
 	w.clk.Advance(time.Second)
-	if got := lines(t, w.tr.Path()); len(got) != 1 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 1 {
 		t.Fatalf("%d lines after the delay, want 1", len(got))
 	}
 }
@@ -176,7 +178,7 @@ func TestRecordNeverWritesNothing(t *testing.T) {
 		t.Fatalf("Never armed %d waiters, want none", w.clk.Waiters())
 	}
 	w.clk.Advance(24 * time.Hour)
-	if got := lines(t, w.tr.Path()); len(got) != 0 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 0 {
 		t.Fatalf("%d lines, want none", len(got))
 	}
 }
@@ -184,7 +186,7 @@ func TestRecordNeverWritesNothing(t *testing.T) {
 func TestNoiseIsValidJSONWithNoNeedle(t *testing.T) {
 	w := newWorld(t)
 	w.tr.Noise(3)
-	got := lines(t, w.tr.Path())
+	got := w.lines(t, w.tr.Path())
 	if len(got) != 3 {
 		t.Fatalf("%d lines, want 3", len(got))
 	}
@@ -211,11 +213,11 @@ func TestRotateIsANewInodeAtThePath(t *testing.T) {
 	if after := inode(t, w.tr.Path()); after == before {
 		t.Fatal("Rotate kept the inode")
 	}
-	if got := lines(t, w.tr.Path()); len(got) != 0 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 0 {
 		t.Fatalf("%d lines in the rotated file, want none", len(got))
 	}
 	w.clk.Advance(time.Second)
-	if got := lines(t, w.tr.Path()); len(got) != 1 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 1 {
 		t.Fatalf("%d lines after a delayed record, want it in the new file", len(got))
 	}
 }
@@ -241,7 +243,7 @@ func TestTruncateKeepsTheInode(t *testing.T) {
 	w.tr.Record(envelope, Idle, 0)
 	before := inode(t, w.tr.Path())
 	check(t, w.tr.Truncate())
-	if inode(t, w.tr.Path()) != before || len(lines(t, w.tr.Path())) != 0 {
+	if inode(t, w.tr.Path()) != before || len(w.lines(t, w.tr.Path())) != 0 {
 		t.Fatal("Truncate did not empty the same inode")
 	}
 }
@@ -257,7 +259,7 @@ func TestClearGivesANewPathInTheSameDirectory(t *testing.T) {
 		t.Fatalf("Clear = %s (Path %s), want a new path beside %s", path, w.tr.Path(), old)
 	}
 	w.tr.Record(envelope, Busy, 0)
-	if len(lines(t, old)) != 1 || len(lines(t, path)) != 1 {
+	if len(w.lines(t, old)) != 1 || len(w.lines(t, path)) != 1 {
 		t.Fatal("after Clear, want the old file kept and the new record in the new file")
 	}
 	if _, err := w.tr.Clear(next); err == nil {
@@ -277,7 +279,7 @@ func TestAttachRecordsEachAcceptedFrameInTheModeOfTheMoment(t *testing.T) {
 	mode = Busy
 	accepted("teamchat delivery deadbeef: second")
 	w.clk.Advance(time.Second)
-	got := lines(t, w.tr.Path())
+	got := w.lines(t, w.tr.Path())
 	if len(got) != 2 || decode(t, got[0]).Type != "user" || decode(t, got[1]).Type != "attachment" {
 		t.Fatalf("lines = %q, want an idle then a busy record", got)
 	}
@@ -290,7 +292,7 @@ func TestAnUnknownModeIsKeptForErrAndWritesNothing(t *testing.T) {
 	if err := w.tr.Err(); err == nil || !strings.Contains(err.Error(), "mode 2") {
 		t.Fatalf("Err = %v, want the unknown mode named", err)
 	}
-	if got := lines(t, w.tr.Path()); len(got) != 1 {
+	if got := w.lines(t, w.tr.Path()); len(got) != 1 {
 		t.Fatalf("%d lines, want only the idle record", len(got))
 	}
 }

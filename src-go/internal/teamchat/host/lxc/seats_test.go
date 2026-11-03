@@ -199,7 +199,7 @@ func TestUserMoveReturnsUnderTheNewUser(t *testing.T) {
 func TestUserMoveFromADeletedUser(t *testing.T) {
 	w := moved(t)
 	b := w.lxc.boxes["c1"]
-	writeTree(t, b.dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\nagent2:x:1002:1001::/srv/agent2:/bin/bash\n"})
+	writeTree(t, b.dir, map[string]string{guestUsersFile: "root:x:0:0:root:/root:/bin/bash\nagent2:x:1002:1001::/srv/agent2:/bin/bash\n"})
 	r, err := w.apply(PhaseAbsent)
 	if err != nil {
 		t.Fatal(err)

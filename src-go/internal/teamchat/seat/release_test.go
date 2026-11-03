@@ -35,9 +35,9 @@ func (w *world) releasedSession(taken Taken) string {
 func TestReleaseOfALeave(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	poolBundle, poolPassword := readFile(t, w.pool().Bundle()), readFile(t, w.pool().Password())
+	poolBundle, poolPassword := w.readFile(w.pool().Bundle()), w.readFile(w.pool().Password())
 	taken := w.take("s1")
-	token := readFile(t, taken.Dir+"/token")
+	token := w.readFile(taken.Dir + "/token")
 	w.keep("s1", lockRecord)()
 	if err := w.release("s1", true); err != nil {
 		t.Fatal(err)
@@ -49,11 +49,11 @@ func TestReleaseOfALeave(t *testing.T) {
 	if exists(t, pool+"/token") || w.alive(token) {
 		t.Errorf("the held token survived the release")
 	}
-	rec, err := decodeReleasedRecord([]byte(readFile(t, w.pool().ReleasedRecord())))
+	rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
 	if err != nil || rec.Claim != taken.Claim || rec.ReleasedMS != w.clock.Now().UnixMilli() {
 		t.Errorf("released.json %+v, %v", rec, err)
 	}
-	if readFile(t, w.pool().Bundle()) != poolBundle || readFile(t, w.pool().Password()) != poolPassword {
+	if w.readFile(w.pool().Bundle()) != poolBundle || w.readFile(w.pool().Password()) != poolPassword {
 		t.Errorf("the release changed the pool record")
 	}
 	if len(w.notices.calls()) != 0 {
@@ -77,7 +77,7 @@ func TestReleaseOfAnEndedSessionAnnounces(t *testing.T) {
 	if len(calls) != 1 || calls[0].Bundle != w.pool().Held() || calls[0].SinceMS != testStart.UnixMilli() || calls[0].Run.String() != testRun {
 		t.Errorf("notices %+v", calls)
 	}
-	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
+	rec, err := decodeNoticeRecord([]byte(w.readFile(w.releasedPool(taken) + "/notice.json")))
 	if err != nil || !rec.Posted || rec.Run.String() != testRun || rec.Claim != taken.Claim {
 		t.Errorf("notice.json %+v, %v", rec, err)
 	}
@@ -105,7 +105,7 @@ func TestReleaseRetriesATransientNotice(t *testing.T) {
 	if len(calls) != 2 || calls[1].Run.String() != testRun {
 		t.Errorf("notices %+v", calls)
 	}
-	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
+	rec, err := decodeNoticeRecord([]byte(w.readFile(w.releasedPool(taken) + "/notice.json")))
 	if err != nil || rec.Posted || rec.Why != "token refused" {
 		t.Errorf("notice.json %+v, %v", rec, err)
 	}
@@ -142,7 +142,7 @@ func TestATransientNoticeHoldsAReleaseTenMinutesAtMost(t *testing.T) {
 	if len(w.notices.calls()) != 3 || exists(t, w.pool().HeldToken()) {
 		t.Errorf("at until_ms: %d calls, token kept %v", len(w.notices.calls()), exists(t, w.pool().HeldToken()))
 	}
-	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
+	rec, err := decodeNoticeRecord([]byte(w.readFile(w.releasedPool(taken) + "/notice.json")))
 	if err != nil || rec.Posted || rec.Why != whyNotInTime || rec.UntilMS != until {
 		t.Errorf("notice.json %+v, %v", rec, err)
 	}
@@ -161,7 +161,7 @@ func TestAGivenUpNoticeStaysGivenUpOnTheRelease(t *testing.T) {
 		t.Fatal("a transient notice failure completed the release")
 	}
 	w.sleep(noticeBound)
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	if err := os.WriteFile(w.pool().HeldToken(), []byte("two words"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func (w *world) retryHeld(until int64, run string, calls int) {
 
 func (w *world) heldNotice() NoticeRecord {
 	w.t.Helper()
-	rec, err := decodeNoticeRecord([]byte(readFile(w.t, w.pool().HeldNotice())))
+	rec, err := decodeNoticeRecord([]byte(w.readFile(w.pool().HeldNotice())))
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestReleaseWaitsForTheSeatLock(t *testing.T) {
 	taken := w.take("s1")
 	end := w.keep("s1", lockRecord)
 	w.sessions.set("s1", true)
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	before := w.clock.Now()
 	if err := w.release("s1", true); err != nil {
 		t.Fatalf("a held seat lock: %v", err)
@@ -277,7 +277,7 @@ func TestReleaseOfAnEndedSessionDoesNotWait(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	w.keep("s1", lockRecord)
 	before := w.clock.Now()
 	if err := w.release("s1", true); err != nil {
@@ -294,7 +294,7 @@ func TestReleaseRetriesAFailedLogout(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	w.hs.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/logout", Status: http.StatusBadGateway})
 	if err := w.release("s1", true); err == nil {
 		t.Fatal("a failed logout completed the release")
@@ -347,7 +347,7 @@ func TestReleaseStopsOnWhatItCannotRead(t *testing.T) {
 	}
 	w.sessions.fail(nil)
 	end()
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	if err := os.WriteFile(w.pool().HeldToken(), []byte("two words"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -421,8 +421,8 @@ func TestReleaseMeetsATakeThatReleasedItFirst(t *testing.T) {
 	if err := w.release("s1", false); err != nil {
 		t.Fatalf("the first release: %v", err)
 	}
-	token := readFile(t, w.pool().HeldToken())
-	rec, err := decodeHeldRecord([]byte(readFile(t, w.pool().HeldRecord())))
+	token := w.readFile(w.pool().HeldToken())
+	rec, err := decodeHeldRecord([]byte(w.readFile(w.pool().HeldRecord())))
 	if err != nil || rec.Claim != next.Claim || !w.alive(token) || !exists(t, next.Dir) {
 		t.Errorf("the next holding was touched: %+v, %v, token alive %v", rec, err, w.alive(token))
 	}
@@ -446,7 +446,7 @@ func TestTwoReleasesOfOneHolding(t *testing.T) {
 	if err := w.release("s1", false); err != nil {
 		t.Fatalf("the first release: %v", err)
 	}
-	rec, err := decodeReleasedRecord([]byte(readFile(t, w.pool().ReleasedRecord())))
+	rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
 	if err != nil || rec.Claim != taken.Claim || exists(t, w.pool().Held()) || len(quarantined(t, w)) != 1 {
 		t.Errorf("released %+v, %v; quarantine %v", rec, err, quarantined(t, w))
 	}
@@ -523,7 +523,7 @@ func TestAForgedCopyClaimDoesNotSkipTheWait(t *testing.T) {
 	end := w.keep("s3", lockRecord)
 	defer end()
 	w.sessions.set("s3", true)
-	b, err := DecodeHeldBundle([]byte(readFile(t, taken.Dir+"/seat.json")))
+	b, err := DecodeHeldBundle([]byte(w.readFile(taken.Dir + "/seat.json")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestAForgedCopyClaimDoesNotSkipTheWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, taken.Dir+"/seat.json", string(forged))
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	before := w.clock.Now()
 	if err := w.release("s3", true); err != nil {
 		t.Errorf("a leave with the keeper live: %v", err)
@@ -652,7 +652,7 @@ func TestReleaseJudgesAnIncompleteHeldUnderTheLock(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	a := w.lock()
 	aside := w.home + "/held.json.aside"
 	if err := os.Rename(w.pool().HeldRecord(), aside); err != nil {

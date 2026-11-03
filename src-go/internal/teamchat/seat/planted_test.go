@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // A session's seat directory, and sessions/<session>/ above it, are mounted read-write into its
@@ -43,7 +44,7 @@ func takeAndPlant(t *testing.T, p plant, at func(Taken) string) (*world, Taken, 
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	path := at(taken)
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func (w *world) revoked(taken Taken, token string) {
 	if exists(w.t, w.pool().Held()) {
 		w.t.Errorf("held/ was kept")
 	}
-	rec, err := decodeReleasedRecord([]byte(readFile(w.t, w.pool().ReleasedRecord())))
+	rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
 	if err != nil || rec.Claim != taken.Claim {
 		w.t.Errorf("released.json: %+v, %v", rec, err)
 	}
@@ -200,10 +201,7 @@ func TestALockSwappedBetweenOpensIsRefused(t *testing.T) {
 	if err := unix.Stat(dir+"/was", &was); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.Open(dir + "/is")
-	if err != nil {
-		t.Fatal(err)
-	}
+	f := testfiles.Open(t, dir, "is")
 	defer func() {
 		if err := f.Close(); err != nil {
 			t.Error(err)
@@ -272,7 +270,7 @@ func (w *world) removeKeepsTheCopy(taken Taken, token, ending string) {
 	w.sessions.set("s1", ending == byRemove)
 	if ending == byTake {
 		next := w.take("s2")
-		rec, err := decodeReleasedRecord([]byte(readFile(w.t, w.pool().ReleasedRecord())))
+		rec, err := decodeReleasedRecord([]byte(w.readFile(w.pool().ReleasedRecord())))
 		if w.alive(token) || next.Claim == taken.Claim || err != nil || rec.Claim != taken.Claim {
 			w.t.Errorf("the take did not release the ended holding: released.json %+v, %v", rec, err)
 		}
@@ -301,7 +299,7 @@ func TestAModeTheMemberSetStopsNoRevocation(t *testing.T) {
 					w := newWorld(t)
 					w.seed()
 					taken := w.take("s1")
-					token := readFile(t, w.pool().HeldToken())
+					token := w.readFile(w.pool().HeldToken())
 					dir := taken.Dir
 					if where == "session" {
 						dir = w.store.store.Session(mustSession(t, "s1"))
@@ -332,7 +330,7 @@ func TestAnOwnerTheMemberSetStopsNoRevocation(t *testing.T) {
 				w := newWorld(t)
 				w.seed()
 				taken := w.take("s1")
-				token := readFile(t, w.pool().HeldToken())
+				token := w.readFile(w.pool().HeldToken())
 				dir := taken.Dir
 				if where == "session" {
 					dir = w.store.store.Session(mustSession(t, "s1"))

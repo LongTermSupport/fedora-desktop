@@ -60,11 +60,11 @@ func TestATokenCredentialBehindTheSeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readFile(t, w.pool().Token()) != token || exists(t, w.pool().Password()) {
+	if w.readFile(w.pool().Token()) != token || exists(t, w.pool().Password()) {
 		t.Fatalf("the pool keeps its credential in the wrong file")
 	}
 	taken := w.take("s1")
-	if readFile(t, taken.Dir+"/token") != token {
+	if w.readFile(taken.Dir+"/token") != token {
 		t.Errorf("the session copy's token is not what Mint answered")
 	}
 	if err := w.release("s1", true); err != nil || cred.retired != 1 {

@@ -279,11 +279,11 @@ func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 		{"tmux only where the unit does not run it", tmuxOnlyAt("tmux")},
 		{"uid 0", func(t *testing.T, b *box) {
 			t.Helper()
-			writeTree(t, b.dir, map[string]string{"etc/passwd": "agent1:x:0:1001::/srv/agent1:/bin/bash\n"})
+			writeTree(t, b.dir, map[string]string{guestUsersFile: "agent1:x:0:1001::/srv/agent1:/bin/bash\n"})
 		}},
 		{"host uid", func(t *testing.T, b *box) {
 			t.Helper()
-			writeTree(t, b.dir, map[string]string{"etc/passwd": "agent1:x:1000:1001::/srv/agent1:/bin/bash\n"})
+			writeTree(t, b.dir, map[string]string{guestUsersFile: "agent1:x:1000:1001::/srv/agent1:/bin/bash\n"})
 		}},
 		{"insteadOf", func(t *testing.T, b *box) {
 			t.Helper()
@@ -296,7 +296,7 @@ func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 		{"source address", func(_ *testing.T, b *box) { b.cfg["lxc.net.0.link"] = "virbr0" }},
 		{"no passwd", func(t *testing.T, b *box) {
 			t.Helper()
-			if err := os.Remove(filepath.Join(b.dir, "etc/passwd")); err != nil {
+			if err := os.Remove(filepath.Join(b.dir, guestUsersFile)); err != nil {
 				t.Fatal(err)
 			}
 		}},

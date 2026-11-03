@@ -15,25 +15,25 @@ import (
 func TestTakeWritesHeldAndTheSessionCopy(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	poolBefore := readFile(t, w.pool().Bundle())
+	poolBefore := w.readFile(w.pool().Bundle())
 	got := w.take("s1")
-	held, err := decodeHeldRecord([]byte(readFile(t, w.pool().HeldRecord())))
+	held, err := decodeHeldRecord([]byte(w.readFile(w.pool().HeldRecord())))
 	if err != nil || held.Session.String() != "s1" || held.Claim != got.Claim || held.SinceMS != testStart.UnixMilli() {
 		t.Errorf("held.json %+v, %v (claim %s)", held, err, got.Claim)
 	}
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	if !w.alive(token) {
 		t.Errorf("the held token is dead")
 	}
-	bundle, err := DecodeHeldBundle([]byte(readFile(t, w.pool().HeldBundle())))
+	bundle, err := DecodeHeldBundle([]byte(w.readFile(w.pool().HeldBundle())))
 	if err != nil || bundle.Claim != got.Claim || bundle.ReleasedMS != nil || encode(t, bundle.Bundle) != encode(t, w.bundle()) {
 		t.Errorf("held seat.json %+v, %v", bundle, err)
 	}
 	seat := w.sessionSeat("s1")
-	if got.Dir != seat.Dir() || readFile(t, seat.Token()) != token || readFile(t, seat.Bundle()) != readFile(t, w.pool().HeldBundle()) {
+	if got.Dir != seat.Dir() || w.readFile(seat.Token()) != token || w.readFile(seat.Bundle()) != w.readFile(w.pool().HeldBundle()) {
 		t.Errorf("the session copy differs from held/")
 	}
-	if readFile(t, w.pool().Bundle()) != poolBefore {
+	if w.readFile(w.pool().Bundle()) != poolBefore {
 		t.Errorf("the take changed the pool's seat.json")
 	}
 }
@@ -62,7 +62,7 @@ func TestTakeEndsEveryEarlierToken(t *testing.T) {
 	w.seed()
 	stale := w.stale()
 	first := w.take("s1")
-	firstToken := readFile(t, first.Dir+"/token")
+	firstToken := w.readFile(first.Dir + "/token")
 	if err := os.RemoveAll(w.pool().Held()); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestTakeEndsEveryEarlierToken(t *testing.T) {
 	if w.alive(stale) || w.alive(firstToken) {
 		t.Errorf("a token minted before the take is live")
 	}
-	if !w.alive(readFile(t, second.Dir+"/token")) {
+	if !w.alive(w.readFile(second.Dir + "/token")) {
 		t.Errorf("the take's own token is dead")
 	}
 }
@@ -81,7 +81,7 @@ func TestTakeCarriesReleasedMS(t *testing.T) {
 	w.seed()
 	writeFile(t, w.pool().ReleasedRecord(), `{"v":1,"claim":"00112233aabbccdd","released_ms":77}`)
 	got := w.take("s1")
-	bundle, err := DecodeHeldBundle([]byte(readFile(t, got.Dir+"/seat.json")))
+	bundle, err := DecodeHeldBundle([]byte(w.readFile(got.Dir + "/seat.json")))
 	if err != nil || bundle.ReleasedMS == nil || *bundle.ReleasedMS != 77 {
 		t.Errorf("released_ms %+v, %v", bundle, err)
 	}
@@ -143,7 +143,7 @@ func TestTakeOfARetiredSeatThatIsHeld(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	w.take("s1")
-	token := readFile(t, w.pool().HeldToken())
+	token := w.readFile(w.pool().HeldToken())
 	end := w.keep("s1", lockRecord)
 	if _, err := w.tryTake("s2", StateRetired); !errors.Is(err, ErrHeld) {
 		t.Errorf("a retired seat a live session holds: %v", err)
@@ -202,7 +202,7 @@ func TestTakeRefusesAnIncompleteRecordOrALeftover(t *testing.T) {
 	w.seed()
 	other := mustSeatName(t, "repo.2+site.podman")
 	other1 := w.store.store.PoolSeat(w.key, w.seat.Team, other)
-	writeFile(t, other1.Bundle(), readFile(t, w.pool().Bundle()))
+	writeFile(t, other1.Bundle(), w.readFile(w.pool().Bundle()))
 	writeFile(t, other1.Password(), testPassword)
 	a := w.lock()
 	if _, err := w.store.Take(t.Context(), a, Take{Seat: Seat{Team: w.seat.Team, Name: other}, Session: mustSession(t, "s1"), State: StateActive}); !errors.Is(err, ErrInvalid) {
@@ -228,7 +228,7 @@ func TestTakeQuarantinesABrokenHeld(t *testing.T) {
 	writeFile(t, w.pool().HeldRecord(), "{")
 	w.take("s1")
 	moved := quarantined(t, w)
-	if len(moved) != 1 || readFile(t, moved[0]+"/held.json") != "{" || exists(t, moved[0]+"/token") {
+	if len(moved) != 1 || w.readFile(moved[0]+"/held.json") != "{" || exists(t, moved[0]+"/token") {
 		t.Errorf("quarantine %v", moved)
 	}
 }

@@ -25,19 +25,30 @@ var chown = func(f *os.File, gid int) error { return f.Chown(-1, gid) }
 // WriteFile replaces path with data, mode and (unless gid is -1) group gid, so a reader sees
 // either the old content or the new, never a part (ST1).
 func WriteFile(path string, data []byte, mode fs.FileMode, gid int) error {
-	dir := filepath.Dir(path)
-	temp := filepath.Join(dir, "."+filepath.Base(path)+"."+rand.Text()+".tmp")
-	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, 0o600)
+	dir, name := filepath.Split(path)
+	root, err := os.OpenRoot(filepath.Clean(dir))
+	if err != nil {
+		return fmt.Errorf("cannot create a temporary file for %s: %w", path, err)
+	}
+	return errors.Join(writeIn(root, path, name, data, mode, gid), root.Close())
+}
+
+// writeIn does WriteFile's work through root, the directory of path: the temporary file, the
+// rename and the sync are all made in that one directory, and a root creating a file exclusively
+// never follows a link.
+func writeIn(root *os.Root, path, name string, data []byte, mode fs.FileMode, gid int) error {
+	temp := "." + name + "." + rand.Text() + ".tmp"
+	f, err := root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("cannot create a temporary file for %s: %w", path, err)
 	}
 	if err := fill(f, data, mode, gid); err != nil {
-		return errors.Join(fmt.Errorf("cannot write %s: %w", path, err), os.Remove(temp))
+		return errors.Join(fmt.Errorf("cannot write %s: %w", path, err), root.Remove(temp))
 	}
-	if err := os.Rename(temp, path); err != nil {
-		return errors.Join(fmt.Errorf("cannot put %s in place: %w", path, err), os.Remove(temp))
+	if err := root.Rename(temp, name); err != nil {
+		return errors.Join(fmt.Errorf("cannot put %s in place: %w", path, err), root.Remove(temp))
 	}
-	return syncDir(dir)
+	return syncDir(root, filepath.Dir(path))
 }
 
 // fill gives the temporary file its mode and group and its content, and closes it.
@@ -55,8 +66,8 @@ func fill(f *os.File, data []byte, mode fs.FileMode, gid int) error {
 	return errors.Join(err, f.Close())
 }
 
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
+func syncDir(root *os.Root, dir string) error {
+	d, err := root.Open(".")
 	if err != nil {
 		return fmt.Errorf("cannot open %s to sync it: %w", dir, err)
 	}
@@ -85,8 +96,34 @@ func ReadOwnedTarget(path string, limit int64, uid uint32) ([]byte, bool, error)
 	return read(path, limit, readFlags&^unix.O_NOFOLLOW, &uid)
 }
 
+// openIn opens the last element of path, relative to a handle on its directory: the element is
+// one name that cannot lead out of that directory, and with unix.O_NOFOLLOW a link in its place
+// is refused by the kernel in the same call, not by a check made before it. os.Root cannot
+// stand in for this: whatever flags it is given, it follows a link that stays inside its root,
+// and ST2 refuses one. The handle is O_PATH, so a directory the caller may search but not list
+// still opens its files, as it did when the whole path was opened at once.
+func openIn(path string, flags int) (*os.File, error) {
+	dir, name := filepath.Split(path)
+	if name == "" {
+		name = "."
+	}
+	dirFD, err := unix.Open(filepath.Clean(dir), unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	fd, openErr := unix.Openat(dirFD, name, flags|unix.O_CLOEXEC, 0)
+	closeErr := unix.Close(dirFD)
+	if openErr == nil && closeErr != nil {
+		closeErr = errors.Join(closeErr, unix.Close(fd))
+	}
+	if err = errors.Join(openErr, closeErr); err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(fd), path), nil
+}
+
 func read(path string, limit int64, flags int, owner *uint32) ([]byte, bool, error) {
-	f, err := os.OpenFile(path, flags, 0)
+	f, err := openIn(path, flags)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}

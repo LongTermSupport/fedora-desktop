@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 const (
@@ -82,13 +83,16 @@ func decodeJSON(t *testing.T, data string) map[string]any {
 	return out
 }
 
-func readFile(t *testing.T, path string) string {
+// readFile is the text of path, which is under root.
+func readFile(t *testing.T, root, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
+	return string(testfiles.Read(t, root, path))
+}
+
+// readFile is the text of path, which is under the world's home.
+func (w *world) readFile(path string) string {
+	w.t.Helper()
+	return readFile(w.t, w.home, path)
 }
 
 func writeFile(t *testing.T, path, data string) {

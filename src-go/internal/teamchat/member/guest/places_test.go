@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 const (
@@ -231,11 +232,10 @@ func (w *world) store() []byte {
 	return data
 }
 
+// read is the content of path, which is under the world's home.
 func (w *world) read(path string) []byte {
 	w.t.Helper()
-	data, err := os.ReadFile(path)
-	check(w.t, err)
-	return data
+	return testfiles.Read(w.t, w.home.Root.Path(), path)
 }
 
 func (w *world) mode(path string) os.FileMode {
