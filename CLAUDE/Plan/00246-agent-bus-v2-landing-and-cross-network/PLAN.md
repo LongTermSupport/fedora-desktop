@@ -105,6 +105,9 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   hostname. These replace Plan 00209 Task 0.6's "plain HTTP only inside a mesh tunnel".
   The owner's decision 10 on pull request 124 asks for a detector for "a fake process made by
   running a tool under another name", once this task has started: it is issue 126.
+  State: S1 to S6, S7a, S8, S9 (`teamchat seat place-issued`) and S10 are built and committed on
+  the branch; S7b (the per-team TLS terminator unit and its project rule) and S11 (Element
+  trusting the CA, the docs page, the acceptance of X29 and X30) remain.
 
 ## Success Criteria
 
