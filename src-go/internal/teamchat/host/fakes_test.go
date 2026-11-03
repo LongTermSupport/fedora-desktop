@@ -3,7 +3,10 @@ package host
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
+	"io"
 	"io/fs"
 	"net"
 	"net/netip"
@@ -90,11 +93,34 @@ type world struct {
 	boots    []Bootstrap
 	backups  int
 	onBackup func()
+	// rand is the randomness every apply of this host draws on: the registration key's 64 bytes,
+	// then an endless stream that never repeats, so each key and serial number a later step makes
+	// is its own.
+	rand io.Reader
+}
+
+// stream is an endless deterministic byte source that never repeats: the SHA-256 of a counter
+// that starts at seed.
+type stream struct {
+	seed, n uint64
+	buf     []byte
+}
+
+func (s *stream) Read(p []byte) (int, error) {
+	for len(s.buf) < len(p) {
+		sum := sha256.Sum256(binary.BigEndian.AppendUint64(binary.BigEndian.AppendUint64(nil, s.seed), s.n))
+		s.n++
+		s.buf = append(s.buf, sum[:]...)
+	}
+	n := copy(p, s.buf)
+	s.buf = s.buf[n:]
+	return n, nil
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, root: t.TempDir(), clock: newClock(), faults: map[string]error{}, approved: map[string]*declare.Gated{}}
+	w.rand = io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), &stream{})
 	for _, dir := range []string{
 		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.StatusRoot, paths.HomeserverPrivateStateRoot,
 	} {
@@ -178,7 +204,7 @@ func (w *world) deps() Deps {
 	}
 	return Deps{
 		Root: w.root, LockDir: w.at(paths.AdminRunDir), LockWait: PlayWait, Clock: w.clock,
-		Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Pin: p, Software: "d1g3st",
+		Rand: w.rand, Pin: p, Software: "d1g3st",
 		CtlUID: os.Getuid(), CtlGID: os.Getgid(), Approvals: w, Systemd: w.sd, Firewall: w.fw,
 		Network: w.net, Ready: w.ready, Status: w.status,
 		Backup: func(_ context.Context, held *teamlock.Lock) error {

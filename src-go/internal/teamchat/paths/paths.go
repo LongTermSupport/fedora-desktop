@@ -253,6 +253,25 @@ func FenceFile(t TeamID) string { return MigrationDir(t) + "/fence.nft" }
 // FirewallRecord is the record of the firewalld rules v2 added for the team.
 func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
 
+// TLSDir is the team's certificates, a root-only directory: its CA and the leaf its homeserver
+// is reached by (Plan 00244 SPEC-cross-network X13, X14).
+func TLSDir(t TeamID) string { return AdminState(t) + "/tls" }
+
+// CACertFile is the team's CA certificate. It is not secret (every member bundle carries it) and
+// is mode 0644 in the root-only TLSDir, so the admin issuing a bundle reads it as root.
+func CACertFile(t TeamID) string { return TLSDir(t) + "/ca.crt" }
+
+// CAKeyFile is the team's CA key, mode 0600: the one secret that signs the leaf. The team's backup
+// carries it with CACertFile.
+func CAKeyFile(t TeamID) string { return TLSDir(t) + "/ca.key" }
+
+// LeafCertFile is the certificate the team's homeserver is reached by, signed by the CA. It is made
+// again at every apply that needs it, so no backup carries it.
+func LeafCertFile(t TeamID) string { return TLSDir(t) + "/leaf.crt" }
+
+// LeafKeyFile is the leaf's key, mode 0600.
+func LeafKeyFile(t TeamID) string { return TLSDir(t) + "/leaf.key" }
+
 // CtlState is the team's admin token, roster and rooms, owned by CtlUser.
 func CtlState(t TeamID) string { return CtlStateRoot + "/" + t.text() }
 

@@ -3,8 +3,10 @@ package admin
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -227,7 +229,7 @@ func (w *world) sys() *System {
 	return &System{
 		Host: host.Deps{
 			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w,
-			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Software: digest,
+			Rand: io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), rand.Reader), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
 			Backup: func(context.Context, *teamlock.Lock) error { return nil },

@@ -214,6 +214,7 @@ maintains.
 | `root/<team>/config.toml`                                                              | root, 0600           | the rendered Tuwunel config, including the registration shared secret; reaches the unit only through `LoadCredential=`                                                                                                  |
 | `root/<team>/team.json`                                                                | root, 0600           | the rendered team declaration last applied (canonical JSON); `server_name` is checked against it (C3)                                                                                                                   |
 | `root/<team>/firewall.json`                                                            | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                                                                                                         |
+| `root/<team>/tls/`                                                                     | root, 0700           | the CA (`ca.crt` 0644, `ca.key` 0600; made once, never replaced) and the leaf (`leaf.crt` 0644, `leaf.key` 0600; made again when its names change or 30 days remain), 3.5.2; the backup carries the CA only             |
 | `root/<team>/units.json`                                                               | root, 0600           | the restart and reload digest sets (3.5.2), and the Tuwunel version, port and listen set last started, so a team brought back can be started on its old version first (a port another team now holds refuses it, named) |
 | `root/<team>/backups/<n>.tar`                                                          | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                                                                                                              |
 | `root/<team>/server-name`                                                              | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                                                                                                                 |
@@ -738,6 +739,17 @@ declaration check uses. Steps, each failing the verb with the step named:
     apply of a team writes `"origin": "v2"` in it, or `"origin": "migration"` when the team is
     under a migration (`root/<team>/migration/state.json` exists, D §3.9, §5.3); later applies
     keep the value.
+
+**The team's certificates** (Plan 00244 SPEC-cross-network X13, X14; step `tls`, between steps 04
+and 05, every apply). The CA is made once with the clock and the randomness the apply is given
+(ECDSA P-256, ten years) into `root/<team>/tls/`, key first, and is never replaced. A CA the host
+cannot use (a file that cannot be parsed, a key that is not its certificate's, a lone file) fails
+the apply with drift (exit 70), naming the file, before anything after the step runs; restoring
+the file from a backup, or removing both files so that the next apply makes a new CA (every bundle
+issued must then be reissued), is the owner's. The homeserver's leaf is signed by the CA and
+names every derived listen address and the `url` host when that is a name; it is made again when
+it is missing, torn, signed by another CA, has other names than these, or has fewer than 30 days
+left, and the apply says why. The terminator that serves the leaf is a later slice.
 
 The stamp:
 
@@ -2391,8 +2403,11 @@ apply already holds (3.4), never a second `flock`. Otherwise, per team, under it
 2. Send `SIGUSR2` to the main process over D-Bus (`KillUnit`, whom `main`; DC17), which runs Tuwunel's
    database backup (`admin_signal_execute`), and wait up to 60 s for a new numbered backup.
 3. Write the control state paired with it, `root/<team>/backups/<n>.tar` (0600): from `ctl/<team>/`
-   the admin token, roster and rooms record, and from `root/<team>/` the config and `team.json`.
-   Sources are opened without following links and must be regular files (I-B6).
+   the admin token, roster and rooms record, and from `root/<team>/` the config and `team.json`,
+   and the CA's certificate and key from `root/<team>/tls/` as `ca.crt` (0644) and `ca.key` (0600),
+   so a restore keeps every issued bundle valid. The leaf is not carried: the next apply makes it
+   again. A CA the host cannot use fails the backup. Sources are opened without following links
+   and must be regular files (I-B6).
 4. Read the tar back with the parser restore uses (one parser for both, I-B5), and fail if it
    does not validate.
 5. Delete tars whose database backup Tuwunel has pruned (`database_backups_to_keep`, seven).
