@@ -17,17 +17,35 @@ Two version numbers move independently — see
 
 ---
 
-## 3.107.2 — container 2.79.22
+## 3.108.1 — container 2.79.22
 
 The image is unchanged, so there is no rebuild.
 
 - **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
   the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
-  3.107.1 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  3.108.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
   waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
   which runs a child as root of its own user and mount namespace for a real-kernel mount test;
   and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
   Nothing in the launcher calls any of them.
+
+## 3.108.0 — container 2.79.22
+
+The image is unchanged, so there is no rebuild.
+
+- **Quick Launch is one summary of every default.** At a terminal (with gum and ccy-teams),
+  the `Use same configuration? [Y/n]` prompt is replaced by `ccy-teams launch-summary`: the
+  token, SSH key, network, and each team with its seat and role, one line each. Enter on
+  "Launch with these choices" accepts all, with no further screens. Any other line changes
+  only itself: the token and SSH key are asked there and the summary comes back; a team is
+  asked its scope (when it no longer covers the checkout), then its seat and role; the
+  network is asked at its usual step of the launch. A team whose remembered seat is now
+  held, whose scope no longer covers the checkout, whose role changed since, or that cannot
+  be taken is marked NEEDS AN ANSWER, Enter lands on it, and the launch is refused until it
+  is answered. With no terminal the old Y/n prompt is unchanged. The roles are remembered in
+  the new `LAST_TEAM_ROLES` line of `.last-launch.conf` (the format version is unchanged: a
+  file without it is read). Nothing of the bus is touched: the seat and role are read the
+  way `ccy-teams choose-seat` reads them. Addresses #125.
 
 ## 3.107.1 — container 2.79.22 (unchanged)
 

@@ -227,6 +227,20 @@ Usage:
                                    only that once-per-user question, for cc --bus: a session
                                    on no team that you add to teams later (ccy-teams session
                                    add). Prints nothing; declining ends the run (exit 1)
+  ccy-teams launch-summary --type=podman|host --token=T --ssh=K --network=N
+                                   [--teams=<seats>] [--roles=<team=role,...>] [--skip-teams]
+                                   the launcher's one summary of every default, on a terminal
+                                   only: the token, the SSH key, the network, and each team
+                                   with its seat and role. Enter on "Launch with these
+                                   choices" accepts all; any other line changes only that
+                                   one. A team whose remembered seat is now held, whose scope
+                                   no longer covers the checkout, whose role changed, or that
+                                   cannot be taken is marked NEEDS AN ANSWER, and only that
+                                   line is asked (scope, then seat and role, as choose-teams
+                                   asks them). Prints TEAMS, ROLES and ASK lines on stdout;
+                                   ASK names the one question (token, ssh, network) the
+                                   launcher asks next, or none. Leaving it prints nothing
+                                   and succeeds. ccy calls it
   ccy-teams record-seats <session> <seats>
                                    put the seats (a canonical --teams list) into the record of
                                    the session, so its restore replays them. ccy calls it, naming
