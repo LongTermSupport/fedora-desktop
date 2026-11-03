@@ -22,9 +22,14 @@ func seatBundles(t *testing.T) SeatBundles {
 	return SeatBundles{Clock: func() time.Time { return time.UnixMilli(t0ms) }, Digest: d}
 }
 
+// loopbackURL is the one base URL a bundle may carry until bundle v2 carries a CA (Plan 00244
+// X12, X15): plain http is for a loopback literal only, and https needs the team's CA.
+const loopbackURL = "http://127.0.0.1:8448"
+
 func alphaTeam(t *testing.T, url string) declare.Team {
 	t.Helper()
 	team := alphaInput(t).Team
+	team.URL = loopbackURL
 	if url != "" {
 		team.URL = url
 	}
@@ -40,8 +45,8 @@ func TestSeatBundlesIsTheIssuedBundle(t *testing.T) {
 		plain []string
 		cred  apply.Credential
 	}{
-		"ip literal": {"", []string{"192.0.2.10"}, apply.Credential{Kind: apply.CredPassword, Secret: "pw-1"}},
-		"name":       {"https://chat.example.org:8448", []string{}, apply.Credential{Kind: apply.CredToken, Secret: "syt_tok~1"}},
+		"loopback literal": {"", []string{"127.0.0.1"}, apply.Credential{Kind: apply.CredPassword, Secret: "pw-1"}},
+		"loopback v6":      {"http://[::1]:8448", []string{"::1"}, apply.Credential{Kind: apply.CredToken, Secret: "syt_tok~1"}},
 	}
 	for name, c := range cases {
 		team := alphaTeam(t, c.url)
@@ -84,6 +89,8 @@ func TestSeatBundlesRefusesWhatSeatWouldRefuse(t *testing.T) {
 		"room":             {sb, alphaTeam(t, ""), sampleHandle, "#main", good},
 		"handle":           {sb, alphaTeam(t, ""), "admin", sampleRoom, good},
 		"plain http name":  {sb, alphaTeam(t, "http://chat.example.org:8448"), sampleHandle, sampleRoom, good},
+		"plain http ip":    {sb, alphaTeam(t, "http://192.0.2.10:8448"), sampleHandle, sampleRoom, good},
+		"https, no CA yet": {sb, alphaTeam(t, "https://chat.example.org:8448"), sampleHandle, sampleRoom, good},
 		"credential kind":  {sb, alphaTeam(t, ""), sampleHandle, sampleRoom, apply.Credential{Kind: "key", Secret: secret}},
 		"secret":           {sb, alphaTeam(t, ""), sampleHandle, sampleRoom, apply.Credential{Kind: apply.CredToken, Secret: secret + " x"}},
 		"no digest":        {SeatBundles{Clock: sb.Clock}, alphaTeam(t, ""), sampleHandle, sampleRoom, good},
