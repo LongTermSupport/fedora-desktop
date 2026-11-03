@@ -905,6 +905,33 @@ today; rewriting them is out of scope.
   guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
   Left: the host agent's next `qa-all`.
 
+- [ ] 🔄 **Task 4.13**: Compact then exit on close. The owner's request (2026-11-02) began as a
+  `/compact` typed when `ccy --continue` starts. Measured, a compaction of a cold conversation
+  pays the same uncached read its first turn would, so the owner dropped the startup compaction
+  and asked for the cheap moment instead: at close, while the cache is warm. From this
+  container's transcripts (numbers only, `subagent-reports/261102-continue-compacts.md`): a first
+  turn more than an hour after the last re-writes the context to the cache (cache_creation median
+  78,307, max 374,791) and reads only the system prompt (~13,000) from it; a warm turn reads it
+  (cache_read median 245,122, cache_creation median 851). 71 compactions took ~400,000-530,000
+  tokens down to ~9,000-22,000 in ~40-125 s; a compaction's own API usage is recorded nowhere in
+  the transcript. The design: `/compact` typed into the session's pane with tmux send-keys once
+  its prompt is ready, its end waited for by a real signal (the transcript's compact_boundary, or
+  the pane busy then ready again where the transcript is unknown), bounded, then `/exit`; a
+  compaction that does not complete is a loud failure and the session is left running. One
+  neutral package, `internal/sessclose` beside `tmuxccy` and `sessprobe` with no tmux calls of its
+  own, holds it, and three callers use it: `ccy-teams shutdown` (its default), a ccy stop
+  command, and a close action on a `ccy-sessions` row; `--no-compact` is the close path's only
+  escape hatch. Built: `transcript.CompactedLast` (nothing to compact: the last context-recording
+  entry is a compact_boundary, or no turn was taken) and `conversation.Transcript` (a session's
+  own transcript, which winddown now calls instead of its copy), each test first; then
+  `internal/sessclose` (C1-C10 in its package doc), which ccy-teams shutdown's stop logic moved
+  into and whose pane wait (`Quiet`) winddown now uses, and its three callers, each with a test
+  through a fake Closer: `ccy-teams shutdown <team> [--no-compact]`, `ccy --stop SESSION... [--no-compact]` (the Go front's own flag, F23) and a `ccy-sessions` row's **Close it** and
+  **Close it without compacting**; help, `docs/ccy.md`, `docs/agent-bus.md`, the changelog,
+  CCY 3.105.0. Left: the host check, `ccy-teams shutdown <team>` (or `ccy --stop <session>`)
+  on a live session, then its transcript ends in a compact_boundary followed only by the
+  `/exit` entries; and later, set-going's own ready-then-type loop onto sessclose.
+
 - [ ] 🔄 **Task 4.12**: The GitHub QA workflow went red on F44 while local `qa-all` passed:
   the runner differs from the container. Defence Before Fix for the umask, which Task 4.11's
   isolation missed: `suite-env-isolated` now also runs every `qa-all` and `qa-changed` command

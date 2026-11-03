@@ -32,3 +32,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Every changed play; expected: play-claude-yolo.yml (CCY 3.105.2, container 2.79.22 already
+# built): ccy-teams and ccy-sessions with compact then exit on close (ccy-teams shutdown
+# compacts each session before its /exit, ccy --stop SESSION is new, a ccy-sessions row gains
+# Close it), and ccy-teams shows who is listening.
+changed-plays

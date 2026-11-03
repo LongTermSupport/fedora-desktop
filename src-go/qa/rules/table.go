@@ -414,6 +414,7 @@ var realClocks = []allowance{
 	{pkg: "internal/teams/restart", fn: newFn, reason: "the real side of Restart.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/shutdown", fn: newFn, reason: "the real side of Shutdown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
+	{pkg: "internal/sessclose", fn: newFn, reason: "the real side of Closer.Sleep; its tests and every caller's replace Sleep (shutdown, ccy-sessions and the ccy front set their own clock), and the picker's never reach a wait"},
 	{pkg: "internal/teams/hot", fn: newFn, reason: "the real side of Hot.Sleep; its tests replace Sleep"},
 	{pkg: teamchatClockPkg, fn: "system.Sleep", reason: "the real side of clock.Clock's Sleep, teamchat's one real wait (lock, teamlock, admin/wire and matrix hand theirs to it); the tests that wait on a bound replace the clock whole with clock.Fake, and the ones that keep System assert only that a sleep ends and that a cancelled context ends it"},
 	{pkg: teamchatClockPkg, fn: "system.AfterFunc", reason: "the real side of clock.Clock's AfterFunc, the timer of every teamchat time limit (matrix.SystemTimers is it); the tests that reach a limit replace the clock or matrix's Timers whole, and the ones that keep System assert only that a timer fires and that stop disarms one"},

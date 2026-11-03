@@ -146,14 +146,17 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
-  ccy-teams shutdown <team> [--yes]
+  ccy-teams shutdown <team> [--yes] [--no-compact]
                                    end every session of the team on this host: it lists
                                    them, and the members it cannot reach from here (an
                                    LXC container's agent, another machine), then asks
                                    (default No; with no terminal, --yes is required).
-                                   Each session gets /exit typed into its tmux pane
-                                   (Escape first when busy) and is stopped only if it
-                                   has not ended within 60 s; then each of its seats must
+                                   Each session gets /compact typed into its tmux pane
+                                   (Escape first when busy), then /exit once the
+                                   compaction is in its transcript (--no-compact: /exit
+                                   only); a compaction not done within 600 s fails it and
+                                   leaves it running. It is stopped only if it has not
+                                   ended within 60 s of /exit; then each of its seats must
                                    be free. One line per member: exited cleanly, stopped,
                                    failed or not shut down; a seat with no session is
                                    named, nothing to shut down; exit 1 unless all ended. The
