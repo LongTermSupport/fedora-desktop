@@ -1,8 +1,11 @@
 package paths
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -125,6 +128,20 @@ func ParseRunID(s string) (RunID, error) {
 func ParseCheckoutKey(s string) (CheckoutKey, error) {
 	v, err := check("checkout key", checkoutKeyGrammar, s)
 	return CheckoutKey{v}, err
+}
+
+// checkoutKeyBytes is how many bytes of the SHA-256 a checkout key keeps: 32 hex characters.
+const checkoutKeyBytes = 16
+
+// CheckoutKeyOf is the key of the checkout whose real path (symbolic links resolved by the
+// caller) is realPath: the first 32 hex of the SHA-256 of the path (C 3.7). A path that is not
+// absolute, clean and below the root is not a real path, and is refused without being quoted.
+func CheckoutKeyOf(realPath string) (CheckoutKey, error) {
+	if !filepath.IsAbs(realPath) || filepath.Clean(realPath) != realPath || realPath == "/" || strings.ContainsFunc(realPath, unicode.IsControl) {
+		return CheckoutKey{}, fmt.Errorf("%w checkout path: not an absolute, clean path below the root", ErrInvalid)
+	}
+	sum := sha256.Sum256([]byte(realPath))
+	return ParseCheckoutKey(hex.EncodeToString(sum[:checkoutKeyBytes]))
 }
 
 // ParseClaimID checks a claim id.
