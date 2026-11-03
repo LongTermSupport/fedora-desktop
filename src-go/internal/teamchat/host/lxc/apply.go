@@ -172,9 +172,9 @@ func (g *guestBox) rootOf(m *member) Root {
 }
 
 // checkoutFiles is one checkout's guest files, read once per container however many seats
-// name it.
+// name it: the .git/config, and who owns ccy.env.local (its content feeds nothing).
 type checkoutFiles struct {
-	git, env []byte
+	git      []byte
 	envUID   int
 	envFound bool
 }
@@ -759,7 +759,7 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 	if co.envFound && !r.owners(g, m.decl.Checkout, passwd)[co.envUID] {
 		return fmt.Errorf("%w: %s%s is not owned by an agent user whose entries name the checkout", guestfacts.ErrRefused, m.decl.Checkout, envLocal)
 	}
-	if m.prefix, err = guestfacts.Prefix(m.decl, co.git, co.env); err != nil {
+	if m.prefix, err = guestfacts.Prefix(m.decl, co.git); err != nil {
 		return err
 	}
 	derived, ok := m.prefix.Numbered(m.decl.Seat)
@@ -797,12 +797,12 @@ func (g *guestBox) checkout(root Root, dir string) (*checkoutFiles, error) {
 	if found {
 		co.git = git
 	}
-	env, info, found, err := root.ReadFile(dir+envLocal, guestfacts.MaxCheckout)
+	_, info, found, err := root.ReadFile(dir+envLocal, guestfacts.MaxCheckout)
 	if err != nil {
 		return nil, err
 	}
 	if found {
-		co.env, co.envUID, co.envFound = env, int(info.UID), true
+		co.envUID, co.envFound = int(info.UID), true
 	}
 	g.checkouts[dir] = co
 	return co, nil
