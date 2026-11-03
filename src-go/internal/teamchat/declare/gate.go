@@ -16,7 +16,7 @@ import (
 const FieldTeam = keyTeam
 
 // gatedFields are the security fields of AG1, in the order AG3 lists their differences.
-var gatedFields = []string{keyHumans, keyCoordinator, keyAllowFrom, keyListen, keyURL, keyTrust, keyLXCMembers}
+var gatedFields = []string{keyHumans, keyCoordinator, keyNetworks, keyURL, keyTrust, keyLXCMembers}
 
 // none is a difference's side that has no value (AG3).
 const none = "-"
@@ -86,8 +86,8 @@ type Gated struct {
 	Humans []string
 	// Coordinator is empty when none is declared.
 	Coordinator string
-	AllowFrom   []string
-	Listen      []string
+	// Networks are the declared networks (X1), not the effective set.
+	Networks []string
 	// URL is the resolved URL (n2b-D2).
 	URL   string
 	Trust proto.Forge
@@ -97,8 +97,8 @@ type Gated struct {
 // Gated is the input's security fields; every LXC entry of the team counts, whatever its state.
 func (in Input) Gated() Gated {
 	g := Gated{
-		Humans: sorted(in.Team.Humans), Coordinator: in.Team.Coordinator, AllowFrom: sorted(in.Team.AllowFrom),
-		Listen: sorted(in.Team.Listen), URL: in.Team.URL, Trust: in.Team.Trust,
+		Humans: sorted(in.Team.Humans), Coordinator: in.Team.Coordinator, Networks: sorted(in.Team.Networks),
+		URL: in.Team.URL, Trust: in.Team.Trust,
 	}
 	for _, m := range in.LXC {
 		g.LXC = append(g.LXC, LXCEntry{
@@ -120,14 +120,14 @@ func sortLXC(list []LXCEntry) {
 }
 
 func (g Gated) clone() Gated {
-	g.Humans, g.AllowFrom, g.Listen = slices.Clone(g.Humans), slices.Clone(g.AllowFrom), slices.Clone(g.Listen)
+	g.Humans, g.Networks = slices.Clone(g.Humans), slices.Clone(g.Networks)
 	g.LXC = slices.Clone(g.LXC)
 	return g
 }
 
 // listField is a field compared and approved as a set of entries (n2b-D3).
 func listField(field string) bool {
-	return field == keyHumans || field == keyAllowFrom || field == keyListen || field == keyLXCMembers
+	return field == keyHumans || field == keyNetworks || field == keyLXCMembers
 }
 
 // entries is a list field's entries as AG3 prints them.
@@ -135,10 +135,8 @@ func (g Gated) entries(field string) []string {
 	switch field {
 	case keyHumans:
 		return g.Humans
-	case keyAllowFrom:
-		return g.AllowFrom
-	case keyListen:
-		return g.Listen
+	case keyNetworks:
+		return g.Networks
 	}
 	out := make([]string, 0, len(g.LXC))
 	for _, e := range g.LXC {
@@ -312,10 +310,8 @@ func applyChange(approved *Gated, ch Change) (Gated, error) {
 	switch ch.Field {
 	case keyHumans:
 		g.Humans, err = changeSet(g.Humans, ch, proto.ValidHumanName)
-	case keyAllowFrom:
-		g.AllowFrom, err = changeSet(g.AllowFrom, ch, validPrefix)
-	case keyListen:
-		g.Listen, err = changeSet(g.Listen, ch, validAddress)
+	case keyNetworks:
+		g.Networks, err = changeSet(g.Networks, ch, validPrefix)
 	case keyLXCMembers:
 		g.LXC, err = changeLXC(g.LXC, ch)
 	case keyCoordinator:
@@ -446,7 +442,7 @@ func (g Gated) value() proto.Value {
 	}
 	return proto.Obj(
 		proto.M(keyHumans, strArray(g.Humans)), proto.M(keyCoordinator, coordinator),
-		proto.M(keyAllowFrom, strArray(g.AllowFrom)), proto.M(keyListen, strArray(g.Listen)),
+		proto.M(keyNetworks, strArray(g.Networks)),
 		proto.M(keyURL, proto.Str(g.URL)), proto.M(keyTrust, g.Trust.Encode()), proto.M(keyLXCMembers, proto.Arr(lxc...)))
 }
 
@@ -466,12 +462,13 @@ func DecodeApproved(raw []byte, team paths.TeamID) (Gated, error) {
 	if err != nil {
 		return Gated{}, fmt.Errorf("approved.json: %w", err)
 	}
-	f, err := node{path: "approved.json", v: v}.object([]string{keyVersion, keyTeam, keyApproved})
-	if err != nil {
+	n := node{path: "approved.json", v: v}
+	if err = fileVersion(n); err != nil {
 		return Gated{}, err
 	}
-	if ver, verErr := f.at(keyVersion).integer(); verErr != nil || ver != teamFileVersion {
-		return Gated{}, f.at(keyVersion).fail("is not 1")
+	f, err := n.object([]string{keyVersion, keyTeam, keyApproved})
+	if err != nil {
+		return Gated{}, err
 	}
 	id, err := f.at(keyTeam).str()
 	if err != nil {
@@ -507,10 +504,7 @@ func readGated(n node) (Gated, error) {
 			return Gated{}, err
 		}
 	}
-	if g.AllowFrom, err = f.at(keyAllowFrom).allowFrom(); err != nil {
-		return Gated{}, err
-	}
-	if g.Listen, err = f.at(keyListen).listen(); err != nil {
+	if g.Networks, err = f.at(keyNetworks).networks(); err != nil {
 		return Gated{}, err
 	}
 	if g.URL, err = f.at(keyURL).url(); err != nil {
@@ -522,7 +516,7 @@ func readGated(n node) (Gated, error) {
 	if g.LXC, err = readLXCEntries(f.at(keyLXCMembers)); err != nil {
 		return Gated{}, err
 	}
-	g.Humans, g.AllowFrom, g.Listen = sorted(g.Humans), sorted(g.AllowFrom), sorted(g.Listen)
+	g.Humans, g.Networks = sorted(g.Humans), sorted(g.Networks)
 	return g, nil
 }
 

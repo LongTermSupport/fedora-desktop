@@ -84,7 +84,8 @@ func TestFirstApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"files created", "firewall added public 192.0.2.0/24 tcp:8448", "drop-in written",
+		"files created", "firewall added public 192.0.2.0/24 tcp:8448", "firewall added public 192.0.2.10/32 tcp:8448",
+		"drop-in written",
 		"unit started", "unit enabled", "human alice created", "team.json written", "units.json written",
 		"stamp written",
 	}
@@ -219,21 +220,33 @@ func TestRefusalsBeforeAnyChange(t *testing.T) {
 			docTeam(doc)["humans"] = []any{"alice", "mallory"}
 			return input(w.t, doc)
 		}, "mallory"},
-		"listen on no interface": {func(w *world) declare.Input {
+		"a network no route covers": {func(w *world) declare.Input {
 			doc := teamDoc()
-			docTeam(doc)["listen"] = []any{"192.0.2.99"}
+			docTeam(doc)["networks"] = []any{"192.0.2.0/24", "2001:db8::/32"}
 			return approved(w, doc)
-		}, "192.0.2.99 is on no interface"},
+		}, "2001:db8::/32: no route covers it"},
+		"a network on the default route": {func(w *world) declare.Input {
+			w.net.routes = w.net.routes[:2]
+			w.net.routes = append(w.net.routes, fakeRoute{netip.MustParsePrefix("0.0.0.0/0"), "eth0"})
+			doc := teamDoc()
+			docTeam(doc)["networks"] = []any{"198.51.100.0/24"}
+			return approved(w, doc)
+		}, "198.51.100.0/24: only the default route covers it"},
+		"an interface with no address of the network's family": {func(w *world) declare.Input {
+			w.net.routes = append(w.net.routes, fakeRoute{netip.MustParsePrefix("2001:db8::/32"), "eth0"})
+			doc := teamDoc()
+			docTeam(doc)["networks"] = []any{"2001:db8::/32"}
+			return approved(w, doc)
+		}, "2001:db8::/32: eth0 has no IPv6 address"},
 		"listen on two interfaces": {func(w *world) declare.Input {
 			w.net.ifaces = append(w.net.ifaces, Interface{Name: "eth1", Addrs: []netip.Addr{netip.MustParseAddr("192.0.2.10")}})
 			return approved(w, teamDoc())
 		}, "192.0.2.10 is on more than one interface"},
-		"wildcard listen": {func(w *world) declare.Input {
-			in := input(w.t, teamDoc())
-			in.Team.Listen = []string{"0.0.0.0"}
-			w.approve(in)
-			return in
-		}, "wildcard"},
+		"a url on an address the host does not listen on": {func(w *world) declare.Input {
+			doc := teamDoc()
+			docTeam(doc)["url"] = "http://192.0.2.77:8448"
+			return approved(w, doc)
+		}, "url host 192.0.2.77 is not a listen address"},
 		"port another team records": {func(w *world) declare.Input {
 			dev := mustTeam(w.t, "dev")
 			if err := os.Mkdir(w.at(paths.AdminState(dev)), 0o700); err != nil {
@@ -284,7 +297,7 @@ func TestPortCheckReadsOnlyTeams(t *testing.T) {
 // step after it.
 func TestEachFailureStopsWhatFollows(t *testing.T) {
 	for fault, step := range map[string]string{
-		"approvals.load": StepRefusals, "interfaces": StepRefusals, "listeners": StepRefusals,
+		"approvals.load": StepRefusals, "interfaces": StepRefusals, "route": StepRefusals, "listeners": StepRefusals,
 		"zone": StepFirewall, "query": StepFirewall, "add": StepFirewall,
 		"daemon-reload": StepUnit, "start": StepUnit, "state": StepUnit, "enable": StepUnit,
 		"ready": StepReady, "journal": StepReady, "bootstrap": StepBootstrap, "status.refresh": StepRecords,
@@ -463,11 +476,11 @@ func TestFailedBackupStopsTheApply(t *testing.T) {
 	}
 }
 
-// HS5, HS7: a changed allow_from is a firewall change and a reload, never a restart.
+// HS5, HS7: a changed network is a firewall change and a reload, never a restart.
 func TestReloadSetOnly(t *testing.T) {
 	w := applied(t)
 	doc := teamDoc()
-	docTeam(doc)["allow_from"] = []any{"203.0.113.0/24"}
+	docTeam(doc)["networks"] = []any{"203.0.113.0/24"}
 	in := approved(w, doc)
 	makeDatabase(t, w)
 	lines, err := w.apply(in)
@@ -508,7 +521,7 @@ func TestWriteWithoutRestart(t *testing.T) {
 func TestFirewallUnionOrder(t *testing.T) {
 	w := applied(t)
 	team := ops(t)
-	union := `[{"zone":"public","source":"192.0.2.0/24","port":8448},{"zone":"public","source":"203.0.113.0/24","port":8448}]`
+	union := `[{"zone":"public","source":"192.0.2.0/24","port":8448},{"zone":"public","source":"192.0.2.10/32","port":8448},{"zone":"public","source":"203.0.113.0/24","port":8448}]`
 	check := func(Rule) {
 		if got := w.read(paths.FirewallRecord(team)); !strings.Contains(got, union) {
 			t.Errorf("firewall.json during the change: %s", got)
@@ -516,11 +529,11 @@ func TestFirewallUnionOrder(t *testing.T) {
 	}
 	w.fw.onAdd, w.fw.onDrop = check, check
 	doc := teamDoc()
-	docTeam(doc)["allow_from"] = []any{"203.0.113.0/24"}
+	docTeam(doc)["networks"] = []any{"203.0.113.0/24"}
 	if _, err := w.apply(approved(w, doc)); err != nil {
 		t.Fatal(err)
 	}
-	if got := w.read(paths.FirewallRecord(team)); !strings.Contains(got, `"rules":[{"zone":"public","source":"203.0.113.0/24","port":8448}]`) {
+	if got := w.read(paths.FirewallRecord(team)); !strings.Contains(got, `"rules":[{"zone":"public","source":"192.0.2.10/32","port":8448},{"zone":"public","source":"203.0.113.0/24","port":8448}]`) {
 		t.Errorf("firewall.json after: %s", got)
 	}
 	if slices.Index(w.log, "add") > slices.Index(w.log, "remove") {
@@ -560,7 +573,7 @@ func TestFirewallRemoveFailureKeepsTheUnion(t *testing.T) {
 	w := applied(t)
 	w.faults["remove"] = errFault
 	doc := teamDoc()
-	docTeam(doc)["allow_from"] = []any{"203.0.113.0/24"}
+	docTeam(doc)["networks"] = []any{"203.0.113.0/24"}
 	if _, err := w.apply(approved(w, doc)); stepOf(t, err).Step != StepFirewall {
 		t.Fatalf("got %v", err)
 	}
@@ -569,7 +582,8 @@ func TestFirewallRemoveFailureKeepsTheUnion(t *testing.T) {
 	}
 }
 
-// HS4: a team with an LXC member admits the bridge; the bridge's failure is the render's.
+// HS4, X3: a team with an LXC member admits the bridge's subnet and listens on the bridge's
+// address; the bridge's failure is a refusal of step 2, where the effective networks are derived.
 func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	doc := teamDoc()
 	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
@@ -581,9 +595,15 @@ func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	if !slices.Contains(lines, "firewall added public 198.51.100.0/24 tcp:8448") || !strings.Contains(w.read(paths.ServerDropInFile(ops(t))), " 198.51.100.0/24\n") {
 		t.Errorf("lines %q", lines)
 	}
+	if got := w.read(paths.ServerConfig(ops(t))); !strings.Contains(got, `address = ["127.0.0.1", "192.0.2.10", "198.51.100.1"]`) {
+		t.Errorf("config:\n%s", got)
+	}
+	if got := w.read(paths.ServerDropInFile(ops(t))); !strings.Contains(got, "After="+deviceUnit("eth0")+" "+deviceUnit("lxcbr0")+"\n") {
+		t.Errorf("drop-in:\n%s", got)
+	}
 	w = newWorld(t)
 	w.faults["bridge"] = errFault
-	if _, err := w.apply(approved(w, doc)); stepOf(t, err).Step != StepRender {
+	if _, err := w.apply(approved(w, doc)); stepOf(t, err).Step != StepRefusals {
 		t.Errorf("got %v", err)
 	}
 }
@@ -620,7 +640,8 @@ func TestBroughtBackStartsTheOldVersionForTheBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"firewall added public 192.0.2.0/24 tcp:8448", "drop-in written for the backup, tuwunel 1.9.4",
+		"firewall added public 192.0.2.0/24 tcp:8448", "firewall added public 192.0.2.10/32 tcp:8448",
+		"drop-in written for the backup, tuwunel 1.9.4",
 		"unit started for the backup", "backup taken", "drop-in written", "unit restarted", "unit enabled",
 		"units.json written", "stamp written",
 	}

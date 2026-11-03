@@ -53,7 +53,7 @@ func teamDoc() map[string]any {
 	return map[string]any{
 		"team": map[string]any{
 			"team": "alpha", "state": "present", "port": 8448, "description": "The team that builds the thing.",
-			"listen": []any{"192.0.2.10"}, "allow_from": []any{"192.0.2.0/24"}, "humans": []any{"alice", "bob"},
+			"networks": []any{"192.0.2.0/24"}, "humans": []any{"alice", "bob"},
 			"coordinator": coord,
 			"trust": map[string]any{
 				"kind": "github", "org": "example-org",

@@ -180,7 +180,7 @@ func TestReadinessRefusesAPortOutOfRange(t *testing.T) {
 func writeTeamFile(t *testing.T, root string, id string, port int) {
 	t.Helper()
 	doc := `{"team":{"team":"` + id + `","state":"present","port":` + strconv.Itoa(port) + `,"description":"d",` +
-		`"listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],"humans":["alice"],` +
+		`"networks":["192.0.2.0/24"],"humans":["alice"],` +
 		`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},` +
 		`"lxc_members":[],"address":"192.0.2.10"}`
 	in, err := declare.DecodeInput([]byte(doc))

@@ -55,8 +55,8 @@ func TestRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"unit stopped", "unit disabled", "firewall removed public 192.0.2.0/24 tcp:8448", "drop-in removed",
-		"stamp removed", "status record removed",
+		"unit stopped", "unit disabled", "firewall removed public 192.0.2.0/24 tcp:8448",
+		"firewall removed public 192.0.2.10/32 tcp:8448", "drop-in removed", "stamp removed", "status record removed",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)
@@ -119,8 +119,12 @@ func TestRemoveOnlyRecordedRules(t *testing.T) {
 	if err != nil || !slices.Contains(lines, "firewall removed "+old.String()) {
 		t.Errorf("lines %q, err %v", lines, err)
 	}
-	if !w.fw.present[true][other.String()] || !w.fw.present[false][other.String()] || len(w.fw.present[true]) != 1 {
-		t.Errorf("rules left %v", w.fw.present)
+	// The apply also made the bus address's host rule, which the record written above does not name.
+	unnamed := Rule{Zone: "public", Source: netip.MustParsePrefix("192.0.2.10/32"), Port: 8448}
+	for _, permanent := range []bool{true, false} {
+		if !w.fw.present[permanent][other.String()] || !w.fw.present[permanent][unnamed.String()] || len(w.fw.present[permanent]) != 2 {
+			t.Errorf("permanent %v: rules left %v", permanent, w.fw.present[permanent])
+		}
 	}
 }
 

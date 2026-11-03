@@ -9,8 +9,10 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,7 +108,13 @@ func newWorld(t *testing.T) *world {
 	w.net = &fakeNetwork{w: w, ifaces: []Interface{
 		{Name: "lo", Addrs: []netip.Addr{netip.MustParseAddr("127.0.0.1")}},
 		{Name: "eth0", Addrs: []netip.Addr{netip.MustParseAddr("192.0.2.10")}},
-	}, bridge: netip.MustParsePrefix("198.51.100.0/24")}
+		{Name: "lxcbr0", Addrs: []netip.Addr{netip.MustParseAddr("198.51.100.1")}},
+	}, bridge: netip.MustParsePrefix("198.51.100.0/24"), routes: []fakeRoute{
+		{netip.MustParsePrefix("192.0.2.0/24"), "eth0"},
+		{netip.MustParsePrefix("203.0.113.0/24"), "eth0"},
+		{netip.MustParsePrefix("198.51.100.0/24"), "lxcbr0"},
+		{netip.MustParsePrefix("0.0.0.0/0"), "eth0"},
+	}}
 	w.ready = &fakeReady{w: w}
 	w.status = &fakeStatus{w: w}
 	w.boot = func(Bootstrap) []string { return nil }
@@ -326,12 +334,41 @@ func (f *fakeFirewall) Remove(_ context.Context, permanent bool, r Rule) error {
 	return nil
 }
 
+// fakeRoute is a route of the fake's main table: the prefix and the interface that carries it.
+type fakeRoute struct {
+	prefix netip.Prefix
+	iface  string
+}
+
 type fakeNetwork struct {
 	w      *world
 	ifaces []Interface
 	extra  []Listener
 	bound  []Listener
 	bridge netip.Prefix
+	routes []fakeRoute
+}
+
+// Route answers as the production adapter does: the interface that holds a host prefix, else
+// the longest route that covers the network, the route of length 0 being the default.
+func (n *fakeNetwork) Route(network netip.Prefix) (Route, bool, error) {
+	if err := n.w.call("route"); err != nil {
+		return Route{}, false, err
+	}
+	if network.IsSingleIP() {
+		for _, i := range n.ifaces {
+			if slices.Contains(i.Addrs, network.Addr()) {
+				return Route{Interface: i.Name}, true, nil
+			}
+		}
+	}
+	best, found := fakeRoute{}, false
+	for _, r := range n.routes {
+		if r.prefix.Bits() <= network.Bits() && r.prefix.Contains(network.Addr()) && (!found || r.prefix.Bits() > best.prefix.Bits()) {
+			best, found = r, true
+		}
+	}
+	return Route{Interface: best.iface, Default: found && best.prefix.Bits() == 0}, found, nil
 }
 
 func (n *fakeNetwork) Interfaces() ([]Interface, error) { return n.ifaces, n.w.call("interfaces") }
@@ -345,7 +382,7 @@ func (n *fakeNetwork) Listeners() ([]Listener, error) {
 		if n.bound != nil {
 			out = append(out, n.bound...)
 		} else {
-			out = append(out, bindings(n.w.cur, unit)...)
+			out = append(out, n.bindings(unit)...)
 		}
 	}
 	return out, n.w.call("listeners")
@@ -355,17 +392,23 @@ func listener(addr string, port int, unit string) Listener {
 	return Listener{Addr: netip.MustParseAddrPort(net.JoinHostPort(addr, strconv.Itoa(port))), Unit: unit}
 }
 
-func bindings(in declare.Input, unit string) []Listener {
-	out := []Listener{listener("127.0.0.1", in.Team.Port, unit)}
-	for _, a := range in.Team.Listen {
-		if a != "127.0.0.1" {
-			out = append(out, listener(a, in.Team.Port, unit))
-		}
+func (n *fakeNetwork) Bridge() (netip.Prefix, error) { return n.bridge, n.w.call("bridge") }
+
+var configAddress = regexp.MustCompile(`(?m)^address = \[(.*)\]$`)
+
+// bindings are what the current team's unit binds: every address of the installed config's
+// `address` line, as Tuwunel binds them.
+func (n *fakeNetwork) bindings(unit string) []Listener {
+	m := configAddress.FindSubmatch(readFile(n.w.t, n.w.at(paths.ServerConfig(n.w.cur.ID()))))
+	if m == nil {
+		n.w.t.Fatal("the installed config has no address line")
+	}
+	out := make([]Listener, 0, bytes.Count(m[1], []byte(","))+1)
+	for quoted := range strings.SplitSeq(string(m[1]), ", ") {
+		out = append(out, listener(strings.Trim(quoted, `"`), n.w.cur.Team.Port, unit))
 	}
 	return out
 }
-
-func (n *fakeNetwork) Bridge() (netip.Prefix, error) { return n.bridge, n.w.call("bridge") }
 
 type fakeReady struct {
 	w     *world

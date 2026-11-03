@@ -60,6 +60,7 @@ func TestEffectiveNetworksWithoutBridgeOrAddress(t *testing.T) {
 	asked := 0
 	in := inputWith(t, func(d map[string]any) {
 		delete(d, "address")
+		delete(d, "lxc_members")
 		docTeam(d)["url"] = "https://chat.example.com"
 		docTeam(d)["networks"] = []any{"192.0.2.0/24"}
 	})
@@ -98,6 +99,7 @@ func TestEffectiveNetworksOfAnIPv6BusAddress(t *testing.T) {
 	asked := 0
 	in := inputWith(t, func(d map[string]any) {
 		d["address"] = "2001:db8::10"
+		delete(d, "lxc_members")
 		docTeam(d)["networks"] = []any{}
 	})
 	got, err := in.EffectiveNetworks(bridgeAt("203.0.113.0/24", &asked))
