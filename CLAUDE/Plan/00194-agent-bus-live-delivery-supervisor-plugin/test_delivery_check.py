@@ -40,8 +40,8 @@ _SPEC.loader.exec_module(dc)
 
 TEAM = "accept194c"
 TEAM_B = "accept194d"
-ME = "fedora-desktop.1+host.podman"
-PEER = "fedora-desktop.2+host.podman"
+ME = "example-repo.1+host.podman"
+PEER = "example-repo.2+host.podman"
 EID = "$" + "D" * 43
 EID2 = "$" + "J" * 43
 TS = 1792069331000

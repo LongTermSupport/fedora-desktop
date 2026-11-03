@@ -10,7 +10,7 @@
 #
 # It may be run from ANY directory — that is now a property the script guarantees rather than
 # a hope. The previous version of this file resolved its repo root with
-# `git rev-parse --show-toplevel`, which answers about the CWD; run by path from lts-infra's
+# `git rev-parse --show-toplevel`, which answers about the CWD; run by path from example-team's
 # root it wrote its report into that repo and compared the deployed launcher against a path
 # which does not exist there, reporting "Could not checksum both files" instead of failing.
 # Root resolution now comes from the boundary-bounded marker walk in the library (R1), and the

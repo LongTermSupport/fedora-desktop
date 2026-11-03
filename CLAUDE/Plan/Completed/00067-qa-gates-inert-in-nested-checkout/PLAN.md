@@ -65,7 +65,7 @@ nobody builds on it. This repo's `CLAUDE.md` bans `|| true` and `failed_when: fa
 this reason; an unanchored exclusion glob achieves the same outcome without using any banned
 token.
 
-It was found while rebuilding Plan 00066's `triage.bash` (lts-infra Plan 00023): the QA gate was
+It was found while rebuilding Plan 00066's `triage.bash` (example-team Plan 00023): the QA gate was
 run, printed `0 files OK`, and could not honestly be cited as evidence of anything.
 
 ## Goals
@@ -90,10 +90,10 @@ run, printed `0 files OK`, and could not honestly be cited as evidence of anythi
   > **Correction (made while closing this plan).** This Non-Goal originally called that a *real
   > IaC gap in this repo*. It is not. This repo declares `ruff` in **both** places it needs it:
   > `playbooks/imports/play-python.yml:20` (host) and `.claude/ccy/Dockerfile:33` (its own CCY
-  > image). The gate was being run from **lts-infra's** CCY container — the repo that vendors this
+  > image). The gate was being run from **example-team's** CCY container — the repo that vendors this
   > one at `untracked/repos/fedora-desktop` — and *that* image installs only `ansible-lint` and
   > `yamllint`. So the missing dependency belongs to the surrounding container, not to
-  > fedora-desktop, and it is fixed in lts-infra's IaC rather than here. Recorded because the
+  > fedora-desktop, and it is fixed in example-team's IaC rather than here. Recorded because the
   > original wording would have sent the next reader looking for a gap in this repo that does not
   > exist.
 
@@ -208,7 +208,7 @@ missing analyser — absence of a check is not a passing check.
 
 ## Notes & Updates
 
-- Found while rebuilding Plan 00066's `triage.bash` under lts-infra Plan 00023, which recorded it
+- Found while rebuilding Plan 00066's `triage.bash` under example-team Plan 00023, which recorded it
   as a finding rather than fixing it inline. This plan is that fix.
 - Failsafe recovery cron: reusing the session's existing hourly cron `ffc583d1` (:23) rather than
   adding a second — a duplicate at the same minute was already removed once this session.

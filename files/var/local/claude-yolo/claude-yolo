@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.108.0"  # Container 2.79.22: Quick Launch is one summary of the token, SSH key, network and each team's seat and role; every session starts claude with the YOLO variable, host cc does not. See docs/ccy-changelog.md.
+CCY_VERSION="3.109.0"  # Container 2.79.23: Quick Launch is one summary of the token, SSH key, network and each team's seat and role; every session starts claude with the YOLO variable, host cc does not. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -100,7 +100,7 @@ source "$SCRIPT_DIR/lib/launch-summary.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.79.22"
+REQUIRED_CONTAINER_VERSION="2.79.23"
 
 set -e
 

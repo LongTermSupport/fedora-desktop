@@ -80,8 +80,8 @@ far (PR #33/#34/#35/#36/#37) are implicated.
   unchanged and correct, both QA gates green at the merged tip, no
   secret/PII/hostname leak. CI green (`gitleaks`, helper unit tests,
   `qa-all.bash`) before merge.
-- [ ] ⬜ **Task 1.6**: re-pin lts-infra's live-proof harness at this merged
-  commit and re-run it — see lts-infra Plan 00045.
+- [ ] ⬜ **Task 1.6**: re-pin example-team's live-proof harness at this merged
+  commit and re-run it — see example-team Plan 00045.
 
 ## Success Criteria
 

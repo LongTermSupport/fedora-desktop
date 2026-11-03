@@ -386,7 +386,7 @@ exported onto `PATH`. Exported before any pipx-installed tool is used headlessly
 
 Plan 00073 built `RUN_BASH_SUDO_PASSWORD[_FILE]` as a second, equally supported sudo
 credential on the (at the time) 1.11.0 line that later became `plan-00066-ccy-ci-runner`.
-Plan 00084 ports the same design onto this line (lts-infra Plan 00045) so it composes with
+Plan 00084 ports the same design onto this line (example-team Plan 00045) so it composes with
 1.14.0's `RUN_BASH_GITHUB_ACCOUNTS=none`:
 
 - Preflight **asserts** one of NOPASSWD:ALL or the password file and decides

@@ -16,15 +16,15 @@ repo's own Plan 00073, `RUN_BASH_SUDO_PASSWORD_FILE`) lives only on
 PR #33 landed (90 commits ahead of `F44`, 176 behind) — and that branch's own
 `run.bash` still explicitly rejects `GITHUB_ACCOUNTS=none`.
 
-This was discovered downstream, in `lts-infra`'s consumer repo: its Plan 00045 built a
+This was discovered downstream, in `example-team`'s consumer repo: its Plan 00045 built a
 live proof (`verify-github-accounts-none.bash`) of the `GITHUB_ACCOUNTS=none` path, and
 that estate's policy grants `NOPASSWD:ALL` to no guest — so the proof cannot run against
-any real guest until both mechanisms exist on one commit. `lts-infra`'s current
+any real guest until both mechanisms exist on one commit. `example-team`'s current
 production `fedora_desktop_ref` pin (`38ac3fc`) is itself sitting on the same unmerged,
 diverging branch as `86ba6ae`, for the same reason.
 
 This plan ports Plan 00073's sudo-password-file mechanism onto `F44`, on top of PR #33,
-so a single future `F44` commit carries both capabilities and `lts-infra` can pin to a
+so a single future `F44` commit carries both capabilities and `example-team` can pin to a
 commit that is both reachable from the default branch and complete.
 
 ## Goals
@@ -43,7 +43,7 @@ commit that is both reachable from the default branch and complete.
 
 - Does not touch `origin/plan-00066-ccy-ci-runner` itself, or resolve whatever that
   branch's own eventual fate is (merge, rebase, abandonment) — out of scope here.
-- Does not bump `lts-infra`'s `fedora_desktop_ref` pin — that is `lts-infra`'s own
+- Does not bump `example-team`'s `fedora_desktop_ref` pin — that is `example-team`'s own
   Plan 00045 Task 3.1b, gated on this plan's PR landing.
 - Does not re-run Plan 00073's or Plan 00082's own acceptance/host-verification work —
   this is a mechanical port of an already-reviewed, already-host-verified mechanism
@@ -96,7 +96,7 @@ commit that is both reachable from the default branch and complete.
   surfaced and fixed during this same branch's life: two real VM hostnames from the
   private downstream estate had been committed to this public repo (one on this branch,
   one pre-existing) — content-fixed, journaled in this plan's `JOURNAL/`.
-- [x] ✅ **Task 2.3**: `lts-infra` Plan 00045 is being notified (this plan's own
+- [x] ✅ **Task 2.3**: `example-team` Plan 00045 is being notified (this plan's own
   cross-repo boundary — no further detail recorded here per
   `CLAUDE/untracked-nested-repos.md`-equivalent caution, even though that guardrail
   itself lives in the OTHER repo). Task 3.1b there can now proceed against `d48fabd`.

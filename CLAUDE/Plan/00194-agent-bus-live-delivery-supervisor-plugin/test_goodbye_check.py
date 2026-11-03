@@ -30,8 +30,8 @@ gc = importlib.util.module_from_spec(_SPEC)
 sys.modules["goodbye_check"] = gc
 _SPEC.loader.exec_module(gc)
 
-SEAT = "@fedora-desktop.1:accept194a.bus"
-HANDLE = "fedora-desktop.1"
+SEAT = "@example-repo.1:accept194a.bus"
+HANDLE = "example-repo.1"
 OTHER = "@coordinator.1:accept194a.bus"
 SINCE = 1_700_000_000_000
 
@@ -70,7 +70,7 @@ class HandleTest(unittest.TestCase):
         self.assertEqual(gc.handle_of(SEAT), HANDLE)
 
     def test_a_string_that_is_no_user_id_is_refused(self) -> None:
-        for bad in ("fedora-desktop.1", "@:server", "@handle", "@handle:", ""):
+        for bad in ("example-repo.1", "@:server", "@handle", "@handle:", ""):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 gc.handle_of(bad)
 
@@ -108,7 +108,7 @@ class TallyTest(unittest.TestCase):
         self.assertEqual(tally, {"goodbye": [goodbye()], "disconnected": [disconnected()], "other": ["something else"]})
 
     def test_another_handles_goodbye_is_other(self) -> None:
-        tally = gc.tally(["fedora-desktop.2 left the team: session ended (exit)"], HANDLE)
+        tally = gc.tally(["example-repo.2 left the team: session ended (exit)"], HANDLE)
         self.assertEqual(tally["goodbye"], [])
         self.assertEqual(len(tally["other"]), 1)
 

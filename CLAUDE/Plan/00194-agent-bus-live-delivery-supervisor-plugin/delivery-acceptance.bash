@@ -187,7 +187,7 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "H1 (fake) a pane without it" dl_fake_pane bad
     check_leg "H1 (fake) no recv ran" dl_fake_no_recv good
     reject_leg "H1 (fake) a session that ran pingbus recv" dl_fake_no_recv bad
-    check_leg "H3 (fake) the peer's entry is PEER from its handle" dl_fake_entry good H3P PEER fedora-desktop.2+host.podman
+    check_leg "H3 (fake) the peer's entry is PEER from its handle" dl_fake_entry good H3P PEER example-repo.2+host.podman
     check_leg "H5 (fake) both teams arrive, each naming its own" dl_fake_h5 good
     check_leg "H4 (fake) the long body is cut with the history pointer" dl_fake_truncated good
     check_leg "H4 (fake) the eight hostile bodies all arrive closed" dl_fake_hostile good
