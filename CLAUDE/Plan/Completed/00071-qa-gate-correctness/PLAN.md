@@ -69,7 +69,7 @@ looked authoritative.** 00067 fixed gates that checked *nothing*; these checked 
   0.16.0's actual default is ~415 rules including UP, BLE, SIM, DTZ and B. **The comment was wrong by
   roughly 350 rules**, and that is what let an unpinned ruff turn main red with no commit behind it.
 - [x] ✅ **Task 3.2**: Verified with `ruff check --isolated` that the broad set is ruff's own default
-  and **not** a config leaking in from the outer lts-infra checkout — which was my first hypothesis,
+  and **not** a config leaking in from the outer example-team checkout — which was my first hypothesis,
   and was wrong.
 - [x] ✅ **Task 3.3**: `/.ruff-version` is now the single source of truth, read by
   `.claude/ccy/Dockerfile` and `.github/workflows/qa.yml`.

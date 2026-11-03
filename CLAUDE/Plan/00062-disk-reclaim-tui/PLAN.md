@@ -150,7 +150,7 @@ ever still failing, which the old df-gate misread as "still wedged". **CCY is
 unblocked.** `podman system df` still rc=125 — expected: out-of-map volumes it
 cannot size (see Task 4.8), NOT a store failure.
 
-**CONFIRMED FACTS** (source: `triage.bash` on host joseph-p14, report at
+**CONFIRMED FACTS** (source: `triage.bash` on host example-host, report at
 `untracked/reports/reclaim-podman-triage.log`):
 
 - `podman system df` / `info` / `images` fail with rc=125; `podman ps` returns
@@ -212,8 +212,8 @@ is run / the volume is mounted under the new map):**
   - **8 anonymous** hex-named volumes — uid **100998** (all 2026-04-01): `4e038cbf…`,
     `4f335c1e…`, `5e1e7adb…`, `645db9db…`, `77488eec…`, `8b120095…`, `a0ebb0b9…`,
     `b904facc…`.
-  - For contrast, the CURRENT-map volumes are fine: `discreet-booking_postgres_data`,
-    `discreet-booking_postgres_run`, `boxer-images_database_data` (uid 524357).
+  - For contrast, the CURRENT-map volumes are fine: `example-c-booking_postgres_data`,
+    `example-c-booking_postgres_run`, `boxer-images_database_data` (uid 524357).
 - **The offset is exact and deterministic:** old `100000+N` → new `524288+N`
   (delta +424288). E.g. `100069`→`524357` — the very uid the healthy postgres
   volumes carry. This makes an offset-preserving `chown` a clean, non-destructive

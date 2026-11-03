@@ -1,7 +1,7 @@
 # Plan 00220: wireguard overlay and remote team members
 
 **Status**: Not Started; superseded on the bus side by Plan 00209 direction 7 (2026-11-02): the
-bus builds no WireGuard overlay. Routing is the network owner's (lts-infra owns the legs); a v2
+bus builds no WireGuard overlay. Routing is the network owner's (example-team owns the legs); a v2
 team declares its member networks as CIDRs. Remote members are v2 only; v1 is feature-frozen.
 **Created**: 2026-10-23
 **Owner**: joseph

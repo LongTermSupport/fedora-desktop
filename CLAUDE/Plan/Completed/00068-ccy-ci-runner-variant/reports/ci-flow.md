@@ -24,7 +24,7 @@ construct named beside each one before relying on it.
 | 7   | Run                | `container_cmd run` with a fixed flag set                        | `--device /dev/dri` `:2767`, `-it` (use `-i`)                |
 | 8   | Exit               | the container's status, propagated                               | `save_launch_config` `:2607`, `stty` `:2726-2729`            |
 
-~~Networking and compose are **deferred entirely** (lts-infra Plan 00030: the case study does not
+~~Networking and compose are **deferred entirely** (example-team Plan 00030: the case study does not
 need them), so steps 5–7 pass no `--network` and the flow never enters `:1789-2498` or the
 preflight at `:2518-2593`.~~
 

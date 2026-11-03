@@ -49,7 +49,7 @@ re-recorded from the Python.
 - [x] ✅ **Task 1.2**: `helpers/pingbus/colours.py`, test first: the palette, the contrast,
   hue band and distance tests, the FNV-1a auto colour and the override grammar (C1 to C7).
 - [x] ✅ **Task 1.3**: The owner's second requirement, this member's short name on each team piece
-  (`alpha: fedora-desktop.2 (c)`), specified as C15 to C18; built with Phase 2.
+  (`alpha: example-repo.2 (c)`), specified as C15 to C18; built with Phase 2.
 
 ### Phase 2: The status line, both implementations
 

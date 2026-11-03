@@ -237,7 +237,7 @@ to GitHub can have an allowlist that never mentions it.
 > untested. The trust-dialog obligation above stands on `entrypoint.sh:257` directly.
 
 The **runtime** allowlist is a different set and belongs to the workload, not to ccy. The estate's
-version is in `lts-infra`'s `RUNNER-VM-DESIGN.md` §5.6.
+version is in `example-team`'s `RUNNER-VM-DESIGN.md` §5.6.
 
 ## Task 5.4 — the proof
 
@@ -254,7 +254,7 @@ three distinct things that can be true or false independently — the third is t
    from the uid-fenced nftables policy. Without this, 1 and 2 together prove only that the proxy
    works *when used*.
 
-`lts-infra`'s `RUNNER-VM-DESIGN.md` §9 T1/T2 already carries this exact battery with the
+`example-team`'s `RUNNER-VM-DESIGN.md` §9 T1/T2 already carries this exact battery with the
 distinction between a proxy `403` and an L1 timeout spelled out; the ccy-side `triage.bash` should
 reuse its shape rather than invent a parallel one.
 

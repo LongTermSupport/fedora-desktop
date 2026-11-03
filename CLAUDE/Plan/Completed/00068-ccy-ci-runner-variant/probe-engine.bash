@@ -226,7 +226,7 @@ out "restriction does not apply to it. That is true, and it does NOT mean the bu
 out "unconstrained: on a runner VM the host's own egress goes through squid, whose runtime"
 out "allowlist deliberately excludes the Debian archives, go.dev, the Go module proxy and pypi"
 out "that a build needs. A job that tried to build is refused — measured live, not predicted"
-out "(\`lts-infra tasks/runner-ccy-project-image.yml:19-23\`)."
+out "(\`example-team tasks/runner-ccy-project-image.yml:19-23\`)."
 out ""
 out "Hence the by-time split: build at PROVISION time with the egress window armed, run the"
 out "already-built image at JOB time. That is not a system built beside ccy — it is ccy's own"

@@ -694,7 +694,7 @@ Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never r
 branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
-  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  00217). A team piece reads `alpha: example-repo.2 (c)`: the team, this session's member in
   it and its role, in the team's colour. The colour comes from the team's name, in a palette
   legible on dark terminals, unless the team's `colour:` overrides it.
 

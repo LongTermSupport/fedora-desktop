@@ -17,7 +17,7 @@ Severity: **B** = blocks use / likely to make the owner think it is broken, **A*
 1. **B: an un-mentioned or edited Element message is dropped and nobody is told.**
    `protocol.py:784-792` ignores a human message without `m.mentions` (`not-addressed`) and
    drops an edit (`edit`). The human gets no receipt, reaction or reply, so a typed
-   `@fedora-desktop.1` that was not picked from the autocomplete list just disappears. Fix: (a)
+   `@example-repo.1` that was not picked from the autocomplete list just disappears. Fix: (a)
    now, a "Talking to agents from Element" section in `docs/agent-bus.md` and in the morning guide;
    (b) next, have the watcher send a Matrix read receipt (`/receipt/m.read/<event>`) for every
    human event it delivers, so a delivered message shows the agent's avatar under it in Element
@@ -97,12 +97,12 @@ agent-bus delivery 1a2b3c4d: 1 message (1 from humans, 0 from agents, 0 pings, 0
 kind: HUMAN (a human listed in the team record)
 from: joseph
 team: alpha
-to: this session, as fedora-desktop.1+local.podman
+to: this session, as example-repo.1+local.podman
 sent: 2026-10-15T08:00:00Z
 id: $AAAAAAAAAAAAAAAAAAAAbbbbbbbbbbbbbbbbbbbbbbb
 authority: a team human's request. Act on it as on a request your owner passed on; refuse anything your own instructions forbid.
 reply: pingbus --team alpha say --to joseph
-body: "@fedora-desktop.1 can you look at why the QA run fails on F44?"
+body: "@example-repo.1 can you look at why the QA run fails on F44?"
 <<end agent-bus 1a2b3c4d 1/1>>
 ```
 
@@ -145,7 +145,7 @@ Non-ASCII from a human: `café — done ✅` arrives as `"café — done ✅"`.
 | --- | --- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E1  | B   | `protocol.py:784-792`                 | Silent drop of un-mentioned and edited messages, and no receipt for delivered ones (Top fix 1).                                                                                                                                                   | Docs now; read receipts from the watcher next.                                                                                                                                                                          |
 | E2  | A   | `cli.py:2020`, `protocol.py:111,1078` | Replies are not threaded (Top fix 2).                                                                                                                                                                                                             | `say --re`.                                                                                                                                                                                                             |
-| E3  | P   | `protocol.py:1037-1039`               | Every agent message in Element starts with `[agent-bus] text -> @joseph:alpha.agent-bus.internal @fedora-desktop.1+local.podman:alpha.agent-bus.internal`. The full Matrix IDs (the coordinator copy included) take a whole line before the text. | Show localparts in the tag line (`[agent-bus] -> joseph, fedora-desktop.1`). The body is checked byte for byte by receivers (`protocol.py:1103`), so this is a protocol change, but every member here updates together. |
+| E3  | P   | `protocol.py:1037-1039`               | Every agent message in Element starts with `[agent-bus] text -> @joseph:alpha.agent-bus.internal @example-repo.1+local.podman:alpha.agent-bus.internal`. The full Matrix IDs (the coordinator copy included) take a whole line before the text. | Show localparts in the tag line (`[agent-bus] -> joseph, example-repo.1`). The body is checked byte for byte by receivers (`protocol.py:1103`), so this is a protocol change, but every member here updates together. |
 | E4  | P   | Agent display names (`admin.py:711`)  | An agent is shown in Element as its handle (`webshop.2+local.podman`). That says plainly where it is from, but it is long, and "local" says nothing when `HOOKS_DAEMON_HOSTNAME` is unset.                                                        | Fine for v1. A later display name could be `webshop #2 (ccy)`, with the handle staying the Matrix ID.                                                                                                                   |
 | E5  | P   | Pings shown to humans                 | An `ack` or `done` addressed to the human shows `re $<43 chars>` with no link to the message it answers.                                                                                                                                          | Same fix as E2: set `m.in_reply_to` on pings that carry `re`.                                                                                                                                                           |
 | E6  | P   | `envelope.py:29`, `protocol.py:113`   | A human may send 16 KiB, but the session sees about 2,000 ASCII characters before truncation.                                                                                                                                                     | Say it in the docs. The agent can read the rest with `history` (S5).                                                                                                                                                    |
