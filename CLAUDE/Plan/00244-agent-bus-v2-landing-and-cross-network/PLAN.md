@@ -81,7 +81,8 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   fixtures. Allowlist them the way F44 allowlisted its own, never by weakening the scan.
 - [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
   Plans 00194 and 00209 took F44's side of each conflicting hunk. The v2 lines that were lost are
-  back, merged by meaning.
+  back, merged by meaning. One is left out on purpose: v2's teamchat-only text and fixtures for
+  `project_realtime_bound`, which F44's module-wide rule replaced.
 - [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
 - [ ] ⬜ **Task 8.8**: Cross-network membership, direction 7 of Plan 00209, started on a branch
