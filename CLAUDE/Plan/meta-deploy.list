@@ -34,9 +34,7 @@
 # that is not an entry is a fatal error naming its line number.
 
 # Every changed play; expected: play-agent-bus.yml, which puts the new pingbus into the member
-# kit (host and LXC members), and play-claude-yolo.yml, which rebuilds and installs ccy-teams
-# (CCY 3.104.16: a copied password is cleared from the clipboard once pasted if it is still
-# there, and the sign-in block names what a team lacks for its homeserver address) and
+# kit (host and LXC members), and play-claude-yolo.yml, which installs the launcher and
 # rebuilds the ccy image once (CCY 3.104.18, container 2.79.22, Plan 00211 Task 2.14):
 # pingbus refuses an agent's message to a human in the main room once the side rooms exist,
 # a human's thread reply under an agent's message reaches that agent, and the skill asks for
