@@ -69,6 +69,15 @@ show the prompt. Ctrl+W is ruled out: with the tray icon on, it only hides the w
   by side are also a must, since there is one per team. This is parked behind finishing
   open work.
 
+### Phase 3: Matrix clients get their own play
+
+- [x] ✅ **Task 3.1**: `playbooks/imports/optional/common/play-matrix-clients.yml` installs
+  Nheko from Flathub (`io.github.NhekoReborn.Nheko`, plain install), decoupled from the
+  agent bus. Queued in `CLAUDE/Plan/meta-deploy.list`.
+- [ ] ⬜ **Task 3.2**: TODO, bring Element across: its Flatpak install moves from
+  `play-agent-bus-element.yml` into `play-matrix-clients.yml`, and the agent-bus play keeps
+  only its per-team profile and launcher wiring (`helpers/agent_bus/element.py`).
+
 ## Success Criteria
 
 - [ ] The cause is shown by a captured exit or a reproduction.
