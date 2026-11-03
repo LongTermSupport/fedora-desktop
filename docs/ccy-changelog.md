@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.107.1 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
+
 ## 3.105.2 — container 2.79.22
 
 - **3.105.1 together with 3.104.18** (Plan 00191, Plan 00211): compact then exit on close, the
