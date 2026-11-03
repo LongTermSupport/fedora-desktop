@@ -126,19 +126,34 @@ type world struct {
 	run  paths.Run
 	seat paths.Seat
 	team paths.TeamID
+	// others are the paths the root takes as another user's, which a test cannot make so with
+	// chown unless it is root.
+	others map[string]bool
 }
+
+// owner is the root's Owner: the caller's, but for a path given away.
+func (w *world) owner(full string) int {
+	if w.others[full] {
+		return os.Geteuid() + 1
+	}
+	return homefs.Caller(full)
+}
+
+// giveAway makes the root take path as another user's.
+func (w *world) giveAway(path string) { w.others[path] = true }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), "home")
 	check(t, os.Mkdir(home, 0o700))
-	root, err := homefs.Open(home, homefs.Private)
+	w := &world{others: map[string]bool{}}
+	root, err := homefs.OpenFor(home, homefs.Private, w.owner)
 	check(t, err)
 	t.Cleanup(func() { check(t, root.Close()) })
 	layout, err := paths.HomeLayout(home, home+"/runtime")
 	check(t, err)
 	team := teamID(t)
-	w := &world{root: root, run: layout.Run(runID(t)), seat: layout.Seat(team), team: team}
+	w.root, w.run, w.seat, w.team = root, layout.Run(runID(t)), layout.Seat(team), team
 	check(t, root.MkdirAll(w.run.Dir()))
 	check(t, root.MkdirAll(w.seat.Dir()))
 	return w

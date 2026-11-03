@@ -221,7 +221,19 @@ type box struct {
 	// stalls stalls them.
 	faults map[string]error
 	stalls *stallLog
+	// owned says which guest paths are another guest user's, which a test cannot make so with
+	// chown unless it is root: the tree's own user plays the guest's root.
+	owned map[string]uint32
 }
+
+// ownerOf is the box root's OwnerOf: the uid disown gave a guest path.
+func (b *box) ownerOf(guestPath string) (uint32, bool) {
+	uid, ok := b.owned[guestPath]
+	return uid, ok
+}
+
+// disown makes the guest path another guest user's.
+func (b *box) disown(guestPath string, uid uint32) { b.owned[guestPath] = uid }
 
 type guestCall struct {
 	Container, User, Key, Verb string
@@ -558,6 +570,7 @@ func (w *world) addBox(name string) *box {
 		state: lxccmd.Running, dir: newGuest(w.t),
 		addrs: []netip.Addr{netip.MustParseAddr(agentAddr)},
 		cfg:   map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0", "lxc.start.auto": "1"},
+		owned: map[string]uint32{},
 	}
 	w.lxc.boxes[name] = b
 	return b
@@ -631,7 +644,7 @@ func (w *world) pin(_ context.Context, c string) (Root, error) {
 	if b.state != lxccmd.Running {
 		return nil, guestroot.ErrMoved
 	}
-	r, err := guestroot.OpenDir(b.dir)
+	r, err := guestroot.OpenDirOwning(b.dir, b.ownerOf)
 	if err != nil {
 		return nil, err
 	}

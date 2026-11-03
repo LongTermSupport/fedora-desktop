@@ -1267,6 +1267,12 @@ unprivileged.
   `member/homefs` (1, the `giveAway` helper), `member/proof` (2) and `member/state` (1); the same 8
   with `busfailpoints`, `tuwunel`, `ccyteamstest` and `difftest`, and none in the nested `qa`
   module.
+- Green: `homefs.OpenFor` takes an `Owner` (the caller's effective uid by default, `Open`), and
+  `bundle`, `state` and `homefs` tests say "another user's" by an `Owner` that names the path;
+  `proof` judges its file and its directory each by an `Owner` (`scanAs`); the `host/lxc` tests
+  say it through `guestroot.OpenDirOwning`. Every one has a positive twin that expects the real
+  owner, and each check was mutated (dropped) and went red on the intended test. The same
+  packages pass as uid 65534.
 - Not caught: a chown through another API (`exec` of `chown`, which `project_seam_commands`
   owns), an owner changed in a non-test helper, or a uid held in a variable (`uid := 4242` is
   flagged; `uid := -1` is too, since only the literal constant and the `os` calls are known to be
@@ -1277,15 +1283,24 @@ unprivileged.
 A class is listed here, with what holds it instead, when no analyzer can judge it without
 guessing; the catalogue claims no more than the code does.
 
-- **A test fixture that assumes the tree it builds is root-owned** (the guest root of the LXC
-  host, `host/lxc/guestroot`, which refuses a tree whose owner is not uid 0, and the `host/lxc`
-  tests that build a guest under `t.TempDir()`): as root the temporary tree is root's and the
-  production check passes; for CI's unprivileged user it is the user's, the walk refuses it
-  (`guestroot: refused: / is not root's`) and every test that applies a kit fails. The assumption
-  is in what the fixture does not say, so no syntax tree shows it. What holds it: the guest
-  root takes the owner it expects as a value (root, 0:0, in production), the tests give it
-  their own, and CI's unprivileged user is the detector; whether the agent containers also get
-  a gate that runs the Go tests as an unprivileged user is the owner's question on PR 124.
+- **A test or a code path that works only because root is not subject to permission checks**
+  (found by the first CI run of the Go tests, all of it invisible in an agent container, which
+  runs as root). Three forms. A fixture that assumes the tree it builds is root-owned: the guest
+  root of the LXC host (`host/lxc/guestroot`) refuses a tree whose owner is not uid 0, and the
+  `host/lxc` tests build a guest under `t.TempDir()`, which for an unprivileged user is the
+  user's, so the walk refused it (`guestroot: refused: / is not root's`), every test that
+  applied a kit failed, and one test then waited on a socket nothing connected to until the 30
+  minute `go test` timeout. A directory a test makes under a umask of 0777 (`homefs`): its mode
+  is 0, which only root can look into, so the test's own `t.TempDir()` could not be read, and
+  `homefs.Mkdir` opened a directory it had just made for reading before it set its mode, which
+  failed for a user with a umask that takes the owner's read bit off (it now holds it by
+  `O_PATH`). A chown to another user is `project_test_chown`'s, not this one's. The assumption
+  is in what the fixture or the call does not say, so no syntax tree shows it. What holds it:
+  the code takes the owner it expects as a value (the guest root's host uid and gid, 0 and 0 in
+  production and the fixture directory's owner in a fixture; `homefs.Owner`, the caller's
+  effective uid in production), the tests give it their own, and CI's unprivileged user is the
+  detector. Whether the agent containers also get a gate that runs the Go tests as an
+  unprivileged user is the owner's question on PR 124.
 
 - **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
   fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails

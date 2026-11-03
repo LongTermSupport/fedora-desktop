@@ -85,6 +85,9 @@ func TestPinHoldsALiveInit(t *testing.T) {
 	if r.PID() != p.Pid || r.Alive() != nil {
 		t.Fatalf("pid %d, alive %v", r.PID(), r.Alive())
 	}
+	if r.hostRoot != (ids{}) {
+		t.Fatalf("a pinned guest's root is host uid 0, gid 0, not %+v", r.hostRoot)
+	}
 	if _, serr := r.Stat("/etc"); serr != nil {
 		t.Fatalf("Stat through a live root: %v", serr)
 	}

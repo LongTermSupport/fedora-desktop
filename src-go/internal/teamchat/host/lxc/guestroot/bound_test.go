@@ -56,7 +56,7 @@ func stalledRoot(t *testing.T) (*Root, *recorder, stall, func(), chan int) {
 	g.file("/stalled", "x", 0o644)
 	g.file("/ok", "fine", 0o644)
 	rec := newRecorder()
-	r, err := openDirWith(rec, g.dir)
+	r, err := openDirWith(rec, g.dir, g.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestAStalledWriteEndsAtItsBound(t *testing.T) {
 	g.mkdir("/w/tree")
 	g.file("/w/f", "x", 0o644)
 	rec := newRecorder()
-	r, err := openDirWith(rec, g.dir)
+	r, err := openDirWith(rec, g.dir, g.owner)
 	if err != nil {
 		t.Fatal(err)
 	}

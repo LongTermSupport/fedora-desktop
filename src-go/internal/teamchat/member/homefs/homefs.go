@@ -3,9 +3,10 @@
 // RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS, so nothing is reached through a
 // link or from outside the root, even if a name above it is renamed meanwhile.
 //
-// A root and each directory it makes or opens must be the caller's (its effective uid): a
-// member's teamchat directories mode 0700 (Private), a home or ~/.config only free of group and
-// other write (Owned). Every leaf is the caller's too, and its mode is named by the caller and
+// A root and each directory it makes or opens must be the caller's (its effective uid, which is
+// Caller; OpenFor names another Owner, as a test does to say a path is another user's without
+// being root): a member's teamchat directories mode 0700 (Private), a home or ~/.config only
+// free of group and other write (Owned). Every leaf is the caller's too, and its mode is named by the caller and
 // set by fchmod, whatever the umask. A file is placed by an exclusive create; a replace writes
 // a fresh copy beside the old one, syncs it, renames it over the old one and syncs the
 // directory, so a reader sees the old content or the new, never a part. A read opens without
@@ -23,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -55,11 +57,17 @@ const (
 	tempSuffix = ".new"
 )
 
+// Owner is the uid the directory or file at a full path must belong to.
+type Owner func(full string) int
+
+// Caller is the Owner of every path in production: the effective uid.
+func Caller(string) int { return os.Geteuid() }
+
 // Root is a directory held open by fd. Close it when done.
 type Root struct {
-	fd   int
-	path string
-	uid  int
+	fd    int
+	path  string
+	owner Owner
 }
 
 // File is a regular file read whole: its content and the inode it was read from.
@@ -79,7 +87,11 @@ type Entry struct {
 
 // Open opens path as a root: an absolute, clean directory that is not a link, the caller's,
 // and as need says.
-func Open(path string, need Need) (*Root, error) {
+func Open(path string, need Need) (*Root, error) { return OpenFor(path, need, Caller) }
+
+// OpenFor is Open for a root that takes owner as the owner of what it checks, the root itself
+// and everything below it.
+func OpenFor(path string, need Need, owner Owner) (*Root, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, fmt.Errorf("%w: %s is not an absolute, clean path", ErrConfig, path)
 	}
@@ -87,7 +99,7 @@ func Open(path string, need Need) (*Root, error) {
 	if err != nil {
 		return nil, pathError(path, err)
 	}
-	r := &Root{fd: fd, path: path, uid: os.Geteuid()}
+	r := &Root{fd: fd, path: path, owner: owner}
 	if err := r.checkDir(fd, path, need); err != nil {
 		return nil, errors.Join(err, unix.Close(fd))
 	}
@@ -110,7 +122,7 @@ func (r *Root) Sub(full string, need Need) (*Root, error) {
 	if err := r.checkDir(fd, full, need); err != nil {
 		return nil, errors.Join(err, unix.Close(fd))
 	}
-	return &Root{fd: fd, path: full, uid: r.uid}, nil
+	return &Root{fd: fd, path: full, owner: r.owner}, nil
 }
 
 // MkdirAll makes each missing directory from the root down to full, mode 0700, syncing its
@@ -147,16 +159,19 @@ func (r *Root) Mkdir(full string) error {
 	return r.inParent(full, mkdirAt)
 }
 
-// mkdirAt makes name in parent with mode 0700 set by fchmod, and syncs parent.
+// mkdirAt makes name in parent with mode 0700 whatever the umask, and syncs parent. A umask
+// can take the owner's read bit off the new directory, which then cannot be opened to read, so
+// it is held by O_PATH (no permission needed) and chmod'd through its descriptor's /proc link,
+// which names the inode held and never a name that may have changed.
 func mkdirAt(parent int, name string) error {
 	if err := unix.Mkdirat(parent, name, dirMode); err != nil {
 		return err
 	}
-	fd, err := unix.Openat(parent, name, unix.O_DIRECTORY|unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(parent, name, unix.O_DIRECTORY|unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
-	if err := errors.Join(unix.Fchmod(fd, dirMode), unix.Close(fd)); err != nil {
+	if err := errors.Join(unix.Chmod("/proc/self/fd/"+strconv.Itoa(fd), dirMode), unix.Close(fd)); err != nil {
 		return err
 	}
 	return unix.Fsync(parent)
@@ -444,7 +459,7 @@ func (r *Root) checkDir(fd int, path string, need Need) error {
 	switch {
 	case st.Mode&unix.S_IFMT != unix.S_IFDIR:
 		return fmt.Errorf("%w: %s is not a directory", ErrConfig, path)
-	case int(st.Uid) != r.uid:
+	case int(st.Uid) != r.owner(path):
 		return fmt.Errorf("%w: %s is not this user's", ErrConfig, path)
 	case need == Private && st.Mode&0o7777 != dirMode:
 		return fmt.Errorf("%w: %s is not mode 0700", ErrConfig, path)
@@ -505,7 +520,7 @@ func (r *Root) regular(fd int, full string) (unix.Stat_t, error) {
 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
 		return st, fmt.Errorf("%w: %s is not a regular file", ErrConfig, full)
 	}
-	if int(st.Uid) != r.uid {
+	if int(st.Uid) != r.owner(full) {
 		return st, fmt.Errorf("%w: %s is not this user's", ErrConfig, full)
 	}
 	return st, nil

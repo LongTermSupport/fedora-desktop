@@ -3,8 +3,6 @@ package lxc
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -95,9 +93,7 @@ func TestTwoUsersShareACheckout(t *testing.T) {
 	b := w.addBox("c1")
 	env := "srv/agent1/src/repo/.claude/ccy/ccy.env.local"
 	writeTree(t, b.dir, map[string]string{env: "HOOKS_DAEMON_HOSTNAME=box\n"})
-	if err := os.Chown(filepath.Join(b.dir, env), agent2UID, agentGID); err != nil {
-		t.Fatal(err)
-	}
+	b.disown("/"+env, agent2UID)
 	second := w.memberAt("t1", "c1", 2)
 	second.User = agent2(t)
 	w.declare([]string{"t1"}, w.member("t1", "c1"), second)
@@ -116,9 +112,7 @@ func TestTwoUsersShareACheckout(t *testing.T) {
 	w = newWorld(t)
 	b = w.addBox("c1")
 	writeTree(t, b.dir, map[string]string{env: "HOOKS_DAEMON_HOSTNAME=box\n"})
-	if err := os.Chown(filepath.Join(b.dir, env), agent2UID, agentGID); err != nil {
-		t.Fatal(err)
-	}
+	b.disown("/"+env, agent2UID)
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
 	if _, err := w.apply(PhasePresent); err == nil || !strings.Contains(err.Error(), "not owned by an agent user") {
 		t.Fatalf("an env file of a user no entry names was accepted: %v", err)

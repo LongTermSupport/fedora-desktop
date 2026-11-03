@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,8 +16,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
-// otherUID owns the files planted as another user's.
-const otherUID = 4242
+// otherUID is a uid the caller is not, so a path an Owner gives it is another user's. A test
+// cannot make a file another user's with chown without being root, which CI is not.
+func otherUID() int { return os.Geteuid() + 1 }
 
 var helpers = reexec.Helpers{
 	// create-over-limit creates Args[0]/f past a file-size limit of 4 bytes, in a process of
@@ -92,9 +94,25 @@ func readFile(t *testing.T, root, path string) string {
 	return string(testfiles.Read(t, root, path))
 }
 
-func giveAway(t *testing.T, path string) {
-	t.Helper()
-	check(t, os.Lchown(path, otherUID, -1))
+// giveAway makes r take path as another user's, whatever the file's real owner.
+func giveAway(r *Root, path string) {
+	was := r.owner
+	r.owner = func(full string) int {
+		if full == path {
+			return otherUID()
+		}
+		return was(full)
+	}
+}
+
+// owners is an Owner that gives the paths named to another user and every other to the caller.
+func owners(others ...string) Owner {
+	return func(full string) int {
+		if slices.Contains(others, full) {
+			return otherUID()
+		}
+		return Caller(full)
+	}
 }
 
 func inode(t *testing.T, path string) uint64 {
@@ -109,7 +127,9 @@ func TestOpenRefusesARootThatIsNotTheOwners(t *testing.T) {
 	for name, perm := range map[string]fs.FileMode{"private": 0o700, "open": 0o755, "group-write": 0o775, "other-write": 0o757, "others": 0o700} {
 		mkdir(t, base+"/"+name, perm)
 	}
-	giveAway(t, base+"/others")
+	// The owner the caller would have is the one that opens "/others" at all: it is a directory
+	// the caller owns, mode 0700, that the Owner below says is another user's.
+	theirs := owners(base + "/others")
 	writeFile(t, base+"/file", "x")
 	check(t, os.Symlink(base+"/private", base+"/link"))
 	for _, c := range []struct {
@@ -129,7 +149,7 @@ func TestOpenRefusesARootThatIsNotTheOwners(t *testing.T) {
 		{"/link", Private, false},
 		{"/private/../private", Private, false},
 	} {
-		r, err := Open(base+c.path, c.need)
+		r, err := OpenFor(base+c.path, c.need, theirs)
 		switch {
 		case c.ok && err != nil:
 			t.Errorf("%s need %d: %v", c.path, c.need, err)
@@ -141,6 +161,12 @@ func TestOpenRefusesARootThatIsNotTheOwners(t *testing.T) {
 		case !errors.Is(err, ErrConfig):
 			t.Errorf("%s need %d: %v, want a configuration error", c.path, c.need, err)
 		}
+	}
+	// The twin of the two "/others" rows: the same directory, owned as it really is, opens.
+	for _, need := range []Need{Private, Owned} {
+		r, err := Open(base+"/others", need)
+		check(t, err)
+		check(t, r.Close())
 	}
 	if _, err := Open("relative/path", Private); !errors.Is(err, ErrConfig) {
 		t.Errorf("relative: %v", err)
@@ -173,7 +199,7 @@ func TestMkdirAllRefusesAnExistingDirectoryNotTheOwners0700(t *testing.T) {
 		t.Errorf("0755: %v", err)
 	}
 	mkdir(t, root+"/theirs", 0o700)
-	giveAway(t, root+"/theirs")
+	giveAway(r, root+"/theirs")
 	if err := r.MkdirAll(root + "/theirs"); !errors.Is(err, ErrConfig) {
 		t.Errorf("another uid's: %v", err)
 	}
@@ -207,6 +233,9 @@ func TestMkdirMakesOneFreshDirectory(t *testing.T) {
 
 func TestCreateNamesTheModeAndNeverOverwrites(t *testing.T) {
 	r, root := newRoot(t)
+	// Made before the umask: under 0777 a temporary directory has mode 0, which only root can
+	// look into.
+	away, outside := t.TempDir(), t.TempDir()
 	withUmask(t, 0o777)
 	check(t, r.Create(root+"/f", []byte("one"), 0o640))
 	if got := readFile(t, root, root+"/f"); got != "one" || mode(t, root+"/f").Perm() != 0o640 {
@@ -215,7 +244,7 @@ func TestCreateNamesTheModeAndNeverOverwrites(t *testing.T) {
 	if err := r.Create(root+"/f", []byte("two"), 0o600); !errors.Is(err, fs.ErrExist) {
 		t.Errorf("over an existing file: %v", err)
 	}
-	target := t.TempDir() + "/target"
+	target := away + "/target"
 	check(t, os.Symlink(target, root+"/link"))
 	if err := r.Create(root+"/link", []byte("x"), 0o600); !errors.Is(err, fs.ErrExist) {
 		t.Errorf("through a link: %v", err)
@@ -223,7 +252,7 @@ func TestCreateNamesTheModeAndNeverOverwrites(t *testing.T) {
 	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the link's target was written: %v", err)
 	}
-	if err := r.Create(t.TempDir()+"/x", nil, 0o600); !errors.Is(err, ErrConfig) {
+	if err := r.Create(outside+"/x", nil, 0o600); !errors.Is(err, ErrConfig) {
 		t.Errorf("outside the root: %v", err)
 	}
 	if err := r.Create(root+"/missing/x", nil, 0o600); !errors.Is(err, fs.ErrNotExist) {
@@ -304,7 +333,7 @@ func TestReadRefusesAnythingButTheOwnersRegularFileWithinItsCap(t *testing.T) {
 		t.Errorf("through a link: %v", err)
 	}
 	writeFile(t, root+"/theirs", "x")
-	giveAway(t, root+"/theirs")
+	giveAway(r, root+"/theirs")
 	if _, err = r.Read(root+"/theirs", 5); !errors.Is(err, ErrConfig) {
 		t.Errorf("another uid's: %v", err)
 	}
@@ -341,7 +370,7 @@ func TestOpenLockRefusesAnythingButTheOwners0600RegularFile(t *testing.T) {
 	writeFile(t, root+"/seat.lock", "")
 	check(t, os.Symlink(root+"/seat.lock", root+"/link.lock"))
 	writeFile(t, root+"/theirs.lock", "")
-	giveAway(t, root+"/theirs.lock")
+	giveAway(r, root+"/theirs.lock")
 	writeFile(t, root+"/open.lock", "")
 	check(t, os.Chmod(root+"/open.lock", 0o644))
 	for _, name := range []string{"fifo.lock", "link.lock", "theirs.lock", "open.lock"} {
@@ -382,7 +411,7 @@ func TestOpenExistingLockRefusesAnythingButTheOwners0600RegularFile(t *testing.T
 	writeFile(t, root+"/seat.lock", "")
 	check(t, os.Symlink(root+"/seat.lock", root+"/link.lock"))
 	writeFile(t, root+"/theirs.lock", "")
-	giveAway(t, root+"/theirs.lock")
+	giveAway(r, root+"/theirs.lock")
 	writeFile(t, root+"/open.lock", "")
 	check(t, os.Chmod(root+"/open.lock", 0o644))
 	for _, name := range []string{"fifo.lock", "link.lock", "theirs.lock", "open.lock"} {
