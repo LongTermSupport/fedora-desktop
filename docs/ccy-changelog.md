@@ -27,6 +27,15 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.107.0 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
+
 ## 3.104.18 — container 2.79.22
 
 The image's pingbus and its skill change, so the image is rebuilt once.

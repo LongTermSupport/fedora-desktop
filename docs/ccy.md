@@ -1067,13 +1067,14 @@ CCY forwards a few Claude Code environment defaults into the container. Each use
 it; a project `ccy.env` that sets it explicitly overrides both, because the entrypoint
 sources that file after this environment is forwarded.
 
-| Variable                               | CCY default | Why                                                          |
-| -------------------------------------- | ----------- | ------------------------------------------------------------ |
-| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1`         | Enables the agent-teams features CCY sessions use            |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`      | `600000`    | Caps session size before auto-compaction; see below          |
-| `MAX_THINKING_TOKENS`                  | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
-| `TERM` / `COLORTERM`                   | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
-| `FORCE_COLOR`                          | `1`         | Keeps colour output intact inside the container              |
+| Variable                                             | CCY default | Why                                                                                                                         |
+| ---------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`               | `1`         | Enables the agent-teams features CCY sessions use                                                                           |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`                    | `600000`    | Caps session size before auto-compaction; see below                                                                         |
+| `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS` | `1`         | Always set; drops the critical-path `rm` prompt. ccy only: the container is the isolation boundary, host `cc` never sets it |
+| `MAX_THINKING_TOKENS`                                | *(unset)*   | Forwarded only if you export it; CCY does not impose a value                                                                |
+| `TERM` / `COLORTERM`                                 | inherited   | Falls back to `xterm` / `truecolor` if unset on the host                                                                    |
+| `FORCE_COLOR`                                        | `1`         | Keeps colour output intact inside the container                                                                             |
 
 CCY deliberately sets **no** sub-agent fan-out limits — the section below explains why.
 
