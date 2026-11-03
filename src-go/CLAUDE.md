@@ -539,6 +539,15 @@ command. It reads the repo and the host through `fs.FS`; the one git question (i
 worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
 specification, proven by unit tests over in-memory trees.
 
+`qa/branchhygiene` + `qa/cmd/qa-branch-hygiene` (same nested module) are
+`scripts/qa-branch-hygiene.bash`, the branch-policy job (`scripts/branch-policy.toml`; cap on open
+work branches, merged branches deleted, dormancy limits, parked branches): the script only builds
+and runs the command. Unlike every gate above it is not in `qa-gates.tsv` or `qa-changed`; only
+`.github/workflows/branch-hygiene.yml` runs it, because it judges the repository's global state
+([QA.md](../CLAUDE/QA.md#branch-hygiene--the-repositorys-branches-judged-daily)). The rule is pure
+over branch facts, the policy and an injected clock; git goes through `qa/internal/proc`, faked in
+the unit tests.
+
 `qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
 clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
 carries a symlinked-root test, because an engine that prints realpaths leaks the checkout path
