@@ -980,9 +980,10 @@ or keeper.log.
   no binary, unit, path, environment variable, plugin or skill name, and nothing on disk
   changes.
 
-## 7. n3f: the side rooms (Plan 00211), scope only
+## 7. n3f: the side rooms (Plan 00211), specified in SPEC-n3f.md
 
-The expectations are `SPEC-n3f.md`'s (section 0). The addendum covers at least:
+The expectations are [SPEC-n3f.md](SPEC-n3f.md)'s, which settles every open point below; this
+section keeps the scope it was written from. The addendum covers at least:
 
 - **SR1. `report`**, `ask`, `thread`, `questions` as B 2.2.1, A 10 and Plan 00211's SPEC as
   behaviour: the reports room verified at each send and never synced; `ask` by the coordinator
