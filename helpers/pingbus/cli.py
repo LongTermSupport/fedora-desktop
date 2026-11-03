@@ -303,13 +303,15 @@ def item_line(team: str, server_name: str, outcome: protocol.Outcome, room: str 
 
 def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
                outcome: protocol.Outcome, room: str = protocol.ROOM_MAIN,
-               question: tuple[int, str] | None = None) -> str | None:
+               question: tuple[int, str] | None = None, closed: str | None = None) -> str | None:
     """The ready `say` command that answers a `HUMAN` or `PEER` item; None for a ping, whose
     answer is a verb the agent chooses. The name is the sender's short name when no other
     member of the team has it, else the full handle; a human's is the localpart. `--re` names
     the item, single-quoted for the shell (an event ID starts with `$`), so the answer is
     threaded under it in Element. A questions-room item is answered in its question's thread,
-    or, unattached, as a reply to it (Plan 00211 SPEC §8.3)."""
+    or, unattached, as a reply to it (Plan 00211 SPEC §8.3). With `closed` (the receiver's
+    role, `_humans_closed`), a human's main-room item is answered where humans are reached:
+    by a coordinator with a question about it, by a worker through the coordinator."""
     message = outcome.human or outcome.peer
     if message is None:
         return None
@@ -317,6 +319,10 @@ def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
         event_id = _event_id(message.event_id)
         target = f"Q{question[0]}" if question is not None else f"--re '{event_id}'"
         return format_line("REPLY", _team(team), event_id, f"{PROG} --team {team} thread {target}")
+    if outcome.human is not None and closed is not None:
+        event_id = _event_id(message.event_id)
+        command = "ask-human" if closed == protocol.ROLE_COORDINATOR else "say --to-coordinator"
+        return format_line("REPLY", _team(team), event_id, f"{PROG} --team {team} {command} --re '{event_id}'")
     name = _localpart(message.sender, server_name)
     if outcome.peer is not None:
         short = name.partition(protocol.HANDLE_SEP)[0]
@@ -959,16 +965,50 @@ def _user_id(name: str, record: protocol.TeamRecord, member: config.Member) -> s
                             f"Agents: {', '.join(handles) or '-'}. Humans: {', '.join(humans) or '-'}")
 
 
+#: Plan 00211 Task 2.14: where a sender whose main room is closed to its words to a human
+#: (`_humans_closed`) reaches the humans instead, by its role.
+HUMANS_ELSEWHERE = {
+    protocol.ROLE_COORDINATOR: ("write to the humans in the questions room: pingbus ask-human opens a topic, "
+                                "pingbus thread Q<n> replies in one"),
+    protocol.ROLE_WORKER: ("ask the coordinator with --to-coordinator; tell the humans what they should know "
+                           "with pingbus report"),
+}
+
+
+def _humans_closed(seat: _Seat, record: protocol.TeamRecord) -> str | None:
+    """The sender's role when the main room is closed to its messages to a human, whose
+    answer there would be a reply it may never see: a coordinator's once the team's questions
+    room exists, a worker's once its reports room does. None before the play made that room,
+    while the main room is still the way to a human."""
+    role = record.roles.get(seat.member.user_id)
+    purpose = protocol.PURPOSE_QUESTIONS if role == protocol.ROLE_COORDINATOR else protocol.PURPOSE_REPORTS
+    return role if role in protocol.ROLES and purpose in seat.syncer.side else None
+
+
+def _no_human_here(to: Sequence[str], record: protocol.TeamRecord, member: config.Member,
+                   closed: str | None) -> None:
+    """Refuse (`target`, exit 4) a main-room message naming a human, once `closed` (the
+    sender's role, `_humans_closed`) says where the humans are reached instead."""
+    humans = [user for user in to if user in record.humans]
+    if closed is None or not humans:
+        return
+    names = ",".join(_localpart(user, member.server_name) for user in humans)
+    raise protocol.Refusal("target", f"--to {names}: no agent writes to a human in the main room; "
+                                     f"{HUMANS_ELSEWHERE[closed]}")
+
+
 @contextlib.contextmanager
 def _explained_targets(args: argparse.Namespace, verb: str | None, record: protocol.TeamRecord,
-                       member: config.Member) -> Iterator[list[str]]:
+                       member: config.Member, closed: str | None = None) -> Iterator[list[str]]:
     """`--to`'s addressees (`_addressees`), with a `target` refusal raised inside re-raised
     with what was refused and who this command can address, from the command line and the
-    record only. `verb` is the ping's, None for `say`."""
+    record only. `verb` is the ping's, None for `say`. With `closed` (`_humans_closed`), a
+    human named is refused (`_no_human_here`), `--all` names no human, and no human is listed."""
     server = member.server_name
     to: list[str] = []
     try:
-        to += _addressees(args, record, member)
+        to += _addressees(args, record, member, humans=closed is None)
+        _no_human_here(to, record, member, closed)
         yield to
     except protocol.Refusal as exc:
         if exc.reason != "target" or exc.detail is not None:
@@ -987,7 +1027,7 @@ def _explained_targets(args: argparse.Namespace, verb: str | None, record: proto
             what = f"{command} takes at most {limit} addressees, not {len(checked)}"
             if len(checked) > len(to):
                 what += " (the coordinator is copied on a worker's message to a human)"
-        users = [user for user in (*record.roles, *sorted(record.humans))
+        users = [user for user in (*record.roles, *(sorted(record.humans) if closed is None else ()))
                  if user != member.user_id and protocol.addressable(user, verb, ctx)]
         agents = [_localpart(user, server) for user in users if protocol.is_agent_user_id(user, server)]
         humans = [_localpart(user, server) for user in users if protocol.is_human_user_id(user, server)]
@@ -1000,17 +1040,19 @@ def _user_ids(names: str, record: protocol.TeamRecord, member: config.Member) ->
     return [_user_id(name, record, member) for name in names.split(",")]
 
 
-def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
+def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member,
+                humans: bool = True) -> list[str]:
     """`--to`'s names then, for `--to-coordinator`, the team's coordinator but the sender;
     each user once. Nothing else is judged here: the validator refuses what is not allowed.
-    `say --all` stands alone and is the coordinator's: every agent with a role and every
-    human, but the sender."""
+    `say --all` stands alone and is the coordinator's: every agent with a role and, unless
+    `humans` is False, every human, but the sender."""
     if getattr(args, "all", False):
         if args.to is not None or args.to_coordinator:
             raise config.UsageError("--all already names every member: give it without --to or --to-coordinator")
         if member.user_id not in protocol.coordinators(record.roles):
             raise protocol.Refusal("target", "--all is the coordinator's; a worker names its addressees with --to")
-        return [user for user in dict.fromkeys((*record.roles, *sorted(record.humans))) if user != member.user_id]
+        everyone = (*record.roles, *(sorted(record.humans) if humans else ()))
+        return [user for user in dict.fromkeys(everyone) if user != member.user_id]
     to = [] if args.to is None else _user_ids(args.to, record, member)
     if args.to_coordinator:
         found = [user for user in protocol.coordinators(record.roles) if user != member.user_id]
@@ -1090,7 +1132,7 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    with _explained_targets(args, args.verb, record, member) as addressees:
+    with _explained_targets(args, args.verb, record, member, _humans_closed(seat, record)) as addressees:
         to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
         ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
         content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
@@ -1149,7 +1191,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    with _explained_targets(args, None, record, member) as addressees:
+    with _explained_targets(args, None, record, member, _humans_closed(seat, record)) as addressees:
         to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
         event_id, now, said_to = _send_text(seat, ctx, to, text, rt, re=args.re)
     if relaying:
@@ -1416,7 +1458,9 @@ def _refetch(seat: _Seat, ctx: protocol.Context, item: inbox.Item) -> tuple[prot
         return protocol.Outcome(protocol.DROP, "schema"), None
     if event.get("event_id") != item.event_id:
         return protocol.Outcome(protocol.DROP, "schema"), None
-    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text, room=item.room)
+    answers = None if item.outcome.human is None else item.outcome.human.answers
+    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text, room=item.room,
+                                      sender_of=protocol.own_message(answers, member.user_id))
     return outcome, event.get("sender")
 
 
@@ -1464,7 +1508,8 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
                     continue
                 emit(item_line(member.team, member.server_name, outcome, item.room, item.question), out, err)
                 printed += 1
-                reply = reply_line(member.team, member.server_name, record, outcome, item.room, item.question)
+                reply = reply_line(member.team, member.server_name, record, outcome, item.room, item.question,
+                                   _humans_closed(seat, record))
                 if reply is not None:
                     emit(reply, out, err)
             elif outcome.kind == protocol.DROP:
@@ -2006,8 +2051,8 @@ class _Injector:
 
 
 def _reply_command(team: str, server_name: str, record: protocol.TeamRecord,
-                   outcome: protocol.Outcome, item: inbox.Item) -> str | None:
-    line = reply_line(team, server_name, record, outcome, item.room, item.question)
+                   outcome: protocol.Outcome, item: inbox.Item, closed: str | None) -> str | None:
+    line = reply_line(team, server_name, record, outcome, item.room, item.question, closed)
     return None if line is None else line.rsplit("\t", 1)[1]
 
 
@@ -2057,7 +2102,8 @@ def _choose(seats: Sequence[_Seat], inj: _Injector, rt: Runtime) -> _Batch:
         entry = envelope.entry_from_line(
             item_line(member.team, member.server_name, outcome, item.room, item.question), handle=member.handle,
             ts_ms=item.origin_server_ts,
-            reply=_reply_command(member.team, member.server_name, record, outcome, item),
+            reply=_reply_command(member.team, member.server_name, record, outcome, item,
+                                 _humans_closed(seat, record)),
             question_headline=None if item.question is None else item.question[1],
             revises=None if outcome.human is None else outcome.human.revises)
         key = (entry.team, entry.sender)
