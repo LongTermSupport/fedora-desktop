@@ -44,6 +44,16 @@ const (
 	EnvStatusLineInner = EnvPrefix + "STATUS_LINE_INNER"
 )
 
+// A unit's credentials (systemd.exec LoadCredential): EnvCredentials is the variable systemd sets
+// to the directory that holds them, which is systemd's and so is not under EnvPrefix, and the two
+// files the team's TLS terminator is given, the leaf certificate and its key (Plan 00246
+// SPEC-cross-network X18).
+const (
+	EnvCredentials     = "CREDENTIALS_DIRECTORY"
+	LeafCertCredential = "leaf.crt"
+	LeafKeyCredential  = "leaf.key"
+)
+
 // Binaries (D 3.3). InstallBinary is reserved for area C, should it split the installer out.
 const (
 	MemberBinary     = Product

@@ -31,7 +31,7 @@ func mustSeat(t *testing.T, s string) paths.SeatName {
 var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
 	"history", "verify", "status", "version", "help",
-	"run", "link", "hook", "status-line", "reach", "seat disconnected", "seat set-aside", "seat place-issued",
+	"run", "link", "hook", "status-line", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
 	"guest check", "guest place-bundle", "guest membership", "guest remove",
 }
 
@@ -74,7 +74,7 @@ func btoi(b bool) int {
 func TestOutsideAreN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-		"reply", "say", "ping",
+		"tls", "reply", "say", "ping",
 	}
 	if got := Outside(); !slices.Equal(got, want) {
 		t.Fatalf("Outside() = %q", got)

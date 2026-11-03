@@ -1245,8 +1245,9 @@ transport (the readiness probe and the forge client), and nothing stopped a thir
 written with a bare `tls.Config`. The rule keeps the building in one reviewed package.
 
 **What it flags**, in the non-test files of `internal/teamchat`, `cmd/teamchat` and
-`cmd/teamchat-admin` and below, outside package `matrix` and package `pki` (the certificate
-package; the terminator of X18 will add its own package to the owners when it exists):
+`cmd/teamchat-admin` and below, outside package `matrix`, package `pki` (the certificate
+package) and package `tlsterm` (the terminator of X18, which builds the one server
+configuration: TLS 1.3, the leaf, no client authentication):
 
 - a composite literal of `http.Transport` or `tls.Config`, by value or by pointer, through an
   alias, nested or with its type elided in a slice literal;
@@ -1267,8 +1268,8 @@ cover is a constructor added to `matrix`.
   literal by pointer and by value, `new`, a `var`, an alias, a `Clone` of the default transport,
   a `tls.Config` literal, `new`, a `var`, a `Clone`, a slice literal with the type elided, a
   literal in a struct field; `good.go`: a configuration only passed on or read, a listener given
-  one, a pool, a key pair, a nil pointer, clean; `bad_test.go`, clean), beside `matrix` and `pki`
-  stand-ins (the owners, clean), `matrix/below` (a package under matrix: one clean use, one
+  one, a pool, a key pair, a nil pointer, clean; `bad_test.go`, clean), beside `matrix`, `pki` and
+  `tlsterm` stand-ins (the owners, clean), `matrix/below` (a package under matrix: one clean use, one
   flagged), `outsidetls` (outside teamchat, clean) and `cmd/teamchat` and `cmd/teamchat-admin`
   (the commands, flagged). The root is its own, because the owner is a package path and the
   shared root's `matrix` and command packages carry other rules' expectations. With the analyzer

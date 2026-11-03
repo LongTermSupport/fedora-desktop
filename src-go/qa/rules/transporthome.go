@@ -8,14 +8,18 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// pkiPkg is teamchat's certificate package.
-const pkiPkg = "internal/teamchat/pki"
+// pkiPkg is teamchat's certificate package, and tlstermPkg its TLS terminator.
+const (
+	pkiPkg     = "internal/teamchat/pki"
+	tlstermPkg = "internal/teamchat/tlsterm"
+)
 
 // transportOwners are the packages that may build a transport or a TLS configuration: matrix,
-// which holds every client of a homeserver and decides whom it trusts, and pki, which parses and
-// makes the certificates the configuration is built from. The terminator of Plan 00246 X18 will
-// be the third, with its own package.
-var transportOwners = []string{matrixPkg, pkiPkg}
+// which holds every client of a homeserver and decides whom it trusts, pki, which parses and
+// makes the certificates the configuration is built from, and tlsterm, the terminator of Plan
+// 00246 X18, which builds the one server configuration (TLS 1.3, the leaf, no client
+// authentication).
+var transportOwners = []string{matrixPkg, pkiPkg, tlstermPkg}
 
 // transportTrees are what the rule judges: teamchat's packages and its two commands.
 var transportTrees = []string{teamchatTree, "cmd/teamchat", "cmd/teamchat-admin"}
@@ -31,7 +35,7 @@ var TransportHome = &analysis.Analyzer{
 	Name: "project_transport_home",
 	Doc: `project_transport_home flags, in the non-test files of internal/teamchat, cmd/teamchat and
 cmd/teamchat-admin and below, the building of an http.Transport or a tls.Config outside package
-matrix (and pki, the certificate package):
+matrix (and pki, the certificate package, and tlsterm, the terminator):
 
 - a composite literal of either type, by value or by pointer, through any alias, nested or with
   its type elided in a slice, array or map literal;

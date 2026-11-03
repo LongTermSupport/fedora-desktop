@@ -136,7 +136,8 @@ func constNames() map[string][]string {
 	values := map[string]string{
 		"Product": Product, "MatrixNamespace": MatrixNamespace, "MatrixPrefix": MatrixPrefix,
 		"EnvPrefix": EnvPrefix, "EnvRuntime": EnvRuntime, "EnvKit": EnvKit,
-		"EnvStatusLineInner": EnvStatusLineInner, "MemberBinary": MemberBinary,
+		"EnvStatusLineInner": EnvStatusLineInner, "EnvCredentials": EnvCredentials,
+		"LeafCertCredential": LeafCertCredential, "LeafKeyCredential": LeafKeyCredential, "MemberBinary": MemberBinary,
 		"AdminBinary": AdminBinary, "InstallBinary": InstallBinary,
 		"MemberBinaryPath": MemberBinaryPath, "AdminBinaryPath": AdminBinaryPath,
 		"PluginName": PluginName, "SkillName": SkillName, "TmuxSocket": TmuxSocket,
@@ -502,8 +503,13 @@ func TestPrefixCheckDiscriminates(t *testing.T) {
 // teamchat_teams entry, the XDG state home the seat store sits under, and the seat's Matrix
 // device id (C 3.7.2), which is no path, and Claude Code's inbox socket, which is Claude Code's
 // name (B 2.7.1), an LXC seat's session name, lxc-<key> (C 3.9.1), which is no path either,
-// and the seat's key and repo label, which are parts of names, not names.
-var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession", "LXCSeatKey", "LXCRepoLabel"}
+// and the seat's key and repo label, which are parts of names, not names; systemd's variable that
+// names a unit's credentials directory and the two credential file names inside it, which belong
+// to that directory and not to the product.
+var notDerived = []string{
+	"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession", "LXCSeatKey", "LXCRepoLabel",
+	"EnvCredentials", "LeafCertCredential", "LeafKeyCredential",
+}
 
 // D 3.1: every v2 name is formed from the product name.
 func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {

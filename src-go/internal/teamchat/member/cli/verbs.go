@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,6 +88,22 @@ func validList(s string) bool {
 	return !slices.Contains(strings.Split(s, ","), "")
 }
 
+func validPort(s string) bool {
+	n, err := strconv.ParseUint(s, 10, 16)
+	return err == nil && n > 0 && strconv.FormatUint(n, 10) == s
+}
+
+// homeserverAddr is the address every team's homeserver binds, which the terminator may not.
+var homeserverAddr = netip.MustParseAddr("127.0.0.1")
+
+// validListen is an address the terminator can bind beside the homeserver: one IP address in
+// canonical form, with no zone, that is neither the wildcard (which holds the homeserver's
+// loopback too) nor the homeserver's own.
+func validListen(s string) bool {
+	a, err := netip.ParseAddr(s)
+	return err == nil && a.String() == s && a.Zone() == "" && !a.IsUnspecified() && a != homeserverAddr
+}
+
 func oneOf(words ...string) func(string) bool {
 	return func(s string) bool { return slices.Contains(words, s) }
 }
@@ -102,6 +119,8 @@ var (
 	checkUser   = &checker{validUser, "--{} takes a user name"}
 	checkKey    = &checker{validKey, "--{} takes a seat key: 16 lowercase hex"}
 	checkCount  = &checker{validCount, "--{} takes a whole number"}
+	checkPort   = &checker{validPort, "--{} takes a port, 1 to 65535"}
+	checkListen = &checker{validListen, "--{} takes one IP address in canonical form, not a wildcard and not the homeserver's own 127.0.0.1"}
 	checkDir    = &checker{absDir, msgDir}
 	checkList   = &checker{validList, "--{} takes a comma-separated list with no empty item"}
 	checkKind   = &checker{func(s string) bool { return slices.Contains(Kinds, Kind(s)) }, "--{} is one of ccy, lxc, host, other"}
@@ -166,6 +185,9 @@ var (
 	eventArg = Arg{Name: "event-id", check: checkEvent}
 	userFlag = Flag{Name: "user", Value: "U", Required: true, check: checkUser}
 	keyFlag  = Flag{Name: flagKey, Value: "K", Required: true, check: checkKey}
+
+	portFlag   = Flag{Name: "port", Value: "N", Required: true, check: checkPort}
+	listenFlag = Flag{Name: "listen", Value: "A", Required: true, Repeat: true, check: checkListen}
 )
 
 // table is B 2.2.1's verbs in its order: the agent verbs, then the lifecycle ones. An agent verb
@@ -219,6 +241,11 @@ var table = []Verb{
 	{Name: "hook", Args: []Arg{{Name: "event", Form: strings.Join(HookEvents, "|"), check: checkHook}}, Does: "one Claude Code hook, run from the plugin's hooks.json"},
 	{Name: "status-line", Does: "the status line, run by Claude Code from the session's settings"},
 	{Name: "reach", Flags: []Flag{required(teamFlag)}, Does: "an unauthenticated GET of the team homeserver's versions, so a route is proven from the member side"},
+	{
+		Name:  "tls",
+		Flags: []Flag{required(teamFlag), portFlag, listenFlag},
+		Does:  "the team's TLS terminator: accepts TLS on each --listen address at --port and relays to the homeserver on loopback; the unit teamchat-tls@T runs it",
+	},
 	{
 		Name:  "seat disconnected",
 		Flags: []Flag{{Name: "bundle", Value: valueDir, Required: true, check: checkDir}, {Name: "since", Value: "MS", Required: true, check: checkCount}, {Name: "seed", Value: "ID", Required: true}},
