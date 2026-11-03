@@ -357,48 +357,43 @@ linters:
     tagliatelle:
       case:
         overrides:
-          # The Matrix client-server API is snake_case (access_token, next_batch,
-          # lazy_load_members): the client and its fake homeserver name every key as the wire does,
-          # and are still held to one case.
+          # One rule, the repository owner's decision of 2026-11-03 (pull request 124): the JSON
+          # formats v2 (teamchat) owns, and the wire formats it speaks, are snake_case, and are
+          # still held to that one case. The packages below are the ones whose structs carry such
+          # keys: the Matrix client-server API (access_token, next_batch) and its fake homeserver,
+          # the GitHub REST API the forge checker reads (full_name, default_branch), and teamchat's
+          # own records (seat, status, health, member records, state and link wire, lxcstate).
+          # tagliatelle matches a package by its path and takes no pattern, so each package is a
+          # line; a teamchat package that decodes another program's camelCase wire (member/kit,
+          # member/link: Claude Code's settings and hook JSON) is deliberately not listed. This
+          # tightens a check rather than excusing one, so the suppression record does not see it.
           - pkg: internal/teamchat/matrix
             rules:
               json: snake
           - pkg: internal/teamchat/matrix/fakehs
             rules:
               json: snake
-          # C 3.7.2's records (seat.json, held.json, released.json) are snake_case files, as the
-          # Matrix keys inside them are.
           - pkg: internal/teamchat/seat
             rules:
               json: snake
-          # C 3.11.3's status record and 3.11.2's lxc-online.json are snake_case host files, as
-          # every teamchat record is.
           - pkg: internal/teamchat/status
             rules:
               json: snake
           - pkg: internal/teamchat/health
             rules:
               json: snake
-          # B 2.2.2's member records are snake_case JSON Lines, as every teamchat record is.
           - pkg: internal/teamchat/member/records
             rules:
               json: snake
-          # B 2.3's member files (the store, the session files, the seat lock record, the
-          # desired membership) are snake_case, as every teamchat record is.
           - pkg: internal/teamchat/member/state
             rules:
               json: snake
-          # B 2.4.4's link socket request (deadline_ms) and the control messages are snake_case,
-          # as every teamchat record is.
           - pkg: internal/teamchat/member/wire
             rules:
               json: snake
-          # C 3.9.3's LXC record (since_ms) is a snake_case host file, as every teamchat record is.
           - pkg: internal/teamchat/host/lxc/lxcstate
             rules:
               json: snake
-          # The GitHub REST API is snake_case (full_name, default_branch, author_association):
-          # the forge checker names every key it reads as the wire does.
           - pkg: internal/teamchat/member/forge
             rules:
               json: snake

@@ -23,11 +23,15 @@ suppression = true
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
-max_total = 29
+max_total = 30
 history_base = "origin/F44"
 
+# A model the record does not map is rejected, so a model that writes an entry is listed here. Sonnet
+# is low trust (14-day review) until the owner decides otherwise: the repository owner's decision 3
+# on pull request 124 had a Sonnet model record the G401/G505 entry, and the tier is the owner's to set.
 [record.trust.models]
 claude-opus = "medium"
+claude-sonnet = "low"
 
 [record.trust.medium]
 max_review_days = 30
