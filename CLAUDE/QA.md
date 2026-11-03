@@ -2212,6 +2212,58 @@ set it, and runs low).
 
 ---
 
+## Branch hygiene — the repository's branches, judged daily
+
+`.github/workflows/branch-hygiene.yml` runs `scripts/qa-branch-hygiene.bash` on a daily
+schedule, on every push to F44 and on demand. It is its own workflow and deliberately **not** a
+row of `scripts/qa-gates.tsv` nor a `qa-changed` check: it judges the repository's global state,
+so a branch's CI must not go red because of other branches. The command is
+`src-go/qa/cmd/qa-branch-hygiene` over the rule in `src-go/qa/branchhygiene`; it reads
+`origin`'s branches (so run `git fetch --prune origin` first when running it by hand).
+
+**Why the limit exists.** It is there so that work FINISHES, never so that it disappears. Work
+that is not on a branch being finished is lost. These "workarounds" are forbidden, because each
+one hides work from every check:
+
+- Saving changes as a patch or a copy under `untracked/`: no branch lists it, no CI sees it, it
+  never reaches GitHub, and the next cleanup deletes it.
+- `git worktree remove --force` or `git branch -D` on work not contained elsewhere.
+- Stashes.
+- Opening a side branch for a diagnostic or an experiment that serves another lane: it goes on
+  that lane's branch as commits, reverted later if it is temporary.
+
+When the rule seems to force a choice between losing work and exceeding the limit, stop and ask a
+human. Losing work is never the answer.
+
+The policy is data, `scripts/branch-policy.toml`:
+
+- `cap`: at most this many open work branches (not exempt, not merged into F44). Over the cap
+  fails, listing every open branch with its age.
+- A branch merged into F44 and still on origin fails (MERGED-NOT-DELETED): delete it.
+- `warn_days` / `fail_days`: a work branch with no commit for more than `warn_days` is warned
+  about (DORMANT-WARN); for more than `fail_days` it fails the job (DORMANT-FAIL).
+- `exempt`: the release and architecture lines (F44, F42, F43, F44-arm), never judged.
+
+**Parking a branch** waiting on a human decision: add an entry to `scripts/branch-policy.toml`,
+in the same commit that records the decision being waited for.
+
+```toml
+[[parked]]
+branch = "feat/example"
+reason = "waiting for the owner to choose between two designs"
+until = "2030-01-31"
+```
+
+A parked branch is shown under PARKED and is not judged for dormancy until `until` has passed
+(it still counts against the cap). A park past its date fails, and so does an entry naming no
+open branch: remove it when the branch is merged or deleted.
+
+Exit 0 clean (warnings allowed), 1 findings, 2 when it cannot judge (no `origin/F44`, git
+fails, unreadable policy). With `GITHUB_ACTIONS` set it also prints `::error::` and
+`::warning::` annotations.
+
+---
+
 ## When to Run What
 
 | Changed files        | While iterating (before each commit)                           | Before every push       |

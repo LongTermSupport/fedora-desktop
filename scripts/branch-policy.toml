@@ -1,0 +1,20 @@
+# The branch hygiene policy (scripts/qa-branch-hygiene.bash, .github/workflows/branch-hygiene.yml).
+# CLAUDE/QA.md, "Branch hygiene", says what each key does and how to park a branch.
+
+# At most this many open work branches (non-exempt, not merged into the default branch).
+cap = 10
+
+# A work branch with no commit for more than warn_days is warned about, for more than fail_days
+# it fails the job.
+warn_days = 3
+fail_days = 7
+
+# Release and architecture lines: never judged.
+exempt = ["F44", "F42", "F43", "F44-arm"]
+
+# A branch parked on a human decision is not judged for dormancy until its review date. Each entry:
+#
+# [[parked]]
+# branch = "feat/example"
+# reason = "waiting for the owner to choose between two designs"
+# until = "2030-01-31"
