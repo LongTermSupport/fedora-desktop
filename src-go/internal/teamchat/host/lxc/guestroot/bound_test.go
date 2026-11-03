@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/leakcheck"
 )
 
 // stall is a root's bound on a fake clock, moved only once a call is in its stall.

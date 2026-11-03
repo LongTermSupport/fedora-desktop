@@ -13,6 +13,7 @@ import (
 type Process interface {
 	Getuid() int
 	Geteuid() int
+	Getgid() int
 	Getgroups() ([]int, error)
 	Getwd() (string, error)
 	Environ() []string
@@ -33,6 +34,8 @@ func OSProcess() Process { return osProcess{} }
 func (osProcess) Getuid() int { return os.Getuid() }
 
 func (osProcess) Geteuid() int { return os.Geteuid() }
+
+func (osProcess) Getgid() int { return os.Getgid() }
 
 func (osProcess) Getgroups() ([]int, error) { return os.Getgroups() }
 

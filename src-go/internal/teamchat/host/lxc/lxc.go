@@ -26,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 // Phase is which half of the play's LXC work a run is (C 3.9.2).
@@ -192,6 +193,7 @@ type Deps struct {
 	OwnerGID  int                                                // the LXC record's group
 	Bridge    string                                             // wire.Bridge
 	Refresh   func(ctx context.Context, team paths.TeamID) error // the status record, after a change
+	Guard     teamlock.Guard                                     // what the team must hold true when the lock is taken (restore.Guard: no restore under way)
 }
 
 // The absent phase's L3 wait (C 3.9.2 step 4).

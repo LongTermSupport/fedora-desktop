@@ -183,8 +183,9 @@ func renderConfig(s renderSpec) []byte {
 	return []byte(b.String())
 }
 
-// regKeyOf is the registration key a rendered config holds, or "" when it holds none.
-func regKeyOf(config []byte) string {
+// RegKeyOf is the registration key a rendered config holds, or "" when it holds none; a
+// restore's bootstrap reads it from the installed config (RS7).
+func RegKeyOf(config []byte) string {
 	m := regKeyLine.FindSubmatch(config)
 	if m == nil {
 		return ""

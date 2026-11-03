@@ -44,7 +44,19 @@ type ExecChild struct {
 
 // Ask implements Child.
 func (c ExecChild) Ask(ctx context.Context, req Request) (Answer, error) {
-	bound := c.bound
+	spec, err := c.spec()
+	if err != nil {
+		return Answer{}, err
+	}
+	return askRun(ctx, c.bound, c.Runner, execx.Cmd{
+		Name: spec.Path, Args: spec.Args, Dir: spec.Dir, Env: spec.Env, CleanEnv: true,
+		Credential: &syscall.Credential{Uid: spec.UID, Gid: spec.GID, Groups: spec.Groups},
+	}, req)
+}
+
+// askRun runs cmd under bound (nil is ChildWait) with req on its stdin and its output capped,
+// and judges the answer (CS4, CS5): ExecChild's and UnitChild's one way to ask a child.
+func askRun(ctx context.Context, bound func(context.Context) (context.Context, context.CancelFunc), r execx.Runner, cmd execx.Cmd, req Request) (Answer, error) {
 	if bound == nil {
 		bound = func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return context.WithTimeout(ctx, ChildWait)
@@ -52,20 +64,13 @@ func (c ExecChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	}
 	ctx, cancel := bound(ctx)
 	defer cancel()
-	spec, err := c.spec()
-	if err != nil {
-		return Answer{}, err
-	}
 	raw, err := EncodeRequest(req)
 	if err != nil {
 		return Answer{}, err
 	}
 	out, errOut := &capped{limit: maxAnswer}, &capped{limit: maxChildStderr}
-	_, runErr := c.Runner.Run(ctx, execx.Cmd{
-		Name: spec.Path, Args: spec.Args, Dir: spec.Dir, Env: spec.Env, CleanEnv: true,
-		Credential: &syscall.Credential{Uid: spec.UID, Gid: spec.GID, Groups: spec.Groups},
-		Stdin:      bytes.NewReader(raw), Stdout: out, Stderr: errOut,
-	})
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(raw), out, errOut
+	_, runErr := r.Run(ctx, cmd)
 	if ctx.Err() != nil {
 		return Answer{}, fmt.Errorf("the %s child: %w", paths.CtlUser, ctx.Err())
 	}

@@ -678,7 +678,7 @@ func TestBusyTeamLockIs75(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
-	held, err := teamlock.Take(t.Context(), filepath.Join(w.host, "lock"), mustTeam(t, "t1"), "test", 0, w.clock)
+	held, err := teamlock.Take(t.Context(), filepath.Join(w.host, "lock"), mustTeam(t, "t1"), "test", 0, w.clock, teamlock.Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}

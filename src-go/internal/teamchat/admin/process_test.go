@@ -8,7 +8,7 @@ import (
 
 func TestOSProcess(t *testing.T) {
 	p := OSProcess()
-	if p.Getuid() != os.Getuid() || p.Geteuid() != os.Geteuid() || !slices.Equal(p.Environ(), os.Environ()) {
+	if p.Getuid() != os.Getuid() || p.Getgid() != os.Getgid() || p.Geteuid() != os.Geteuid() || !slices.Equal(p.Environ(), os.Environ()) {
 		t.Fatal("OSProcess does not report this process")
 	}
 	wd, err := p.Getwd()

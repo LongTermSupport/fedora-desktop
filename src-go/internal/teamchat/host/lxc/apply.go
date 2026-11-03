@@ -969,7 +969,7 @@ func (r *run) joins(ctx context.Context, team paths.TeamID) error {
 	if len(live) == 0 {
 		return nil
 	}
-	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock)
+	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock, r.d.Guard)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: host.StepLock, Err: err}
 	}

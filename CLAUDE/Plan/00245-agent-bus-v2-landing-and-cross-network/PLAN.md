@@ -9,9 +9,10 @@
 
 Plan 00209 designed and built v2 of the agent bus, `teamchat`, a separate system in Go beside
 v1. The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
-cross-network membership (Plan 00209 direction 7). `spike/v2-merge-up` is `feat/bus-v2-n3e`
-merged onto F44; its pull request (124) carries Tasks 8.1 to 8.7. Task 8.8 then makes a member on
-another machine able to join.
+cross-network membership (Plan 00209 direction 7). `spike/v2-merge-up` is F44 with the finished
+v2 branches (`feat/bus-v2-n2`, `feat/bus-v2-n3e`, `feat/bus-v2-n3f`) merged in; its pull request
+(124) carries Tasks 8.1 to 8.7 and 8.9. Task 8.8 then makes a member on another machine able to
+join.
 
 The task numbers are Plan 00209's Phase 8 numbers, kept so that every reference to "Task 8.x"
 (the pull request, the journal, GoProjectRules.md) still resolves. The design, the specs and the
@@ -39,8 +40,8 @@ decisions stay in Plan 00209's folder; this plan links them and does not copy th
 ### Phase 8: landing v2 on F44
 
 The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
-cross-network membership. `spike/v2-merge-up` is `feat/bus-v2-n3e` merged onto F44. Its CI run
-found the items below, largest to smallest. Each is fixed on that branch under Defence Before
+cross-network membership. `spike/v2-merge-up` began as `feat/bus-v2-n3e` merged onto F44. Its CI
+run found the items below, largest to smallest. Each is fixed on that branch under Defence Before
 Fix. F44 is merged in before every push, and GitHub CI is the gate.
 
 - [ ] 🔄 **Task 8.1**: The 40 project-rule findings the tree had (the 29 the first plan listed,
@@ -85,6 +86,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `project_realtime_bound`, which F44's module-wide rule replaced.
 - [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
+- [ ] 🔄 **Task 8.9**: The finished v2 work the branch lacked, which the owner asked for on pull
+  request 124: `feat/bus-v2-n2` (the reviewed backup and restore work), `feat/bus-v2-n3e` (11
+  newer commits) and `feat/bus-v2-n3f` (the side-rooms spec) merged into `spike/v2-merge-up`,
+  conflicts resolved by meaning, every gate re-run. Merged; the three branches are contained, and
+  are deleted, locally and on GitHub, once F44 holds them (the remote delete is refused until
+  then).
 - [ ] ⬜ **Task 8.8**: Cross-network membership, direction 7 of Plan 00209, started on a branch
   cut from the head of pull request 124 without waiting for its merge (the owner wants
   cross-network teams as soon as possible): a team declares the networks its members may be on

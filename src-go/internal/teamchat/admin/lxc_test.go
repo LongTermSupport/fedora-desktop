@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -118,6 +119,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 			},
 			Approvals: approvals,
 			Origin:    func(context.Context, paths.TeamID) (string, error) { return "v2", nil },
+			Guard:     restore.Guard(w.root),
 			Kit:       kit, HostKit: t.TempDir(), HostUIDs: map[int]bool{0: true}, OwnerGID: os.Getgid(), Bridge: "lxcbr0",
 		}, nil
 	}

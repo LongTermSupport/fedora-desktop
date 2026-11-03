@@ -27,6 +27,7 @@ const (
 // what the child's self-check reads.
 type fakeProc struct {
 	uid, euid int
+	gid       int
 	noCtl     bool
 	lookupErr error
 	groups    []int
@@ -39,6 +40,8 @@ type fakeProc struct {
 
 func (p *fakeProc) Getuid() int  { return p.uid }
 func (p *fakeProc) Geteuid() int { return p.euid }
+
+func (p *fakeProc) Getgid() int { return p.gid }
 
 func (p *fakeProc) Getgroups() ([]int, error) { return p.groups, p.groupsErr }
 
@@ -62,7 +65,7 @@ func ownerProc() *fakeProc { return &fakeProc{uid: owner, euid: owner} }
 
 // childProc is a teamchat-ctl process started as root starts it (CC1).
 func childProc() *fakeProc {
-	return &fakeProc{uid: ctlUID, euid: ctlUID, wd: "/", env: []string{"PATH=" + childPath}}
+	return &fakeProc{uid: ctlUID, euid: ctlUID, gid: ctlGID, wd: "/", env: []string{"PATH=" + childPath}}
 }
 
 type outcome struct {
@@ -233,9 +236,9 @@ func TestUsageNamesEveryVerb(t *testing.T) {
 }
 
 func TestFlagsBelongToTheVerb(t *testing.T) {
-	got := run(t, rootProc(), "", "restore", "--resume")
-	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: restore is not built yet\n" {
-		t.Fatalf("restore --resume = %+v", got)
+	got := run(t, rootProc(), "", "redact", "--resume")
+	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: redact is not built yet\n" {
+		t.Fatalf("redact --resume = %+v", got)
 	}
 }
 

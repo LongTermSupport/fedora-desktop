@@ -112,7 +112,7 @@ func (r *run) declared(team paths.TeamID, e lxcstate.Entry) (declare.LXCMember, 
 // leaveTeam is the team's leavers under its lock: every park first, recorded left before any
 // guest step, then each seat's remaining steps.
 func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*member) error {
-	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock)
+	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock, r.d.Guard)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: host.StepLock, Err: err}
 	}

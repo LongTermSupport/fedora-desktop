@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
@@ -611,6 +612,7 @@ func (w *world) deps() Deps {
 		HostUIDs:  map[int]bool{0: true, 1000: true},
 		OwnerGID:  os.Getgid(),
 		Bridge:    "lxcbr0",
+		Guard:     teamlock.Unguarded,
 		Refresh: func(_ context.Context, team paths.TeamID) error {
 			w.refresh = append(w.refresh, team.String())
 			return nil

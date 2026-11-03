@@ -123,7 +123,7 @@ var sampleTeams = []string{"x", "ops", strings.Repeat("z", 22)}
 func sampleNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := constNames()
-	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t), lxcNames(t)} {
+	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t), lxcNames(t), restoreNames(t)} {
 		for ident, values := range add {
 			names[ident] = append(names[ident], values...)
 		}
