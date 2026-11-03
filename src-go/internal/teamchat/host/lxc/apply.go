@@ -773,7 +773,7 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 			return err
 		}
 	}
-	return guestfacts.Source(addrs, m.team.AllowFrom, g.cfg.Link, r.d.Bridge)
+	return guestfacts.Source(addrs, m.team.Networks, g.cfg.Link, r.d.Bridge)
 }
 
 // checkout is the checkout's .git/config and ccy.env.local, read once per container through

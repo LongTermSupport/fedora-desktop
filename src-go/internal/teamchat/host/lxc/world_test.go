@@ -565,7 +565,7 @@ func (w *world) addBox(name string) *box {
 func (w *world) team(id string) declare.Team {
 	return declare.Team{
 		ID: mustTeam(w.t, id), State: declare.StatePresent, Name: id, Port: 8448,
-		URL: "http://198.51.100.1:8448", AllowFrom: []string{allowNet},
+		URL: "http://198.51.100.1:8448", Networks: []string{allowNet},
 	}
 }
 

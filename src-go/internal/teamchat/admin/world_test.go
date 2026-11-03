@@ -37,7 +37,7 @@ func alphaDoc() map[string]any {
 	return map[string]any{
 		"team": map[string]any{
 			"team": "alpha", "state": "present", "port": 8448, "description": "The team that builds the thing.",
-			"listen": []any{"192.0.2.10"}, "allow_from": []any{"192.0.2.0/24"}, "humans": []any{"alice", "bob"},
+			"networks": []any{"192.0.2.0/24"}, "humans": []any{"alice", "bob"},
 			"coordinator": coord,
 			"trust": map[string]any{
 				"kind": "github", "org": "example-org",
@@ -207,6 +207,11 @@ func (w *world) Listeners() ([]host.Listener, error) {
 }
 
 func (w *world) Bridge() (netip.Prefix, error) { return netip.MustParsePrefix("198.51.100.0/24"), nil }
+
+// Route sends every network of alpha's, the 192.0.2.0/24 it declares and its bus address, over eth0.
+func (w *world) Route(netip.Prefix) (host.Route, bool, error) {
+	return host.Route{Interface: "eth0"}, true, nil
+}
 
 func (w *world) ServerVersion(context.Context, int) error { return nil }
 
