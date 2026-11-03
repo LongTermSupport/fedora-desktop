@@ -1,0 +1,111 @@
+{
+ "v": 1,
+ "suite": "unicode",
+ "cases": [
+  {
+   "id": "nfkc-structural-set",
+   "spec": "P74 P84",
+   "fn": "nfkc_structural",
+   "args": {
+    "points": [
+     65282,
+     65308,
+     65310,
+     65340
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "render-u15-letter",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud839\udcd0"
+   },
+   "expect": "\"\\ud839\\udcd0\"",
+   "expect_python_by_unicode": {
+    "14": "\"\\ud839\\udcd0\"",
+    "15": "\"\ud839\udcd0\""
+   }
+  },
+  {
+   "id": "render-u15-cjk-ext-h",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud884\udf50"
+   },
+   "expect": "\"\\ud884\\udf50\"",
+   "expect_python_by_unicode": {
+    "14": "\"\\ud884\\udf50\"",
+    "15": "\"\ud884\udf50\""
+   }
+  },
+  {
+   "id": "render-u15-symbol",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud83d\udedc"
+   },
+   "expect": "\"\\ud83d\\udedc\"",
+   "expect_python_by_unicode": {
+    "14": "\"\\ud83d\\udedc\"",
+    "15": "\"\ud83d\udedc\""
+   }
+  },
+  {
+   "id": "render-u15-mark",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\u0e81\u0ece"
+   },
+   "expect": "\"\u0e81\\u0ece\"",
+   "expect_python_by_unicode": {
+    "14": "\"\u0e81\\u0ece\"",
+    "15": "\"\u0e81\u0ece\""
+   }
+  },
+  {
+   "id": "render-u15-zwj-target",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud83d\ude00\u200d\ud83e\udee8"
+   },
+   "expect": "\"\ud83d\ude00\\u200d\\ud83e\\udee8\"",
+   "expect_python_by_unicode": {
+    "14": "\"\ud83d\ude00\\u200d\\ud83e\\udee8\"",
+    "15": "\"\ud83d\ude00\u200d\ud83e\udee8\""
+   }
+  },
+  {
+   "id": "render-u15-letter-then-mark",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud839\udcd0\u0301"
+   },
+   "expect": "\"\\ud839\\udcd0\\u0301\"",
+   "expect_python_by_unicode": {
+    "14": "\"\\ud839\\udcd0\\u0301\"",
+    "15": "\"\ud839\udcd0\u0301\""
+   }
+  },
+  {
+   "id": "render-u15-symbol-then-vs16",
+   "spec": "P84 D4",
+   "fn": "render_body",
+   "args": {
+    "text": "\ud83d\udedc\ufe0f"
+   },
+   "expect": "\"\\ud83d\\udedc\\ufe0f\"",
+   "expect_python_by_unicode": {
+    "14": "\"\\ud83d\\udedc\\ufe0f\"",
+    "15": "\"\ud83d\udedc\ufe0f\""
+   }
+  }
+ ]
+}
