@@ -7,7 +7,7 @@
 # unshare` (namespaced root, confined to that map) — cannot remove such files
 # (permission denied), so podman fails to load its store, rc=125.
 #
-# TWO DISTINCT failure surfaces, established from triage on host joseph-p14:
+# TWO DISTINCT failure surfaces, established from triage on host example-host:
 #
 #   1. Incomplete OVERLAY LAYER (the store-load blocker): podman names it on
 #      every load and tries to stage-delete it, but the layer dir is owned by an

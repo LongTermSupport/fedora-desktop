@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.108.1 — container 2.79.23
+## 3.110.0 — container 2.79.24
 
 The image is rebuilt: fzf is the upstream release, not the Debian package.
 
@@ -25,6 +25,14 @@ The image is rebuilt: fzf is the upstream release, not the Debian package.
   in `vars/fzf-pin.yml` (the pin the host plays use), for amd64 or arm64, and the build fails
   if the tarball's sha256 differs from the one the project publishes. The pickers' gutter,
   which newer fzf draws as a visible bar, is hidden with `--gutter=' '`.
+
+---
+
+## 3.109.0 — container 2.79.23
+
+The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.
+
+---
 
 ## 3.108.0 — container 2.79.22
 
@@ -703,7 +711,7 @@ Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never r
 branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
-  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  00217). A team piece reads `alpha: example-repo.2 (c)`: the team, this session's member in
   it and its role, in the team's colour. The colour comes from the team's name, in a palette
   legible on dark terminals, unless the team's `colour:` overrides it.
 

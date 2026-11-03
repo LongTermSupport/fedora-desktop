@@ -88,7 +88,7 @@ launch does not start.
    with which team it is (`New session › Team 2 of 3: beta`), and the
    launch prints which teams the session is on, with seat, role and what each is for (so does
    `ccy-teams session add` or `move` on a running session, on its own terminal); the status
-   line shows `👥 alpha: fedora-desktop.2 (w), beta: fedora-desktop.1 (c)`, each team in its own
+   line shows `👥 alpha: example-repo.2 (w), beta: example-repo.1 (c)`, each team in its own
    colour, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
@@ -763,7 +763,7 @@ dedicated agent user.
 ### A session's status line
 
 Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
-line with `👥 alpha: fedora-desktop.2 (c), beta: fedora-desktop.2 (w)`: the teams it is on,
+line with `👥 alpha: example-repo.2 (c), beta: example-repo.2 (w)`: the teams it is on,
 each with this session's member in it (its handle up to the `+`) and its role, `c` for
 coordinator and `w` for worker (👥 is the team counterpart of the hooks daemon's 👤 account).
 The role is read on every refresh from the same team record the live role notice reads, so a

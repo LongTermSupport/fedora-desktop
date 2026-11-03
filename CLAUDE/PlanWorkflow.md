@@ -101,7 +101,7 @@ bootstrap, and reference skeletons are in
 > faithfully, which is exactly why fixing the single script would have fixed
 > nothing.
 >
-> **This repo is also routinely checked out INSIDE another one** (lts-infra keeps
+> **This repo is also routinely checked out INSIDE another one** (example-team keeps
 > it at `untracked/repos/fedora-desktop`), and both repos have an `ansible.cfg` at
 > their root — so root resolution must additionally stop at the repository
 > boundary, or it silently resolves to the parent repo and *appears to work*.

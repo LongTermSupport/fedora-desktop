@@ -143,7 +143,7 @@ imports is only safe if `.claude/rules/*.md` with `paths:` globs make the same d
 change would not have saved context — it would have silently removed guidance.
 
 `.claude/rules/` **did not exist in this repo**; the rules I had previously seen belong to the outer
-lts-infra checkout. Seven were created: `ansible-editing`, `bash-scripts`, `ccy-version-bump`,
+example-team checkout. Seven were created: `ansible-editing`, `bash-scripts`, `ccy-version-bump`,
 `python-helpers`, `secrets-and-vault`, `gnome-extensions`, `qa-gates`. Each is a **thin pointer** to
 the topic file that owns the fact, never a copy — one source of truth per fact still holds.
 

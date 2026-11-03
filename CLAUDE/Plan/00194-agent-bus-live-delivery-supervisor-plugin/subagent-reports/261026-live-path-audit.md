@@ -16,7 +16,7 @@ The fix uses the product as it stands. `dl_take_seats` now runs one take per lis
 `DL_TAKES`: first `SEAT_LIST` (the session's own seats), then `2@accept194c` (the peer). The
 peer is a seat of the scratch checkout that no session holds. It is never launched, and it posts
 through its own bundle (`bus_human.py agent-say --bundle <seats>/accept194c/2`). Its handle is
-`fedora-desktop.2+local.podman`, a sibling of the session's seat, and its note arrives as PEER.
+`example-repo.2+local.podman`, a sibling of the session's seat, and its note arrives as PEER.
 
 - **The session's membership.** It is still exactly `SEAT_LIST`. `gb_launch` passes
   `--teams "${SEAT_LIST}"`, and `gb_seats_held` waits for those seats only.

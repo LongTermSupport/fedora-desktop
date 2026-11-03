@@ -27,8 +27,8 @@ instead. The inner command runs in its own process group, killed on a timeout an
 process is cancelled (Claude Code cancels an in-flight render when a new one starts), so nothing
 it started outlives the render.
 
-Each team shows this session's member in it and its role, `👥 desktop: fedora-desktop.2 (c),
-other: fedora-desktop.2 (w)` (Plan 00217 SPEC-team-colours C15 to C18): the member's handle up to
+Each team shows this session's member in it and its role, `👥 desktop: example-repo.2 (c),
+other: example-repo.2 (w)` (Plan 00217 SPEC-team-colours C15 to C18): the member's handle up to
 its `+`, from the bundle, and the role's letter, read on every render from the team record the
 hooks' role notice reads (`inbox.cached_role`), so a role change shows at the next refresh with
 no restart. What cannot be read is `member?` or `(role?)`, never a guess, with one line on stderr

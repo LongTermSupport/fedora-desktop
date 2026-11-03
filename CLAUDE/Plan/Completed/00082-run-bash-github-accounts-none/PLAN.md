@@ -12,7 +12,7 @@
 `RUN_BASH_GITHUB_ACCOUNTS=none` fails preflight naming a "planned follow-up, not
 yet supported." This blocks headless-provisioning a box that has no GitHub
 identity of its own — e.g. a CI runner or a shared dev/marketing box in another
-estate (lts-infra) that would otherwise need a dedicated bot account or a PAT
+estate (example-team) that would otherwise need a dedicated bot account or a PAT
 minted for the operator's personal account just to satisfy this precondition.
 
 This plan implements the GitHub-empty path: `RUN_BASH_GITHUB_ACCOUNTS=none`
@@ -65,8 +65,8 @@ plan's actual deliverable.
   playbook run) — this plan's acceptance coverage is preflight-only, run
   inside the CCY container; live verification is a follow-up the operator runs
   on a real box (Task 4/5).
-- Re-opening the bot-account-vs-owner-account identity question for lts-infra
-  — already decided (lts-infra Plan 00045 Task 2.8: `LTSCommerce`, no bot
+- Re-opening the bot-account-vs-owner-account identity question for example-team
+  — already decided (example-team Plan 00045 Task 2.8: `LTSCommerce`, no bot
   account). This plan removes the *need* for any GitHub identity at all on
   boxes that don't want one, which is orthogonal to that decision.
 

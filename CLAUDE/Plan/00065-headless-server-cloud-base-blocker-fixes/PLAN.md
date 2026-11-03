@@ -114,7 +114,7 @@ non-interactive stdin — cosmetic).
   clone, and the `always:` cleanup (~65 lines → ~13). Removes the GitHub-SSH hard dep.
   `--syntax-check` rc=0.
 - [ ] 🔄 **Task 1.5**: Run QA: `./scripts/qa-all.bash`; fix findings. NOTE: full `qa-all.bash`
-  cannot run in the ballicom-infra CCY container (`ruff` not provisioned here — a
+  cannot run in the example-d-infra CCY container (`ruff` not provisioned here — a
   fedora-desktop-HOST tool; missing-required-tool = hard fail by design). Per-play
   `ansible-playbook --syntax-check` DOES run and passed for 1.1/1.2/1.3/1.4 — the LXC play
   needed `ansible-galaxy collection install -r requirements.yml` first (its unchanged

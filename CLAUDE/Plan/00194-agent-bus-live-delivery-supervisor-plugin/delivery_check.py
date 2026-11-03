@@ -322,8 +322,8 @@ def take_lists(lists: Sequence[str]) -> list[str]:
 
 
 #: The fake mode's session handle and a peer's, and the event IDs of its fixture entries.
-FAKE_HANDLE = "fedora-desktop.1+host.podman"
-FAKE_PEER = "fedora-desktop.2+host.podman"
+FAKE_HANDLE = "example-repo.1+host.podman"
+FAKE_PEER = "example-repo.2+host.podman"
 FAKE_TS = 1792069331000
 
 

@@ -37,14 +37,8 @@
 # its Flatpak install now verifies the installed ID, so it re-runs.
 playbooks/imports/optional/common/play-matrix-clients.yml
 
-# Basic configs: builds and installs the histclean command, and deploys the HISTIGNORE entries (the nohist=1 prefix, histclean) and the Ctrl+R
-# picker footer (Plan 00246); it also installs the pinned upstream fzf, which the footer needs.
-playbooks/imports/play-basic-configs.yml
-
-# fzf from its upstream release (pinned, checksum-verified; the Fedora package is removed):
-# basic-configs (Ctrl+R search), cli-tools (open chooser), claude-yolo (ccy pickers, and the
-# image rebuild for container 2.79.23), podfreeze and lxcfreeze (freeze menus).
-playbooks/imports/play-claude-yolo.yml
-playbooks/imports/optional/common/play-cli-tools.yml
-playbooks/imports/optional/common/play-podfreeze.yml
-playbooks/imports/optional/common/play-lxcfreeze.yml
+# The ccy launcher and image changes from the private-name guard and the fzf pin (the pinned
+# upstream fzf replaces the Fedora package; the image rebuilds as container 2.79.24), plus
+# play-basic-configs (histclean, the nohist=1 prefix, the Ctrl+R footer), play-cli-tools and the
+# freeze tooling, all of which now install fzf from its release.
+changed-plays

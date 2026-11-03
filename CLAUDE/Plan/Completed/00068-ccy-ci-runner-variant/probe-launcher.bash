@@ -4,8 +4,8 @@
 #
 # THIS IS THE PROBE THAT FAILED. The original hand-rolled triage.bash resolved its repo root
 # with `git rev-parse --show-toplevel`, which answers about the CWD. Run by path from
-# lts-infra's root it compared the deployed launcher against
-# <lts-infra>/files/var/local/claude-yolo/claude-yolo — a path that does not exist there — and
+# example-team's root it compared the deployed launcher against
+# <example-team>/files/var/local/claude-yolo/claude-yolo — a path that does not exist there — and
 # reported "Could not checksum both files" instead of failing. The check meant to catch
 # launcher drift became a shrug.
 #

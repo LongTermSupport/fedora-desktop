@@ -33,8 +33,11 @@ check() {
 
 repo="$work/repo"
 ccy="$repo/files/var/local/claude-yolo"
+# The hook runs scripts/qa-private-names.bash (Plan 00245 Phase 3); these suites judge other gates, so
+# a stand-in that passes sits where the hook looks for it. The real one has its own Go tests.
 mkdir -p "$ccy/supervisor-plugins" "$repo/hooks"
 cp -R "$HOOK_DIR/." "$repo/hooks/"
+printf '#!/bin/sh\nexit 0\n' >"$repo/qa-private-names.bash" && chmod 755 "$repo/qa-private-names.bash"
 git -C "$repo" init -q
 git -C "$repo" config user.name test
 git -C "$repo" config user.email test@example.com
@@ -449,6 +452,7 @@ check "the host-only kit files under files/opt/claude-yolo are found" "yes" \
 repo="$work/real"
 mkdir -p "$repo/hooks"
 cp -R "$HOOK_DIR/." "$repo/hooks/"
+printf '#!/bin/sh\nexit 0\n' >"$repo/qa-private-names.bash" && chmod 755 "$repo/qa-private-names.bash"
 for path in files/var/local/claude-yolo/Dockerfile files/var/local/claude-yolo/claude-yolo \
     $(cat "$work/image-files" "$work/host-files"); do
     mkdir -p "$(dirname "$repo/$path")"
@@ -486,6 +490,7 @@ echo "=== the secret scan's scope ==="
 scan="$work/scan"
 mkdir -p "$scan/scripts" "$scan/src-go/vendor/example.org/mod" "$scan/src-go/internal"
 cp -R "$HOOK_DIR" "$scan/scripts/git-hooks"
+printf '#!/bin/sh\nexit 0\n' >"$scan/scripts/qa-private-names.bash" && chmod 755 "$scan/scripts/qa-private-names.bash"
 cat >"$scan/scripts/qa-go-deps.bash" <<'GATE'
 #!/usr/bin/env bash
 set -euo pipefail
