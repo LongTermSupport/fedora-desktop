@@ -44,8 +44,10 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
 
 ### Phase 1: assess
 
-- [ ] 🔄 **Task 1.1**: Triage everything under `untracked/` (Sonnet):
-  `RESEARCH-untracked-triage.md` (being written).
+- [x] ✅ **Task 1.1**: Triage everything under `untracked/` (Sonnet):
+  [RESEARCH-untracked-triage.md](RESEARCH-untracked-triage.md): 237 valuable files with no
+  tracked copy (rescued Go code, about 137 saved sub-agent reports, about 52 specs and reviews, owner
+  sheets); the biggest source is the daemon's own saved replies.
 - [x] ✅ **Task 1.2**: Design the defence layers, here and upstream (Opus):
   [DESIGN-defence.md](DESIGN-defence.md): the class (an unrecorded asset), nine layers, the
   recommendation (consumption and age gates, then a write-time guard) and the upstream text.
