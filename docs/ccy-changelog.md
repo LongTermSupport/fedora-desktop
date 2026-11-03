@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.106.0 — container 2.79.22
+## 3.108.0 — container 2.79.22
 
 The image is unchanged, so there is no rebuild.
 
@@ -34,6 +34,15 @@ The image is unchanged, so there is no rebuild.
   the new `LAST_TEAM_ROLES` line of `.last-launch.conf` (the format version is unchanged: a
   file without it is read). Nothing of the bus is touched: the seat and role are read the
   way `ccy-teams choose-seat` reads them. Addresses #125.
+
+## 3.107.1 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
 
 ## 3.105.2 — container 2.79.22
 

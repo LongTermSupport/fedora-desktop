@@ -128,3 +128,27 @@ func TestDefaultIsTheCcyLaunchersDefault(t *testing.T) {
 		t.Errorf("ccy defaults %s to %s, cc-claude to %s", WindowVar, found[0][1], DefaultWindow)
 	}
 }
+
+// C6: the ccy launcher always sets the even-more-dangerous bypass variable, because the
+// container is the isolation boundary; host cc has no such boundary and never sets it.
+func TestYoloVariableIsCcyOnly(t *testing.T) {
+	const yoloVar = "CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS"
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := fs.ReadFile(os.DirFS(root), "files/var/local/claude-yolo/claude-yolo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `-e "`+yoloVar+`=1"`) {
+		t.Errorf("the ccy launcher does not pass -e %s=1 to the container", yoloVar)
+	}
+	w := newWorld()
+	w.run("--print")
+	for _, e := range w.only(t).Env {
+		if strings.HasPrefix(e, yoloVar) {
+			t.Errorf("cc-claude sets %s: %s", yoloVar, e)
+		}
+	}
+}
