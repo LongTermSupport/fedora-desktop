@@ -1302,6 +1302,21 @@ guessing; the catalogue claims no more than the code does.
   detector. Whether the agent containers also get a gate that runs the Go tests as an
   unprivileged user is the owner's question on PR 124.
 
+- **A test that needs a kernel facility a restricted runner denies, and fails instead of
+  skipping** (found by the same CI run, the one test left failing after the root-only causes were
+  fixed). `guestroot`'s `TestWriterRefusesABindMount` makes a mount in a user namespace of its own,
+  through `reexec.StartInUserNamespace`, which skipped a kernel that refuses the namespace but not
+  one that allows it and refuses the mount in it (`bind-mount: permission denied`, consistent with
+  an AppArmor-restricted runner; the container where it passed does not restrict it). Whether a
+  kernel allows a call is a fact about one host, not a shape in the syntax tree, and the tests
+  that use a mount are one. What holds it: the one seam. A helper that finds its environment
+  unable to do its work ends with `reexec.ExitSkip` and `StartInUserNamespace` skips the test
+  showing what the helper said; any other early end, a signal and a failure to run still fail it
+  (`TestOnlyTheSkipExitIsASkip`). The cost is that where the runner denies the mount, CI never
+  runs that test: it holds that a write through a bind mount is refused by the kernel
+  (`RESOLVE_NO_XDEV`), which `TestMkdirAll` shows only by the flag it passes. Whether CI should
+  allow the mount (a runner setting) or the skip is accepted is the owner's question on PR 124.
+
 - **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
   fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails
   on a host where only some sudoers entries are NOPASSWD while the commands that follow run
