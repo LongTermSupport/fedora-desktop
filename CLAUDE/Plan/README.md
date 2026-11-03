@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00244-agent-bus-v2-landing-and-cross-network](00244-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
+- [00245-agent-bus-v2-landing-and-cross-network](00245-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
 
 - [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the lts-infra aarch64 test bed; the work collects on branch `F44-arm`.
 

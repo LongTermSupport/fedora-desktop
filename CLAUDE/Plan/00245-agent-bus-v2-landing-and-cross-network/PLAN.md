@@ -1,4 +1,4 @@
-# Plan 00244: agent bus v2 landing and cross network
+# Plan 00245: agent bus v2 landing and cross network
 
 **Status**: In Progress (split out of Plan 00209 Phase 8 on the repository owner's decision of 2026-11-03; Plan 00209 stays the plan of record for v2's design and build, this plan is the landing of `teamchat` on F44 and the cross-network membership that follows it)
 **Created**: 2026-11-03
