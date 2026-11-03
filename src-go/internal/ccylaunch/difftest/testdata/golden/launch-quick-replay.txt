@@ -167,6 +167,7 @@ file project/.claude/ccy/.last-launch.conf 0600
      | LAST_SSH_KEYS=""
      | LAST_NETWORK=""
      | LAST_TEAMS=""
+     | LAST_TEAM_ROLES=""
      | LAST_LAUNCH_DATE="2030-01-15"
 file project/.claude/ccy/ccy.env.local.dist 0600
      | # ccy.env.local.dist version 3

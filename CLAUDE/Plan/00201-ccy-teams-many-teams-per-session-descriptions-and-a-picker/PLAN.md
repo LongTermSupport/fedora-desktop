@@ -378,6 +378,19 @@ a repository is no longer offered for a checkout of it. Report:
   there. SPEC S-B15 and ACCEPTANCE step 2 say No. Host: `play-claude-yolo.yml` (queued in
   `meta-deploy.list`).
 
+- [x] ✅ **Task 2.33**: GitHub issue #125, one launch summary (branch `feat/ccy-launch-summary`,
+  CCY 3.105.0). At a terminal the launcher shows `ccy-teams launch-summary` instead of the Y/n
+  Quick Launch: token, SSH key, network and each team's seat and role; Enter accepts all, a
+  line changes only itself. A team whose seat is held, whose scope does not cover the checkout,
+  whose role changed, or that cannot be taken is marked NEEDS AN ANSWER and must be answered.
+  The summary asks the bus only through `Chooser.Probe` (`choose.Probe`), so it is the same for
+  v1 and v2; roles are remembered in `LAST_TEAM_ROLES` of `.last-launch.conf`, never in v1's
+  seat files. Tests first (red: `Probe` and `Summary` undefined, `LAST_TEAM_ROLES` refused by
+  the reader), then green. Open: the network line is asked at its usual later step, not inside
+  the summary; adding a team from the summary is not offered (the list is `choose-teams`);
+  host check of the real gum screen after `play-claude-yolo.yml`. Report:
+  [subagent-reports/261103-launch-summary.md](subagent-reports/261103-launch-summary.md).
+
 ## Success Criteria
 
 Proven by the host run of ACCEPTANCE-owner.md at F44 d247e4b2f (Task 2.7), and again at F44

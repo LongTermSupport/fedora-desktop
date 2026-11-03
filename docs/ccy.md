@@ -1269,7 +1269,10 @@ No. `ccy-teams session add --role=coordinator` and `session role` ask the same t
 with no terminal (or with `--yes`) a takeover needs `--demote-current`. Sudo runs only when
 the role changes, and the role is kept in
 the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
-summary. Quick Launch reuses the seat only when you answer yes to that summary (end of input
+summary. At a terminal, Quick Launch is one summary of the token, key, network and every team's
+seat and role: Enter launches with all of them, and a line picked changes only that one (a team
+whose seat is now held, whose scope no longer covers the checkout or whose role changed is
+marked and must be answered). Without a terminal it is the Y/n prompt: it reuses the seat only when you answer yes to that summary (end of input
 is not a yes): a headless launch, a launch with no terminal and a restore take the saved token,
 keys and network but never the saved team, and the summary shows their team as none. A restore
 takes `--teams` from the session's own registry record instead, so a restored team session

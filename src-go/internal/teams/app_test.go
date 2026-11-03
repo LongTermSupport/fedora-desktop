@@ -174,6 +174,20 @@ func TestAChooseTeamsAppKeepsStdoutForThePayloadAlone(t *testing.T) {
 	}
 }
 
+func TestLaunchSummaryIsDispatchedAndKeepsStdoutForThePayload(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"launch-summary", "--type=lxc"}); code != term.ExitUsage {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.ErrOut.String(), "launch-summary") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	a := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"launch-summary", "--type=podman"})
+	if a.Payload != os.Stdout || a.Stdout != os.Stderr {
+		t.Fatalf("payload %v stdout %v", a.Payload, a.Stdout)
+	}
+}
+
 func TestDispatchRecordSeatsIsTheFindFlow(t *testing.T) {
 	h := world(t)
 	if code := h.app.Run([]string{"record-seats", "one", "two", "three"}); code != term.ExitUsage {

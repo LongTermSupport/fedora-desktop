@@ -32,6 +32,9 @@ const exitConfig term.ExitCode = 78
 // stateNew is a seat the checkout does not have yet: its member is made when the launch starts.
 const stateNew = "new"
 
+// stateHeld is a seat a running session holds.
+const stateHeld = "held"
+
 // The launch block's head and seat line (S-C4); Plan 00201's m7_check reads them by name. The
 // seat line's first field is the team, padded to the longest team of the block.
 const (
@@ -68,7 +71,7 @@ func row(c agentbus.Choice) string {
 	state := c.State
 	switch c.State {
 	case "free":
-	case "held":
+	case stateHeld:
 		state = "held by a running session"
 	case stateNew:
 		state = "new seat"
@@ -365,7 +368,7 @@ func running(choices agentbus.Choices) coordinator.Lookup {
 	var seats []agentbus.Seat
 	for _, r := range choices.Rows {
 		if r.State != stateNew {
-			seats = append(seats, agentbus.Seat{Seat: r.Seat, Handle: r.Handle, Held: r.State == "held"})
+			seats = append(seats, agentbus.Seat{Seat: r.Seat, Handle: r.Handle, Held: r.State == stateHeld})
 		}
 	}
 	return coordinator.FromSeats(seats)

@@ -27,6 +27,24 @@ Host `cc` has no version number of its own; this entry is not a CCY release.
   the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
   already exported, then becomes claude. `play-claude-yolo.yml` builds it.
 
+## 3.105.0 — container 2.79.21
+
+The image is unchanged, so there is no rebuild.
+
+- **Quick Launch is one summary of every default.** At a terminal (with gum and ccy-teams),
+  the `Use same configuration? [Y/n]` prompt is replaced by `ccy-teams launch-summary`: the
+  token, SSH key, network, and each team with its seat and role, one line each. Enter on
+  "Launch with these choices" accepts all, with no further screens. Any other line changes
+  only itself: the token and SSH key are asked there and the summary comes back; a team is
+  asked its scope (when it no longer covers the checkout), then its seat and role; the
+  network is asked at its usual step of the launch. A team whose remembered seat is now
+  held, whose scope no longer covers the checkout, whose role changed since, or that cannot
+  be taken is marked NEEDS AN ANSWER, Enter lands on it, and the launch is refused until it
+  is answered. With no terminal the old Y/n prompt is unchanged. The roles are remembered in
+  the new `LAST_TEAM_ROLES` line of `.last-launch.conf` (the format version is unchanged: a
+  file without it is read). Nothing of the bus is touched: the seat and role are read the
+  way `ccy-teams choose-seat` reads them. Addresses #125.
+
 ## 3.104.17 — container 2.79.20
 
 The image is unchanged, so there is no rebuild.
