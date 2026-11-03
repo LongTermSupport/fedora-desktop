@@ -46,8 +46,9 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
 
 - [ ] 🔄 **Task 1.1**: Triage everything under `untracked/` (Sonnet):
   `RESEARCH-untracked-triage.md` (being written).
-- [ ] 🔄 **Task 1.2**: Design the defence layers, here and upstream (Opus):
-  `DESIGN-defence.md` (being written).
+- [x] ✅ **Task 1.2**: Design the defence layers, here and upstream (Opus):
+  [DESIGN-defence.md](DESIGN-defence.md): the class (an unrecorded asset), nine layers, the
+  recommendation (consumption and age gates, then a write-time guard) and the upstream text.
 - [ ] ⬜ **Task 1.3**: File the hooks-daemon issue from the design (no project names).
 
 ### Phase 2: defend and sweep
