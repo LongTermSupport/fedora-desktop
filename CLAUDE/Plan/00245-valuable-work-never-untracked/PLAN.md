@@ -66,7 +66,11 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
   where needed), then delete the untracked copy. Second sweep filed 163 files, guarded; the
   owner's list of what stays is in
   [the report](subagent-reports/261103-untracked-sweep-2.md). Deleting the untracked copies
-  waits for the owner.
+  waits for the owner. Rescue and purge ran
+  ([report](subagent-reports/261104-wip-rescue-purge.md)): 34252 files deleted, 7 branches and 39
+  worktrees pushed. Wiring the audit as blocking is blocked on the owner's decision for what is
+  left: 8 worktrees the commit hook refuses, 108 decision and 33 patch findings, the items
+  listed for the owner, and the nested checkouts.
 
 ### Phase 3: the private-name guard
 
