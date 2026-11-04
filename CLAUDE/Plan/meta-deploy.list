@@ -38,3 +38,9 @@
 # Desktop and grants it the keyring, through the task file the agent-bus Element play now
 # shares (Plan 00244 Task 3.2).
 playbooks/imports/optional/common/play-matrix-clients.yml
+
+# The ccy launcher and image changes from the private-name guard and the fzf pin (the pinned
+# upstream fzf replaces the Fedora package; the image rebuilds as container 2.79.24), plus
+# play-basic-configs (histclean, the nohist=1 prefix, the Ctrl+R footer), play-cli-tools and the
+# freeze tooling, all of which now install fzf from its release.
+changed-plays

@@ -22,11 +22,7 @@
 # running just one of them gets the same picker, and both plays can truthfully promise the same
 # menu, drill-down and keys.
 - name: Install the Interactive Picker the Freeze Menu Uses
-  ansible.builtin.dnf:
-    name:
-      - fzf
-    state: present
-  become: true
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
   tags:
     - packages
 
