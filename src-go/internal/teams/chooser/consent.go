@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -76,8 +75,7 @@ func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
 	if len(handles) == 0 {
 		who = "this session on the bus"
 	}
-	head := ui.Here(flow.LaunchCrumb, "Element consent").About("host seats: " + who)
-	yes, err := c.Gum.Confirm(ctx, head, "Accept, and start "+who+"?", false)
+	yes, err := c.Gum.Confirm(ctx, "Accept, and start "+who+"?", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		c.say("Not started. Nothing was recorded; cc --teams asks again next time.")
 		return term.ExitFailure
