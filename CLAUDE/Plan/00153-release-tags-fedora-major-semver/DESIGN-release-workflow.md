@@ -29,6 +29,10 @@ so the tag cannot sit on a merge commit. That is why `scripts/release.bash` make
 
 ## Decisions for the owner
 
+**Decided on 2026-11-04, each as proposed:** D1 (a), D2 (a), D3 a push trigger, D4 the title check.
+D5 is not a choice but the owner's own actions, listed under "What Task 5.3 builds". The options and
+the reasons stay below as the record of what was weighed.
+
 **D1. The key and its principal.**
 
 - (a) The release key is one more entry in `self_update_signing_public_keys`, under the same principal

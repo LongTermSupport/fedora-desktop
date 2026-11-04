@@ -120,9 +120,13 @@ both change only once Task 5.1 is decided.
   protected environment with a required reviewer that alone can read it; the tag ruleset
   that makes release tags immutable and creatable only by the workflow. The design is written,
   from what a server demands of a release: [DESIGN-release-workflow.md](DESIGN-release-workflow.md).
-  Waiting on the owner: D1 (the key and its principal), D2 (how the release commit reaches the
-  protected branch), D3 (what starts a run), D4 (the commit-message convention), D5 (the
-  environment, its secret and the tag ruleset, which only the owner can create).
+  Decided by the owner on 2026-11-04, each as proposed: D1 the release key is one more entry
+  under the owner's principal; D2 the workflow opens a pull request with the signed release
+  commit, a person merges it with a merge commit, and a second run tags it; D3 a push to
+  `F<major>` starts a run, the version step before the approval; D4 a conventional header is
+  required on the title of a pull request bound for `F<major>`, and the workflow reads the
+  merged pull request's title. Still the owner's: D5, the environment, its secret, the
+  deploy key and the tag ruleset, which only the owner can create; Task 5.3 lists them.
 - [x] ✅ **Task 5.2**: Tests first: the version computation driven against a fixture history
   (no releasable commit means no release). Built in `src-go/internal/releasever` (rules V1-V6 in
   its package doc), ahead of Task 5.1's decision because issue 82 states the rule; a different
