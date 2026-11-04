@@ -1,0 +1,2391 @@
+{
+ "v": 1,
+ "suite": "lines",
+ "cases": [
+  {
+   "id": "format-sent",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+    ]
+   },
+   "expect": "SENT\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+  },
+  {
+   "id": "format-absent",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     null
+    ]
+   },
+   "expect": "SENT\t1\tmyteam\t-"
+  },
+  {
+   "id": "format-dash-given",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "-",
+     "-"
+    ]
+   },
+   "expect": "SENT\t1\t-\t-"
+  },
+  {
+   "id": "format-too-few",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-too-many",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-empty-field",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     ""
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-tab",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "a\tb"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-newline",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "a\nb"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-nul",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "\u0000"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-us",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "\u001f"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-del",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "a\u007f"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-c1-allowed",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "\u0080"
+    ]
+   },
+   "expect": "SENT\t1\tmyteam\t\u0080"
+  },
+  {
+   "id": "format-lone-surrogate-allowed",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     "\ud800"
+    ]
+   },
+   "expect": "SENT\t1\tmyteam\t\ud800"
+  },
+  {
+   "id": "format-not-string",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "myteam",
+     5
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-unknown-kind",
+   "spec": "P67 D15",
+   "fn": "format_line",
+   "args": {
+    "kind": "NOPE",
+    "fields": []
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D15",
+    "raises": "KeyError"
+   }
+  },
+  {
+   "id": "format-ping-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "PING",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "PING\t1\tx\tx\tx\tx\tx\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-ping-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "PING",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-human-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "HUMAN",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "HUMAN\t1\tx\tx\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-human-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "HUMAN",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-peer-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "PEER",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "PEER\t1\tx\tx\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-peer-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "PEER",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-reply-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "REPLY",
+    "fields": [
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "REPLY\t1\tx\tx\tx"
+  },
+  {
+   "id": "format-reply-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "REPLY",
+    "fields": [
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-about-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "ABOUT",
+    "fields": [
+     "x",
+     "x"
+    ]
+   },
+   "expect": "ABOUT\t1\tx\tx"
+  },
+  {
+   "id": "format-about-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "ABOUT",
+    "fields": [
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-timeout-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "TIMEOUT",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "TIMEOUT\t1\tx\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-timeout-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "TIMEOUT",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-sent-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "x",
+     "x"
+    ]
+   },
+   "expect": "SENT\t1\tx\tx"
+  },
+  {
+   "id": "format-sent-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "SENT",
+    "fields": [
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-dropped-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "DROPPED",
+    "fields": [
+     "x",
+     "x"
+    ]
+   },
+   "expect": "DROPPED\t1\tx\tx"
+  },
+  {
+   "id": "format-dropped-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "DROPPED",
+    "fields": [
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-history-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "HISTORY",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "HISTORY\t1\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-history-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "HISTORY",
+    "fields": [
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-question-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "QUESTION",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "QUESTION\t1\tx\tx\tx\tx\tx\tx"
+  },
+  {
+   "id": "format-question-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "QUESTION",
+    "fields": [
+     "x",
+     "x",
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "format-reply_to-count",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "REPLY_TO",
+    "fields": [
+     "x",
+     "x",
+     "x"
+    ]
+   },
+   "expect": "REPLY_TO\t1\tx\tx\tx"
+  },
+  {
+   "id": "format-reply_to-count-short",
+   "spec": "P67",
+   "fn": "format_line",
+   "args": {
+    "kind": "REPLY_TO",
+    "fields": [
+     "x",
+     "x"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-trusted",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": "PING\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.1+desk.podman\treview\tcommit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567\t-\ttrusted\t-\t-"
+  },
+  {
+   "id": "ping-copy-branch",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.2+desk.podman:server.test",
+     "verb": "done",
+     "ref": "issue:someone/project#7",
+     "re": null,
+     "trust": "external",
+     "branch": "main",
+     "copy_of": [
+      "@alice:server.test",
+      "@bob:server.test"
+     ]
+    }
+   },
+   "expect": "PING\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\tdone\tissue:someone/project#7\t-\texternal\tmain\tcopy:alice,bob"
+  },
+  {
+   "id": "ping-ack-re",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.2+desk.podman:server.test",
+     "verb": "ack",
+     "ref": null,
+     "re": "$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "trust": null,
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": "PING\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\tack\t-\t$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t-\t-\t-"
+  },
+  {
+   "id": "ping-bad-team",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "My",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-event",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$short",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-sender-other-server",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:other.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-verb",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "bogus",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-ref",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:nope",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-re",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "ack",
+     "ref": null,
+     "re": "x",
+     "trust": null,
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-trust-without-ref",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "halt",
+     "ref": null,
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-ref-without-trust",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": null,
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-unknown-trust",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "maybe",
+     "branch": null,
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-branch",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": "a b",
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ping-bad-copy",
+   "spec": "P68",
+   "fn": "ping_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "ping": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": [
+      "@Alice:server.test"
+     ]
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-main",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"please halt and commit what you have\"\t-"
+  },
+  {
+   "id": "human-escapes",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "a\tb\n\"c\"\\\u00e9\ud83d\ude00\u007f\ud800"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"a\\tb\\n\\\"c\\\"\\\\\\u00e9\\ud83d\\ude00\\u007f\\ud800\"\t-"
+  },
+  {
+   "id": "human-empty-text",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 0,
+     "text": ""
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t0\t\"\"\t-"
+  },
+  {
+   "id": "human-questions-attached",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "cap it at 10"
+    },
+    "room": "questions",
+    "question": [
+     3,
+     "Cap?"
+    ]
+   },
+   "expect": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"cap it at 10\"\tquestions:Q3"
+  },
+  {
+   "id": "human-questions-unattached",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "hi"
+    },
+    "room": "questions",
+    "question": null
+   },
+   "expect": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"hi\"\tquestions:-"
+  },
+  {
+   "id": "human-main-with-question",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": [
+     3,
+     "Cap?"
+    ]
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-reports-room",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "reports",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-unknown-room",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "bogus",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-agent-sender",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-other-server",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:other.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-reserved-sender",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@admin:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-negative-ts",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": -1,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-bool-ts",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": true,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-float-ts",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1.0,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-bad-event",
+   "spec": "P68",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "x",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-ts-past-int64",
+   "spec": "P68 D13",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 9223372036854775808,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t9223372036854775808\t\"please halt and commit what you have\"\t-"
+   }
+  },
+  {
+   "id": "human-question-zero",
+   "spec": "P68 D15",
+   "fn": "human_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "hi"
+    },
+    "room": "questions",
+    "question": [
+     0,
+     "h"
+    ]
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D15",
+    "value": "HUMAN\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"hi\"\tquestions:Q0"
+   }
+  },
+  {
+   "id": "peer-plain",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    }
+   },
+   "expect": "PEER\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.1+desk.podman\t1791234567950\t\"I am on the docs\"\t-"
+  },
+  {
+   "id": "peer-copy",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.2+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": [
+      "@alice:server.test"
+     ]
+    }
+   },
+   "expect": "PEER\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\t1791234567950\t\"I am on the docs\"\tcopy:alice"
+  },
+  {
+   "id": "peer-human-sender",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "peer-negative-ts",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": -1,
+     "text": "I am on the docs",
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "peer-bool-ts",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": false,
+     "text": "I am on the docs",
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "peer-bad-copy",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": [
+      "@alice:other.test"
+     ]
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "peer-bad-team-event",
+   "spec": "P68",
+   "fn": "peer_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_x",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "reply-ping-none",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "ping",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "verb": "review",
+     "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+     "re": null,
+     "trust": "trusted",
+     "branch": null,
+     "copy_of": []
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "reply-human",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam say --to alice --re '$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_'",
+   "ctx": "team"
+  },
+  {
+   "id": "reply-peer-short",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "peer",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam say --to app.1 --re '$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_'",
+   "ctx": "team"
+  },
+  {
+   "id": "reply-peer-not-in-record",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "peer",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.3+desk.podman:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam say --to app.3+desk.podman --re '$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_'",
+   "ctx": "team"
+  },
+  {
+   "id": "reply-peer-twins",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "peer",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@app.1+box.lxc:server.test",
+     "ts": 1791234567950,
+     "text": "I am on the docs",
+     "copy_of": []
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam say --to app.1+box.lxc --re '$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_'",
+   "ctx": "limits-twins"
+  },
+  {
+   "id": "reply-questions-attached",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "questions",
+    "question": [
+     3,
+     "h"
+    ]
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam thread Q3",
+   "ctx": "team"
+  },
+  {
+   "id": "reply-questions-unattached",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "questions",
+    "question": null
+   },
+   "expect": "REPLY\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tpingbus --team myteam thread --re '$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_'",
+   "ctx": "team"
+  },
+  {
+   "id": "reply-bad-event",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "human",
+    "message": {
+     "event_id": "$x",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "reply-bad-team",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "Bad",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "reply-questions-bad-team",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "Bad",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:server.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "questions",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "reply-sender-other-server",
+   "spec": "P69",
+   "fn": "reply_line",
+   "args": {
+    "team": "myteam",
+    "kind": "human",
+    "message": {
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "sender": "@alice:other.test",
+     "ts": 1791234567890,
+     "text": "please halt and commit what you have"
+    },
+    "room": "main",
+    "question": null
+   },
+   "expect": {
+    "error": true
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "timeout-review",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "target": "@app.2+desk.podman:server.test",
+    "verb": "review",
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": "TIMEOUT\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\treview\tcommit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+   "id": "timeout-halt-no-ref",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "target": "@app.2+desk.podman:server.test",
+    "verb": "halt",
+    "ref": null
+   },
+   "expect": "TIMEOUT\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\thalt\t-"
+  },
+  {
+   "id": "timeout-bad-target",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "target": "@app.2+desk.podman:other.test",
+    "verb": "review",
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "timeout-bad-verb",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "target": "@app.2+desk.podman:server.test",
+    "verb": "wait",
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "timeout-bad-ref",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "target": "@app.2+desk.podman:server.test",
+    "verb": "review",
+    "ref": "commit:x"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "timeout-bad-event",
+   "spec": "P68",
+   "fn": "timeout_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "event_id": "$",
+    "target": "@app.2+desk.podman:server.test",
+    "verb": "review",
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "sent-line",
+   "spec": "P68",
+   "fn": "sent_line",
+   "args": {
+    "team": "myteam",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": "SENT\t1\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+  },
+  {
+   "id": "sent-bad-event",
+   "spec": "P68",
+   "fn": "sent_line",
+   "args": {
+    "team": "myteam",
+    "event_id": "x"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "sent-bad-team",
+   "spec": "P68",
+   "fn": "sent_line",
+   "args": {
+    "team": "-",
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-order",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "rate": 1,
+     "schema": 2,
+     "version": 0
+    }
+   },
+   "expect": "DROPPED\t1\t3\tschema=2,rate=1"
+  },
+  {
+   "id": "dropped-first-last",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "provenance": 1,
+     "version": 1
+    }
+   },
+   "expect": "DROPPED\t1\t2\tversion=1,provenance=1"
+  },
+  {
+   "id": "dropped-ignore-reason",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "agent-text": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-unknown",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "bogus": 1,
+     "schema": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-negative",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": -1,
+     "size": 2
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-bool",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": true
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-float",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": 1.0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-empty",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {}
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-all-zero",
+   "spec": "P70",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": 0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "dropped-past-int64",
+   "spec": "P70 D13",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": 9223372036854775808
+    }
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": "DROPPED\t1\t9223372036854775808\tschema=9223372036854775808"
+   }
+  },
+  {
+   "id": "dropped-sum-past-int64",
+   "spec": "P70 D13",
+   "fn": "dropped_line",
+   "args": {
+    "counts": {
+     "schema": 9223372036854775807,
+     "size": 1
+    }
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": "DROPPED\t1\t9223372036854775808\tschema=9223372036854775807,size=1"
+   }
+  },
+  {
+   "id": "history-out-ping",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": 1791234567999,
+     "ping": {
+      "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "sender": "@app.1+desk.podman:server.test",
+      "verb": "ack",
+      "ref": null,
+      "re": "$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "trust": null,
+      "branch": null,
+      "copy_of": []
+     },
+     "human": null,
+     "peer": null,
+     "sent_event_id": null,
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": "HISTORY\t1\tout\t1791234567999\tPING\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.1+desk.podman\tack\t-\t$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t-\t-\t-"
+  },
+  {
+   "id": "history-in-human",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "in",
+     "ts": 1791234567890,
+     "ping": null,
+     "human": {
+      "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "sender": "@alice:server.test",
+      "ts": 1791234567890,
+      "text": "hi"
+     },
+     "peer": null,
+     "sent_event_id": null,
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": "HISTORY\t1\tin\t1791234567890\tHUMAN\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"hi\"\t-"
+  },
+  {
+   "id": "history-in-human-question",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "in",
+     "ts": 7,
+     "ping": null,
+     "human": {
+      "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "sender": "@alice:server.test",
+      "ts": 1791234567890,
+      "text": "hi"
+     },
+     "peer": null,
+     "sent_event_id": null,
+     "room": "questions",
+     "question": [
+      2,
+      "h"
+     ]
+    }
+   },
+   "expect": "HISTORY\t1\tin\t7\tHUMAN\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\talice\t1791234567890\t\"hi\"\tquestions:Q2"
+  },
+  {
+   "id": "history-in-peer",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "in",
+     "ts": 1791234567950,
+     "ping": null,
+     "human": null,
+     "peer": {
+      "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "sender": "@app.1+desk.podman:server.test",
+      "ts": 1791234567950,
+      "text": "I am on the docs",
+      "copy_of": [
+       "@alice:server.test"
+      ]
+     },
+     "sent_event_id": null,
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": "HISTORY\t1\tin\t1791234567950\tPEER\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.1+desk.podman\t1791234567950\t\"I am on the docs\"\tcopy:alice"
+  },
+  {
+   "id": "history-out-sent",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": 5,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": "HISTORY\t1\tout\t5\tSENT\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+  },
+  {
+   "id": "history-bad-direction",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "both",
+     "ts": 5,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "history-negative-ts",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": -1,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "history-bool-ts",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": true,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "history-empty",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "in",
+     "ts": 5,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": null,
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "history-bad-inner",
+   "spec": "P71",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": 5,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "x",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "history-ts-past-int64",
+   "spec": "P71 D13",
+   "fn": "history_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "item": {
+     "direction": "out",
+     "ts": 9223372036854775808,
+     "ping": null,
+     "human": null,
+     "peer": null,
+     "sent_event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "room": "main",
+     "question": null
+    }
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": "HISTORY\t1\tout\t9223372036854775808\tSENT\tmyteam\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   }
+  },
+  {
+   "id": "question-answered",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "answered",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": "QUESTION\t1\tmyteam\tQ3\tanswered\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\t1"
+  },
+  {
+   "id": "question-open-two-askers",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "open",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test",
+      "@app.1+desk.podman:server.test"
+     ],
+     "unanswered": 0
+    }
+   },
+   "expect": "QUESTION\t1\tmyteam\tQ3\topen\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman,app.1+desk.podman\t0"
+  },
+  {
+   "id": "question-skips-unparsed",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "closed",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@x:other.test",
+      "@app.2+desk.podman:server.test",
+      "nope"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": "QUESTION\t1\tmyteam\tQ3\tclosed\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\t1"
+  },
+  {
+   "id": "question-no-askers",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "answered",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [],
+     "unanswered": 1
+    }
+   },
+   "expect": "QUESTION\t1\tmyteam\tQ3\tanswered\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\t-\t1"
+  },
+  {
+   "id": "question-none-parse",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "answered",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@x:other.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": "QUESTION\t1\tmyteam\tQ3\tanswered\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\t-\t1"
+  },
+  {
+   "id": "question-bad-team",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "Q",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "answered",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "question-bad-event",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "answered",
+     "event_id": "$",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "question-empty-state",
+   "spec": "P72",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "question-unknown-state",
+   "spec": "P72 D15",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 3,
+     "state": "bogus",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D15",
+    "value": "QUESTION\t1\tmyteam\tQ3\tbogus\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\t1"
+   }
+  },
+  {
+   "id": "question-zero",
+   "spec": "P72 D15",
+   "fn": "question_line",
+   "args": {
+    "team": "myteam",
+    "server_name": "server.test",
+    "view": {
+     "n": 0,
+     "state": "answered",
+     "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+     "asked_by": [
+      "@app.2+desk.podman:server.test"
+     ],
+     "unanswered": 1
+    }
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D15",
+    "value": "QUESTION\t1\tmyteam\tQ0\tanswered\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\tapp.2+desk.podman\t1"
+   }
+  },
+  {
+   "id": "reply-to",
+   "spec": "P72",
+   "fn": "reply_to_line",
+   "args": {
+    "team": "myteam",
+    "n": 3,
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": "REPLY_TO\t1\tmyteam\tQ3\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+  },
+  {
+   "id": "reply-to-bad-event",
+   "spec": "P72",
+   "fn": "reply_to_line",
+   "args": {
+    "team": "myteam",
+    "n": 3,
+    "event_id": "x"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "reply-to-bad-team",
+   "spec": "P72",
+   "fn": "reply_to_line",
+   "args": {
+    "team": "",
+    "n": 3,
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "reply-to-zero",
+   "spec": "P72 D15",
+   "fn": "reply_to_line",
+   "args": {
+    "team": "myteam",
+    "n": 0,
+    "event_id": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D15",
+    "value": "REPLY_TO\t1\tmyteam\tQ0\t$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   }
+  }
+ ]
+}
