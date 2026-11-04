@@ -139,23 +139,16 @@ its first caller.
 
 ### Phase 0: N0, the design
 
-- [x] ✅ **Task 0.1**: Research v1 (`RESEARCH-*.md`); [DESIGN.md](DESIGN.md), reviewed by Fable and
-  reworked once (`subagent-reports/261019-*`); M0's bookkeeping (`subagent-reports/261021-m0-*`).
+Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
-- [x] ✅ **Task 0.2**: The frame ([DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md)) and the four area
-  designs A-D, each reviewed adversarially (`subagent-reports/261021-n0-*`).
+- [x] ✅ **Task 0.1**: Research v1; DESIGN.md, reviewed and reworked once.
 
-- [x] ✅ **Task 0.3**: The integration: [DESIGN-v2.md](DESIGN-v2.md), the chapters edited at their
-  seams (section 3), 17 contradictions settled (section 5), the team id and INT3; DESIGN.md marked
-  superseded (`subagent-reports/261021-n0-integration.md`).
+- [x] ✅ **Task 0.2**: The frame and the four area designs A-D, each reviewed adversarially.
 
-- [x] ✅ **Task 0.4**: The N0 review: the four integrated adversarial reviews (1 blocker, 37 majors,
-  FIX-FIRST), the four-theme fix pass (`subagent-reports/261021-n0-merge.md`), verification in two
-  scopes (`261021-n0-verify-ab.md`, `261021-n0-verify-cd.md`; 10 new majors), round 2
-  (`261021-n0-r2-*.md`), the re-check (`261021-n0-recheck.md`; 5 majors), the qa-reviewer pass
-  (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
-  (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
-  (Task 1.7).
+- [x] ✅ **Task 0.3**: The integration into [DESIGN-v2.md](DESIGN-v2.md); DESIGN.md marked superseded.
+
+- [x] ✅ **Task 0.4**: The N0 review, three rounds and a narrow check, verdict MERGE; its third
+  minor is carried to N1 (Task 1.7).
 
 - [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
   the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
@@ -208,52 +201,17 @@ its first caller.
 ### Phase 1: N1, foundations
 
 - [x] ✅ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
-  Built on `feat/bus-v2-n1-paths`, 100% coverage. Review round 3 was FIX-FIRST; its five findings
-  are fixed in cb3736fa, and a narrow check of them is MERGE (`261021-n1-paths.md`,
-  `261021-n1-paths-check.md`).
 - [x] ✅ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
-  `qa-changed.bash` and `qa-all.bash` before the first v2 package merges. The merge into
-  `feat/bus-v2-n1` adds to `allowed.tsv` the three rows for the matrix replay test
-  (`261021-n1-paths.md`), and that merge is gated on `qa-teamchat-separate` exit 0.
-- [x] ✅ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
-  room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
-  room specs exported as data (seam 13). Built on `feat/bus-v2-n1-proto`, reviewed to MERGE in
-  two rounds; its 57 decisions and their design-text fixes are in
-  `subagent-reports/261021-n1-proto.md`.
-- [x] ✅ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
-  rules they decide. The server checks (HC-A1, HC-A2's server half, HC-A4, HC-A6, HC-A7, H-C12
-  to H-C14) are judged in the container against the pinned Tuwunel 1.9.4 binary (the asset's
-  sha256 is the pin's) by the plan-folder probe `hca_probe.py`: HC-A1 and H-C13 fail on one fact
-  each, with design-text fixes proposed (`261021-n1-hostchecks.md`, the run in
-  `261021-n1-hostchecks-run.md`). The Element checks (HC-A2's display, HC-A3, HC-A5) are owner
-  steps in A 14's Element row, after gate A. The lasting regression form of HC-A1 and H-C13 is
-  the `tuwunel`-tagged Go test (SPEC-matrix M44, `internal/teamchat/matrix/tuwunel_test.go`),
-  which runs in the container against the same binary; `hca_probe.py` stays the record of the
-  run that decided the design. **Gate A** (Task 0.5): a check that would leave the
-  `teamchat` name in a unit or path on the host runs in the VM lab until the owner has confirmed
-  the irreversible decisions.
-- [x] ✅ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
-  (`261021-n1-hostchecks.md` findings 1, 2 and 4): presence never uses `set_presence=offline`
-  (A 6.6, A 14, A 15, A 16, B 2.6 step 09) and C 3.2.4 sets both presence timers and
-  `server_user_localpart`; DC16's take chosen from the options given, with C 3.7.3 step 3 and C
-  15's seats row changed to match; A 16 notes that HC-A2's display, HC-A3 and HC-A5 are owner
-  steps after gate A, and that 7.5 and 10.4 in `proto` stay provisional until HC-A3 is run.
-  Done: H-C13 makes a take log in, log out, then log in; only the link syncs, with presence
-  timers of 120 s and a further 60 s; restore_epoch is checked after each sync answer, before
-  anything is saved (`261021-n1-hc-design.md`, narrow check MERGE in
-  `261021-n1-hc-design-check.md`).
-- [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
-  `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
-  `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
-  Built and reviewed on `feat/bus-v2-n1-matrix` (9f42a773; review MERGE in round 3, `261021-n1-matrix.md`):
-  the move, `LoginDevice`, `Logout`, `DeleteDevice`, room account data, `Redact` and presence, with fakehs
-  following the Task 1.4 facts. M44, the tagged test, was run in the container against the
-  pinned Tuwunel 1.9.4 binary (`-race`, with `-count=3`) and passes, HC-A1's presence case included,
-  once its config carried v2's login limits and `db_pool_workers = 4` (`261021-n1-matrix.md`,
-  section "The M44 run"; review in `261021-n1-m44-review.md`). Its only red check is GO-2026-6809 (Task 1.6). It stays on the
-  N1 branch until its first caller (N2 or N3) is ready to merge with it.
-- [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
-  client merges.
+  `qa-changed.bash` and `qa-all.bash`.
+- [x] ✅ **Task 1.3**: `teamchat/proto`: the wire, the roster type, the verdict and room-trust
+  check, kinds, references, limits, the envelope, the shared corpus (A 2-13).
+- [x] ✅ **Task 1.4**: A's host checks HC-A1 to HC-A7, judged in the container against the
+  pinned Tuwunel 1.9.4; the Element checks are owner steps after gate A (Task 0.5).
+- [x] ✅ **Task 1.4a**: The design-text fixes Task 1.4's checks called for.
+- [x] ✅ **Task 1.5**: The matrix client and `fakehs` (`internal/teamchat/matrix`), reviewed to
+  MERGE and run against the pinned Tuwunel 1.9.4 (M44); it merged with its first callers.
+- [x] ✅ **Task 1.6**: GO-2026-6809: the Go toolchain bump; the Go gate passes on
+  `spike/v2-merge-up` with the matrix client in.
 - [ ] ⬜ **Task 1.7**: The two minors carried out of N0: the re-add mode the store must record (B 2.6
   step 01 (c); `261021-n0-r3-fix.md` minor 6), and the LXC tick's false notice for a launch-failed
   run once a later run has rewritten the lock file (C 3.11.2 step 6; `261021-n0-r3-check.md`
@@ -263,116 +221,34 @@ its first caller.
 
 - [ ] 🔄 **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
   `teamchat-ctl` child (C 3.3); DC17's dependencies with their go-deps allowlist rows.
-  Slice n2a (`feat/bus-v2-n2a`, `SPEC-n2a.md` CA1-CA7 and CC1-CC6, report
-  `subagent-reports/261021-n2a.md`) covers the command skeleton: C 3.3's verb table, the caller
-  classes (exit 77), every unbuilt verb exiting 1, `version`, and the child's boundary as a typed
-  start spec with its self-check and strict request and answer codecs. Not covered: starting the
-  child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6).
-  DC17's dependencies: the YAML module (`go.yaml.in/yaml/v3`) has landed with slice n2b, with its
-  go-deps allowlist row and the `keepout` row that holds it out of `teamchat-admin` (Task 2.4).
-  `godbus/dbus/v5` has not: nothing uses D-Bus yet, and it lands with the first D-Bus adapter
-  (the health tick's units seam, n2e).
+  Built as inert code (slice n2a; both DC17 dependencies landed: the YAML module with n2b,
+  `godbus` with n2f): [BUILT-n2.md](BUILT-n2.md).
 
 - [ ] 🔄 **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
-  Done, as inert code: each team's `config.toml` (C 3.2.3) and its drop-in (C 3.2.4) are
-  rendered by `host/render.go` (slice n2d, `SPEC-n2d.md` HS4, report
-  `subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Not done: the
-  pinned Tuwunel's install, the `teamchat-server@<team>` unit template with D's
-  `InaccessiblePaths=`, and D's gate over it (seam 49). These are play tasks and a unit, so
-  they wait for gate A (Task 2.5).
+  Done, as inert code: each team's `config.toml` and drop-in, rendered by `host/render.go` and
+  written by `team apply`. Not done: the pinned Tuwunel's install, the
+  `teamchat-server@<team>` unit template and D's gate over it (seam 49), which are play tasks
+  and wait for gate A (Task 2.5).
 
 - [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
   roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
   `tuwunel` reserved (A 2.3) (seam 18).
-  Slice n2a (`SPEC-n2a.md` RE1-RE10) covers the rooms engine of C 3.6.2 step 4 only
-  (`internal/teamchat/rooms`): find, adopt or create in A 5.2's order, drift refused before any
-  write, kicks before state before invites, the roster `rev` rule, idempotent, and accepted by
-  proto's trust checks, on fakehs and, under `-tags tuwunel`, against the pinned Tuwunel 1.9.4.
-  Slice n2b (`feat/bus-v2-n2b`, `SPEC-n2b.md` AG1-AG7, ST1-ST2 and AP1-AP12, report
-  `subagent-reports/261022-n2b.md`) covers, as inert code: the DC18 approval gate
-  (`declare`: compare, check, approve whole or one entry, `approved.json`); the state files'
-  atomic writer and capped reader (`state`); and `team apply`'s step 10 (`apply`): the gate
-  first, one server admin, the humans (created, adopted, locked, unlocked), the rooms through the
-  engine from the roster derived from the roster file and the approved team, `rooms.json`, and
-  the coordinator demoted before the new one is promoted, on fakehs and under `-tags tuwunel`
-  against the pinned Tuwunel 1.9.4. The reserved localparts are refused as human names (DR3,
-  proto's list). Not covered: the play's install tasks, `team apply`'s steps 1-9 and 11, bootstrap
-  step 1, `team approve`'s verb and password-sudo boundary, `team remove`, and the member verbs.
-  Carried to the member verbs: `team apply` refuses another operation's `pending` record
-  (n2b-D22); when those verbs land it becomes C 3.6.3's roll-forward.
-  Slice n2d (`feat/bus-v2-n2d`, `SPEC-n2d.md` MO1-MO8, CV1-CV6 and HS1-HS15, report
-  `subagent-reports/261022-n2d.md`) covers, as inert code: the member operations
-  (`add|return|reissue|park|retire|set`) and `role apply` with their `pending` roll-forward
-  (n2b-D22's refusal replaced), the admin's notices (n2b-D9 replaced), the guest token copy;
-  the team lock; `team apply`'s steps 1-9 and 11 (`host.Apply`) and `team remove [--purge]`; the
-  `teamchat-ctl` child's ops; and the `teamchat-admin` verbs over seams (`member *`,
-  `role apply`, `team approve|apply|remove`), with crash and roll-forward tests on fakehs. Not
-  covered: the `-tags tuwunel` round trip of the verbs (CV6's last line); the production
-  `Child`, `Opener`, `Bundles` and `OwnerGroup` (`cmd/teamchat-admin` wires no `Sys`); the
-  play's install tasks and C 3.5.2 step 1's Fedora check (gate A).
-  Slice n2f (`feat/bus-v2-n2f`, `SPEC-n2f.md`, report `subagent-reports/261022-n2f.md`) covers,
-  as inert code, the production side of every seam: the `teamchat-ctl` child started by
-  `ExecChild` (proven as two real processes), the Opener, bundles and owner group, the units
-  seam over D-Bus (godbus, n2f-D4), the listener and firewall probes (`hostnet`, n2f-D11), the
-  `health` and `element` verbs, and `main` building the real `System` (`admin/wire`). Not
-  covered: the play, units and tmpfiles (gate A); C 3.12's backups (n2f-D6); C 3.9.2's LXC
-  probe (n2f-D7). Owner residual: n2f-D12 (Decisions, above).
+  Slices n2a (the rooms engine), n2b (the approval gate, `team apply` step 10), n2d (the member
+  operations, `role apply`, `team apply` steps 1-9 and 11, `team remove`) and n2f (the
+  production side of every seam, the `health` and `element` verbs) are built as inert code; what
+  each covers and leaves out: [BUILT-n2.md](BUILT-n2.md). Owner residual: n2f-D12 (Decisions, above).
+  Not built: the play's install tasks and units (gate A), and the member verbs' `-tags tuwunel`
+  round trip.
 
 - [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
-  Slice n2b (`SPEC-n2b.md` DR1-DR8, HV1-HV3 and GD1-GD3) covers the declarations of C 3.8: the
-  strict JSON reader and value rules, the one-team input and canonical `team.json`, the host_vars
-  YAML reader (`declare/hostvars`, `go.yaml.in/yaml/v3` vendored), and the go-deps `keepout` row
-  that keeps YAML out of `teamchat-admin` (DC17). An Element entry takes `team` alone, so a
-  `base_url` is refused (the N0 re-check's finding 5). Not covered: the host_vars writer (HV4,
-  ccy-teams'), `declare check`'s v1 rules, Element profiles, health, status records, backups
-  and restore.
-  Slice n2c (`feat/bus-v2-n2c`, `SPEC-n2c.md` SN1 to SP4, n2c-D1 to D13, report
-  `subagent-reports/261022-n2c.md`) covers the owner's side of C 3.7 in `internal/teamchat/seat`:
-
-  - the seat store's names in `paths`, and the records (`seat.json`, `held.json`, `released.json`,
-    `notice.json`, the issued bundle);
-  - the directory-fd writes and the allocation lock;
-  - the credential seam with the (c') password;
-  - take (C 3.7.3) and release, with the disconnected notice's inputs and `Announce`;
-  - placement, and the guest placement with the kept guest token.
-
-  Tests run on fakehs and, under `-tags tuwunel`, against the pinned Tuwunel 1.9.4.
-  Not covered:
-
-  - the root side of `member add|return|reissue`;
-  - the hot reissue, seat choice and handles (3.7.4), `desired.json` and hot control;
-  - the quarantine prune;
-  - C 3.10, 3.11 and 3.12 (n2b covers C 3.8).
-
-  The last review round's open low (a session seat directory that two holdings of one session
-  name) is fixed by the n2c-D12 addendum in `SPEC-n2c.md`: a take refuses a session whose
-  `<team>` seat directory is already there, and a release leaves a directory that a newer
-  holding of the team owns (`subagent-reports/261022-n2-qafix.md`).
-  Slice n2e (`feat/bus-v2-n2e`, `SPEC-n2e.md`, report `subagent-reports/261022-n2e.md`) covers, as
-  inert code: the status records and the team lock (TL1); the health tick of C 3.11 with the
-  view (`health`, `health/view`), the disconnected notice (`notice`), and NT3's bound and
-  `Holdings` in `seat`; the owner's seat sweep (`sweep`, DC21, INT7); and Element profiles of
-  C 3.10 (`element`). Not covered: the child and announcer adapters (DC17; the probe adapter and
-  the D-Bus side are n3b's, n3b-D4 and `host/lxc/guestbus`); the units and timers; backups and
-  restore (C 3.12).
-  Real-server evidence: every `tuwunel`-tagged test was run with `-race -tags tuwunel -v` in the
-  container against the pinned Tuwunel 1.9.4 binary, and none skipped. That covers `matrix`
-  (`TestTuwunel`), `matrix/tuwunelhs`, `rooms` (`TestTuwunelConverge`), `apply`
-  (`TestTuwunelApply`), `seat` (`TestTuwunelTakeAndRelease`) and `health/view`
-  (`TestTuwunelSeatWatch`), and each passed (`subagent-reports/261022-n2-qafix.md`).
-  The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
-  (`subagent-reports/261022-n2-lock.md`).
-  Slice n2g (`feat/bus-v2-n2g`, `SPEC-n2g.md`, report `subagent-reports/261022-n2g.md`) covers
-  C 3.12 as inert code: backups (`backup`: BT, BK, BV, HB1), the restore engine (`restore`:
-  RG, RM, RS, RO, RE, the renames), the child's restore ops and the secure unit's child
-  (`admin`: RC, RU), the `backup`, `backups` and `restore` verbs, and their wiring (`admin/wire`).
-  RT1-RT4 pass against the pinned Tuwunel 1.9.4 (`-tags tuwunel`). An Opus review went
-  FIX-FIRST, then MERGE in round 2 (`261022-n2g-review.md`, `-review-2.md`). `backup --all`
-  goes on past a team that is down. Not done: `restore` stays refused in production
-  (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15); the units, timers and install (gate A,
-  Task 2.5); the review's nits 5-11.
+  Slices n2b (the declarations of C 3.8), n2c (the seat store), n2e (status records, the health
+  tick, the disconnected notice, the seat sweep, Element profiles) and n2g (backups and the
+  restore engine) are built as inert code, with real-server evidence under `-tags tuwunel`;
+  what each covers and leaves out: [BUILT-n2.md](BUILT-n2.md). Not built: the host_vars writer
+  (ccy-teams', Task 4.3), the units and timers (gate A), and `restore` in production, which stays
+  refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15).
 
   **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
   `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
@@ -435,71 +311,34 @@ its first caller.
   2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC
   seats are token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
 
-- [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
-  delivery, hooks, status line, plugin and skill (B 2.1-2.12).
+- [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
+  delivery, hooks, status line, plugin and skill (B 2.1-2.12). Slices n3a to n3e are built and
+  merged into `spike/v2-merge-up`, tested under fakes only, with no binary installed anywhere;
+  n3f, the side rooms of Plan 00211, has its spec only.
 
-  - **n3a built** on `feat/bus-v2-n3a` (SPEC-n3 sections 1, 2, 9 and 10): `cmd/teamchat`, the
-    CLI, the member files' codecs and store writer, the seat and run locks, the kit's layout
-    and the guest operations. Coverage: bundle 93.1, cli 99.1, exits 98.9, guest 93.8, homefs
-    93.5, kit 93.3, lock 93.3, records 100, state 99.7, reexec 92.3, paths 100, seat 91.0,
-    health 91.9; `cmd/teamchat` 50.0 (its `main` only). Three Opus review rounds
-    (`subagent-reports/261022-n3a-review*.md`): FIX-FIRST, FIX-FIRST, MERGE. Report and the
-    design-text fixes it proposes: `subagent-reports/261022-n3a.md`.
+  - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
+    ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and
+    merged into the branch; their coverage and reviews are in [BUILT-n3.md](BUILT-n3.md).
 
-  - **n3c built** on `feat/bus-v2-n3c` and merged into `feat/bus-v2-n3` (SPEC-n3 section 4,
-    decisions n3c-D1 to n3c-D24, W-D1 to W-D3): the keeper (`run`), the link, receiving, the
-    client verbs (`wait`, `status`, `ledger`), the ends (EN1-EN4), the failpoints and the
-    busfailpoints gate stage. Coverage: bundle 93.5, cli 99.1, client 91.5, ends 97.3, engine
-    94.3, exits 98.9, guest 93.8, homefs 93.3, keeper 90.7, kit 93.3, link 91.1, lock 93.0,
-    records 100, state 99.7, team 100, teamsync 94.5, wire 94.1, wiring 100, proto 98.3, matrix
-    98.9, fakehs 93.3. Two Opus review rounds and a narrow check
-    (`subagent-reports/261022-n3c-review*.md`, `261022-n3c-check.md`), then the qa-reviewer
-    (`261022-n3c-qa-review.md`, FIX-BEFORE-MERGE). Its blocker, an e2e test failing under load,
-    was a product race (a `back` posted after the run's `disconnected`), fixed with one
-    lifecycle turn per team and rule `project_lifecycle_turn` (`261022-n3c-race.md`); its docs
-    findings are fixed (`261022-n3c-docs.md`). A keeper test seen failing under load at the n3b
-    merge read a log line before its turn ended: fixed with a turn barrier and rule
-    `project_keeper_log_barrier` (`261023-n3c-owed-flake.md`). Guest `TestRegister` could not
-    run twice: the op registry is its own type, and the failpoints test stage runs every test
-    twice (`261023-n3-guestreg.md`). n3d and n3e are in review or being built; n3f is left.
-
-  - **n3d reviewed** on `feat/bus-v2-n3d` (the sends, the outbox and its recovery, TIMEOUTs,
-    the forge check; rows n3d-D1 to D34): Opus reviews A and B (`261022-n3d-review-A.md`,
-    `-B.md`), both fixed (`261022-n3d-fixa.md`, `-fixb.md`) and checked
-    (`261023-n3d-narrow.md`); the qa-reviewer's findings (`261023-n3d-qa-review.md`) fixed
-    (`261023-n3d-fixc.md`) and checked READY TO MERGE (`261023-n3d-fixc-narrow.md`). The store's `Version` is not raised for n3d's new keys: a store written by n3c or an
-    earlier n3d part is refused whole rather than migrated, because no such store exists outside
-    tests (review A n3; GATE A means none is deployed). Found here and fixed on
-    `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
-
-- [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
+- [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
   seat), any number per container); the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
   confirmation.
 
   - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
-  - **n3b built** on `feat/bus-v2-n3b` and merged into `feat/bus-v2-n3` (SPEC-n3 section 3,
-    decisions n3b-D1 to n3b-D4 and n3-D21 to D30), as inert code: `teamchat-admin lxc apply`
-    and `lxc restart` (C 3.9), the session unit as code (`host/lxc/unit`), the guest's facts,
-    root and bus (`host/lxc/guest*`), `lxccmd` and the LXC record (`lxcstate`), the L3 probe in
-    the health tick (n3b-D4), and the keeper's `--kind lxc --key`. An offline member never
-    fails anything (n3b-D1, the owner's rule); a container holds any number of members, each
-    (team, container, checkout, seat) (n3b-D2). Coverage: execx 94.8, admin 96.2, admin/wire
-    91.5, apply 91.8, declare 96.0, health 93.8, host 93.3, host/lxc 91.9, guestbus 97.8,
-    guestfacts 99.6, guestroot 95.9, lxccmd 97.8, lxcstate 96.5, unit 100, cli 98.9, guest
-    93.7, keeper 90.8, paths 99.7, reexec 90.5. Reviews A, B and 2, the parts' review rounds
-    and a check (`subagent-reports/261022-n3b-*.md`), then the qa-reviewer
-    (`261022-n3b-qa-review.md`, FIX-BEFORE-MERGE), fixed in fix5 and fix6. No play task or unit
-    is installed (gate A).
-  - The install build must run `go test -tags teamchatrelease ./internal/teamchat/member/cli/`,
-    the CL2 gate, before it installs the binary.
-  - Tagged analyzer stages (n3-tagvet): `project-rules-tagged` runs the project rules over the
-    packages built with each of the four tags; before them a finding in a tagged-only file passed the gate (`subagent-reports/261023-n3-tagvet.md`).
+  - **n3b built** and merged as inert code: `teamchat-admin lxc apply` and `lxc restart`, the
+    session unit as code, the L3 probe. No play task or unit is installed (gate A). Coverage,
+    reviews, the install build's CL2 gate and the tagged analyzer stages: [BUILT-n3.md](BUILT-n3.md).
 
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;
   `teamchat-coexist` at its N3 stage, which adds the LXC member and its exchange (D 4.3).
+
+- [ ] ⬜ **Task 3.5**: Delivery debouncing (issue #129): incoming items are held for a quiet
+  window, 30 s by default with a ceiling, and delivered as one envelope. A halt ping and a
+  human's direct message bypass the hold. Specified against delivery into a session (B18-B24)
+  before it is built on the keeper's delivery path; plan only until Plan 00246's Task 8.8 is done.
 
 ### Phase 4: N4, ccy members and the board
 
