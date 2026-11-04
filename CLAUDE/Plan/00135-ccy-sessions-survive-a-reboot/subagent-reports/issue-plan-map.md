@@ -1,0 +1,87 @@
+# Open GitHub issues vs plans
+
+Source: `gh issue list --state open` (41 open issues), matched against CLAUDE/Plan/ (active, Completed/, Cancelled/) by issue number and by topic.
+Classes: A active plan, B completed or shipped (probably closable), C partly covered, D untracked.
+"Verify" means I matched by topic or by a plan's own text, not by reading the code.
+
+## Table
+
+| Issue | Title                                                                          | Class | Plan                            | Note                                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------ | ----- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 100   | stt: robot face while Claude post-processes                                    | D     | none                            | UI nicety; no plan mentions it                                                                                                                                                                          |
+| 98    | stt: batch transcription of long phone recordings (VAD, vocabulary, fetch job) | D     | none                            | 00148 has a VAD segmenter for live dictation and 00159 has vocabulary, both live-only. Recording-file batch job and fetch job are untracked                                                             |
+| 97    | Config repo: local clone in untracked/, localhost.yml symlinked                | D     | none                            |                                                                                                                                                                                                         |
+| 96    | stt: Insert within 1 s of a paste orphans the new recording                    | A     | 00171                           | 00171 covers the delayed late IDLE after paste (its lines 81-84 name `wsi-stream` and `wsi`). Confirm the 1 s re-Insert case is a named task                                                            |
+| 94    | Pragmatic QA and merge approach for desktop-only PR merging                    | D     | none                            | Process decision; no plan                                                                                                                                                                               |
+| 93    | QA red on default branch: gitleaks fixture hit, root-only agent_bus tests      | D     | none                            | Origin is a 00161 test fixture and root-only tests, but 00161 does not track the CI failure. Add to 00161 or a fix plan (see below)                                                                     |
+| 91    | Detect files the plays manage changed out of band                              | A     | 00168                           | Not Started; PLAN.md cites #91                                                                                                                                                                          |
+| 90    | cc outside a git repo: offer checkout or refuse                                | A     | 00167                           | Not Started; PLAN.md cites #90                                                                                                                                                                          |
+| 88    | ccy restore: compact before first work turn                                    | A     | 00135                           | Phase 8, tasks 8.1-8.4 done; 8.5 host check open                                                                                                                                                        |
+| 87    | restored session cannot answer the compose prompt                              | A     | 00135                           | Phase 9 built; 9.4 host check and 9.5 PR merge open                                                                                                                                                     |
+| 86    | verify-restore says OK for a session at the conversation picker                | D     | none                            | 00135 never mentions it (0 hits). Same area; add as a 00135 task                                                                                                                                        |
+| 84    | voxtype                                                                        | D     | none                            | Investigation only                                                                                                                                                                                      |
+| 83    | ccy: declared read-only paths in the container                                 | C     | 00160                           | 00160 covers the `ccy.env.local` override. The general declared-path list (host-side `mounts` file) is not covered                                                                                      |
+| 82    | Automated release flow: semver from commits, signed tag by Actions             | C     | 00153                           | 00153 does release tags and runs qa.yml on tags. No task computes the semver from commits or cuts and signs the tag in a workflow. Verify the Phase 3 content                                           |
+| 81    | A single tools menu for the deployed user tools                                | D     | none                            |                                                                                                                                                                                                         |
+| 69    | ccy-sessions verify-restore, SSH key prompt, headless reboot                   | A     | 00135                           | Phase 7; 7.1-7.3 and 7.5 done, 7.4 is a host check                                                                                                                                                      |
+| 67    | ccy: per-session memory/swap limits, host cap on sessions by free RAM          | D     | none                            | 00055 container-process-watchdog is a different problem                                                                                                                                                 |
+| 63    | play-cli-tools: verify ouch tarball by sha256                                  | D     | none                            | Small play fix. Fits the pinned-version area (00058)                                                                                                                                                    |
+| 61    | ccy: restart sessions after max age, --run-for / --until                       | D     | none                            |                                                                                                                                                                                                         |
+| 60    | Terminal draws wrong emoji glyphs                                              | D     | none                            | Font/terminal triage                                                                                                                                                                                    |
+| 59    | Agent team bus: private Matrix homeserver per team                             | A     | 00161                           | In Progress; "Implements #59"                                                                                                                                                                           |
+| 55    | Claude sessions in LXC get no reboot warning or restore                        | D     | none                            | The issue itself says "not urgent; for later". 00135 covers host and ccy only. Candidate extension of 00135, or a plan once 00135 closes                                                                |
+| 54    | run.bash re-run prints three pipx "already injected" warnings                  | D     | none                            |                                                                                                                                                                                                         |
+| 52    | Prompt shows up-to-date when the repo is behind (tracking ref never fetched)   | D     | none                            |                                                                                                                                                                                                         |
+| 49    | run.bash: enumerate and run private plays from the config repo                 | D     | none                            |                                                                                                                                                                                                         |
+| 48    | Docker and Podman do not run inside LXC                                        | A     | 00127                           | Dormant (parked by owner). Tracked, not scheduled                                                                                                                                                       |
+| 44    | ccy sessions: warn before reboot, restore after                                | A     | 00135                           | In Progress; "Implements #44". Core delivered; open items are host checks and success criteria                                                                                                          |
+| 41    | Rootful Docker play conflicts with podman-first hosts                          | C     | 00091 (Completed), 00127        | 00091 made Docker optional and says remaining coexistence stays on #41. 00127 states #41 stays on the issue. No active plan owns the leftovers. Verify whether `play-docker.yml` is still a core import |
+| 31    | CCY optional launch-wrapper hook to supervise claude                           | B     | none numbered                   | 00161 research text says "Since issue #31, ccy execs the hooks daemon's PTY supervisor". Shipped, not by a numbered plan. Verify, then close                                                            |
+| 22    | project-personas multi-account wrangling                                       | A     | 00045                           | Not Started, awaiting its Phase 1 decision gate                                                                                                                                                         |
+| 17    | Reliable screen sharing on F43 Wayland                                         | A     | 031                             | Dormant, blocked on owner go-ahead for Phase 3. The issue title is stale on the Fedora version                                                                                                          |
+| 12    | Persistent, resumable ccy containers across login sessions                     | C     | 00135, 00154, 00111 (Completed) | Reboot restore, freeze/thaw and terminal-death survival are covered. Attach from SSH to a live container, with several per project, has no plan. Old issue (March 2026); owner to confirm what remains  |
+| 11    | stt: NVIDIA / non-NVIDIA split, CPU alternative                                | D     | none                            | Nothing in the plan titles or overviews                                                                                                                                                                 |
+| 10    | Update ccy to support LSP                                                      | B     | none numbered                   | The image Dockerfile and entrypoint contain LSP setup, and 00169 lists "the LSP binaries exist" as an acceptance item. Verify, then close                                                               |
+| 9     | Investigate moonshine or other models for stt                                  | D     | none                            | Group with #84                                                                                                                                                                                          |
+| 8     | Docker rootless native overlay2 with SELinux                                   | D     | none                            | Only 00049 research text mentions overlay2. Likely obsolete under podman-first                                                                                                                          |
+| 7     | Chrome DevTools Protocol CLI tool for browser automation                       | B     | 00097 (Completed), 017          | The issue's own comment reports "Implementation Complete" (chrome-ws in the browser container). 00097 added agent-browser, which replaced it. Close with a pointer to 00097                             |
+| 4     | GPG commit signing across environments                                         | A     | 00139                           | In Progress; "Addresses #4"; the GPG route was replaced by SSH signing (D1). Close when 00139 finishes, with a comment on the change of route                                                           |
+| 3     | F42 run.bash error (libdnf5 import)                                            | D     | none                            | Dated 2025-09, F42. Target is F44 now. Propose closing as obsolete after the owner confirms                                                                                                             |
+| 1     | Docker rootless install, konstruktoid role                                     | D     | none                            | The only comment says the role is not Fedora friendly. Superseded by podman-first (00091). Propose closing                                                                                              |
+
+## Counts
+
+- A: 12 (96, 91, 90, 88, 87, 69, 59, 48, 44, 22, 17, 4)
+- B: 3 (31, 10, 7)
+- C: 4 (83, 82, 41, 12)
+- D: 21 (100, 98, 97, 94, 93, 86, 84, 81, 67, 63, 61, 60, 55, 54, 52, 49, 11, 9, 8, 3, 1)
+
+Total 40 open issues.
+
+## Proposed new plans (for D issues)
+
+1. `stt-recording-batch-and-engine-research`: goal: transcribe long phone recordings in a batch job (VAD, vocabulary, fetch) and settle which engines are worth adopting. Issues 98, 11, 9, 84.
+2. `stt-panel-robot-face`: goal: show a robot face in the panel while Claude post-processes. Issue 100. Or add to 00171 as a task if that plan is still open for panel work.
+3. `ci-red-on-default-branch`: goal: make QA green again (gitleaks fixture built at runtime, agent_bus tests that need root skipped or fixed) and define the merge approach for desktop-only PRs. Issues 93, 94.
+4. `ccy-session-limits`: goal: per-session memory/swap limits, a host cap on concurrent sessions by free RAM, and age/time-bounded sessions. Issues 67, 61. Include 12 if the owner wants live re-attach.
+5. `run-bash-private-plays-and-config-clone`: goal: run plays from the private config repo, and keep a local config clone with a symlinked localhost.yml. Issues 49, 97.
+6. `run-bash-rerun-noise`: goal: a re-run prints no spurious pipx warnings. Issue 54. Small; a candidate to batch with 63 as `small-play-hardening` (ouch sha256 pin).
+7. `prompt-staleness-and-tools-menu`: goal: the prompt shows when the tracking ref is stale, and one menu lists the deployed user tools. Issues 52, 81.
+8. `terminal-emoji-glyphs`: goal: find why emoji draw as the wrong glyph and fix the font or terminal config. Issue 60.
+9. `lxc-claude-session-reboot-warning`: goal: warn and restore Claude sessions inside LXC containers. Issue 55. Low priority; follow 00135.
+
+## Proposed additions to existing plans
+
+- 00135: add a task for #86 (treat a pane at the conversation picker as `WAITING-AT-PROMPT thread-picker` in `verify-restore`). Same area, same verifier.
+- 00160: add a task for the general declared read-only path list in #83, or split a follow-up plan.
+- 00153: add a task for the commit-driven semver and workflow-cut signed tag in #82.
+- 00161: add a task for the gitleaks fixture part of #93 (the fixture is in its own folder).
+- 00171: confirm #96 (re-Insert within 1 s) is a named task.
+- 00091's leftovers or a new `docker-podman-coexistence` plan for #41.
+
+## Issues to close as done (with evidence)
+
+- 7: the issue's own comment says "Implementation Complete" (chrome-ws integrated); Plan 00097 (Completed) later added agent-browser. Close with a pointer to 00097.
+- 10: LSP setup is in `files/var/local/claude-yolo/Dockerfile` and `entrypoint.sh`, and 00169 requires the LSP binaries. Verify in the image, then close.
+- 31: the supervisor seam is in use ("Since issue #31, ccy execs the hooks daemon's PTY supervisor", Plan 00161 research). Verify the opt-in hook in `claude-yolo`, then close.
+- Obsolete, owner decision: 3 (F42), 1 (superseded by podman-first), 8 (probably obsolete under podman-first).
