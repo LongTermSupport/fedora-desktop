@@ -38,5 +38,5 @@
 playbooks/imports/optional/common/play-matrix-clients.yml
 
 # Basic configs: builds and installs the histclean command, and deploys the HISTIGNORE entries (the nohist=1 prefix, histclean) and the Ctrl+R
-# picker header (Plan 00246).
+# picker header (Plan 00247).
 playbooks/imports/play-basic-configs.yml

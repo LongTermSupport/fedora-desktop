@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00246-shell-history-clean-and-skip](00246-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
+- [00247-shell-history-clean-and-skip](00247-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
 
 - [00245-valuable-work-never-untracked](00245-valuable-work-never-untracked/) - In Progress. Valuable work written to untracked places gets lost; triage, then a blocking defence (Defence Before Fix).
 
