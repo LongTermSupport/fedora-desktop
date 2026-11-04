@@ -120,7 +120,7 @@ func (c *cli) download(ctx context.Context, url, dest string) error {
 	}
 	args = append(args, url)
 	if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "curl", Args: args, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
-		return errors.Join(ctxErr(ctx, failf("download failed: %s", url)), removeIfPresent(partial))
+		return errors.Join(ctxErr(ctx, failf("download failed: %s: %v", url, err)), removeIfPresent(partial))
 	}
 	info, err := os.Stat(partial)
 	if err == nil && info.Size() > 0 {
