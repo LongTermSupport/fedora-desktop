@@ -101,8 +101,12 @@
           - multitail
           - figlet
           - p7zip
-          - fzf    # draws the Ctrl+R history search list (history-search.bash)
           - gawk   # bash-history-rank
+      tags: packages
+
+    # fzf draws the Ctrl+R history search list (history-search.bash).
+    - name: Install fzf from its upstream release
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
       tags: packages
 
     # Packages found on a host that nothing here installs or needs, removed so the host is
@@ -514,6 +518,16 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+
+    # histclean removes matching entries from the history and Ctrl+R context files of the
+    # desktop user (Plan 00247). A line starting with nohist=1 is kept out of history by HISTIGNORE
+    # in the profile.d history block.
+    - name: Build and Install the histclean Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: histclean
+        go_command_dest: "/home/{{ user_login }}/.local/bin/histclean"
+        go_command_mode: "0755"
 
     # The three with-key commands are Go binaries (src-go/cmd/*-with-key, Plan 00192), built
     # and installed at their old paths by the shared build-go-command.yml.

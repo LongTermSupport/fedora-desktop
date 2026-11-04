@@ -18,7 +18,7 @@ func TestRowChromeIsWhatTheFrameTakesFromTheTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"--margin=1,2", "--padding=1,2", "--border=rounded", "--pointer=▶"} {
+	for _, want := range []string{"--margin=1,2", "--padding=1,2", "--border=rounded", "--pointer=▶", "--gutter= "} {
 		if !slices.Contains(args, want) {
 			t.Fatalf("args %q lack %s", args, want)
 		}

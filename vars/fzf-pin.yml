@@ -1,0 +1,14 @@
+---
+# The fzf release this repository installs: junegunn/fzf, the project's own static binary.
+# Fedora packages an older fzf, and the ccy image's Debian base older still, so every host
+# play and the ccy image take the upstream release instead (tasks/install-fzf.yml; the
+# image build reads this same file, copied into its build context).
+#
+# Integrity: the project publishes fzf_<version>_checksums.txt with each release, and the
+# release API's per-asset `digest` carries the same sums. Both were compared when this pin was
+# set. A bump changes all three lines together (the update-versions skill); the image build
+# reads the values with awk, so keep the `key: "value"` line form. Tracked by scripts/check-pinned-versions.bash through vars/version-pins.yml.
+# @see https://github.com/junegunn/fzf/releases
+fzf_version: "0.74.5"
+fzf_sha256_amd64: "d47d7f882972c7d674dbbba998ffa4116e68379616ffac7695d0671e9a722c5f"
+fzf_sha256_arm64: "cf058001da21724a469b714a29cf4aab9cbe860d218a0d6c1b5b661efad7784c"

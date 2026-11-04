@@ -641,7 +641,9 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
 #: `<command> --version` as measured from the pinned release, for every tracked
 #: `command`-kind pin. Measured, never typed from memory: the point is what the binary
 #: really prints, build number and all.
-RECORDED_COMMAND_OUTPUT: dict[str, str] = {}
+RECORDED_COMMAND_OUTPUT: dict[str, str] = {
+    "fzf": "0.74.5 (c0a193e0)",
+}
 
 
 class TestTrackedCommandPinsMatchOnAHostThatHasThem(unittest.TestCase):

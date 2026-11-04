@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.110.0 — container 2.79.24
+
+The image is rebuilt: fzf is the upstream release, not the Debian package.
+
+- **fzf is pinned and checksum-verified.** The image installs the `junegunn/fzf` release named
+  in `vars/fzf-pin.yml` (the pin the host plays use), for amd64 or arm64, and the build fails
+  if the tarball's sha256 differs from the one the project publishes. The pickers' gutter,
+  which newer fzf draws as a visible bar, is hidden with `--gutter=' '`.
+
+---
+
 ## 3.109.0 — container 2.79.23
 
 The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.

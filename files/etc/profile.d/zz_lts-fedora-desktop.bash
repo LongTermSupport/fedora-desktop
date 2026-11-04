@@ -33,7 +33,10 @@ shopt -s histappend cmdhist lithist histverify
 HISTCONTROL=ignoredups
 export HISTFILESIZE=-1
 export HISTSIZE=-1
-export HISTIGNORE="ls:[bf]g:exit"
+# A line that starts with nohist=1 (any case: HISTIGNORE has no case flag, so brackets) is never
+# kept, nor is a histclean line: it holds the very text to hide or remove. Plain patterns, no
+# extglob or nocasematch needed.
+export HISTIGNORE="ls:[bf]g:exit:histclean:histclean *:[nN][oO][hH][iI][sS][tT]=1*"
 HISTTIMEFORMAT='%F %T  '
 if [[ -O "${HOME}/.local/state/bash" ]]; then
     HISTFILE="${HOME}/.local/state/bash/history"
