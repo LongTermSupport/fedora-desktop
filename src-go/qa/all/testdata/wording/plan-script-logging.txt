@@ -1,1 +1,0 @@
-PLAN-SCRIPT-LOGGING-OK: 79 plan script(s) examined, no offences

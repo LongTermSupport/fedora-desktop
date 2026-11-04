@@ -1,1 +1,0 @@
-podfreeze: podman ps --filter label=ccy=true failed: permission denied reading labels

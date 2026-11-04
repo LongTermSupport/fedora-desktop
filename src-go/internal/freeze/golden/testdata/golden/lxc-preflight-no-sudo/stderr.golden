@@ -1,1 +1,0 @@
-lxcfreeze: no sudo on this host, and every LXC query needs root.
