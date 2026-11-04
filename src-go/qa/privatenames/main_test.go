@@ -247,6 +247,48 @@ func TestContainerWithAFailingBusIsAHardFailure(t *testing.T) {
 	}
 }
 
+// noTeam is pingbus's answer for a session that is on no team: a documented empty state, not a
+// bus that crashed. This repository's own agents launch that way and must still be able to commit.
+const noTeam = 78
+
+func TestContainerOnNoTeamPassesOnItsHostNames(t *testing.T) {
+	r := newRig(true, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}, "pingbus status": {Code: noTeam}}, files{}, "")
+	if code := r.run("staged"); code != ExitOK || !strings.Contains(r.text(), "0 finding(s)") {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+	if !strings.Contains(r.files[listFile], "abc123def456") {
+		t.Fatalf("the host name was not learned: %q", r.files[listFile])
+	}
+}
+
+func TestContainerOnNoTeamStillGuardsItsHostNames(t *testing.T) {
+	added := "--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+runs on abc123def456\n"
+	r := newRig(true, map[string]proc.Result{stagedKey: {Stdout: added}, "pingbus status": {Code: noTeam}}, files{}, "")
+	if code := r.run("staged"); code != ExitFindings || strings.Contains(r.text(), "abc123def456") {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+}
+
+func TestContainerOnNoTeamWithNoHostNamesIsAHardFailure(t *testing.T) {
+	r := newRig(true, map[string]proc.Result{"pingbus status": {Code: noTeam}}, files{}, "")
+	r.env.Hostnames = nil
+	if code := r.run("staged"); code != ExitCannotRun || !strings.Contains(r.text(), "has not run") {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+}
+
+// Only "no team" is an empty answer. Any other status is a bus that failed, and a list built
+// without it could read as a pass.
+func TestContainerWithAnyOtherFailingStatusIsAHardFailure(t *testing.T) {
+	for _, code := range []int{1, 2, 64, 77, 79, 126, 127} {
+		r := newRig(true, map[string]proc.Result{"pingbus status": {Code: code}}, files{}, "")
+		want := "pingbus status exited " + strconv.Itoa(code)
+		if got := r.run("staged"); got != ExitCannotRun || !strings.Contains(r.text(), want) {
+			t.Errorf("status %d: exit %d: %s", code, got, r.text())
+		}
+	}
+}
+
 func TestContainerWithAnUnreadableOrDamagedListIsAHardFailure(t *testing.T) {
 	for _, body := range []string{"UNREADABLE", "no tab here\n"} {
 		r := newRig(true, map[string]proc.Result{"pingbus status": {Stdout: status}}, files{listFile: body}, "")
