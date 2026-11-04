@@ -88,9 +88,14 @@
           - shared-mime-info     # the freedesktop MIME database itself
           - desktop-file-utils   # .desktop database the app list is read from
           - file                 # last-resort MIME fallback on a minimal box
-          - fzf                  # the good chooser (a numbered menu is used without it)
           - less                 # pager behind most terminal handlers
         state: present
+      tags:
+        - packages
+        - open-command
+
+    - name: Install fzf, the good chooser (a numbered menu is used without it), from its upstream release
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
       tags:
         - packages
         - open-command

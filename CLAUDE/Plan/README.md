@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00246-agent-bus-v2-landing-and-cross-network](00246-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
 
+- [00247-shell-history-clean-and-skip](00247-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
+
 - [00245-valuable-work-never-untracked](00245-valuable-work-never-untracked/) - In Progress. Valuable work written to untracked places gets lost; triage, then a blocking defence (Defence Before Fix).
 
 - [00244-element-quits-while-typing](00244-element-quits-while-typing/) - In Progress (waiting for the next exit to be captured, or a reproduction). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.

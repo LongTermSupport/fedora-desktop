@@ -139,6 +139,7 @@ also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa
 # its controls are Go tests, which the go check runs for a src-go change.
 also	vars/version-pins.yml	version-pins	covered
 also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
+also	vars/fzf-pin.yml	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
 # to it runs the go check.

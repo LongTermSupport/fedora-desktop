@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.0 — container 2.79.24
+
+The image is rebuilt: this branch's launcher now requires 2.79.24, the image 3.110.0 made.
+
+- **3.110.0 reaches the agent bus v2 branch.** The image installs the pinned, checksum-verified
+  upstream fzf (see 3.110.0), and the pickers hide fzf's gutter (`--gutter=' '`, in
+  `lib/tmux-session.bash` and `internal/ui`). 3.111.0's adapters are as they were, and nothing
+  else changed.
+
+---
+
 ## 3.111.0 — container 2.79.23
 
 The image is unchanged, so there is no rebuild.
@@ -28,6 +39,17 @@ The image is unchanged, so there is no rebuild.
   which runs a child as root of its own user and mount namespace for a real-kernel mount test;
   and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
   Nothing in the launcher calls any of them.
+
+---
+
+## 3.110.0 — container 2.79.24
+
+The image is rebuilt: fzf is the upstream release, not the Debian package.
+
+- **fzf is pinned and checksum-verified.** The image installs the `junegunn/fzf` release named
+  in `vars/fzf-pin.yml` (the pin the host plays use), for amd64 or arm64, and the build fails
+  if the tarball's sha256 differs from the one the project publishes. The pickers' gutter,
+  which newer fzf draws as a visible bar, is hidden with `--gutter=' '`.
 
 ---
 

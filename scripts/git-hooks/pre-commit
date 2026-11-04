@@ -235,14 +235,14 @@ fi
 # sources (a --from copy takes from a build stage, not the repo), so a file the
 # image starts copying is guarded without anyone remembering to list it here.
 #
-# The play fills the build context from two repo roots, and builds the pingbus zipapp in it
-# from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
+# The play fills the build context from two repo roots, copies the fzf pin (vars/fzf-pin.yml)
+# into it, and builds the pingbus zipapp in it from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
 # checks these lists against every file play-claude-yolo.yml puts into the image.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
 CCY_CONTEXT_ROOTS=("$CCY_CONTEXT" "files/opt/claude-yolo")
-CCY_IMAGE_PATHS=("$CCY_DOCKERFILE" "helpers/pingbus" "helpers/agent_bus")
+CCY_IMAGE_PATHS=("$CCY_DOCKERFILE" "helpers/pingbus" "helpers/agent_bus" "vars/fzf-pin.yml")
 CCY_COPY_SOURCES=()
 if git cat-file -e ":$CCY_DOCKERFILE" 2>/dev/null; then
     staged_dockerfile_src=$(git show ":$CCY_DOCKERFILE")
