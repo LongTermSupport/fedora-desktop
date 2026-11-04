@@ -1,6 +1,6 @@
 # Plan 00244: element quits while typing
 
-**Status**: On Hold (the quit investigation is parked by the owner, 2026-11-04: it has not happened again lately; Phase 3, the Matrix clients play, is separate)
+**Status**: On Hold (the quit investigation is parked by the owner, 2026-11-04: it has not happened again lately; Phase 3, the Matrix clients play, is built and separate). Every open task needs the owner's host or decision, none an agent's: 1.3 needs the exit to recur there, 1.4 needs the Element window and a keyboard there (this container has neither), 2.1 and 2.2 are the owner's decisions. See the journal entry of 2026-11-04 titled "What is left".
 **Created**: 2026-11-03
 **Owner**: joseph
 **Priority**: Medium
