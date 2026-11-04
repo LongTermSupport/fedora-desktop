@@ -44,7 +44,7 @@ cross-network membership. `spike/v2-merge-up` began as `feat/bus-v2-n3e` merged 
 run found the items below, largest to smallest. Each is fixed on that branch under Defence Before
 Fix. F44 is merged in before every push, and GitHub CI is the gate.
 
-- [ ] 🔄 **Task 8.1**: The 40 project-rule findings the tree had (the 29 the first plan listed,
+- [x] ✅ **Task 8.1**: The 40 project-rule findings the tree had (the 29 the first plan listed,
   with 14 duration and 11 realtime ones where it counted 13 and 10, and F44's new liveness
   rule's 9):
   - 14 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
@@ -64,7 +64,7 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
     `lxc-info` and `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and a
     `dynamicNames` row for a run-time program inside a wrapper. Plan 00209 Task 6.3 collapses
     them to one owner each when v1 is retired.
-- [ ] 🔄 **Task 8.2**: The gosec exclusions v2 added to `.golangci.yml` had no exception in the
+- [x] ✅ **Task 8.2**: The gosec exclusions v2 added to `.golangci.yml` had no exception in the
   project record. The owner's decision of 2026-11-03: record G401 and G505 (Synapse's
   registration MAC) and the test-file G301, G302 and G306 exclusions in `qa/record.toml`,
   raising the ratchet ceiling by exactly what they need and citing the decision in each entry;
