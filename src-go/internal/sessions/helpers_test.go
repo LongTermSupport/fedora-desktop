@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,8 +83,6 @@ func newHarness(t *testing.T) *harness {
 		Getuid:      os.Getuid,
 	}
 	h.app.wire()
-	// Root's LXC configuration is absent: LXC keeps its containers in the default path.
-	h.app.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
 	h.app.Probe = &sessprobe.Probe{
 		Tmux: &tmuxccy.Tmux{Runner: h.fake, Term: h.app.Term}, Runner: h.fake, ProcRoot: filepath.Join(root, "proc"),
 		Now: h.step, Sleep: func(time.Duration) {}, ClockTicks: 100,
