@@ -1,3 +1,0 @@
-lxcfreeze: no terminal to ask on — name a target explicitly: NAME..., --bridge BR,
-  or --all.
-  See 'lxcfreeze --help'.
