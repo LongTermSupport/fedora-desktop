@@ -75,13 +75,31 @@ and an agent has no access to those settings. The owner creates the environment 
 the release branch limit), its secret (the private key, never in the repository or a transcript) and
 the ruleset; Task 5.3 names them.
 
-## What Task 5.3 builds once D1 to D5 are answered
+## What Task 5.3 built (D1 to D4 decided; D5 is the owner's)
 
-One workflow, `release.yml`: the version step (Task 5.2, no secret, no write permission) decides the
-next version or stops; the release job runs in the protected environment, signs the release commit and the
-annotated tag with the environment's key, and fails closed on a missing key, an unapproved run or an
-existing tag; the GitHub Release is created with generated notes. Third-party actions are pinned by
-commit SHA, `permissions:` is the least per job, there is no `pull_request_target`, and no untrusted text
-(a commit message, a title) reaches a shell step except through an environment variable. Task 5.4 then
-writes `docs/releases.md`, replaces `CLAUDE/Release.md`'s "never tag unless the owner asks" and the Non-Goal
-of this plan, and adds the workflow's row to the workflow documentation.
+One workflow, `release.yml`, on a push to `F<major>`. A `plan` job (no secret, read-only) builds
+`src-go/cmd/release-plan` and asks what the push calls for: nothing, a release to prepare, or a merged
+release commit to tag. `prepare` and `tag` are separate jobs in the protected environment, so each holds
+only its own permissions (pull requests, or the Release); each fails closed on a missing key, and `tag`
+also on an existing tag, an unsigned or off-branch release commit, or CI not passed on it. Third-party
+actions are pinned by commit SHA, there is no `pull_request_target`, and no untrusted text (a commit
+message, a title) reaches a shell except through an environment variable; a Go test holds all of it.
+
+Choices made while building, each from a fact rather than a preference:
+
+- **The key is also a deploy key.** A push made with the workflow's own token starts no workflow, so the
+  release branch it pushed would get no CI, and `tag` could never see CI passed on the release commit. A
+  push by an SSH deploy key does start CI. The same unencrypted key signs and pushes; the owner adds its
+  public half as a deploy key with write access, and the tag ruleset names that deploy key as the one actor
+  that may create a release tag.
+- **The first release of a major is by hand.** Judging it means reading the whole branch, one pull request
+  lookup per merge, and `release.bash prepare first` is the owner's explicit act (Task 4.1).
+- **D4 reads the pull request, not the merge commit.** Merges here carry hand-written subjects, so a merge
+  commit stands for the title and body of the pull request GitHub says it merged (`gh api`), and a merge with
+  no pull request stands for its own message. `pr-title.yml` refuses a title that is no conventional header.
+- **A failed lookup is an error.** Every question that fails (git, GitHub, the remote) stops the run; none reads
+  as "nothing to release".
+- **If the GitHub Release fails after the tag is pushed**, it is created by hand: servers read the tag.
+
+Task 5.4 wrote `docs/releases.md`, replaced `CLAUDE/Release.md`'s "never tag unless the owner asks" with
+the new rule, and added the workflow's section to `CLAUDE/QA.md`.

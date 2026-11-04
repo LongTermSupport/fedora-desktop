@@ -149,7 +149,12 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
 - `internal/releasever/` — the next release version from the commits since the last release
   (Plan 00153 Task 5.2, issue 82; V1-V6 in its package doc): `feat` is a minor, `fix` a patch, a
   breaking marker is refused on a Fedora-major branch that already has a release, no releasable
-  commit is no release. Pure; the release workflow (Task 5.3) is its first caller.
+  commit is no release. Pure; `internal/release` is its caller.
+- `internal/release/` — `release-plan`, the release workflow's one Go command (Plan 00153 Task
+  5.3, R1-R7 in its package doc): what a push to `F<major>` calls for (`decide`: nothing, prepare a
+  release, or tag a merged release commit), the changelog entry to commit (`prepare`) and the
+  notes of a published release (`notes`). git is asked through `gitx`, a merged pull request's
+  title and body through `gh api`; each failed answer is an error, never "nothing to release".
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules

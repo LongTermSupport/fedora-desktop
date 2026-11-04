@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.110.0"  # Container 2.79.24: fzf in the image is the pinned upstream release, checksum-verified, not the Debian package. See docs/ccy-changelog.md.
+CCY_VERSION="3.110.1"  # Container 2.79.24: the shared gitx adapter answers four more read-only git questions for the release command (Plan 00153); the launcher behaves as 3.110.0. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

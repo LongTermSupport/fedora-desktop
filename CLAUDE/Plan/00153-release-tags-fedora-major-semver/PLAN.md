@@ -34,7 +34,9 @@ release tag rather than the branch tip.
 - Changing the branch model (one default branch per Fedora release stays).
 - Replacing ccy's own version (`CCY_VERSION` and the container label keep their meaning;
   a release just contains whatever ccy version is on the branch).
-- Tagging automatically on every merge: a release is the owner's call.
+- Tagging without the owner's approval: a release is the owner's call. Phase 5's workflow tags
+  only after the owner approves its protected environment, and the first release of a major
+  stays by hand.
 
 ## Tasks
 
@@ -134,13 +136,26 @@ both change only once Task 5.1 is decided.
   5.1: this repository's commit subjects mostly carry no conventional header (`Plan 00246: ...`,
   `Add play-...`, `Merge ...`), and only a `feat` or `fix` header releases, so without a
   commit-message convention a merge to F44 would rarely release.
-- [ ] ⬜ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
+- [x] ✅ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
   the signed tag, the GitHub release with generated notes. Actions pinned by SHA, minimum
   `permissions:` per job, no `pull_request_target`, no untrusted input in a shell step.
-  Fails closed on a missing key, an unapproved run or an existing tag.
-- [ ] ⬜ **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
+  Fails closed on a missing key, an unapproved run or an existing tag. Built, as D1 to D4 decided:
+  `.github/workflows/release.yml` (a `plan` job with no secret, then `prepare` and `tag` in the
+  protected environment, each with only its own permissions), the local action
+  `.github/actions/release-key`, `.github/workflows/pr-title.yml` (D4's check), and the Go
+  command `src-go/cmd/release-plan` over `internal/release` (R1-R7: tests first, three mutations
+  turned them red and were restored) and the new `gitx` questions. `TestTheReleaseWorkflowKeepsItsPromises`
+  (`src-go/qa/toolchain`) holds the workflow's promises, each with a fixture that breaks it.
+  **Not yet run:** a real run needs what only the owner can create (D5), listed in
+  [docs/releases.md](../../../docs/releases.md#set-up-once-owner): the `release` environment
+  with its reviewer and `F*` branch limit, the secret `RELEASE_SIGNING_KEY`, the same key's
+  public half as a deploy key with write access and in the servers' `self_update_signing_public_keys`,
+  the tag ruleset, and the setting that lets Actions open pull requests.
+- [ ] 🔄 **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
   `CLAUDE/Release.md`'s new rule, and the workflow's row in the workflow docs; the
-  `qa-reviewer` agent.
+  `qa-reviewer` agent. The three documents are written (`docs/releases.md`, `CLAUDE/Release.md`,
+  and `CLAUDE/QA.md`, which holds the workflow docs); the `qa-reviewer` pass is owed once the
+  review agents are available again.
 
 ## Success Criteria
 

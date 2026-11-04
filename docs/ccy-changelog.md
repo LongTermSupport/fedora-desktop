@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.110.1 — container 2.79.24
+
+The image is unchanged, so there is no rebuild.
+
+- **The shared `gitx` adapter answers four more read-only git questions.** `Tags` (the release
+  tags matching a pattern), `FirstParentLog` (the first-parent history with each commit's parents
+  and whole message), `SubjectsMatching` (the commits whose subject matches) and
+  `RemoteBranchExists`, for the release workflow's `release-plan` command (Plan 00153 Task 5.3).
+  Nothing in the launcher calls any of them, so it behaves as 3.110.0 does.
+
+---
+
 ## 3.110.0 — container 2.79.24
 
 The image is rebuilt: fzf is the upstream release, not the Debian package.

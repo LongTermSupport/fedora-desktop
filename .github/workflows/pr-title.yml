@@ -1,0 +1,33 @@
+name: Pull request title
+
+# The release workflow reads the title of each pull request merged into a release branch to decide
+# what a release is (Plan 00153 D4): `feat:` is a minor, `fix:` a patch, any other conventional
+# type releases nothing. A title that is no conventional header can never release, so it is
+# refused here. The pattern is the header of src-go/internal/releasever (type, optional scope,
+# optional !, a colon, a space, then text). The title reaches the script as an environment
+# variable only. This check reads nothing from the pull request but its title, so it runs for a
+# pull request from a fork too, with no token and no secret.
+
+on:
+  pull_request:
+    branches: ["F[0-9]*"]
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  title:
+    name: the title is a conventional commit header
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          header='^[A-Za-z]+(\([^()]*\))?!?: [^ ]'
+          if [[ ! "$TITLE" =~ $header ]]; then
+            echo "::error::the pull request title is not a conventional commit header, such as 'feat: a new play' or 'fix(ccy): a crash'; the release workflow reads it to decide whether this change makes a release"
+            exit 1
+          fi
