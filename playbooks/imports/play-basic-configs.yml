@@ -520,7 +520,7 @@
         mode: "0755"
 
     # histclean removes matching entries from the history and Ctrl+R context files of the
-    # desktop user (Plan 00246). A line starting with nohist=1 is kept out of history by HISTIGNORE
+    # desktop user (Plan 00247). A line starting with nohist=1 is kept out of history by HISTIGNORE
     # in the profile.d history block.
     - name: Build and Install the histclean Command
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"

@@ -1,4 +1,4 @@
-# Plan 00246: shell history clean and skip
+# Plan 00247: shell history clean and skip
 
 **Status**: In Progress
 **Created**: 2026-11-03
