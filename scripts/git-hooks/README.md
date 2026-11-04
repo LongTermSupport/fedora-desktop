@@ -35,8 +35,12 @@ terms of teams that left the bus.
 - `pre-push` runs `qa-private-names.bash push`: for each ref, the commits the remote lacks, their
   messages and their added lines. It catches what `--no-verify` or another clone let through.
 - **In a ccy container** (the checkout is under `/workspace`) a list that cannot be built (no
-  `pingbus`, a failing `pingbus status`, an unreadable or damaged list) is exit 2: the hook fails,
-  never skips. Elsewhere, with no agent bus and no list, the scan says `SKIPPED` and passes.
+  names learned at all, a `pingbus status` that fails, an unreadable or damaged list) is exit 2:
+  the hook fails, never skips. Elsewhere, with no agent bus and no list, the scan says `SKIPPED`
+  and passes.
+- **A session on no team** is not a failure: `pingbus status` exits 78 ("no team is active") and
+  has no team or member names to report, so the guard learns the machine's host names alone, and the
+  terms an earlier run left stay in the list. Any other failing status is still exit 2.
 - **Matching** is case-insensitive and on word boundaries (a hyphen, dot or slash is a boundary;
   a letter, digit or underscore is not).
 - **Short or generic terms cannot block everything**: a term under six characters is dropped; a
