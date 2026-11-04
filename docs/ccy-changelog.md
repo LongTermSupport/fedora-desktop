@@ -17,17 +17,25 @@ Two version numbers move independently — see
 
 ---
 
-## 3.108.1 — container 2.79.22
+## 3.111.0 — container 2.79.23
 
 The image is unchanged, so there is no rebuild.
 
 - **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
   the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
-  3.108.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  3.109.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
   waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
   which runs a child as root of its own user and mount namespace for a real-kernel mount test;
   and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
   Nothing in the launcher calls any of them.
+
+---
+
+## 3.109.0 — container 2.79.23
+
+The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.
+
+---
 
 ## 3.108.0 — container 2.79.22
 
@@ -706,7 +714,7 @@ Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never r
 branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
-  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  00217). A team piece reads `alpha: example-repo.2 (c)`: the team, this session's member in
   it and its role, in the team's colour. The colour comes from the team's name, in a palette
   legible on dark terminals, unless the team's `colour:` overrides it.
 

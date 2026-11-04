@@ -112,6 +112,10 @@ if [ ${#STAGED_CHANGE_LIST[@]} -eq 0 ]; then
     exit 0
 fi
 
+# Install-specific names (teams, seats, containers, hosts, client projects) in the added lines;
+# the term list comes from the agent bus, not localhost.yml (Plan 00245 Phase 3).
+"${HOOK_LIB%/*}/../../qa-private-names.bash" staged >&2
+
 # ============================================================================
 # CCY Version Bump Validation
 # ============================================================================
@@ -190,22 +194,27 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
             echo -e "CCY code was modified but CCY_VERSION was not bumped.\nCurrent version: $STAGED_VERSION\n"
             echo "Staged CCY file(s):"
             printf '  %s\n' "${CCY_STAGED[@]}"
-            echo ""
-            echo "The version lives in the launcher, so a lib/ change must stage"
-            echo "$CCY_SCRIPT as well — the libraries are part of the same"
-            echo "program and the runtime hash covers all of them."
-            echo ""
-            echo "Actions to take:"
-            echo "  1. Bump CCY_VERSION in $CCY_SCRIPT"
-            echo "     - Patch (x.y.Z): Bug fixes, minor changes"
-            echo "     - Minor (x.Y.0): New features, backward compatible"
-            echo "     - Major (X.0.0): Breaking changes"
-            echo ""
-            echo -e "  2. Update the version comment to describe the change\n"
-            echo -e "Example:\n  CCY_VERSION=\"3.0.1\"  # Fix: persist sessions in .claude/ccy/\n"
-            echo "To bypass this check (NOT RECOMMENDED):"
-            echo "  git commit --no-verify"
-            echo ""
+            cat <<EOF
+
+The version lives in the launcher, so a lib/ change must stage
+$CCY_SCRIPT as well — the libraries are part of the same
+program and the runtime hash covers all of them.
+
+Actions to take:
+  1. Bump CCY_VERSION in $CCY_SCRIPT
+     - Patch (x.y.Z): Bug fixes, minor changes
+     - Minor (x.Y.0): New features, backward compatible
+     - Major (X.0.0): Breaking changes
+
+  2. Update the version comment to describe the change
+
+Example:
+  CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
+
+To bypass this check (NOT RECOMMENDED):
+  git commit --no-verify
+
+EOF
             exit 1
         fi
     elif [ -n "$HEAD_VERSION" ]; then

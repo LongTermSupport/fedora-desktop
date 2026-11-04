@@ -187,7 +187,7 @@ lower-case characters), and that a team using client names as labels accepts tha
 
 **m7. Plan form.** Tasks are tests-first (each names the test), decisions are split with
 defaults, no time estimates, no install-specific names (`projectx`, `site-b` are
-placeholders; `fedora-desktop.2` is the permitted self-reference; `Owner: joseph` matches every
+placeholders; `example-repo.2` is the permitted self-reference; `Owner: joseph` matches every
 other plan's header). Success Criterion 4 ("the 00209 requirements are taken into its plan by
 its owner seat") is not something this plan can satisfy; make it a handoff item, not a
 criterion.

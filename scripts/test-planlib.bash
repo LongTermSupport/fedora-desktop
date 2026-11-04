@@ -141,7 +141,7 @@ mkdir -p "${TMPROOT}/a/repo/CLAUDE/Plan/00001-x/deep/deeper"
 run_capture _plan_find_repo_root "${TMPROOT}/a/repo/CLAUDE/Plan/00001-x/deep/deeper"
 assert_eq "find_repo_root resolves the root from a deep plan subdir" "${TMPROOT}/a/repo" "${OUT}"
 
-# THE case that matters most for THIS repo: it is routinely checked out INSIDE lts-infra at
+# THE case that matters most for THIS repo: it is routinely checked out INSIDE example-team at
 # untracked/repos/fedora-desktop, and BOTH repos have an ansible.cfg at their root. An
 # unbounded walk from a plan script here finds the OUTER repo's marker and appears to work.
 make_repo "${TMPROOT}/b/outer"

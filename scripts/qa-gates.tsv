@@ -33,6 +33,7 @@ gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlist
 gate	go-vuln	scripts/qa-go-vuln.bash	govulncheck found a vulnerability src-go reaches, or could not judge	detail:GO-VULN-OK .+
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
+gate	private-names	scripts/qa-private-names.bash tree HEAD	a tracked file names an install (team, seat, container, host or client project), or the guard could not judge in a ccy container	detail:private-names: ([0-9]+ file[(]s[)] scanned against [0-9]+ terms, 0 finding[(]s[)]|SKIPPED.*)
 # The seven report stages. Their reports are merged into the machine report.
 stage	bash	scripts/qa-bash.bash	ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	python	scripts/qa-python.bash	ERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).

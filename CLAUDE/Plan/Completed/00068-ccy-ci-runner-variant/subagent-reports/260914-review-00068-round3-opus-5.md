@@ -12,7 +12,7 @@ entirely; finding 4's fix is right in design and carries one unmeasured number. 
 ### 1. `reports/ci-flow.md:23-25` is a surviving report specifying the retracted mechanism — unmarked, and Decision 6 points a reader straight at it
 
 ```
-Networking and compose are **deferred entirely** (lts-infra Plan 00030: the case study does not
+Networking and compose are **deferred entirely** (example-team Plan 00030: the case study does not
 need them), so steps 5–7 pass no `--network` and the flow never enters `:1789-2498` or the
 preflight at `:2518-2593`.
 ```

@@ -11,7 +11,7 @@
 
 ## Overview
 
-lts-infra Plan 00030 has a self-hosted runner fetch a repo's checkout, check out the job's SHA,
+example-team Plan 00030 has a self-hosted runner fetch a repo's checkout, check out the job's SHA,
 and launch `ccy` in the repo root with the instruction for that GitHub event. `ccy` behaves
 normally there, including rebuilding the project image when `.claude/ccy/Dockerfile` changes.
 That is the product, not a hazard to design around
@@ -43,7 +43,7 @@ This plan specifies; it does not build. Implementation is handed to a separate p
   are in scope; only the parallel product is out.
 - No `LABEL` identity convention (Decision 2).
 - **No `--egress`** (Decision 8), and no assumption either way about the runner's own egress
-  posture. That is lts-infra's to decide.
+  posture. That is example-team's to decide.
 - No permission surface on the desktop. Decision 4 stands there and is reversed only for CI by
   Decision 9.
 
@@ -111,10 +111,10 @@ The scope below is the owner's, settled 2026-08-01 (Decisions 7, 8, 9).
   is allowlisted at **server** granularity (`--mcp-config` + `--strict-mcp-config`), never by
   denying `mcp__*` names. Four startup assertions, each able to fail; none on a tool count.
   Records what the tool list does **not** buy: `Bash` is a write vector, so what stops a
-  class-A job pushing is the token's scopes, a property of lts-infra to confirm
+  class-A job pushing is the token's scopes, a property of example-team to confirm
 - [x] ✅ **Task 3.3**: Unattended-launch hygiene: four cited defects, each with a guard-shaped fix
   ([DECISIONS.md §7](DECISIONS.md#7-task-33--unattended-launch-defects)). The container-naming
-  race (3.3.1) is primarily fixed by serialising jobs on the runner, lts-infra Plan 00030
+  race (3.3.1) is primarily fixed by serialising jobs on the runner, example-team Plan 00030
   Task 2.8.
 
 ### Phase 4 — Hand off to implementation
@@ -132,7 +132,7 @@ measurement (E9).
 ## Dependencies
 
 - **Blocks**: Plan 00113 (ccy CI runner — implementation), created 2026-09-14 by Task 4.1.
-- **Consumed by**: lts-infra Plan 00030, which owns the runner-side dispatch.
+- **Consumed by**: example-team Plan 00030, which owns the runner-side dispatch.
 
 ## Success Criteria
 
@@ -160,7 +160,7 @@ measurement (E9).
   `--strict-mcp-config`, and four startup assertions each able to fail —
   [reports/ci-tool-surface.md](reports/ci-tool-surface.md). What it does not buy is
   recorded with it: `Bash` is a write vector, so what stops a class-A job pushing is
-  the token's scopes, which only lts-infra can confirm.
+  the token's scopes, which only example-team can confirm.
 
 ## Delivery & Milestones
 

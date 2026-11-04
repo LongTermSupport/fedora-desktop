@@ -46,7 +46,7 @@ shell redirect into the working tree**; the runner keeps a *persistent* checkout
 tree or a stray commit outlives the job that made it and lands on the next one. What the
 credential does close is push:
 
-> **Required property (to confirm against lts-infra, which has no checkout in this container):
+> **Required property (to confirm against example-team, which has no checkout in this container):
 > the token a class-A job receives must carry no push scope.** If it does, the tool surface is
 > decorative — the agent can `git push` through `Bash` whatever the tool list says.
 
@@ -57,7 +57,7 @@ described honestly.
 
 For the write and commit halves the credential does not reach, the boundary has to be the
 checkout itself — a clean tree asserted after the job, or a checkout the job cannot keep. That
-is the runner's side, so it is stated here as a requirement on lts-infra Plan 00030 rather than
+is the runner's side, so it is stated here as a requirement on example-team Plan 00030 rather than
 specified: **a class-A job must not be able to leave the persistent checkout dirty.**
 
 ### Class B — `issues`, `issue_comment`
@@ -159,7 +159,7 @@ agent's first turn:
 
 ## 6. What this does not settle
 
-- The class-A token's scopes (§2) — a property of lts-infra's token store, unreadable from
+- The class-A token's scopes (§2) — a property of example-team's token store, unreadable from
   here. It is named as a required property, not asserted as a fact.
 
 - **The per-class tool vocabulary, by name.** The 2026-08-10 measurement recorded counts, not
@@ -175,4 +175,4 @@ agent's first turn:
   become the one place per class.
 
 - Whether the dirty-tree half of §2's boundary is enforced on the runner. Stated there as a
-  requirement on lts-infra Plan 00030; nothing in this repo can assert it.
+  requirement on example-team Plan 00030; nothing in this repo can assert it.

@@ -86,11 +86,9 @@
       tags: [agent-bus-element]
 
     - name: Install Element Desktop
-      become: true
-      community.general.flatpak:
-        name: im.riot.Riot
-        remote: flathub
-        state: present
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: im.riot.Riot
       tags: [agent-bus-element]
 
     # Flathub's im.riot.Riot is not granted the secret service, so Element cannot reach the

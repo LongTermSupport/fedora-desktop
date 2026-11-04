@@ -65,6 +65,30 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
 - [ ] ⬜ **Task 2.2**: Move every VALUABLE-UNTRACKED item to its tracked home (anonymised
   where needed), then delete the untracked copy.
 
+### Phase 3: the private-name guard
+
+A sweep agent committed and pushed about 200 files to a public branch that named a client team,
+its seats and its containers 22 times. The commit hook missed it: its private-identifier
+denylist is built only from the gitignored `localhost.yml`, which is absent in the container
+where agents commit, and which never held team, seat or container names. The class:
+install-specific identifiers reaching a commit because no detector knows them.
+
+- [x] Task 3.1: the term list. `src-go/qa/privatenames` learns the names from `pingbus status`
+  and the machine's host names into `<git dir>/private-terms` (mode 0600, never tracked), keeps
+  the terms of teams that left, and never prints a term. Short and generic terms are dropped
+  by rule ([scripts/git-hooks/README.md](../../../scripts/git-hooks/README.md)).
+- [x] Task 3.2: the hooks. `pre-commit` scans the added lines of the staged change; the new
+  `pre-push` scans the message and added lines of every commit being pushed. In a CCY container a
+  list that cannot be built is exit 2, never a skip.
+- [x] Task 3.3: red proof. Run over the leaking commit, the rule reports 60 findings in 24 files.
+- [x] Task 3.4: sweep of the default branch (329 findings in 98 files): 133 occurrences in 53
+  current files replaced by placeholders, 202 findings left for the owner (journals, a product
+  name that is also a play file name, one CCY-image helper)
+  ([report](subagent-reports/261103-private-name-guard.md)).
+- [x] Task 3.5: the owner decided the left-overs (product name allowed, journals redacted in
+  place, history left); the whole-tree scan reports 0 findings and joins `scripts/qa-gates.tsv`
+  as the `private-names` gate ([report](subagent-reports/261103-private-name-guard.md)).
+
 ## Success Criteria
 
 - [ ] The triage's VALUABLE-UNTRACKED list is empty.
