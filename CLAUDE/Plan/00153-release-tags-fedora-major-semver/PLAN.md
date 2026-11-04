@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: In Progress (Phases 1 and 2 done; Phase 3 built and merged; Phase 4, the first release, waits on host acceptance; nothing is tagged)
+**Status**: In Progress, blocked on the owner (Phases 1 to 3 done; Phase 5's workflow is built, reviewed and green on CI but has never run, which needs the owner's GitHub objects, D5, Tasks 5.1 and 5.3; Phase 4, the first release, waits on host acceptance and the owner, Tasks 4.1 and 4.2; nothing is tagged). Every open task's need is in the journal entry of 2026-11-04 titled "What is left".
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -156,11 +156,13 @@ both change only once Task 5.1 is decided.
   with its reviewer and `F*` branch limit, the secret `RELEASE_SIGNING_KEY`, the same key's
   public half as a deploy key with write access and in the servers' `self_update_signing_public_keys`,
   the tag ruleset, and the setting that lets Actions open pull requests.
-- [ ] 🔄 **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
+- [x] ✅ **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
   `CLAUDE/Release.md`'s new rule, and the workflow's row in the workflow docs; the
   `qa-reviewer` agent. The three documents are written (`docs/releases.md`, `CLAUDE/Release.md`,
-  and `CLAUDE/QA.md`, which holds the workflow docs); the `qa-reviewer` pass is owed once the
-  review agents are available again.
+  and `CLAUDE/QA.md`, which holds the workflow docs). The `qa-reviewer` pass ran on 2026-11-04
+  over Tasks 5.3 and 5.4: it found two faults in the workflow (fixed, see Task 5.3) and drift in
+  the documents (fixed: the "least permissions" claim is now what the test pins, and the title
+  check and recovery notes are written). The review of the plan's whole diff stays Task 4.2.
 
 ## Success Criteria
 

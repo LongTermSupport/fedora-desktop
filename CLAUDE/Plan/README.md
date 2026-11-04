@@ -192,7 +192,7 @@ Use these Unicode icons in plan documents:
 
 - [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Not Started. Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`.
 
-- [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - In Progress (host acceptance, then the first tag). Signed `44.MINOR.PATCH` release tags that the self-update follows.
+- [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - In Progress, blocked on the owner (the release workflow is built and green on CI but has never run: it needs the owner's GitHub objects, then host acceptance and the first tag). Signed `44.MINOR.PATCH` release tags that the self-update follows.
 
 - [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - In Progress (host checks and owner decisions open). Delayed stop, unlimited dictation and a model review; new speech-to-text work goes here.
 
