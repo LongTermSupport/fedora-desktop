@@ -1,4 +1,0 @@
-podfreeze: no such network: 'nosuchnet'
-  Known networks:
-    podman
-    appnet

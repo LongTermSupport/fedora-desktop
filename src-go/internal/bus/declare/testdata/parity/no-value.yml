@@ -1,8 +1,0 @@
-agent_bus_teams:
-  - team: alpha
-    port: 6167
-    org:
-    description: Fine
-  - team: beta
-    port: 6168
-    org: # only a comment
