@@ -146,6 +146,10 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
 - `internal/promptfetch/` — `git-prompt-fetch`, bash-git-prompt's background fetch made unable
   to prompt (Plan 00183, F1-F6 in its package doc): `git fetch` with ssh in BatchMode (added to
   the ssh command git would use), no terminal prompt, no askpass, stdin from `/dev/null`.
+- `internal/releasever/` — the next release version from the commits since the last release
+  (Plan 00153 Task 5.2, issue 82; V1-V6 in its package doc): `feat` is a minor, `fix` a patch, a
+  breaking marker is refused on a Fedora-major branch that already has a release, no releasable
+  commit is no release. Pure; the release workflow (Task 5.3) is its first caller.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules

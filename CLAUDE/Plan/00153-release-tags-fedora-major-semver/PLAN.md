@@ -114,13 +114,22 @@ no person typing a command and nothing a server trusts weakened. This replaces t
 "tagging automatically on every merge" and Release.md's "never tag unless the owner asks";
 both change only once Task 5.1 is decided.
 
-- [ ] ⬜ **Task 5.1**: Owner decision gate and design: the semver rule from conventional
+- [ ] 🔄 **Task 5.1**: Owner decision gate and design: the semver rule from conventional
   commits (`fix` patch, `feat` minor, a breaking marker refused on an `F<major>` branch); the
   dedicated SSH release key that servers list in `self_update_signing_public_keys`; the
   protected environment with a required reviewer that alone can read it; the tag ruleset
-  that makes release tags immutable and creatable only by the workflow.
-- [ ] ⬜ **Task 5.2**: Tests first: the version computation driven against a fixture history
-  (no releasable commit means no release).
+  that makes release tags immutable and creatable only by the workflow. The design is written,
+  from what a server demands of a release: [DESIGN-release-workflow.md](DESIGN-release-workflow.md).
+  Waiting on the owner: D1 (the key and its principal), D2 (how the release commit reaches the
+  protected branch), D3 (what starts a run), D4 (the commit-message convention), D5 (the
+  environment, its secret and the tag ruleset, which only the owner can create).
+- [x] ✅ **Task 5.2**: Tests first: the version computation driven against a fixture history
+  (no releasable commit means no release). Built in `src-go/internal/releasever` (rules V1-V6 in
+  its package doc), ahead of Task 5.1's decision because issue 82 states the rule; a different
+  decision changes that package. It is pure; Task 5.3's workflow is its first caller. Open for
+  5.1: this repository's commit subjects mostly carry no conventional header (`Plan 00246: ...`,
+  `Add play-...`, `Merge ...`), and only a `feat` or `fix` header releases, so without a
+  commit-message convention a merge to F44 would rarely release.
 - [ ] ⬜ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
   the signed tag, the GitHub release with generated notes. Actions pinned by SHA, minimum
   `permissions:` per job, no `pull_request_target`, no untrusted input in a shell step.
