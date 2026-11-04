@@ -1,4 +1,0 @@
-DRY RUN — 2 container(s) would be THAWED:
-  NAME                               STATE    CCY  NETWORKS              
-  db                                 paused   -    appnet                
-  proj2_yolo_2                       paused   CCY  podman,appnet         
