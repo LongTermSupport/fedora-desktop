@@ -34,5 +34,7 @@
 # that is not an entry is a fatal error naming its line number.
 
 # Matrix clients: the play declared a stale Flathub ID for Nheko (now im.nheko.Nheko), and
-# its Flatpak install now verifies the installed ID, so it re-runs.
+# its Flatpak install now verifies the installed ID, so it re-runs. It also installs Element
+# Desktop and grants it the keyring, through the task file the agent-bus Element play now
+# shares (Plan 00244 Task 3.2).
 playbooks/imports/optional/common/play-matrix-clients.yml

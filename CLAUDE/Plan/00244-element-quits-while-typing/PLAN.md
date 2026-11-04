@@ -74,9 +74,15 @@ show the prompt. Ctrl+W is ruled out: with the tray icon on, it only hides the w
 - [x] ✅ **Task 3.1**: `playbooks/imports/optional/common/play-matrix-clients.yml` installs
   Nheko from Flathub (`im.nheko.Nheko`, plain install), decoupled from the
   agent bus. Queued in `CLAUDE/Plan/meta-deploy.list`.
-- [ ] ⬜ **Task 3.2**: TODO, bring Element across: its Flatpak install moves from
-  `play-agent-bus-element.yml` into `play-matrix-clients.yml`, and the agent-bus play keeps
-  only its per-team profile and launcher wiring (`helpers/agent_bus/element.py`).
+- [ ] 🔄 **Task 3.2**: Bring Element across: its Flatpak install and its keyring grant move
+  from `play-agent-bus-element.yml` into `tasks/element-desktop.yml`, which
+  `play-matrix-clients.yml` imports, and the agent-bus play keeps its per-team profile and
+  launcher wiring (`helpers/agent_bus/element.py`). Built as a shared task file and not as a
+  plain move, because `ccy-teams` runs the agent-bus play on its own after a team's play
+  (`src-go/internal/teams/ops/ops.go`), so a play that no longer installed Element would fail
+  on a host that never ran the clients play. The owner may prefer the stricter move: the
+  agent-bus play only checks that Element is there, and `ccy-teams` runs the clients play
+  first (a Go change to `ops.go`, its tests and its usage text).
 
 ## Success Criteria
 
