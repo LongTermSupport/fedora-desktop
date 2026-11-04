@@ -99,6 +99,16 @@ Choices made while building, each from a fact rather than a preference:
   no pull request stands for its own message. `pr-title.yml` refuses a title that is no conventional header.
 - **A failed lookup is an error.** Every question that fails (git, GitHub, the remote) stops the run; none reads
   as "nothing to release".
+- **A release commit is one a merged release pull request brought in (R4).** A subject alone is no
+  proof: a commit that merely carries `Release X.Y.Z` (a contributor's, a rebased release) can never
+  be tagged by the workflow, so counting it would answer "tag" on every later push for ever. GitHub
+  is asked whether the commit is the head of a pull request merged into the branch from
+  `release-<version>` of this repository; a failed answer is an error.
+- **CI must be able to pass on the release commit.** The `tag` job needs a passing `qa.yml` run on
+  it, and its only run is the push of the `release-<version>` branch. `qa.yml`'s base check fails a
+  branch lacking the default branch's tip, which that branch does whenever the default branch moved
+  during the approval, and always for an older Fedora major, so it lets that branch through; a test
+  holds the two files together.
 - **If the GitHub Release fails after the tag is pushed**, it is created by hand: servers read the tag.
 
 Task 5.4 wrote `docs/releases.md`, replaced `CLAUDE/Release.md`'s "never tag unless the owner asks" with

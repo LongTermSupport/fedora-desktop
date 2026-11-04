@@ -24,8 +24,9 @@ fallback); see [docs/releases.md](../docs/releases.md).
   itself, because a GitHub merge commit is signed by GitHub and the self-update would refuse it. Design:
   [CLAUDE/Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md](Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md)
   and [DESIGN-release-workflow.md](Plan/00153-release-tags-fedora-major-semver/DESIGN-release-workflow.md).
-- What the workflow promises is held by tests, not by review: every action pinned by commit SHA, the
-  least permissions per job, no `pull_request_target`, no workflow expression inside a shell script,
-  the key's secret only in the protected environment (`src-go/qa/toolchain`), and what decides a
-  release by `src-go/internal/release`. The release script's tests are `scripts/test-release.bash`,
+- What the workflow promises is held by tests, not by review: every action pinned by commit SHA,
+  each job's permissions pinned exactly, no `pull_request_target`, no workflow expression inside a
+  shell script, the key's secret only in the `release` environment, and `qa.yml` letting the
+  release branch through its base check (`src-go/qa/toolchain`), and what decides a release by
+  `src-go/internal/release`. The release script's tests are `scripts/test-release.bash`,
   a hard gate in `qa-all.bash`.

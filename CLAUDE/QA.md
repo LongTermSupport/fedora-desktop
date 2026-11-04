@@ -2218,10 +2218,14 @@ workflow and **not** a row of `scripts/qa-gates.tsv` nor a `qa-changed` check: i
 `F<major>` and never judges a change. What decides a release is Go, `src-go/cmd/release-plan` over
 `src-go/internal/release` (R1-R7 in its package doc) and `internal/releasever` (V1-V6), proven by
 their unit tests; the workflow only runs it and acts on its answer. What the workflow promises is
-held by `TestTheReleaseWorkflowKeepsItsPromises` in `src-go/qa/toolchain` (every action pinned by
-commit SHA, the least permissions per job, no `pull_request_target`, no workflow expression in a
-shell script, the key's secret only in a job with an environment), which the Go gate runs, with a
-broken fixture for each rule. `.github/workflows/pr-title.yml` refuses a pull request title bound
+held by `TestTheReleaseWorkflowKeepsItsPromises` in `src-go/qa/toolchain` over `release.yml`,
+`pr-title.yml` and the local actions (every action pinned by commit SHA, each job's permissions
+pinned exactly in the test so a widening is a reviewed change, no `pull_request_target`, no
+workflow expression in a shell script, the key's secret only in a job of the `release`
+environment and in no workflow-level or other job's `env`), which the Go gate runs, with a broken
+fixture for each rule. `TestQAExemptsTheBranchesTheReleaseWorkflowPushes` holds that `qa.yml`'s
+base check lets the `release-<version>` branch through, since the `tag` job needs a passing CI run
+on that branch's commit. `.github/workflows/pr-title.yml` refuses a pull request title bound
 for `F<major>` that is no conventional header, since the title is what the release reads. The
 owner's one-time setup is a failure, never a skip, until it exists: the environment, its secret,
 the deploy key, the tag ruleset and the setting that lets Actions open pull requests.

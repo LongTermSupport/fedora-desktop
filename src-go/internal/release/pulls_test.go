@@ -76,6 +76,69 @@ func TestAnAnswerThatIsNotJSONIsAnError(t *testing.T) {
 	}
 }
 
+const releasePull = `{"headRef":"release-44.1.0","headRepo":"acme/widgets","headSha":"` + sha1 + `","baseRef":"F44","merged":true}`
+
+func TestTheHeadOfAMergedReleasePullRequestIsFound(t *testing.T) {
+	f := ghAnswers(`[` + releasePull + `]`)
+	ok, err := gh(f).MergedFrom(context.Background(), sha1, "release-44.1.0")
+	if err != nil || !ok {
+		t.Fatalf("got %v, %v, want the merged release pull request found", ok, err)
+	}
+	argv := f.Calls()[0].Args
+	if len(argv) != 4 || argv[1] != pullsEndpoint || argv[2] != "--jq" ||
+		!strings.Contains(argv[3], "head.ref") || !strings.Contains(argv[3], "merged_at") {
+		t.Fatalf("ran gh %q, want the endpoint and a --jq that reads the head branch and when it was merged", argv)
+	}
+}
+
+// Only a pull request that was merged, from this very branch of this repository, into this base,
+// with this commit as its head, is the release pull request. Anything else only carries the
+// subject, and must not stand for a release.
+func TestOnlyAMergedPullRequestFromTheReleaseBranchOfThisRepositoryCounts(t *testing.T) {
+	other := strings.Repeat("9", 40)
+	with := func(old, repl string) string { return `[` + strings.Replace(releasePull, old, repl, 1) + `]` }
+	cases := map[string]string{
+		"no pull request":     `[]`,
+		"another head branch": with(`"release-44.1.0"`, `"feat/x"`),
+		"another version":     with(`"release-44.1.0"`, `"release-44.2.0"`),
+		"a fork":              with(`"acme/widgets"`, `"mallory/widgets"`),
+		"a deleted fork":      with(`"headRepo":"acme/widgets"`, `"headRepo":null`),
+		"not merged":          with(`"merged":true`, `"merged":false`),
+		"another base":        with(`"baseRef":"F44"`, `"baseRef":"F43"`),
+		"another head commit": with(`"headSha":"`+sha1+`"`, `"headSha":"`+other+`"`),
+	}
+	for name, body := range cases {
+		ok, err := gh(ghAnswers(body)).MergedFrom(context.Background(), sha1, "release-44.1.0")
+		if err != nil || ok {
+			t.Fatalf("%s: got %v, %v, want not found", name, ok, err)
+		}
+	}
+}
+
+func TestMergedFromReadsAFailedLookupAndAnUnreadableAnswerAsErrors(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"gh", "api"}, execx.Result{ExitCode: 1, Stderr: []byte("HTTP 502")})
+	if ok, err := gh(f).MergedFrom(context.Background(), sha1, "release-44.1.0"); err == nil || ok {
+		t.Fatalf("got %v, %v: a failed lookup must not read as not merged", ok, err)
+	}
+	if _, err := gh(ghAnswers(`<html>rate limited</html>`)).MergedFrom(context.Background(), sha1, "release-44.1.0"); err == nil {
+		t.Fatal("want an error for an answer that is not JSON")
+	}
+}
+
+func TestMergedFromRefusesAMalformedRepositoryOrCommitBeforeGHRuns(t *testing.T) {
+	for _, c := range []struct{ repo, sha string }{{"../widgets", sha1}, {"acme/widgets", "abc"}, {"acme/widgets", sha1 + "/../x"}} {
+		f := ghAnswers(`[]`)
+		p := release.GitHubPulls{Runner: f, Repo: c.repo, Branch: "F44"}
+		if _, err := p.MergedFrom(context.Background(), c.sha, "release-44.1.0"); err == nil {
+			t.Fatalf("%q %q: want an error", c.repo, c.sha)
+		}
+		if len(f.Calls()) != 0 {
+			t.Fatalf("%q %q: gh ran with %q", c.repo, c.sha, f.Calls()[0].Line())
+		}
+	}
+}
+
 // The repository and the commit are put in a URL path: anything that is not what they should
 // be is refused before gh runs.
 func TestAMalformedRepositoryOrCommitIsRefusedBeforeGHRuns(t *testing.T) {

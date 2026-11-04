@@ -52,11 +52,14 @@ func (f *fakeGit) RemoteBranchExists(_ context.Context, _, _, branch string) (bo
 	return f.branches[branch], f.branchErr
 }
 
-// fakePulls answers with the pull request of a merge commit by sha.
+// fakePulls answers with the pull request of a merge commit by sha, and with whether a commit is
+// the head of a release pull request that was merged.
 type fakePulls struct {
-	messages map[string]string
-	err      error
-	asked    []string
+	messages    map[string]string
+	merged      map[string]bool
+	err         error
+	asked       []string
+	mergedAsked []string
 }
 
 func (f *fakePulls) Message(_ context.Context, sha string) (string, bool, error) {
@@ -66,6 +69,14 @@ func (f *fakePulls) Message(_ context.Context, sha string) (string, bool, error)
 	}
 	m, ok := f.messages[sha]
 	return m, ok, nil
+}
+
+func (f *fakePulls) MergedFrom(_ context.Context, sha, head string) (bool, error) {
+	f.mergedAsked = append(f.mergedAsked, sha+" "+head)
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.merged[sha], nil
 }
 
 func decide(t *testing.T, branch string, g *fakeGit, p *fakePulls) (release.Plan, error) {
@@ -126,10 +137,43 @@ func TestAMergedReleaseCommitWithoutItsTagIsTagged(t *testing.T) {
 		tags:     []string{"44.0.0", "44.1.0"},
 		subjects: []gitx.Subject{{SHA: sha2, Subject: "Release 44.2.0"}},
 	}
-	plan := mustDecide(t, g, &fakePulls{})
+	p := &fakePulls{merged: map[string]bool{sha2: true}}
+	plan := mustDecide(t, g, p)
 	want := release.Plan{Action: release.ActionTag, Version: "44.2.0", Commit: sha2}
 	if plan.Action != want.Action || plan.Version != want.Version || plan.Commit != want.Commit {
 		t.Fatalf("got %+v, want %+v", plan, want)
+	}
+	if strings.Join(p.mergedAsked, "|") != sha2+" release-44.2.0" {
+		t.Fatalf("GitHub asked %q, want the commit and the branch release-44.2.0 it must have been merged from", p.mergedAsked)
+	}
+}
+
+// R4: a commit with a release subject that no merged pull request from release-<version> carries
+// (a contributor's commit, a rebased release, the owner's own) is not a release commit waiting for
+// its tag; it must not make every later push ask for a tag that can never be made.
+func TestAReleaseSubjectNoReleasePullRequestMergedIsNotTagged(t *testing.T) {
+	g := &fakeGit{
+		tags:     []string{"44.0.0"},
+		subjects: []gitx.Subject{{SHA: sha2, Subject: "Release 44.9.0"}},
+		log:      []gitx.LogEntry{{SHA: sha1, Parents: 1, Message: "chore: nothing"}},
+	}
+	plan := mustDecide(t, g, &fakePulls{})
+	if plan.Action == release.ActionTag {
+		t.Fatalf("got %+v, want the unmerged release subject ignored", plan)
+	}
+}
+
+func TestTheNextReleaseIsTaggedWhenTheHighestWasNotMergedFromItsBranch(t *testing.T) {
+	g := &fakeGit{
+		tags: []string{"44.0.0"},
+		subjects: []gitx.Subject{
+			{SHA: sha3, Subject: "Release 44.9.0"},
+			{SHA: sha1, Subject: "Release 44.1.0"},
+		},
+	}
+	plan := mustDecide(t, g, &fakePulls{merged: map[string]bool{sha1: true}})
+	if plan.Action != release.ActionTag || plan.Version != "44.1.0" || plan.Commit != sha1 {
+		t.Fatalf("got %+v, want tag 44.1.0 on %s", plan, sha1)
 	}
 }
 
@@ -150,7 +194,7 @@ func TestOnlyAnExactReleaseSubjectAfterTheLastReleaseCounts(t *testing.T) {
 			subjects: []gitx.Subject{subject},
 			log:      []gitx.LogEntry{{SHA: sha1, Parents: 1, Message: "chore: nothing"}},
 		}
-		plan := mustDecide(t, g, &fakePulls{})
+		plan := mustDecide(t, g, &fakePulls{merged: map[string]bool{sha2: true}})
 		if plan.Action == release.ActionTag {
 			t.Fatalf("%s: tagged %+v, want it ignored", name, plan)
 		}
@@ -166,7 +210,7 @@ func TestTheHighestPendingReleaseCommitIsTheOneTagged(t *testing.T) {
 			{SHA: sha2, Subject: "Release 44.2.0"},
 		},
 	}
-	plan := mustDecide(t, g, &fakePulls{})
+	plan := mustDecide(t, g, &fakePulls{merged: map[string]bool{sha1: true, sha2: true, sha3: true}})
 	if plan.Action != release.ActionTag || plan.Version != "44.3.0" || plan.Commit != sha3 {
 		t.Fatalf("got %+v, want tag 44.3.0 on %s", plan, sha3)
 	}
@@ -242,6 +286,9 @@ func TestAnOpenReleaseBranchIsNotOpenedTwice(t *testing.T) {
 	if plan.Action != release.ActionNone || !strings.Contains(plan.Reason, "release-44.1.0") {
 		t.Fatalf("got %+v, want none naming the branch", plan)
 	}
+	if !strings.Contains(plan.Reason, "closed without merging") || !strings.Contains(plan.Reason, "delete the branch") {
+		t.Fatalf("reason %q: a pull request closed unmerged leaves its branch, so the reason must say how to clear it", plan.Reason)
+	}
 }
 
 func TestPrepareNamesTheVersionAndWhatDecidedIt(t *testing.T) {
@@ -269,6 +316,10 @@ func TestAFailedQuestionIsAnErrorNotAnAnswer(t *testing.T) {
 		"subjects": func(g *fakeGit, _ *fakePulls) { g.subjectErr = boom },
 		"log":      func(g *fakeGit, _ *fakePulls) { g.logErr = boom },
 		"pulls":    func(_ *fakeGit, p *fakePulls) { p.err = boom },
+		"release pull request": func(g *fakeGit, p *fakePulls) {
+			g.subjects = []gitx.Subject{{SHA: sha2, Subject: "Release 44.1.0"}}
+			p.err = boom
+		},
 		"branch": func(g *fakeGit, _ *fakePulls) {
 			g.log = []gitx.LogEntry{{SHA: sha1, Parents: 1, Message: "feat: a"}}
 			g.branchErr = boom

@@ -136,7 +136,7 @@ both change only once Task 5.1 is decided.
   5.1: this repository's commit subjects mostly carry no conventional header (`Plan 00246: ...`,
   `Add play-...`, `Merge ...`), and only a `feat` or `fix` header releases, so without a
   commit-message convention a merge to F44 would rarely release.
-- [x] ✅ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
+- [ ] 🔄 **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
   the signed tag, the GitHub release with generated notes. Actions pinned by SHA, minimum
   `permissions:` per job, no `pull_request_target`, no untrusted input in a shell step.
   Fails closed on a missing key, an unapproved run or an existing tag. Built, as D1 to D4 decided:
@@ -146,6 +146,11 @@ both change only once Task 5.1 is decided.
   command `src-go/cmd/release-plan` over `internal/release` (R1-R7: tests first, three mutations
   turned them red and were restored) and the new `gitx` questions. `TestTheReleaseWorkflowKeepsItsPromises`
   (`src-go/qa/toolchain`) holds the workflow's promises, each with a fixture that breaks it.
+  A `qa-reviewer` pass then found two faults, both fixed test first: the `tag` job's CI check could
+  never pass (`qa.yml`'s base check failed the `release-<version>` branch, now exempt), and R4 took
+  any commit with a release subject (now only the head of a merged pull request from
+  `release-<version>`, asked of GitHub); the promise test now pins each job's permissions exactly
+  and reads `pr-title.yml`. The task stays open until a first release has run.
   **Not yet run:** a real run needs what only the owner can create (D5), listed in
   [docs/releases.md](../../../docs/releases.md#set-up-once-owner): the `release` environment
   with its reviewer and `F*` branch limit, the secret `RELEASE_SIGNING_KEY`, the same key's

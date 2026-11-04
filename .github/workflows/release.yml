@@ -32,8 +32,9 @@ on:
 permissions:
   contents: read
 
-# Two pushes in a row queue; neither cancels the other, because a cancelled run could leave a
-# release half made.
+# A run in progress is never cancelled, because a cancelled run could leave a release half made.
+# A run still waiting behind it is replaced by the newer push, which loses nothing: every run
+# decides from the whole branch.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false

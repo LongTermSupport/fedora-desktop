@@ -93,6 +93,7 @@ func TestDecideAnswersAsKeyValueLinesForTheWorkflow(t *testing.T) {
 func TestDecideNamesTheCommitToTagAndWhyNothingIsDone(t *testing.T) {
 	h := newHarness()
 	h.git.subjects = []gitx.Subject{{SHA: sha2, Subject: "Release 44.1.0"}}
+	h.pulls.merged = map[string]bool{sha2: true}
 	h.run("decide", "--branch", "F44")
 	if want := "action=tag\nversion=44.1.0\ncommit=" + sha2 + "\nreason=\n"; h.out.String() != want {
 		t.Fatalf("got %q, want %q", h.out.String(), want)

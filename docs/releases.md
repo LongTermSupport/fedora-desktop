@@ -18,7 +18,10 @@ approval:
    merged pull request: `feat:` is a minor, `fix:` a patch, anything else releases nothing, and a
    breaking marker (`feat!:` or a `BREAKING CHANGE:` line) is refused on a major that already has a
    release. Pull requests bound for `F44` therefore carry a conventional title, and the check
-   `pr-title.yml` fails one that does not (making it a required check is the owner's call).
+   `pr-title.yml` fails one that does not. Making it a required check is the owner's call, but
+   not as it stands: the release pull request is titled `Release X.Y.Z`, which is no conventional
+   header, and a pull request the workflow opens with its own token starts no `pull_request`
+   runs, so a required title check on it would wait for ever.
 2. After the first approval the workflow opens a pull request with the signed `Release X.Y.Z`
    commit (the changelog entry).
 3. **Merge that pull request with a merge commit.** That push starts the second run.
@@ -28,6 +31,23 @@ approval:
 It refuses, and pushes nothing, when the release key is missing, the tag already exists, the
 release commit is unsigned or off the branch, or CI has not passed on it. If the GitHub Release
 step fails after the tag is pushed, create it by hand (`gh release create X.Y.Z --verify-tag --title X.Y.Z --notes-file <the entry>`); servers read the tag, not the Release.
+
+### When a run refuses
+
+Nothing is pushed on a refusal, and the next push to `F44` decides again from the whole branch.
+
+- **CI had not finished on the release commit.** The `tag` run needs a finished, passing `qa.yml`
+  run on it: the push of its `release-X.Y.Z` branch, which `qa.yml`'s base check lets through
+  without the default branch's tip. Re-run the failed job from the Actions page once CI is done.
+- **A commit that only carries a release subject.** The workflow tags a `Release X.Y.Z` commit only
+  if it is the head of a pull request merged into `F44` from the branch `release-X.Y.Z` of this
+  repository, so a contributor's commit, or a release pull request merged by rebase (which lands
+  new commits, not the signed release commit), is never picked. A release made by hand with
+  `scripts/release.bash` is tagged by hand; reject the environment approval of the workflow run it
+  starts (approved, it fails at the signature check), because that commit is signed by the owner's
+  key and not the release key.
+- **A release pull request closed without merging.** Its branch `release-X.Y.Z` stays, and every
+  later run says that release is already prepared. Delete the branch and push again.
 
 ### Set up once (owner)
 

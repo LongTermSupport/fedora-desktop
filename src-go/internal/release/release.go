@@ -10,8 +10,11 @@
 //   - R3: a major with no release tag is left alone: its first release, <major>.0.0, is made by
 //     `scripts/release.bash prepare first`, because the history to judge is the whole branch.
 //   - R4: a commit whose subject is exactly `Release <version>`, of this major, after the last
-//     release, with no tag yet, is a release commit waiting for its tag: the answer is to tag
-//     it (the highest such version if there are several).
+//     release, with no tag yet, and that is the head of a pull request merged into this branch
+//     from the branch release-<version> of this repository, is a release commit waiting for its
+//     tag: the answer is to tag it (the highest such version if there are several). The subject
+//     alone is not enough: a commit that merely carries one (a contributor's, a rebased release)
+//     can never be tagged by the workflow, so counting it would answer "tag" on every later push.
 //   - R5: otherwise the changes since the last release are the first-parent commits after its
 //     tag. A merge commit stands for the pull request merged by it (title, then body), which is
 //     where the owner's convention is checked (D4); any other commit, and a merge with no pull
@@ -61,6 +64,9 @@ type Pulls interface {
 	// Message is the title of the pull request merged by the commit sha, then its body, and
 	// whether there is one.
 	Message(ctx context.Context, sha string) (message string, found bool, err error)
+	// MergedFrom is whether sha is the head of a pull request merged into the branch from the
+	// branch head of this repository.
+	MergedFrom(ctx context.Context, sha, head string) (bool, error)
 }
 
 // Plan is what a push calls for.
@@ -123,7 +129,7 @@ func (d Decider) Decide(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	if open {
-		return none(fmt.Sprintf("the release %s is already prepared: branch %s is on %s", next.Version, branch, d.Remote)), nil
+		return none(fmt.Sprintf("the release %s is already prepared: branch %s is on %s (if its pull request was closed without merging, delete the branch and push again)", next.Version, branch, d.Remote)), nil
 	}
 	return Plan{Action: ActionPrepare, Version: next.Version.String(), Releasable: next.Releasable}, nil
 }
@@ -149,32 +155,43 @@ func compare(a, b releasever.Version) int {
 	return a.Patch - b.Patch
 }
 
-// pendingTag is R4: the highest release commit after last. A version above the newest tag has no
-// tag, so "after last" is also "whose tag is absent".
+// releaseCandidate is a commit with a release subject, before GitHub says whether it is one.
+type releaseCandidate struct {
+	version releasever.Version
+	sha     string
+}
+
+// pendingTag is R4: the highest release commit after last that a merged release pull request
+// brought in. A version above the newest tag has no tag, so "after last" is also "whose tag is
+// absent". The candidates are asked highest first, and a lookup that fails is an error.
 func (d Decider) pendingTag(ctx context.Context, major int, last releasever.Version) (Plan, bool, error) {
 	subjects, err := d.Git.SubjectsMatching(ctx, d.Dir, "HEAD", releaseGrep)
 	if err != nil {
 		return Plan{}, false, err
 	}
-	var best releasever.Version
-	var commit string
+	var candidates []releaseCandidate
 	for _, s := range subjects {
 		m := releaseSubject.FindStringSubmatch(s.Subject)
 		if m == nil {
 			continue
 		}
-		v, err := releasever.ParseVersion(m[1])
-		if err != nil || v.Major != major || compare(v, last) <= 0 {
+		v, parseErr := releasever.ParseVersion(m[1])
+		if parseErr != nil || v.Major != major || compare(v, last) <= 0 {
 			continue
 		}
-		if commit == "" || compare(v, best) > 0 {
-			best, commit = v, s.SHA
+		candidates = append(candidates, releaseCandidate{version: v, sha: s.SHA})
+	}
+	slices.SortFunc(candidates, func(a, b releaseCandidate) int { return compare(b.version, a.version) })
+	for _, c := range candidates {
+		merged, err := d.Pulls.MergedFrom(ctx, c.sha, "release-"+c.version.String())
+		if err != nil {
+			return Plan{}, false, err
+		}
+		if merged {
+			return Plan{Action: ActionTag, Version: c.version.String(), Commit: c.sha}, true, nil
 		}
 	}
-	if commit == "" {
-		return Plan{}, false, nil
-	}
-	return Plan{Action: ActionTag, Version: best.String(), Commit: commit}, true, nil
+	return Plan{}, false, nil
 }
 
 // changes is R5: the message that stands for each first-parent commit after last, newest first.
