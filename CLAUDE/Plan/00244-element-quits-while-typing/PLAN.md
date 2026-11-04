@@ -1,6 +1,6 @@
 # Plan 00244: element quits while typing
 
-**Status**: In Progress
+**Status**: On Hold (the quit investigation is parked by the owner, 2026-11-04: it has not happened again lately; Phase 3, the Matrix clients play, is separate)
 **Created**: 2026-11-03
 **Owner**: joseph
 **Priority**: Medium

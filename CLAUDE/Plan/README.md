@@ -36,7 +36,7 @@ Use these Unicode icons in plan documents:
 
 - [00245-valuable-work-never-untracked](00245-valuable-work-never-untracked/) - In Progress. Valuable work written to untracked places gets lost; triage, then a blocking defence (Defence Before Fix).
 
-- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - In Progress (waiting for the next exit to be captured, or a reproduction). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
+- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - On Hold (the quit investigation is parked by the owner: it has not happened again lately; reopen if it does). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
 
 - [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the example-team aarch64 test bed; the work collects on branch `F44-arm`.
 
