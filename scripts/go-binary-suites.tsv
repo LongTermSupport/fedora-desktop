@@ -27,6 +27,7 @@ open	qa-go
 cc-project-dir	qa-go
 cc-claude	qa-go
 git-fetch-age	qa-go
+histclean	qa-go
 git-prompt-fetch	qa-go
 convert	qa-go
 rclone-cache-status	qa-go

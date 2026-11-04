@@ -36,3 +36,9 @@
 # Matrix clients: the play declared a stale Flathub ID for Nheko (now im.nheko.Nheko), and
 # its Flatpak install now verifies the installed ID, so it re-runs.
 playbooks/imports/optional/common/play-matrix-clients.yml
+
+# The ccy launcher and image changes from the private-name guard and the fzf pin (the pinned
+# upstream fzf replaces the Fedora package; the image rebuilds as container 2.79.24), plus
+# play-basic-configs (histclean, the nohist=1 prefix, the Ctrl+R footer), play-cli-tools and the
+# freeze tooling, all of which now install fzf from its release.
+changed-plays
