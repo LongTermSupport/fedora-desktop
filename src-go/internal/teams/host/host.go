@@ -18,7 +18,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -47,8 +46,6 @@ type Host struct {
 	Getenv  func(string) string
 	// IsTerminal says whether a stream is a terminal: where colour is used and questions asked.
 	IsTerminal func(any) bool
-	// Columns is how many columns wide a terminal stream is, 0 when it is not one or does not say.
-	Columns func(any) int
 	// Out keeps the first output that could not be written, so the run does not end in success.
 	Out *term.Printer
 
@@ -57,11 +54,8 @@ type Host struct {
 	Systemd *systemd.Systemd
 	Tmux    *tmuxccy.Tmux
 	Git     *gitx.Git
-	// Checkouts says which checkout a folder is in, and whether a host or podman session may run
-	// there (not in an LXC container's files): ask it, never Git alone, before offering one.
-	Checkouts *hostcheckout.Finder
-	Declare   *declare.Client
-	Bus       *agentbus.Client
+	Declare *declare.Client
+	Bus     *agentbus.Client
 	// Registry finds the session registry, which depends on the environment.
 	Registry func() (*registry.Store, error)
 
@@ -117,9 +111,6 @@ func (h *Host) Wire() {
 	}
 	if h.IsTerminal == nil {
 		h.IsTerminal = term.FileIsTerminal
-	}
-	if h.Columns == nil {
-		h.Columns = term.FileColumns
 	}
 	if h.Out == nil {
 		h.Out = &term.Printer{}
@@ -195,9 +186,6 @@ func (h *Host) wireTools() {
 	}
 	if h.Git == nil {
 		h.Git = gitx.New(h.Runner)
-	}
-	if h.Checkouts == nil {
-		h.Checkouts = &hostcheckout.Finder{Git: h.Git, ReadFile: lxcConfReader(h.Getenv)}
 	}
 	if h.Declare == nil {
 		h.Declare = &declare.Client{Runner: h.Runner, Root: h.RootDir, File: h.HostVars, Err: h.Stderr}

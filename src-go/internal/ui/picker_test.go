@@ -11,23 +11,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-// RowChrome is what the frame takes from each side of a row: margin, border and padding on
-// both, and the pointer's gutter.
-func TestRowChromeIsWhatTheFrameTakesFromTheTerminal(t *testing.T) {
-	args, err := PickSpec{Title: "t", Rows: []string{"a"}}.fzfArgs(testHead, false, 80)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"--margin=1,2", "--padding=1,2", "--border=rounded", "--pointer=▶"} {
-		if !slices.Contains(args, want) {
-			t.Fatalf("args %q lack %s", args, want)
-		}
-	}
-	if RowChrome != 2*(2+1+2)+2 {
-		t.Fatalf("RowChrome %d", RowChrome)
-	}
-}
-
 func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})
@@ -36,7 +19,7 @@ func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	if err != nil || got.Row != "alpha   up" || got.Action != "" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	c := drawn(f)[0]
+	c := f.Calls()[0]
 	if !slices.Contains(c.Args, "--border-label= Agent teams ") || slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) {
 		t.Fatalf("args %v", c.Args)
 	}
@@ -66,13 +49,13 @@ func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
 	if err != nil || !yes {
 		t.Fatalf("got %v, %v", yes, err)
 	}
-	if slices.Contains(drawn(f)[0].Args, "--bind=start:last") {
+	if slices.Contains(f.Calls()[0].Args, "--bind=start:last") {
 		t.Fatal("a yes-default question starts on Yes")
 	}
 	if _, err := p.Confirm(context.Background(), testHead, "q", "do it", false); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(drawn(f)[1].Args, "--bind=start:last") {
+	if !slices.Contains(f.Calls()[1].Args, "--bind=start:last") {
 		t.Fatal("the safe default starts on Exit")
 	}
 }
@@ -87,7 +70,7 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 	if err != nil || got.Row != "alpha   up" || got.Tag != "1" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	c := drawn(f)[0]
+	c := f.Calls()[0]
 	if !slices.Contains(c.Args, "--delimiter=\t") || !slices.Contains(c.Args, "--with-nth=1") {
 		t.Fatalf("args %v", c.Args)
 	}
@@ -136,8 +119,8 @@ func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(drawn(f)[0].Args, "--with-nth=1") {
-		t.Fatalf("args %v", drawn(f)[0].Args)
+	if slices.Contains(f.Calls()[0].Args, "--with-nth=1") {
+		t.Fatalf("args %v", f.Calls()[0].Args)
 	}
 }
 
@@ -152,7 +135,7 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	args := drawn(f)[0].Args
+	args := f.Calls()[0].Args
 	if !slices.Contains(args, "--header="+testHeadText+"for a (it's)\n") {
 		t.Fatalf("the first row's header is shown at the start: %q", args)
 	}
@@ -161,8 +144,8 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 	if !slices.Contains(args, want) {
 		t.Fatalf("args %q lack %q", args, want)
 	}
-	if !slices.Contains(drawn(f)[0].Env, "SHELL=/bin/sh") {
-		t.Fatalf("the binding is sh, whatever the login shell is: %q", drawn(f)[0].Env)
+	if !slices.Contains(f.Calls()[0].Env, "SHELL=/bin/sh") {
+		t.Fatalf("the binding is sh, whatever the login shell is: %q", f.Calls()[0].Env)
 	}
 	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, RowHeaders: []string{"x", "y"}}); err == nil {
 		t.Fatal("headers that do not pair up with rows are refused")
@@ -190,7 +173,7 @@ func TestExitLabelNamesTheLastRow(t *testing.T) {
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	in, readErr := io.ReadAll(drawn(f)[0].Stdin)
+	in, readErr := io.ReadAll(f.Calls()[0].Stdin)
 	if readErr != nil || string(in) != "a\nBack to the list\n" {
 		t.Fatalf("rows fed %q, %v", in, readErr)
 	}
@@ -202,14 +185,51 @@ func TestHeaderJoinsLegendAndContextDroppingEmpty(t *testing.T) {
 	}
 }
 
-func TestAPickThatMatchesNothingLeaves(t *testing.T) {
+// completeAction is a typed picker's own action with its shortcut, as a path box has.
+var completeAction = Action{ID: "complete", Label: "Complete what is typed", Key: "tab"}
+
+func TestATypedPickHandsBackTheQueryAndWhatItMatched(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("pro\ntab\nproject/\t0\n")})
 	p := &Picker{Runner: f}
-	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}}); !errors.Is(err, ErrLeave) {
-		t.Fatalf("a pick that matches nothing leaves: %v", err)
+	spec := PickSpec{
+		Title: "t", Header: "h", Actions: []Action{completeAction}, Rows: []string{"project/", "other/"},
+		Prompt: "/srv/work/", Query: "pro", Typed: true,
 	}
-	if c := drawn(f)[0]; !slices.Contains(c.Args, "--bind=q:abort") || !slices.Contains(c.Args, "--prompt=filter > ") {
-		t.Fatalf("args %v", c.Args)
+	got, err := p.Pick(context.Background(), testHead, spec)
+	if err != nil || got != (Picked{Query: "pro", Action: "complete", Row: "project/"}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	c := f.Calls()[0]
+	for _, want := range []string{"--print-query", "--prompt=/srv/work/", "--query=pro", "--expect=tab", "--exact"} {
+		if !slices.Contains(c.Args, want) {
+			t.Fatalf("args lack %q: %v", want, c.Args)
+		}
+	}
+	if slices.Contains(c.Args, "--bind=q:abort") {
+		t.Fatal("q leaves a picker that is typed into, so a path with a q could not be typed")
+	}
+}
+
+func TestATypedPickThatMatchesNoRowHandsBackWhatWasTyped(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/wo\ntab\n")})
+	p := &Picker{Runner: f}
+	got, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Actions: []Action{completeAction}, Rows: []string{"a/"}, Typed: true})
+	if err != nil || got != (Picked{Query: "/srv/wo", Action: "complete"}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/work\n")})
+	got, err = p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}, Typed: true})
+	if err != nil || got != (Picked{Query: "/srv/work"}) {
+		t.Fatalf("Enter on what matches nothing: %+v, %v", got, err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 130})
+	if _, err = p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}, Typed: true}); !errors.Is(err, ErrLeave) {
+		t.Fatalf("Esc still leaves: %v", err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
+	if _, err = p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}}); !errors.Is(err, ErrLeave) {
+		t.Fatalf("an untyped pick that matches nothing leaves: %v", err)
 	}
 }

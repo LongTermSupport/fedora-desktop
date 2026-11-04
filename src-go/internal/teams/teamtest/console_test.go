@@ -77,6 +77,26 @@ func TestScriptedFzfAnswersWithTheChosenRowAndKey(t *testing.T) {
 	}
 }
 
+func TestScriptedTypedFzfHandsBackTheQueryFirstOrWhatWasTyped(t *testing.T) {
+	w := Populated(t)
+	c := Interactive(t, w)
+	c.Script.Fzf = []string{"tab|beta", "tab|TYPED:/srv/wo"}
+	run := func() (execx.Result, error) {
+		return c.Script.Run(t.Context(), execx.Cmd{
+			Name: "fzf", Args: []string{"--print-query", "--query=be", "--expect=tab"},
+			Stdin: strings.NewReader("alpha one\nbeta two\n"),
+		})
+	}
+	res, err := run()
+	if err != nil || string(res.Stdout) != "be\ntab\nbeta two\n" {
+		t.Fatalf("%q %v", res.Stdout, err)
+	}
+	res, err = run()
+	if err == nil || res.ExitCode != 1 || string(res.Stdout) != "/srv/wo\ntab\n" {
+		t.Fatalf("typed text that matches no row: %q %v", res.Stdout, err)
+	}
+}
+
 func TestScriptedFzfMarksSeveralRowsWhenTheChoicesAreJoinedWithAmpersands(t *testing.T) {
 	w := Populated(t)
 	c := Interactive(t, w)
