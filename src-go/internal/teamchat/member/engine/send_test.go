@@ -82,9 +82,15 @@ func coordinatorRoster(id paths.TeamID) proto.Roster {
 // sender posts.
 func (w *world) sendingWith(id paths.TeamID, s state.Store) *fakeTeam {
 	w.t.Helper()
+	return w.sendingUnder(id, s, sendRoster(id))
+}
+
+// sendingUnder is sendingWith with roster r verified, for a test whose rooms are on fakehs.
+func (w *world) sendingUnder(id paths.TeamID, s state.Store, r proto.Roster) *fakeTeam {
+	w.t.Helper()
 	f := w.add(id, encodeStore(w.t, s))
 	<-f.running
-	f.notices.set(sendRoster(id))
+	f.notices.set(r)
 	f.notices.mu.Lock()
 	f.notices.token = memberAccess
 	f.notices.mu.Unlock()

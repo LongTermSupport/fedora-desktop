@@ -321,7 +321,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   verification) on `feat/bus-v2-n3f-b`, and on `feat/bus-v2-n3f-b2` the `report` verb end to end
   (RP3, RP5, RP6), the sender's post to the reports room with its own verification (RP4), the
   `status` `room` record and the wiring, so the release test fails on `ask`, `thread` and
-  `questions` only; not built: the recovery of a tried report under a reissued token, and the
+  `questions` only; on `feat/bus-v2-n3f-b3` the recovery of a tried report under a reissued
+  token (n3f-D16); not built: the
   end-to-end rows (OF1-n3f's `report` row, the n3f-D1 stdin cases through the real binary, RP5's
   two-member store check); n3f-c to n3f-e open, see BUILT-n3.md).
 

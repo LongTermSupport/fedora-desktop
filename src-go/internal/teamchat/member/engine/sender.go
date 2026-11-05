@@ -441,7 +441,8 @@ type recovered struct {
 	origin int64
 }
 
-// RecoverSends finds the team's tried sends among its own events in main (n3d-D4): the team
+// RecoverSends finds the team's tried sends among its own events in main and the reports room
+// (n3d-D4, n3f-D16): the team
 // calls it at a session's start under a pair other than the last recovery's (a restarted link,
 // or a token reissued in the run). Until it is done the sender posts nothing and a send is
 // answered queued; a send the server holds is recorded as posted at its origin time, never put
@@ -493,26 +494,82 @@ func (e *Engine) recoverLocked(ctx context.Context, h *held, n team.Notices) err
 	return nil
 }
 
-// recoverTried is the read of main back to the anchor and each tried send found in it recorded
-// as posted, oldest first, so the anchor ends at the newest.
+// recoverTried finds the tried sends in the room each was put to, oldest first, and records each
+// found as posted: main's read back to the anchor, so the anchor ends at the newest, and the
+// reports room's (n3f-D16) read through recoverReports.
 func (e *Engine) recoverTried(ctx context.Context, t paths.TeamID, n team.Notices, rc recovery) error {
-	events, err := newerThan(ctx, n, rc.main, rc.anchor)
-	if err != nil {
-		return fmt.Errorf("engine: team %s: read main for the tried sends: %w", t, err)
-	}
 	r, ok := n.Roster()
 	if !ok && rc.cached != nil {
-		r = *rc.cached
+		r, ok = *rc.cached, true
 	}
-	for _, f := range matchTried(events, rc.tried, rc.self) {
+	var mains, reports []state.Sending
+	for _, s := range rc.tried {
+		switch s.Room {
+		case proto.PurposeMain:
+			mains = append(mains, s)
+		case proto.PurposeReports:
+			reports = append(reports, s)
+		default:
+			return fmt.Errorf("engine: team %s: tried send %s is to room %q, which no recovery reads", t, s.Txn, s.Room)
+		}
+	}
+	if len(mains) > 0 {
+		events, err := newerThan(ctx, n, rc.main, rc.anchor)
+		if err != nil {
+			return fmt.Errorf("engine: team %s: read main for the tried sends: %w", t, err)
+		}
+		p := nextPost{id: t, main: rc.main, self: rc.self}
+		if err := e.recordFound(ctx, n, p, r, matchTried(events, mains, rc.self)); err != nil {
+			return err
+		}
+	}
+	if len(reports) == 0 {
+		return nil
+	}
+	if !ok {
+		return fmt.Errorf("engine: team %s: no roster names the reports room to find the tried reports in", t)
+	}
+	found, err := recoverReports(ctx, n, r.Rooms.Reports, reports, rc.self)
+	if err != nil {
+		return fmt.Errorf("engine: team %s: read the reports room for the tried reports: %w", t, err)
+	}
+	return e.recordFound(ctx, n, nextPost{id: t, main: rc.main, self: rc.self}, r, found)
+}
+
+// recoverReports are the tried reports found in the reports room: its newest events read back
+// with no anchor (a report sets none), so at most recoveryPages pages of recoveryPage events. A
+// report with more than that many events newer than it in the reports room is not found and is
+// put again under a new token: that is the window the bound leaves. A read the homeserver forbids
+// finds nothing (this member is not in the room, so it cannot have posted there since), and the
+// sender's verification of the room then refuses the report; a roster naming no reports room
+// leaves nothing to read, and the sender holds the report until one is named.
+func recoverReports(ctx context.Context, n team.Notices, room string, tried []state.Sending, self string) ([]recovered, error) {
+	if room == "" {
+		return nil, nil
+	}
+	events, err := newerThan(ctx, n, room, "")
+	if errors.Is(err, matrix.ErrForbidden) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return matchTried(events, tried, self), nil
+}
+
+// recordFound records each recovered send as posted at its origin time and lets the resolver know
+// it through recordOwn, which knows main's sends only.
+func (e *Engine) recordFound(ctx context.Context, n team.Notices, p nextPost, r proto.Roster, found []recovered) error {
+	for _, f := range found {
 		var recErr error
-		if err := e.do(ctx, func() { recErr = e.recordPosted(t, f.entry, f.id, f.origin) }); err != nil {
+		if err := e.do(ctx, func() { recErr = e.recordPosted(p.id, f.entry, f.id, f.origin) }); err != nil {
 			return err
 		}
 		if recErr != nil {
 			return recErr
 		}
-		n.RecordOwnSend(f.id, ownSend(rc.self, rc.main, f.entry.Content, r))
+		p.entry = f.entry
+		recordOwn(n, p, f.id, r)
 	}
 	return nil
 }

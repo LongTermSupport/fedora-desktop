@@ -203,6 +203,17 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `report`, n3f-D1's cases through the binary, RP5's two-member store check), and the
   Defence-Before-Fix assessment of the defect classes met.
 
+- **n3f-b3, the recovery of a tried report** on `feat/bus-v2-n3f-b3` (from
+  `feat/bus-v2-n3f-b-int`; `subagent-reports/261105-n3f-b3-opus-report.md`). The recovery splits
+  the tried sends by room: main's are read back to the anchor as before; the reports room's are
+  read back with no anchor (at most 5 pages of 100 events, as main with none) and matched by txn,
+  or by sender and content when the server gives no txn; one found is recorded posted with no
+  own send and no `last_sent`. A 403 on that read finds nothing (the sender's verification then
+  decides); another failure fails the recovery, as main's does; a tried report with no roster to
+  name the room, or a tried send to a room no recovery reads, fails it too. Residual: a report
+  with more than 500 events newer than it in the reports room is not found and is put again under
+  a new token. Coverage: `engine` 92.9%, `teamsync` 95.1%.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
