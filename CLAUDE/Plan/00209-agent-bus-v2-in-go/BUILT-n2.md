@@ -19,10 +19,15 @@ allowlist row and the `keepout` rows that hold it out of the member binary.
 
 Done, as inert code: each team's `config.toml` (C 3.2.3) and its drop-in (C 3.2.4) are
 rendered by `host/render.go` (slice n2d, `SPEC-n2d.md` HS4, report
-`subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Not done: the
-pinned Tuwunel's install, the `teamchat-server@<team>` unit template with D's
-`InaccessiblePaths=`, and D's gate over it (seam 49). These are play tasks and a unit, so
-they wait for gate A (Task 2.5).
+`subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Slice S7a
+(`subagent-reports/261105-n2-s7-sonnet.md`) put D 4.2's `InaccessiblePaths=` line, held once as
+`v1names.InaccessiblePaths`, into every unit text Go makes: the base sandbox (so a team's
+sandbox and the restore's staging unit), the restore's secure unit and the backup service. A
+test makes that true of every Go file that holds unit text, so a new one fails until it is
+judged. Not done: the pinned Tuwunel's install and the `teamchat-server@<team>` unit template
+(play tasks, so they wait for gate A, Task 2.5), and the health and seats unit texts (slice
+S7b). Nothing ran on a host: the secure unit now has a mount namespace beside
+`JoinsNamespaceOf`, which H-C5's restore run is what proves harmless.
 
 ## Task 2.3: install and apply, the rooms engine, members and roles
 
