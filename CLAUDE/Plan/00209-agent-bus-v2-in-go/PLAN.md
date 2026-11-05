@@ -248,7 +248,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   restore engine) are built as inert code, with real-server evidence under `-tags tuwunel`;
   what each covers and leaves out: [BUILT-n2.md](BUILT-n2.md). Not built: the host_vars writer
   (ccy-teams', Task 4.3), the units and timers (gate A), and `restore` in production, which stays
-  refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15).
+  refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15). The verbs no slice
+  specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
 
   **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
   `go list -deps ./cmd/teamchat-admin`). PR 124 then took the whole stack to F44, the last
