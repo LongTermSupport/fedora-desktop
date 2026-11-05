@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
 // sandbox is C 3.2.3's identity, hardening and deny lines for ops, as host.BaseSandbox gives
@@ -14,7 +15,7 @@ func sandbox() []string {
 	return []string{
 		"DynamicUser=yes", "User=teamchat-ops", "StateDirectory=teamchat/ops", "StateDirectoryMode=0700", "UMask=0077",
 		"NoNewPrivileges=yes", "CapabilityBoundingSet=", "PrivatePIDs=yes", "IPAddressDeny=any", "SocketBindDeny=any",
-		"InaccessiblePaths=-/run/dbus",
+		"InaccessiblePaths=-/run/dbus", v1names.InaccessiblePaths,
 	}
 }
 
@@ -115,7 +116,7 @@ func drop(list []string, item string) []string {
 }
 
 // RU2: the secure unit's argv, joined to the staging unit's network, as teamchat-ctl, with a
-// cleared environment, and the request on stdin.
+// cleared environment, and the request on stdin; it carries D 4.2's v1 paths like every v2 unit.
 func TestSecureArgv(t *testing.T) {
 	argv, err := SecureArgv(opsTeam(t), "/usr/local/lib/teamchat/teamchat-admin-abc")
 	if err != nil {
@@ -128,6 +129,7 @@ func TestSecureArgv(t *testing.T) {
 	want := []string{
 		"JoinsNamespaceOf=teamchat-restore@ops.service", "PrivateNetwork=yes", "User=teamchat-ctl", "Group=teamchat-ctl",
 		"WorkingDirectory=/", "NoNewPrivileges=yes", "IPAddressDeny=any", "IPAddressAllow=127.0.0.1/32 ::1/128",
+		v1names.InaccessiblePaths,
 	}
 	if got := properties(argv); !slices.Equal(got, want) {
 		t.Errorf("properties %q, want %q", got, want)
