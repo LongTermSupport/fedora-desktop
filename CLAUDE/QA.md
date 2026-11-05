@@ -2298,11 +2298,24 @@ The policy is data, `scripts/branch-policy.toml`:
 
 **An exempt branch is never a cleanup candidate,** whatever a triage or a verdict says. The
 release lines (`F<nn>`, `F<nn>-arm`) are the per-version default-branch model: a machine on that
-Fedora release pulls from its line. Before deleting branches in bulk:
+Fedora release pulls from its line.
 
-1. Take the `exempt` list out of the candidate list, and anything matching `F[0-9]*`.
-2. Read every remaining name.
-3. Push each tip to `refs/archive/<name>` first, so the delete loses no commit.
+**A bulk delete list is built only by `scripts/branch-delete-list.bash`,** never by hand or from a
+triage's verdicts:
+
+1. Push each candidate's tip to `refs/archive/<name>` first, so the delete loses no commit.
+2. Put the candidate names, one per line, in a file (or on stdin) and run
+   `./scripts/branch-delete-list.bash FILE`. It asks origin with `git ls-remote --symref origin`.
+3. If it refuses (exit 1), it names each offender on stderr and prints no list. It never drops a
+   name by itself: take the offender out of the list, or archive its current tip, and run it
+   again. It refuses any name that is exempt or parked in `scripts/branch-policy.toml` (read by
+   the same code as `qa-branch-hygiene`), matches `F[0-9]*`, is origin's default branch, is not
+   a branch on origin, or has no `refs/archive/<name>` on origin at exactly the branch's tip.
+4. When every name passes (exit 0) it prints one `git push origin --delete <name>` line per
+   branch on stdout. Read every name, then the owner runs them; the command deletes nothing.
+
+Exit 2 is "could not judge": bad usage, an empty list, an unreadable policy or list, or origin
+unreachable. The command is `src-go/qa/cmd/branch-delete-list` over `src-go/qa/branchdelete`.
 
 The owner's account bypasses the "Protect F-version branches" ruleset, so nothing on the forge
 stops a delete the owner runs. And the signed-commits ruleset has no bypass, so an old release
