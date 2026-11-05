@@ -39,6 +39,16 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   tests (review A n3; GATE A means none is deployed). Found here and fixed on
   `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
 
+- **The sender's stale stop** (issue #159, on `fix/recover-stale-401-159`): a PUT under the old
+  token answered 401 or 403 after the team's recovery under a reissued token had cleared the
+  send stop set it again, over the new token. The team's `sendsUnder` (the digest of the token
+  its sends run under) is set by a recovery in the step that clears the stop, and the sender
+  sets the stop only when the PUT's token is that one; a refusal of another is tried again
+  under the new token. Tests `TestARefusalOfAnOldTokenDoesNotStopTheNewOne` (red before the
+  fix) and `TestARefusalOfTheTokenTheSenderRecoveredUnderStops`; the class has no rule
+  ([GoProjectRules.md](../../GoProjectRules.md#defect-classes-that-cannot-be-a-rule)). Report:
+  `subagent-reports/261105-fix-sender-opus-report.md`.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.

@@ -182,7 +182,9 @@ func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
 	h.postMu.Lock()
 	defer h.postMu.Unlock()
 	n := p.tm.Notices()
-	if sha256.Sum256([]byte(n.Token())) != h.recoveredUnder {
+	token := n.Token()
+	under := sha256.Sum256([]byte(token))
+	if under != h.recoveredUnder {
 		if err := e.recoverLocked(ctx, h, n); err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -206,12 +208,12 @@ func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
 	default:
 		return e.hold(ctx, h)
 	}
-	if err := e.recheck(p, n.Token(), r); err != nil {
+	if err := e.recheck(p, token, r); err != nil {
 		return e.unposted(ctx, h, p.entry, err)
 	}
 	id, err := n.Send(ctx, p.main, p.entry.Type, p.entry.Txn, p.entry.Content)
 	if err != nil {
-		return e.sendFailed(ctx, h, p.entry, err)
+		return e.sendFailed(ctx, h, p.entry, under, err)
 	}
 	failpoint.Hit(failpoint.LinkAfterSendBeforeRecord)
 	// The resolver knows the send as this member's before the op that made it is answered.
@@ -298,11 +300,13 @@ func (*Engine) answer(h *held, txn string, r sendResult) {
 	}
 }
 
-// sendFailed is a PUT that failed (SD3-8, the offline rule): a refused token or a forbidden send
-// answers and removes only the sends an op waits on and stops the team's sends (SD3-8c), the
-// queued ones kept until the team runs again; another refusal drops the send; any other
-// failure is tried again later.
-func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, err error) *sendHold {
+// sendFailed is a PUT made under the token whose digest is under that failed (SD3-8, the
+// offline rule): a refused token or a forbidden send answers and removes only the sends an op
+// waits on and stops the team's sends (SD3-8c), the queued ones kept until the team runs again;
+// another refusal drops the send; any other failure is tried again later. A refusal of a token
+// the team's sends no longer run under (a recovery under a new one started while the PUT was
+// answered) stops nothing: the send is tried again under the new token (issue 159).
+func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, under [sha256.Size]byte, err error) *sendHold {
 	code, msg := "", exits.Template("")
 	switch {
 	case errors.Is(err, matrix.ErrAuthRefused):
@@ -311,11 +315,22 @@ func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, e
 		code, msg = exits.CodeForbidden, msgForbidden
 	}
 	if code != "" {
+		// The check and the stop are one step on the state goroutine, as is a recovery's
+		// clearing of the stop with its new token: either this step comes first and the
+		// recovery clears the stop, or it comes after and finds the token changed.
+		var stale bool
 		if doErr := e.do(ctx, func() {
+			if stale = h.sendsUnder != under; stale {
+				return
+			}
 			e.refuseWaiting(h, exits.New(code, &h.id, msg, exits.Team(h.id)))
 			h.sendStop = code
 			e.publish()
 		}); doErr != nil {
+			return nil
+		}
+		if stale {
+			e.logf("team %s: a send was refused (%s) under a token the team no longer holds; it is tried again under the new one", h.id, code)
 			return nil
 		}
 		e.logf("team %s: a send was refused (%s); the team's sends stop until it runs again", h.id, code)
@@ -428,16 +443,17 @@ type recovered struct {
 // calls it at a session's start under a pair other than the last recovery's (a restarted link,
 // or a token reissued in the run). Until it is done the sender posts nothing and a send is
 // answered queued; a send the server holds is recorded as posted at its origin time, never put
-// again. It is the team's next run, so a send-side stop clears. A read that fails is returned,
-// and the team calls again.
+// again. It is the team's next run, so a send-side stop clears, and the team's sends run under
+// n's token from that step on. A read that fails is returned, and the team calls again.
 func (e *Engine) RecoverSends(ctx context.Context, t paths.TeamID, n team.Notices) error {
 	var (
 		h       *held
 		heldErr error
 	)
+	under := sha256.Sum256([]byte(n.Token()))
 	if err := e.do(ctx, func() {
 		if h, heldErr = e.heldFor(t); heldErr == nil {
-			h.recovered, h.sendStop = false, ""
+			h.recovered, h.sendStop, h.sendsUnder = false, "", under
 			e.publish()
 		}
 	}); err != nil {
@@ -460,11 +476,11 @@ func (e *Engine) RecoverSends(ctx context.Context, t paths.TeamID, n team.Notice
 }
 
 // recoverLocked is one recovery under the token n holds now, with postMu held; the token's
-// digest is kept for the sender's check.
+// digest is kept for the sender's check, and the team's sends run under it from its first step.
 func (e *Engine) recoverLocked(ctx context.Context, h *held, n team.Notices) error {
 	under := sha256.Sum256([]byte(n.Token()))
 	var rc recovery
-	if err := e.do(ctx, func() { rc = recoveryOf(h) }); err != nil {
+	if err := e.do(ctx, func() { rc, h.sendsUnder = recoveryOf(h), under }); err != nil {
 		return err
 	}
 	if len(rc.tried) > 0 {
