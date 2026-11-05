@@ -271,11 +271,15 @@ func TestATimeoutRendersFromItsKeyAndTheOutbox(t *testing.T) {
 	ref := "pr:2"
 	p := state.Pending{ID: evID(7) + "~repo.3+site.podman", Item: records.KindTimeout}
 	pings := []state.Ping{{ID: evID(6), Verb: "x"}, {ID: evID(7), Verb: "review", Ref: &ref}}
-	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb != "review" || r.Ref != &ref {
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb == nil || *r.Verb != "review" || r.Ref != &ref || r.Question != nil {
 		t.Fatalf("timeout = %+v", r)
 	}
 	p.ID = evID(7)
-	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "" {
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "" || r.Verb != nil || r.Question != nil {
 		t.Fatalf("an unkeyed timeout = %+v", r)
+	}
+	p.ID = evID(9) + "~repo.3+site.podman"
+	if r, ok := itemRecord(ops, p, proto.Verdict{}, testNamer(ops), pings).(records.Timeout); !ok || r.Silent != "repo.3+site.podman" || r.Verb != nil || r.Ref != nil {
+		t.Fatalf("a timeout whose ping the outbox lacks = %+v", r)
 	}
 }

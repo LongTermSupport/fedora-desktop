@@ -56,7 +56,8 @@ the error lists the choices.
 - `teamchat inbox`: what is pending as `pending`, without bodies.
 - `teamchat reply '<id>'`, `teamchat say --to <name>`, `teamchat ping <verb> <ref> --to <name>`
   and `teamchat report`: `sent`.
-- `teamchat ask` and `teamchat questions`: `question`.
+- `teamchat ask` and `teamchat questions`: `question`; `teamchat questions` also prints `unattached` for a
+  human post in the questions room that no question holds and no agent has replied to.
 - `teamchat thread Q<n>`: `sent`.
 - `teamchat history`: what this member received and sent, newest first, as `history`.
 - `teamchat verify '<id>'`: `verified`.
