@@ -31,7 +31,7 @@ func (r RosterCache) Encode() ([]byte, error) {
 // DecodeRosterCache reads roster.json strictly.
 func DecodeRosterCache(data []byte) (RosterCache, error) {
 	var r RosterCache
-	if _, err := decodeStrict(rosterCacheFile, data, MaxRosterCache, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(rosterCacheFile, data, MaxRosterCache, &r, func(c *rules) { r.check(c) }); err != nil {
 		return RosterCache{}, err
 	}
 	return r, nil

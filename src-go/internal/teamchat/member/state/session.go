@@ -65,7 +65,7 @@ func (s Session) Encode() ([]byte, error) {
 // DecodeSession reads session.json strictly.
 func DecodeSession(data []byte) (Session, error) {
 	var s Session
-	if _, err := decodeStrict(sessionFile, data, MaxSession, &s, func(c *rules) { s.check(c) }); err != nil {
+	if err := decodeStrict(sessionFile, data, MaxSession, &s, func(c *rules) { s.check(c) }); err != nil {
 		return Session{}, err
 	}
 	return s, nil
