@@ -38,6 +38,8 @@ const (
 	sessprobePkg = "internal/sessprobe"
 	podfreezePkg = "internal/podfreeze"
 	lxcfreezePkg = "internal/lxcfreeze"
+	keeperPkg    = "internal/teamchat/member/keeper"
+	lxccmdPkg    = "internal/teamchat/host/lxc/lxccmd"
 	sudoPkg      = "internal/sudo"
 	agentbusPkg  = "internal/agentbus"
 	hostPkg      = "internal/teams/host"
@@ -67,24 +69,28 @@ const (
 // container by sessprobe, driven (pause, unpause, networks) by podfreeze, and pruned (with
 // docker) by reclaim, the disk-space menu; netpolicy creates, holds the network policy of and
 // starts a ccy session's container (and runs one under docker unprotected); nmcli is run inside
-// a container by lxcfreeze, for the hotspot by ftpcamera and for its VPN profiles by nord. A program absent
+// a container by lxcfreeze, for the hotspot by ftpcamera and for its VPN profiles by nord.
+// systemctl is the desktop's units through sudo in systemd and `clean --what=state` of a
+// teamchat homeserver as root in teamchat/units (whose other unit calls are D-Bus). lxc-ls,
+// lxc-info and lxc-attach are the freeze tool's through sudo in lxcfreeze, and teamchat-admin's
+// as root in teamchat/host/lxc/lxccmd, which may not link lxcfreeze's TUI or sudo. A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {systemdPkg},
+	"systemctl":    {systemdPkg, "internal/teamchat/units"},
 	"busctl":       {systemdPkg, "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
 	"podman":       {sessprobePkg, podfreezePkg, reclaimPkg, "internal/ccc", netpolicyPkg},
 	"docker":       {sessprobePkg, reclaimPkg, netpolicyPkg},
-	"lxc-ls":       {lxcfreezePkg},
-	"lxc-info":     {lxcfreezePkg},
+	"lxc-ls":       {lxcfreezePkg, lxccmdPkg},
+	"lxc-info":     {lxcfreezePkg, lxccmdPkg},
 	"lxc-freeze":   {lxcfreezePkg},
 	"lxc-unfreeze": {lxcfreezePkg},
-	"lxc-attach":   {lxcfreezePkg},
+	"lxc-attach":   {lxcfreezePkg, lxccmdPkg},
 	"nmcli":        {lxcfreezePkg, ftpcameraPkg, nordPkg},
 }
 
@@ -173,6 +179,26 @@ var dynamicNames = []allowance{
 		reason: "the Element play, run by its own shebang; its path is configuration",
 	},
 	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "ExecChild.Ask",
+		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
+	},
+	{
+		pkg:    "internal/teamchat/matrix/tuwunelhs",
+		fn:     "StartWith",
+		reason: "the Tuwunel homeserver binary the environment names (BinEnv), run for the real-homeserver tests; never an owned program",
+	},
+	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "UnitChild.Ask",
+		reason: "/usr/bin/systemd-run of the restore's secure unit (it refuses any other argv[0]), argv from restore.SecureArgv (SPEC-n2g RU2); the program inside is teamchat-admin itself, a run-time path",
+	},
+	{
+		pkg:    "internal/teamchat/restore",
+		fn:     "unitCommand",
+		reason: "/usr/bin/systemd-run of the restore's staging or secure unit, argv from StagingArgv or SecureArgv (SPEC-n2g RU1, RU2); the program inside is the Tuwunel units.json names or teamchat-admin itself, both run-time paths",
+	},
+	{
 		pkg:    "internal/wsi",
 		fn:     "run.sibling",
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
@@ -218,6 +244,11 @@ var dynamicNames = []allowance{
 		reason: "runs the read-only command its caller names; every caller is itself judged as a program runner",
 	},
 	{
+		pkg:    lxccmdPkg,
+		fn:     "LXC.Guest",
+		reason: "the host-written kit binary <kit>/bin/teamchat, its digest path resolved once by the host and never current (C 3.9.1)",
+	},
+	{
 		pkg:    agentbusPkg,
 		fn:     "Client.rootRun",
 		reason: "runs the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
@@ -247,6 +278,41 @@ var dynamicNames = []allowance{
 		fn:     "cli.execVault",
 		reason: "the checkout's vault.bash, whose path is REPO_PATH in /etc/ftp-camera/config",
 	},
+	{
+		pkg:    "internal/teamchat/reexec",
+		fn:     "command",
+		reason: "the test binary itself, re-run as a second process (SPEC-n3 gap 8)",
+	},
+	{
+		pkg:    "internal/teamchat/failpoint",
+		fn:     "runSelf",
+		reason: "the busfailpoints test binary itself, re-run so an armed point can SIGKILL it (SPEC-n3 gap 9)",
+	},
+	{
+		pkg:    "internal/teamchat/member/guest",
+		fn:     "Checker.ghLoggedIn",
+		reason: "gh (unowned) at the path guest check found on the session unit's PATH, never the attach's own (SPEC-n3 GU2)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "linkCmd",
+		reason: "the kit's own teamchat, <kit>/bin/teamchat link, for the kit the keeper resolved (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.kitVersion",
+		reason: "the kit's own teamchat asked its --version, for the kit --kit or the current link names (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.resolveKit",
+		reason: "the kit's own teamchat re-executed as run --kit when it is another version than this binary (SPEC-n3 RN1)",
+	},
+	{
+		pkg:    keeperPkg,
+		fn:     "keeper.startCmd",
+		reason: "CMD, the session's command the launcher named after --, Claude Code or a plain command (B 2.4.1 step 7)",
+	},
 }
 
 // shellStrings are the functions that may hand a shell a string with -c, because the program's
@@ -257,6 +323,11 @@ var shellStrings = []allowance{
 		pkg:    "internal/pingbus/statusline",
 		fn:     "runInner",
 		reason: "the statusLine command of the session's settings, which Claude Code itself runs as /bin/sh -c (Plan 00213 SPEC-status-line.md S9); the status line runs it the same way",
+	},
+	{
+		pkg:    "internal/teamchat/member/statusline",
+		fn:     "deps.runInner",
+		reason: "the session's own statusLine command, which Claude Code runs as /bin/sh -c; teamchat status-line wraps it the same way (Plan 00209 B 2.9, SPEC-n3 SL1)",
 	},
 }
 
@@ -276,11 +347,54 @@ var expectBuilders = []allowance{
 	},
 }
 
+// waiterCountAllowances are the test functions whose claim is that nothing at all is armed on
+// their fake clock, so a count of every waiter is the claim itself (project_fakeclock_count).
+// A row excuses an assertion of the count, never a wait on it.
+var waiterCountAllowances = []allowance{
+	{
+		pkg:    "internal/teamchat/member/client",
+		fn:     "world.noLink",
+		reason: "LN3: with no link the client answers at once and never waits, so any armed timer is a wait it must not make",
+	},
+	{
+		pkg:    "internal/teamchat/member/client",
+		fn:     "TestASendNeverRetries",
+		reason: "a send never reconnects or waits, so any armed timer is a wait it must not make",
+	},
+	{
+		pkg:    "internal/teamchat/member/inbox",
+		fn:     "TestOneDeliveryRecordsTheAuthFrameThenTheContent",
+		reason: "the inbox client is the only code on its clock, and a finished delivery leaves no phase timer of any kind armed",
+	},
+	{
+		pkg:    "internal/teamchat/member/faketranscript",
+		fn:     "TestRecordNeverWritesNothing",
+		reason: "a record whose delay is Never arms nothing at all on the transcript's clock",
+	},
+}
+
+// agentBranches are the declarations outside package agent that may name or compare a launch
+// value (project_agent_branch): its one list, the two checks of a value read from a file or a
+// frame, and cli's names and spelling of it. fn "" is a package-level declaration.
+var agentBranches = []allowance{
+	{pkg: teamchatStatePkg, fn: "", reason: "the one list of launch values"},
+	{pkg: teamchatStatePkg, fn: "SessionPID.check", reason: "session.pid's value check"},
+	{pkg: teamchatWirePkg, fn: "Launch.check", reason: "the launch frame's value check"},
+	{pkg: teamchatCLIPkg, fn: "", reason: "cli's names for the launch values"},
+	{pkg: teamchatCLIPkg, fn: "ParseLaunch", reason: "--resume-recorded refused on plain"},
+	{pkg: teamchatCLIPkg, fn: "Launch.fromFlags", reason: "the spelling"},
+}
+
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
 // No test reads the wall clock: a real sleep is shown by a timer that fires first.
 var clockAllowances = []clockAllowance{}
+
+// teamchatClockPkg is teamchat's clock, the one home of teamchat's real timers: every other
+// teamchat package's real Sleep, AfterFunc and Hold is its System's (the repository owner's
+// decision on pull request 124).
+const teamchatClockPkg = "internal/teamchat/clock"
 
 // realClocks are the real side of a clock seam: each is handed its duration by a caller whose
 // tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
@@ -302,6 +416,9 @@ var realClocks = []allowance{
 	{pkg: "internal/teams/winddown", fn: newFn, reason: "the real side of WindDown.Sleep; its tests replace Sleep, and the picker's never reach a wait"},
 	{pkg: "internal/sessclose", fn: newFn, reason: "the real side of Closer.Sleep; its tests and every caller's replace Sleep (shutdown, ccy-sessions and the ccy front set their own clock), and the picker's never reach a wait"},
 	{pkg: "internal/teams/hot", fn: newFn, reason: "the real side of Hot.Sleep; its tests replace Sleep"},
+	{pkg: teamchatClockPkg, fn: "system.Sleep", reason: "the real side of clock.Clock's Sleep, teamchat's one real wait (lock, teamlock, admin/wire and matrix hand theirs to it); the tests that wait on a bound replace the clock whole with clock.Fake, and the ones that keep System assert only that a sleep ends and that a cancelled context ends it"},
+	{pkg: teamchatClockPkg, fn: "system.AfterFunc", reason: "the real side of clock.Clock's AfterFunc, the timer of every teamchat time limit (matrix.SystemTimers is it); the tests that reach a limit replace the clock or matrix's Timers whole, and the ones that keep System assert only that a timer fires and that stop disarms one"},
+	{pkg: teamchatClockPkg, fn: "system.Hold", reason: "the real side of clock.Clock's Hold, guestroot's call bound and fakehs's held-sync timeout; the tests that reach a hold's end replace it with clock.Fake's, and the ones that keep System assert only that a hold fires and that stop ends it, or hold a sync that an event ends first"},
 }
 
 // processBounds bound a real child process or real I/O. No test shortens one so that it races
@@ -354,7 +471,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TestChown}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

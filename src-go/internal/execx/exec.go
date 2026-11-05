@@ -86,8 +86,14 @@ var syscallExec = syscall.Exec
 // Exec implements Execer: it looks the program up on PATH (a name with a slash is used as
 // given) and replaces this process with it, in the environment c describes.
 func (OS) Exec(c Cmd) error {
-	if err := errors.Join(c.checkSecrets(), c.refuseFeed()); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets(), c.refuseFeed()); err != nil {
 		return err
+	}
+	if c.Credential != nil {
+		return fmt.Errorf("%w: %s replaces this process, which keeps its own ids", ErrBadCmd, c.Name)
+	}
+	if c.UserNamespace {
+		return fmt.Errorf("%w: %s replaces this process, which keeps its own namespaces", ErrBadCmd, c.Name)
 	}
 	path := c.Name
 	if !strings.Contains(path, "/") {

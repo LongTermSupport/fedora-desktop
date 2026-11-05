@@ -17,6 +17,31 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.0 — container 2.79.24
+
+The image is rebuilt: this branch's launcher now requires 2.79.24, the image 3.110.0 made.
+
+- **3.110.0 reaches the agent bus v2 branch.** The image installs the pinned, checksum-verified
+  upstream fzf (see 3.110.0), and the pickers hide fzf's gutter (`--gutter=' '`, in
+  `lib/tmux-session.bash` and `internal/ui`). 3.111.0's adapters are as they were, and nothing
+  else changed.
+
+---
+
+## 3.111.0 — container 2.79.23
+
+The image is unchanged, so there is no rebuild.
+
+- **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
+  the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
+  3.109.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
+  which runs a child as root of its own user and mount namespace for a real-kernel mount test;
+  and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
+  Nothing in the launcher calls any of them.
+
+---
+
 ## 3.110.0 — container 2.79.24
 
 The image is rebuilt: fzf is the upstream release, not the Debian package.

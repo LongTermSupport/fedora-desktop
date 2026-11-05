@@ -5,16 +5,21 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // blockingTTY is a terminal on which nothing is ever typed: its first read calls onRead (the
-// Ctrl-C), then every read waits until the test ends.
+// Ctrl-C), then every read waits until it is closed, as a terminal's does, or the test ends.
 type blockingTTY struct {
-	onRead func()
-	done   chan struct{}
+	onRead  func()
+	done    chan struct{}
+	closing sync.Once
+	// returned is closed when a read has returned.
+	returned  chan struct{}
+	returning sync.Once
 }
 
 func (b *blockingTTY) Read([]byte) (int, error) {
@@ -24,13 +29,23 @@ func (b *blockingTTY) Read([]byte) (int, error) {
 		f()
 	}
 	<-b.done
+	b.returning.Do(func() { close(b.returned) })
 	return 0, os.ErrClosed
+}
+
+func (b *blockingTTY) Close() error {
+	b.closing.Do(func() { close(b.done) })
+	return nil
 }
 
 func newBlockingTTY(t *testing.T, onRead func()) *blockingTTY {
 	t.Helper()
-	b := &blockingTTY{onRead: onRead, done: make(chan struct{})}
-	t.Cleanup(func() { close(b.done) })
+	b := &blockingTTY{onRead: onRead, done: make(chan struct{}), returned: make(chan struct{})}
+	t.Cleanup(func() {
+		if err := b.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return b
 }
 
@@ -88,6 +103,20 @@ func TestCtrlCAtAPrompt(t *testing.T) {
 	}
 }
 
+// E30: the run ends the terminal's reader before it ends: the terminal is closed, which ends the
+// read the Ctrl-C left waiting, and the reader is waited for.
+func TestCtrlCAtAPromptEndsTheTerminalsReader(t *testing.T) {
+	w := newWorld(t)
+	tty := newBlockingTTY(t, w.interrupt)
+	w.ttyIn = tty
+	wantCode(t, w.run(), term.ExitCancelled)
+	select {
+	case <-tty.returned:
+	default:
+		t.Fatal("the run ended with a read of the terminal still waiting")
+	}
+}
+
 // lineThenBlock types line, then behaves as then.
 type lineThenBlock struct {
 	line     string
@@ -102,6 +131,8 @@ func (l *lineThenBlock) Read(p []byte) (int, error) {
 	}
 	return l.then.Read(p)
 }
+
+func (l *lineThenBlock) Close() error { return l.then.Close() }
 
 // E30: Ctrl-C while ~/.cache is cleared stops after the entry being removed and says the clear
 // is only partly done.

@@ -16,9 +16,13 @@ import (
 var livenessOwners = []string{agentbusPkg, systemdPkg, rulesPkg}
 
 // livenessWords are the words a person reads as "this is running now".
-var livenessWords = []string{wordActive, "online", "listening", "alive"}
+var livenessWords = []string{wordActive, wordOnline, "listening", "alive"}
 
-const wordActive = "active"
+const (
+	wordActive = "active"
+	wordOnline = "online"
+	matrixPkg  = "internal/teamchat/matrix"
+)
 
 // livenessAllowance is a word a package may spell, with why it is not a status label.
 type livenessAllowance struct {
@@ -29,6 +33,8 @@ type livenessAllowance struct {
 var livenessAllowances = []livenessAllowance{
 	{pkg: sttPkg, word: wordActive, reason: "the phone app's own SessionState word, read from its manifest to decide it is still recording"},
 	{pkg: "internal/teams/teamtest", word: wordActive, reason: "the fake machine's systemctl is-active answer, as systemd prints it"},
+	{pkg: matrixPkg, word: wordOnline, reason: "the Matrix specification's presence value (SPEC-matrix M50), which the client accepts from the homeserver, not a liveness claim of ours; the repository owner's decision on pull request 124"},
+	{pkg: matrixPkg + "/fakehs", word: wordOnline, reason: "the Matrix specification's presence value (SPEC-matrix M51), which the fake homeserver returns as Tuwunel does, not a liveness claim of ours; the repository owner's decision on pull request 124"},
 }
 
 // LivenessWord keeps every liveness word to the packages that read liveness from a live source.

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 )
 
 func TestStripSuspendDropsOnlyTheSuspendByte(t *testing.T) {
@@ -79,6 +82,33 @@ func TestTheGuardPassesAWindowChangeOn(t *testing.T) {
 	})
 	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(person.Fd())}
 	exit, err := g.Run(execx.Cmd{Name: "sh", Args: []string{"-c", `kill -WINCH "$PPID"; sleep 0.3`}})
+	if err != nil || exit.Code != 0 {
+		t.Fatalf("exit %d, %v", exit.Code, err)
+	}
+}
+
+// The copy of the person's keys ends with the session, though nothing was typed: os.Stdin is in
+// blocking mode, so a read of it waits for the next key, and closing it does not end that read.
+// The person's terminal here is put in blocking mode the same way (Fd), and the check is
+// registered after its close, so it judges while the terminal is still open.
+func TestTheGuardEndsTheKeyCopyWithTheSession(t *testing.T) {
+	outer, person, err := openPty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := errors.Join(outer.Close(), person.Close()); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	fd := int(person.Fd())
+	// The process's one signal watcher starts at the first Notify; started here, it is not the run's.
+	primed := make(chan os.Signal, 1)
+	signal.Notify(primed, syscall.SIGWINCH)
+	signal.Stop(primed)
+	leakcheck.Check(t)
+	g := &PtyGuard{Foreground: execx.OS{}, In: person, Out: &bytes.Buffer{}, InFd: fd}
+	exit, err := g.Run(execx.Cmd{Name: "true"})
 	if err != nil || exit.Code != 0 {
 		t.Fatalf("exit %d, %v", exit.Code, err)
 	}

@@ -1,0 +1,11 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 1 timeouts): myrepo.2+desk.podman (TIMEOUT)
+<<teamchat 3f9c2a71 1/1>>
+kind: TIMEOUT (a ping you sent was not answered in time)
+team: myteam
+to: this session, as myrepo.3+desk.lxc
+id: $ppppppppppppppppppppppppppppppppppppppppppp
+verb: review
+ref: commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567
+silent: myrepo.2+desk.podman
+authority: none. A fact about your own ping: send it again, ask someone else, or go on.
+<<end teamchat 3f9c2a71 1/1>>

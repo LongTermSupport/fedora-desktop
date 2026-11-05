@@ -1,0 +1,184 @@
+[
+  {
+    "name": "admin redaction",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.redaction\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"content\":{\"redacts\":\"$ooooooooooooooooooooooooooooooooooooooooooo\"}}",
+    "outcome": "redact"
+  },
+  {
+    "name": "admin redaction bad",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.redaction\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"content\":{\"redacts\":\"$x\"}}",
+    "outcome": "ignore",
+    "reason": "type"
+  },
+  {
+    "name": "content not object",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1,\"content\":\"x\"}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "event id",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$x\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "negative ts",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":-1,\"content\":{}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "no sender",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"origin_server_ts\":1,\"content\":{}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "no type",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\"}",
+    "outcome": "ignore",
+    "reason": "type"
+  },
+  {
+    "name": "parked",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@other.4+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "questions, admin",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.notice\":{\"v\":1,\"event\":\"added\",\"subject\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"role\":\"worker\",\"to\":[\"@alice:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "questions, agent text",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"x\",\"teamchat.text\":{\"v\":1,\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"text\":\"hello\"}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "questions, carried",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.carried\":{\"v\":1,\"kind\":\"text\",\"from\":\"@alice:myteam.teamchat.internal\",\"sent_ms\":1,\"v1_event\":\"$ooooooooooooooooooooooooooooooooooooooooooo\",\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"text\":\"x\"}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "questions, human",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\"}}",
+    "outcome": "deliver",
+    "kind": "HUMAN"
+  },
+  {
+    "name": "questions, human carried",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"teamchat.carried\":{\"v\":1}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "questions, human old",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1799910000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\"}}",
+    "outcome": "deliver",
+    "kind": "HUMAN"
+  },
+  {
+    "name": "questions, worker",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "ignore",
+    "reason": "not-coordinator"
+  },
+  {
+    "name": "redacted",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"unsigned\":{\"redacted_because\":{}},\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "reports",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "reports",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "fault"
+  },
+  {
+    "name": "seen",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "ignore",
+    "reason": "seen"
+  },
+  {
+    "name": "self",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "ignore",
+    "reason": "self"
+  },
+  {
+    "name": "state",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.topic\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"state_key\":\"\",\"content\":{}}",
+    "outcome": "ignore",
+    "reason": "type"
+  },
+  {
+    "name": "state key",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"state_key\":\"\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "unknown",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@bob:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"m.mentions\":{\"user_ids\":[\"@myrepo.2+desk.podman:myteam.teamchat.internal\"]}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "worker redaction",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.redaction\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"content\":{\"redacts\":\"$ooooooooooooooooooooooooooooooooooooooooooo\"}}",
+    "outcome": "ignore",
+    "reason": "type"
+  }
+]

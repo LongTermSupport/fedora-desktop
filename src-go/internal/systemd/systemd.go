@@ -27,6 +27,10 @@ const (
 // is "down (<systemd's word>)".
 const HomeserverUp = "up"
 
+// ActiveStateActive is the ActiveState systemd gives a started unit: what is-active prints, the
+// ACTIVE column of list-units, and the ActiveState property of a unit on D-Bus.
+const ActiveStateActive = "active"
+
 // Systemd runs systemctl and systemd-run through a Runner.
 type Systemd struct {
 	Runner execx.Runner
@@ -101,7 +105,7 @@ func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, err
 // does not ask is-active once more per team.
 func StateWord(active string) string {
 	switch active {
-	case "active":
+	case ActiveStateActive:
 		return HomeserverUp
 	case "":
 		return "down (unknown)"

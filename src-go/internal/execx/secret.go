@@ -140,16 +140,20 @@ func (c Cmd) checkSecrets() error {
 	return nil
 }
 
-// childEnv is the child's environment when the command changes it (Env, Unset, Secrets); false
-// when the child simply inherits this process's. A secret is added last, and ChildEnv drops
-// every other copy of its name, so the child sees the secret's value and only that.
+// childEnv is the child's environment when the command changes it (Env, Unset, Secrets,
+// CleanEnv); false when the child simply inherits this process's. A secret is added last, and
+// ChildEnv drops every other copy of its name, so the child sees the secret's value and only
+// that. With CleanEnv nothing of this process's environment is the base.
 func (c Cmd) childEnv() ([]string, bool) {
-	if len(c.Env) == 0 && len(c.Unset) == 0 && len(c.Secrets) == 0 {
+	if !c.CleanEnv && len(c.Env) == 0 && len(c.Unset) == 0 && len(c.Secrets) == 0 {
 		return nil, false
 	}
 	add := append([]string(nil), c.Env...)
 	for _, s := range c.Secrets {
 		add = append(add, s.name+"="+s.value)
+	}
+	if c.CleanEnv {
+		return ChildEnv(nil, add, nil), true
 	}
 	return ChildEnv(os.Environ(), add, c.Unset), true
 }

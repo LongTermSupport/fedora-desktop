@@ -512,7 +512,9 @@ func TestAnEscJoinedToTheNextKeyStillCancels(t *testing.T) {
 // inside Bubble Tea's escape wait.
 func TestAnEscThenAKeyTypedApartStillCancels(t *testing.T) {
 	r, w := io.Pipe()
+	written := make(chan struct{})
 	go func() {
+		defer close(written)
 		for _, part := range []string{"\x1b", "\x1b[B", "/x\r"} {
 			if _, err := w.Write([]byte(part)); err != nil {
 				return
@@ -525,7 +527,10 @@ func TestAnEscThenAKeyTypedApartStillCancels(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	path, err := (&Asker{In: r, Out: &bytes.Buffer{}}).Ask(ctx, spec(sample()))
-	if closeErr := r.Close(); closeErr != nil {
+	// Closing the read end ends a write the program left unread; then the writer is waited for.
+	closeErr := r.Close()
+	<-written
+	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if !errors.Is(err, ui.ErrCancelled) {

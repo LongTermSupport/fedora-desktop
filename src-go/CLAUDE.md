@@ -180,8 +180,8 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, no Duration
-  built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
+  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, teamchat's
+  launch value branched on only in its agent seam, no Duration built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
   its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
@@ -307,6 +307,33 @@ checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 
+## Build tags
+
+Build tags select code the default build leaves out. `.golangci.yml`
+names no build tags, so golangci-lint's default run sees the untagged build only, and a gate that
+judges a tagged build sets the tag itself.
+
+- `busfailpoints`: teamchat's armed failpoints (`failpoint/armed.go`; in the default build,
+  `failpoint/hit.go`'s `Hit` is an empty function) and the tests that crash at them (keeper,
+  link, and wiring's end-to-end failpoint rows). The `teamchat-failpoints-lint`, `-vet` and
+  `-test` stages of `qa/go-qa.toml` lint, vet and test `./internal/teamchat/...` built with it
+  (`go test -race -shuffle=on -count=2`, every test twice); go-qa's built-in tools judge the inert build.
+  The `project-rules-tagged` stage runs the project rules (`qa/rules`) over `./internal/teamchat/...`
+  with the tag, which the analyzers stage (untagged build only) cannot reach.
+- `teamchatrelease`: the release build of teamchat. `failpoint`'s gate test, run by go-qa's
+  built-in test runner, builds `./cmd/teamchat` with it and holds that the binary carries no
+  failpoint name. `member/cli/release_test.go` (every verb built, CL2) carries the tag; Task
+  3.3's build runs it, and no gate runs it yet.
+- `tuwunel`: the tests against a real Tuwunel (Plan 00209 SPEC-matrix M44, SPEC-n3 n3-D5) and their helper package
+  `matrix/tuwunelhs`, which skips when `FAKEHS_TUWUNEL_BIN` names no binary. Only the
+  `project-rules-tagged` stage judges this build (the project rules, vet-wise); a change to these
+  files is also checked by hand with `go test -race -tags tuwunel` and
+  `golangci-lint run --build-tags tuwunel` over `./internal/teamchat/...`, with
+  `FAKEHS_TUWUNEL_BIN` set.
+- `ccyteamstest` (`internal/teams/host`, `internal/teams/ops`) and `difftest` (`cmd/claude-yolo`):
+  the `project-rules-tagged` stage runs the project rules over those builds too (its pairs
+  of tag and packages are one array in `qa/go-qa.toml`).
+
 ## QA
 
 `scripts/qa-go-qa.bash` is the Go gate: go-qa-ci's `go-qa`, pinned by the `tool` directive of
@@ -370,6 +397,14 @@ file the config names is asked of `ansible-config`, never opened) and the judgem
 script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwatch.md`
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
+
+`qa/teamchatseparate` + `qa/cmd/qa-teamchat-separate` (same nested module) are
+`scripts/qa-teamchat-separate.bash`, the gate `teamchat-keeps-off-v1` (Plan 00209 D 4.1): no
+file v2 of the agent-team bus owns holds a v1 name. The script only builds and runs the command.
+The name list `v1-names.txt` and the allowlist `allowed.tsv` are its data; the expectations
+(K1-K7) are its package doc, proven by unit tests over a fake tree and a real work tree in the
+command package. `internal/teamchat/paths`, the one source of every v2 name, reads the same list
+in its own test.
 
 `qa/untrackedaudit` + `qa/cmd/qa-untracked-audit` (same nested module) are
 `scripts/qa-untracked-audit.bash` (Plan 00245, Defence Before Fix): old non-scratch files in

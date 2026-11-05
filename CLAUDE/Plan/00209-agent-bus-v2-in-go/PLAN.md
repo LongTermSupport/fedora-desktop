@@ -1,6 +1,6 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: In Progress (landing v2 on F44 is Phase 8, the owner's call of 2026-11-02; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
+**Status**: In Progress (landing on F44 is Plan 00246; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
 design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
 session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
@@ -103,10 +103,11 @@ milestone that acts on it.
 | D4           | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                                                                                        |
 | D15          | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                                                                                        |
 | TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                |
-| INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
+| INT3         | a v1 name over 22 characters, or one of A 2.2's reserved ids, migrates under a short id declared with the move, and stays its display name              | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                     |
 | VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                          |
 | IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | confirmed by the owner 2026-10-30 (gate A met), on direction 6's condition: Task 0.6 checks none of them prevents a remote homeserver or members on other machines                                                 |
 | INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | the owner chose the default 2026-10-30 (gate B met): owner-uid processes may hold a pool seat's password; [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) is not built |
+| n2f-D12      | the admin token goes to whatever holds the team's loopback port: only `team apply` checks the holder ([SPEC-n2f.md](SPEC-n2f.md) section 11)            | owner only, before the first install (gate A): accepted as residual in the inert code; the alternative is the admin client over a unix socket only the server and `teamchat-ctl` reach, which removes the race     |
 | others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                             |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
@@ -117,7 +118,7 @@ DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
 | Plan 00201 Task 2.16                      | rename a team end to end                                                                                                                                                   | the stable team id (TID): a rename edits `name` and runs the play; nothing restarts, nothing is re-issued (C44, C 3.5.2) | N4        |
 | Plan 00211                                | reports, questions, threads and asking a human, the side rooms and their drift check (its [SPEC.md](../00211-agent-bus-reports-and-questions-rooms/SPEC.md), as behaviour) | A 4.3, 6.3, 10; B6                                                                                                       | N1-N3     |
-| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye (waits on hooks-daemon #127)                                                                                                          | B28's goodbye: the N3 spec skips `left` for a restart the supervisor records, once #127 ships                            | N3        |
+| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye                                                                                                                                       | B28's goodbye: the N3 spec skips `left` when ccy's CMD exits 75 (RS2), turned on with Task 4.2                           | N3        |
 | Plan 00194 Task 2.0g                      | an addressed reply that is only the quote fallback is ignored as `empty` and logged by no one                                                                              | A 7.5 (`empty`, the unheard count) and B18-B24: the N3 spec decides whether `empty` counts as unheard                    | N3        |
 | Plan 00194 Tasks 2.1, 2.1b, 2.2           | the supervisor-plugin delivery path                                                                                                                                        | specified on v2 when #119 ships (D4)                                                                                     | later     |
 | Plan 00194 SPEC-inject E1-E26, Plan 00203 | delivery into a session; hot control                                                                                                                                       | B18-B24, B31-B35                                                                                                         | N3        |
@@ -138,23 +139,16 @@ its first caller.
 
 ### Phase 0: N0, the design
 
-- [x] ✅ **Task 0.1**: Research v1 (`RESEARCH-*.md`); [DESIGN.md](DESIGN.md), reviewed by Fable and
-  reworked once (`subagent-reports/261019-*`); M0's bookkeeping (`subagent-reports/261021-m0-*`).
+Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
-- [x] ✅ **Task 0.2**: The frame ([DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md)) and the four area
-  designs A-D, each reviewed adversarially (`subagent-reports/261021-n0-*`).
+- [x] ✅ **Task 0.1**: Research v1; DESIGN.md, reviewed and reworked once.
 
-- [x] ✅ **Task 0.3**: The integration: [DESIGN-v2.md](DESIGN-v2.md), the chapters edited at their
-  seams (section 3), 17 contradictions settled (section 5), the team id and INT3; DESIGN.md marked
-  superseded (`subagent-reports/261021-n0-integration.md`).
+- [x] ✅ **Task 0.2**: The frame and the four area designs A-D, each reviewed adversarially.
 
-- [x] ✅ **Task 0.4**: The N0 review: the four integrated adversarial reviews (1 blocker, 37 majors,
-  FIX-FIRST), the four-theme fix pass (`subagent-reports/261021-n0-merge.md`), verification in two
-  scopes (`261021-n0-verify-ab.md`, `261021-n0-verify-cd.md`; 10 new majors), round 2
-  (`261021-n0-r2-*.md`), the re-check (`261021-n0-recheck.md`; 5 majors), the qa-reviewer pass
-  (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
-  (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
-  (Task 1.7).
+- [x] ✅ **Task 0.3**: The integration into [DESIGN-v2.md](DESIGN-v2.md); DESIGN.md marked superseded.
+
+- [x] ✅ **Task 0.4**: The N0 review, three rounds and a narrow check, verdict MERGE; its third
+  minor is carried to N1 (Task 1.7).
 
 - [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
   the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
@@ -206,21 +200,18 @@ its first caller.
 
 ### Phase 1: N1, foundations
 
-- [ ] ⬜ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
-- [ ] ⬜ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
-  `qa-changed.bash` and `qa-all.bash` before the first v2 package merges.
-- [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
-  room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
-  room specs exported as data (seam 13).
-- [ ] ⬜ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
-  rules they decide. **Gate A** (Task 0.5): a check that would leave the `teamchat` name in a
-  unit or path on the host runs in the VM lab until the owner has confirmed the irreversible
-  decisions.
-- [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
-  `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
-  `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
-- [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
-  client merges.
+- [x] ✅ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
+- [x] ✅ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
+  `qa-changed.bash` and `qa-all.bash`.
+- [x] ✅ **Task 1.3**: `teamchat/proto`: the wire, the roster type, the verdict and room-trust
+  check, kinds, references, limits, the envelope, the shared corpus (A 2-13).
+- [x] ✅ **Task 1.4**: A's host checks HC-A1 to HC-A7, judged in the container against the
+  pinned Tuwunel 1.9.4; the Element checks are owner steps after gate A (Task 0.5).
+- [x] ✅ **Task 1.4a**: The design-text fixes Task 1.4's checks called for.
+- [x] ✅ **Task 1.5**: The matrix client and `fakehs` (`internal/teamchat/matrix`), reviewed to
+  MERGE and run against the pinned Tuwunel 1.9.4 (M44); it merged with its first callers.
+- [x] ✅ **Task 1.6**: GO-2026-6809: the Go toolchain bump; the Go gate passes on
+  `spike/v2-merge-up` with the matrix client in.
 - [ ] ⬜ **Task 1.7**: The two minors carried out of N0: the re-add mode the store must record (B 2.6
   step 01 (c); `261021-n0-r3-fix.md` minor 6), and the LXC tick's false notice for a launch-failed
   run once a later run has rewritten the lock file (C 3.11.2 step 6; `261021-n0-r3-check.md`
@@ -228,14 +219,53 @@ its first caller.
 
 ### Phase 2: N2, the host side
 
-- [ ] ⬜ **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
+- [ ] 🔄 **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
   `teamchat-ctl` child (C 3.3); DC17's dependencies with their go-deps allowlist rows.
-- [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
+  Built as inert code (slice n2a; both DC17 dependencies landed: the YAML module with n2b,
+  `godbus` with n2f): [BUILT-n2.md](BUILT-n2.md).
+
+- [ ] 🔄 **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
-- [ ] ⬜ **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
-  roster, members, humans and roles; the service-account localpart reserved by HC-A6 (seam 18).
-- [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
+  Done, as inert code: each team's `config.toml` and drop-in, rendered by `host/render.go` and
+  written by `team apply`. Not done: the pinned Tuwunel's install, the
+  `teamchat-server@<team>` unit template and D's gate over it (seam 49), which are play tasks
+  and wait for gate A (Task 2.5).
+
+- [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
+  roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
+  `tuwunel` reserved (A 2.3) (seam 18).
+  Slices n2a (the rooms engine), n2b (the approval gate, `team apply` step 10), n2d (the member
+  operations, `role apply`, `team apply` steps 1-9 and 11, `team remove`) and n2f (the
+  production side of every seam, the `health` and `element` verbs) are built as inert code; what
+  each covers and leaves out: [BUILT-n2.md](BUILT-n2.md). Owner residual: n2f-D12 (Decisions, above).
+  Not built: the play's install tasks and units (gate A), and the member verbs' `-tags tuwunel`
+  round trip.
+
+- [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
+  Slices n2b (the declarations of C 3.8), n2c (the seat store), n2e (status records, the health
+  tick, the disconnected notice, the seat sweep, Element profiles) and n2g (backups and the
+  restore engine) are built as inert code, with real-server evidence under `-tags tuwunel`;
+  what each covers and leaves out: [BUILT-n2.md](BUILT-n2.md). Not built: the host_vars writer
+  (ccy-teams', Task 4.3), the units and timers (gate A), and `restore` in production, which stays
+  refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15).
+
+  **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
+  `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
+  (above), so the N2 stack stays on the plan branch, off F44, until the last two land.
+
+  - `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
+    `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
+  - `health/view`: called, by the child's `team.view` op (`admin/serveview.go`).
+  - `notice`: called, by the child's `member.disconnected` op (`admin/serveview.go`). ccy-teams'
+    `seats sweep` is its second caller, still to come.
+  - `element`: called. `teamchat-admin element check|apply` (`admin/wiring.go`); the optional
+    Element play that runs it is gate A.
+  - `declare/hostvars`: still waits, on ccy-teams, its only importer, when its flows read and
+    write the v2 declarations in host_vars (HV4's writer; Task 4.3).
+  - `sweep`: still waits, on ccy-teams' `seats sweep` (Task 4.3), run by the owner's
+    `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).
+
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
@@ -243,29 +273,72 @@ its first caller.
   DC8) in the VM lab, or on the host once gate B is cleared, except H-C15's clause that a held
   ccy session works again after ccy-teams' hot reissue, which needs N3 and N4 and is Task
   4.4's; restore stays refused (DC8) until that clause passes too.
+
   - **Gate A** (Task 0.5): the play tasks and units of Tasks 2.2 to 2.4 (and of any later task,
     such as 3.3) merge to F44, and the install on the host runs, only after the owner has
     confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5 and TID. The VM-lab parts of this task do not
     wait.
-  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C13 to H-C15 where they run on
-    the host) until the owner has confirmed INT6 or chosen
-    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
+  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C13 to H-C15, less H-C15's
+    held-ccy-session clause, where they run on the host) until the owner has confirmed INT6 or
+    chosen [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
     in its place. The VM lab is not a deploy and does not wait.
 
 ### Phase 3: N3, the member client, LXC members first
 
-- [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
+- [x] ✅ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
   (a GET retried on some connection errors), and that this is safe because a sync with a since
-  token is idempotent; and it carries 00194's 2.0e and 2.0g (Requirements carried).
-- [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
-  delivery, hooks, status line, plugin and skill (B 2.1-2.12).
-- [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
-  `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
+  token is idempotent within one database, and across a restore because no answer is persisted
+  before B 2.6 step 08's epoch check (H-C14); and it carries 00194's 2.0e and 2.0g
+  (Requirements carried).
+  Done: [SPEC-n3.md](SPEC-n3.md), three Opus review rounds (`subagent-reports/261022-n3-spec-review*.md`,
+  fix logs `-fixes-1.md`, `-fixes-2.md`); round 3's one major is applied as the reviewer wrote it
+  (report `subagent-reports/261022-n3-spec.md`). The slices, in order (n3b and n3c may be built at
+  once after n3a):
+
+  - **n3a**: `cmd/teamchat`, the CLI, the member files' codecs, the locks, the kit's layout and
+    the guest operations: an LXC guest's side;
+  - **n3b**: `teamchat-admin lxc apply` and `lxc restart` (C 3.9), the session unit as code, the
+    L3 probe and the LXC disconnected notice's child op: an LXC member placed by `lxc apply`;
+  - **n3c**: `run`, the keeper, the link, the store, the sync engine (SY7 is the resent `/sync`
+    and its restore tests on fakehs), receiving, the ends and hot control;
+  - **n3d**: the sends, the outbox, TIMEOUTs and the forge check: a whole LXC exchange with
+    `--plain`;
+  - **n3e**: delivery into Claude Code, the hooks, the status line, the skill: an LXC Claude Code
+    member end to end;
+  - **n3f**: the side rooms of Plan 00211, from a SPEC-n3 addendum reviewed before it starts.
+
+  2.0e: the switch (RS2) is CMD exit 75 alone and is turned on with its host half (Task 4.2);
+  2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC
+  seats are token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
+
+- [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
+  delivery, hooks, status line, plugin and skill (B 2.1-2.12). Slices n3a to n3e are built and
+  merged into `spike/v2-merge-up`, tested under fakes only, with no binary installed anywhere;
+  n3f, the side rooms of Plan 00211, has its spec only.
+
+  - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
+    ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and
+    merged into the branch; their coverage and reviews are in [BUILT-n3.md](BUILT-n3.md).
+
+- [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
+  one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
+  seat), any number per container); the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
   confirmation.
+
+  - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
+  - **n3b built** and merged as inert code: `teamchat-admin lxc apply` and `lxc restart`, the
+    session unit as code, the L3 probe. No play task or unit is installed (gate A). Coverage,
+    reviews, the install build's CL2 gate and the tagged analyzer stages: [BUILT-n3.md](BUILT-n3.md).
+
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;
   `teamchat-coexist` at its N3 stage, which adds the LXC member and its exchange (D 4.3).
+
+- [ ] ⬜ **Task 3.5**: Delivery debouncing (issue #129): incoming items are held for a quiet
+  window, 30 s by default with a ceiling, and delivered as one envelope. A halt ping and a
+  human's direct message bypass the hold. Specified against delivery into a session (B18-B24)
+  before it is built on the keeper's delivery path; plan only until Plan 00246's Task 8.8 is done.
 
 ### Phase 4: N4, ccy members and the board
 
@@ -274,6 +347,8 @@ its first caller.
   the irreversible decisions, since any later CCY bump would deploy it.
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
+  For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it
+  relaunches and records it in `held/notice.json`, and the same change turns RS2's switch on.
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy
@@ -292,14 +367,19 @@ its first caller.
 ### Phase 6: N6, migration
 
 - [ ] ⬜ **Task 6.1**: The N6 spec from area D; `internal/teamchat/migrate/v1`, the only package
-  that names v1 (D 5.5); `teamchat-admin migrate <step>` M0-M8, the fence, the carry plan, the
+  that names v1 (D 5.5), and D 4.1 part 2's analyzer over `migrate/v1` (GoProjectRules.md,
+  red/green); `teamchat-admin migrate <step>` M0-M8, the fence, the carry plan, the
   commit and rollback (D 5); `ccy-teams migrate` and `migrate-declared.bash` (D 5.10, seam 55).
 - [ ] ⬜ **Task 6.2**: Acceptance: VM-lab scenarios `teamchat-migrate` and
   `teamchat-migrate-rollback` (P1); the migration pilot (P4); the first real team, the owner's
   choice (P5); then teams one at a time at the owner's pace. **Gate A** (Task 0.5): no team is
   migrated, the pilot included, until the owner has confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5
   and TID; the VM-lab scenarios do not wait.
-- [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own plan).
+- [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own
+  plan). That plan also collapses the second owners v2's landing accepted (decision 5 on pull
+  request 124, Plan 00246 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
+  `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and the `dynamicNames` row
+  for a run-time program inside a wrapper, so each program has one owner again.
 
 ### Phase 7: v1 while it runs
 
@@ -318,38 +398,9 @@ its first caller.
 
 ### Phase 8: landing v2 on F44
 
-The owner (2026-11-02): "yes we should push v2 and get it done", the minimum v2 with
-cross-network membership (direction 7). `spike/v2-merge-up` (f5023d692) is
-`feat/bus-v2-n3e` merged onto F44. It builds and vets. Its CI run found the items below, from
-largest to smallest. Each is fixed on that branch under Defence Before Fix. F44 is merged in
-before every push, and GitHub CI is the gate.
-
-- [ ] ⬜ **Task 8.1**: The 29 project-rule findings:
-  - 13 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
-    engine/proof, engine/timeout, matrix/client and fakehs/sync;
-  - 10 `project_realtime_bound`, 3 of them in `teamchat/clock`, which is the injected clock.
-    Decide whether that package is the one allowed home, and record the decision in
-    GoProjectRules.md;
-  - 5 `project_goroutine_end` in F44 code: `ccc/guard.go` (2), `rclonetail/app.go`,
-    `reclaim/ask.go` and the `ui/pathinput` test;
-  - 1 `project_command_failure_dropped`, in `member/guest/check.go`.
-- [ ] ⬜ **Task 8.2**: The six gosec exclusions v2 added to `.golangci.yml` have no exception in
-  the project record. Record each one, or fix the code it covers.
-- [ ] ⬜ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
-- [ ] ⬜ **Task 8.4**: Two helper tests:
-  - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
-    start time;
-  - `plan_acceptance/test_cited_constant_copy_rule`: one finding in this plan's folder.
-- [ ] ⬜ **Task 8.5**: 12 gitleaks findings, all fake keys in test fixtures. Allowlist them the
-  way F44 allowlisted its own, never by weakening the scan.
-- [ ] ⬜ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
-  Plans 00194 and 00209 took F44's side of each conflicting hunk. Put back the v2 lines that
-  were lost, merging them by meaning (`git diff F44...feat/bus-v2-n3e` on those files shows
-  them).
-- [ ] ⬜ **Task 8.7**: With CI green, open a pull request to F44, assign it to the owner, and run
-  `qa-reviewer` over it. Only the owner merges it.
-- [ ] ⬜ **Task 8.8**: After the merge: the cross-network membership of direction 7 (team CIDRs,
-  TLS with the team CA pinned, seat issue over ssh), so a member on another machine can join.
+Moved to [Plan 00246](../00246-agent-bus-v2-landing-and-cross-network/PLAN.md) on the owner's
+decision of 2026-11-03, with its task numbers: the landing of `spike/v2-merge-up` (Tasks 8.1 to
+8.7 and 8.9, pull request 124) and cross-network membership of direction 7 (Task 8.8).
 
 ## Success Criteria
 

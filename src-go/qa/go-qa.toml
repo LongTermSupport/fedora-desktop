@@ -19,15 +19,19 @@ suppression = true
 # signs as repository-owner, the name the ratchet and any human entry must carry. qa/record.toml
 # holds one entry per configuration exception of .golangci.yml and one for the generated header of
 # widthtable.go, so max_total is that count, and an entry a Claude Opus model wrote is medium trust
-# (30-day review) with room for the whole record.
+# (30-day review); the one a Sonnet model wrote is low trust (below).
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
-max_total = 29
+max_total = 30
 history_base = "origin/F44"
 
+# A model the record does not map is rejected, so a model that writes an entry is listed here. Sonnet
+# is low trust (14-day review) until the owner decides otherwise: the repository owner's decision 3
+# on pull request 124 had a Sonnet model record the G401/G505 entry, and the tier is the owner's to set.
 [record.trust.models]
 claude-opus = "medium"
+claude-sonnet = "low"
 
 [record.trust.medium]
 max_review_days = 30
@@ -42,3 +46,60 @@ driver = "./driver"
 # code landing, not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
 [coverage]
 fail_under_statements = 90
+
+# teamchat's armed failpoints, and the crash scenarios they drive, exist only in the busfailpoints
+# build (Plan 00209 SPEC-n3 PT1, gap 9); the built-in tools never set the tag, so these stages
+# lint, vet, build and test that build.
+[[stage]]
+name = "teamchat-failpoints-lint"
+phase = "detectors"
+says = "golangci-lint over internal/teamchat built with -tags busfailpoints"
+fix = "Fix what golangci-lint reports in the busfailpoints build"
+command = ["golangci-lint", "run", "--allow-parallel-runners", "--build-tags", "busfailpoints", "./internal/teamchat/..."]
+
+[[stage]]
+name = "teamchat-failpoints-vet"
+phase = "detectors"
+says = "go vet over internal/teamchat built with -tags busfailpoints"
+fix = "Fix what go vet reports in the busfailpoints build"
+command = ["go", "vet", "-tags", "busfailpoints", "./internal/teamchat/..."]
+
+[[stage]]
+name = "teamchat-failpoints-test"
+phase = "runners"
+says = "go test -race over internal/teamchat built with -tags busfailpoints, the failpoint crash scenarios among them"
+fix = "Make the failing busfailpoints test pass"
+# No -count=1, unlike the built-in runner: no stage takes {files}, so qa-changed runs this whole
+# for any src-go change, and go's test cache keeps an unchanged teamchat a cache hit. -count=2 runs
+# every test twice in one process, so a test that adds to package state it does not restore (a
+# registry, a flag, a sync.Once) fails here, the build being a superset of the untagged one.
+command = ["go", "test", "-race", "-shuffle=on", "-count=2", "-tags", "busfailpoints", "./internal/teamchat/..."]
+
+# The project rules (src-go/qa/rules) run through the analyzers stage over the untagged build only,
+# so a finding in a file that builds only under one of these tags would pass the gate. This stage
+# builds the driver once and runs it as go vet's tool over each (tag, packages) pair; a failing pair
+# does not stop the rest, so every pair's findings are shown, and the stage fails if any pair did.
+[[stage]]
+name = "project-rules-tagged"
+phase = "detectors"
+says = "the project rules (qa/rules) over the busfailpoints, tuwunel, ccyteamstest and difftest builds"
+fix = "Fix what the project rules report in the tagged build named above the finding"
+command = ["bash", "-c", '''
+set -uo pipefail
+pairs=(
+  "busfailpoints ./internal/teamchat/..."
+  "tuwunel ./internal/teamchat/..."
+  "ccyteamstest ./internal/teams/..."
+  "difftest ./cmd/claude-yolo/..."
+)
+d=$(mktemp -d) || exit 1
+trap 'rm -rf "$d"' EXIT
+go -C qa build -o "$d/driver" ./driver || exit 1
+status=0
+for pair in "${pairs[@]}"; do
+  read -r tag pkgs <<<"$pair"
+  echo "project rules: -tags $tag $pkgs" >&2
+  go vet -vettool="$d/driver" -tags "$tag" "$pkgs" || status=1
+done
+exit "$status"
+''']

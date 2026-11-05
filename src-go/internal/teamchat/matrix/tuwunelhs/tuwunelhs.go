@@ -1,0 +1,324 @@
+//go:build tuwunel
+
+// Package tuwunelhs starts a real Tuwunel for the tests built with `-tags tuwunel` (SPEC M44),
+// with FAKEHS_TUWUNEL_BIN naming the binary: the matrix client's run and the rooms engine's.
+// It imports nothing of the client, so the client's own tests can use it. It is the one
+// test helper that runs on the wall clock, as a real server starts and answers in real time.
+package tuwunelhs
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"syscall"
+	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+)
+
+const (
+	// BinEnv names the Tuwunel binary; with it unset, Start skips the test.
+	BinEnv = "FAKEHS_TUWUNEL_BIN"
+	// Loopback is the address the server listens on.
+	Loopback = "127.0.0.1"
+	// StartLimit is how long the server has to answer.
+	StartLimit = 30 * time.Second
+	// PresenceIdleS is the presence idle timer, short so a test sees it fire.
+	PresenceIdleS = 3
+	// PresenceOfflineS is the presence offline timer, short so a test sees it fire.
+	PresenceOfflineS = 3
+
+	stopLimit    = 10 * time.Second
+	versionsPath = "/_matrix/client/versions"
+)
+
+// Server is a running homeserver on a loopback port, stopped when the test ends; RegKey is its
+// registration shared secret, and config the file its environment names, which finds its
+// process for Signal.
+type Server struct {
+	Base   string
+	Port   int
+	RegKey string
+	config string
+	run    *running
+}
+
+// Options are a run's departures from the default: where the database goes (the test's own
+// directory when empty), extra top-level settings, one `key = value` per line, and arguments
+// after the command (`--restore-backup N`).
+type Options struct {
+	DatabasePath string
+	Extra        string
+	Args         []string
+}
+
+// served is how the server's run ended: its error and everything it printed.
+type served struct {
+	err    error
+	output string
+}
+
+// running is one run's end: the channel it arrives on, the end once read, and whether the test
+// killed the run itself (Stop with SIGKILL), which the cleanup then accepts.
+type running struct {
+	ended  chan served
+	end    *served
+	killed bool
+}
+
+// wait reads the run's end once, within limit.
+func (r *running) wait(limit time.Duration) error {
+	if r.end != nil {
+		return nil
+	}
+	elapsed, stop := clock.System().Hold(limit)
+	defer stop()
+	select {
+	case got := <-r.ended:
+		r.end = &got
+		return nil
+	case <-elapsed:
+		return fmt.Errorf("tuwunel: still running %v after the stop", limit)
+	}
+}
+
+// Start runs the binary BinEnv names for serverName and waits until it answers.
+func Start(ctx context.Context, t *testing.T, serverName string) Server {
+	t.Helper()
+	return StartWith(ctx, t, serverName, Options{})
+}
+
+// StartWith is Start with the options o.
+func StartWith(ctx context.Context, t *testing.T, serverName string, o Options) Server {
+	t.Helper()
+	bin := os.Getenv(BinEnv)
+	if bin == "" {
+		t.Skipf("%s names no Tuwunel binary, so nothing is run against a real homeserver", BinEnv)
+	}
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		t.Fatalf("%s=%q: %v", BinEnv, bin, err)
+	}
+	dir := t.TempDir()
+	hs := Server{RegKey: RandomKey(t), Port: freePort(t)}
+	hs.Base = "http://" + net.JoinHostPort(Loopback, strconv.Itoa(hs.Port))
+	if o.DatabasePath == "" {
+		o.DatabasePath = filepath.Join(dir, "db")
+	}
+	config := writeConfig(t, dir, serverName, hs.Port, hs.RegKey, o)
+	hs.config = config
+
+	runCtx, stop := context.WithCancel(ctx)
+	hs.run = &running{ended: make(chan served, 1)}
+	go func() {
+		res, runErr := execx.OS{Grace: stopLimit}.Run(runCtx, execx.Cmd{
+			Name: path, Args: slices.Clone(o.Args), Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
+		})
+		hs.run.ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
+	}()
+	t.Cleanup(func() {
+		stop()
+		if hs.run.end == nil {
+			got := <-hs.run.ended
+			hs.run.end = &got
+		}
+		if !stoppedCleanly(hs.run.end.err, hs.run.killed) {
+			t.Errorf("tuwunel: %v\n%s", hs.run.end.err, hs.run.end.output)
+		}
+	})
+
+	if awaitErr := hs.await(ctx, hs.run.ended, &hs.run.end); awaitErr != nil {
+		output := ""
+		if hs.run.end != nil {
+			output = hs.run.end.output
+		}
+		t.Fatalf("tuwunel: %v\n%s", awaitErr, output)
+	}
+	return hs
+}
+
+// Stop sends sig (SIGTERM or SIGKILL) to the server and waits for its run to end, so a later
+// run can open the same database. A run already ended is an error.
+func (hs Server) Stop(sig syscall.Signal) error {
+	if hs.run.end != nil {
+		return errors.New("tuwunel: the server has already stopped")
+	}
+	if err := hs.Signal(sig); err != nil {
+		return err
+	}
+	hs.run.killed = sig == syscall.SIGKILL
+	return hs.run.wait(stopLimit)
+}
+
+// Signal sends sig to the server's own process, the one process whose environment names its
+// config file (exec gives no pid, and the binary's name alone would match another test's). A
+// process whose environment cannot be read is another user's, or gone, so it is not the one.
+func (hs Server) Signal(sig syscall.Signal) error {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return err
+	}
+	want := []byte("TUWUNEL_CONFIG=" + hs.config)
+	var found []int
+	for _, e := range entries {
+		pid, perr := strconv.Atoi(e.Name())
+		if perr != nil || !e.IsDir() {
+			continue
+		}
+		env, rerr := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
+		if rerr != nil {
+			continue
+		}
+		if slices.ContainsFunc(bytes.Split(env, []byte{0}), func(v []byte) bool { return bytes.Equal(v, want) }) {
+			found = append(found, pid)
+		}
+	}
+	if len(found) != 1 {
+		return fmt.Errorf("tuwunel: %d processes have the config %s, want 1", len(found), hs.config)
+	}
+	return unix.Kill(found[0], sig)
+}
+
+// stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which
+// exec reports as context.Canceled; the test's deadline is DeadlineExceeded and fails), or the
+// signal itself; or on the test's own SIGKILL when killed.
+func stoppedCleanly(err error, killed bool) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return true
+	}
+	exitErr, ok := errors.AsType[*execx.ExitError](err)
+	return ok && (exitErr.Signal == syscall.SIGTERM || killed && exitErr.Signal == syscall.SIGKILL)
+}
+
+// await polls the versions endpoint until the server answers 200, it exits (recorded in *end),
+// or the start limit passes.
+func (hs Server) await(ctx context.Context, ended <-chan served, end **served) error {
+	ctx, cancel := context.WithTimeout(ctx, StartLimit)
+	defer cancel()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if hs.answers(ctx) {
+			return nil
+		}
+		select {
+		case got := <-ended:
+			*end = &got
+			return fmt.Errorf("exited before it answered: %w", got.err)
+		case <-ctx.Done():
+			return fmt.Errorf("no answer within %v: %w", StartLimit, ctx.Err())
+		case <-tick.C:
+		}
+	}
+}
+
+// answers is whether the versions endpoint answers 200; a refused connection is not yet.
+func (hs Server) answers(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hs.Base+versionsPath, http.NoBody)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	return resp.Body.Close() == nil && resp.StatusCode == http.StatusOK
+}
+
+// RandomKey is 32 random bytes in hex, for a password or the registration key.
+func RandomKey(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatalf("random key: %v", err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", net.JoinHostPort(Loopback, "0"))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener address %v is not TCP", ln.Addr())
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return addr.Port
+}
+
+// writeConfig renders the settings the installer gives a team (render.py toml_values) that the
+// client meets, with room creation allowed so a member can make a room, and the login limits a
+// v2 team gets (C 3.2.4: a seat's takes are password logins, which the client's seat cycle
+// makes six of). Two keys differ from a team's, for the tests alone: db_pool_workers is fixed
+// small, as Tuwunel's default pool, sized to the host's cores, hits EAGAIN under a container's
+// pids limit (host check run, Task 1.4); and the presence timers are short. o's extra settings
+// go before the first table, so they stay top-level.
+func writeConfig(t *testing.T, dir, serverName string, port int, regKey string, o Options) string {
+	t.Helper()
+	keyFile := filepath.Join(dir, "registration-key")
+	if err := os.WriteFile(keyFile, []byte(regKey), 0o600); err != nil {
+		t.Fatalf("write the registration key: %v", err)
+	}
+	config := fmt.Sprintf(`server_name = %q
+address = [%q]
+port = %d
+database_path = %q
+allow_registration = false
+allow_guest_registration = false
+registration_shared_secret_file = %q
+grant_admin_to_first_user = false
+allow_federation = false
+allow_encryption = false
+allow_room_creation = true
+auto_accept_invites = false
+default_room_version = "12"
+max_request_size = 10000000
+db_pool_workers = 4
+presence_idle_timeout_s = %d
+presence_offline_timeout_s = %d
+log = "warn"
+%s
+[rate_limiting.login.failed]
+per_second = 0.0033
+burst_count = 3
+
+[rate_limiting.login.account]
+per_second = 0.006
+burst_count = 10
+`, serverName, Loopback, port, o.DatabasePath, keyFile, PresenceIdleS, PresenceOfflineS, o.Extra)
+	path := filepath.Join(dir, "tuwunel.toml")
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return path
+}
+
+// Clock is the wall clock and a sleep that ends with its context, for a real server's waits.
+type Clock struct{}
+
+// Now is the wall clock's time.
+func (Clock) Now() time.Time { return time.Now() }
+
+// Sleep waits d, or until ctx ends, on the real clock teamchat/clock owns.
+func (Clock) Sleep(ctx context.Context, d time.Duration) error {
+	return clock.System().Sleep(ctx, d)
+}
