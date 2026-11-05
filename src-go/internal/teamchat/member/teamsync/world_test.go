@@ -471,6 +471,16 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 			s.Pending = append(s.Pending, it.Pending)
 		}
 	}
+	// The questions keys as the engine's one writer leaves them (QX5, QS9): written only by a
+	// batch that holds them, dropped only by a demotion's.
+	if b.Questions != nil {
+		s.Questions = b.Questions
+	}
+	if b.DropQuestions {
+		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })
+		s.Questions, s.RemindedMS, s.RemindLate = nil, 0, []int64{}
+		s.Outbox.QuestionsUnechoed, s.Outbox.QuestionsUncounted, s.Outbox.QuestionsHandover = nil, state.Uncounted{}, false
+	}
 	e.persisted++
 	floor := s.Sync.FloorMS[proto.PurposeMain]
 	for _, p := range s.Pending {

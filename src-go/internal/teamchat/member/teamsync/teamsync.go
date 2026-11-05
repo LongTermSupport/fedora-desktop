@@ -3,6 +3,7 @@ package teamsync
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -62,6 +63,9 @@ type Config struct {
 	Jitter func(time.Duration) time.Duration
 	// Receipts is the engine's read receipts, which the team sends (B 2.7.5); nil sends none.
 	Receipts team.Receipts
+	// Builder is QX1's builder of the question index; nil builds none, so a coordinator whose
+	// store holds no index at the position never has its questions room at the head.
+	Builder IndexBuilder
 }
 
 // Watcher is a source of seat directory changes.
@@ -117,7 +121,9 @@ type Team struct {
 
 	// Test seams.
 	onPoll func(since string)
-	onWait func(time.Duration)
+	// onFilter is told each request's filter just before the request is made.
+	onFilter func(json.RawMessage)
+	onWait   func(time.Duration)
 	// onReceiptWait is told each receipt backoff.
 	onReceiptWait func(time.Duration)
 	readPair      func(*homefs.Root, paths.Seat) (bundle.Pair, error)
@@ -158,7 +164,7 @@ func New(cfg Config) (*Team, error) {
 		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
 		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
-		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
+		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
 	}, nil
