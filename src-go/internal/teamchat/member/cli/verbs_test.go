@@ -46,7 +46,7 @@ func TestTheTableIsBsVerbs(t *testing.T) {
 }
 
 func TestEveryVerbIsBuiltOrNamesItsSlice(t *testing.T) {
-	known := map[string]bool{"n3e": true, "n3f": true}
+	known := map[string]bool{"n3f": true}
 	for _, v := range Verbs() {
 		_, own := runs[v.Name]
 		passed := slices.Contains(Outside(), v.Name)
@@ -70,9 +70,11 @@ func btoi(b bool) int {
 	return 0
 }
 
-// The verbs cmd/teamchat passes in Env.Verbs (n3c-D5): n3c's, and n3d's sends.
-func TestOutsideAreN3csVerbsAndTheSends(t *testing.T) {
+// The verbs cmd/teamchat passes in Env.Verbs (n3c-D5): n3e's hook and status line, n3c's, and
+// n3d's sends.
+func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
+		"hook", "status-line",
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
 		"reply", "say", "ping",
 	}
@@ -80,15 +82,14 @@ func TestOutsideAreN3csVerbsAndTheSends(t *testing.T) {
 		t.Fatalf("Outside() = %q", got)
 	}
 	Outside()[0] = "changed"
-	if Outside()[0] != "run" {
+	if Outside()[0] != "hook" {
 		t.Fatal("Outside is not a copy")
 	}
 }
 
-// The unbuilt list as n3d leaves it; each later slice removes its own.
+// The unbuilt list as n3e leaves it; n3f removes the rest.
 func TestUnbuiltAreTheLaterSlices(t *testing.T) {
 	want := map[string]string{
-		"hook": "n3e", "status-line": "n3e",
 		"report": "n3f", "ask": "n3f", "thread": "n3f", "questions": "n3f",
 	}
 	for name, slice := range want {

@@ -83,7 +83,7 @@ func dialUnix(path string) (*net.UnixConn, error) {
 	return net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
 }
 
-// Main is `teamchat hook <event>`; cmd/teamchat puts it in cli.Env.Verbs as "hook".
+// Main is `teamchat hook <event>`; wiring.Verbs puts it in cli.Env.Verbs as "hook".
 func Main(e cli.Env, inv cli.Invocation) term.ExitCode {
 	return run(e, inv, deps{clock: clock.System(), dial: dialUnix})
 }
