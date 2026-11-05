@@ -5,10 +5,16 @@ package wiring
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // PT1's pure half (SPEC-n3 PT1, section 11): the schedule a seed gives, the transcript read back
@@ -93,6 +99,59 @@ func TestPT1FixedSeedsDrawEveryOperation(t *testing.T) {
 	}
 }
 
+// failpointNames are the names failpoint/names.go declares, read from its source: the one list.
+func failpointNames(t *testing.T) []failpoint.Name {
+	t.Helper()
+	src, err := testfiles.Try("../../failpoint", "names.go")
+	check(t, err)
+	file, err := parser.ParseFile(token.NewFileSet(), "names.go", src, 0)
+	check(t, err)
+	var names []failpoint.Name
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			val, ok := spec.(*ast.ValueSpec)
+			if !ok || len(val.Values) != 1 {
+				t.Fatalf("names.go: a constant that is not one name and one value: %v", spec)
+			}
+			lit, ok := val.Values[0].(*ast.BasicLit)
+			if !ok {
+				t.Fatalf("names.go: %v is not a string literal", val.Names)
+			}
+			name, err := strconv.Unquote(lit.Value)
+			check(t, err)
+			names = append(names, failpoint.Name(name))
+		}
+	}
+	return names
+}
+
+// Every failpoint the code names is either made to fire by a row of TestPT1Points or has its
+// reason in pt1Unreached: a point added to names.go with no decision here fails, so the list PT1
+// covers cannot fall behind the list the code has.
+func TestPT1EveryFailpointIsReachedOrSaidWhy(t *testing.T) {
+	names := failpointNames(t)
+	if len(names) < 16 {
+		t.Fatalf("names.go declares %d failpoints, fewer than the 16 known when PT1 was built", len(names))
+	}
+	for _, name := range names {
+		_, reached := pt1Provokers[name]
+		why, unreached := pt1Unreached[name]
+		switch {
+		case reached == unreached:
+			t.Errorf("%s: reached by a row %v, unreached with a reason %v: it must be exactly one", name, reached, unreached)
+		case unreached && why == "":
+			t.Errorf("%s: unreached with no reason", name)
+		}
+	}
+	if len(pt1Provokers)+len(pt1Unreached) != len(names) {
+		t.Errorf("PT1 knows %d + %d failpoints, names.go has %d", len(pt1Provokers), len(pt1Unreached), len(names))
+	}
+}
+
 // envelope is a delivery's text as proto.Delivery renders it, entries given as id and repeat.
 func envelope(entries ...pt1Copy) string {
 	lines := []string{"teamchat delivery 0a1b2c3d: team alpha, 1 item"}
@@ -163,6 +222,10 @@ func TestPT1ChecksFireOnTheirOwnProperty(t *testing.T) {
 	}{
 		{"clean", func(*pt1Seen) {}, ""},
 		{"an accepted item no channel ever showed", func(o *pt1Seen) { delete(o.recv, "$a") }, "P1"},
+		{"an accepted item in an awaiting entry, in limbo until missing", func(o *pt1Seen) {
+			delete(o.recv, "$a")
+			o.awaiting = []string{"$a"}
+		}, ""},
 		{"a second transcript copy not marked repeat", func(o *pt1Seen) {
 			o.transcript = append(o.transcript, pt1Copy{id: "$b"})
 		}, "P2"},

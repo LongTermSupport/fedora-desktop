@@ -232,6 +232,10 @@ type pt1Seen struct {
 	recv map[string]int
 	// transcript is every copy the fake transcript holds, in order.
 	transcript []pt1Copy
+	// awaiting is the ids the store holds in an awaiting entry at the end: a delivery the link was
+	// killed inside has no proof, and its items are in limbo until the quiet clock declares it
+	// missing (180 s of quiet, which no run waits for), so they are neither lost nor shown.
+	awaiting []string
 	// crashes is the links that were started after the first: each is a crash or a kill.
 	crashes int
 	// linksAlive is the links of the session alive when the run ended.
@@ -286,8 +290,8 @@ func pt1Items(o pt1Seen) []string {
 			}
 		}
 		switch {
-		case o.recv[id]+len(byID[id]) == 0:
-			out = append(out, fmt.Sprintf("P1: %s was accepted and neither recv nor the transcript ever showed it", id))
+		case o.recv[id]+len(byID[id]) == 0 && !slices.Contains(o.awaiting, id):
+			out = append(out, fmt.Sprintf("P1: %s was accepted and neither recv, the transcript nor an awaiting entry holds it", id))
 		case o.recv[id] > 0 && unmarked > 1+o.crashes:
 			out = append(out, fmt.Sprintf("P11: %s was shown %d times with no repeat mark (recv %d) after %d crashes", id, unmarked, o.recv[id], o.crashes))
 		}

@@ -9,10 +9,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 )
 
@@ -61,18 +64,57 @@ func TestPT1Random(t *testing.T) {
 	}
 }
 
-// pt1Run is one seed's run.
+// pt1Run is one seed's run, with no failpoint armed.
 func pt1Run(t *testing.T, seed uint64) {
 	t.Helper()
+	pt1RunAt(t, seed, "")
+}
+
+// pt1PointSeed is the first seed of the failpoint rows: row i runs seed pt1PointSeed+i, in the
+// sorted order of the points, unless -pt1.seed names another.
+const pt1PointSeed = 100
+
+// TestPT1Points is a SIGKILL at each failpoint a single-team session can reach, one row each,
+// named by the point without its "link-" (a row's name is in its temporary directory, and a
+// socket's path may not pass 107 bytes): the link's first process arms the point, the row's
+// provoker makes it fire (and waits for the kill), and the seed's schedule then runs against the
+// restarted link before the same drain and checks as any run. A row whose point never fired
+// fails, so none passes vacuously.
+func TestPT1Points(t *testing.T) {
+	for i, point := range slices.Sorted(maps.Keys(pt1Provokers)) {
+		seed := pt1PointSeed + uint64(i)
+		if *pt1Only != 0 {
+			seed = *pt1Only
+		}
+		t.Run(pt1RowName(point), func(t *testing.T) { pt1RunAt(t, seed, point) })
+	}
+}
+
+// pt1RowName is a point's row name.
+func pt1RowName(point failpoint.Name) string { return strings.TrimPrefix(string(point), "link-") }
+
+// pt1RunAt is seed's run with point armed in the link, "" for none.
+func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
+	t.Helper()
 	ops := pt1Schedule(seed)
-	t.Logf("PT1 seed %d: %v", seed, ops)
+	t.Logf("PT1 seed %d, failpoint %q: %v", seed, point, ops)
 	defer func() {
 		if t.Failed() {
-			t.Logf("PT1 seed %d failed; replay it with: go test -race -tags busfailpoints -run 'TestPT1Seeds$' ./internal/teamchat/member/wiring/ -pt1.seed=%d", seed, seed)
+			t.Logf("PT1 seed %d failed; replay it with: %s", seed, pt1Replay(seed, point))
 		}
 	}()
 	w := newWorld(t, fakeServer(t))
+	if point != "" {
+		w.arm = arm("link", point)
+	}
 	r := &pt1Runner{t: t, seed: seed, w: w, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}}
+	if point != "" {
+		pt1Provokers[point](r)
+		r.s.seatedIn()
+		if !r.s.linkKilled() {
+			t.Fatalf("the failpoint %s never fired: %s", point, r.s.describe())
+		}
+	}
 	for _, op := range ops {
 		r.do(op)
 		r.s.oneLink()
@@ -83,6 +125,65 @@ func pt1Run(t *testing.T, seed uint64) {
 	if bad := pt1Check(seen); len(bad) > 0 {
 		t.Fatalf("PT1 seed %d broke %d checks:\n%s\nschedule: %v\n%s", seed, len(bad), strings.Join(bad, "\n"), ops, r.s.describe())
 	}
+}
+
+// pt1Replay is the command that runs seed again, at point when there is one.
+func pt1Replay(seed uint64, point failpoint.Name) string {
+	run := "'TestPT1Seeds$'"
+	if point != "" {
+		run = "'TestPT1Points/" + pt1RowName(point) + "$'"
+	}
+	return fmt.Sprintf("go test -race -tags busfailpoints -run %s ./internal/teamchat/member/wiring/ -pt1.seed=%d", run, seed)
+}
+
+// pt1Provokers make each reachable failpoint fire, and wait for the kill. The link's points of a
+// delivery fire at the first delivery (the first say, with the inbox live); a hand-out's fire at
+// the first recv that takes an item, which the inbox's refusal leaves to recv alone; a send's
+// fire at the first send; the first batch's fires as the link starts.
+var pt1Provokers = map[failpoint.Name]func(*pt1Runner){
+	failpoint.LinkAfterJudgeBeforePersist: func(r *pt1Runner) { r.s.awaitLinkKilled(false) },
+	failpoint.LinkAfterAuth:               (*pt1Runner).provokeDelivery,
+	failpoint.LinkAfterAwaiting:           (*pt1Runner).provokeDelivery,
+	failpoint.LinkAfterUserLine:           (*pt1Runner).provokeDelivery,
+	failpoint.LinkAfterHandOut:            (*pt1Runner).provokeHandOut,
+	failpoint.LinkWhileHanded:             (*pt1Runner).provokeHandOut,
+	failpoint.LinkAfterChargeBeforeSend:   (*pt1Runner).provokeSend,
+	failpoint.LinkAfterSendBeforeRecord:   (*pt1Runner).provokeSend,
+}
+
+// pt1Unreached is each failpoint no row of TestPT1Points makes fire, and why.
+var pt1Unreached = map[failpoint.Name]string{
+	failpoint.LinkAfterMissing:        "a delivery is missing after 180 s of quiet or an hour, which no real-process run reaches without a clock seam the link does not have: the engine's fake-clock tests own it",
+	failpoint.LinkBetweenStoreWrites:  "it needs two stores written by one hand-out, so two teams in one session: the engine's tests own it",
+	failpoint.LinkInRemove:            "a removal: its row is TestFailpointInRemove (P4, P5)",
+	failpoint.LinkAfterRemoveAnswered: "a removal: its row is TestFailpointAfterRemoveAnswered (P4, P5)",
+	failpoint.KeeperBeforeStoreDelete: "a removal that times out: its row is TestFailpointKeeperBeforeStoreDelete (P4's pinned exception)",
+	failpoint.LinkMidEndSends:         "a session's end: its row is TestFailpointMidEndSends (P5)",
+	failpoint.KeeperBeforeEnd:         "a session's end: its row is TestFailpointKeeperBeforeEnd (P5)",
+	failpoint.KeeperLinkWriting:       "a keeper kill at its link's first state: its row is TestFailpointKeeperLinkWriting (P1, P6)",
+}
+
+// provokeDelivery posts a human's item and waits for the link to be killed delivering it.
+func (r *pt1Runner) provokeDelivery() {
+	r.posted = append(r.posted, r.w.say(pt1Text(r.seed, pt1Op{pt1Say, -1})))
+	r.s.awaitLinkKilled(false)
+}
+
+// provokeHandOut refuses the inbox, so that no delivery takes the item, posts one and receives
+// until the link is killed handing it out.
+func (r *pt1Runner) provokeHandOut() {
+	ccAsk[bool](r.s, "refuse")
+	r.posted = append(r.posted, r.w.say(pt1Text(r.seed, pt1Op{pt1Say, -1})))
+	counts := r.s.awaitLinkKilled(true)
+	for _, id := range slices.Sorted(maps.Keys(counts)) {
+		r.recv[id] += counts[id]
+	}
+}
+
+// provokeSend makes one send and waits for the link to be killed sending it.
+func (r *pt1Runner) provokeSend() {
+	r.send(pt1Op{pt1Send, -1})
+	r.s.awaitLinkKilled(false)
 }
 
 // pt1Runner is a run in progress: the world, its one session, and what the operations have seen.
@@ -200,26 +301,45 @@ func (r *pt1Runner) drain() {
 	within(r.t, backoffCap+settle, r.sendsPosted, r.s.describe)
 }
 
-// allShown receives once, and is whether every accepted item has a copy somewhere.
+// awaitingIDs are the ids the team's store holds in an awaiting entry.
+func (r *pt1Runner) awaitingIDs() []string {
+	r.t.Helper()
+	var ids []string
+	for _, a := range r.w.store().Awaiting {
+		ids = append(ids, a.IDs...)
+	}
+	return ids
+}
+
+// allShown receives once, and is whether every accepted item has a copy somewhere, or is in an
+// awaiting entry (see pt1Seen.awaiting).
 func (r *pt1Runner) allShown() bool {
 	r.take(r.s.recvAny())
 	seen := map[string]bool{}
 	for _, c := range r.copies() {
 		seen[c.id] = true
 	}
+	limbo := r.awaitingIDs()
 	for _, id := range r.posted {
-		if r.recv[id] == 0 && !seen[id] {
+		if r.recv[id] == 0 && !seen[id] && !slices.Contains(limbo, id) {
 			return false
 		}
 	}
 	return true
 }
 
-// settled is whether the link owes nothing and queues nothing for the seat's team.
+// settled is whether the link owes nothing but what an awaiting entry holds, and queues nothing,
+// for the seat's team.
 func (r *pt1Runner) settled() bool {
 	owed := r.s.exec("inbox", "--team", teamName)
 	queued := r.s.exec("status", "--team", teamName)
-	return owed.ExitCode == 0 && len(pt1IDs(owed.Stdout)) == 0 && queued.ExitCode == 0 && !strings.Contains(string(queued.Stdout), `"kind":"queued"`)
+	limbo := r.awaitingIDs()
+	for _, id := range pt1IDs(owed.Stdout) {
+		if !slices.Contains(limbo, id) {
+			return false
+		}
+	}
+	return owed.ExitCode == 0 && queued.ExitCode == 0 && !strings.Contains(string(queued.Stdout), `"kind":"queued"`)
 }
 
 // sendsPosted is whether every send the verb answered is in main.
@@ -251,7 +371,7 @@ func (r *pt1Runner) seen() pt1Seen {
 		inMain[s.text] = len(r.w.textsFrom(me, s.text))
 	}
 	return pt1Seen{
-		posted: r.posted, recv: r.recv, transcript: r.copies(), crashes: max(len(links)-1, 0), linksAlive: alive,
+		posted: r.posted, recv: r.recv, transcript: r.copies(), awaiting: r.awaitingIDs(), crashes: max(len(links)-1, 0), linksAlive: alive,
 		notices: notices, sends: r.sends, inMain: inMain,
 	}
 }
