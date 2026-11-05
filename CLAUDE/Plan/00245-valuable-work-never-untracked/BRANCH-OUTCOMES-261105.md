@@ -9,7 +9,8 @@ with each. Branches merged into F44 are deleted from the remote once F44 holds t
 - `fix/qa-changed-gate-args`: qa-changed runs each gate with its row's arguments (efb74f482).
 - `fix/ccy-teams-launch-start-window` (PR #132): the launch-start check owns its clock (bdc37c565).
 - `feat/matrix-clients-element-install`: Element's install and keyring grant are one task file
-  that both Element plays import (11ca29312); its host run is queued.
+  that both Element plays import (11ca29312). Its host run is done: play-agent-bus-element and
+  play-matrix-clients, failed=0 each.
 
 ## Merged through `docs/finished-reports-261105`
 
@@ -25,8 +26,8 @@ with each. Branches merged into F44 are deleted from the remote once F44 holds t
   record. Its five-line attribution note on `Completed/002-nordvpn-openvpn-manager/PLAN.md` was
   left out. The pre-commit secret scanner reads an existing Ansible `--vault-id <label>@<source>`
   argument in that file as an email address, and it judges every file a commit touches. That is
-  a scanner false positive (a Defence Before Fix item, not yet started). The note goes in once
-  the scanner is fixed.
+  a scanner false positive. It is fixed (`fix/secret-scan-vault-id`, merged at 3c4758639), and
+  the note went in with this correction.
 
 ## Landing them on F44
 
