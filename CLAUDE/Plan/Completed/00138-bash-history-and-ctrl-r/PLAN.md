@@ -6,6 +6,12 @@
 **Owner**: joseph
 **Priority**: Medium
 
+> **Attribution correction.** This plan is archived and its text stays as written.
+> `PROPOSAL.md:19` lists "It must work before a single character is typed" under "Owner
+> requirements". The owner's recorded requirements (`JOURNAL/00138-Journal-26-09-24.md:62-65`)
+> do not include it: it is this plan's derivation, that weighting must also apply on an
+> empty query.
+
 ## Overview
 
 Bash history on this desktop "behaves weirdly", and triage confirms why: history is
