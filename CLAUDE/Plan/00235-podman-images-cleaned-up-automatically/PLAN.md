@@ -271,6 +271,13 @@ the plans cite kept.
   the same defect and silently never matched. All three now use single backslashes, the form the
   host agent proved on the host's Ansible with a read-only scratch play
 
+- [x] ✅ **Task 4.8a** (issue #152, Defence Before Fix): the probe reported a file a running
+  container deleted during the walk, because `-ignore_readdir_race` makes every `-uid` test
+  false for a vanished entry and so each negated one true. `-links +0` (quoted) now comes before
+  the negations; rule [find-race-negated-stat-test](../../QA.md#find-race-negated-stat-test)
+  (gate `qa-find-race.bash`, 1 instance in the tree) and `scripts/test-podman-store-probe-race.bash`
+  (the probe's argv over a churning tree) defend it. Report: `subagent-reports/261105-find-race-negated.md`
+
 - [x] ✅ **Task 4.10** (Defence Before Fix): qa-ansible rule
   [regex-class-escape](../../QA.md#regex-class-escape), a letter escape that reaches the regex as
   a literal backslash (or `\b` as a backspace), counted per YAML style and Jinja context as

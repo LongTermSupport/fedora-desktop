@@ -71,6 +71,11 @@ Edmonds-Commerce-Limited/claude-code-hooks-daemon#152.
   worktrees pushed. Wiring the audit as blocking is blocked on the owner's decision for what is
   left: 8 worktrees the commit hook refuses, 108 decision and 33 patch findings, the items
   listed for the owner, and the nested checkouts.
+- [x] Task 2.3: the bulk-delete guard (issue #150, after F42 and F43 were deleted from a
+  triage's verdicts). `scripts/branch-delete-list.bash` (Go, `src-go/qa/branchdelete`) refuses
+  any exempt, parked, `F[0-9]*`, default or unarchived name and prints the delete commands only
+  when all pass; `CLAUDE/QA.md` names it as the only way to build a delete list
+  ([report](subagent-reports/261105-delete-guard.md)).
 
 ### Phase 3: the private-name guard
 
