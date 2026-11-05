@@ -227,9 +227,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 - [ ] 🔄 **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
   Done, as inert code: each team's `config.toml` and drop-in, rendered by `host/render.go` and
-  written by `team apply`. Not done: the pinned Tuwunel's install, the
-  `teamchat-server@<team>` unit template and D's gate over it (seam 49), which are play tasks
-  and wait for gate A (Task 2.5).
+  written by `team apply`. Not done: the pinned Tuwunel's install and the
+  `teamchat-server@<team>` unit template (play tasks, gate A, Task 2.5), and the health and
+  seats unit texts (S7b). `InaccessiblePaths=` is in every unit text Go makes (`v1names`, S7a).
 
 - [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
   roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
@@ -251,8 +251,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15).
 
   **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
-  `go list -deps ./cmd/teamchat-admin`). A Go package merges to F44 with its first caller
-  (above), so the N2 stack stays on the plan branch, off F44, until the last two land.
+  `go list -deps ./cmd/teamchat-admin`). PR 124 then took the whole stack to F44, the last
+  two still without a caller.
 
   - `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
     `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
