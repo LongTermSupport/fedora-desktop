@@ -315,8 +315,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   delivery, hooks, status line, plugin and skill (B 2.1-2.12). Built, fakes only, none installed:
   n3a-n3d, n3e (hooks, e2e, PT1 seeds, kill rows); open: PT1 end/removal/repeat, n3f (n3f-a
   built in part, merged on `feat/bus-v2-n3f-a-int`: G6 and G7, G4 and G5 (the records and the
-  filter), and G1's fold and caps (the question index); G1's codec, build record and
-  `RedactedSlot`, and G2 (the store) open, see BUILT-n3.md).
+  filter), and G1 whole (the question index: fold and caps, the strict codec and load, the
+  build record, `RedactedSlot`, the property tests; `feat/bus-v2-n3f-a-codec`); G2 (the store)
+  open, see BUILT-n3.md).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

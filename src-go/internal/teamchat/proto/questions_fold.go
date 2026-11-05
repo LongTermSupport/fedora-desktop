@@ -88,7 +88,7 @@ func (x *QuestionIndex) State() IndexState {
 	}
 	return IndexState{
 		Highest: x.highest, Slots: x.slots, Evicted: x.evicted,
-		Questions: qs, Posts: x.posts.entries(), Unattached: slices.Clone(x.unattached),
+		Questions: qs, Posts: x.posts.entries(), Unattached: cloneList(x.unattached),
 	}
 }
 
@@ -166,7 +166,7 @@ func (x *QuestionIndex) count(v Verdict) foldResult {
 	x.raise(c.N)
 	x.questions[c.N] = &IndexedQuestion{
 		N: c.N, EventID: v.Event.ID, Latest: v.Event.ID, Headline: headline, Hash: sectionHash(section),
-		AskedBy: x.indexUsers(c.AskedBy), Re: slices.Concat([]string{}, c.Re), AskedMs: v.Event.OriginTs,
+		AskedBy: x.indexUsers(c.AskedBy), Re: cloneList(c.Re), AskedMs: v.Event.OriginTs,
 		RemindAfterS: c.RemindAfterS, Unanswered: []string{},
 	}
 	x.roots[v.Event.ID] = c.N

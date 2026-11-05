@@ -74,9 +74,13 @@ func (q IndexedQuestion) UnansweredCount() int64 { return int64(len(q.Unanswered
 func (q IndexedQuestion) Redacted() bool { return !q.Provisional && q.EventID == "" }
 
 func (q IndexedQuestion) clone() IndexedQuestion {
-	q.AskedBy, q.Re, q.Unanswered = slices.Clone(q.AskedBy), slices.Clone(q.Re), slices.Clone(q.Unanswered)
+	q.AskedBy, q.Re, q.Unanswered = cloneList(q.AskedBy), cloneList(q.Re), cloneList(q.Unanswered)
 	return q
 }
+
+// cloneList is a copy of list that is never nil: the stored state writes an empty list as `[]`,
+// and slices.Clone of a nil list is nil (null in JSON), which the codec refuses.
+func cloneList[T any](list []T) []T { return append(make([]T, 0, len(list)), list...) }
 
 // Reminder is the one TIMEOUT an open question with `remind_after_s` gives the coordinator
 // (A 10.5), keyed ReminderKey; DueMs is the time it fell due, which the reminded watermark

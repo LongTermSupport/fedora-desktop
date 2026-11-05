@@ -130,6 +130,20 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `TakeDropped`); `State()` and `Copy()`; `Reminder.DueMs`. Not built yet: the strict codec of
   the state with the build record, `RedactedSlot` over the raw event.
 
+- **n3f-a, the rest of G1** on `feat/bus-v2-n3f-a-codec` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261105-n3f-a-codec-sonnet.md`): `proto.QuestionsState` (the store's
+  `questions` key: `index`, `token`, `last`, `build`) with `Encode(server)`,
+  `DecodeQuestionsState(data, server)` (strict as `member/state`'s files: repeated keys and
+  integers past 2^53 refused, unknown keys refused, a round trip that must equal the parsed
+  value, then `Check(server)`; at most `MaxQuestionsStateBytes` 1 101 056), `IndexState.Check`
+  and `LoadQuestionIndex(server, floor, state)`; the build record (`BuildRecord`: no record with
+  an index, a build owed with none of the three and `after` set, a build under way with the
+  three and `start` set; the engine's use of it is n3f-c's); `RedactedSlot(raw, server)`; and
+  the two property tests (live equals restarted over 3 seeds of 2600 events, every cap fired;
+  QX6's worst case, 1 001 559 bytes). `proto` 98.3% of statements. The fold's `State()` and
+  `IndexedQuestion.clone()` now give `[]`, never `null`, for an empty list. Not built: the
+  store (`member/state`, G2) that embeds `QuestionsState`; the engine's use of the build record.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
