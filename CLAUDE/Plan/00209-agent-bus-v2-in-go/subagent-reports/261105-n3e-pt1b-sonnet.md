@@ -135,3 +135,17 @@ each is a claim to confirm by the row that builds on it.
 | `scripts/qa-changed.bash` (uncommitted tree, 6 files)                                    | docs, go (go-qa on both modules, with the tagged lint, vet and `-count=2` test stages) and teamchat-keeps-off-v1 all passed; it did not end red on issue 135 or 136 |
 | `-tags tuwunel`                                                                          | not run: `FAKEHS_TUWUNEL_BIN` is unset                                                                                                                              |
 | a planted defect in production code                                                      | none run (no runner for the new operations); production files are untouched                                                                                         |
+
+## 7. Reviewer's checks (the coordinator, after this report)
+
+Run in the builder's worktree, container, `FAKEHS_TUWUNEL_BIN` unset:
+
+- `go test -race -shuffle=on -count=1 -tags busfailpoints -run TestPT1` on the committed tree: ok, 53.0 s.
+- `golangci-lint run --build-tags busfailpoints` and `go vet -tags busfailpoints` over the wiring package: 0 issues, clean.
+- **How much of the manual target is broken.** A throwaway unit test (deleted afterwards, the tree was clean) drew seeds 1 to
+  2000 and counted those whose schedule holds one of the four unbuilt operations: **1673 of 2000**. So `-pt1.seed=N` and
+  `-pt1.random=<n>` fail loudly on about five seeds in six until the runner is built; only the 12 fixed seeds, chosen to draw
+  none of them, run. `BUILT-n3.md` says so. This is the price of leaving the generator ahead of the runner, and the reason
+  the runner is the next slice, not a later one.
+- The earlier finding stands: with the `repeat:` line never written, every PT1 row stays green, since no run draws
+  `recv-fail` yet.

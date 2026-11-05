@@ -80,7 +80,9 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   failed recv returned, each with a unit case. The runner has no code for the four operations, so
   P2, P4 and P5 are still not reached by a real run, no planted defect was run against them, and
   the fixed seeds were chosen to draw none of the four (`pt1Unbuilt`); the report says how the
-  runner is to be built.
+  runner is to be built. Until it is, `-pt1.seed=N` and `-pt1.random=<n>` fail loudly on any seed
+  that draws one of the four, which is 1673 of the first 2000 seeds (the reviewer's count), so the
+  manual long run is not usable.
 
 ## Task 3.3: LXC members
 
