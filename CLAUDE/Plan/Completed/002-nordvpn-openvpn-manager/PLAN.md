@@ -4,6 +4,11 @@
 **Owner**: joseph
 **Priority**: Medium
 
+> **Attribution correction.** This plan is archived and its text stays as written. The
+> "User preference stated in requirements" reason under "Why No Systemd?" (`PLAN.md:585`) has
+> no recorded requirements behind it; "no systemd services" is this plan's own design choice,
+> for the technical reasons listed beside it.
+
 ## Overview
 
 Create a bash script (`nord`) and Ansible playbook to manage NordVPN OpenVPN connections via NetworkManager CLI. User downloads .ovpn files, script handles import/connect/disconnect/switch operations.
