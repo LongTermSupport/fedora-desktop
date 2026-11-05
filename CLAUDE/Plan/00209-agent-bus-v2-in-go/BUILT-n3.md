@@ -81,6 +81,18 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   reviewer's 180 isolated runs and 12 full-suite copies, none failing, are recorded, and the
   decision to keep the seed in the gate is stated with its one-line alternative).
 
+  P2's readings for issue 156 (`subagent-reports/261105-fix-pt1p2-opus-report.md`): a copy's
+  first-seen order alone cannot split the readings, since under both the unmarked copy is first
+  seen after the mark. Each transcript copy now carries its delivery's nonce, each takes the
+  harness's next sequence number when a read first holds it, and a failing recv's mark records
+  the store's in-flight deliveries of the item (awaiting or missed entries) before the recv runs
+  and again just before the count. A returned item's P2 finding prints, under its unchanged first
+  line, reading (b) (the copy's delivery was in flight before the hand-out), reading (a) (it was
+  not: it began after the hand-out and lacks the line) or neither (no record, store unread, no
+  nonce, a link crash, a contradictory record), with the record. The verdict is unchanged
+  (`TestPT1P2VerdictIsTheRecordsNot`); `pt1_readings_unit_test.go` holds the forced timelines and
+  `TestPT1MarkBeforeAnInFlightDelivery` forces (b) over a real run. Seed 57 stays in `pt1Fixed`.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
