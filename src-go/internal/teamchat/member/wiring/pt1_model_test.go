@@ -313,6 +313,9 @@ type pt1Seen struct {
 	removed      bool
 	atRemoval    int
 	afterRemoval []string
+	// storeBack is whether the removed team's store file was there again right after the keeper
+	// deleted it: the team was still writing.
+	storeBack bool
 	// marked is, for each item a recv handed out and then got back unacknowledged (a recv whose
 	// output failed, so the link returned the item to pending marked repeat), how many copies the
 	// transcript held of it then; every later copy must carry the mark. What such a recv printed
@@ -360,13 +363,16 @@ func pt1Notices(o pt1Seen) []string {
 	return nil
 }
 
-// pt1Removal is P4: once the seat is removed, no item copy reaches the transcript, and an item
-// posted to main after the removal reaches no recv.
+// pt1Removal is P4: once the seat is removed, its store stays deleted, no item copy reaches the
+// transcript, and an item posted to main after the removal reaches no recv.
 func pt1Removal(o pt1Seen) []string {
 	if !o.removed {
 		return nil
 	}
 	var out []string
+	if o.storeBack {
+		out = append(out, "P4: the removed team's store was written again after the keeper deleted it")
+	}
 	for i := o.atRemoval; i < len(o.transcript); i++ {
 		out = append(out, fmt.Sprintf("P4: a copy of %s reached the transcript after the removal (copy %d of %d, %d at the removal)", o.transcript[i].id, i+1, len(o.transcript), o.atRemoval))
 	}
