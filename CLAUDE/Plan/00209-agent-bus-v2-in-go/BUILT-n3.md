@@ -73,6 +73,15 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   shown to fire in a real run either: no drawn operation ends or removes a seat, and whether a
   link kill posts a notice was not looked at.
 
+  n3e-13 slice 3 (`subagent-reports/261105-n3e-pt1b-sonnet.md`) built the pure half only: four
+  more operations in the generator (`remove`, `end`, `die` and `recv-fail`, a recv whose output
+  fails so the link gets no ack and returns the items marked repeat), P4 (no copy after a
+  removal), P5 as exactly one goodbye per run and the ending's notice once, and P2 for an item a
+  failed recv returned, each with a unit case. The runner has no code for the four operations, so
+  P2, P4 and P5 are still not reached by a real run, no planted defect was run against them, and
+  the fixed seeds were chosen to draw none of the four (`pt1Unbuilt`); the report says how the
+  runner is to be built.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
