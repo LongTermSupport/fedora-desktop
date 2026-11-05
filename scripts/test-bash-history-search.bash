@@ -271,8 +271,8 @@ chmod 0600 "$search_state/context"
 search_script="$(cat <<EOF
 HISTFILE=$search_state/history; export STUB_ARGS_FILE=$WORK_DIR/stub-args; source $INCLUDE
 cd $WORK_DIR/B
-READLINE_LINE=typed; READLINE_POINT=5; __history_search; printf 'PROBE-LINE:%s|%s\n' "${dollar}READLINE_LINE" "${dollar}READLINE_POINT"
-READLINE_LINE=typed; READLINE_POINT=5; STUB_MODE=esc __history_search; printf 'PROBE-ESC:%s|%s\n' "${dollar}READLINE_LINE" "${dollar}READLINE_POINT"
+READLINE_LINE=secretline; READLINE_POINT=5; __history_search; printf 'PROBE-LINE:%s|%s\n' "${dollar}READLINE_LINE" "${dollar}READLINE_POINT"
+READLINE_LINE=secretline; READLINE_POINT=5; STUB_MODE=esc __history_search; printf 'PROBE-ESC:%s|%s\n' "${dollar}READLINE_LINE" "${dollar}READLINE_POINT"
 printf 'PROBE-BIND:%s\n' "${dollar}(for m in emacs-standard vi-insert vi-command; do bind -m ${dollar}m -X; done | grep -c __history_search)"
 EOF
 )"
@@ -280,19 +280,99 @@ search_out="$(run_shell "$search_home" "$WORK_DIR/start" "$search_script")"
 check "Ctrl+R puts this directory's command on the line, for review, cursor at the end" \
     "cmd-for-B|9" "$(printf '%s\n' "$search_out" | awk '/^PROBE-LINE:/ { sub(/^PROBE-LINE:/, ""); print }')"
 check "Esc leaves the typed line and cursor alone" \
-    "typed|5" "$(printf '%s\n' "$search_out" | awk '/^PROBE-ESC:/ { sub(/^PROBE-ESC:/, ""); print }')"
+    "secretline|5" "$(printf '%s\n' "$search_out" | awk '/^PROBE-ESC:/ { sub(/^PROBE-ESC:/, ""); print }')"
 # The typed line can be half a secret (`export TOKEN=...`). fzf's argv is readable by every
 # local user through /proc; its environment is not, so the query must travel there.
-check "what was typed reaches fzf through its environment" "1" "$(grep -cx 'ENV:typed' "$WORK_DIR/stub-args")"
+check "what was typed reaches fzf through its environment" "1" "$(grep -cx 'ENV:secretline' "$WORK_DIR/stub-args")"
 check "the picker's footer names both helpers" "1" \
     "$(grep -c -E '^ARG:--footer=nohist=1 .+histclean' "$WORK_DIR/stub-args")"
-check "what was typed appears in none of fzf's arguments" "0" "$(grep -c '^ARG:.*typed' "$WORK_DIR/stub-args")"
+check "what was typed appears in none of fzf's arguments" "0" "$(awk '/^ARG:/ && /line/ && /secret/' "$WORK_DIR/stub-args" | wc -l)"
 # Without this bind the environment variable is set and never read: the query would
 # silently stop working while both checks above stayed green.
 check "fzf is told to load its query from that environment variable" "1" \
     "$(grep -cxF "ARG:--bind=start:transform-query:printf %s \"${dollar}{__history_search_query}\"" "$WORK_DIR/stub-args")"
 check "Ctrl+R is bound in the emacs and both vi keymaps" "3" \
     "$(printf '%s\n' "$search_out" | awk -F: '/^PROBE-BIND:/ { print $2 }')"
+
+# ── Enter: what was typed, until the person moves to a match ────────────────────────
+# The real fzf in a real terminal (tmux), since which row Enter takes is fzf's own state.
+echo "== Enter takes the query"
+if ! command -v tmux >/dev/null; then
+    echo "FAIL: tmux not found — these cases drive the real fzf and cannot pass without it." >&2
+    exit 1
+fi
+if ! command -v fzf >/dev/null; then
+    echo "FAIL: fzf not found — these cases drive the real fzf (tasks/install-fzf.yml installs it; CI installs it in .github/workflows/qa.yml)." >&2
+    exit 1
+fi
+mkdir -p "$WORK_DIR/realbin"
+ln -s "$RANKER" "$WORK_DIR/realbin/bash-history-rank"
+# fzf before 0.63 has no --footer and refuses it; a shim drops that one cosmetic flag so the
+# fzf of an older machine can still be driven. The pinned fzf (vars/fzf-pin.yml) has it.
+if [[ "$(fzf --help)" != *--footer* ]]; then
+    printf '%s\n' '#!/bin/bash' 'args=()' \
+        "for a in \"${dollar}@\"; do [[ \"${dollar}a\" == --footer=* ]] || args+=(\"${dollar}a\"); done" \
+        "exec $(command -v fzf) \"${dollar}{args[@]}\"" >"$WORK_DIR/realbin/fzf"
+    chmod 0755 "$WORK_DIR/realbin/fzf"
+fi
+printf '#!/bin/bash\nHISTFILE=%s; source %s; cd %s; PS1="READY> "\n' \
+    "$search_state/pick-history" "$INCLUDE" "$WORK_DIR/B" >"$WORK_DIR/pick-rc"
+pick_sock="$WORK_DIR/pick-sock"
+
+# wait_screen <regex> — until a line of the pane matches; 0 when it did, 1 after about ten seconds.
+wait_screen() {
+    local _
+    for _ in $(seq 300); do
+        if grep -q -E -- "$1" <<<"$(tmux -S "$pick_sock" capture-pane -t p -p)"; then return 0; fi
+        sleep 0.1
+    done
+    return 1
+}
+
+# pick <key>... — opens Ctrl+R's function, sends each key (t:TEXT is typed text, else a tmux
+# key name), reads the screen, presses Enter, and leaves the line in pick_line, the screen
+# before Enter in pick_screen.
+pick() {
+    local key
+    rm -f "$WORK_DIR/pick-out"
+    printf '%s\n' "cmd-two" "cmd-three" >"$search_state/pick-history"
+    printf '1\t0\t%s\t%s\0' "$WORK_DIR/B" "cmd-for-B" >"$search_state/context"
+    tmux -S "$pick_sock" kill-server 2>/dev/null
+    tmux -S "$pick_sock" new-session -d -s p -x 100 -y 24 \
+        "${as_desktop_user[@]}" env "HOME=$search_home" "PATH=$WORK_DIR/realbin:$PATH" bash --rcfile "$WORK_DIR/pick-rc" -i
+    wait_screen "READY>"
+    tmux -S "$pick_sock" send-keys -t p "READLINE_LINE=; __history_search; printf '%s' \"${dollar}READLINE_LINE\" >$WORK_DIR/pick-out" Enter
+    wait_screen "^history"
+    for key in "$@"; do
+        if [ "${key#t:}" != "$key" ]; then tmux -S "$pick_sock" send-keys -t p -l -- "${key#t:}"; else tmux -S "$pick_sock" send-keys -t p "$key"; fi
+        sleep 0.5
+    done
+    pick_screen="$(tmux -S "$pick_sock" capture-pane -t p -p)"
+    tmux -S "$pick_sock" send-keys -t p Enter
+    for _ in $(seq 300); do [ -e "$WORK_DIR/pick-out" ] && break; sleep 0.1; done
+    if [ ! -e "$WORK_DIR/pick-out" ]; then
+        printf 'pick %s: the line never came back; the screen was:\n%s\n' "$*" \
+            "$(tmux -S "$pick_sock" capture-pane -t p -p)" >&2
+    fi
+    pick_line=""
+    if [ -e "$WORK_DIR/pick-out" ]; then pick_line="$(cat "$WORK_DIR/pick-out")"; fi
+    tmux -S "$pick_sock" kill-server 2>/dev/null
+}
+
+pick t:cmd
+check "Enter on a query that matches takes the query as typed, not the top match" "cmd" "$pick_line"
+check "the prompt says Enter takes what was typed" "1" "$(printf '%s\n' "$pick_screen" | grep -c 'Enter: as typed')"
+pick t:cmd Down
+check "after arrowing down, Enter takes the highlighted match" "cmd-three" "$pick_line"
+check "the prompt says Enter takes this match" "1" "$(printf '%s\n' "$pick_screen" | grep -c 'Enter: this match')"
+pick t:cmd Down t:-t
+check "typing after a move returns Enter to the query" "cmd-t" "$pick_line"
+check "and the prompt goes back with it" "1" "$(printf '%s\n' "$pick_screen" | grep -c 'Enter: as typed')"
+pick t:zzz-no-match
+check "Enter with no match takes the query" "zzz-no-match" "$pick_line"
+pick
+check "Enter with nothing typed takes the highlighted match" "cmd-for-B" "$pick_line"
+check "and the prompt says so" "1" "$(printf '%s\n' "$pick_screen" | grep -c 'Enter: this match')"
 
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
