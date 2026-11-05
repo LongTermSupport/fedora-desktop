@@ -313,8 +313,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12). Built, fakes only, none installed:
-  n3a-n3d and n3e's `hook` and `status-line`; open: n3e's `--claude` end-to-end tests, PT1 and
-  n3f (side rooms, spec only).
+  n3a-n3d and n3e's `hook`, `status-line` and 4 `--claude` e2e rows; open: PT1 and n3f (spec
+  only).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

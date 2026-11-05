@@ -43,9 +43,16 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   are merged (`subagent-reports/261022-n3e-*.md`, `261023-n3e-*.md`). n3e-12's first half is
   built: `hook` and `status-line` are in `wiring.Verbs`, off `cli`'s `unbuilt` table, and the CL2
   test (`go test -tags teamchatrelease ./internal/teamchat/member/cli/`) now fails only on n3f's
-  four verbs (`ask`, `thread`, `questions`, `report`). Not built: n3e-12's second half, the
-  `--claude` end-to-end tests in the wiring world (their plan is in
-  `subagent-reports/261105-n3e-wire-sonnet.md`), and n3e-13, PT1.
+  four verbs (`ask`, `thread`, `questions`, `report`). n3e-12's second half is built in
+  part (`subagent-reports/261105-n3e-e2e-sonnet.md`): the wiring world runs a `--claude` session
+  whose CMD is a fake Claude Code (`e2e_claudecode_test.go`: the plugin's hook commands and the
+  settings' status line command run through `sh -c`, as Claude Code runs them, with a fakeinbox
+  and a faketranscript), and four rows pass over the real keeper, link and verbs: delivery
+  (DV1, DV3-DV5, HK1, PK1), a silent link (HK1's own recovery line), the status line through the
+  kit's command (SL1, PK1) and the deterministic Stop block (HK2). Not covered by them: Busy
+  mode, a rotated transcript, `missing` (180 s of quiet, the engine's fake-clock tests own it),
+  membership notices, the 300 ms bound itself, the 10-minute repeats. Not built: the OF1 row
+  with one team's server down (needs a second team and about 15 s of real time) and n3e-13, PT1.
 
 ## Task 3.3: LXC members
 
