@@ -64,6 +64,27 @@ func TestPublicTokensAreNeverTerms(t *testing.T) {
 	}
 }
 
+// A seat handle built on a public name (the repository's own) names nothing of an install when
+// the rest of it is seat numbers and generic words; a handle whose site is a real name stays.
+func TestAHandleOfAPublicNameIsPublicUnlessItsSiteIsSpecific(t *testing.T) {
+	st := "MEMBER\tacme-ops\tfedora-desktop.1+local.podman\tcoordinator\tlistening\n" +
+		"MEMBER\tacme-ops\tfedora-desktop.2+local.host\tworker\tstale\n" +
+		"MEMBER\tacme-ops\tfedora-desktop.3+zebrahost.podman\tworker\tstale\n"
+	got := termTexts(Derive(Inputs{Status: st, Public: []string{"fedora-desktop"}}))
+	for _, unwanted := range []string{"fedora-desktop.1", "fedora-desktop.1+local.podman", "fedora-desktop.2", "fedora-desktop.2+local.host", "fedora-desktop.3"} {
+		if strings.Contains(got, "|"+unwanted+"|") {
+			t.Errorf("%q must not be a term: %s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "|fedora-desktop.3+zebrahost.podman|") {
+		t.Errorf("a handle with a specific site was dropped: %s", got)
+	}
+	stored := []Term{{SourceMember, "fedora-desktop.1"}, {SourceMember, "fedora-desktop.2+local.host"}, {SourceMember, "zebra-billing.2"}}
+	if kept := termTexts(withoutPublic(stored, []string{"fedora-desktop"})); kept != "|zebra-billing.2|" {
+		t.Errorf("a stored handle of a public name was kept: %s", kept)
+	}
+}
+
 func TestListRoundTripsAndRefusesADamagedLine(t *testing.T) {
 	in := []Term{{SourceTeam, "acme-ops"}, {SourceMember, "zebra-billing.2"}}
 	out, err := Parse(Format(in))

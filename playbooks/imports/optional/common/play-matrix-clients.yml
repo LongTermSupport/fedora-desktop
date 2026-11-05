@@ -44,3 +44,7 @@
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
       vars:
         flatpak_app_id: im.nheko.Nheko
+
+    # The same tasks play-agent-bus-element.yml imports: ccy-teams runs that play on its own.
+    - name: Install Element Desktop and let it reach the keyring
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-desktop.yml"

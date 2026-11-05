@@ -1436,7 +1436,9 @@ Photography tools:
 Matrix desktop clients, independent of the agent team bus:
 
 - Installs Nheko (Flathub `im.nheko.Nheko`), a plain install with no profiles
-- Element is still installed by `play-agent-bus-element.yml` (Plan 00244 tracks moving it here)
+- Installs Element Desktop (Flathub `im.riot.Riot`) and grants it the keyring (secret service),
+  through `tasks/element-desktop.yml`, which `play-agent-bus-element.yml` imports as well because
+  `ccy-teams` runs that play on its own (Plan 00244)
 
 #### play-qobuz.yml
 
