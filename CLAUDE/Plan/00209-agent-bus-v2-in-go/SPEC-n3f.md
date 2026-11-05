@@ -424,6 +424,16 @@ admin redaction makes it rebuilt (QX7).
   restart loads it and syncs on from the store's position, so the questions room is never read
   again; a key whose token lags the position is caught up from its token (QX1).
 
+  The token is held as the key's size bound counts it (QX6): non-empty, at most 1024 bytes, and
+  printable ASCII without a space, `"`, `\`, `<`, `>` or `&` (the characters `encoding/json`
+  escapes, which would make 1024 bytes more in the file). This is narrower than the sync
+  token's own check in n3d's store (any printable ASCII), and real tokens (letters, digits, `_`,
+  `-`, `~`, `.`) pass. A `next_batch` or page `end` outside it is a malformed answer: the
+  engine refuses to write it, treats it as SY8's transient path with one log line naming the
+  token's first offending byte, and never writes the key with it (smallest reading; the spec
+  was silent, and a store that cannot write the key must not be reached by a token it cannot
+  hold).
+
   **A build owed or under way is persisted** (n3f-D21). The `build` record is null for an
   index at the head or behind it, or `{"start": <id or null>, "after": <id or null>, "late_from": <n or null>}`:
 
@@ -465,7 +475,9 @@ admin redaction makes it rebuilt (QX7).
   records byte for byte and holds a byte-equal `questions` key; (g) an admin redaction of a
   counted Q2 with a later Q3 counted, and again with no later question (QX7): live and rebuilt
   byte-equal, the next `ask` numbering Q4 in the first case and Q3 in the second on both seats,
-  Q2 a `redacted` record in both, so no number is given out twice; (h) the link killed by a
+  Q2 a `redacted` record in the first case only (the later Q3 shows the number was skipped; with
+  no later question the count alone holds it, `Next()` is 3, and `questions` lists no Q2), so no
+  number is given out twice; (h) the link killed by a
   failpoint after the SY5 write that folds an admin redaction, with human posts H4 before the
   redaction and H5 after it in the same answer and H6 posted later: the restart finds the build
   owed and builds, never a catch-up; its result equals a fresh build on another seat byte for
@@ -723,10 +735,10 @@ admin redaction makes it rebuilt (QX7).
 ## 6. Records (B 2.2.2, settled for n3f)
 
 ```json
-{"kind":"question","v":1,"team":"<team>","n":4,"state":"open","id":"$<43>","headline":"Which licence for the new docs site?","asked_by":["<repo>.2"],"re":["$<43>"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["$<43>"],"unanswered_more":0}
+{"kind":"question","v":1,"team":"<team>","n":4,"state":"open","id":"$<43>","headline":"Which licence for the new docs site?","asked_by":["<repo>.2"],"re":["$<43>"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["$<43>"],"unanswered_more":0,"redacted":false}
 {"kind":"unattached","v":1,"team":"<team>","id":"$<43>","from":"alice","sent_ms":1760000000000}
 {"kind":"human","v":1,"team":"<team>","id":"$<43>","from":"alice","from_id":"@alice:<server>","sent_ms":1760000000000,"room":"questions","text":"MIT, please.","question":"Q4","headline":"Which licence for the new docs site?","revises":null,"restored":false}
-{"kind":"timeout","v":1,"team":"<team>","id":"$<43>","silent":"humans","question":"Q4","verb":null,"ref":null}
+{"kind":"timeout","v":1,"team":"<team>","id":"$<43>","silent":"humans","question":"Q4","verb":null,"ref":null,"restored":false}
 {"kind":"room","v":1,"team":"<team>","purpose":"questions","state":"joined","check":null,"uncounted":0}
 ```
 
@@ -743,7 +755,8 @@ admin redaction makes it rebuilt (QX7).
   number to a string: `null` in main, `"Q<n>"` when attached, `"none"` when unattached; `room`
   `main` or `questions`.
 - `timeout` for a reminder: `silent` `humans`, `question` `Q<n>`; for a ping's TIMEOUT `question`
-  is `null`.
+  is `null`. It gains `restored`: true for a reminder made again after a restore (QX1, SY6),
+  false otherwise, as on `human`.
 - `room` (in `status`, LN5): `purpose` `reports` or `questions`; `state` one of `joined`,
   `awaiting-invite` (QS2), `left` (QS8), `building` (QX1), `refused` (RP1), `untrusted` (QS8, QS2,
   RP4, with `check` naming the failed check), `not-coordinator` (questions, for a worker);
@@ -848,8 +861,9 @@ Where it was weak:
 ## 9. For the owner
 
 Product behaviours with no clear best answer. The team coordinator has set each recommendation
-below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a) and OW4 (a). Each
-stays open to the owner changing it later; the coordinator lists them for the owner.
+below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a), OW4 (a) and
+OW5 (a). Each stays open to the owner changing it later; the coordinator lists them for the owner
+(OW5 is for the coordinator to answer, an engineering reading and not a product behaviour).
 
 - **OW1. A human posts in questions while the coordinator is offline.** Nothing tells the human
   that no coordinator session is running; the post waits and is delivered when one runs (OF1).
@@ -857,10 +871,12 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   quiet notice in questions when its coordinator's seat has been free for a while.
   **Recommendation: (a).** (b) adds an admin post driven by liveness, which is display, and a
   notice per outage in a room meant to be quiet.
+
 - **OW2. Telling the askers that their question went up.** When the coordinator runs `ask --asked-by`, the askers learn nothing unless the coordinator says so in main. Options: (a) as
   v1, the coordinator decides; (b) `ask` also sends each asker a quiet text in main naming
   `Q<n>`. **Recommendation: (a).** The skill tells the coordinator to tell the asker; (b) costs
   each asker a model turn for a fact it may not need.
+
 - **OW3. The index's caps** (n3f-D17). The index no longer has a size bound on the room (n3f-D9);
   what bounds it are its caps: 64 questions not closed, 128 closed kept, 1024 human posts'
   attachments, 64 unattached posts, which at their worst take about 1.05 MiB of store per team
@@ -868,6 +884,7 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   store per team. **Recommendation: (a)**: 64 questions open at once is far past what a team asks,
   and a refused 65th `ask` tells the coordinator to close some; the owner may prefer to be told the
   figures are ample before they are built.
+
 - **OW4. Human posts during a coordinator handover reach nobody's inbox.** At a demotion the old
   coordinator's questions items not yet seen are dropped (QS9), and the new coordinator delivers
   only what is posted after its own join (QS5). A human post made in between, or accepted by the
@@ -885,6 +902,44 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   history to find the leave, and delivers posts the humans may already have seen answered in
   Element; (c) adds an admin post and a trust rule for it. If the owner prefers (b), it is QS5's
   floor taking the predecessor's leave event in place of the own join.
+
+- **OW5. What the index's 1024-entry post list holds** (QX6, n3f-D17; for the coordinator to
+  answer, found by the n3f-a index builder). QX6 says the list is "the 1024 most recent human
+  posts' attachments". The fold also has to remember, by event id, each agent thread post (it
+  resets a question's unanswered count and may close it, A 10.4) and each held slot, or an
+  event fed again (a page re-read after a failed write, QX4's held answer, QX1's catch-up) would
+  apply twice: a thread post fed again after later human posts would reset their unanswered
+  count to 0 and wipe it. QX6's byte sum has no list for them. Options:
+
+  - (a) **As built in n3f-a:** the same list, each entry `{"id","q","t"}` with `t` an integer
+    kind (0 a human post attached by another rule or to none, 1 a human post in a question's
+    thread, 2 an agent's thread post, 3 a slot; a bool cannot tell an agent's thread post from a
+    human's, and `Composer.threadRelation` must go on seeing human posts only). At most 83 bytes
+    inside the 96 the sum sizes, so the 1 101 056-byte sum and `MaxStore` stand. QX6's wording
+    becomes "the 1024 most recent human posts and agent thread posts". **What it breaks:** the list
+    is shared, so 1024 agent thread posts in a row push every earlier human post out of it; an
+    older human post then fails A 10.3's index check (`reply` to it is 10 `target`) and a late
+    edit of it loses its attachment (rule 4), though the question itself is still kept. If thread
+    posts and human posts alternate one for one, the human window is 512 posts; it is 1024 only
+    while the coordinator posts no thread post.
+  - (b) A second list for agent thread posts and slots, with its own cap (256 entries of
+    `{"id","q"}`, sized 96 as an attachment is, 97 with its comma: 24 832 bytes more; the store at
+    its widest, 3 428 163 bytes, becomes 3 452 995, under 4 MiB), so the humans keep all 1024. **What it breaks:** n3f-a's finished
+    codec, `QuestionsState` shape, fold and size test are reworked and the 71 codec mutants
+    re-run; a second eviction rule must keep live equal to rebuilt; the format gains a field
+    before any seat has written one (cheap now, a migration later).
+  - (c) Remember no ids: apply a thread post only when it is past the persisted token. **What it
+    breaks:** idempotence by event id (n3f-D18's re-read of a held answer, the property test that
+    live equals rebuilt after any re-feed), and the unanswered count of a question whose old
+    thread post is fed again; it needs an exact-once feed position in place of the id, which the
+    spec does not give.
+
+  **Recommendation: (a).** It is built, tested and inside the sum. The case it harms (1024
+  coordinator thread posts with no human post between) costs the coordinator a model turn each,
+  and what it loses is the attachment of a human post that old; the question and its other posts
+  are kept. If the coordinator would rather the humans' window never shrink, (b) is the choice,
+  and it is cheaper before n3f-c writes the key than after. On the answer, QX6's sentence and
+  n3f-D17's row change to say which list holds what.
 
 ## 10. The slicing
 
@@ -1014,7 +1069,7 @@ Seven keys, where each sits. In the schema's `"outbox"` object, after `"gate"`:
 At the document's top level, after `"outbox"` and before `"run"`:
 
 ```text
-"questions": {"index": {}, "token": "<token>", "last": "$<43>", "build": null},
+"questions": {"index": <the index's state, QX5>, "token": "<token>", "last": "$<43>", "build": null},
 "reminded_ms": 0,
 "remind_late": []
 ```
