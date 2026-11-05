@@ -94,6 +94,30 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   store's keys and `MaxStore` at 4 MiB), G4 (records), G5 (the filter's argument), section 6's
   codecs. Nothing of n3f-b to n3f-e is built.
 
+- **n3f-a, G4 and G5 built** on `feat/bus-v2-n3f-a-records` (from `feat/bus-v2-n3f-a`;
+  `subagent-reports/261105-n3f-a-records-sonnet.md`).
+
+  - G5: `proto.SyncFilter(r, a, questionsReady)` and `SyncFilterReAdd(r, a, questionsReady)`; the
+    questions room is in the filter only when the roster names this member the coordinator and
+    the argument is true. A coordinator with `false` is the worker's filter byte for byte (tested
+    for both forms). `teamsync` passes `true` (nothing there yet knows whether the room is ready,
+    QS3, which is n3f-b's).
+  - G4 (`member/records`), each record's bytes pinned with its key order: `Question` gains
+    `headline`, `re`, `asked_ms`, `remind_after_s`, `unanswered_more`, `redacted` (last), `id` and
+    `asked_ms` nullable; the new kind `unattached`; `Human.Question` a nullable string (`Q<n>`,
+    `none`, null) and `Human.Headline` after it; `Room.Check` and `Room.Uncounted`;
+    `Timeout.Question` after `silent`, `Timeout.Verb` nullable. The encoders refuse a redacted
+    question that holds anything but its number, a question label that is not null, `none` (a
+    human's only) or A 2.2's `Q<n>`, and a headline with no question holding the post.
+    `engine/render.go`'s timeout gives a verb only when the outbox holds the ping. The skill names
+    `unattached` (a minimal line; n3f-e writes the section).
+  - Coverage: records 100.0, proto 98.3, teamsync 95.3, engine 92.7, kit 93.3, matrix 98.9, cli 98.9.
+  - Not done here: nothing sets `Human.Question`, `Human.Headline`, `Timeout.Question`,
+    `Room.Check` or `Room.Uncounted` yet (the index, the reminders and the status rooms are
+    n3f-b to n3f-d), so a questions-room human is still rendered with a null `question`; the
+    encoder does not tie `question` to `room`, to leave that to the slice that builds the
+    questions-room delivery. Findings against the spec's section 6 are in the report.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
