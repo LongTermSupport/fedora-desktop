@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.2 — container 2.79.26
+
+The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix
+once, not twice, and `pingbus say`, `report`, `ask-human` and `thread` refuse a text argument
+with a hint that the text goes on stdin, instead of a bare usage error.
+
+## 3.112.1 — container 2.79.25
+
+The image is rebuilt for a status-line fix (issue 138): the baked status line runs its inner
+command with `CLAUDE_PROJECT_DIR` set to the project it resolved, and says in red which
+variable to set when it finds no project.
+
 ## 3.112.0 — container 2.79.24
 
 The image is rebuilt: this branch's launcher now requires 2.79.24, the image 3.110.0 made.
