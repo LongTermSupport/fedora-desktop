@@ -35,8 +35,16 @@ var (
 	pt1Random = flag.Int("pt1.random", 0, "run this many further PT1 seeds, each drawn at random and printed (a manual target, not the gate's)")
 )
 
-// pt1Fixed are the seeds the gate runs: about two seconds each.
-var pt1Fixed = []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+// pt1Fixed are the seeds the gate runs: about two seconds each. The generator draws four
+// operations the runner does not run yet (pt1Unbuilt), so these are seeds whose schedules draw
+// none of them and draw every other kind between them; a seed that draws one fails loudly in
+// pt1RunAt. When the runner has them, the list is chosen again to draw every kind.
+var pt1Fixed = []uint64{7, 15, 27, 38, 47, 55, 56, 71, 92, 95, 100, 108}
+
+// pt1Unbuilt are the operations of pt1_model_test.go the runner has no code for yet: the removal
+// and the two endings, which P4 and P5 need, and the recv that fails after the hand-out, which
+// P2 needs (SPEC-n3 PT1; handoff in the n3e-13 slice 3 report).
+var pt1Unbuilt = []pt1Kind{pt1RecvFail, pt1Remove, pt1End, pt1Die}
 
 func TestPT1Seeds(t *testing.T) {
 	seeds := pt1Fixed
@@ -70,10 +78,6 @@ func pt1Run(t *testing.T, seed uint64) {
 	pt1RunAt(t, seed, "")
 }
 
-// pt1PointSeed is the first seed of the failpoint rows: row i runs seed pt1PointSeed+i, in the
-// sorted order of the points, unless -pt1.seed names another.
-const pt1PointSeed = 100
-
 // TestPT1Points is a SIGKILL at each failpoint a single-team session can reach, one row each,
 // named by the point without its "link-" (a row's name is in its temporary directory, and a
 // socket's path may not pass 107 bytes): the link's first process arms the point, the row's
@@ -82,7 +86,8 @@ const pt1PointSeed = 100
 // fails, so none passes vacuously.
 func TestPT1Points(t *testing.T) {
 	for i, point := range slices.Sorted(maps.Keys(pt1Provokers)) {
-		seed := pt1PointSeed + uint64(i)
+		// Row i runs the i-th fixed seed, in the sorted order of the points, unless -pt1.seed names another.
+		seed := pt1Fixed[i]
 		if *pt1Only != 0 {
 			seed = *pt1Only
 		}
@@ -98,6 +103,9 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 	t.Helper()
 	ops := pt1Schedule(seed)
 	t.Logf("PT1 seed %d, failpoint %q: %v", seed, point, ops)
+	if i := slices.IndexFunc(ops, func(o pt1Op) bool { return slices.Contains(pt1Unbuilt, o.kind) }); i >= 0 {
+		t.Fatalf("PT1 seed %d draws %v, which the runner does not run yet: choose a seed that does not", seed, ops[i])
+	}
 	defer func() {
 		if t.Failed() {
 			t.Logf("PT1 seed %d failed; replay it with: %s", seed, pt1Replay(seed, point))
@@ -220,6 +228,9 @@ func (r *pt1Runner) do(op pt1Op) {
 		ccAsk[bool](r.s, pt1Names[op.kind])
 	case pt1Refuse:
 		ccAsk[bool](r.s, pt1Names[op.kind])
+	case pt1RecvFail, pt1Remove, pt1End, pt1Die:
+		// pt1RunAt refuses a schedule that draws one before it runs; this is the same refusal.
+		r.t.Fatalf("PT1: the runner has no operation %v yet", op)
 	case pt1Restart:
 		check(r.t, r.w.hs.fake.Restart())
 	case pt1KillLink:
