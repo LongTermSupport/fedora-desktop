@@ -38,10 +38,9 @@ were run and reverted.
 `./scripts/qa-changed.bash` was started over the staged G6 and G7 tree and **did not run**: it
 queued on the shared QA lock behind another worktree's `qa-changed` that had been running for 45
 minutes when the builder stopped, and printed only "still waiting for the QA run" lines (6
-minutes of them in its log at the last look, 20 minutes after the start). Its process was left
-waiting; if it finishes, its log is `untracked/scratch/qa-changed-1.txt` in the builder's
-worktree and its result is not part of this report. So the commit's gate is **not** a qa-changed
-pass. What was run instead, over the touched packages only:
+minutes of them in its log at the last look, 20 minutes after the start). The builder stopped
+that waiting run after the commit, so no qa-changed result exists for this tree. The commit's
+gate is **not** a qa-changed pass, and the reviewer or coordinator must run it. What was run instead, over the touched packages only:
 
 - `go test -race -count=1 -cover` over `proto`, `member/exits`, `member/cli` and `member/kit`: all
   four ok. Coverage: proto 98.3, exits 98.9, cli 98.9, kit 93.3 (all above 90).
