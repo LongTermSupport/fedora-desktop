@@ -118,6 +118,10 @@ type Team struct {
 	// last.
 	budget    proto.Window
 	factsNote string
+	// q is the questions room (QS); qmoved is poked when its readiness may have moved, which
+	// ends a long-poll in flight whose filter it changed (QS4).
+	q      qroom
+	qmoved chan struct{}
 
 	// Test seams.
 	onPoll func(since string)
@@ -161,7 +165,7 @@ func New(cfg Config) (*Team, error) {
 	}
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
-		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
+		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1),
 		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
 		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
@@ -192,6 +196,7 @@ func (t *Team) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	defer cancel()
+	defer t.stopBuilder()
 	if t.cfg.Watcher != nil {
 		wg.Go(func() { t.forward(ctx) })
 	}

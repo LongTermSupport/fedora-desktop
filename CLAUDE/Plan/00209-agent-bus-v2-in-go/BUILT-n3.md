@@ -170,10 +170,14 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `team.Batch.DropQuestions` is a demotion's one store write: the room's pending and handed items
   (an item awaiting proof stays, DV4), the key, `reminded_ms`, `remind_late`, the three outbox keys
   and a questions post in `sending`; the floor stays), with `team.Health.Questions` for `status`.
-  Not green, committed as red tests with a compile-only skeleton so the next builder starts from
-  them: `teamsync/questions_test.go` (QS1 to QS5, QS3) over `teamsync/questions.go` (the
-  `IndexBuilder` seam, `IndexJob`, `Team.IndexAtHead`, `Team.QuestionsStatus`, which do nothing yet).
-  Nothing of QS1 to QS10 is built in `teamsync`; the report has the design and the order.
+  The first builder's red tests (`teamsync/questions_test.go`, QS1 to QS5) are made green by
+  n3f-c1b (`feat/bus-v2-n3f-c1b`, `subagent-reports/261105-n3f-c1b-opus-report.md`):
+  `teamsync/questions.go` holds the room's state (`qroom`), QS1's order in `handle`, QS2's join
+  by the roster's id (403 is `awaiting-invite`, 300 s is `untrusted` with the check `invite`,
+  judged at the call), QS4's filter (the coordinator form only when joined, verified and at the
+  head; a change ends the long-poll in flight), QS5's `VerifySide` before the first sync and
+  the index loaded at the position or the `IndexBuilder` seam's `Begin`. `teamsync` 92.5 under
+  `-race`. Open: see the report.
 
 ## Task 3.3: LXC members
 

@@ -164,11 +164,12 @@ func (w *world) seatDir() {
 	w.place(w.tokens[w.self], nil)
 }
 
-// as makes local the member under test: its pair placed in the seat directory.
-func (w *world) as(local string) {
+// asCoordinator makes the roster's coordinator the member under test: its pair placed in the
+// seat directory.
+func (w *world) asCoordinator() {
 	w.t.Helper()
-	w.self = local
-	w.place(w.tokens[local], nil)
+	w.self = coord
+	w.place(w.tokens[coord], nil)
 }
 
 func (w *world) bundle() seat.Bundle {

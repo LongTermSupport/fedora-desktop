@@ -41,6 +41,10 @@ type sess struct {
 	epoch int64
 	// floor is main's floor as persisted.
 	floor int64
+	// dropOwed is QS9's drop of the questions room, owed by the next write.
+	dropOwed bool
+	// qinvited is an invite to the questions room seen in this answer, QS2's signal to join.
+	qinvited bool
 }
 
 // session is one pass of the loop: verify, load, start (SY1), the run's ends, SY6's read, then
@@ -67,6 +71,9 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	s.epoch, s.floor = s.roster.RestoreEpoch, store.Sync.FloorMS[proto.PurposeMain]
 	t.knowFloor(s.floor, s.epoch)
 	t.freeze.reset()
+	if qerr := s.qstart(ctx, store); qerr != nil {
+		return qerr
+	}
 	since, readd, err := s.start(ctx, store)
 	if err != nil {
 		return err
@@ -178,13 +185,24 @@ func (s *sess) start(ctx context.Context, store state.Store) (string, bool, erro
 	return since, false, err
 }
 
-// filter is the sync filter; the questions room is asked for whenever the roster names this
-// member the coordinator, because nothing here yet knows whether that room is ready (QS3).
-func (s *sess) filter() json.RawMessage { return proto.SyncFilter(s.roster, s.a, true).Compact() }
+// filterOf is the sync filter (QS4, G5): the questions room is asked for only while it is
+// joined, verified and its index at the head.
+func (s *sess) filterOf() json.RawMessage {
+	return proto.SyncFilter(s.roster, s.a, s.t.qget().ready()).Compact()
+}
+
+// filter is the filter of the request about to be made, told to the test seam.
+func (s *sess) filter() json.RawMessage {
+	f := s.filterOf()
+	s.t.onFilter(f)
+	return f
+}
 
 // readd is SY1 (c): one sync with timeline limit 0, persisted with no items.
 func (s *sess) readd(ctx context.Context) (string, error) {
-	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: proto.SyncFilterReAdd(s.roster, s.a, true).Compact()})
+	f := proto.SyncFilterReAdd(s.roster, s.a, s.t.qget().ready()).Compact()
+	s.t.onFilter(f)
+	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: f})
 	if err != nil {
 		return "", err
 	}
@@ -443,12 +461,15 @@ func (s *sess) poll(ctx context.Context, since string) error {
 		}
 		t.onPoll(since)
 		started := t.cfg.Clock.Boot()
-		resp, err := s.c.Sync(ctx, matrix.SyncRequest{Since: since, Timeout: longPoll, FilterJSON: s.filter()})
+		resp, moved, err := s.longPoll(ctx, since)
 		if pause, frozen := t.freeze.atAnswer(started); frozen {
 			return s.frozen(pause)
 		}
 		if err != nil {
 			return err
+		}
+		if moved {
+			continue
 		}
 		t.answeredAt()
 		if err := s.handle(ctx, since, answer{resp: resp}); err != nil {
@@ -479,16 +500,28 @@ type answer struct {
 	restored func(int64) bool
 }
 
-// handle is one answer's steps: invites, trust, the gap, the verdicts, SY6, the persist and the
-// floor marker.
+// handle is one answer's steps in QS1's order: main's invite, main's trust, the questions
+// room's role (QS9, QS10), the side rooms' invites, the questions room's membership and trust,
+// then the gap, the verdicts, SY6, the persist and the floor marker.
 func (s *sess) handle(ctx context.Context, since string, a answer) error {
 	t := s.t
-	joined := s.invites(ctx, a.resp.Invite)
+	mainInv, sideInv := splitInvites(a.resp.Invite, s.a.MainRoom)
+	joined := s.invites(ctx, mainInv)
 	main := a.resp.Join[s.a.MainRoom]
+	rev := s.roster.Rev
 	if s.trustTriggered(a, main, joined) {
 		if err := s.verify(ctx); err != nil {
 			return err
 		}
+	}
+	promoted, err := s.qrole()
+	if err != nil {
+		return err
+	}
+	s.qinvited = false
+	s.invites(ctx, sideInv)
+	if err = s.qanswer(ctx, a, promoted || s.roster.Rev != rev); err != nil {
+		return err
 	}
 	events, gap, err := s.eventsOf(ctx, since, a, main)
 	if err != nil {
@@ -506,6 +539,7 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		return err
 	}
 	j.batch.NextBatch = a.resp.NextBatch
+	j.batch.DropQuestions = s.dropOwed
 	floor := s.floor
 	if a.first || !empty(j.batch) {
 		failpoint.Hit(failpoint.LinkAfterJudgeBeforePersist)
@@ -513,8 +547,10 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		if floor, err = s.persist(ctx, j.batch); err != nil {
 			return err
 		}
+		s.dropOwed = false
 	}
 	s.commit(j, floor)
+	t.qhealth()
 	t.putFloorIfDue(ctx, s.c, s.a)
 	t.recovered()
 	return nil
@@ -559,7 +595,8 @@ func (s *sess) commit(j judged, f int64) {
 
 func empty(b team.Batch) bool {
 	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && len(b.Answered) == 0 &&
-		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0
+		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0 &&
+		b.Questions == nil && !b.DropQuestions
 }
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
@@ -588,6 +625,11 @@ func (s *sess) invites(ctx context.Context, invites map[string]matrix.InvitedRoo
 		inviter, creator := inviteSenders(invites[room].InviteState, s.a.Self)
 		switch proto.Invite(room, inviter, creator, s.a, &s.roster) {
 		case proto.InviteAccept:
+			if room == s.roster.Rooms.Questions {
+				// QS2: an invite is only the signal; the room is joined by the roster's id.
+				s.qinvited = true
+				continue
+			}
 			if _, err := s.c.Join(ctx, room); err != nil {
 				t.log.Printf("invite to %s not joined: %s", room, matrix.Class(err))
 				continue
