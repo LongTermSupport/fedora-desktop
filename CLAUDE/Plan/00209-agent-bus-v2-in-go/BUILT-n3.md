@@ -212,7 +212,12 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   decides); another failure fails the recovery, as main's does; a tried report with no roster to
   name the room, or a tried send to a room no recovery reads, fails it too. Residual: a report
   with more than 500 events newer than it in the reports room is not found and is put again under
-  a new token. Coverage: `engine` 92.9%, `teamsync` 95.1%.
+  a new token. Coverage: `engine` 92.9%, `teamsync` 95.1%. The wiring end-to-end rows, the real
+  binary on fakehs (`wiring/e2e_reports_test.go`): OF1-n3f's `report` row (a worker stopped, the
+  other's report exits 0 with the record it gives when all run, each report in the room once);
+  n3f-D1's three stdin cases at the cap 1500; RP5 (a report, then a say: the other member's
+  recv gives the say alone, its inbox empty); a refused reports join shows `refused` with its
+  errcode in `status`, and main still delivers.
 
 ## Task 3.3: LXC members
 
