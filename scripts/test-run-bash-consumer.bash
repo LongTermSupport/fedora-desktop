@@ -32,6 +32,7 @@ check() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/consumer-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$SCRATCH"' EXIT
 BIN="$SCRATCH/bin"
 LOG="$SCRATCH/calls.log"
