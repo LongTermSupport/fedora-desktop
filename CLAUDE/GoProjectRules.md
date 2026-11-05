@@ -1303,11 +1303,15 @@ the function object (an import alias does not hide it) and as a call or a value,
 code, nested loops included, names `leakcheck.Idle`. A range loop ends by itself and is not
 judged.
 
-**The failure path that cannot misfire.** `leakcheck.Idle` is true only when every other
+**The failure path, and where it is sound.** `leakcheck.Idle` is true only when every other
 goroutine is blocked on a channel, a select, a lock or a wait group (a stack dump stops the
 world, so it is one instant), so nothing can change the condition any more; a goroutine that
-runs, is runnable, sleeps, or waits in a system call or the network poller keeps it false, so a
-pending timer or an external event is never read as a deadlock. `leakcheck.Poll(tb, cond)` is
+runs, is runnable, sleeps, or waits in a system call or the network poller keeps it false. A
+goroutine that waits on a REAL timer's channel (`time.After`, a Timer, a Ticker) does not: it is
+blocked on a channel like any other, and `Idle` reads it as blocked (checked, not assumed). So the
+failure path is sound only in a world whose time is a fake clock that the test advances (the
+engine, `health` and `proof`), where nothing but the test can fire a timer; with real timers it
+can fail a wait that a timer would have ended. `leakcheck.Poll(tb, cond)` is
 the loop with it, and the engine's `world.until` and `waitFor` use it. Limit: a world with a
 goroutine in the network poller (a listener, a connection: `link`, `teamsync`, `wiring`) is never
 idle, so there `Poll` waits as a bare yield loop does; the rule holds the failure path where it

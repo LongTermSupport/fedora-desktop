@@ -62,8 +62,9 @@ Failure path chosen, no wall clock and no count: `leakcheck.Idle` (every other g
 blocked on a channel, select, lock or wait group, read from a stop-the-world stack dump, so one
 instant) and `leakcheck.Poll(tb, cond)`, which fails the test when Idle holds and `cond` still
 does not (cond is read again after the Idle reading, so no goroutine ran between). It cannot
-spin to the package timeout when the world is closed: a pending timer, a running or runnable
-goroutine, a system call or the network poller keeps Idle false. Limit, stated: a world with a
+spin to the package timeout when the world is closed: a running or runnable goroutine, a
+sleeping one, a system call or the network poller keeps Idle false (a pending REAL timer does
+not: section 8). Limit, stated: a world with a
 goroutine in the network poller (`link`, `teamsync`, `wiring` listeners) is never idle, so
 there `Poll` waits as before; the failure path is real for the engine, `health` and `proof`.
 Seven loops became `Poll`; the `recv_test.go` advance-until-answered loop became
@@ -114,3 +115,15 @@ Run in this container (a host at load average near 90, so wall times are long):
 - No production change; the late-stop window is the coordinator's call.
 - The 22 `until` sites of `link` were not converted to events.
 - Not run: `scripts/qa-all.bash` (forbidden here), the tagged `tuwunel` build.
+
+## 8. Reviewer's check (the coordinator, after this report)
+
+- **A claim in this report, in `leakcheck.Idle`'s comment and in the `GoProjectRules.md` entry was wrong, and is corrected.**
+  They said a pending timer keeps `Idle` false, so that `Poll` "cannot misfire". A throwaway test (deleted afterwards, the
+  tree was clean) started a goroutine waiting in a `select` on `time.After(time.Hour)` and called `Idle()` from the test:
+  it returned **true**. A goroutine waiting on a real timer's channel is blocked on a channel like any other. So `Poll`
+  is sound only in a world whose time is a fake clock that the test advances, where nothing but the test can fire a timer:
+  the engine, `health` and `proof`, which is where it is used with a working failure path. In a world with real timers
+  `Poll` could fail a wait that a timer would have ended. The three texts now say so; no code changed.
+- The mechanism of the hang (section "Mechanism") was not re-run by the reviewer: the proof test is not committed and
+  was not copied out. Its committed form, `TestAPutIsRecordedBeforeItsAnswerIsHandled`, is the check.

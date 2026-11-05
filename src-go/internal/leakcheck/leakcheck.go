@@ -118,9 +118,12 @@ func (g goroutine) blocked() bool {
 // Idle is whether every goroutine but the caller's is blocked on a channel, a select, a lock or a
 // wait group, so that nothing can happen until the caller acts: a wait on a condition that is
 // false then can never end. A goroutine that is running, runnable, in a system call or the network
-// poller, or asleep can still make progress, so it makes the answer false: a pending timer or an
-// external event is never read as a deadlock. The dump stops the world, so it is one instant, and
-// a goroutine that a send or a close has woken is already runnable in it.
+// poller, or asleep can still make progress, so it makes the answer false. A goroutine that waits
+// on a real timer's channel (time.After, a Timer, a Ticker) does not: it is blocked on a channel or
+// a select like any other, and Idle reads it as blocked. So Idle is for a world whose time is a
+// fake clock that only the caller advances; in a world with real timers it can be true while a
+// timer is yet to fire. The dump stops the world, so it is one instant, and a goroutine that a send
+// or a close has woken is already runnable in it.
 func Idle() bool {
 	return !slices.ContainsFunc(all()[1:], func(g goroutine) bool { return !g.blocked() })
 }
