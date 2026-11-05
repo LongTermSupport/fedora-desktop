@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 )
 
 // PT1 over real processes (SPEC-n3 PT1, B 2.15, handoff section 15): a seed draws a schedule
@@ -35,16 +37,16 @@ var (
 	pt1Random = flag.Int("pt1.random", 0, "run this many further PT1 seeds, each drawn at random and printed (a manual target, not the gate's)")
 )
 
-// pt1Fixed are the seeds the gate runs: about two seconds each. The generator draws four
-// operations the runner does not run yet (pt1Unbuilt), so these are seeds whose schedules draw
-// none of them and draw every other kind between them; a seed that draws one fails loudly in
-// pt1RunAt. When the runner has them, the list is chosen again to draw every kind.
-var pt1Fixed = []uint64{7, 15, 27, 38, 47, 55, 56, 71, 92, 95, 100, 108}
+// pt1Fixed are the seeds the gate runs: a few seconds each. The first eight are the point rows'
+// (TestPT1Points runs row i on seed i), seeds whose schedules end in none of the removal and the
+// endings, so that a row's armed failpoint is the only fault of its run beside the schedule's own;
+// the rest draw the removal alone, with the end, with the death of CMD, and the two endings
+// alone. Between them they draw every kind.
+var pt1Fixed = []uint64{7, 15, 27, 38, 47, 55, 56, 71, 92, 95, 100, 108, 42, 109, 150, 35, 11, 24}
 
-// pt1Unbuilt are the operations of pt1_model_test.go the runner has no code for yet: the removal
-// and the two endings, which P4 and P5 need, and the recv that fails after the hand-out, which
-// P2 needs (SPEC-n3 PT1; handoff in the n3e-13 slice 3 report).
-var pt1Unbuilt = []pt1Kind{pt1RecvFail, pt1Remove, pt1End, pt1Die}
+// pt1Unbuilt are the operations of pt1_model_test.go the runner has no code for yet, which
+// pt1RunAt refuses to run: the recv that fails after the hand-out, which P2 needs.
+var pt1Unbuilt = []pt1Kind{pt1RecvFail}
 
 func TestPT1Seeds(t *testing.T) {
 	seeds := pt1Fixed
@@ -125,11 +127,14 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 	}
 	for _, op := range ops {
 		r.do(op)
-		r.s.oneLink()
+		if !op.kind.terminal() {
+			r.s.oneLink()
+		}
 	}
 	r.drain()
 	seen := r.seen()
-	t.Logf("PT1 seed %d saw: %d items posted, %d copies by recv, %d in the transcript, %d sends, %d link crashes", seed, len(seen.posted), pt1Total(seen.recv), len(seen.transcript), len(seen.sends), seen.crashes)
+	t.Logf("PT1 seed %d saw: %d items posted, %d copies by recv, %d in the transcript, %d sends, %d link crashes; removed %v (%d posted after), want %q, notices %v",
+		seed, len(seen.posted), pt1Total(seen.recv), len(seen.transcript), len(seen.sends), seen.crashes, seen.removed, len(seen.afterRemoval), seen.want, seen.notices)
 	if bad := pt1Check(seen); len(bad) > 0 {
 		t.Fatalf("PT1 seed %d broke %d checks:\n%s\nschedule: %v\n%s", seed, len(bad), strings.Join(bad, "\n"), ops, r.s.describe())
 	}
@@ -205,6 +210,20 @@ type pt1Runner struct {
 	recv   map[string]int
 	sends  []pt1Sent
 	held   bool
+	// removed is whether the seat was removed, atRemoval how many item copies the transcript held
+	// then, limbo the ids an awaiting entry held (the store is deleted with the seat), and
+	// afterRemoval the ids posted to main after it (pt1_end_test.go).
+	removed      bool
+	atRemoval    int
+	limbo        []string
+	afterRemoval []string
+	storeBack    bool
+	// ended is whether the run ended (the keeper's SIGTERM, CMD's SIGKILL); links are the pids of
+	// the links the keeper started, read before the end because the runtime directory goes with it;
+	// want is the one notice the ending or the removal posts.
+	ended bool
+	links []int
+	want  string
 }
 
 // pt1PeerShort is the peer's short name, which a send names it by (P69).
@@ -214,9 +233,9 @@ func (r *pt1Runner) do(op pt1Op) {
 	r.t.Helper()
 	switch op.kind {
 	case pt1Say:
-		r.posted = append(r.posted, r.w.say(pt1Text(r.seed, op)))
+		r.post(r.w.say(pt1Text(r.seed, op)))
 	case pt1Peer:
-		r.posted = append(r.posted, r.w.peerText(pt1Text(r.seed, op)))
+		r.post(r.w.peerText(pt1Text(r.seed, op)))
 	case pt1Recv:
 		r.take(r.s.recvAny())
 	case pt1Wait:
@@ -228,7 +247,11 @@ func (r *pt1Runner) do(op pt1Op) {
 		ccAsk[bool](r.s, pt1Names[op.kind])
 	case pt1Refuse:
 		ccAsk[bool](r.s, pt1Names[op.kind])
-	case pt1RecvFail, pt1Remove, pt1End, pt1Die:
+	case pt1Remove:
+		r.remove()
+	case pt1End, pt1Die:
+		r.end(op.kind)
+	case pt1RecvFail:
 		// pt1RunAt refuses a schedule that draws one before it runs; this is the same refusal.
 		r.t.Fatalf("PT1: the runner has no operation %v yet", op)
 	case pt1Restart:
@@ -236,6 +259,16 @@ func (r *pt1Runner) do(op pt1Op) {
 	case pt1KillLink:
 		r.killLink()
 	}
+}
+
+// post records the id of an item a human or a peer posted: owed to the seat's agent, or, once the
+// seat is removed, one P4 holds that nothing delivers.
+func (r *pt1Runner) post(id string) {
+	if r.removed {
+		r.afterRemoval = append(r.afterRemoval, id)
+		return
+	}
+	r.posted = append(r.posted, id)
 }
 
 // take counts the copies recv or wait printed.
@@ -289,18 +322,39 @@ func (r *pt1Runner) killLink() {
 	}
 }
 
-// copies is the transcript's item copies, in the order the fake wrote them.
+// copies is the transcript's item copies, in the order the fake wrote them. It reads the file the
+// fake keeps, not the fake's answer, because the fake is gone after an ending; only the lines
+// whole so far are read, up to the last newline.
 func (r *pt1Runner) copies() []pt1Copy {
 	r.t.Helper()
-	copies, err := pt1Copies(ccAsk[string](r.s, "transcript"))
+	data, err := testfiles.Try(filepath.Dir(r.s.transcript), filepath.Base(r.s.transcript))
+	check(r.t, err)
+	text := string(data)
+	text = text[:strings.LastIndexByte(text, '\n')+1]
+	copies, err := pt1Copies(text)
 	check(r.t, err)
 	return copies
 }
 
-// drain ends the faults that would hold a run for ever, and waits for what must settle: every
-// accepted item shown by recv or the transcript, nothing owed or queued, every answered send in
-// main. Each wait is on its condition, with a recv meanwhile that is itself a channel under test.
+// drain is the end of a run that goes on: the faults that would hold it for ever ended and what
+// must settle waited for, as rest does; for a run whose seat was removed, the leave; and for a
+// run that ended, nothing: its ending has waited for its own notice.
 func (r *pt1Runner) drain() {
+	r.t.Helper()
+	switch {
+	case r.ended:
+	case r.removed:
+		r.leaveDone()
+	default:
+		r.rest()
+	}
+}
+
+// rest is the run at rest: the faults that would hold it for ever ended, and everything that
+// must settle settled: every accepted item shown by recv or the transcript, nothing owed or
+// queued, every answered send in main. Each wait is on its condition, with a recv meanwhile that
+// is itself a channel under test.
+func (r *pt1Runner) rest() {
 	r.t.Helper()
 	if r.held {
 		r.held = false
@@ -370,8 +424,11 @@ func (r *pt1Runner) seen() pt1Seen {
 	for _, n := range r.w.lifecycle() {
 		notices[n]++
 	}
+	links := r.links
+	if !r.ended {
+		links = r.s.links()
+	}
 	alive := 0
-	links := r.s.links()
 	for _, pid := range links {
 		if !gone(pid) {
 			alive++
@@ -381,8 +438,13 @@ func (r *pt1Runner) seen() pt1Seen {
 	for _, s := range r.sends {
 		inMain[s.text] = len(r.w.textsFrom(me, s.text))
 	}
+	awaiting := r.limbo
+	if !r.removed {
+		awaiting = r.awaitingIDs()
+	}
 	return pt1Seen{
-		posted: r.posted, recv: r.recv, transcript: r.copies(), awaiting: r.awaitingIDs(), crashes: max(len(links)-1, 0), linksAlive: alive,
-		notices: notices, sends: r.sends, inMain: inMain,
+		posted: r.posted, recv: r.recv, transcript: r.copies(), awaiting: awaiting, crashes: max(len(links)-1, 0), linksAlive: alive,
+		notices: notices, want: r.want, sends: r.sends, inMain: inMain,
+		removed: r.removed, atRemoval: r.atRemoval, afterRemoval: r.afterRemoval, storeBack: r.storeBack,
 	}
 }

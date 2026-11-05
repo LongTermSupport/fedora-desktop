@@ -292,6 +292,10 @@ func TestPT1RemovalAndReturnedItemChecks(t *testing.T) {
 			*o = removedRun()
 			o.transcript = append(o.transcript, pt1Copy{id: "$c"})
 		}, "P4"},
+		{"the store written again after the keeper deleted it", func(o *pt1Seen) {
+			*o = removedRun()
+			o.storeBack = true
+		}, "P4"},
 		{"an item posted after the removal that recv printed", func(o *pt1Seen) {
 			*o = removedRun()
 			o.recv["$c"] = 1

@@ -401,7 +401,10 @@ type session struct {
 	errOut  *lines
 	agent   int
 	runtime string
-	ended   chan execx.ExitStatus
+	// transcript is the path of the fake Claude Code's transcript, "" for a session that has no
+	// fake: its file outlives the fake, which a command to the fake does not.
+	transcript string
+	ended      chan execx.ExitStatus
 	// outputs are the read ends of the process's stdout and stderr, each with its reader.
 	outputs []output
 }
