@@ -3,9 +3,12 @@ package leakcheck
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -62,6 +65,12 @@ func (f *fakeTB) Cleanup(fn func()) { f.cleanups = append(f.cleanups, fn) }
 
 func (f *fakeTB) Errorf(format string, args ...any) {
 	f.errs = append(f.errs, fmt.Sprintf(format, args...))
+}
+
+// Fatal records the call and ends the goroutine it is called on, as testing.T's does.
+func (f *fakeTB) Fatal(args ...any) {
+	f.errs = append(f.errs, fmt.Sprint(args...))
+	runtime.Goexit()
 }
 
 func (f *fakeTB) end() {
@@ -209,4 +218,122 @@ func TestTheStacksAreSplitByGoroutine(t *testing.T) {
 
 func TestCheckRegistersOnARealTest(t *testing.T) {
 	Check(t)
+}
+
+// Only a wait that another goroutine must end is blocked; every state in which a goroutine can
+// make progress by itself (running, runnable, a system call, the network poller, asleep) is not,
+// and a header that names no state is not read as blocked.
+func TestAGoroutineIsBlockedOnlyInTheWaitsAnotherEnds(t *testing.T) {
+	for _, c := range []struct {
+		state   string
+		blocked bool
+	}{
+		{"chan receive", true},
+		{"chan receive, 3 minutes", true},
+		{"chan send", true},
+		{"select", true},
+		{"select, locked to thread", true},
+		{"select (no cases)", true},
+		{"sync.Mutex.Lock", true},
+		{"sync.WaitGroup.Wait, 1 minutes", true},
+		{"sync.Cond.Wait", true},
+		{"semacquire", true},
+		{"chan receive (durable)", true},
+		{"synctest.Run (durable)", true},
+		{"running", false},
+		{"runnable", false},
+		{"syscall", false},
+		{"IO wait", false},
+		{"sleep", false},
+		{"sleep (synctest)", false},
+		{"GC assist wait", false},
+		{"finalizer wait", false},
+	} {
+		g := goroutine{id: 7, stack: "goroutine 7 [" + c.state + "]:\nx.y()\n\tx.go:3"}
+		if got := g.blocked(); got != c.blocked {
+			t.Errorf("[%s] blocked = %v, want %v", c.state, got, c.blocked)
+		}
+	}
+	if (goroutine{id: 7, stack: "goroutine 7"}).blocked() {
+		t.Error("a header with no state was read as blocked")
+	}
+}
+
+// Idle is true once every other goroutine is parked, and false while one is asleep (a timer
+// ends its wait) or running.
+func TestIdleWhenEveryOtherGoroutineIsParked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release, done := make(chan struct{}), make(chan struct{})
+		park(release, done)
+		synctest.Wait()
+		idle := Idle()
+		close(release)
+		<-done
+		if !idle {
+			t.Fatal("Idle was false with the one other goroutine parked")
+		}
+	})
+}
+
+func TestNotIdleWhileAGoroutineSleeps(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			time.Sleep(time.Hour)
+		}()
+		synctest.Wait()
+		idle := Idle()
+		time.Sleep(time.Hour)
+		<-done
+		if idle {
+			t.Fatal("Idle was true with a goroutine asleep")
+		}
+	})
+}
+
+// Poll returns as soon as its condition holds, however long that takes the goroutine that makes
+// it hold.
+func TestPollReturnsOnceTheConditionHolds(t *testing.T) {
+	var n atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		n.Store(1)
+	}()
+	Poll(t, func() bool { return n.Load() == 1 })
+	<-done
+}
+
+// With every other goroutine blocked and the condition false, Poll fails the test, once.
+func TestPollFailsWhenNothingCanMakeTheConditionHold(t *testing.T) {
+	tb := &fakeTB{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Poll(tb, func() bool { return false })
+	}()
+	<-done
+	if len(tb.errs) != 1 || !strings.Contains(tb.errs[0], "every other goroutine is blocked") {
+		t.Fatalf("errors %q", tb.errs)
+	}
+}
+
+func TestNotIdleWhileAGoroutineRuns(t *testing.T) {
+	var stop atomic.Bool
+	started, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		close(started)
+		for !stop.Load() {
+			continue
+		}
+	}()
+	<-started
+	idle := Idle()
+	stop.Store(true)
+	<-done
+	if idle {
+		t.Fatal("Idle was true with a goroutine running")
+	}
 }

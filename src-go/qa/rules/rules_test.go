@@ -91,6 +91,10 @@ func TestLeakcheckOnce(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), LeakcheckOnce, "fix/internal/twicecheck")
 }
 
+func TestTestSpin(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TestSpin, "fix/internal/spin")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -125,8 +129,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 23 {
-		t.Fatalf("want 23 rules, got %d", got)
+	if got := len(All()); got != 24 {
+		t.Fatalf("want 24 rules, got %d", got)
 	}
 }
 

@@ -12,3 +12,6 @@ func Tests(m *testing.M) Runner { return m }
 
 // Check judges tb once its cleanups have run.
 func Check(tb testing.TB) { tb.Helper() }
+
+// Idle is whether every goroutine but the caller's is blocked.
+func Idle() bool { return false }

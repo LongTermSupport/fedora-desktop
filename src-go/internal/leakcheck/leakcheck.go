@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,6 +94,50 @@ func check(tb testing.TB, s settle) {
 type goroutine struct {
 	id    int
 	stack string
+}
+
+// blockedStates are the waits that only another goroutine ends, by the start of the state a
+// dump names: a channel, a select, a lock, a wait group, a condition, a synctest bubble's end. A
+// goroutine that is running, runnable, in a system call or the network poller, or asleep is not
+// in one: it can make progress by itself.
+var blockedStates = []string{"chan receive", "chan send", "select", "sync.", "semacquire", "synctest."}
+
+// stateOf reads the state out of a dump's header line: "goroutine 7 [chan receive, 3 minutes]:".
+var stateOf = regexp.MustCompile(`^goroutine \d+ \[([^\],]*)`)
+
+// blocked is whether the goroutine is in one of blockedStates; a header that names no state is
+// not read as blocked.
+func (g goroutine) blocked() bool {
+	m := stateOf.FindStringSubmatch(g.stack)
+	if m == nil {
+		return false
+	}
+	return slices.ContainsFunc(blockedStates, func(prefix string) bool { return strings.HasPrefix(m[1], prefix) })
+}
+
+// Idle is whether every goroutine but the caller's is blocked on a channel, a select, a lock or a
+// wait group, so that nothing can happen until the caller acts: a wait on a condition that is
+// false then can never end. A goroutine that is running, runnable, in a system call or the network
+// poller, or asleep can still make progress, so it makes the answer false: a pending timer or an
+// external event is never read as a deadlock. The dump stops the world, so it is one instant, and
+// a goroutine that a send or a close has woken is already runnable in it.
+func Idle() bool {
+	return !slices.ContainsFunc(all()[1:], func(g goroutine) bool { return !g.blocked() })
+}
+
+// Poll yields until cond holds, and fails tb once every other goroutine is blocked (Idle) and cond
+// still does not hold: nothing can change it, so the wait would otherwise spin one CPU to the
+// package's timeout. cond is read again after the Idle reading, which keeps the verdict sound: no
+// goroutine runs between the two but the caller's. A world with a goroutine in the network
+// poller (a listener, a connection) is never Idle, so there Poll waits as a bare yield loop does.
+func Poll(tb testing.TB, cond func() bool) {
+	tb.Helper()
+	for !cond() {
+		if Idle() && !cond() {
+			tb.Fatal("leakcheck: every other goroutine is blocked and the condition does not hold")
+		}
+		runtime.Gosched()
+	}
 }
 
 // leftSince is the goroutines not in before, other than the caller, once they have had s to end.
