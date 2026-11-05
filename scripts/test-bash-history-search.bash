@@ -301,6 +301,10 @@ if ! command -v tmux >/dev/null; then
     echo "FAIL: tmux not found — these cases drive the real fzf and cannot pass without it." >&2
     exit 1
 fi
+if ! command -v fzf >/dev/null; then
+    echo "FAIL: fzf not found — these cases drive the real fzf (tasks/install-fzf.yml installs it; CI installs it in .github/workflows/qa.yml)." >&2
+    exit 1
+fi
 mkdir -p "$WORK_DIR/realbin"
 ln -s "$RANKER" "$WORK_DIR/realbin/bash-history-rank"
 # fzf before 0.63 has no --footer and refuses it; a shim drops that one cosmetic flag so the

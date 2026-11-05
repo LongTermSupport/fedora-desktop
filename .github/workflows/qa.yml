@@ -122,6 +122,16 @@ jobs:
           (cd /tmp/golangci-lint && grep " ${GL}\$" checksums.txt | sha256sum -c -)
           tar -xzf "/tmp/golangci-lint/${GL}" -C /tmp/golangci-lint
           sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint
+          # fzf: scripts/test-bash-history-search.bash drives the real picker. The release and
+          # its sha256 are the ones every host and the ccy image install (vars/fzf-pin.yml).
+          FZF_VERSION="$(awk -F'"' '/^fzf_version:/ {print $2}' vars/fzf-pin.yml)"
+          FZF_SHA="$(awk -F'"' '/^fzf_sha256_amd64:/ {print $2}' vars/fzf-pin.yml)"
+          test -n "${FZF_VERSION}" && test -n "${FZF_SHA}"
+          curl -fsSL -o /tmp/fzf.tar.gz \
+            "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
+          echo "${FZF_SHA}  /tmp/fzf.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/fzf.tar.gz -C /tmp fzf
+          sudo install -m 0755 /tmp/fzf /usr/local/bin/fzf
           # Asserts the whole toolchain at once, so CI fails on a drifted pin
           # here rather than reporting a verdict nobody else can reproduce.
           ./scripts/qa-toolchain.bash
