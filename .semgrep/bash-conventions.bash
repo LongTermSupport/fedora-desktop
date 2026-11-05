@@ -268,3 +268,26 @@ wl-copy --type text/plain < "$file" && curl -o out "$url"
 
 # ok: bash-self-erasing-clipboard
 echo "The transcript is typed in one paste at stop." >&2
+
+# --- bash-test-time-window ---
+
+# The ccy-teams launch-start assertion as it was: a recorded time bounded by a
+# read of the clock taken after it.
+# ruleid: bash-test-time-window
+check "launch start" "yes" "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
+
+# The `[[ ]]` form and the seconds clock are the same defect.
+# ruleid: bash-test-time-window
+if [[ "$recorded" -lt "$(date +%s)" ]]; then echo ok; fi
+
+# The exact value the code under test was given is what to assert.
+# ok: bash-test-time-window
+[ "$since_ms" -eq 1762000000123 ]
+
+# A bound on how long something took is about elapsed time, not a window.
+# ok: bash-test-time-window
+[ $(($(date +%s) - started)) -lt 10 ]
+
+# A bound on the real clock that is the point of the test says so.
+# ok: bash-test-time-window
+[ "$stamp" -le "$(date +%s)" ]  # FAIL-FAST-OK: the stamp is the system clock's own

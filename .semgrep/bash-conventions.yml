@@ -316,3 +316,34 @@ rules:
     metadata:
       category: security
       confidence: HIGH
+
+  # A test that asserts a recorded time lies below a fresh read of the wall clock.
+  #
+  # The window is built from separate reads of `date` in separate processes (one
+  # before the run, one inside the code under test, one after): any of them failing
+  # or stepping makes the assertion fail on a run that did nothing wrong, as the
+  # ccy-teams launch-start assertion did on CI. Give the code under test a clock
+  # the test owns (a fake `date` first on PATH, a clock variable) and assert the
+  # exact value it was given.
+  - id: bash-test-time-window
+    patterns:
+      - pattern-regex: '(?m)^[^\n#]*\[\[?[^\n]*[ \t]-(?:le|lt)[ \t]+"?\$\([ \t]*date[ \t][^\n)]*\)"?[^\n]*\]\]?[^\n]*$'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'scripts/**'
+        - 'tests/**'
+        - 'files/**'
+        - 'fedora-install/**'
+    message: >
+      bash-test-time-window: a test compares a time with a fresh read of the wall
+      clock (-le or -lt against "$(date ...)"). The bounds come from separate
+      processes and a clock that steps or a `date` that fails makes it fail on a
+      correct run. Inject the clock (a fake `date` first on PATH, or a variable the
+      code under test reads) and assert the exact value. If a bound on the real
+      clock is the point, annotate with # FAIL-FAST-OK and say why.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: MEDIUM

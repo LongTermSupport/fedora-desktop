@@ -158,6 +158,20 @@ exit "${FAKE_PINGBUS_RC:-0}"
 FAKE
 chmod 755 "$bus_bin/pingbus"
 
+# The fake clock: `date +%s%3N` prints FAKE_NOW_MS when a test sets it, so the test owns the time
+# the launcher records; every other `date`, and that one with FAKE_NOW_MS unset, is the real one.
+FAKE_REAL_DATE=$(command -v date)
+export FAKE_REAL_DATE
+cat >"$bus_bin/date" <<'FAKE'
+#!/usr/bin/env bash
+if [ "$*" = "+%s%3N" ] && [ -n "${FAKE_NOW_MS:-}" ]; then
+    echo "$FAKE_NOW_MS"
+    exit 0
+fi
+exec "$FAKE_REAL_DATE" "$@"
+FAKE
+chmod 755 "$bus_bin/date"
+
 # The fake engine (container_cmd): each call is one line in $FAKE_BUS_LOG. The container is the
 # process whose pid is in $FAKE_CTR_PID: `ps` prints an id while it lives, `stop` ends it.
 # FAKE_PS_RC fails `ps`.
@@ -329,12 +343,14 @@ check "a session that cannot be named stops the launch" "rc=1" \
 seats_root="$work/.claude/ccy/pingbus/seats"
 mkdir -p "$seats_root"
 disconnect_re="^pingbus seat disconnected --root $seats_root --session ccy-proj-1 --since [0-9]{13}\$"
-before_ms=$(date +%s%3N)
+fake_now_ms=1762000000123
 check "after the container, pingbus is asked to tell what ended without a goodbye" "rc=0" \
-    "$(lib_run take_then_disconnect dev1@team-a false false yolo-1)"
-since_ms=$(grep -E "$disconnect_re" "$FAKE_BUS_LOG" | grep -oE '[0-9]{13}$')
+    "$(FAKE_NOW_MS=$fake_now_ms lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+# The launch's start is the clock the launcher was given, exactly: a window between reads of the
+# real clock taken in three processes failed on CI runs that did nothing wrong. The real clock's
+# shape (thirteen digits) is checked below by disconnect_re, on runs with no fake clock.
 check "  with the seats, the session and the launch's start" "yes" \
-    "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
+    "$(grep -qxF -- "pingbus seat disconnected --root $seats_root --session ccy-proj-1 --since $fake_now_ms" "$FAKE_BUS_LOG" && echo yes || echo no)"
 check "  after the seats were taken" "yes" \
     "$(grep -qE -- "$disconnect_re" <<<"$(tail -n 1 "$FAKE_BUS_LOG")" && echo yes || echo no)"
 lib_run take_then_disconnect "" false false yolo-1 >/dev/null
