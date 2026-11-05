@@ -32,9 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Element Desktop's install and keyring grant moved into tasks/element-desktop.yml, which
-# play-matrix-clients.yml and play-agent-bus-element.yml both import (Plan 00244 Task 3.2).
-# Expected: those two plays. Element is already installed and granted on the host, so both
-# should report the Flatpak present and the override already set.
-changed-plays
