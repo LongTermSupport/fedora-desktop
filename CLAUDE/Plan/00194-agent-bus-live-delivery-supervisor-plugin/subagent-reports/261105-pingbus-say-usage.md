@@ -22,7 +22,7 @@ Not plan work beyond the report destination; Plan 00194 owns pingbus v1. Bug fix
 
 ## Left / noted
 
-- No version bump was demanded by qa-changed.
+- The pre-commit hook (not qa-changed) demanded the version bump described below.
 - Tooling faults met: `gh issue view 137 --comments` printed nothing in this container (issue text
   not seen; the task brief was followed). The 120 s foreground limit backgrounds qa-changed on a
   loaded host (several agents ran it at once), so it took several minutes.
