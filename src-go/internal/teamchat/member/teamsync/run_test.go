@@ -177,6 +177,40 @@ func TestTransientFailuresBackOff(t *testing.T) {
 	}
 }
 
+// SY8's down mark with the jitter the shipped code draws (fedora-desktop#140): any jitter that
+// shortens each of the first four waits leaves the fourth retry short of downAfter, so the team
+// is marked down by the sixth failure, 31 s after the first less those jitters, not by the fifth
+// at 15 s. A real process's wait for "down" (the wiring end-to-end tests') must outlast that.
+func TestAJitterPutsTheDownMarkAfterTheFifthWait(t *testing.T) {
+	w := newWorld(t)
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
+	r := w.start(func(c *Config) {
+		c.Jitter = func(d time.Duration) time.Duration {
+			if d == 16*time.Second {
+				return 0
+			}
+			return time.Nanosecond
+		}
+	})
+	var elapsed, downAt time.Duration
+	for failure := 1; failure <= 6; failure++ {
+		d := r.wait(t)
+		if w.eng.lastHealth().Down && downAt == 0 {
+			downAt = elapsed
+			if failure != 6 {
+				t.Errorf("marked down by failure %d, want the sixth", failure)
+			}
+		}
+		elapsed += d
+		w.clk.Advance(d)
+	}
+	if want := 31*time.Second - 4*time.Nanosecond; downAt != want {
+		t.Errorf("marked down %v after the first failure, want %v", downAt, want)
+	}
+	w.batch()
+	r.poll(t)
+}
+
 // A wake ends a backoff early; the jitter is taken off the wait.
 func TestAWakeEndsTheBackoff(t *testing.T) {
 	w := newWorld(t)

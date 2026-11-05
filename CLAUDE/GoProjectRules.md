@@ -58,6 +58,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                 |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)          |
+| `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner      | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)          |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1278,6 +1279,46 @@ unprivileged.
   flagged; `uid := -1` is too, since only the literal constant and the `os` calls are known to be
   the caller's).
 
+### project_listing_order
+
+**What it is about.** The order of a directory's entries is the filesystem's: ext4 hashes the
+names with a seed made at mkfs, tmpfs lists the newest first, btrfs by index. `os.ReadDir`,
+`fs.ReadDir`, `filepath.Glob` and `filepath.WalkDir` sort; `(*os.File).ReadDir`, `Readdir` and
+`Readdirnames` do not. A test that expects the order its author's machine gave passes there and
+fails on a runner whose filesystem lists the same names another way.
+
+**Why it exists.** `restore`'s `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]`
+(fedora-desktop#140); with the test's temp directory on tmpfs it fails every time.
+
+**What it flags**, in `_test.go` files: `slices.Equal`, `EqualFunc`, `Compare`, `CompareFunc` and
+`reflect.DeepEqual` given a call, or a variable last assigned from a call (no sort of it between),
+of a function that returns a listing in directory order. A function does when its body calls one
+of the three unsorted listing methods of `os.File` (or `fs.ReadDirFile.ReadDir`) or a function
+that does, has a slice among its results, and calls nothing that sorts (package `sort`, or
+`slices.Sort*`). The mark is an analysis fact, so a test of one package is judged against another
+package's function.
+
+**How to fix a violation.** Sort the listing before comparing, or compare it as a set. A function
+whose callers need an order sorts at its return, and then it is not marked.
+
+- Red, fixture: `testdata/src/fix/internal/badlisting` and `badlistingx` (the originating shape,
+  each listing API, a wrapper, a test helper, another package through the fact; sorted, `os.ReadDir`,
+  counts, sets, conversions and function values clean; the marks themselves are `want` facts).
+  Mutation checked: reporting off makes 11 `want` lines red; the sort guard off makes 2 clean
+  cases red.
+- Red, real tree: 1 finding, `internal/teamchat/restore/fs_test.go:139` (the originating test),
+  seen before the fix; the first sweep also hit a nil dereference of the rule on a call with no
+  function to judge (a conversion), now a fixture case.
+- Green: the test sorts what `OS.ReadDir` returned; 0 findings over `./...` untagged, with
+  `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module.
+- Not caught: an order asserted through an index (`got[0]`), a loop over the listing and the
+  expectation together, a value derived from the listing, a listing read through an interface
+  method (no body to mark), a comparison helper of the test's own, and the production use of a
+  directory order. `restore.OS.ReadDir` itself returns directory order: no caller needs it
+  (`raiseMinBackup` takes a maximum, `leftovers` names what it finds), but its refusal message
+  lists in directory order; sorting it is the owner's decision, as `homefs.Root.Entries` and
+  `seat`'s `entries` already do.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -1481,11 +1522,13 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `execx.Feed`, which refuse at run time a command whose argv holds the value (`checkSecrets`)
   and print as its name only; nord's `creds.hide` over nmcli's output; and the tests that check
   every recorded argv, both streams and the log for the password (`wantNoPassword`).
+
 - **Output on the wrong stream, or terminal bytes into a pipe** (open's `--list` on stderr, B12;
   nvidia-status's `--check` printing lines, B3, and colour escapes written into a pipe, B10).
   Which text is a command's payload is meaning ([StderrHygiene.md](StderrHygiene.md)). What
   holds it: each tool's tests assert stdout and stderr apart, colour is drawn only when
   `IsTerminal` and no `NO_COLOR`, and the reviews read every print against the rule.
+
 - **A removal wider than the action means** (vmtest's sweep removed whole passing-run
   directories, with the transcripts plans cite as evidence, where only the overlay frees disk,
   B19; it removed the disk of a fast-base build still running, inferring "failed" from the
@@ -1498,27 +1541,32 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `TestE51SymlinksAreLeft`, reclaim's prune and clear tests), the specs (SPEC-vmtest E51, E61;
   SPEC-reclaim E22, E24), and a default-no question before every destructive action
   ([InteractiveScripts.md](InteractiveScripts.md) rule 6).
+
 - **Ordering or ageing by a value the code itself changes** (the sweep ordered runs by their
   directory's mtime, which a removal inside moves, so a run it had just evicted read as the
   newest). Whether a `ModTime` belongs to a directory, and whether anything changes it, is not
   in the syntax tree; the search over the module found no other directory's mtime ordered by
   (`transcript` and `ftpcamera` read regular files). What holds it: the sweep orders by the
   start time in the run id, and `TestE51Sweep` gives the newest run the oldest mtime.
+
 - **A live thing taken as a leftover** (the sweep and the build directory above; a run
   `prune-runs` must not touch while it boots). Whether a process holds something is a run-time
   fact. What holds it: libvirt's listing and the run's `run.lock`, both read before a removal
   (SPEC-vmtest E61, E63), and the tests of a live run and a running build.
+
 - **A record that says done before it is** (`retention.log` said "evicted" before a removal that
   then failed, and a partial `prune-runs --yes` named nothing it had removed; a Ctrl-C landing
   after nord's connect turned a success into `Cancelled.`, U5). Which order is true is meaning.
   What holds it: `TestE62PruneRunsRemovalFails` and `TestE51SweepRemovalFails` (the log's
   `failed to remove` line and the "removed so far" list).
+
 - **An interrupt that kills a change half made, or is misread** (nord's and reclaim's bash died
   on Ctrl-C with nmcli or dnf still changing the machine, nord B16 and F2, reclaim B15 and M-1;
   open reported a handler ended by Ctrl-C as `exited -1`, B20). Which command changes state and
   must finish is meaning. What holds it: changing commands run under `context.WithoutCancel`
   and, where the terminal's SIGINT would reach them, in their own session (`execx` `NewSession`);
   each tool's cancel tests, and reclaim's `TestCtrlCEndsTheRun`, which sends a real SIGINT.
+
 - **A value another program re-parses, written or read differently from how it reads it**
   (nmcli splits `vpn.secrets` at `,` and trims, so a password with a comma was stored as half,
   nord B17; a path starting `-` reached `jq` as an option, open B16; the bash read ssh's options
@@ -1527,11 +1575,13 @@ bash they replaced and in the Go during review; each instance is in the audit re
   grammar. What holds it: the value refused before it reaches the program (`readCredentials`),
   the `./` prefix, the tests against the program's own option strings (scp's getopt string), and
   the host checks.
+
 - **A structured value matched as loose text** (`lsmod | grep "^nvidia"` counted `nvidia_drm`,
   nvidia-status B5; `grep -F | head -1` picked an older profile, nord B8; any `://` read as a URL
   and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
   nvidia-status B1). What a field is, is meaning. What holds it: parsers that split the fields
   the program prints, and tests of the near-miss names (`nvidia_drm`, two profiles of one name).
+
 - **A terminal screen judged by its bytes, not by what it shows** (fedora-desktop#117:
   `screen.inputLineEmpty` read any non-SGR escape, or a placeholder whose first character
   carries the inverse-video cursor, as typed text, so a visually empty box was left alone as
@@ -1543,6 +1593,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `ClaudeState`), whose tests run each escape shape both empty and with typed text after it;
   and set-going prints a typed box line `%q`-quoted, so the next misreading arrives with its
   evidence.
+
 - **A failure dropped from the record a later verdict reads, so the verdict reports success**
   (fedora-desktop#108: `ccy-sessions restore` counted a record it could not start as a failure
   but left it out of the restore manifest, so a boot where every record failed wrote an empty
@@ -1564,28 +1615,33 @@ bash they replaced and in the Go during review; each instance is in the audit re
   boot that starts nothing at all (its passphrase file unusable, the live list unreadable, the
   manifest unwritable) fails its unit and leaves the first restore's manifest, which still
   names every session that should be up.
+
 - **A fake that answers what the real program does not** (reclaim's fake answered any unscripted
   command, M-2; nvidia-status's fake returned the deadline where `execx.OS` returns the kill,
   F2; nord's fake cancelled a context where a terminal delivers SIGINT, F2; ssh-copy-id's check
   was assumed, not read, B11). Whether a fake is faithful is a fact about the real program.
   What holds it: fakes that fail on an unscripted command (`execx.ErrUnexpected`), tests run
   on the real error shape, and each port's host checks (`H*`), which run the real programs.
+
 - **A verdict that names the wrong next step** (nvidia-status told a person to enrol a key with
   Secure Boot off, B14, called a driver/library mismatch "incomplete" instead of a reboot, B15,
   and sent a person to the blue screen with nothing queued, B19; open's bash advised `--ask`
   where there is no terminal, B17; hints of `sudo dnf install` instead of the play, nord B7,
   nvidia-status B12). Which step is right is meaning. What holds it: the verdict tests
   (`TestVerdictOrder`, `TestMokKey`) and the review of every message against the play.
+
 - **A command with no bound, or a resource never given back** (nvidia-status's bash waited for
   ever on a hung `nvidia-smi`, B11; vmtest kept every failed run's overlay for ever, about 108G
   on the host; ssh-with-key's bash left an agent holding forwarded keys when killed, B7). Which
   command may hang, and what must be reclaimed when, is design. What holds it: fixed bounds on
   each probe (and `project_realtime_bound` for a bound a test could shorten), `prune-runs` and
   the disk guard (SPEC-vmtest E61, E64), and ssh-agent's command mode, which ends with the run.
+
 - **Mechanical, but one site** (statfs's free space computed with `Bsize` where POSIX counts
   `Bavail` in `Frsize` units, vmtest F7). A rule is possible (any `Statfs_t.Bsize` in a product)
   and would guard one function: `freeOf` is the module's only free-space reading, and
   `TestFreeOfCountsFragments` (Bsize 4096, Frsize 1024) holds it.
+
 - **A test that reads state a live goroutine of the code under test may still change** (Plan
   00209 n3e: `TestBeginRunReturnsAnEarlierRunsEntries` read the store after `BeginRun` woke a
   delivery loop able to hand the items out; three more in `wiring` and `keeper`, where the test
@@ -1597,6 +1653,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   while the test reads), never on a signal the code gives before the effect; and the race only
   shows under load, so a suspect test is run shuffled, `-cpu 1,2,4`, many times, beside a loop
   of other tests.
+
 - **A fake that announces an event before it has done what the event stands for** (Plan 00209
   n3e: `fakeinbox` recorded a refused auth frame, which wakes `Await`, before its deferred
   `drop` closed the connection, so `inbox`'s `TestAWrongTokenIsRetryAndNothingIsWritten` could
@@ -1616,6 +1673,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `send` and failed in 32 of 900 stressed runs until they awaited with `settled`; run under
   `-cpu 1,2,4`, 300 times, the old form fails and the new one does not). No rule: every shape
   that reads after a close also matches the many reads that are ordered.
+
 - **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
   merge: `units.Conn` says the connection closes the signal channel it was given when it is
   closed, and n3e made `session.close` wait for `dispatch`, which that close ends; n2's
@@ -1626,6 +1684,25 @@ bash they replaced and in the Go during review; each instance is in the audit re
   says (`units`' `fakeConn` records the channel and closes it once; `busConn` now does the
   same), and a test of a new fake runs the Manager's failure path against it, under
   `-timeout` short enough to show a hang in seconds.
+
+- **A wait on a real process whose bound is shorter than the worst case of the schedule it waits
+  on** (fedora-desktop#140: `TestE2EQueuedAtStart`, `TestE2EQueuedWhileDown` and
+  `TestE2EOfflineServer` waited `settle` (30 s) for a team to show down, and a second wait of
+  `backoffCap + settle` (60 s) for a queued send to be posted once the server was back). The
+  link marks a team down at the first failed retry once the failure streak is 15 s old, and its
+  retries come after delays of 1, 2, 4, 8 and 16 s, each less a jitter of up to a quarter: the
+  fourth retry falls short of 15 s and the fifth, 23 to 31 s after the first failure, is the one
+  that marks it down. A bound of 30 s is shorter than that worst case, so on an idle machine
+  one run in eight failed with `not within 30s` and an empty `link.log` (it logs only `down`
+  and `back up`); the second wait chains the team's retry (up to 30 s) and the sender's
+  `retryHold` (30 s), and 62.3 s was seen against 60. Nothing was lost: every queued send was
+  answered `queued` and posted once. The test owns no event to wait on, because the clock is the
+  link's own, in another process; the bound is the derived worst case (`downBound`,
+  `deliveredBound` in `member/wiring/e2e_test.go`, each stating its derivation). No rule: whether
+  a bound covers a schedule is a fact of the production code's constants and its jitter, not a
+  shape in the test's syntax tree; the `project_realtime_bound` rule already stops a test
+  *shortening* a bound, and the fix for this class is to state the bound as the schedule's
+  worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and

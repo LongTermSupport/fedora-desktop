@@ -121,12 +121,20 @@ func TestTestChown(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TestChown, "fix/internal/badchown", "fix/internal/guardedchown")
 }
 
+// A test that asserts the order of a directory listing nothing sorted fails on a runner whose
+// filesystem lists the names another way: the fixture has the listing calls (a function of the
+// package, a wrapper, a file's own methods, a test helper, another package's function through the
+// exported fact) compared in order, and the sorted and order-free forms beside them.
+func TestListingOrder(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ListingOrder, "fix/internal/badlisting", "fix/internal/badlistingx")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 23 {
-		t.Fatalf("want 23 rules, got %d", got)
+	if got := len(All()); got != 24 {
+		t.Fatalf("want 24 rules, got %d", got)
 	}
 }
 
