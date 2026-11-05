@@ -919,7 +919,11 @@ SPEC-n3.md says: nothing here runs on the host before Task 3.3.
 
 Each change n3f needs in the design documents, for the lead to apply exactly. "Old" is the
 current text joined onto one line (in the file it wraps; only the words matter); "New" replaces
-it whole. No design file is edited by this spec.
+it whole. No design file is edited by this spec. All seven are applied to DESIGN-v2-A-protocol.md,
+DESIGN-v2-B-member.md and SPEC-n3.md (SR2's sentence). One is adapted: 12.5's row 20 had already
+gained n3d's `forge-down` and its two meanings, so `not-ready` and the widened meaning are added
+to that row as it stands, and the row's action text keeps `unreachable` and `forge-down` as they
+are.
 
 ### 12.1 A 13.3, the coordinator's role line (section 6.1, OW4)
 
