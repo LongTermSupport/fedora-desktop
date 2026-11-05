@@ -206,16 +206,16 @@ func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
 	default:
 		return e.hold(ctx, h)
 	}
-	if err := e.recheck(p, n.Token(), r); err != nil {
-		return e.unposted(ctx, h, p.entry, err)
+	room, held, stop := e.postRoom(ctx, h, p, n.Token(), r)
+	if stop {
+		return held
 	}
-	id, err := n.Send(ctx, p.main, p.entry.Type, p.entry.Txn, p.entry.Content)
+	id, err := n.Send(ctx, room, p.entry.Type, p.entry.Txn, p.entry.Content)
 	if err != nil {
 		return e.sendFailed(ctx, h, p.entry, err)
 	}
 	failpoint.Hit(failpoint.LinkAfterSendBeforeRecord)
-	// The resolver knows the send as this member's before the op that made it is answered.
-	n.RecordOwnSend(id, ownSend(p.self, p.main, p.entry.Content, r))
+	recordOwn(n, p, id, r)
 	var recErr error
 	if err := e.do(ctx, func() { recErr = e.recordPosted(p.id, p.entry, id, e.cfg.Clock.WallMS()) }); err != nil {
 		return nil
@@ -227,12 +227,23 @@ func (e *Engine) post(ctx context.Context, h *held, p nextPost) *sendHold {
 	return nil
 }
 
+// recordOwn lets the resolver know a posted main send as this member's before the op that made
+// it is answered; a report is in a room the resolver never reads.
+func recordOwn(n team.Notices, p nextPost, id string, r proto.Roster) {
+	if p.entry.Room == proto.PurposeMain {
+		n.RecordOwnSend(id, ownSend(p.self, p.main, p.entry.Content, r))
+	}
+}
+
 // recheck composes the queued content again with roster r, so a send the team no longer
 // allows (an addressee parked or gone, a role changed) is refused at its post.
 func (e *Engine) recheck(p nextPost, token string, r proto.Roster) error {
 	v, err := proto.Parse(p.entry.Content)
 	if err != nil {
 		return fmt.Errorf("engine: a queued send does not parse: %w", err)
+	}
+	if p.entry.Room == proto.PurposeReports {
+		return e.recheckReport(p, token, r, v)
 	}
 	dc, reason := proto.DecodeContent(v, proto.MainKeys)
 	if reason != "" {
@@ -307,6 +318,9 @@ func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, e
 	switch {
 	case errors.Is(err, matrix.ErrAuthRefused):
 		code, msg = exits.CodeToken, msgLoginRefused
+	case errors.Is(err, matrix.ErrForbidden) && entry.Room == proto.PurposeReports:
+		// A report the homeserver forbids is that report's end alone (RP4); the team's main sends go on.
+		return e.droppedForbidden(ctx, h, entry)
 	case errors.Is(err, matrix.ErrForbidden):
 		code, msg = exits.CodeForbidden, msgForbidden
 	}
@@ -373,7 +387,10 @@ func (e *Engine) recordPosted(t paths.TeamID, entry state.Sending, id string, se
 			return false, nil
 		}
 		s.Outbox.Sending = slices.Delete(s.Outbox.Sending, i, i+1)
-		s.Outbox.LastSent = &id
+		if entry.Room == proto.PurposeMain {
+			// Only main's events bound a recovery's search (n3d-D4).
+			s.Outbox.LastSent = &id
+		}
 		if p := entry.Ping; p != nil {
 			if err := s.AddPing(state.Ping{
 				ID: id, Verb: p.Verb, Ref: p.Ref, To: slices.Clone(p.To), SentMS: sentMS, DueMS: sentMS + p.TimeoutMS,

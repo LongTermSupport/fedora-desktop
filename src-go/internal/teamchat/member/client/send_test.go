@@ -159,7 +159,7 @@ func TestSDc2TerminalIsUsage(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	for _, verb := range [][]string{{"say", "--to", "bob"}, {"reply", eventID}} {
+	for _, verb := range [][]string{{"say", "--to", "bob"}, {"reply", eventID}, {"report"}} {
 		w := newWorld(t)
 		w.stdin = pty
 		if code := w.do(verb...); code != exits.ExitUsage {
@@ -272,6 +272,100 @@ func TestASendCutOffAfterItsRequestSaysCheckStatus(t *testing.T) {
 	l.request(t)
 	e := w.errorObject()
 	if e.Code != exits.CodeNoLink || !strings.Contains(e.Message, "may already") || !strings.Contains(e.Message, "status") {
+		t.Fatalf("error %+v", e)
+	}
+}
+
+// n3f RP3, RP6: report's request is its op, its --team alone, a send's 30 s deadline, and its
+// text on stdin with one trailing newline removed.
+func TestN3fReportRequest(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"report"}, `{"team":null}`},
+		{[]string{"report", "--team", "alpha"}, `{"team":"alpha"}`},
+	} {
+		w := newWorld(t)
+		w.stdin = strings.NewReader("Tests pass\nAll 12 of them.\n")
+		l := w.listen(doneOK)
+		if code := w.do(tc.args...); code != term.ExitOK {
+			t.Fatalf("%v: exit %d %q", tc.args, code, w.stderr.String())
+		}
+		req := l.request(t)
+		got, err := json.Marshal(args(t, req))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if req.Op != wire.OpReport || string(got) != tc.want || req.Kit != kit || req.DeadlineMS != (boot0+30*time.Second).Milliseconds() {
+			t.Fatalf("%v: %s %s %+v", tc.args, req.Op, got, req)
+		}
+		if req.Stdin == nil || *req.Stdin != "Tests pass\nAll 12 of them." {
+			t.Fatalf("%v: stdin %v", tc.args, req.Stdin)
+		}
+	}
+}
+
+// n3f-D1, RP3: report reads at most 1502 bytes and removes one trailing newline, but refuses no
+// size and no empty text itself: the role check (11) comes before the size check (10), and only
+// the link knows the role. A read that reached 1502 bytes is sent whole, never stripped, for
+// the link to refuse as over 1500.
+func TestN3fD1ReportStdin(t *testing.T) {
+	const c = 1500
+	for name, tc := range map[string]struct{ in, want string }{
+		"1500 and a newline":           {strings.Repeat("x", c) + "\n", strings.Repeat("x", c)},
+		"1500, a newline and one more": {strings.Repeat("x", c) + "\nx", strings.Repeat("x", c) + "\nx"},
+		"1501 and no newline":          {strings.Repeat("x", c+1), strings.Repeat("x", c+1)},
+		"1501 and a newline":           {strings.Repeat("x", c+1) + "\n", strings.Repeat("x", c+1) + "\n"},
+		"far over, read to 1502":       {strings.Repeat("x", 9000), strings.Repeat("x", c+2)},
+		"empty":                        {"", ""},
+		"a newline":                    {"\n", ""},
+		"two newlines":                 {"text\n\n", "text\n"},
+		"multi-byte":                   {"é ü", "é ü"},
+	} {
+		w := newWorld(t)
+		w.stdin = strings.NewReader(tc.in)
+		l := w.listen(doneOK)
+		if code := w.do("report"); code != term.ExitOK {
+			t.Fatalf("%s: exit %d %q", name, code, w.stderr.String())
+		}
+		if req := l.request(t); req.Stdin == nil || *req.Stdin != tc.want {
+			t.Fatalf("%s: stdin of %d bytes, want %d", name, len(deref(req.Stdin)), len(tc.want))
+		}
+	}
+}
+
+// n3f RP3: a text that is not UTF-8 cannot travel in the request's JSON, so it is 10 schema
+// before any connection; a failing read is internal.
+func TestN3fReportStdinRefusals(t *testing.T) {
+	w := newWorld(t)
+	w.stdin = strings.NewReader("bad \xff byte")
+	if code := w.do("report"); code != exits.ExitRefused {
+		t.Fatalf("exit %d %q", code, w.stderr.String())
+	}
+	if e := w.errorObject(); e.Code != exits.CodeSchema {
+		t.Fatalf("error %+v", e)
+	}
+	w = newWorld(t)
+	w.stdin = failing{}
+	if code := w.do("report"); code != exits.ExitInternal {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+// n3f RP3: a report is a send, so one cut off after its request was written says to check status
+// rather than that it waits on the server.
+func TestAReportCutOffSaysStatus(t *testing.T) {
+	w := newWorld(t)
+	w.keeper()
+	w.keeperJSON(state.LinkRestarting, state.KindCCY, new((boot0 + 4*time.Second).Milliseconds()))
+	l := w.listen()
+	w.stdin = strings.NewReader("Headline")
+	if code := w.do("report"); code != exits.ExitNoRuntime {
+		t.Fatalf("exit %d %q", code, w.stderr.String())
+	}
+	l.request(t)
+	if e := w.errorObject(); e.Code != exits.CodeNoLink || !strings.Contains(e.Message, "may already") {
 		t.Fatalf("error %+v", e)
 	}
 }

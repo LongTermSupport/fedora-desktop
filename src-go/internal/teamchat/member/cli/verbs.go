@@ -119,6 +119,7 @@ const (
 	verbVersion   = "version"
 	verbHelp      = "help"
 	verbAsk       = "ask"
+	verbReport    = "report"
 	verbQuestions = "questions"
 )
 
@@ -191,7 +192,7 @@ var table = []Verb{
 		Flags: append(slices.Clone(toFlags), Flag{Name: "branch", Value: "B", check: checkBranch}),
 		Does:  "sends a closed-verb ping; the verb is required",
 	},
-	{Name: "report", Team: TeamOne, Agent: true, Does: "a quiet report to the reports room; headline then body on stdin"},
+	{Name: verbReport, Team: TeamOne, Agent: true, Does: "a quiet report to the reports room; headline then body on stdin"},
 	{
 		Name: verbAsk, Team: TeamOne, Agent: true,
 		Flags: []Flag{{Name: "asked-by", Value: "N,...", check: checkList}, {Name: "re", Value: "ID,...", check: checkList}, {Name: "remind-after", Value: "S", check: checkCount}},
