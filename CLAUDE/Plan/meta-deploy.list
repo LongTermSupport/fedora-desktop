@@ -32,24 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# changed-plays is held back: play-claude-code-consumer fails at play-podman.yml's old-range
-# check (the store holds a file owned outside the subuid range again, Plan 00235 Q6), and the
-# batch stops there. play-claude-yolo has run (ccy 3.112.2). The two plays below are named so
-# their fixes land now; changed-plays returns once the store is clean.
-
-# The host's pingbus (#137): a usage error prints its `pingbus:` prefix once, and say, report,
-# ask-human and thread refuse a text argument with a hint that the text goes on stdin.
-# Acceptance: `pingbus --team desktop say --to x hello` prints one prefix and the stdin hint.
-playbooks/imports/play-agent-bus.yml
-
-# Ctrl+R: Enter takes what was typed unless you arrow to a match, and the recorder is its own
-# include (files/home/bashrc-includes/history-record.bash). Acceptance: in a NEW terminal,
-# type a command Ctrl+R has no match for and press Enter: that command is on the line,
-# untouched.
-playbooks/imports/play-basic-configs.yml
-
-# Plan 00235 Q6: the store holds an old-range file again (a tmp/tmp.<random> inside an overlay
-# layer's diff/), though 4.7 left it clean on 2026-10-30. READ ONLY: the triage report and
-# proposed decisions in the run directory, for the host agent to decide item by item.
-00235-podman-images-cleaned-up-automatically/old-range.bash

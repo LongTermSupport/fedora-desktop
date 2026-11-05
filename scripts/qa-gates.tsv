@@ -69,6 +69,7 @@ gate	colour-emoji-fallback	scripts/test-colour-emoji-fallback.bash	colour emoji 
 gate	qa-tool-pin-converges	scripts/test-qa-tool-pin-converges.bash	QA tool pin convergence tests failed	count
 gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy browser session guard unit tests failed	count
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
+gate	find-race-negated-stat-test	scripts/qa-find-race.bash	a find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
 gate	hook-handler-rules	scripts/qa-hook-handler-rules.bash	hook handler rules: code the hooks daemon loads resolves a path against the daemon's working directory	count
 gate	ready-wait-rules	scripts/qa-ready-wait-rules.bash	a ready-wait that ignores its child's exit (Python and bash)	count
@@ -136,6 +137,7 @@ gate	bash-history-session	scripts/test-bash-history-session.bash	bash history se
 gate	terminal-modes	scripts/test-terminal-modes.bash	terminal modes prompt hook unit tests failed	count
 gate	fedora-desktop-health	scripts/test-fedora-desktop-health.bash	fedora-desktop-health command unit tests failed	count
 gate	randfile	scripts/test-randfile.bash	randfile command unit tests failed	count
+gate	podman-store-probe-race	scripts/test-podman-store-probe-race.bash	the podman store ownership probe matched a file deleted during its walk	count
 gate	failfast-pattern-tests	scripts/test-qa-ansible-failfast.bash	fail-fast directive pattern unit tests failed	count
 gate	docs-exit-codes	scripts/test-qa-docs-exit-codes.bash	docs gate exit-code contract failed	count
 gate	qa-changed-mapping	scripts/test-qa-changed.bash	qa-changed file-to-check mapping tests failed	count
