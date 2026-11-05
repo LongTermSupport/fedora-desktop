@@ -40,13 +40,11 @@ var (
 // pt1Fixed are the seeds the gate runs: a few seconds each. The first eight are the point rows'
 // (TestPT1Points runs row i on seed i), seeds whose schedules end in none of the removal and the
 // endings, so that a row's armed failpoint is the only fault of its run beside the schedule's own;
-// the rest draw the removal alone, with the end, with the death of CMD, and the two endings
-// alone. Between them they draw every kind.
-var pt1Fixed = []uint64{7, 15, 27, 38, 47, 55, 56, 71, 92, 95, 100, 108, 42, 109, 150, 35, 11, 24}
-
-// pt1Unbuilt are the operations of pt1_model_test.go the runner has no code for yet, which
-// pt1RunAt refuses to run: the recv that fails after the hand-out, which P2 needs.
-var pt1Unbuilt = []pt1Kind{pt1RecvFail}
+// the rest draw the removal alone, with the end, with the death of CMD, the two endings alone,
+// and the recv whose output fails (the last four, which hand items out in a run with the inbox
+// refused and before a removal; TestPT1Redelivery is the row that hands one out on a live inbox
+// every time). Between them they draw every kind.
+var pt1Fixed = []uint64{7, 15, 27, 38, 47, 55, 56, 71, 92, 95, 100, 108, 42, 109, 150, 35, 11, 24, 67, 57, 5, 40}
 
 func TestPT1Seeds(t *testing.T) {
 	seeds := pt1Fixed
@@ -105,19 +103,12 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 	t.Helper()
 	ops := pt1Schedule(seed)
 	t.Logf("PT1 seed %d, failpoint %q: %v", seed, point, ops)
-	if i := slices.IndexFunc(ops, func(o pt1Op) bool { return slices.Contains(pt1Unbuilt, o.kind) }); i >= 0 {
-		t.Fatalf("PT1 seed %d draws %v, which the runner does not run yet: choose a seed that does not", seed, ops[i])
-	}
 	defer func() {
 		if t.Failed() {
 			t.Logf("PT1 seed %d failed; replay it with: %s", seed, pt1Replay(seed, point))
 		}
 	}()
-	w := newWorld(t, fakeServer(t))
-	if point != "" {
-		w.arm = arm("link", point)
-	}
-	r := &pt1Runner{t: t, seed: seed, w: w, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}}
+	r := newPT1Runner(t, seed, point)
 	if point != "" {
 		pt1Provokers[point](r)
 		r.s.seatedIn()
@@ -131,12 +122,43 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 			r.s.oneLink()
 		}
 	}
+	r.judge(ops)
+}
+
+// newPT1Runner is a run's world with a --claude session seated on the desired membership, and
+// point armed in its first link, "" for none.
+func newPT1Runner(t *testing.T, seed uint64, point failpoint.Name) *pt1Runner {
+	t.Helper()
+	w := newWorld(t, fakeServer(t))
+	if point != "" {
+		w.arm = arm("link", point)
+	}
+	return &pt1Runner{t: t, seed: seed, w: w, s: w.pt1Seated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}}
+}
+
+// pt1Seated is claudeSeated that does not let a loaded host cost the run its session: a
+// SessionStart the link could not answer within the hook's deadline answers the hook's own
+// recovery line and tells the engine no session, so a run whose link never learns where to deliver
+// waits for ever for its first delivery. Claude Code's next hook would tell it, and here the
+// SessionStart is run again until the link answers it.
+func (w *world) pt1Seated(flags ...string) *session {
+	w.t.Helper()
+	s := w.claude(flags...)
+	starting := withContext(evStart, msgStarting)
+	eventually(w.t, func() bool { return answer(w.t, s.hook(evStart)) != starting }, s.describe)
+	s.seatedIn()
+	return s
+}
+
+// judge drains the run and fails the test with every check ops broke.
+func (r *pt1Runner) judge(ops []pt1Op) {
+	r.t.Helper()
 	r.drain()
 	seen := r.seen()
-	t.Logf("PT1 seed %d saw: %d items posted, %d copies by recv, %d in the transcript, %d sends, %d link crashes; removed %v (%d posted after), want %q, notices %v",
-		seed, len(seen.posted), pt1Total(seen.recv), len(seen.transcript), len(seen.sends), seen.crashes, seen.removed, len(seen.afterRemoval), seen.want, seen.notices)
+	r.t.Logf("PT1 seed %d saw: %d items posted, %d copies by recv, %d in the transcript, %d sends, %d link crashes; removed %v (%d posted after), want %q, notices %v, %d handed out and returned",
+		r.seed, len(seen.posted), pt1Total(seen.recv), len(seen.transcript), len(seen.sends), seen.crashes, seen.removed, len(seen.afterRemoval), seen.want, seen.notices, len(seen.marked))
 	if bad := pt1Check(seen); len(bad) > 0 {
-		t.Fatalf("PT1 seed %d broke %d checks:\n%s\nschedule: %v\n%s", seed, len(bad), strings.Join(bad, "\n"), ops, r.s.describe())
+		r.t.Fatalf("PT1 seed %d broke %d checks:\n%s\nschedule: %v\n%s", r.seed, len(bad), strings.Join(bad, "\n"), ops, r.s.describe())
 	}
 }
 
@@ -224,6 +246,9 @@ type pt1Runner struct {
 	ended bool
 	links []int
 	want  string
+	// marked is each id a recv whose output failed handed out, and the link got back unacknowledged
+	// and marked repeat, with how many copies the transcript held then (pt1_redeliver_test.go).
+	marked map[string]int
 }
 
 // pt1PeerShort is the peer's short name, which a send names it by (P69).
@@ -252,8 +277,7 @@ func (r *pt1Runner) do(op pt1Op) {
 	case pt1End, pt1Die:
 		r.end(op.kind)
 	case pt1RecvFail:
-		// pt1RunAt refuses a schedule that draws one before it runs; this is the same refusal.
-		r.t.Fatalf("PT1: the runner has no operation %v yet", op)
+		r.recvFail()
 	case pt1Restart:
 		check(r.t, r.w.hs.fake.Restart())
 	case pt1KillLink:
@@ -445,6 +469,6 @@ func (r *pt1Runner) seen() pt1Seen {
 	return pt1Seen{
 		posted: r.posted, recv: r.recv, transcript: r.copies(), awaiting: awaiting, crashes: max(len(links)-1, 0), linksAlive: alive,
 		notices: notices, want: r.want, sends: r.sends, inMain: inMain,
-		removed: r.removed, atRemoval: r.atRemoval, afterRemoval: r.afterRemoval, storeBack: r.storeBack,
+		removed: r.removed, atRemoval: r.atRemoval, afterRemoval: r.afterRemoval, storeBack: r.storeBack, marked: r.marked,
 	}
 }

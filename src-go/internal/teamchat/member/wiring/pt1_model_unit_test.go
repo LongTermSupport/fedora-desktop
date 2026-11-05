@@ -115,21 +115,22 @@ func TestPT1ScheduleDrawsEveryOperation(t *testing.T) {
 	}
 }
 
-// The gate's fixed seeds draw every operation the runner runs between them, so that the list
-// cannot shrink to a set that never holds the inbox, restarts the homeserver or kills the link,
-// and none of them draws an operation the runner lacks (pt1RunAt would fail it).
-func TestPT1FixedSeedsDrawEveryOperationTheRunnerHas(t *testing.T) {
+// The gate's fixed seeds draw every operation between them, so that the list cannot shrink to a
+// set that never holds the inbox, restarts the homeserver, kills the link, removes the seat or
+// ends the session; and the first eight, the point rows' seeds, draw none of the removal and the
+// endings, so that a row's armed failpoint is the only fault of its run beside the schedule's.
+func TestPT1FixedSeedsDrawEveryOperation(t *testing.T) {
 	drawn := map[pt1Kind]bool{}
-	for _, seed := range pt1Fixed {
+	for i, seed := range pt1Fixed {
 		for _, op := range pt1Schedule(seed) {
 			drawn[op.kind] = true
-			if slices.Contains(pt1Unbuilt, op.kind) {
-				t.Errorf("fixed seed %d draws %v, which the runner does not run yet", seed, op)
+			if i < len(pt1Provokers) && (op.kind == pt1Remove || op.kind.terminal()) {
+				t.Errorf("fixed seed %d is a point row's and draws %v", seed, op)
 			}
 		}
 	}
 	for kind, name := range pt1Names {
-		if !drawn[pt1Kind(kind)] && !slices.Contains(pt1Unbuilt, pt1Kind(kind)) {
+		if !drawn[pt1Kind(kind)] {
 			t.Errorf("the fixed seeds %v never draw %s", pt1Fixed, name)
 		}
 	}
