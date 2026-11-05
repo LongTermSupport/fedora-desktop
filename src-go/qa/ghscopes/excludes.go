@@ -25,7 +25,7 @@ func (e excludes) matches(path string) bool {
 
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.
 func (g *gate) readRule() (excludes, error) {
-	for _, rel := range []string{ruleFile, fixtureFile} {
+	for _, rel := range []string{g.spec.ruleFile, g.spec.fixtureFile} {
 		info, err := os.Stat(g.path(rel))
 		if err != nil {
 			return nil, fmt.Errorf("cannot read %s: %w", rel, err)
@@ -34,11 +34,11 @@ func (g *gate) readRule() (excludes, error) {
 			return nil, fmt.Errorf("%s is not a regular file", rel)
 		}
 	}
-	data, err := os.ReadFile(g.path(ruleFile))
+	data, err := os.ReadFile(g.path(g.spec.ruleFile))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", ruleFile, err)
+		return nil, fmt.Errorf("cannot read %s: %w", g.spec.ruleFile, err)
 	}
-	return parseExcludes(string(data))
+	return parseExcludes(g.spec.ruleFile, string(data))
 }
 
 // ruleFileDoc is the part of a semgrep rule file this gate reads.
@@ -54,23 +54,23 @@ type ruleFileDoc struct {
 // file that does not decode, or declares none, is an error, so an emptied list cannot silently
 // narrow what the coverage check demands. Unknown keys are the rule's own business (semgrep
 // reads them), so the decode is not strict about them.
-func parseExcludes(rule string) (excludes, error) {
+func parseExcludes(name, rule string) (excludes, error) {
 	var doc ruleFileDoc
 	if err := yaml.Unmarshal([]byte(rule), &doc); err != nil {
-		return nil, fmt.Errorf("cannot decode %s: %w", ruleFile, err)
+		return nil, fmt.Errorf("cannot decode %s: %w", name, err)
 	}
 	var out excludes
 	for _, r := range doc.Rules {
 		for _, glob := range r.Paths.Exclude {
 			re, err := regexp.Compile(globRegexp(glob))
 			if err != nil {
-				return nil, fmt.Errorf("cannot read the exclude %q in %s: %w", glob, ruleFile, err)
+				return nil, fmt.Errorf("cannot read the exclude %q in %s: %w", glob, name, err)
 			}
 			out = append(out, re)
 		}
 	}
 	if len(out) == 0 {
-		return nil, errors.New(ruleFile + " declares no paths.exclude list; the coverage check is built around the rule's own excludes")
+		return nil, errors.New(name + " declares no paths.exclude list; the coverage check is built around the rule's own excludes")
 	}
 	return out, nil
 }

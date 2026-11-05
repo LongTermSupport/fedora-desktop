@@ -86,7 +86,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -130,6 +130,7 @@ func TestSummaries(t *testing.T) {
 		"teamchat-keeps-off-v1": "whole gate (no file v2 of the agent-team bus owns holds a v1 name)",
 		"ansible-pause":         "whole gate (every pause registers its answer or says why it waits)",
 		"gh-scopes":             "gh-scope-outside-ssot rule, whole gate",
+		"find-race":             "find-race-negated-stat-test rule, whole gate",
 		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
 		"plan-script-logging":   "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)",
 		"stt-rules":             "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)",
@@ -384,12 +385,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "teamchat-keeps-off-v1", "hook-handlers", "plan-tests", "lxc-attach-streams"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "find-race", "ready-wait", "plan-script-logging", "stt-rules", "hook-handler-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "teamchat-keeps-off-v1", "hook-handlers", "plan-tests", "lxc-attach-streams"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-hook-handler-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-teamchat-separate.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-find-race.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-hook-handler-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-teamchat-separate.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
