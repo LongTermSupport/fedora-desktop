@@ -178,9 +178,7 @@ func TestCloseUnblocksTheReadAndWaitsForTheWatcher(t *testing.T) {
 	if !ok {
 		t.Fatalf("Watch returned a %T", got)
 	}
-	for !readParked() {
-		runtime.Gosched()
-	}
+	leakcheck.Poll(t, readParked)
 	check(t, w.Close())
 	select {
 	case <-w.done:

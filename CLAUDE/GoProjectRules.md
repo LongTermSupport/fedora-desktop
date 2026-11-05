@@ -59,6 +59,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)          |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner      | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)          |
+| `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                  | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)        |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1318,6 +1319,65 @@ whose callers need an order sorts at its return, and then it is not marked.
   (`raiseMinBackup` takes a maximum, `leftovers` names what it finds), but its refusal message
   lists in directory order; sorting it is the owner's decision, as `homefs.Root.Entries` and
   `seat`'s `entries` already do.
+
+### project_test_spin
+
+**What it is about.** A test waits for an asynchronous effect by polling a condition and
+yielding (`for !cond() { runtime.Gosched() }`). The loop's only exit is the condition, so when
+the condition can never hold it spins one CPU until the package's timeout, and the only trace
+is a timeout panic that names no cause. The exits that look like failure paths are not:
+`t.Context()` ends only when the test does, so a guard on it never fires while the test's own
+goroutine spins, and a count of polls is a bound on time in disguise that a loaded host shortens
+(`project_realtime_bound`).
+
+**Why it exists.** `engine` `TestSD3_8bAQueuedSendOutlivesA401` hung for the whole 30 minute
+`go test` timeout in CI's `teamchat-failpoints-test` stage twice (issue 140), at `[runnable]` in
+the engine tests' `until`, with the team's sender idle in its `select`. The cause was a test
+race (the fake records a PUT as it is made, before the sender has read its 401, so the test
+told the team's recovery before the sender's late stop, which then stood over a healthy team);
+the spin is why it cost 30 minutes and no diagnosis. The sweep found nine yield loops in
+`teamchat`'s tests, three of them with a guard on `t.Context()` that cannot fire.
+
+**What it flags**, in `_test.go` files: a `for` statement whose own code (condition, post
+statement or body, a function literal included, not a nested loop) names `runtime.Gosched`, by
+the function object (an import alias does not hide it) and as a call or a value, and in which no
+code, nested loops included, names `leakcheck.Idle`. A range loop ends by itself and is not
+judged.
+
+**The failure path, and where it is sound.** `leakcheck.Idle` is true only when every other
+goroutine is blocked on a channel, a select, a lock or a wait group (a stack dump stops the
+world, so it is one instant), so nothing can change the condition any more; a goroutine that
+runs, is runnable, sleeps, or waits in a system call or the network poller keeps it false. A
+goroutine that waits on a REAL timer's channel (`time.After`, a Timer, a Ticker) does not: it is
+blocked on a channel like any other, and `Idle` reads it as blocked (checked, not assumed). So the
+failure path is sound only in a world whose time is a fake clock that the test advances (the
+engine, `health` and `proof`), where nothing but the test can fire a timer; with real timers it
+can fail a wait that a timer would have ended. `leakcheck.Poll(tb, cond)` is
+the loop with it, and the engine's `world.until` and `waitFor` use it. Limit: a world with a
+goroutine in the network poller (a listener, a connection: `link`, `teamsync`, `wiring`) is never
+idle, so there `Poll` waits as a bare yield loop does; the rule holds the failure path where it
+can work and does not make one where it cannot.
+
+**How to fix a violation.** Wait on the event the code under test produces (a channel the fake
+closes, `clock.AwaitDue`, a poke), or poll with `leakcheck.Poll`.
+
+- Red, fixture: `testdata/src/fix/internal/spin` (the originating bare spin, a select's default,
+  the yield in the post statement, the dead `t.Context()` guard, a function literal, an import
+  alias, the function as a value, a spin that also counts, an inner loop of an outer loop; the
+  loops that ask `leakcheck.Idle`, also in a nested loop, a single yield, a range loop and a
+  poll that does not yield: clean).
+- Red, real tree: nine findings in `./internal/teamchat/...`: `engine` (`until`, `settle`, two in
+  `recv_test.go`), `health`, `proof/watch_test.go`, `link`, `wiring`, `teamsync`.
+- Green: each of the nine waits through `leakcheck.Poll` (the wait test that advances the clock
+  until it is answered advances inside the poll: `AwaitDue` cannot name its retry's hold, which
+  shares its due instant with status.json's pacing timer).
+- Not caught: a poll that does not yield (a loop of round trips to another goroutine, as
+  `waitFor` was), a yield taken before the loop and called in it through a variable, a spin made
+  of recursion or `goto`, and a loop in a non-test file that a test calls.
+- The other half of issue 140's class, a test that acts on the engine after the fake recorded a
+  call without waiting for the engine's follow-up, is not a shape a rule can see (which call
+  has a follow-up is the engine's meaning): see [Defect classes that cannot be a
+  rule](#defect-classes-that-cannot-be-a-rule).
 
 ## Defect classes that cannot be a rule
 

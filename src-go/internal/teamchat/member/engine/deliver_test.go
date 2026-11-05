@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -237,12 +236,7 @@ func (dw *dworld) short(due, d time.Duration) {
 func (dw *dworld) settle() {
 	dw.t.Helper()
 	n := dw.e.poke()
-	for dw.e.settled.Load() < n {
-		if dw.t.Context().Err() != nil {
-			dw.t.Fatal("the loop never went idle")
-		}
-		runtime.Gosched()
-	}
+	leakcheck.Poll(dw.t, func() bool { return dw.e.settled.Load() >= n })
 }
 
 func peerItem(id paths.TeamID, n int, sent int64, text string) team.Item {
