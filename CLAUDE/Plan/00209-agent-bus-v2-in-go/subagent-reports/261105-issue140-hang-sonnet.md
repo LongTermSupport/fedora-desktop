@@ -127,3 +127,36 @@ Run in this container (a host at load average near 90, so wall times are long):
   `Poll` could fail a wait that a timer would have ended. The three texts now say so; no code changed.
 - The mechanism of the hang (section "Mechanism") was not re-run by the reviewer: the proof test is not committed and
   was not copied out. Its committed form, `TestAPutIsRecordedBeforeItsAnswerIsHandled`, is the check.
+
+## 9. Found when this branch was merged with the other issue 140 branch (the coordinator)
+
+`qa-changed` over the merged tree failed `TestWaitRetriesARestoredItemThatCouldNotBeFetched` (`recv_test.go:395`,
+`leakcheck: every other goroutine is blocked and the condition does not hold`), the one test this report's own first run
+had failed and fixed. Chasing it found four defects in what this branch adds, each of which makes a test fail when its
+code is right. All four are fixed in the merge's follow-up commits; each fix was seen red first.
+
+1. **A `Poll` condition that acts** (the failure above). The converted wait advanced the fake clock inside its condition.
+   `Poll` reads the condition again after the idle reading, so when the engine had already reacted to the first advance and
+   gone idle, the second read advanced the clock again and returned false, and `Poll` failed a wait that was about to
+   progress. It also advanced on every poll, idle or not, so a slow host could run the wait's 10 s deadline out first.
+   Fix: `leakcheck.Drive(tb, cond, step)`, which calls `step` only when every other goroutine is blocked and the condition
+   still does not hold, at most 1000 times (a count of acts on an idle world, not of time). Class and detector:
+   `project_poll_pure` (`CLAUDE/GoProjectRules.md`), red on exactly that one line of the real tree before the fix.
+2. **A consuming condition read a third time.** `Poll` and `Drive` kept looping after the read that followed the idle
+   reading held, so a condition that takes what it finds (a receive) was read once more, found nothing, and failed a test
+   whose condition held. Both now return on that read. Tests: `TestPollEndsOnTheReadAfterTheIdleReadingWithoutReadingAgain`
+   and the `Drive` twin, red before.
+3. **`Idle` read a goroutine in a plain `semacquire` as blocked.** With a goroutine dump taken at a failure (the engine
+   wait went false-red in a few runs of a thousand under parallel load), `Serve` was in `semacquire` at its first line,
+   before any refetch: a wait of the runtime's (a collection starting, the world stopping), ended by goroutines a dump does
+   not list. `sync`'s own waits name themselves in Go 1.26 (`sync.Mutex.Lock`, `sync.WaitGroup.Wait`), so plain
+   `semacquire` was removed from the blocked states. After it, 2880 runs of the wait test in six parallel copies passed;
+   before it, failing batches turned up at about one in a few hundred runs, so this is evidence the hole is closed, not a
+   proof.
+4. **`TestIdleWhenEveryOtherGoroutineIsParked` failed** when the test before it had no goroutine of its own (a single
+   `Idle` reading right after the previous test finds that test's goroutine still ending, outside the synctest bubble):
+   with that test and a goroutine-free one run as pairs 20 times over, about half of those batches of 20 failed, so a few
+   iterations in a hundred. It reads through `idleSoon` now (a range loop of yields); 0 failures in 400 iterations (four
+   pairings, five batches of 20 each), and the whole package passes shuffled.
+
+What this does not change: `Poll` is still sound only in a world whose time is a fake clock the test advances (section 8).

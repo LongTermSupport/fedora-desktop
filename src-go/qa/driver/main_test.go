@@ -17,7 +17,7 @@ func TestDriverRegistersEveryRule(t *testing.T) {
 		"project_tmux_targets": true, "project_waitdelay": true, "project_hidden_bindings": true,
 		"project_package_tests": true, "project_self_erasing_clipboard": true, "project_fakeclock_count": true,
 		"project_goroutine_end": true, "project_rawconn_probe": true, "project_listing_order": true,
-		"project_test_spin": true,
+		"project_test_spin": true, "project_poll_pure": true,
 	}
 	for _, a := range as {
 		delete(want, a.Name)

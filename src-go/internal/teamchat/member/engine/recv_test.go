@@ -389,18 +389,17 @@ func TestWaitRetriesARestoredItemThatCouldNotBeFetched(t *testing.T) {
 	f.verdicts[evID(1)] = humanItem(ops, 1, 1, "back").Verdict
 	f.mu.Unlock()
 	// The retry's hold may not be armed yet (status.json's pacing timer is due at the same
-	// instant, so AwaitDue cannot name it): advance until the wait answers, which fails the
-	// test once every other goroutine is blocked and it has not.
+	// instant, so AwaitDue cannot name it): advance each time every other goroutine is blocked
+	// and the wait has not answered, which fails the test if it never does.
 	var d wire.Done
-	leakcheck.Poll(t, func() bool {
+	leakcheck.Drive(t, func() bool {
 		select {
 		case d = <-got:
 			return true
 		default:
-			w.clk.Advance(waitRetry)
 			return false
 		}
-	})
+	}, func() { w.clk.Advance(waitRetry) })
 	if d.Ack == "" || out.kinds() != "human" {
 		t.Fatalf("wait = %+v %s", d, out.kinds())
 	}

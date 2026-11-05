@@ -237,7 +237,8 @@ func TestAGoroutineIsBlockedOnlyInTheWaitsAnotherEnds(t *testing.T) {
 		{"sync.Mutex.Lock", true},
 		{"sync.WaitGroup.Wait, 1 minutes", true},
 		{"sync.Cond.Wait", true},
-		{"semacquire", true},
+		{"sync.RWMutex.RLock", true},
+		{"semacquire", false},
 		{"chan receive (durable)", true},
 		{"synctest.Run (durable)", true},
 		{"running", false},
@@ -259,6 +260,21 @@ func TestAGoroutineIsBlockedOnlyInTheWaitsAnotherEnds(t *testing.T) {
 	}
 }
 
+// idleSoon is Idle once the goroutines of earlier tests have finished ending. A test's goroutine is
+// still running for a moment after it reports, outside a synctest bubble, so a single reading made
+// right after the previous test can find it and read false (a few iterations in a hundred when the
+// test before has no goroutine of its own to give it time). The yield lets it end; it is a range
+// loop, which ends by itself, and the count is far past the few turns an ending goroutine needs.
+func idleSoon() bool {
+	for range 10000 {
+		if Idle() {
+			return true
+		}
+		runtime.Gosched()
+	}
+	return false
+}
+
 // Idle is true once every other goroutine is parked, and false while one is asleep (a timer
 // ends its wait) or running.
 func TestIdleWhenEveryOtherGoroutineIsParked(t *testing.T) {
@@ -266,7 +282,7 @@ func TestIdleWhenEveryOtherGoroutineIsParked(t *testing.T) {
 		release, done := make(chan struct{}), make(chan struct{})
 		park(release, done)
 		synctest.Wait()
-		idle := Idle()
+		idle := idleSoon()
 		close(release)
 		<-done
 		if !idle {
@@ -305,6 +321,23 @@ func TestPollReturnsOnceTheConditionHolds(t *testing.T) {
 	<-done
 }
 
+// A condition that takes what it finds (a receive) holds once. When the read after the idle reading
+// is the one that finds it, that read ends the wait: reading again would find nothing and fail a
+// test whose condition held.
+func TestPollEndsOnTheReadAfterTheIdleReadingWithoutReadingAgain(t *testing.T) {
+	if !idleSoon() {
+		t.Fatal("the world never went idle")
+	}
+	reads := 0
+	Poll(t, func() bool {
+		reads++
+		return reads == 2
+	})
+	if reads != 2 {
+		t.Fatalf("reads = %d, want 2", reads)
+	}
+}
+
 // With every other goroutine blocked and the condition false, Poll fails the test, once.
 func TestPollFailsWhenNothingCanMakeTheConditionHold(t *testing.T) {
 	tb := &fakeTB{TB: t}
@@ -316,6 +349,83 @@ func TestPollFailsWhenNothingCanMakeTheConditionHold(t *testing.T) {
 	<-done
 	if len(tb.errs) != 1 || !strings.Contains(tb.errs[0], "every other goroutine is blocked") {
 		t.Fatalf("errors %q", tb.errs)
+	}
+}
+
+// Drive acts only on a world that is idle with its condition false: with every other goroutine
+// blocked it calls the step, and returns once the step has made the condition hold.
+func TestDriveStepsAnIdleWorldUntilTheConditionHolds(t *testing.T) {
+	var n atomic.Int64
+	steps := 0
+	Drive(t, func() bool { return n.Load() >= 3 }, func() {
+		steps++
+		n.Add(1)
+	})
+	if steps != 3 {
+		t.Fatalf("steps = %d, want 3", steps)
+	}
+}
+
+// A condition that holds at the second read, taken after the idle reading, is not stepped: the
+// verdict on an idle world is made on a read nothing has run between.
+func TestDriveDoesNotStepWhenTheSecondReadHolds(t *testing.T) {
+	reads, steps := 0, 0
+	Drive(t, func() bool {
+		reads++
+		return reads >= 2
+	}, func() { steps++ })
+	if reads < 2 || steps != 0 {
+		t.Fatalf("reads = %d, steps = %d, want at least 2 and 0", reads, steps)
+	}
+}
+
+// Drive ends on the read after the idle reading too, without reading again (a receive holds once).
+func TestDriveEndsOnTheReadAfterTheIdleReadingWithoutReadingAgain(t *testing.T) {
+	if !idleSoon() {
+		t.Fatal("the world never went idle")
+	}
+	reads, steps := 0, 0
+	Drive(t, func() bool {
+		reads++
+		return reads == 2
+	}, func() { steps++ })
+	if reads != 2 || steps != 0 {
+		t.Fatalf("reads = %d, steps = %d, want 2 and 0", reads, steps)
+	}
+}
+
+// While a goroutine runs the world is not idle, so the step is not called: the goroutine's own
+// progress is what the wait is for. The goroutine computes without blocking or yielding, for a
+// fixed count of iterations that ends by itself, so Drive's readings find it running or runnable
+// until it stores.
+func TestDriveDoesNotStepWhileAGoroutineRuns(t *testing.T) {
+	var n, work atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 300_000 {
+			work.Add(1)
+		}
+		n.Store(1)
+	}()
+	Drive(t, func() bool { return n.Load() == 1 }, func() { t.Error("stepped while a goroutine was running") })
+	<-done
+}
+
+// A step that never makes the condition hold fails the test after the most steps Drive takes, on
+// a world that was idle every time: a count of acts, not of time, so a loaded host does not
+// shorten it.
+func TestDriveFailsWhenTheStepsNeverMakeTheConditionHold(t *testing.T) {
+	tb := &fakeTB{TB: t}
+	steps := 0
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		Drive(tb, func() bool { return false }, func() { steps++ })
+	}()
+	<-done
+	if steps != driveMaxSteps || len(tb.errs) != 1 || !strings.Contains(tb.errs[0], "steps") {
+		t.Fatalf("steps = %d, errors %q", steps, tb.errs)
 	}
 }
 

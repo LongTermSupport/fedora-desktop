@@ -97,10 +97,13 @@ type goroutine struct {
 }
 
 // blockedStates are the waits that only another goroutine ends, by the start of the state a
-// dump names: a channel, a select, a lock, a wait group, a condition, a synctest bubble's end. A
-// goroutine that is running, runnable, in a system call or the network poller, or asleep is not
-// in one: it can make progress by itself.
-var blockedStates = []string{"chan receive", "chan send", "select", "sync.", "semacquire", "synctest."}
+// dump names: a channel, a select, a lock, a wait group, a condition (each of sync's names its
+// own), a synctest bubble's end. A goroutine that is running, runnable, in a system call or the
+// network poller, or asleep is not in one: it can make progress by itself. Nor is one in a plain
+// "semacquire": sync's own waits name themselves, and the runtime's (a collection starting, the
+// world stopping) are ended by goroutines a dump does not list, so a goroutine in one reads as
+// blocked while it is about to go on.
+var blockedStates = []string{"chan receive", "chan send", "select", "sync.", "synctest."}
 
 // stateOf reads the state out of a dump's header line: "goroutine 7 [chan receive, 3 minutes]:".
 var stateOf = regexp.MustCompile(`^goroutine \d+ \[([^\],]*)`)
@@ -131,15 +134,48 @@ func Idle() bool {
 // Poll yields until cond holds, and fails tb once every other goroutine is blocked (Idle) and cond
 // still does not hold: nothing can change it, so the wait would otherwise spin one CPU to the
 // package's timeout. cond is read again after the Idle reading, which keeps the verdict sound: no
-// goroutine runs between the two but the caller's. A world with a goroutine in the network
-// poller (a listener, a connection) is never Idle, so there Poll waits as a bare yield loop does.
+// goroutine runs between the two but the caller's, so cond must only read (project_poll_pure
+// flags one that moves a fake clock, sends or closes; Drive is the wait that acts). A cond that
+// takes what it finds, a receive, holds once: the read after the idle reading that finds it ends
+// the wait. A world with a goroutine in the network poller (a listener, a connection) is never
+// Idle, so there Poll waits as a bare yield loop does.
 func Poll(tb testing.TB, cond func() bool) {
 	tb.Helper()
 	for !cond() {
-		if Idle() && !cond() {
+		if Idle() {
+			if cond() {
+				return // held at the read after the idle one: a condition that takes what it finds holds once
+			}
 			tb.Fatal("leakcheck: every other goroutine is blocked and the condition does not hold")
 		}
 		runtime.Gosched()
+	}
+}
+
+// driveMaxSteps is the most steps Drive takes on a world that was idle each time.
+const driveMaxSteps = 1000
+
+// Drive is Poll for a wait whose world only the caller can move: it yields until cond holds, and
+// each time every other goroutine is blocked (Idle) and cond still does not hold it calls step,
+// which acts on the world (advances a fake clock) so that something can run. cond reads and never
+// acts, so the read after the idle reading is still one that nothing has run between, and step
+// runs only on a world that is still. A wait that would need more than driveMaxSteps steps fails
+// tb: a count of acts on an idle world, which a loaded host does not shorten, unlike a count of
+// polls. Like Poll it is sound only in a world whose time is a fake clock the test advances.
+func Drive(tb testing.TB, cond func() bool, step func()) {
+	tb.Helper()
+	for steps := 0; !cond(); runtime.Gosched() {
+		if !Idle() {
+			continue
+		}
+		if cond() {
+			return // held at the read after the idle one: a condition that takes what it finds holds once
+		}
+		if steps == driveMaxSteps {
+			tb.Fatal("leakcheck: the condition does not hold after the most steps Drive takes on an idle world")
+		}
+		steps++
+		step()
 	}
 }
 
