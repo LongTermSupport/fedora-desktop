@@ -319,6 +319,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and
     merged into the branch; their coverage and reviews are in [BUILT-n3.md](BUILT-n3.md).
+  - Issue #160: a served op whose state-goroutine step outlives its deadline (CPU starvation)
+    answers 4 `timed-out`, never 1 `internal`; the engine's one failure sink holds it
+    (`fix/status-internal-160`, class in GoProjectRules.md).
 
 - [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,

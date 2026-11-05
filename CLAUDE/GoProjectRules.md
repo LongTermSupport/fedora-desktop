@@ -1817,6 +1817,29 @@ bash they replaced and in the Go during review; each instance is in the audit re
   *shortening* a bound, and the fix for this class is to state the bound as the schedule's
   worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
 
+- **A request's wait ending reported as a failure of the engine rather than as a bound that
+  expired** (fedora-desktop#160: under heavy CPU starvation `status` answered 1 `internal`, "the
+  link failed inside"). Each op the link's engine serves waits for the state goroutine
+  (`Engine.do`) under the request's own deadline (2 s for status, inbox and recv). When the state
+  goroutine does not take the step in time, `do` returns the context's error, and status, inbox,
+  recv, verify, history, say, ping and reply handed it to `internal` or `doneOf`, which answered
+  1; only wait (and some send steps) named it 4 `timed-out`. No rule: whether an error is a
+  context's end is a fact of what a call returns at run time, through `do`, a team call or a
+  helper that wraps it, not a shape a syntax tree shows; a rule on the call sites would also flag
+  the record-write and framing errors that are the link's own. What holds it instead: the engine's
+  one sink. `internal` (which `doneOf` falls back to) answers a context's end as 4 `timed-out`
+  ("the link did not answer within the request's deadline"), so no op can answer it as 1;
+  `TestAContextsEndIsNeverInternal` pins the sink and
+  `TestARequestWhoseStepTheStateGoroutineDoesNotTakeTimesOut` holds the state goroutine and ends
+  each served op's deadline only once it is blocked waiting (`leakcheck.Drive`'s step): red on
+  8 of the 9 ops before the fix (wait was sound), green after. Swept and sound: the hooks' view
+  (`link/hooks.go`) answers an empty hook answer on any engine error, by design; the client's
+  `internal` answers are its own framing, connection and acknowledgement failures, and a client
+  past its deadline sees the link gone (a 69 answer). Not closed: `ErrStopped` (a request that
+  reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
+  reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
+  lists its ops by hand.
+
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
 `2>/dev/null`: nord B3, B11, reclaim B3, B6, open B5, B10, B11) is `errcheck`'s and `nilerr`'s in
