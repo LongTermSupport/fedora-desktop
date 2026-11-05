@@ -129,11 +129,18 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
      removed member's team is gone, LN8. Neither reaches this step.)
   3. the size: more than 1501 bytes read, or more than 1500 after the newline is removed, 10
      `body` ("a report is at most 1500 bytes; it is never cut"); then `ReportForm`: an empty
-     first line or a headline over 120 code points, 10 `body`, naming which;
+     first line or a headline over 120 code points, 10 `body`, naming which (three messages:
+     the size, the empty headline, the long headline). The client does only the reading and the
+     one newline of n3f-D1 (and 64 for a terminal, 10 `schema` for non-UTF-8, which cannot
+     travel in the request); it refuses no size and no empty text, since only the link knows
+     the role and step 2 comes first;
   4. the secret check (the twelve shapes and the member's own token): 10 `secret`;
   5. the reports room verified now (RP4);
   6. `Admit`, its report window seeded from `outbox.reports`: `report_per_hour` reports already
-     in the last 3600 s, 14 `report-rate`, the message naming when the oldest leaves the window;
+     in the last 3600 s, 14 `report-rate`, the message naming when the oldest leaves the window
+     as seconds from now, rounded up, so it reads the same with any clock ("team T allows N
+     reports an hour and they are made; the oldest leaves the window in S seconds; a report that
+     was not posted still counts");
      the same text within 60 s, 15 `duplicate`; the send bucket empty, 14 `rate`;
   7. SD3's write: the token, the transaction id, the content and the report's time in
      `outbox.reports` (n3f-D6) in one store write before the PUT, which the team's sender makes.
