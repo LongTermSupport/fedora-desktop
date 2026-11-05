@@ -144,6 +144,28 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `IndexedQuestion.clone()` now give `[]`, never `null`, for an empty list. Not built: the
   store (`member/state`, G2) that embeds `QuestionsState`; the engine's use of the build record.
 
+- **n3f-a, G2 (the store's new keys)** on `feat/bus-v2-n3f-a-store` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261105-n3f-a-store-sonnet.md`): with this part n3f-a is built whole (G1, G2,
+  G4, G5, G6, G7), pending its review. The seven keys of SPEC-n3f 12.6, strictly decoded and
+  always present in an encoded store: in `outbox` after `last_sent`, `reports` (at most 60
+  times), `questions_unechoed` (an event id or null), `questions_uncounted`
+  (`{"count","said"}`, `said` at most `count`), `questions_handover`; at the top level after
+  `outbox`, `questions` (`*proto.QuestionsState`, null for no index; the store runs the codec's
+  `Check` with the team's server, `paths.ServerName`), `reminded_ms` and `remind_late` (at
+  most 64 distinct numbers from 1). `MaxStore` is 16 x 256 KiB, 4 MiB; `TestStoreFullFitsTheFileCap`
+  holds a store with every cap full at its widest (3 428 163 bytes, its `questions` key
+  1 001 559 of at most 1 101 056), n3d's sum 3 001 136, QX6's sum 4 104 600 and the round-up.
+  `Version` stays 1: a store written before this change has none of the keys and is refused by
+  the strict decoder (the engine's refused-store path), never read with them defaulted; a new
+  store (`NewStore`) writes all seven. The item id grammar takes `~humans`, the reminder's key
+  (`proto.ReminderKey`, A 10.5), which it refused: only on a TIMEOUT in the questions room, in
+  pending and in the ledger. Coverage: `member/state` 99.8% of statements (`engine` 92.7,
+  `teamsync` 95.2, `keeper` 91.2, `link` 92.3 pass unchanged under `-race`). Not built: what
+  writes the keys (n3f-b, n3f-c), their drop at a demotion (n3f-c), the verbs, the skill.
+  Open for the owner (the report's finding 1): `outbox.sending[].content` is sized in A's
+  compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
+  against its 20 KiB size.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
