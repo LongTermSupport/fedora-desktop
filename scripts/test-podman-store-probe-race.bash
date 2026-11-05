@@ -112,22 +112,26 @@ if [ "$guard_at" -ge 0 ]; then
     unguarded=("${guarded[@]:0:guard_at}" "${guarded[@]:guard_at+2}")
 fi
 
-# A file really owned outside the range is still found. As root it is given to a spare uid; as a
-# user it is the user's own file and the probe is told the user is someone else.
+# An entry really owned outside the range is still found. As root the file is given to a spare
+# uid, and the directory above it is root's, which the probe excludes. As a user the probe is
+# told the user is someone else, so the directory itself, the user's own, is the first entry it
+# meets owned outside the range, and -quit stops there.
 real="$WORK_DIR/real"
 mkdir -p "$real"
 : >"$real/foreign"
 other_uid=4243
 [ "$me" = "$other_uid" ] && other_uid=4244
+expect_found="$real"
 if [ "$me" = 0 ]; then
     chown 4242 "$real/foreign" || check "a test file can be given to uid 4242" "yes" "no"
+    expect_found="$real/foreign"
 fi
 if ! probe_argv "$real" "$other_uid" >"$WORK_DIR/argv"; then
     echo "FAIL: cannot read the probe's argv from $TASK" >&2
     exit 1
 fi
 mapfile -d '' control <"$WORK_DIR/argv"
-check "the probe finds a file owned outside the range" "$real/foreign" \
+check "the probe finds an entry owned outside the range" "$expect_found" \
     "$("$FIND" "${control[@]:1}" 2>&1)"
 
 # The churn: files of the test's own uid (never a match) created and deleted while find walks.
