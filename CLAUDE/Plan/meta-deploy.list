@@ -32,9 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# The status line names an unset CLAUDE_PROJECT_DIR instead of running /.claude/hooks/status-line
-# (#138), in the Go pingbus-status-line, its Python reference and teamchat's. Expected:
-# play-agent-bus (rebuilds pingbus-status-line) and play-claude-yolo (ccy 3.112.1, image
-# 2.79.25, which carries the Python). Acceptance: the status line still renders in a session.
-changed-plays
