@@ -1,0 +1,51 @@
+rules:
+  # Rule: a find that ignores readdir races judges only entries it could stat (Defence Before
+  # Fix; CLAUDE/QA.md "find-race-negated-stat-test"; issue #152).
+  #
+  # -ignore_readdir_race tells GNU find that an entry gone between readdir and stat is not an
+  # error. It does not stop find testing that entry: every test that needs the stat (-uid, -user,
+  # -group, -perm, -newer, -size, -links ...) is simply false, so a NEGATED one is true and the
+  # entry matches. The rootless store ownership probe reported a container's deleted /tmp file
+  # as "owned outside the subuid range" and failed play-podman.yml for a store that was clean.
+  #
+  # WRONG: find "$store" -ignore_readdir_race ! -uid 0 ! -uid "$user" -print -quit
+  # RIGHT: find "$store" -ignore_readdir_race -links +0 ! -uid 0 ! -uid "$user" -print -quit
+  #
+  # -links +0 is true for every entry that exists and false for one that cannot be stat'ed; find
+  # keeps the stat it made, so every later test judges the same, existing entry. The guard must
+  # come before the first negation. A test answered from the directory entry (-type, with d_type)
+  # is no guard, which is why the rule asks for -links +0 itself.
+  #
+  # The guard is -links +0 exactly. In YAML the +0 must be quoted: unquoted it is the integer 0,
+  # Ansible passes -links 0, and the probe matches nothing at all.
+  #
+  # Two forms, one hazard: the option before the negation with no -links +0 between them, and a
+  # negation before the option (find warns that a global option belongs first; put it first and
+  # add the guard). The command is followed across a shell line continuation and across YAML or
+  # code list items, so an Ansible argv list and a subprocess list are read like a shell line.
+  - id: find-race-negated-stat-test
+    pattern-either:
+      - pattern-regex: '-ignore_readdir_race\b(?:(?!-links(?:[ \t]+[''"]?\+0[''"]?(?![\w])|[ \t]*\n[ \t]*- [''"]\+0[''"]|[''"],[ \t]*[''"]\+0[''"]))(?:\\\n|\n(?=[ \t]*(?:- |[''"]))|[^\n]))*?(?<![\w-])(?:!|-not\b)[''"]?[\s,''"\\-]*(?:(?:\\?\(|[''"]\([''"]|\()(?:[^)\n]|\n(?=[ \t]*(?:- |[''"])))*?)?(?<![\w])-(?:uid|gid|user|group|nouser|nogroup|perm|newer\w*|[acm](?:time|min|newer)|used|size|links|inum|samefile|empty|readable|writable|executable|type|xtype|fstype|context)\b'
+      - pattern-regex: '(?<![\w-])(?:!|-not\b)[''"]?[\s,''"\\-]*(?:(?:\\?\(|[''"]\([''"]|\()(?:[^)\n]|\n(?=[ \t]*(?:- |[''"])))*?)?(?<![\w])-(?:uid|gid|user|group|nouser|nogroup|perm|newer\w*|[acm](?:time|min|newer)|used|size|links|inum|samefile|empty|readable|writable|executable|type|xtype|fstype|context)\b(?:\\\n|\n(?=[ \t]*(?:- |[''"]))|[^\n])*?-ignore_readdir_race\b'
+    message: >
+      find-race-negated-stat-test: find -ignore_readdir_race with a negated stat test matches
+      an entry that vanished during the walk. Put -links +0 after the option and before the
+      first negation. See CLAUDE/QA.md "find-race-negated-stat-test".
+    paths:
+      exclude:
+        # This rule and its fixture.
+        - '.semgrep/find-race.*'
+        # Records, not code: nothing runs a plan's prose, a journal, a review or a changelog.
+        # Plan SCRIPTS are code and stay in.
+        - 'CLAUDE/Plan/**/*.md'
+        - 'docs/*changelog*.md'
+        # Upstream hooks-daemon files, replaced wholesale on every upgrade.
+        - '.claude/hooks-daemon/**'
+        - '.claude/skills/**'
+        - 'untracked/**'
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+      dbf-class: a find over a changing tree whose match rests on a negated stat test
