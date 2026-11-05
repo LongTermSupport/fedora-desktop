@@ -94,6 +94,18 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   store's keys and `MaxStore` at 4 MiB), G4 (records), G5 (the filter's argument), section 6's
   codecs. Nothing of n3f-b to n3f-e is built.
 
+- **n3f-a, G1 in part** on `feat/bus-v2-n3f-a-index` (`subagent-reports/261105-n3f-a-index-sonnet.md`):
+  `proto.QuestionIndex` now folds idempotently by event id (`Feed`, `Attach(event, human)`);
+  attaches a human post whatever its delivery verdict and answers `AttachmentOf` read-only;
+  tracks unattached posts and the agent plain replies that clear them (`Unattached`); keeps
+  `asked_by`, `re`, `remind_after_s`, `asked_ms` and the `Question:` section as its SHA-256
+  (`OpenDuplicate` hashes what it is given); `Unanswered` as ids (16 kept, a count past them,
+  reset by an agent thread post); the caps of QX6 in the fold (64 open with the evicted counted,
+  128 closed, 1024 posts, 64 unattached); redacted slots (`Slot`, `Next()` past them, held
+  numbers as closed redacted entries); provisional own entries (`PlaceQuestion`, `PlaceThread`,
+  `TakeDropped`); `State()` and `Copy()`; `Reminder.DueMs`. Not built yet: the strict codec of
+  the state with the build record, `RedactedSlot` over the raw event.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
