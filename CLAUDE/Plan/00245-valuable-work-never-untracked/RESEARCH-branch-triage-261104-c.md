@@ -50,5 +50,7 @@ IN-F44 9 (incl. the 4 empty ones), SUPERSEDED 10, FINISHED 8, WORTH-FINISHING 1,
 - The review-report branches (FINISHED/SUPERSEDED above) hold only reports; their value is as plan records. Whether to keep unmerged reports is the owner's call.
 - bus-v2-n3c-rv2 and -rv3: the report differs from merge-up's copy; not judged which is the fuller one.
 - skip-docker-env: F44 may meet the Podman-only case another way (provisioning profiles); not checked.
+  Checked since: it does (Docker is an optional play), so the branch is SUPERSEDED; see
+  [BRANCH-OUTCOMES-261105.md](BRANCH-OUTCOMES-261105.md).
 - worktree-ccy-reboot-restore: judged by the presence of restore service and registry on F44, not by a line-level feature comparison.
 - review/pingbus-compact-before-wake: the code is on feat/pingbus-compact-before-wake (another batch); its plan 00194 status is In Progress.

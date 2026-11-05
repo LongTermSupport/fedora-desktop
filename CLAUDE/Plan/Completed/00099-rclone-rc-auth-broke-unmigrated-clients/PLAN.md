@@ -5,6 +5,13 @@
 **Owner**: Claude (agent)
 **Priority**: High
 
+> **Attribution correction.** This plan is archived and its text stays as written. Where it
+> calls not converting the plan scripts to `_planlib.inc.bash` (`m6`) "the owner's call" or
+> "the owner trade-off" — `PLAN.md:136`, `PLAN.md:161`, `PLAN.md:195-196`, `deploy.bash:19-20` and
+> `acceptance.bash:127-128` — the cited 14:28 handoff (`JOURNAL/00099-Journal-26-09-16.md:151-172`)
+> is the agent's own deferral, which asks for a decision and records none. No owner ruling on
+> `m6` is recorded: the trade-off is undecided — open.
+
 ## Overview
 
 Plan 00094 authenticated the rclone remote-control API: the mount units dropped

@@ -12,7 +12,8 @@ The top bar is crowded, and two of its icons are this repository's own:
 surface) and **Fedora Desktop** (`extensions/fedora-desktop@fedora-desktop`, the host
 drift/health panel). Both use the same amber warning glyph for their alert, so two icons
 do not even tell the user which subsystem is shouting. The owner asked for the two to be
-consolidated into one Fedora Desktop icon to save space on the taskbar.
+consolidated into one Fedora Desktop icon to save space on the taskbar (a request made in
+conversation; the owner's words are not recorded).
 
 This plan makes container-watch a **section** of the single Fedora Desktop panel, gives
 the one icon a defined way to surface a container alert alongside the drift state, and
