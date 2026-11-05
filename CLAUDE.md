@@ -48,6 +48,18 @@ the method.
 - **Bash, YAML, Python:** a semgrep rule in `.semgrep/` with its fixture, or the language's
   own linter. A class no detector can express is said so, then fixed conventionally.
 
+### Dogfood This Repo's Tooling — HARD RULE
+
+**Running a tool this repository ships makes you its tester.** That covers pingbus,
+`run.bash`, `meta-deploy.bash`, plan scripts, QA gates and hooks, ccy and the Go commands.
+While you use one, watch for its faults: bugs, unclear errors, confusing prompts, misleading
+output, wrong or missing docs, anything that took two tries. Fix each fault you can reach (by
+Defence Before Fix for a defect), or log it as a GitHub issue or a plan as soon as you meet it.
+A workaround is allowed only once the fault is logged; a silent one is not. A seat that cannot
+fix or file reports the fault to its team's coordinator, who logs it.
+
+**Full rule:** [AgentNotes.md](CLAUDE/AgentNotes.md#running-this-repos-tooling-is-dogfooding-it-find-the-faults-then-fix-or-log-each-one)
+
 ### Tooling Is Go — Bash Only for Very Small Helpers — HARD RULE
 
 **Line in the sand: no more tooling is written in bash.** New tools, and any bash that grows
