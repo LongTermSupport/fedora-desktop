@@ -125,7 +125,7 @@ func TestPT1P2FailurePrintsTheReadingAndTheRecord(t *testing.T) {
 
 // verdict is each finding's first line: what fails, without the reading added under it.
 func verdict(findings []string) []string {
-	var out []string
+	out := make([]string, 0, len(findings))
 	for _, f := range findings {
 		out = append(out, strings.SplitN(f, "\n", 2)[0])
 	}
