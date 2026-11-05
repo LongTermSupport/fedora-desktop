@@ -58,14 +58,20 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   under `busfailpoints` (`pt1_model_test.go`, `pt1_run_test.go`, `pt1_model_unit_test.go`): a seed
   draws a schedule of posts, recv, wait, sends, a held, released or refusing inbox, homeserver
   restarts and a link SIGKILL, run over the real keeper and link with the fake Claude Code as CMD,
-  drained, and judged for P1, P2, P5, P6 and P11; 12 fixed seeds run in the gate's tagged stage
+  drained, and judged by one pure function that has P1, P2, P5, P6 and P11 (real runs reach P1, P6
+  and P11; see the reviewer's finding below for P2 and P5); 12 fixed seeds run in the gate's tagged stage
   (about 20 s) and `-pt1.random=<n>` is the manual run; a failing seed prints
   its replay (`-pt1.seed=N`). `TestPT1Points` kills the link at the 8 points a one-team session
   reaches (judge-before-persist, auth, awaiting, user-line, hand-out, while-handed, charge, send)
   and checks the same. Shown red by an `Ack` that leaves items pending (P11, six seeds). Not
   reached: P3 directly (a lost item is the observable), P4 and the removal and end points (their
   rows are `e2e_failpoints_test.go`'s), P7, P8-P10 and `link-after-missing` (180 s of quiet: no
-  clock seam in the link), `link-between-store-writes` (needs two teams).
+  clock seam in the link), `link-between-store-writes` (needs two teams). Reviewer's finding: with
+  the `repeat:` line never written (`proto/envelope.go`, `closingLines`), every PT1 row stays
+  green, so P2 is checked only by its unit case, not by a real run: no schedule or kill row makes a
+  redelivery in gate time (the one that would, `link-after-awaiting`, waits 180 s). P5 was not
+  shown to fire in a real run either: no drawn operation ends or removes a seat, and whether a
+  link kill posts a notice was not looked at.
 
 ## Task 3.3: LXC members
 

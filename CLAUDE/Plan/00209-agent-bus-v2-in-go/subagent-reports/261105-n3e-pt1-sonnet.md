@@ -135,3 +135,23 @@ delivery pace, the restart backoff of 1 s); the test adds no sleep.
 | `scripts/qa-changed.bash`                                                      | `--base feat/bus-v2-n3e-wire` (the two code commits and the documents): docs, go (go-qa on both modules, with the tagged lint, vet and test stages) and teamchat-keeps-off-v1 all passed; it did not end red on issue 135 or 136 |
 | `-tags tuwunel`                                                                | not run: `FAKEHS_TUWUNEL_BIN` is unset                                                                                                                                                                                           |
 | `scripts/qa-all.bash`                                                          | not run (not allowed here)                                                                                                                                                                                                       |
+
+## 9. Reviewer's checks and findings (the coordinator, after this report)
+
+Run in the builder's worktree, `-race -shuffle=on -tags busfailpoints`, container, `FAKEHS_TUWUNEL_BIN` unset:
+
+- Stability: `-run TestPT1 -count=3`, two copies at once (so under load): both ok, 177 s and 179 s for three counts each (a
+  count takes about 59 s under that load, 52 s alone). No seed or row failed in six full counts.
+- Lint and vet were not rerun by the reviewer; the builder's results in section 8 stand.
+- **A second planted defect, P2: the harness does not catch it.** In `proto/envelope.go`, `closingLines`, the `repeat:` line
+  was never written (`if e.Repeat && e.Kind == "mutation-never"`). All of `-run TestPT1` stayed green (ok, 52 s, 12 seeds and 8
+  rows). So the P2 check is proven only by its unit case (`TestPT1ChecksFireOnTheirOwnProperty`), and no real run produces a
+  redelivery in gate time: the point that would (`link-after-awaiting`) leaves the items in limbo for 180 s (finding 2), and
+  none of the other eight rows or the drawn operations makes the link deliver a second copy. The mutation was reverted; the
+  worktree was clean afterwards.
+- **P5 was not shown to fire in a real run either.** No drawn operation ends or removes a seat; whether a link kill posts a
+  notice was not looked at. The check has its unit case only.
+- What this means for the claim: PT1 slices 1 and 2 reach P1, P6 and P11 with real processes (P11 shown red by the builder's
+  defect); P2 and P5 are checked by a pure function whose real-run input never contains what they judge. The next slice needs
+  a way to make a redelivery in gate time (the clock seam of finding 1, or a socket fault that fails a write after the line is
+  in the transcript) and a removal or end operation, and a planted defect for each before either is called covered.
