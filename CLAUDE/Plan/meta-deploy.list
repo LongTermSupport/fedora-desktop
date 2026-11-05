@@ -32,11 +32,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# The store probe no longer counts a file deleted during its walk as owned outside the subuid
-# range (#152: -links +0 ahead of its negated -uid tests; the old-range triage found 0 items,
-# so the store is clean). Expected: play-claude-code-consumer (imports play-podman.yml, where
-# the probe failed) and play-vm-test-lab (scripts/git-hooks/lib/secret-scan.bash changed);
-# play-agent-bus and play-basic-configs have run. Acceptance: failed=0 for each, and
-# play-podman's ownership check passes with containers running.
-changed-plays
