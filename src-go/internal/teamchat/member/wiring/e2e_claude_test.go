@@ -119,6 +119,7 @@ func (w *world) claude(flags ...string) *session {
 	if !strings.HasPrefix(begun.Socket, w.rt+"/cc-socks/") || begun.Session != ccSessionID {
 		w.t.Fatalf("begin: %+v", begun)
 	}
+	s.transcript = begun.Transcript
 	return s
 }
 
