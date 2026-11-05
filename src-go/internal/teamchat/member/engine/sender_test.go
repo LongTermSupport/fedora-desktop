@@ -360,6 +360,26 @@ func TestTheRecoveryRefusesATriedSendItCannotLookFor(t *testing.T) {
 	}
 }
 
+// project_room_default: a queued send to a room this link does not post to is refused at its
+// post, never posted to main; the main send behind it goes on.
+func TestAQueuedSendToAnUnpostedRoomIsNotPostedToMain(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	question := queuedText(w, ops, 1)
+	question.Room = proto.PurposeQuestions
+	after := queuedText(w, ops, 2)
+	s.Outbox.Sending = []state.Sending{question, after}
+	f := w.sendingWith(ops, s)
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); !slices.Equal(got, []string{after.Txn}) {
+		t.Fatalf("posted %v, want only the main send", got)
+	}
+	if got := f.notices.sentRooms(); !slices.Equal(got, []string{mainRoom}) {
+		t.Errorf("the sends went to %v", got)
+	}
+}
+
 // A recovery whose read fails is the team's to retry: the sends wait, untouched.
 func TestARecoveryThatFailsLeavesTheSendsWaiting(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)

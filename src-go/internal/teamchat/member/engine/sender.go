@@ -236,15 +236,29 @@ func recordOwn(n team.Notices, p nextPost, id string, r proto.Roster) {
 }
 
 // recheck composes the queued content again with roster r, so a send the team no longer
-// allows (an addressee parked or gone, a role changed) is refused at its post.
+// allows (an addressee parked or gone, a role changed) is refused at its post; a send to a room
+// this link does not post to is refused too.
 func (e *Engine) recheck(p nextPost, token string, r proto.Roster) error {
 	v, err := proto.Parse(p.entry.Content)
 	if err != nil {
 		return fmt.Errorf("engine: a queued send does not parse: %w", err)
 	}
-	if p.entry.Room == proto.PurposeReports {
+	switch p.entry.Room {
+	case proto.PurposeMain:
+		return e.recheckMain(p, token, r, v)
+	case proto.PurposeReports:
 		return e.recheckReport(p, token, r, v)
 	}
+	return unknownRoom(p.id, p.entry.Room)
+}
+
+// unknownRoom refuses a queued send to a room this link does not post to.
+func unknownRoom(t paths.TeamID, room string) error {
+	return exits.New(exits.CodeInternal, &t, msgUnbuilt, exits.Name("a send to the "+room+" room"))
+}
+
+// recheckMain is recheck for a send to main: a text or a ping, composed again.
+func (e *Engine) recheckMain(p nextPost, token string, r proto.Roster, v proto.Value) error {
 	dc, reason := proto.DecodeContent(v, proto.MainKeys)
 	if reason != "" {
 		return &proto.RefusalError{Reason: reason, Detail: "the queued content does not decode"}
@@ -257,10 +271,10 @@ func (e *Engine) recheck(p nextPost, token string, r proto.Roster) error {
 		if dc.Relation.IsAnswer() {
 			answers = dc.Relation.Root
 		}
-		_, err = c.Ping(dc.Ping, answers, dc.Body)
+		_, err := c.Ping(dc.Ping, answers, dc.Body)
 		return err
 	}
-	_, err = c.Text(dc.Text, dc.Relation.InReplyTo, dc.Body)
+	_, err := c.Text(dc.Text, dc.Relation.InReplyTo, dc.Body)
 	return err
 }
 
@@ -318,11 +332,16 @@ func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, e
 	switch {
 	case errors.Is(err, matrix.ErrAuthRefused):
 		code, msg = exits.CodeToken, msgLoginRefused
-	case errors.Is(err, matrix.ErrForbidden) && entry.Room == proto.PurposeReports:
-		// A report the homeserver forbids is that report's end alone (RP4); the team's main sends go on.
-		return e.droppedForbidden(ctx, h, entry)
 	case errors.Is(err, matrix.ErrForbidden):
-		code, msg = exits.CodeForbidden, msgForbidden
+		switch entry.Room {
+		case proto.PurposeMain:
+			code, msg = exits.CodeForbidden, msgForbidden
+		case proto.PurposeReports:
+			// A report the homeserver forbids is that report's end alone (RP4); the team's main sends go on.
+			return e.droppedForbidden(ctx, h, entry)
+		default:
+			return e.unposted(ctx, h, entry, unknownRoom(h.id, entry.Room))
+		}
 	}
 	if code != "" {
 		if doErr := e.do(ctx, func() {
