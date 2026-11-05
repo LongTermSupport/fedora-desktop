@@ -48,6 +48,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 chmod 0755 "$WORK_DIR"
 cp "$PROFILE_SRC" "$WORK_DIR/profile.bash"
 cp "$INCLUDE_SRC" "$WORK_DIR/history-search.bash"
+cp "$(dirname "$INCLUDE_SRC")/history-record.bash" "$WORK_DIR/history-record.bash"
 # Two PATHs: one that finds a stub fzf, and one of only the tools these shells run, so a
 # real fzf installed on the machine cannot turn the stock-bash case into the split one.
 mkdir "$WORK_DIR/with-fzf" "$WORK_DIR/no-fzf"
@@ -59,7 +60,7 @@ for tool in bash cut paste; do
     fi
 done
 chmod 0755 "$WORK_DIR/with-fzf" "$WORK_DIR/no-fzf" "$WORK_DIR/with-fzf/fzf"
-chmod 0644 "$WORK_DIR/profile.bash" "$WORK_DIR/history-search.bash"
+chmod 0644 "$WORK_DIR/profile.bash" "$WORK_DIR/history-search.bash" "$WORK_DIR/history-record.bash"
 
 passed=0
 failed=0
