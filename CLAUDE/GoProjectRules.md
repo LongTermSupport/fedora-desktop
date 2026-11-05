@@ -1689,6 +1689,27 @@ bash they replaced and in the Go during review; each instance is in the audit re
   the `./` prefix, the tests against the program's own option strings (scp's getopt string), and
   the host checks.
 
+- **A size or a cap computed from another encoding than the one written** (Plan 00209, the seat
+  store): teamchat's `member/state` sized each store entry in A's compact form
+  (`proto.Value.Size`, which writes `<`, `>`, `&` as one byte and U+2028 as three) and wrote the
+  file with encoding/json, which writes each as a six-byte escape, so a send of 16 373 `<` passed
+  the 20 KiB entry rule and was written as 101 263 bytes; 32 of them were refused only by the file
+  cap, which n3d-D1 promised never fires first. The sweep found the same defect in the awaiting
+  list's transcript path, `MaxRosterCache` (a Matrix event's 65 536 canonical bytes, written up to
+  six times as large) and `MaxSession`. Its forms are many: compact against escaped JSON, a Go
+  `len` against a JSON length, characters against bytes, runes against bytes. No rule can be
+  written: which call measures the value a later write writes, and in which encoding that write
+  is, is the data flow between two places the syntax tree does not join (the size is taken on a
+  `proto.Value`, the bytes come from a `json.Marshal` of a struct elsewhere), and a rule that
+  flagged every `Size()` or `len` near a cap would flag A's own wire caps, which are right
+  because both ends measure the compact form. What holds it: one encoder per writer, and every
+  size a rule takes measured through it (`member/state`'s `marshal` and `writtenSize`; the
+  delivery cap is `proto.WireBytes`, the same escaper the socket line is written with), and a
+  table test per file over every capped field enumerated from the code
+  (`store_written_test.go` walks `listCaps` and the `Store` type, so a list or key added later
+  fails until it has a row; `files_written_test.go` for the roster cache and session.json),
+  filling each with `<`, `&`, `"`, `\`, controls, multibyte UTF-8 and U+2028.
+
 - **A structured value matched as loose text** (`lsmod | grep "^nvidia"` counted `nvidia_drm`,
   nvidia-status B5; `grep -F | head -1` picked an older profile, nord B8; any `://` read as a URL
   and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
