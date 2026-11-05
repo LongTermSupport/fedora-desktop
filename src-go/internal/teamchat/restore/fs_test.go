@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -135,6 +136,9 @@ func TestOSReadDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// ReadDir promises no order, and none of its callers needs one: a directory lists in its
+	// filesystem's order (tmpfs newest first, ext4 by name hash), so the test sorts what it got.
+	slices.SortFunc(got, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
 	want := []Entry{{Name: "2", Kind: KindFile}, {Name: "5", Kind: KindOther}}
 	if !slices.Equal(got, want) {
 		t.Errorf("ReadDir = %v, want %v", got, want)

@@ -89,7 +89,7 @@ func TestE2EOfflineServer(t *testing.T) {
 	}
 	b.records("history", "--team", betaTeam.name)
 	b.recvUntil(beta.say("beta works"))
-	eventually(t, func() bool { return s.down(teamName) }, s.describe)
+	s.awaitDown(teamName)
 	if s.down(betaTeam.name) {
 		t.Fatalf("beta is down: %s", s.describe())
 	}
@@ -101,8 +101,34 @@ func TestE2EOfflineServer(t *testing.T) {
 // answerBound is how soon a verb the link serves from the store answers.
 const answerBound = 5 * time.Second
 
-// backoffCap is the most a team's retry waits (teamsync's maxBackoff).
-const backoffCap = 30 * time.Second
+// The schedule of a team whose homeserver cannot be reached, which these tests wait on: the
+// waits below are derived from it, not from settle, which bounds only a real process's own work.
+const (
+	// backoffCap is the most a team's retry waits (teamsync's maxBackoff).
+	backoffCap = 30 * time.Second
+	// downAfter is how old a team's failure streak is when the retry that finds it so marks the
+	// team down (teamsync's downAfter).
+	downAfter = 15 * time.Second
+	// retryHold is how long a send that failed transiently waits before it is tried again,
+	// unless a sync newer than its failure lifts the hold (the engine's retryHold).
+	retryHold = 30 * time.Second
+	// downBound is the longest a team takes to show down. The retries come after delays of 1, 2,
+	// 4, 8 and 16 s, each less a jitter of up to a quarter, so the fourth falls short of
+	// downAfter and the fifth, up to 31 s after the first failure, is the one that marks the team
+	// down: a bound of settle alone is shorter than that. No delay is longer than backoffCap, so
+	// the first retry past downAfter comes within backoffCap of it.
+	downBound = downAfter + backoffCap + settle
+	// deliveredBound is the longest a send queued while the server was down takes to be posted
+	// once the server is back: the team's retry comes within backoffCap, and a send held after a
+	// transient failure waits retryHold more when no newer sync lifts the hold first.
+	deliveredBound = backoffCap + retryHold + settle
+)
+
+// awaitDown waits for status to show the team down, within downBound.
+func (s *session) awaitDown(name string) {
+	s.w.t.Helper()
+	within(s.w.t, downBound, func() bool { return s.down(name) }, s.describe)
+}
 
 // down is whether status shows the team down.
 func (s *session) down(name string) bool {

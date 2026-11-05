@@ -94,7 +94,7 @@ func runsLeakcheck(pass *analysis.Pass) bool {
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				if call, isCall := n.(*ast.CallExpr); isCall {
 					fn := calledFunc(pass, call)
-					found = found || (fn != nil && fn.Name() == "Tests" && fn.Pkg() != nil && fn.Pkg().Name() == "leakcheck")
+					found = found || (fn != nil && fn.Name() == "Tests" && fn.Pkg() != nil && fn.Pkg().Name() == leakcheckPkgName)
 				}
 				return !found
 			})

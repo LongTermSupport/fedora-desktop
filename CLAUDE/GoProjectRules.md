@@ -33,31 +33,34 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                              | Defect class                                                                                                                                           | Found in                                                                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `project_seam_exec`               | a process started outside the runner, so no fake sees it                                                                                               | `teams`: `syscall.Exec` in the launcher hand-over                                                        |
-| `project_seam_commands`           | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)                    | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`                           |
-| `project_tmux_targets`            | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                               | the bash library, before the port                                                                        |
-| `project_testclock`               | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                                     | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                                             |
-| `project_waitdelay`               | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                               | `qa/internal/proc`: bug B25 of the qa-all port                                                           |
-| `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                                    | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                          |
-| `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                           | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                      |
-| `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)              | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                               |
-| `project_lifecycle_turn`          | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)                           |
-| `project_keeper_log_barrier`      | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                  | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)                        |
-| `project_fakeclock_count`         | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies      | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge                |
-| `project_goroutine_end`           | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                       | `link`: `go l.read()`, about 145 control readers left blocked in one test binary                         |
-| `project_rawconn_probe`           | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends | `link`: the pidfd watch never saw a keeper that died before the watch first ran                          |
-| `project_leakcheck_once`          | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak        | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher                |
-| `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong        | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                           |
-| `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires                   | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)               |
-| `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)            | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                     |
-| `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                        | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                   |
-| `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                                     | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9) |
-| `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)      | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                        |
-| `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                 |
-| `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                |
-| `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)          |
+| Rule                              | Defect class                                                                                                                                                   | Found in                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project_seam_exec`               | a process started outside the runner, so no fake sees it                                                                                                       | `teams`: `syscall.Exec` in the launcher hand-over                                                                                                                         |
+| `project_seam_commands`           | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)                            | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`                                                                                            |
+| `project_tmux_targets`            | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                                       | the bash library, before the port                                                                                                                                         |
+| `project_testclock`               | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                                             | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                                                                                                              |
+| `project_waitdelay`               | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                                       | `qa/internal/proc`: bug B25 of the qa-all port                                                                                                                            |
+| `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                                            | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                                                                                           |
+| `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                                   | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                                                                                       |
+| `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)                      | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                                                                                                |
+| `project_lifecycle_turn`          | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                        | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)                                                                                            |
+| `project_keeper_log_barrier`      | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                          | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)                                                                                         |
+| `project_fakeclock_count`         | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies              | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge                                                                                 |
+| `project_goroutine_end`           | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                               | `link`: `go l.read()`, about 145 control readers left blocked in one test binary                                                                                          |
+| `project_rawconn_probe`           | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends         | `link`: the pidfd watch never saw a keeper that died before the watch first ran                                                                                           |
+| `project_leakcheck_once`          | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak                | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher                                                                                 |
+| `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong                | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                                                                                            |
+| `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires                           | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)                                                                                |
+| `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)                    | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                                                                                      |
+| `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                                | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                                                                                    |
+| `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                                             | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9)                                                                  |
+| `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)              | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                                                                                         |
+| `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                               | `teams` board: every member not parked shown green "active" (Plan 00177)                                                                                                  |
+| `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter             | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
+| `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                               | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
+| `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
+| `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
+| `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1278,6 +1281,157 @@ unprivileged.
   flagged; `uid := -1` is too, since only the literal constant and the `os` calls are known to be
   the caller's).
 
+### project_listing_order
+
+**What it is about.** The order of a directory's entries is the filesystem's: ext4 hashes the
+names with a seed made at mkfs, tmpfs lists the newest first, btrfs by index. `os.ReadDir`,
+`fs.ReadDir`, `filepath.Glob` and `filepath.WalkDir` sort; `(*os.File).ReadDir`, `Readdir` and
+`Readdirnames` do not. A test that expects the order its author's machine gave passes there and
+fails on a runner whose filesystem lists the same names another way.
+
+**Why it exists.** `restore`'s `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]`
+(fedora-desktop#140); with the test's temp directory on tmpfs it fails every time.
+
+**What it flags**, in `_test.go` files: `slices.Equal`, `EqualFunc`, `Compare`, `CompareFunc` and
+`reflect.DeepEqual` given a call, or a variable last assigned from a call (no sort of it between),
+of a function that returns a listing in directory order. A function does when its body calls one
+of the three unsorted listing methods of `os.File` (or `fs.ReadDirFile.ReadDir`) or a function
+that does, has a slice among its results, and calls nothing that sorts (package `sort`, or
+`slices.Sort*`). The mark is an analysis fact, so a test of one package is judged against another
+package's function.
+
+**How to fix a violation.** Sort the listing before comparing, or compare it as a set. A function
+whose callers need an order sorts at its return, and then it is not marked.
+
+- Red, fixture: `testdata/src/fix/internal/badlisting` and `badlistingx` (the originating shape,
+  each listing API, a wrapper, a test helper, another package through the fact; sorted, `os.ReadDir`,
+  counts, sets, conversions and function values clean; the marks themselves are `want` facts).
+  Mutation checked: reporting off makes 11 `want` lines red; the sort guard off makes 2 clean
+  cases red.
+- Red, real tree: 1 finding, `internal/teamchat/restore/fs_test.go:139` (the originating test),
+  seen before the fix; the first sweep also hit a nil dereference of the rule on a call with no
+  function to judge (a conversion), now a fixture case.
+- Green: the test sorts what `OS.ReadDir` returned; 0 findings over `./...` untagged, with
+  `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module.
+- Not caught: an order asserted through an index (`got[0]`), a loop over the listing and the
+  expectation together, a value derived from the listing, a listing read through an interface
+  method (no body to mark), a comparison helper of the test's own, and the production use of a
+  directory order. `restore.OS.ReadDir` itself returns directory order: no caller needs it
+  (`raiseMinBackup` takes a maximum, `leftovers` names what it finds), but its refusal message
+  lists in directory order; sorting it is the owner's decision, as `homefs.Root.Entries` and
+  `seat`'s `entries` already do.
+
+### project_test_spin
+
+**What it is about.** A test waits for an asynchronous effect by polling a condition and
+yielding (`for !cond() { runtime.Gosched() }`). The loop's only exit is the condition, so when
+the condition can never hold it spins one CPU until the package's timeout, and the only trace
+is a timeout panic that names no cause. The exits that look like failure paths are not:
+`t.Context()` ends only when the test does, so a guard on it never fires while the test's own
+goroutine spins, and a count of polls is a bound on time in disguise that a loaded host shortens
+(`project_realtime_bound`).
+
+**Why it exists.** `engine` `TestSD3_8bAQueuedSendOutlivesA401` hung for the whole 30 minute
+`go test` timeout in CI's `teamchat-failpoints-test` stage twice (issue 140), at `[runnable]` in
+the engine tests' `until`, with the team's sender idle in its `select`. The cause was a test
+race (the fake records a PUT as it is made, before the sender has read its 401, so the test
+told the team's recovery before the sender's late stop, which then stood over a healthy team);
+the spin is why it cost 30 minutes and no diagnosis. The sweep found nine yield loops in
+`teamchat`'s tests, three of them with a guard on `t.Context()` that cannot fire.
+
+**What it flags**, in `_test.go` files: a `for` statement whose own code (condition, post
+statement or body, a function literal included, not a nested loop) names `runtime.Gosched`, by
+the function object (an import alias does not hide it) and as a call or a value, and in which no
+code, nested loops included, names `leakcheck.Idle`. A range loop ends by itself and is not
+judged.
+
+**The failure path, and where it is sound.** `leakcheck.Idle` is true only when every other
+goroutine is blocked on a channel, a select, a lock or a wait group (a stack dump stops the
+world, so it is one instant), so nothing can change the condition any more; a goroutine that
+runs, is runnable, sleeps, or waits in a system call or the network poller keeps it false, and
+so does one in a plain `semacquire`: sync's own waits name themselves (`sync.Mutex.Lock`,
+`sync.WaitGroup.Wait`), and the runtime's (a collection starting, the world stopping) are ended by
+goroutines a dump does not list. An `engine` wait went false-red on that one, a few runs in a
+thousand under load: the snapshot taken at one failure had `Serve` in `semacquire` at its first
+line, before any refetch, and read as blocked. A
+goroutine that waits on a REAL timer's channel (`time.After`, a Timer, a Ticker) does not: it is
+blocked on a channel like any other, and `Idle` reads it as blocked (checked, not assumed). So the
+failure path is sound only in a world whose time is a fake clock that the test advances (the
+engine, `health` and `proof`), where nothing but the test can fire a timer; with real timers it
+can fail a wait that a timer would have ended. `leakcheck.Poll(tb, cond)` is
+the loop with it, and the engine's `world.until` and `waitFor` use it. Limit: a world with a
+goroutine in the network poller (a listener, a connection: `link`, `teamsync`, `wiring`) is never
+idle, so there `Poll` waits as a bare yield loop does; the rule holds the failure path where it
+can work and does not make one where it cannot.
+
+**How to fix a violation.** Wait on the event the code under test produces (a channel the fake
+closes, `clock.AwaitDue`, a poke), or poll with `leakcheck.Poll`.
+
+- Red, fixture: `testdata/src/fix/internal/spin` (the originating bare spin, a select's default,
+  the yield in the post statement, the dead `t.Context()` guard, a function literal, an import
+  alias, the function as a value, a spin that also counts, an inner loop of an outer loop; the
+  loops that ask `leakcheck.Idle`, also in a nested loop, a single yield, a range loop and a
+  poll that does not yield: clean).
+- Red, real tree: nine findings in `./internal/teamchat/...`: `engine` (`until`, `settle`, two in
+  `recv_test.go`), `health`, `proof/watch_test.go`, `link`, `wiring`, `teamsync`.
+- Green: each of the nine waits through `leakcheck.Poll` (the wait test that advances the clock
+  until it is answered does so in the step of `leakcheck.Drive`: `AwaitDue` cannot name its
+  retry's hold, which shares its due instant with status.json's pacing timer).
+- Not caught: a poll that does not yield (a loop of round trips to another goroutine, as
+  `waitFor` was), a yield taken before the loop and called in it through a variable, a spin made
+  of recursion or `goto`, and a loop in a non-test file that a test calls.
+- The other half of issue 140's class, a test that acts on the engine after the fake recorded a
+  call without waiting for the engine's follow-up, is not a shape a rule can see (which call
+  has a follow-up is the engine's meaning): see [Defect classes that cannot be a
+  rule](#defect-classes-that-cannot-be-a-rule).
+
+### project_poll_pure
+
+**What it is about.** `leakcheck.Poll` and `leakcheck.Drive` fail a test when every other
+goroutine is blocked and the condition does not hold, and they read the condition again after
+the idle reading so that no goroutine has run between the two. A condition that acts breaks that:
+its second read moves the world the idle reading judged still, and the test fails although the
+move would have let the code under test go on. Whether it does depends on whether that code had
+finished reacting to the first read when the idle reading was taken, so the test passes on one
+run and fails on the next, and more often on a loaded host.
+
+**Why it exists.** The converted `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`
+advanced the fake clock inside its `Poll` condition; `qa-changed` failed it once on the merged
+tree (`leakcheck: every other goroutine is blocked and the condition does not hold`), with the
+engine idle at the sample and its next timer not yet advanced. The same loop advanced the clock
+on every poll, idle or not, so on a slow host it could also run the wait's own 10 s deadline out
+before the engine reacted.
+
+**What it flags**, in `_test.go` files: a function literal handed as the condition (the second
+argument) of `leakcheck.Poll` or `leakcheck.Drive`, nested function literals included, that
+calls `Advance`, `Suspend` or `StepWall` on a type named `Fake`, sends on a channel (a select's
+send included) or calls `close`.
+
+**How to fix a violation.** Read in the condition and act in the step of `leakcheck.Drive`,
+which is called only when every other goroutine is blocked and the condition does not hold, at
+most `driveMaxSteps` times (a count of acts on an idle world, not of time, so a loaded host does
+not shorten it):
+
+```go
+leakcheck.Drive(t, answered, func() { clk.Advance(d) })
+```
+
+A condition that takes what it finds, a receive, is not an act: it holds once, and `Poll` and
+`Drive` end on the read after the idle reading without reading again.
+
+- Red, fixture: `testdata/src/fix/internal/pollpure` (the originating clock move in a select's
+  default, `Suspend`, `StepWall`, a send, a select's send, `close`, a move inside a nested function
+  literal, a `Drive` condition that moves; with the analyzer reporting nothing, 8 `want` lines
+  go red, and with the receiver-name guard removed a clean `Advance` of another type goes red;
+  pure reads, a receive, `Drive`'s step, a move outside any condition, another type's `Advance`
+  and a condition held in a variable: clean).
+- Red, real tree: exactly one finding, `engine/recv_test.go`, over `./...`, over `./internal/teamchat/...`
+  with `busfailpoints`, and over the nested `qa` module (none there).
+- Green: that wait through `leakcheck.Drive`.
+- Not caught: a condition held in a variable or built by a function, a call that acts through
+  another function (a helper that advances), and an act that is not a clock move, a send or a
+  close (a write to a fake, a call that releases a gate).
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -1481,11 +1635,13 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `execx.Feed`, which refuse at run time a command whose argv holds the value (`checkSecrets`)
   and print as its name only; nord's `creds.hide` over nmcli's output; and the tests that check
   every recorded argv, both streams and the log for the password (`wantNoPassword`).
+
 - **Output on the wrong stream, or terminal bytes into a pipe** (open's `--list` on stderr, B12;
   nvidia-status's `--check` printing lines, B3, and colour escapes written into a pipe, B10).
   Which text is a command's payload is meaning ([StderrHygiene.md](StderrHygiene.md)). What
   holds it: each tool's tests assert stdout and stderr apart, colour is drawn only when
   `IsTerminal` and no `NO_COLOR`, and the reviews read every print against the rule.
+
 - **A removal wider than the action means** (vmtest's sweep removed whole passing-run
   directories, with the transcripts plans cite as evidence, where only the overlay frees disk,
   B19; it removed the disk of a fast-base build still running, inferring "failed" from the
@@ -1498,27 +1654,32 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `TestE51SymlinksAreLeft`, reclaim's prune and clear tests), the specs (SPEC-vmtest E51, E61;
   SPEC-reclaim E22, E24), and a default-no question before every destructive action
   ([InteractiveScripts.md](InteractiveScripts.md) rule 6).
+
 - **Ordering or ageing by a value the code itself changes** (the sweep ordered runs by their
   directory's mtime, which a removal inside moves, so a run it had just evicted read as the
   newest). Whether a `ModTime` belongs to a directory, and whether anything changes it, is not
   in the syntax tree; the search over the module found no other directory's mtime ordered by
   (`transcript` and `ftpcamera` read regular files). What holds it: the sweep orders by the
   start time in the run id, and `TestE51Sweep` gives the newest run the oldest mtime.
+
 - **A live thing taken as a leftover** (the sweep and the build directory above; a run
   `prune-runs` must not touch while it boots). Whether a process holds something is a run-time
   fact. What holds it: libvirt's listing and the run's `run.lock`, both read before a removal
   (SPEC-vmtest E61, E63), and the tests of a live run and a running build.
+
 - **A record that says done before it is** (`retention.log` said "evicted" before a removal that
   then failed, and a partial `prune-runs --yes` named nothing it had removed; a Ctrl-C landing
   after nord's connect turned a success into `Cancelled.`, U5). Which order is true is meaning.
   What holds it: `TestE62PruneRunsRemovalFails` and `TestE51SweepRemovalFails` (the log's
   `failed to remove` line and the "removed so far" list).
+
 - **An interrupt that kills a change half made, or is misread** (nord's and reclaim's bash died
   on Ctrl-C with nmcli or dnf still changing the machine, nord B16 and F2, reclaim B15 and M-1;
   open reported a handler ended by Ctrl-C as `exited -1`, B20). Which command changes state and
   must finish is meaning. What holds it: changing commands run under `context.WithoutCancel`
   and, where the terminal's SIGINT would reach them, in their own session (`execx` `NewSession`);
   each tool's cancel tests, and reclaim's `TestCtrlCEndsTheRun`, which sends a real SIGINT.
+
 - **A value another program re-parses, written or read differently from how it reads it**
   (nmcli splits `vpn.secrets` at `,` and trims, so a password with a comma was stored as half,
   nord B17; a path starting `-` reached `jq` as an option, open B16; the bash read ssh's options
@@ -1527,11 +1688,13 @@ bash they replaced and in the Go during review; each instance is in the audit re
   grammar. What holds it: the value refused before it reaches the program (`readCredentials`),
   the `./` prefix, the tests against the program's own option strings (scp's getopt string), and
   the host checks.
+
 - **A structured value matched as loose text** (`lsmod | grep "^nvidia"` counted `nvidia_drm`,
   nvidia-status B5; `grep -F | head -1` picked an older profile, nord B8; any `://` read as a URL
   and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
   nvidia-status B1). What a field is, is meaning. What holds it: parsers that split the fields
   the program prints, and tests of the near-miss names (`nvidia_drm`, two profiles of one name).
+
 - **A terminal screen judged by its bytes, not by what it shows** (fedora-desktop#117:
   `screen.inputLineEmpty` read any non-SGR escape, or a placeholder whose first character
   carries the inverse-video cursor, as typed text, so a visually empty box was left alone as
@@ -1543,6 +1706,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `ClaudeState`), whose tests run each escape shape both empty and with typed text after it;
   and set-going prints a typed box line `%q`-quoted, so the next misreading arrives with its
   evidence.
+
 - **A failure dropped from the record a later verdict reads, so the verdict reports success**
   (fedora-desktop#108: `ccy-sessions restore` counted a record it could not start as a failure
   but left it out of the restore manifest, so a boot where every record failed wrote an empty
@@ -1564,28 +1728,33 @@ bash they replaced and in the Go during review; each instance is in the audit re
   boot that starts nothing at all (its passphrase file unusable, the live list unreadable, the
   manifest unwritable) fails its unit and leaves the first restore's manifest, which still
   names every session that should be up.
+
 - **A fake that answers what the real program does not** (reclaim's fake answered any unscripted
   command, M-2; nvidia-status's fake returned the deadline where `execx.OS` returns the kill,
   F2; nord's fake cancelled a context where a terminal delivers SIGINT, F2; ssh-copy-id's check
   was assumed, not read, B11). Whether a fake is faithful is a fact about the real program.
   What holds it: fakes that fail on an unscripted command (`execx.ErrUnexpected`), tests run
   on the real error shape, and each port's host checks (`H*`), which run the real programs.
+
 - **A verdict that names the wrong next step** (nvidia-status told a person to enrol a key with
   Secure Boot off, B14, called a driver/library mismatch "incomplete" instead of a reboot, B15,
   and sent a person to the blue screen with nothing queued, B19; open's bash advised `--ask`
   where there is no terminal, B17; hints of `sudo dnf install` instead of the play, nord B7,
   nvidia-status B12). Which step is right is meaning. What holds it: the verdict tests
   (`TestVerdictOrder`, `TestMokKey`) and the review of every message against the play.
+
 - **A command with no bound, or a resource never given back** (nvidia-status's bash waited for
   ever on a hung `nvidia-smi`, B11; vmtest kept every failed run's overlay for ever, about 108G
   on the host; ssh-with-key's bash left an agent holding forwarded keys when killed, B7). Which
   command may hang, and what must be reclaimed when, is design. What holds it: fixed bounds on
   each probe (and `project_realtime_bound` for a bound a test could shorten), `prune-runs` and
   the disk guard (SPEC-vmtest E61, E64), and ssh-agent's command mode, which ends with the run.
+
 - **Mechanical, but one site** (statfs's free space computed with `Bsize` where POSIX counts
   `Bavail` in `Frsize` units, vmtest F7). A rule is possible (any `Statfs_t.Bsize` in a product)
   and would guard one function: `freeOf` is the module's only free-space reading, and
   `TestFreeOfCountsFragments` (Bsize 4096, Frsize 1024) holds it.
+
 - **A test that reads state a live goroutine of the code under test may still change** (Plan
   00209 n3e: `TestBeginRunReturnsAnEarlierRunsEntries` read the store after `BeginRun` woke a
   delivery loop able to hand the items out; three more in `wiring` and `keeper`, where the test
@@ -1597,6 +1766,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   while the test reads), never on a signal the code gives before the effect; and the race only
   shows under load, so a suspect test is run shuffled, `-cpu 1,2,4`, many times, beside a loop
   of other tests.
+
 - **A fake that announces an event before it has done what the event stands for** (Plan 00209
   n3e: `fakeinbox` recorded a refused auth frame, which wakes `Await`, before its deferred
   `drop` closed the connection, so `inbox`'s `TestAWrongTokenIsRetryAndNothingIsWritten` could
@@ -1616,6 +1786,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `send` and failed in 32 of 900 stressed runs until they awaited with `settled`; run under
   `-cpu 1,2,4`, 300 times, the old form fails and the new one does not). No rule: every shape
   that reads after a close also matches the many reads that are ordered.
+
 - **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
   merge: `units.Conn` says the connection closes the signal channel it was given when it is
   closed, and n3e made `session.close` wait for `dispatch`, which that close ends; n2's
@@ -1626,6 +1797,25 @@ bash they replaced and in the Go during review; each instance is in the audit re
   says (`units`' `fakeConn` records the channel and closes it once; `busConn` now does the
   same), and a test of a new fake runs the Manager's failure path against it, under
   `-timeout` short enough to show a hang in seconds.
+
+- **A wait on a real process whose bound is shorter than the worst case of the schedule it waits
+  on** (fedora-desktop#140: `TestE2EQueuedAtStart`, `TestE2EQueuedWhileDown` and
+  `TestE2EOfflineServer` waited `settle` (30 s) for a team to show down, and a second wait of
+  `backoffCap + settle` (60 s) for a queued send to be posted once the server was back). The
+  link marks a team down at the first failed retry once the failure streak is 15 s old, and its
+  retries come after delays of 1, 2, 4, 8 and 16 s, each less a jitter of up to a quarter: the
+  fourth retry falls short of 15 s and the fifth, 23 to 31 s after the first failure, is the one
+  that marks it down. A bound of 30 s is shorter than that worst case, so on an idle machine
+  one run in eight failed with `not within 30s` and an empty `link.log` (it logs only `down`
+  and `back up`); the second wait chains the team's retry (up to 30 s) and the sender's
+  `retryHold` (30 s), and 62.3 s was seen against 60. Nothing was lost: every queued send was
+  answered `queued` and posted once. The test owns no event to wait on, because the clock is the
+  link's own, in another process; the bound is the derived worst case (`downBound`,
+  `deliveredBound` in `member/wiring/e2e_test.go`, each stating its derivation). No rule: whether
+  a bound covers a schedule is a fact of the production code's constants and its jitter, not a
+  shape in the test's syntax tree; the `project_realtime_bound` rule already stops a test
+  *shortening* a bound, and the fix for this class is to state the bound as the schedule's
+  worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
