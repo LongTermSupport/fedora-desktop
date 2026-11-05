@@ -3189,12 +3189,31 @@ def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, env
     return f"told: claim {claimed}"
 
 
+#: The commands whose text arrives on stdin (it stays out of ps and shell history), each
+#: with the rest of its command line, for the message that refuses a text given as an argument.
+STDIN_FORMS = {"say": " --to NAME", "report": "", "ask-human": "", "thread": " Q<n>"}
+
+
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     class Parser(argparse.ArgumentParser):
         """Usage errors exit 64 (never argparse's 2); help goes to the given stdout."""
 
         def error(self, message: str) -> None:
-            raise config.UsageError(f"{self.prog}: {message}")
+            # main() prefixes the program name, so only a subcommand's name is added here.
+            scope = self.prog.removeprefix(PROG).strip()
+            raise config.UsageError(f"{scope}: {message}" if scope else message)
+
+        def parse_args(self, args: Sequence[str] | None = None,
+                       namespace: argparse.Namespace | None = None) -> argparse.Namespace:
+            parsed, extras = self.parse_known_args(args, namespace)
+            command_name = getattr(parsed, "command", None)
+            if extras and command_name in STDIN_FORMS:
+                raise config.UsageError(
+                    f"{command_name} reads the message from stdin: printf '%s\\n' '...' | "
+                    f"{PROG} --team T {command_name}{STDIN_FORMS[command_name]}")
+            if extras:
+                self.error(f"unrecognized arguments: {' '.join(extras)}")
+            return parsed
 
         def exit(self, status: int = 0, message: str | None = None) -> None:
             if message:

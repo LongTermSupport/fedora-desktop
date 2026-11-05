@@ -32,3 +32,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# pingbus prints a usage error's prefix once, and say, report, ask-human and thread refuse a
+# text argument with a hint that the text goes on stdin (#137, helpers/pingbus/cli.py).
+# Expected: play-claude-yolo (ccy 3.112.2, image 2.79.26, which carries pingbus) and
+# play-agent-bus (the host's pingbus). Acceptance: `pingbus say --to x hello` prints one
+# `pingbus:` prefix and the stdin hint.
+changed-plays
