@@ -82,7 +82,7 @@ find "$dir" ! -uid 0 -print
       # ok: find-race-negated-stat-test
       - -ignore_readdir_race
       - -links
-      - +0
+      - "+0"
       - "!"
       - -uid
       - "0"
@@ -94,3 +94,24 @@ find "$dir" ! -uid 0 -print
 find "$dir" -ignore_readdir_race -print
 if [ ! -e "$marker" ]; then stat -c %u "$marker"; fi
 test ! -s "$file" && echo empty >&2
+
+# The guard with +0 unquoted in YAML is the integer 0: Ansible passes -links 0, no guard at all.
+- name: Find with an unquoted guard
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ store }}/overlay"
+      # ruleid: find-race-negated-stat-test
+      - -ignore_readdir_race
+      - -links
+      - +0
+      - "!"
+      - -uid
+      - "0"
+
+# A -links test that is not the guard does not guard.
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -links 1 ! -uid 0 -print
+
+# ok: find-race-negated-stat-test
+subprocess.run(["find", root, "-ignore_readdir_race", "-links", "+0", "!", "-uid", str(uid)], check=True)

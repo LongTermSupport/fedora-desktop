@@ -821,7 +821,9 @@ Defence Before Fix.
 
 **How to fix a finding.** Put `-links +0` after the option and before the first negation. It is
 true for every entry that exists and false for one that cannot be stat'ed, and find keeps the
-stat it made, so every later test judges the same, existing entry. A test answered from the
+stat it made, so every later test judges the same, existing entry. In a YAML `argv:` list quote
+it (`"+0"`): unquoted it is the integer 0, Ansible passes `-links 0`, and the find matches
+nothing at all, so the rule accepts only the quoted item. A test answered from the
 directory entry alone (`-type`, with d_type) is no guard. `scripts/test-podman-store-probe-race.bash`
 is the proof against a real churning tree. A find without the option over a live tree is not
 reported: it prints the vanished name too, but exits non-zero, which a fail-fast caller stops on.

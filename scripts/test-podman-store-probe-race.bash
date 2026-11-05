@@ -64,6 +64,8 @@ task_file, name, store, uid = sys.argv[1:]
 task = next(t for t in yaml.safe_load(open(task_file)) if t.get("name") == name)
 out = []
 for item in task["ansible.builtin.command"]["argv"]:
+    if not isinstance(item, str):
+        sys.exit(f"argv item {item!r} is not a string: YAML read it as {type(item).__name__}, quote it")
     if "{{" in item:
         if "podman_store_home" in item:
             item = store
@@ -83,7 +85,11 @@ PY
 me="$(id -u)"
 churn="$WORK_DIR/overlay"
 mkdir -p "$churn"
-mapfile -d '' guarded < <(probe_argv "$churn" "$me")
+if ! probe_argv "$churn" "$me" >"$WORK_DIR/argv"; then
+    echo "FAIL: cannot read the probe's argv from $TASK" >&2
+    exit 1
+fi
+mapfile -d '' guarded <"$WORK_DIR/argv"
 check "the probe's argv is read from the task" "find" "${guarded[0]:-none}"
 unguarded=("${guarded[@]}")
 guard_at=-1
@@ -116,7 +122,11 @@ other_uid=4243
 if [ "$me" = 0 ]; then
     chown 4242 "$real/foreign" || check "a test file can be given to uid 4242" "yes" "no"
 fi
-mapfile -d '' control < <(probe_argv "$real" "$other_uid")
+if ! probe_argv "$real" "$other_uid" >"$WORK_DIR/argv"; then
+    echo "FAIL: cannot read the probe's argv from $TASK" >&2
+    exit 1
+fi
+mapfile -d '' control <"$WORK_DIR/argv"
 check "the probe finds a file owned outside the range" "$real/foreign" \
     "$("$FIND" "${control[@]:1}" 2>&1)"
 

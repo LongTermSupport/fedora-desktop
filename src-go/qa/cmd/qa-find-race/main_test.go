@@ -61,7 +61,7 @@ const (
 	unguardedProbe = "- name: Find\n  ansible.builtin.command:\n    argv:\n      - find\n      - /store\n" +
 		"      - -xdev\n      - -ignore_readdir_race\n      - \"!\"\n      - -uid\n      - \"0\"\n      - -print\n"
 	guardedProbe = "- name: Find\n  ansible.builtin.command:\n    argv:\n      - find\n      - /store\n" +
-		"      - -xdev\n      - -ignore_readdir_race\n      - -links\n      - +0\n      - \"!\"\n      - -uid\n      - \"0\"\n      - -print\n"
+		"      - -xdev\n      - -ignore_readdir_race\n      - -links\n      - \"+0\"\n      - \"!\"\n      - -uid\n      - \"0\"\n      - -print\n"
 )
 
 func TestTheRealEngineFindsTheUnguardedProbeAndPassesTheGuardedOne(t *testing.T) {
