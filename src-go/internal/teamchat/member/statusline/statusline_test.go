@@ -535,7 +535,7 @@ func TestInnerTimeout(t *testing.T) {
 	if c.Name != "/bin/sh" || len(c.Args) != 2 || c.Args[0] != "-c" || c.Args[1] != "echo never" || !c.NewSession {
 		t.Fatalf("cmd %+v", c)
 	}
-	if len(c.Env) != 1 || c.Env[0] != paths.EnvStatusLineInner+"=1" {
+	if len(c.Env) != 2 || c.Env[0] != paths.EnvStatusLineInner+"=1" || c.Env[1] != "CLAUDE_PROJECT_DIR="+w.project {
 		t.Fatalf("env %v", c.Env)
 	}
 	w.clk.Advance(innerTimeout - time.Millisecond)
@@ -987,4 +987,31 @@ func rows(text string) string {
 		return ""
 	}
 	return text + "\n"
+}
+
+// S9: the inner sees the project the status line resolved in CLAUDE_PROJECT_DIR, though the
+// variable is unset in this process's environment.
+func TestInnerSeesTheResolvedProject(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	w := newWorld(t)
+	w.env[paths.EnvRuntime] = ""
+	w.projectSettings(`printf %s "$CLAUDE_PROJECT_DIR"`)
+	code, out := w.render()
+	if want := w.project + "\n"; code != term.ExitOK || out != want {
+		t.Fatalf("exit %d, out %q, want %q", code, out, want)
+	}
+}
+
+// S9a: with no project to be found, a command that spells the variable is a red note and is
+// not run; the note names the variable and the payload fields.
+func TestInnerNamingTheVariableWithNoProjectIsANote(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	w := newWorld(t)
+	w.env[paths.EnvRuntime] = ""
+	w.settings(filepath.Join(w.base, "config", "settings.json"), `"$CLAUDE_PROJECT_DIR"/.claude/hooks/status-line`)
+	w.stdin = strings.NewReader(`{}`)
+	_, out := w.render()
+	if !strings.Contains(out, "CLAUDE_PROJECT_DIR") || !strings.Contains(out, "workspace.project_dir") || strings.Contains(out, "exit 127") {
+		t.Fatalf("out %q", out)
+	}
 }

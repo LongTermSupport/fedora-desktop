@@ -310,10 +310,11 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
     So the two facts are scoped to what each can actually answer:
 
     * `registry.present is False` — no DKMS state directory at all — together with a
-      `dkms` command the OS could not find is a host with no DKMS subsystem. On one
-      whose ledger has no run of the pin's play, a DKMS-resolved pin is NOT APPLICABLE:
-      out of the population, and silent. That is the owner's decision, and the whole
-      reason a stock server spoke at every login.
+      `dkms` command the OS could not find is a host with no DKMS subsystem, where a
+      DKMS-resolved pin is NOT APPLICABLE: out of the population, and silent. That is
+      the owner's decision, and the whole reason a stock server spoke at every login.
+      Review narrowed it to such a host whose ledger has no run of the pin's play
+      (DESIGN-server-route.md §5).
       **Not** merely an empty module list: the `dkms` rpm owns that directory, so a
       DisplayLink host whose module was removed has the directory and an empty
       registry, and that is precisely what this axis exists to report.

@@ -305,7 +305,7 @@ This plan does not fix that, and must not pretend to. Two consequences:
 
 ## Notes & Updates
 
-No recovery cron — the owner asked for crons to be stopped.
+No recovery cron was created for this plan.
 
 ## Delivery & Milestones
 

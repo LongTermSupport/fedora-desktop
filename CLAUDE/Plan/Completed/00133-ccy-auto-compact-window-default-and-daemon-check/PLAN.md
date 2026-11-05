@@ -6,6 +6,17 @@
 **Owner**: joseph
 **Priority**: Medium
 
+> **Attribution corrections.** This plan is archived and its text stays as written. These
+> lines credit the owner with more than the record shows:
+>
+> - Task 3.2 (`PLAN.md:166-172`, "Owner decision — settled") — the journal records the owner
+>   settling 600,000 and ruling out a smaller-model exemption
+>   (`JOURNAL/00133-Journal-26-09-17.md:120-121`); `auto` warning follows the owner's brief
+>   ("unset or above 600k"). The per-project configurable ceiling is this plan's proposal;
+>   no owner answer to it is recorded.
+> - Task 3.4 (`PLAN.md:177`, "FILED on the owner's instruction") — the filing is recorded;
+>   an instruction from the owner to file is not.
+
 ## Overview
 
 Claude Code reads `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to decide how large a
@@ -191,6 +202,7 @@ The load-bearing findings:
   host via the owning playbook. Ansible must never run in this container.
   **Done by the owner**, twice: first on 3.58.0, then again on 3.58.1 after
   3.58.0's value turned out to be harmful.
+
 - [x] ✅ **Task 4.2**: **HOST run.** Start a session with no `ccy.env` override
   and confirm from inside it that the variable carries the CCY default — read the
   live environment, do not infer it from the launcher source. A check that only
@@ -205,6 +217,7 @@ The load-bearing findings:
   no `ccy.env` override present. Same standard as the 3.58.0 read, and the same limit:
   it establishes what the launcher forwarded, not what Claude Code resolved it to. A
   host `export` before launch is not observable from inside either. That is 4.3's job.
+
 - [x] ✅ **Task 4.3**: **Done — the owner ran `/autocompact` and pasted the panel.**
 
   ```
@@ -228,8 +241,10 @@ The load-bearing findings:
   `${VAR:-default}`, shared with every sibling variable in the same argument list, and
   `/autocompact` now demonstrably reports whatever the variable resolves to — so a failed
   override would be visible the moment anyone set one. Not worth a restart cycle.
+
 - [x] 🚫 **Task 4.5**: **Closed unrun, by owner decision.** Same idiom, same reasoning:
   a host `export` before launch.
+
 - [x] ✅ **Task 4.6**: Run the **`qa-reviewer`** agent as the final step, per
   `CLAUDE.md`. `qa-all.bash` is mechanical and passes green on work that is
   structurally wrong. **Done — three rounds.** Round 5 covered Phases 2–3. Round 6 found

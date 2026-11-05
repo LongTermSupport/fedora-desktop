@@ -40,8 +40,13 @@ const (
 	memberUnknown = "member?"
 	noRecord      = "no record of this session's teams (pingbus status)"
 	notRun        = "(status line could not be run)"
-	red           = "\x1b[31m"
-	reset         = "\x1b[0m"
+	// noProjectNote is shown instead of running a command that spells the project variable when
+	// no project can be found to give it (S9a).
+	noProjectNote = "status line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an absolute path, " +
+		"and the payload has no absolute workspace.project_dir or cwd, so it was not run"
+	projectVar = "CLAUDE_PROJECT_DIR"
+	red        = "\x1b[31m"
+	reset      = "\x1b[0m"
 )
 
 // roleLetters is the role's letter on the status line (C15).
@@ -191,6 +196,17 @@ func innerText(ctx context.Context, in Input, payload pyjson.Object, stderr io.W
 	}
 	if line == "" {
 		return "", nil
+	}
+	if !hasProject && strings.Contains(line, projectVar) {
+		return red + noProjectNote + reset, nil
+	}
+	if hasProject {
+		env := make(map[string]string, len(in.Env)+1)
+		maps.Copy(env, in.Env)
+		if !strings.HasPrefix(env[projectVar], "/") {
+			env[projectVar] = project
+		}
+		in.Env = env
 	}
 	dir := in.Cwd
 	if hasProject && isDir(project) {

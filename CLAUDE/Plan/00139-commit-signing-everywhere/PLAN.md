@@ -55,9 +55,11 @@ out.
   `user.signingkey` in its private copy; since D5 at the session's own identity, so no key
   is mounted for signing.
 
-- **D4 — Plan 00137's D3 is overruled by the owner.** The play's "must have a passphrase"
-  assert inverts to "must not have one", and `git sign-deploy` goes. Every commit is signed,
-  so the server gate's check of HEAD needs no special commit.
+- **D4 — Plan 00137's D3 is overruled by the owner:** agents may sign, because the aim is
+  provenance, not keeping the owner's own agents out (JOURNAL 26-09-24, 41-43). The
+  mechanism is this plan's, not the owner's: the play's "must have a passphrase" assert
+  inverts to "must not have one", `git sign-deploy` goes, and every commit is signed, so the
+  server gate's check of HEAD needs no special commit. How the key is held is D5.
 
 - **D5 — Sign with the login keys, through the ssh-agent; D2 and the separate signing keys
   are withdrawn.** The owner asked whether the idea was not simply to sign with the normal
@@ -126,8 +128,10 @@ out.
   - [x] ✅ **HOST (owner, at a desk)**: `./CLAUDE/Plan/meta-deploy.bash`, which runs this
     plan's deploy and acceptance. Deploy passed, with every play at `failed=0`, and each
     account alias offers only its own key. Acceptance 13 of 13 (`_meta-deploy/20260925-113855`)
-- [x] ✅ **Task 1.4**: The owner asked for this machine's public key to be kept in the
-  private config repo. The play writes it into `localhost.yml` as `git_signing_public_key`,
+- [x] ✅ **Task 1.4**: The owner asked whether this machine's signing key was kept in the
+  private config repo (it was not; JOURNAL 26-09-24, 139-142). The desktop agent then added
+  recording the public half there, with the owner's approval as relayed by that agent
+  (JOURNAL 26-09-24, 20:59 entry). The play writes it into `localhost.yml` as `git_signing_public_key`,
   in a managed block, the way other plays record values there. It uses its own name,
   because `self_update_signing_public_key` is the key a server trusts. Merged as
   `cd50ffc1` (the desktop agent's commit, `a594063e`)
