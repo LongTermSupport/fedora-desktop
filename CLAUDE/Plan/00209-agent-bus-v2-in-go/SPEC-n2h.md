@@ -1,9 +1,11 @@
 # SPEC: N2 slice n2h, the verbs no slice gave a behaviour (Plan 00209 Task 2.4, part)
 
-**Status: draft, not yet reviewed.** The plan's rule is review to MERGE, then a red test per
-expectation; no slice builds from this until the review's findings are settled. The decisions in
-section 8 are defaults for the coordinator to confirm or change, and section 9 lists what this
-spec does not close.
+**Status: draft, reviewed once, the review's findings applied.** The plan's rule is review to
+MERGE, then a red test per expectation. An independent review (15 findings, two of them blockers;
+the report is `subagent-reports/261105-n2h-review.md`) was applied below. What still needs the
+coordinator before a slice builds: the decisions of section 8 (defaults to confirm or change), above
+all n2h-D12, which is a change to the roster grammar of C 3.6.1, and the gaps of section 9. A second
+review of the changed expectations is owed.
 
 Built on n2a to n2g (`SPEC-n2a.md` to `SPEC-n2g.md`). Sources: area C's 3.3 (verbs and exit
 codes), 3.5.1 step 2 and 3.8 (`declare check`, DC18), 3.5.4 (`check`), 3.6.5 (humans, `redact`,
@@ -41,8 +43,10 @@ and the set records) lives in `migrate/v1`, which is not built, and is not this 
 - **HV2. Seams.** Each verb takes the `System` through `Env.system()` (WR1): a verb that fails to
   wire is 78. A verb touches only the seams its section names. `declare check` and `status` use
   nothing a non-root caller cannot read: a test gives them a `System` whose every root seam
-  (`Child`, `Bundles`, `OwnerGroup`, `Open`, `Pin`, `CtlIDs`, `Systemd`, `Firewall`, the lock
-  directory) fails the test if called.
+  (`Child`, `Bundles`, `OwnerGroup`, `Open`, `Pin`, `CtlIDs`, and in `System.Host` the `Firewall`
+  and the lock directory) fails the test if called. `Host.Systemd` is allowed one call, the
+  read-only unit state of DC5, which any user may make. "Anyone" is `ClassOther` (CA3): root and
+  `teamchat-ctl` get 77 for `declare check` and `status`, and a test says so.
 - **HV3. Output.** stdout is the payload only; every diagnostic is one line on stderr as
   `teamchat-admin: <message>` (CA7). A report verb whose job is to print for a human (`status`,
   `check`, `declare check`) prints its report on stdout. A verb that ccy-teams runs and parses
@@ -50,7 +54,9 @@ and the set records) lives in `migrate/v1`, which is not built, and is not this 
   nothing else on stdout.
 - **HV4. Exit codes** are C 3.3's one table through `ExitCodeOf` (CA7): 0, 1, 64, 69, 70, 75, 77,
   78\. A bad flag, a missing required flag, a flag given twice, an unknown flag or a stray
-  argument is 64 (`parseFlags`'s rule, `usageError`), decided before any seam is touched.
+  argument is 64 (`parseFlags`'s rule, `usageError`), decided before any seam is touched. (The
+  built `memberVerb` and `teamRemove` wire the `System` first, so there a wiring failure, 78, wins
+  over a usage error, 64; these verbs do the reverse and this spec does not change those.)
 - **HV5. The root change verbs** (`human *`, `redact`) share `memberVerb`'s shape: flags, then the
   team lock (HV6), then the applied `team.json` (a team with none is refused 70, "team <t> is not
   applied: run team apply first", as `readTeamFile` does), then the child's one request, the
@@ -58,8 +64,9 @@ and the set records) lives in `migrate/v1`, which is not built, and is not this 
   and the answer. The lock is released on every path; a failure of release is joined to the
   verb's error.
 - **HV6. The team lock** for `human *` and `redact` is `teamlock.Take(ctx, Host.LockDir, team, <verb name>, SeatWait, Host.Clock, Host.Guard)` (n2h-D15): a busy lock is 75 naming the holder's
-  line, a pending restore refuses with 70 (RG1). The verb name in the holder line is `human` for
-  the five human verbs and `redact` for `redact`.
+  line, a pending restore refuses with 70 (RG1). The verb name in the holder line is the dotted op,
+  as `memberVerb` passes it: `human.password`, `human.logout`, `human.devices`, `human.lock`,
+  `human.unlock` and `event.redact` (`teamlock`'s name rule admits a dot).
 - **HV7. The child's answer is checked** as `asked` checks a member verb's: for these ops it
   names no handle, no credential, no main room and no notes (any of them is a lie, `childLie`, and
   the verb does nothing more); a `human` or `redact` object is accepted only with `ok`, only for
@@ -69,8 +76,11 @@ and the set records) lives in `migrate/v1`, which is not built, and is not this 
 - **HV8. After the child, before the failure.** When the child's work succeeded and the status
   record then fails to refresh, the verb still prints its one JSON document (a password printed
   once is never lost), then reports the failure ("the status record: ...") and exits 1, as
-  `memberWork` does. No secret is in any error, in any stderr line, in the status record or in
-  any file the verb writes.
+  `memberWork` does. A JSON document on stdout is the answer: the caller (ccy-teams) reads it
+  whenever it is there, and the exit code then says only whether what came after it also
+  succeeded. If the write of the document itself fails the verb exits 1 and a password is lost
+  with it: the recovery is to run the verb again (HU2 makes a new one). No secret is in any
+  error, in any stderr line, in the status record or in any file the verb writes.
 
 ## 2. `declare check`, the v2 half (DC, anyone, C 3.5.1 step 2, 3.2.5, 3.8, DC18)
 
@@ -78,24 +88,27 @@ The unprivileged judge the play runs before any root task. It reads the declarat
 parsed, the owner's approvals and the host's listening sockets, writes nothing, and takes no lock.
 
 - **DC1. Input.** No flag and no argument (anything else is 64). The declaration is one JSON
-  document on stdin, at most 1 MiB, decoded by `declare.Decode` (DR1 to DR6): exactly the keys
-  `teamchat_address`, `teamchat_teams`, `teamchat_lxc_members`, `teamchat_element_teams`. An
+  document on stdin, at most 1 MiB, decoded by `declare.Decode` (DR1 to DR6): an allow-list of
+  the keys `teamchat_address`, `teamchat_teams`, `teamchat_lxc_members`, `teamchat_element_teams`,
+  each optional (DR1: an empty object is a valid declaration), any other key refused. An
   unreadable stdin is 1; a declaration that fails the decode (DR2's error, which names the field
   by its path and never echoes a value) is 70, with the decode's message on stderr, nothing on
   stdout, and no later step run (n2h-D6).
 - **DC2. Approvals.** Each present team's `approved.json` is loaded with
-  `declare.FileApprovals{Path: Host.Root + paths.ApprovedFile(team)}` (read as the caller; the
-  file is 0640 root:owner group). A team with no file is `nil`, which is not an error (it differs
-  in its existence). A file that exists and cannot be read or decoded (AG2: strict, at most 256
-  KiB, its team the one asked for) is 78, naming the file, nothing on stdout.
+  `declare.FileApprovals`, whose `Path` function gives `Host.Root + paths.ApprovedFile(team)`
+  (read as the caller; the file is 0640 root:owner group). A team with no file is `nil`, which is
+  not an error (it differs in its existence). A file that exists and cannot be read or decoded
+  (AG2: strict, at most 256 KiB, its team the one asked for) is 78, naming the file, nothing on
+  stdout (n2h-D17: the built verbs return 1 for the same file, gap G5).
 - **DC3. SECURITY lines.** For every present team, in declaration order, every difference
   `declare.Check` finds is printed on stdout as
   `SECURITY<TAB><team><TAB><field><TAB><old> -> <new>` (AG3's text, every value one line), and
   nothing else is ever on stdout. An absent team is not compared (n2b-D4). A clean declaration
   prints nothing on stdout and nothing on stderr and exits 0.
 - **DC4. The exit code of a SECURITY line is 70** (n2h-D6): a rule said no. After all lines are
-  printed, one line per team with a difference goes to stderr: `team <team>: the declaration's security fields are not approved: ccy-teams approve <team>` (the text of
-  `declare.RefusedError`). The play shows the stdout lines in a task of its own and fails on the
+  printed, one line per team with a difference goes to stderr: `team <team>: the declaration's security fields are not approved: ccy-teams approve <team>` (a line the verb builds
+  itself: `declare.RefusedError`'s own text is several lines and would print each SECURITY line a
+  second time). The play shows the stdout lines in a task of its own and fails on the
   code; it tells a SECURITY refusal from another by the `SECURITY` lines, which no other
   refusal prints.
 - **DC5. Ports that are listening (n2h-D7).** The caller is not root and cannot read another
@@ -103,14 +116,22 @@ parsed, the owner's approvals and the host's listening sockets, writes nothing, 
   (`hostnet.Network.Listeners` fails on the first process it may not open: VERIFIED in
   `holder`). It reads the socket tables alone: `hostnet.Network` gains `Ports()`, the set of
   ports with a socket in state `0A` read from `/proc/net/tcp` and `tcp6` (NW2's parser, no holder
-  walk, no error for a process it cannot see). A present team whose `port` is in that set and
-  which has no stamp (`host.ReadStamp` finds none, read as the caller) is refused, one stderr
-  line `team <team>: port <n> is already listening and the team is not applied`, exit 70, no
-  `SECURITY` line for that reason. A team with a stamp is not judged here: whether the listener
-  is its own `teamchat-server@<team>` is `team apply` step 2's, as root (C 3.2.5).
+  walk, no error for a process it cannot see). A present team is refused when all three hold:
+  its `port` is in that set, it has no stamp (`host.ReadStamp` finds none, read as the caller),
+  and its own unit `teamchat-server@<team>` is not active (the unit's state through
+  `units.Manager.State`, a read of the system bus that any user may make). The refusal is one
+  stderr line `team <team>: port <n> is already listening and the team is not applied`, exit 70,
+  no `SECURITY` line for that reason. A team whose own unit is active is not refused: its
+  listener is its own, which is the state a first apply that failed after starting the server
+  leaves (the stamp is written last), so the play's re-run must get past this check (C 3.2.5 only
+  refuses a port "not this team's own"). A team with a stamp is not judged here: `team apply`
+  step 2, as root, makes the exact judgement. Red tests: no stamp, port listening, own unit
+  active, exit 0; no stamp, port listening, own unit inactive, 70; with a stamp, 0.
 - **DC6. Order and completeness.** A decode failure (DC1) ends the verb. Otherwise DC5's
   refusals and DC3's lines are all produced, whatever the order of the teams, and the code is 70
-  if there is any of either. A `Ports()` or `ReadStamp` failure is 78 naming the file or table.
+  if there is any of either. A `Ports()`, `ReadStamp` or unit-state failure is 78 naming the file
+  or table: this is a gate, and a fact it cannot read it cannot judge (`status` makes the same
+  unreadable stamp a team problem, ST2, because it is a report).
 - **DC7. Nothing is written.** A test runs the verb over a tree of read-only files and finds
   every file byte for byte unchanged, no lock file and no directory made.
 - **DC8. Not in this half.** `agent_bus_teams` is not a key of DR1, so a stdin that carries it
@@ -129,7 +150,9 @@ parsed, the owner's approvals and the host's listening sockets, writes nothing, 
   order; no teams directory is no team (n2h-D11). It reads neither `team.json` nor `units.json`
   (root-only), so it is not `health.Stamps.Stamped`, which reads `team.json` (VERIFIED in
   `health/files.go`). A named team is shown whether or not it has a stamp. A stamp that cannot be
-  read is a team problem (ST6), never the verb's failure.
+  read is a team problem (ST6) and never the verb's failure: its problem is `what` "the stamp
+  cannot be read", `fix` "run team apply". (`declare check` makes the same unreadable stamp a 78,
+  DC6, because it is a gate and this is a report.)
 
 - **ST3. The record.** Each team's record is `status.Read(Host.Root + paths.StatusFile(team), team)` and `status.Shown(rec, found, err, Host.Clock.Now())` (SR4, SR5). A missing record is
   the problem "no status record yet", an unreadable or invalid one "the status record cannot be
@@ -163,9 +186,17 @@ parsed, the owner's approvals and the host's listening sockets, writes nothing, 
   the account is not in absent. A member's own problems are printed under its row (SR1's
   `member`); `problems:` holds the team's. The `restore:` line is printed only when the record
   has one, the `problems:` and `events:` blocks only when non-empty, `members:` and `humans:`
-  always (an empty one prints no row). A record that is missing or unreadable prints the `team`
-  line with health `PROBLEMS` and its `problems:` block alone, and never a stale or guessed
-  value.
+  always (an empty one prints no row). Three cases print another shape, so that nothing stale or
+  guessed is shown as current:
+
+  - A record that is **missing or unreadable**, or a team whose **stamp cannot be read** (ST2):
+    `status.Shown` yields a record with no name or origin, so the report is the line
+    `team <team> "" origin - PROBLEMS` and its `problems:` block (ST3's text, or ST2's), nothing
+    else. The read error of an unreadable record goes to stderr as one line, which the verb
+    keeps for the purpose.
+  - An **expired** record: the `team` line has health `PROBLEMS`, the next line is
+    `  stale: as of <written time>`, then the record's rows as it holds them (SR5: they are not
+    current), and `problems:` leads with "health has not run since <time>".
 
 - **ST5. Several teams** are printed in the order given (ST2's when none), one blank line between
   two reports. With no team (ST2 finds none and none was named) the report is the one line
@@ -231,7 +262,8 @@ parsed, the owner's approvals and the host's listening sockets, writes nothing, 
   names which key), and `FAIL` with "no units.json" when the record is missing. Each file is read
   by the trust rule (`state.ReadFile`, root-owned). `host` exports the one read-only function
   that recomputes a recorded digest from the installed file, so `render` and the check cannot
-  disagree. A `units.json` that does not decode is 78.
+  disagree. A `units.json` that does not decode is one `FAIL` line `units.json` naming the
+  file, not a 78: CK2 and CK9 print every other fact.
 
 - **CK6. The firewall.** For each rule of `firewall.json`, two facts
   `firewall.<zone>.<source>.permanent` and `...runtime`: `ok` when `Firewall.Query` answers
@@ -239,9 +271,10 @@ parsed, the owner's approvals and the host's listening sockets, writes nothing, 
   With no `firewall.json` one `info` line `firewall` says "no rules recorded".
 
 - **CK7. The bound addresses** (`bound`): `ok` when the addresses the unit's listeners hold on
-  the team's port are exactly loopback and `listen` (`host`'s `boundAs`, exported for this), else
-  `FAIL` with `<got> not <want>`; `info` lines `bound.addr` list each one. A `Listeners()`
-  failure is the `FAIL` line.
+  the team's port are exactly loopback and `listen`, else `FAIL` with `<got> not <want>`; `info`
+  lines `bound.addr` list each one. A `Listeners()` failure is the `FAIL` line. `host`'s `boundAs`
+  returns an error only, so S4 first refactors it to return the addresses held, which the check
+  prints and `boundAs` then judges; that refactor has a test of its own.
 
 - **CK8. The rooms.** The child is asked `team.view` as the health tick asks it (CO4,
   `ChildViewer`). Each problem of the view with no `member` is a `FAIL` line `rooms`, value
@@ -273,6 +306,7 @@ The five verbs share HV5. Flags: `--team T --name N`, both required, `N` passing
   removed human is brought back by the declaration (DC9), never by this verb. `human unlock` of
   a human who is `enrolled` and unlocked, and `human lock` of one already `locked`, are not
   refusals (HU9).
+
 - **HU2. `human password`.** The child makes 32 characters from `[A-Za-z0-9]`, each drawn
   uniformly from `crypto/rand` without modulo bias (n2h-D14), sets it with
   `Admin.ResetPassword` (a password reset with device logout: every device of the account is
@@ -280,24 +314,36 @@ The five verbs share HV5. Flags: `--team T --name N`, both required, `N` passing
   status record, the child's directory, a log or an error (HV8), and it is in no stderr line. A
   password the child answers that is not 32 characters of that alphabet is a lie (HV7): nothing
   is printed.
+
 - **HU3. The roster write comes first (n2h-D14).** Before the homeserver call the child writes
   the roster (atomic writer, `seq` raised) with the human's `revoked_seq` set to that write's
   `seq` (C 3.6.1: the `seq` of the last password set or reset with device logout), so a crash or
   a failed reset can only make a later restore over-revoke, never under-revoke. When the human's
   `needs` was `password` (set by a restore), a second roster write after the successful reset
   clears it. A `ResetPassword` that fails leaves `revoked_seq` raised and `needs` as it was, and
-  the verb fails with the child's class (69 for `ErrUnreachable`, else 1).
+  the verb fails with the child's class (69 for `ErrUnreachable` or `ErrRateLimited`, as
+  `ExitCodeOf` maps them, else 1). If that second roster write fails after a successful reset,
+  the child answers a failure and the new password is never printed: the old one is already dead,
+  `needs` still says `password`, and the owner runs `human password` again. Harmless, and a test
+  says so.
+
 - **HU4. `human logout`** is HU2 with a password that is not printed and not kept (n2h-D13): a
   fresh random one of HU2's kind, discarded, so every device is signed out and nobody can sign in
   until `human password` (what bootstrap step 3 does for a new human). It writes the roster as
   HU3 does, leaves `needs` as it is, and prints `{"v": 1, "team": "T", "name": "N", "changed": [...]}`, no `password` key.
+
 - **HU5. `human devices`.** The child reads `Admin.Devices` for the account and answers the
   devices; the verb prints `{"v": 1, "team": "T", "name": "N", "devices": [{"id": "<id>", "last_seen_ms": <n>|null}, ...]}`, sorted by `id`, `null` for a device the server has no
   `last_seen_ts` for. It writes no roster. Then, under the lock it holds, it refreshes the status
-  record (`Status.Refresh`, which re-reads that human's device count and newest sign-in through
-  the view, VW2): C 3.11.3's "`human devices` rewrites that human's entry under the team lock",
-  so the board shows a sign-in at once. A device id is printed here and nowhere else (the status
-  record holds only a count).
+  record with `Status.Refresh`, which is the health tick's whole gather (unit state, probes, one
+  `team.view` run of the child over every room and human, backups, disk) and not one human's
+  entry (n2h-D18): C 3.11.3 says "`human devices` rewrites that human's entry under the team
+  lock", so the board shows a sign-in at once. The cost is accepted: the login flow polls every
+  2 s for 5 minutes, about 150 gathers, each starting the child. The alternative is a narrower
+  rewrite of one human's entry, a change to `health`. A refresh failure after the devices were
+  read prints the document first and exits 1 (HV8); the poll reads the document. A device id is
+  printed here and nowhere else (the status record holds only a count).
+
 - **HU6. `human lock` (n2h-D12).** `Admin.SetLocked(true)`, and the roster records the lock as
   the human's state `locked` (a new human state beside `enrolled` and `removed`: the roster
   grammar in `apply`, the status record's human states, `DeriveRoster` treating `locked` as
@@ -306,47 +352,98 @@ The five verbs share HV5. Flags: `--team T --name N`, both required, `N` passing
   kicks no one. `team apply` bootstrap step 3 no longer unlocks a declared human whose roster
   state is `locked`, and converges its account to locked when it is not; only `human unlock`, or
   removing and re-adding the name in the declaration (DC9), ends a lock. The write order is the
-  roster first, then the account, so a crash is completed by running the verb again or by the
-  next apply.
+  roster first, then the account, so a crash is completed by running the verb again (HU9) or by
+  the next apply.
+
+  **This is a change to the roster grammar, which the design states inconsistently**: C 3.6.1
+  and n2b AP1 and SR1 allow only `enrolled` and `removed`, while C 3.12.2 and SPEC-n2g RM7 use
+  "locked" as if a state existed. It is an owner-visible decision (n2h-D12), not only a default.
+  S5 owns every place it touches, each test that pins today's behaviour changing in the same
+  commit with its reason:
+
+  - `apply`'s roster decode (`oneOf(HumanEnrolled, HumanRemoved)`) and the comment on
+    `HumanEnrolled`; `humans()`, which marks an enrolled human who is no longer declared as
+    `removed` and must match `locked` too (else DC9's removal and re-add could not end a lock);
+    `human()`, whose case `acct.Locked || (known && removed)` unlocks every locked account today
+    and needs a case that keeps a `locked` human's lock and one that locks an unlocked account
+    (and `acct == nil`); `lockRemoved` and a new convergence for `locked`; `DeriveRoster`, which
+    treats `locked` as `enrolled` for room membership.
+  - `health/view`, which passes the roster state into `status.Human`, and `status`'s
+    `humanState` (`enrolled`, `removed`), which would reject `locked`: a strict-decode
+    compatibility break for every reader of the record, ccy-teams' board included.
+  - **`restore`'s merge** (the review's blocker): `mergeHuman` is one exclusive switch, so
+    `locked` must not be added beside `removed`, or a locked human whose password was reset after
+    backup N (HU1 allows `human password` of a `locked` human) would skip the `revoked_seq > N`
+    case and the restored database would bring the old password back on `human unlock`. A
+    `locked` human is locked (goes in `Lock`) AND falls through to the `!inBak` and
+    `revoked_seq > N` cases (`needs: password`, `RevokeHumans`). `MergeFromBackup` (RM11), which
+    has no `Lock` list today, locks every `locked` or `removed` human of its base. Merge tests:
+    locked with `revoked_seq > N`; locked and only in the current roster; the RM11 base cases.
+  - The tests that pin the two states: in `apply` (the removed-then-re-added human and the
+    unlock lines), `apply/files`, `health/view`, `restore/merge` and `status`.
+
 - **HU7. `human unlock`** is the reverse and the order is the account first, then the roster, so
   a crash leaves the account unlocked and the roster `locked`, which the next apply converges to
   locked again: the failure is always towards locked.
+
 - **HU8. Answers of lock and unlock** are `{"v": 1, "team": "T", "name": "N", "changed": [...]}`.
-- **HU9. Idempotent.** A human already in the state asked for (locked and asked to lock,
-  unlocked and asked to unlock) makes no homeserver write, writes no roster, and answers an
-  empty `changed` and exit 0. A `human password` or `logout` is never a no-op.
+
+- **HU9. Idempotent, judged by both sides.** A human is "already in the state asked for" only
+  when the roster and the account agree (both locked for `lock`, both unlocked for `unlock`): then
+  the verb makes no homeserver write, writes no roster, answers an empty `changed` and exits 0.
+  When they disagree (the crash windows of HU6 and HU7) the verb writes only the side that
+  differs. Tests: a crash after `lock`'s roster write, then `lock` again, locks the account; a
+  crash after `unlock`'s account write, then `unlock` again, sets the roster. A `human password`
+  or `logout` is never a no-op.
+
 - **HU10. The status record.** After the child answers, and in every verb but `devices` after
   the roster has been written, the verb refreshes the status record under its lock (C 3.11.3:
   every change verb, `human devices`); HV8 governs its failure.
+
 - **HU11. Roster seq.** Every roster write raises `seq` by one and never lowers it, a failed call
   included (C 3.6.1); the verbs never touch `counters`, `members`, `coordinator` or `pending`. A
-  roster whose `pending` is set is completed first by the verb's lock rule, as for member verbs
-  (C 3.6.3, roll forward).
+  roster whose `pending` is set is completed first (C 3.6.3, roll forward): by `apply`'s
+  `load` roll-forward, as `RunMember` does, not by HV6's lock, which only refuses a pending
+  restore. What that roll-forward changed appears in the answer's `changed` lines. The rooms step
+  of C 3.6.2, which the design runs "at the end of every member, role and human verb", runs after a
+  human verb that wrote anything, with its `changed` lines in the answer (n2h-D19: it changes
+  nothing while `locked` counts as `enrolled`, but repairs drift).
+
 - **HU12. The login flow's poll.** `human devices` takes the team lock for each call with
   `SeatWait`, so a poll every 2 s of C 3.11.3's flow queues behind a change and never races one;
   a busy lock is 75.
+
 - **HU13. The child's answers.** `human.password` answers `ok` with a `human` object
   `{"password": "<32>"}`, `human.devices` with `{"devices": [{"id": <string>, "last_seen_ms": <int>|null}, ...]}`, the other three only `changed`. Root decodes strictly (CC6's rules):
   `human` only with `ok`, only for those two ops, exactly those keys, a device id 1 to 255
   printable ASCII bytes without a space, at most 256 devices, ids distinct, `last_seen_ms` 0 or
   more. `answerFits` gains these rows, and `validateFailure` still refuses them in a failed
   answer.
+
 - **HU14. Failure classes.** An account the child cannot find is class `refused`; a homeserver
   that did not answer usably or kept rate-limiting is `unreachable`; the child's own files,
   `config`; the rest `failed`. A failed answer's `changed` lines are printed in the JSON document
   first (HV7).
+
 - **HU15. Tests.** Each verb against `fakehs`, with a failure injected before each of its calls
   and each of its roster writes, then the verb run again, ending in the same state with no
   second valid password; the password never appears in any byte the verb writes (a scan of every
-  file of the fake tree, the status record and stderr); `-tags tuwunel` runs HU2 and HU4 against
-  a real Tuwunel (a login with the old password is refused after, the new one signs in) and HU6
-  (a locked account's login is refused: D's RK10 says Tuwunel's lock semantics are unproven, so
-  this is the proof or the finding).
+  file of the fake tree, the status record, the verb's stderr, the child's stderr capture
+  (`ErrChild`'s text) and the recorded process transcript of `execx.Fake`); the refusal of a
+  lying answer (HU2, HV7) is tested to carry no part of the password in its error text, as
+  `validCredential`'s does not. `fakehs` can pin only the admin flag of a lock: a locked
+  account's `whoami` is unmodelled there (its test says so), so sign-in denial is the
+  `-tags tuwunel` row alone. That row runs HU2 and HU4 against a real Tuwunel (a login with the
+  old password is refused after, the new one signs in) and HU6 twice: a locked account's new
+  login is refused, and **a device already signed in before the lock keeps or loses its token**
+  (the lost-phone case; D's RK10 says Tuwunel's lock semantics are unproven, so this is the proof
+  or the finding). `human lock` in production waits for that result (n2h-D20): if an existing
+  token survives a lock, `lock` also ends the account's devices, as `logout` does.
 
 ## 6. `redact` (RD, root, C 3.6.5, DC20, A 4.2, A 12.4, M49)
 
-`redact --team T --event ID --reason secret`. The one way a message leaves the live database,
-used when a human pasted a secret into a room from Element.
+`redact --team T --event ID --reason secret`. The one way the owner has a message's content
+redacted in the live database, used when a human pasted a secret into a room from Element.
 
 - **RD1. Flags.** `--team`, `--event` and `--reason`, each required, each given once (HV4).
   `--event` passes `proto.ValidEventID`; a bad one is 64.
@@ -370,37 +467,56 @@ used when a human pasted a secret into a room from Element.
   object is already redacted: no redact is sent, the op answers `already` true, and the verb
   exits 0. (That a real Tuwunel marks a redacted event so is UNVERIFIED: H4 recorded no redacted
   event, M51's `fakehs` models the specification's shape; the `tuwunel`-tagged test proves it.)
+  Fallback, to be fixed by that test: if a real redacted event carries no `unsigned.redacted_because`,
+  "already redacted" is whatever that test shows (for example a message whose `content` is
+  `{}`), and the test also proves that a second redact of a redacted event is harmless (one more
+  redaction event), which keeps RD7's rerun safe either way.
 - **RD6. The redaction.** `Client.Redact(ctx, room, event, "", "secret")`, a fresh transaction
   ID, by the admin client (the admin is the rooms' creator and the only account A lets redact;
   no power level changes). The client makes one try (M49). On success the answer carries the
   redaction's event ID.
-- **RD7. A lost answer (n2h-D3).** When `Redact` fails transiently (`ErrUnreachable`), the child
-  reads the event once more: if it is now redacted, the op succeeds with `redaction` null (the
-  redaction's ID is unknown, `already` false); if it is not, or the read fails, the op fails
-  (class `unreachable`, 69) and the owner's run again is the retry, which RD5 makes safe. The
-  child never sends a second redact in one run. A refusal (403, `ErrForbidden`) is class
-  `refused`.
+- **RD7. A lost answer (n2h-D3).** The redaction may have landed whenever `Redact` fails with a
+  `matrix.Error` that is `Transient()` (a 5xx answer is `ErrRefused` and transient, so it counts),
+  with a 200 whose body cannot be used (`ErrUnreachable`, not transient, and the redaction
+  certainly landed), or with a cancelled context. In each of those the child reads the event
+  once more, under a fresh bounded context (never the cancelled one): if it is now redacted, the
+  op succeeds with `redaction` null (the redaction's ID is unknown, `already` false); if it is
+  not, or the read fails, the op fails (class `unreachable`, 69) and the owner's run again is
+  the retry, which RD5 makes safe. A 429 (`ErrRateLimited`, not processed) is 69 without a read,
+  and a refusal (403 `ErrForbidden` and the other 4xx) is class `refused` without one. The child
+  never sends a second redact in one run. One test per row of this paragraph.
 - **RD8. The child's answer** to op `event.redact` (args exactly `{team_file, event, reason}`)
   is `ok` with a `redact` object `{"room": "<purpose>", "redaction": "<event id>"|null, "already": <bool>, "sent_ms": <int>}`: `sent_ms` the event's `origin_server_ts`, `room` one of
   A's purposes. Root decodes strictly: `redact` only with `ok`, only for `event.redact`, exactly
   those keys, `redaction` null or `proto.ValidEventID`, `room` a purpose, `sent_ms` 0 or more; an
   answer for another op carrying `redact`, or this op's without it, is refused (`answerFits`).
-- **RD9. The verb's answer** is `{"v": 1, "team": "T", "event": "<id>", "room": "<purpose>", "redaction": "<id>"|null, "already": <bool>, "backups": [{"id": <n>, "time_ms": <t>|null}, ...], "exports": ["<path>", ...]}`.
+- **RD9. The verb's answer** is `{"v": 1, "team": "T", "event": "<id>", "room": "<purpose>", "redaction": "<id>"|null, "already": <bool>, "backups": [{"id": <n>, "time_ms": <t>|null}, ...], "exports": ["<path>", ...], "lost": ["<path>", ...]}`.
 - **RD10. The backups that still hold it (n2h-D5).** `backups` names the entries of
-  `backup.List` whose time is the event's `sent_ms` or later, and every entry whose time is
-  unknown (`time_ms` `null`), newest first: the verb never names fewer than hold the text.
-  Tuwunel's backups are point-in-time copies of the database taken before the redaction, so each
-  one taken after the event was sent keeps its text until Tuwunel prunes it (7 are kept, C
-  3.12.1). The list is read without the child (`backup.List`, no lock beyond the verb's own); a
+  `backup.List` whose time is at or after the event's `sent_ms` rounded down to the second and
+  less a margin of 60 seconds, and every entry whose time is unknown (`time_ms` `null`), newest
+  first. A backup's time is its meta file's whole seconds, the stamp of its own start, so one
+  stamped just before the event was sent can still hold it: the margin covers a copy that runs
+  past the stamp, and the naming is conservative, not exact (the verb names more than hold the
+  text rather than fewer, and says so). Tuwunel's backups are point-in-time copies of the
+  database, so each one taken after the event was sent keeps its text until Tuwunel prunes it
+  (7 are kept, C 3.12.1). The list is read without the child (`backup.List`, no lock beyond the verb's own); a
   failure to read it is 1, "the redaction was made; the backups could not be listed", and the
   JSON document is printed first with `backups` null (HV8's rule).
 - **RD11. The exports (n2h-D5).** `exports` is `["<paths.MigrationExport(team)>"]` when that
   directory (`paths.MigrationDir(team) + "/v1-export"`, D 5.6) exists as a directory (not
   followed, `Lstat`), else `[]`. `paths` gains the one function that names it; the name is not
   in the v1-name list the gate reads (`v1-names.txt`, VERIFIED not to hold it), so the gate is
-  unchanged. Migration is not built, so this is the only way an export can be known.
-- **RD12. Said, not hidden.** When `backups` or `exports` is non-empty, one stderr line follows
-  the JSON: `teamchat-admin: the event is redacted in the live database; backups <ids> and the exports above still hold its text until they are pruned; a copy a session already received stays in its conversation: treat the secret as exposed and rotate it`. Nothing else is said on
+  unchanged. Migration is not built, so this is the only way an export can be known. The export
+  holds v1's history and can hold the text only if it was carried (D 5.6); naming it whenever it
+  exists is the safe direction and matches the design, and is not a claim that it holds it.
+  **`lost` (n2h-D21)** names the `restore-<N>-lost.jsonl` files that exist for the team (SPEC-n2g
+  RC3: every event after backup N in full, mode 0600, kept for `restore --lost`): a redaction
+  after a past restore leaves the secret there. The design (C 3.6.5, A 12.4) names only backups
+  and exports; this is a gap the spec raises and closes with a decision.
+- **RD12. Said, not hidden.** When `backups`, `exports` or `lost` is non-empty, one stderr line
+  follows the JSON: `teamchat-admin: the event is redacted in the live database; backups <ids>, the exports and the lost files above still hold its text until they are pruned; an edit or a reply to that message is a separate event and must be redacted too; a copy a session already received stays in its conversation: treat the secret as exposed and rotate it`. (The live database may keep old
+  data until Tuwunel compacts it: the line says "redacted in the live database", never that the
+  text is gone.) Nothing else is said on
   stdout.
 - **RD13. The status record is not refreshed** (n2h-D5): a redaction changes nothing the record
   holds. No roster write, no member, no human, no notice is posted, and no state of the team
@@ -409,8 +525,10 @@ used when a human pasted a secret into a room from Element.
   the second and in the third room; found in none; a state event; an `m.room.reaction`; already
   redacted (no `PUT .../redact` sent); a lost answer where the redaction landed (success,
   `redaction` null), one where it did not (69, no second redact), and a refusal; a reason other
-  than `secret`; a `room_id` that differs; backups of every age against `sent_ms`; the export
-  directory present, absent and a link (a link is not an export); the stdout carrying one JSON
+  than `secret`; a `room_id` that differs; the read-back rows of RD7 (a 5xx, an unusable 200, a
+  cancelled context, a 429, a 403); backups of every age against `sent_ms`, including one
+  stamped within the margin before it; the export directory present, absent and a link (a link
+  is not an export); `restore-<N>-lost.jsonl` files present and absent; the stdout carrying one JSON
   document and nothing else, in every case. `-tags tuwunel`: a message redacted by the admin,
   read back as redacted, and the event's content gone.
 
@@ -434,24 +552,34 @@ used when a human pasted a secret into a room from Element.
 
 Each is a default the coordinator may change; the reason and the alternative are given.
 
-| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n2h-D1  | `redact` takes no room: the child finds it by asking each room of the rooms record for the event (RD3). Reason: C 3.6.5 and A 12.4 give the verb as `--team --event --reason` and nothing else; a team has three rooms, so the search is at most three reads, and an event ID is a hash that cannot be in two rooms. Alternative: a required `--room <purpose>` flag, which saves up to two reads and makes a wrong guess a refusal.                                                                                                                                                                                                                                                        |
-| n2h-D2  | A reason other than `secret` is exit 70, not 64. Reason: C 3.6.5 and its test row say "refused", and the verb's point is that a rule says no to every other use (DC20). Alternative: 64, as a bad `--credential` value is (`flagArg`), on the view that a closed list of one is an argument grammar.                                                                                                                                                                                                                                                                                                                                                                                        |
-| n2h-D3  | A lost redact answer is settled by one read after the failure and by the owner's next run, never by a second redact in the same run (RD7). Reason: M49 says the client makes one try because Tuwunel's replay behaviour is not recorded, and C 3.6.5 says the child reads whether the event is redacted before it tries again; RD5 makes the next run safe. Alternative: up to three tries each preceded by a read, which hides a transient failure inside one run.                                                                                                                                                                                                                         |
-| n2h-D4  | Only `m.room.message` events without a `state_key` are redacted (RD4). Reason: members and humans can send nothing else (A 4.2), the leak is a pasted message, and an admin redaction of a state event (the roster, the power levels, a membership) would break the team through a typo in an event ID. Alternative: any event, trusting the owner's care.                                                                                                                                                                                                                                                                                                                                  |
-| n2h-D5  | `redact` names backups by the event's time and the migration export by its directory, and refreshes no status record (RD9 to RD13). Reason: C 3.6.5 says the answer "names" them; a backup taken before the event was sent cannot hold it, so naming by `sent_ms` is exact and never under-reports (an unknown time is listed); the record holds nothing a redaction changes. Alternative: name every backup, or refresh the record as every change verb does.                                                                                                                                                                                                                              |
-| n2h-D6  | `declare check` exits 70 for a SECURITY line and for a declaration the decode refuses; 78 for an `approved.json` it cannot read; 1 for an unreadable stdin. Reason: C 3.5.1 says only that the play "fails"; the table's 70 is "a rule said no", `declare.RefusedError` already maps to it (`ExitCodeOf`), and the play tells a SECURITY refusal by the `SECURITY` lines on stdout. Departure to note: `team apply` and `team approve` exit 1 for an input that fails `DecodeInput` (VERIFIED: `readInput` returns the error to `failWith`, and `ExitCodeOf` has no row for a declaration field error, so it is the default 1); aligning them is gap G3. Alternative: exit 1 for all of it. |
-| n2h-D7  | The unprivileged `declare check` refuses a listening port only for a team with no stamp (DC5). Reason: it cannot see whose listener it is (another account's `/proc/<pid>/fd` is closed to it, VERIFIED in `hostnet.holder`), C 3.2.5's "listening and not this team's own" needs that, and `team apply` step 2 (root) already makes the exact judgement before any change. Alternative: no listener check in `declare check` at all (the collision shows at apply, later in the play), or a root-run check, which defeats "before any root task".                                                                                                                                          |
-| n2h-D8  | The v2 half of `declare check` takes exactly DR1's keys; `agent_bus_teams` waits for `migrate/v1`'s slice (DC8). Reason: C 3.5.1 puts the v1 ports in the same stdin, DR1 refuses unknown keys, and C 3.8 says only `migrate/v1` names v1's keys. Alternative: accept and ignore the key now (a silent skip, refused by the fail-fast rule).                                                                                                                                                                                                                                                                                                                                                |
-| n2h-D9  | `check` reads sandbox properties through a new `units.Manager.Sandbox` over a fixed table of boolean and string properties, compared with `host.TeamSandbox` (CK4), and names the directives it did not compare. Reason: `Manager` has only `State`, `Kill`, `Start`, `Stop` and the host and health reads (VERIFIED in `units/state.go` and `units/units.go`); a generic property reader would put every systemd value root decodes outside SD5's typed rule. Alternative: `systemctl show` through `execx` (n2f-D4 keeps systemctl for clean and journal only).                                                                                                                           |
-| n2h-D10 | In `check`, every probe failure is a `FAIL` line and exit 1, and it takes no lock (CK2, CK9). Reason: C 3.5.4 says "exits 1 on any FAIL" and that it is what the acceptance runs; a report that stopped at the first broken probe would hide the rest. Alternative: map a probe's failure to 69 or 78.                                                                                                                                                                                                                                                                                                                                                                                      |
-| n2h-D11 | `status` finds its teams from the stamps in the status tree (ST2), prints the fixed text of ST4, and exits 1 on a team problem only (ST6). Reason: it runs as the owner, who cannot read `team.json`, which `health.Stamps` needs; C 3.11.3 says "for a human" and gives no format, so ST4 pins one. Alternative: a `--json` flag; not built, since ccy-teams reads the records itself (C 3.13).                                                                                                                                                                                                                                                                                            |
-| n2h-D12 | `human lock` is a new roster human state `locked` that `team apply` respects (HU6). Reason: bootstrap step 3 unlocks a declared human whose account is locked (VERIFIED in `apply.human`), so an account-only lock of a declared human would be undone silently by the next play; n2g's RM7 already expects a roster state for it. It touches built packages (`apply`'s roster grammar, `status` SR1's human states, `DeriveRoster`, `restore`'s merge): S5 owns that. Alternatives: refuse `human lock` of a declared human (the verb then has nothing to lock but a human the declaration already removes), or lock the account only and let the next apply undo it.                      |
-| n2h-D13 | `human logout` replaces the password with a discarded random one, prints none and leaves `needs` as it is (HU4). Reason: C 3.6.5 calls it "a password reset with device logout, the lost-phone procedure", and v1's `logout-all` also replaced the password with a discarded one (D's table of v1 calls); `needs` is "set by a restore" (C 3.6.1). Alternative: set `needs` to `password`, so the board shows that this human has no usable password; a grammar use the design does not give.                                                                                                                                                                                               |
-| n2h-D14 | A human's password is 32 characters of `[A-Za-z0-9]` from `crypto/rand` without bias, and the roster is written before the homeserver call (HU2, HU3). Reason: C 3.6.5 says "a random 32-character password" and `revoked_seq` must never be lower than the reset it records (a restore decides by it, C 3.12.2): writing first can only over-revoke. Alternative: base 32 as bootstrap's discarded passwords are (26 characters, not 32), or the account first (a crash would leave a reset the restore cannot see).                                                                                                                                                                       |
-| n2h-D15 | `human *` and `redact` wait `SeatWait` (60 s) for the team lock. Reason: an owner at a terminal through password sudo is waiting, as a seat take is (C 3.4: 10 minutes is for play steps and the timer), and a busy lock names its holder at 75. Alternative: the 10 minutes of `PlayWait`.                                                                                                                                                                                                                                                                                                                                                                                                 |
-| n2h-D16 | A human verb names a declared, enrolled or locked human with an account (HU1). Reason: DC9 makes the declaration the one route for removal and return, so these verbs never act on a removed or undeclared name. Alternative: allow `human devices` for a removed human, to look at a leak after removal.                                                                                                                                                                                                                                                                                                                                                                                   |
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2h-D1  | `redact` takes no room: the child finds it by asking each room of the rooms record for the event (RD3). Reason: C 3.6.5 and A 12.4 give the verb as `--team --event --reason` and nothing else; a team has three rooms, so the search is at most three reads, and an event ID is a hash that cannot be in two rooms. Alternative: a required `--room <purpose>` flag, which saves up to two reads and makes a wrong guess a refusal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n2h-D2  | A reason other than `secret` is exit 70, not 64. Reason: C 3.6.5 and its test row say "refused", and the verb's point is that a rule says no to every other use (DC20). Alternative: 64, as a bad `--credential` value is (`flagArg`), on the view that a closed list of one is an argument grammar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n2h-D3  | A lost redact answer is settled by one read after the failure and by the owner's next run, never by a second redact in the same run (RD7). Reason: M49 says the client makes one try because Tuwunel's replay behaviour is not recorded, and C 3.6.5 says the child reads whether the event is redacted before it tries again; RD5 makes the next run safe. Alternative: up to three tries each preceded by a read, which hides a transient failure inside one run.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n2h-D4  | Only `m.room.message` events without a `state_key` are redacted (RD4). Reason: members and humans can send nothing else (A 4.2), the leak is a pasted message, and an admin redaction of a state event (the roster, the power levels, a membership) would break the team through a typo in an event ID. Alternative: any event, trusting the owner's care.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| n2h-D5  | `redact` names backups by the event's time and the migration export by its directory, and refreshes no status record (RD9 to RD13). Reason: C 3.6.5 says the answer "names" them; a backup taken before the event was sent cannot hold it, so naming by `sent_ms` is exact and never under-reports (an unknown time is listed); the record holds nothing a redaction changes. Alternative: name every backup, or refresh the record as every change verb does.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| n2h-D6  | `declare check` exits 70 for a SECURITY line and for a declaration the decode refuses; 78 for an `approved.json` it cannot read; 1 for an unreadable stdin. Reason: C 3.5.1 says only that the play "fails"; the table's 70 is "a rule said no", `declare.RefusedError` already maps to it (`ExitCodeOf`), and the play tells a SECURITY refusal by the `SECURITY` lines on stdout. Departure to note: `team apply` and `team approve` exit 1 for an input that fails `DecodeInput` (VERIFIED: `readInput` returns the error to `failWith`, and `ExitCodeOf` has no row for a declaration field error, so it is the default 1); aligning them is gap G3. Alternatives: 78, since a malformed declaration is the owner's host_vars and so nearer "configuration" than "a rule said no" (the review's view), or exit 1 for all of it. If 70 stays, G3 is scheduled with S2, because this spec creates the inconsistency.      |
+| n2h-D7  | The unprivileged `declare check` refuses a listening port only for a team with no stamp whose own unit is not active (DC5; as first written it refused every stamp-less listener, which would block the re-run of a first apply that failed after starting the server: the review's first blocker). Reason: it cannot attribute a listener by process, so the unit's own state, which any user may read, stands in. It cannot see whose listener it is (another account's `/proc/<pid>/fd` is closed to it, VERIFIED in `hostnet.holder`), C 3.2.5's "listening and not this team's own" needs that, and `team apply` step 2 (root) already makes the exact judgement before any change. Alternative: no listener check in `declare check` at all (the collision shows at apply, later in the play), or a root-run check, which defeats "before any root task".                                                             |
+| n2h-D8  | The v2 half of `declare check` takes exactly DR1's keys; `agent_bus_teams` waits for `migrate/v1`'s slice (DC8). Reason: C 3.5.1 puts the v1 ports in the same stdin, DR1 refuses unknown keys, and C 3.8 says only `migrate/v1` names v1's keys. Alternative: accept and ignore the key now (a silent skip, refused by the fail-fast rule).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n2h-D9  | `check` reads sandbox properties through a new `units.Manager.Sandbox` over a fixed table of boolean and string properties, compared with `host.TeamSandbox` (CK4), and names the directives it did not compare. Reason: `Manager` has only `State`, `Kill`, `Start`, `Stop` and the host and health reads (VERIFIED in `units/state.go` and `units/units.go`); a generic property reader would put every systemd value root decodes outside SD5's typed rule. Alternative: `systemctl show` through `execx` (n2f-D4 keeps systemctl for clean and journal only).                                                                                                                                                                                                                                                                                                                                                           |
+| n2h-D10 | In `check`, every probe failure is a `FAIL` line and exit 1, and it takes no lock (CK2, CK9). Reason: C 3.5.4 says "exits 1 on any FAIL" and that it is what the acceptance runs; a report that stopped at the first broken probe would hide the rest. Alternative: map a probe's failure to 69 or 78.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| n2h-D11 | `status` finds its teams from the stamps in the status tree (ST2), prints the fixed text of ST4, and exits 1 on a team problem only (ST6). Reason: it runs as the owner, who cannot read `team.json`, which `health.Stamps` needs; C 3.11.3 says "for a human" and gives no format, so ST4 pins one. Alternative: a `--json` flag; not built, since ccy-teams reads the records itself (C 3.13).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| n2h-D12 | **An owner-visible grammar decision.** `human lock` is a new roster human state `locked` that `team apply` respects (HU6); it changes the two-state grammar of C 3.6.1, and, as the review's second blocker showed, restore's merge must judge a `locked` human by every case and not only lock it (HU6 lists each place and each test). Reason: bootstrap step 3 unlocks a declared human whose account is locked (VERIFIED in `apply.human`), so an account-only lock of a declared human would be undone silently by the next play; n2g's RM7 already expects a roster state for it. It touches built packages (`apply`'s roster grammar, `status` SR1's human states, `DeriveRoster`, `restore`'s merge): S5 owns that. Alternatives: refuse `human lock` of a declared human (the verb then has nothing to lock but a human the declaration already removes), or lock the account only and let the next apply undo it. |
+| n2h-D13 | `human logout` replaces the password with a discarded random one, prints none and leaves `needs` as it is (HU4). Reason: C 3.6.5 calls it "a password reset with device logout, the lost-phone procedure", and v1's `logout-all` also replaced the password with a discarded one (D's table of v1 calls); `needs` is "set by a restore" (C 3.6.1). Alternative: set `needs` to `password`, so the board shows that this human has no usable password; a grammar use the design does not give.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| n2h-D14 | A human's password is 32 characters of `[A-Za-z0-9]` from `crypto/rand` without bias, and the roster is written before the homeserver call (HU2, HU3). Reason: C 3.6.5 says "a random 32-character password" and `revoked_seq` must never be lower than the reset it records (a restore decides by it, C 3.12.2): writing first can only over-revoke. Alternative: base 32 as bootstrap's discarded passwords are (26 characters, not 32), or the account first (a crash would leave a reset the restore cannot see).                                                                                                                                                                                                                                                                                                                                                                                                       |
+| n2h-D15 | `human *` and `redact` wait `SeatWait` (60 s) for the team lock. Reason: an owner at a terminal through password sudo is waiting, as a seat take is (C 3.4: 10 minutes is for play steps and the timer), and a busy lock names its holder at 75. Alternative: the 10 minutes of `PlayWait`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| n2h-D16 | A human verb names a declared, enrolled or locked human with an account (HU1). Reason: DC9 makes the declaration the one route for removal and return, so these verbs never act on a removed or undeclared name. Alternative: allow `human devices` for a removed human, to look at a leak after removal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+
+Decisions added by the review (the same rules as above):
+
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2h-D17 | In these verbs a file that cannot be decoded (`approved.json`, `team.json`, `units.json` where it ends the verb, the roster) is 78 naming the file, through a typed configuration error. Reason: C 3.6.1 says "exit 78 naming the file". Departure: the built verbs return 1 for the same files (gap G5). Alternative: 1, to match what is built.       |
+| n2h-D18 | `human devices` refreshes the status record with the health tick's whole gather and accepts the cost of about 150 gathers in the login flow's poll (HU5). Reason: C 3.11.3 asks for the refresh and `Status.Refresh` is the one writer. Alternative: a narrower rewrite of one human's entry, a change to `health`.                                     |
+| n2h-D19 | A human verb that wrote anything completes a pending roster by `apply`'s roll-forward and then runs the rooms step (HU11). Reason: C 3.6.2 and 3.6.3 say every member, role and human verb does. Alternative: skip the rooms step for human verbs, a recorded departure that saves room reads.                                                          |
+| n2h-D20 | `human lock` is built only after the real-Tuwunel probe of an already signed-in device (HU15); if such a token survives a lock, `lock` also ends the account's devices. Reason: D's RK10 says Tuwunel's lock semantics are unproven and the lost-phone case is the one that matters. Alternative: build `lock` as written and record the finding later. |
+| n2h-D21 | `redact` names the `restore-<N>-lost.jsonl` files in a `lost` key (RD11) and the backup margin of RD10. Reason: those files hold every event after a backup in full, and the design's two named places leave them out. Alternative: leave `lost` to a later amendment of C 3.6.5, which would leave a known copy of a leaked secret unnamed meanwhile.  |
 
 ## 9. Gaps this spec does not close
 
@@ -466,7 +594,11 @@ Each is a default the coordinator may change; the reason and the alternative are
   shows "the status record cannot be read" until area D's slice gives SR1 that shape.
 - **G3. `team apply` and `team approve` exit 1 for an invalid declaration** while `declare check`
   exits 70 (n2h-D6). Mapping the declaration's field error to 70 in `ExitCodeOf` would align all
-  three and changes the exit code those two verbs' tests pin: the coordinator's call.
+  three and changes the exit code those two verbs' tests pin: the coordinator's call, and if 70
+  stays it is scheduled with S2.
+- **G5. The built verbs return 1, not 78, for a file they cannot decode** (`team.json`,
+  `approved.json`, the roster): 78 is produced only through `configError` (n2h-D17). Aligning
+  them is a change to built verbs and the tests that pin 1; it is the coordinator's call.
 - **G4. `check` and the D-Bus property types** (CK4) are UNVERIFIED on a real systemd until a
   host check reads them (`busctl introspect`, H-C2's neighbour); the table, not the check, is
   corrected by it.
