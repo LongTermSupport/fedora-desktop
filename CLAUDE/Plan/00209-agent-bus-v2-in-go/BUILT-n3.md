@@ -39,6 +39,14 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   tests (review A n3; GATE A means none is deployed). Found here and fixed on
   `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
 
+- **n3e built in part**: n3e-1 to n3e-11, the agent seam (SPEC-n3 6.1) and the goroutine review
+  are merged (`subagent-reports/261022-n3e-*.md`, `261023-n3e-*.md`). n3e-12's first half is
+  built: `hook` and `status-line` are in `wiring.Verbs`, off `cli`'s `unbuilt` table, and the CL2
+  test (`go test -tags teamchatrelease ./internal/teamchat/member/cli/`) now fails only on n3f's
+  four verbs (`ask`, `thread`, `questions`, `report`). Not built: n3e-12's second half, the
+  `--claude` end-to-end tests in the wiring world (their plan is in
+  `subagent-reports/261105-n3e-wire-sonnet.md`), and n3e-13, PT1.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
