@@ -58,31 +58,26 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   under `busfailpoints` (`pt1_model_test.go`, `pt1_run_test.go`, `pt1_model_unit_test.go`): a seed
   draws a schedule of posts, recv, wait, sends, a held, released or refusing inbox, homeserver
   restarts and a link SIGKILL, run over the real keeper and link with the fake Claude Code as CMD,
-  drained, and judged by one pure function that has P1, P2, P5, P6 and P11 (real runs reach P1, P6
-  and P11; see the reviewer's finding below for P2 and P5); 12 fixed seeds run in the gate's tagged stage
-  (about 20 s) and `-pt1.random=<n>` is the manual run; a failing seed prints
-  its replay (`-pt1.seed=N`). `TestPT1Points` kills the link at the 8 points a one-team session
-  reaches (judge-before-persist, auth, awaiting, user-line, hand-out, while-handed, charge, send)
-  and checks the same. Shown red by an `Ack` that leaves items pending (P11, six seeds). Not
-  reached: P3 directly (a lost item is the observable), P4 and the removal and end points (their
-  rows are `e2e_failpoints_test.go`'s), P7, P8-P10 and `link-after-missing` (180 s of quiet: no
-  clock seam in the link), `link-between-store-writes` (needs two teams). Reviewer's finding: with
-  the `repeat:` line never written (`proto/envelope.go`, `closingLines`), every PT1 row stays
-  green, so P2 is checked only by its unit case, not by a real run: no schedule or kill row makes a
-  redelivery in gate time (the one that would, `link-after-awaiting`, waits 180 s). P5 was not
-  shown to fire in a real run either: no drawn operation ends or removes a seat, and whether a
-  link kill posts a notice was not looked at.
+  drained, and judged by one pure function that has P1, P2, P4, P5, P6 and P11; the gate's tagged
+  stage runs 22 fixed seeds, the 8 point rows and the redelivery row (about 60 s a count), and
+  `-pt1.random=<n>` is the manual run; a failing seed prints its replay (`-pt1.seed=N`).
+  `TestPT1Points` kills the link at the 8 points a one-team session reaches (judge-before-persist,
+  auth, awaiting, user-line, hand-out, while-handed, charge, send) and checks the same. Not
+  reached: P3 directly (a lost item is the observable), the removal and end points (their rows
+  are `e2e_failpoints_test.go`'s), P7, P8-P10 and `link-after-missing` (180 s of quiet: no clock
+  seam in the link), `link-between-store-writes` (needs two teams).
 
-  n3e-13 slice 3 (`subagent-reports/261105-n3e-pt1b-sonnet.md`) built the pure half only: four
-  more operations in the generator (`remove`, `end`, `die` and `recv-fail`, a recv whose output
-  fails so the link gets no ack and returns the items marked repeat), P4 (no copy after a
-  removal), P5 as exactly one goodbye per run and the ending's notice once, and P2 for an item a
-  failed recv returned, each with a unit case. The runner has no code for the four operations, so
-  P2, P4 and P5 are still not reached by a real run, no planted defect was run against them, and
-  the fixed seeds were chosen to draw none of the four (`pt1Unbuilt`); the report says how the
-  runner is to be built. Until it is, `-pt1.seed=N` and `-pt1.random=<n>` fail loudly on any seed
-  that draws one of the four, which is 1673 of the first 2000 seeds (the reviewer's count), so the
-  manual long run is not usable.
+  n3e-13 slices 3 and 4 (`subagent-reports/261105-n3e-pt1b-sonnet.md`, `-pt1c-sonnet.md`) built the
+  four more operations (`remove`, `end`, `die`, `recv-fail`), P4, P5 and P2 for returned items, and
+  the runner that runs them (`pt1_end_test.go`, `pt1_redeliver_test.go`), so the manual run is
+  usable on every seed. Each property was shown red on a planted defect in production code, put in,
+  run and reverted: P11 (`Ack` leaves items pending), P5 (a second goodbye post with another
+  transaction id, in `ends.Leave` and in `ends.send`), P4 (`Engine.Remove` returning at once, the team
+  still running) and P2 (the `repeat:` line never written in `closingLines`; a `Return` that does
+  not mark repeat). `-pt1.random=30` passed. One finding, open: seed 57 failed once in four
+  concurrent full runs (P2, the returned item's first transcript copy carries no repeat line), and
+  not in 25 unloaded replays; whether that is a production race or the harness sampling the
+  transcript before a delivery lands is not decided (the slice 4 report).
 
 ## Task 3.3: LXC members
 
