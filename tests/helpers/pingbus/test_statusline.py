@@ -260,6 +260,18 @@ class StatusLineTest(unittest.TestCase):
         self.assertIn(row("alpha: myrepo.1 (w)"), text)
         self.assertEqual(rc, 0)
 
+    def test_the_inner_sees_the_resolved_project_when_the_variable_is_unset(self) -> None:
+        self.settings(self.project / ".claude/settings.json", 'printf %s "$CLAUDE_PROJECT_DIR"')
+        for payload in ({"workspace": {"project_dir": str(self.project)}}, {"cwd": str(self.project)}):
+            with self.subTest(payload=payload):
+                text, _ = statusline.render(json.dumps(payload).encode(), self.env)
+                self.assertEqual(text.split("\n")[0], str(self.project))
+
+    def test_a_command_naming_the_variable_with_no_project_is_a_note_not_run(self) -> None:
+        self.settings(self.home / ".claude/settings.json", '"$CLAUDE_PROJECT_DIR"/.claude/hooks/status-line')
+        text, _ = statusline.render(b"{}", self.env)
+        self.assertIn(f"{RED}{statusline.NO_PROJECT_NOTE}{RESET}", text)
+
     def test_a_hung_inner_status_line_times_out_and_its_whole_group_is_killed(self) -> None:
         pidfile = self.tmp / "grandchild"
         command = f"sleep 60 & echo $! > {pidfile}; wait"
