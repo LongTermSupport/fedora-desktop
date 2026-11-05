@@ -32,6 +32,11 @@ const (
 
 	noteTimedOut = "(status line timed out after 10 s)"
 	noteNotRun   = "(status line could not be run)"
+	projectVar   = "CLAUDE_PROJECT_DIR"
+	// noProject is shown instead of running a command that spells the project variable when no
+	// project can be found to give it (S9a).
+	noProject = "status line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an absolute path, " +
+		"and the payload has no absolute workspace.project_dir or cwd, so it was not run"
 	// self is this command, which a settings file may name without the line drawing itself.
 	self = "teamchat status-line"
 )
@@ -51,11 +56,20 @@ func (d deps) inner(ctx context.Context, e cli.Env, raw []byte) string {
 	if line == "" {
 		return ""
 	}
-	dir := ""
-	if hasProject && isDir(project) {
-		dir = project
+	if !hasProject && strings.Contains(line, projectVar) {
+		return red + noProject + reset
 	}
-	return d.runInner(ctx, line, raw, dir, e.Stderr)
+	dir := ""
+	var env []string
+	if hasProject {
+		if isDir(project) {
+			dir = project
+		}
+		if !filepath.IsAbs(e.Getenv(projectVar)) {
+			env = []string{projectVar + "=" + project}
+		}
+	}
+	return d.runInner(ctx, line, raw, dir, env, e.Stderr)
 }
 
 // parsePayload is the session JSON as an object; anything else is none.
@@ -209,7 +223,7 @@ func isDir(path string) bool {
 // this process's environment plus the loop guard, stderr inherited, and stdout captured (S9 to
 // S14). At 10 s its group is killed and the output is only the timeout note; a process that
 // left the group holding stdout keeps the render at most the runner's grace.
-func (d deps) runInner(ctx context.Context, line string, raw []byte, dir string, stderr io.Writer) string {
+func (d deps) runInner(ctx context.Context, line string, raw []byte, dir string, extra []string, stderr io.Writer) string {
 	run, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
 	disarm := d.clock.AfterFunc(innerTimeout, func() { stop(errTimedOut) })
@@ -218,7 +232,7 @@ func (d deps) runInner(ctx context.Context, line string, raw []byte, dir string,
 	_, err := d.runner.Run(run, execx.Cmd{
 		Name:       "/bin/sh",
 		Args:       []string{"-c", line},
-		Env:        []string{paths.EnvStatusLineInner + "=1"},
+		Env:        append([]string{paths.EnvStatusLineInner + "=1"}, extra...),
 		Dir:        dir,
 		Stdin:      bytes.NewReader(raw),
 		Stdout:     out,

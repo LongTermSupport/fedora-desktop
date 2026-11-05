@@ -68,6 +68,10 @@ COMMAND = "pingbus status-line"
 KIT_COMMAND = "pingbus-status-line"
 #: Set for the inner status line, so a settings file that names this command cannot loop.
 INNER_VAR = "PINGBUS_STATUS_LINE_INNER"
+PROJECT_VAR = "CLAUDE_PROJECT_DIR"
+#: Shown instead of running a command that spells the project variable when no project is found.
+NO_PROJECT_NOTE = ("status line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an "
+                   "absolute path, and the payload has no absolute workspace.project_dir or cwd, so it was not run")
 SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
 SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -509,7 +513,12 @@ def _inner(raw: bytes, payload: dict, environ: Mapping[str, str], run: Runner) -
         return f"{RED}status line: {exc}{RESET}"
     if command is None:
         return ""
-    text, status = run(command, raw, environ, _project_dir(payload, environ))
+    project = _project_dir(payload, environ)
+    if project is None and PROJECT_VAR in command:
+        return f"{RED}{NO_PROJECT_NOTE}{RESET}"
+    if project is not None and not environ.get(PROJECT_VAR, "").startswith("/"):
+        environ = dict(environ, **{PROJECT_VAR: str(project)})
+    text, status = run(command, raw, environ, project)
     text = text.rstrip("\n")
     if status == 0:
         return text

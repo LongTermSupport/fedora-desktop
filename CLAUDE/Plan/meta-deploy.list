@@ -33,8 +33,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Element Desktop's install and keyring grant moved into tasks/element-desktop.yml, which
-# play-matrix-clients.yml and play-agent-bus-element.yml both import (Plan 00244 Task 3.2).
-# Expected: those two plays. Element is already installed and granted on the host, so both
-# should report the Flatpak present and the override already set.
+# The status line names an unset CLAUDE_PROJECT_DIR instead of running /.claude/hooks/status-line
+# (#138), in the Go pingbus-status-line, its Python reference and teamchat's. Expected:
+# play-agent-bus (rebuilds pingbus-status-line) and play-claude-yolo (ccy 3.112.1, image
+# 2.79.25, which carries the Python). Acceptance: the status line still renders in a session.
 changed-plays

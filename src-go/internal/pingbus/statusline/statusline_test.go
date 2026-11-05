@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -163,5 +165,67 @@ func TestAnInnerThatCannotStartIsANote(t *testing.T) {
 	out, code := Run(context.Background(), in, &stderr)
 	if code != 0 || string(out) != red+notRun+reset+"\n" {
 		t.Fatalf("exit %d, out %q, stderr %q", code, out, stderr.String())
+	}
+}
+
+// innerRender renders a status line whose inner command is command, with env, and returns the
+// stdout text.
+func innerRender(t *testing.T, command string, env map[string]string, stdin string) string {
+	t.Helper()
+	conf := t.TempDir()
+	settings := `{"statusLine": {"command": ` + strconv.Quote(command) + `}}`
+	if err := os.WriteFile(filepath.Join(conf, "settings.json"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env["CLAUDE_CONFIG_DIR"] = conf
+	var stderr bytes.Buffer
+	out, code := Run(context.Background(), Input{Env: env, Cwd: t.TempDir(), Stdin: []byte(stdin)}, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+	return string(out)
+}
+
+// S9: a payload that names the project runs an inner command that spells $CLAUDE_PROJECT_DIR
+// with the variable unset, because the inner sees the project this command resolved.
+func TestInnerSeesTheResolvedProjectWhenTheVariableIsUnset(t *testing.T) {
+	project := t.TempDir()
+	for _, stdin := range []string{
+		`{"workspace": {"project_dir": ` + strconv.Quote(project) + `}}`,
+		`{"cwd": ` + strconv.Quote(project) + `}`,
+	} {
+		got := innerRender(t, `printf %s "$CLAUDE_PROJECT_DIR"`, map[string]string{}, stdin)
+		if got != project+"\n" {
+			t.Errorf("payload %s: got %q, want %q", stdin, got, project+"\n")
+		}
+	}
+}
+
+// S9: a variable that is set to an absolute path is passed on untouched.
+func TestInnerKeepsAnAbsoluteProjectVariable(t *testing.T) {
+	got := innerRender(t, `printf %s "$CLAUDE_PROJECT_DIR"`,
+		map[string]string{"CLAUDE_PROJECT_DIR": "/set/by/claude"}, `{"cwd": "/payload/cwd"}`)
+	if got != "/set/by/claude\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// S9a: with no project to be found, a command that spells the variable is not run; the note
+// names the variable and the payload fields that were empty.
+func TestInnerNamingTheVariableWithNoProjectIsANote(t *testing.T) {
+	got := innerRender(t, `"$CLAUDE_PROJECT_DIR"/.claude/hooks/status-line`, map[string]string{}, `{}`)
+	want := red + noProjectNote + reset + "\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if !strings.Contains(noProjectNote, "CLAUDE_PROJECT_DIR") || !strings.Contains(noProjectNote, "workspace.project_dir") {
+		t.Errorf("the note does not name the variable and the fields: %q", noProjectNote)
+	}
+}
+
+// S9a: a command that does not spell the variable runs whether or not a project is found.
+func TestInnerNotNamingTheVariableRunsWithNoProject(t *testing.T) {
+	if got := innerRender(t, `echo plain`, map[string]string{}, `{}`); got != "plain\n" {
+		t.Errorf("got %q", got)
 	}
 }
