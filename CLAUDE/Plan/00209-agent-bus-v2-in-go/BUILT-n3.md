@@ -163,6 +163,18 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
   against its 20 KiB size.
 
+- **n3f-c1 (the questions room's sync, SPEC-n3f QS1-QS10) stopped early, in part**, on
+  `feat/bus-v2-n3f-c1` (from `feat/bus-v2-n3f-a-int`; `subagent-reports/261105-n3f-c1-sonnet.md`).
+  Built and green: the engine's half of n3f-D19 and QS9 (`engine/questionswrite.go`:
+  `team.Batch.Questions` is the only way the `questions` key is written, and
+  `team.Batch.DropQuestions` is a demotion's one store write: the room's pending and handed items
+  (an item awaiting proof stays, DV4), the key, `reminded_ms`, `remind_late`, the three outbox keys
+  and a questions post in `sending`; the floor stays), with `team.Health.Questions` for `status`.
+  Not green, committed as red tests with a compile-only skeleton so the next builder starts from
+  them: `teamsync/questions_test.go` (QS1 to QS5, QS3) over `teamsync/questions.go` (the
+  `IndexBuilder` seam, `IndexJob`, `Team.IndexAtHead`, `Team.QuestionsStatus`, which do nothing yet).
+  Nothing of QS1 to QS10 is built in `teamsync`; the report has the design and the order.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
