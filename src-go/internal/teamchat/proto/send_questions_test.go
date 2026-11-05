@@ -105,8 +105,15 @@ func TestComposeUnattachedReply(t *testing.T) {
 	if _, has := at(t, out.Content, KeyThread).Get("n"); has {
 		t.Errorf("an unattached reply has an n: %s", out.Content.Compact())
 	}
-	if v := receive(t, out, coordID, coordID); v.Outcome != Index || c.Questions.Feed(v) {
-		t.Errorf("the index changed for an unattached reply: %v %q", v.Outcome, v.Reason)
+	v := receive(t, out, coordID, coordID)
+	if v.Outcome != Index || !c.Questions.Feed(v) {
+		t.Errorf("the index did not take the reply to an unattached post: %v %q", v.Outcome, v.Reason)
+	}
+	if got := c.Questions.Unattached(); len(got) != 0 {
+		t.Errorf("the post replied to is still listed unattached: %+v", got)
+	}
+	if n, known := c.Questions.Attachment(qid('u')); !known || n != 0 {
+		t.Errorf("the replied-to post is no longer known unattached: %d %v", n, known)
 	}
 }
 
