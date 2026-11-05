@@ -317,7 +317,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   (n3f-a built, awaiting review, on `feat/bus-v2-n3f-a-int`: G6 and G7, G4 and G5 (the records
   and the filter), G1 whole (the question index: fold and caps, the strict codec and load, the
   build record, `RedactedSlot`, the property tests) and G2 (the store's seven keys, `MaxStore`
-  4 MiB); n3f-b to n3f-e open, see BUILT-n3.md).
+  4 MiB); n3f-b built in part on `feat/bus-v2-n3f-b` (the team goroutine's half of the reports
+  room: RP1, RP2 and RP4's verification; the `report` verb, the sender's half and `status` are
+  not built); n3f-c to n3f-e open, see BUILT-n3.md).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

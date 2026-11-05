@@ -163,6 +163,24 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
   against its 20 KiB size.
 
+- **n3f-b, the reports room, built in part** on `feat/bus-v2-n3f-b` (from
+  `feat/bus-v2-n3f-a-int`; `subagent-reports/261105-n3f-b-sonnet.md`). Built: the team goroutine's
+  half. `team.Team` gains `VerifyReports(ctx)` (RP4: the join tried first, then the room's state
+  judged by `proto.VerifySide` against main's verified roster; a refusal is an `*exits.Error`
+  22 `forbidden` or `untrusted` naming the reports room and the check, anything else is
+  transient) and `ReportsRoom()` (the state for `status`: `joining`, `joined`, `refused` with the
+  errcode, `untrusted` with the check). `teamsync` joins the reports room eagerly beside the
+  long-poll (RP1, n3f-D12: its own goroutine, SY8's backoff on a transient failure, a refusal
+  tried again at the next start, the next roster revision and the next `report`; membership read
+  from `GET /joined_rooms`, never the error text; the join bounded at 30 s by the injected clock)
+  and judges a reports event in an answer as A 7.6 does there (RP2: a fault line once per
+  event id, a stranger dropped `sender`, never an item). Coverage: `teamsync` 95.1%, `team`
+  100%. Not built (the next builder's list is in the report): the `report` verb end to end
+  (the client's stdin rule with the cap 1500, `wire.OpReport`, the engine's op, the store write
+  of `outbox.reports`, the `report-rate` message), the sender's own verification and post to the
+  reports room, `status`'s `room` record from `ReportsRoom()`, `wiring.Verbs`, `cli`'s
+  `unbuilt`, the OF1-n3f `report` row. The release test still fails on four verbs.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.

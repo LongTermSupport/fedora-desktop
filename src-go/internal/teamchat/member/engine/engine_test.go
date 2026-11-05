@@ -194,6 +194,35 @@ type fakeTeam struct {
 	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
 	ended       bool
 	flushedLive int
+	// reportsAnswers are VerifyReports's answers in order (the last one repeats; none is nil),
+	// reportsVerifies counts its calls, reports is the room's state for status.
+	reportsAnswers  []error
+	reportsVerifies int
+	reports         team.ReportsRoom
+}
+
+// VerifyReports answers from reportsAnswers.
+func (f *fakeTeam) VerifyReports(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reportsVerifies++
+	switch n := len(f.reportsAnswers); {
+	case n == 0:
+		return nil
+	case f.reportsVerifies <= n:
+		return f.reportsAnswers[f.reportsVerifies-1]
+	default:
+		return f.reportsAnswers[n-1]
+	}
+}
+
+func (f *fakeTeam) ReportsRoom() team.ReportsRoom {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.reports.State == "" {
+		return team.ReportsRoom{State: team.ReportsJoined}
+	}
+	return f.reports
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {

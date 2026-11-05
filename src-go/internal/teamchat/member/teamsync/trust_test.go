@@ -17,10 +17,10 @@ import (
 func TestTheCoordinatorJoinsTheQuestionsRoom(t *testing.T) {
 	w := newWorld(t)
 	w.as(coord)
-	joins := w.requests("/join")
+	joins := w.joinsExceptReports()
 	w.start()
 	w.batch()
-	if n := w.requests("/join"); n != joins+1 {
+	if n := w.joinsExceptReports(); n != joins+1 {
 		t.Errorf("%d joins, want %d", n, joins+1)
 	}
 	if n := w.requests("/state"); n < 3 {
