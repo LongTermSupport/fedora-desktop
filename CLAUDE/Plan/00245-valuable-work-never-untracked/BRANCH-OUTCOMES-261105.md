@@ -28,6 +28,25 @@ with each. Branches merged into F44 are deleted from the remote once F44 holds t
   a scanner false positive (a Defence Before Fix item, not yet started). The note goes in once
   the scanner is fixed.
 
+## Landing them on F44
+
+The merge branch was pushed to F44 as a rebuild (6d1b25e6d), not as merged. F44 takes signed
+commits only, and `worker/433-unowned-decisions`'s four September commits are unsigned. The 14
+signed branches are merged with their history. 433's content, with the conflict resolutions, is
+one new commit, and the rebuilt tree is byte for byte the one CI checked. The 14 branches are
+deleted. `worker/433-unowned-decisions` and the first merge branch are not ancestors of F44, so
+each is kept as `refs/archive/<name>` and is the owner's to delete.
+
+## The bulk delete of the deletable branches
+
+The other 61 deletable branches were archived as `refs/archive/<name>`, every archive checked
+against its tip, and the owner deleted them. The list held **F42 and F43**: the triage had judged
+them superseded, and the list was built from its verdicts without reading it. Both were restored
+the same day from their archive refs, at their exact tips. Restoring them meant switching the
+signed-commits ruleset off for the push, because their tips are unsigned and that ruleset has no
+bypass. The rule this left is in [QA.md](../../QA.md) under "Branch hygiene". `feat/bus-v2-n3`
+was left alone, though merged, because the bus v2 session asked to keep it.
+
 ## Not merged
 
 - `skip-docker-env`: **SUPERSEDED**, not FINISHED. Headless installs are fully supported, and
