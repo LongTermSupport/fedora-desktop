@@ -251,8 +251,9 @@ var (
 )
 
 // storeLeaves is every JSON path of a string, map, raw value or list in the Store type below
-// prefix that is not one of listCaps, which the list rules size.
-func storeLeaves(typ reflect.Type, prefix string, out *[]string) {
+// prefix that is not one of listCaps, which the list rules size; a struct with a row of its own
+// in rows (a key whose codec bounds it whole) is one leaf.
+func storeLeaves(typ reflect.Type, prefix string, rows map[string]int, out *[]string) {
 	for f := range typ.Fields() {
 		// The store's tags are bare names: no option such as omitempty changes what is written.
 		name := f.Tag.Get("json")
@@ -267,20 +268,21 @@ func storeLeaves(typ reflect.Type, prefix string, out *[]string) {
 		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
-		leaf := ft == rawMessageType || reflect.PointerTo(ft).Implements(textMarshalerType) || reflect.PointerTo(ft).Implements(jsonMarshalerType)
+		_, own := rows[path]
+		leaf := own || ft == rawMessageType || reflect.PointerTo(ft).Implements(textMarshalerType) || reflect.PointerTo(ft).Implements(jsonMarshalerType)
 		switch {
 		case leaf, ft.Kind() == reflect.String, ft.Kind() == reflect.Map, ft.Kind() == reflect.Slice:
 			*out = append(*out, path)
 		case ft.Kind() == reflect.Struct:
-			storeLeaves(ft, path, out)
+			storeLeaves(ft, path, rows, out)
 		}
 	}
 }
 
 func TestEveryFixedFieldHasARow(t *testing.T) {
 	var leaves []string
-	storeLeaves(reflect.TypeFor[Store](), "", &leaves)
 	rows := fixedWritten()
+	storeLeaves(reflect.TypeFor[Store](), "", rows, &leaves)
 	for _, path := range leaves {
 		if _, ok := rows[path]; !ok {
 			t.Errorf("the store's %s has no row in fixedWritten: give the most bytes it is written as", path)
