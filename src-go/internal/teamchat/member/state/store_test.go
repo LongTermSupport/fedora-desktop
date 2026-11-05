@@ -397,6 +397,28 @@ func TestN3dD1SendingRoundTrips(t *testing.T) {
 	}
 }
 
+// n3f RP3: a report in flight is a send of kind report to the reports room, and survives the
+// store's round trip; a kind outside the closed set is still refused.
+func TestN3fAReportInFlightRoundTrips(t *testing.T) {
+	s := sampleStore(t)
+	s.Outbox.Sending = append(s.Outbox.Sending, Sending{
+		Txn: txn, Room: proto.PurposeReports, Kind: SendReport, SinceMS: 1, Type: proto.MessageType,
+		Content: json.RawMessage(`{"body":"Tests pass"}`),
+	})
+	data, err := s.encode()
+	check(t, err)
+	back, err := DecodeStore(data)
+	check(t, err)
+	got := back.Outbox.Sending[len(back.Outbox.Sending)-1]
+	if got.Kind != SendReport || got.Room != proto.PurposeReports || got.Ping != nil {
+		t.Fatalf("the report in flight read back as %+v", got)
+	}
+	s.Outbox.Sending[len(s.Outbox.Sending)-1].Kind = "other"
+	if _, err := s.encode(); err == nil {
+		t.Fatal("a send of a kind outside the closed set was accepted")
+	}
+}
+
 // TestStoreListCapsFireFirst holds each list's cap, entry count and entry size, firing before
 // the file cap: each grown store is refused by its own rule.
 func TestStoreListCapsFireFirst(t *testing.T) {

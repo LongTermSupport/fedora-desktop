@@ -22,7 +22,7 @@ import (
 )
 
 // clientVerbs are the link.sock verbs, each client.Main's.
-var clientVerbs = []string{"recv", "wait", "inbox", "status", "verify", "history", "reply", "say", "ping"}
+var clientVerbs = []string{"recv", "wait", "inbox", "status", "verify", "history", "reply", "say", "ping", "report"}
 
 // Verbs are the verbs cmd/teamchat passes in cli.Env.Verbs: every name of cli.Outside.
 func Verbs() map[string]cli.RunFunc {

@@ -103,7 +103,9 @@ type fakeNotices struct {
 	messagesErr error
 	txns        []string
 	contents    [][]byte
-	own         map[string]proto.Related
+	// rooms are the rooms the sends went to, in the order of txns.
+	rooms []string
+	own   map[string]proto.Related
 }
 
 func (*fakeNotices) RoomState(context.Context, string) ([]json.RawMessage, error) { return nil, nil }
@@ -126,6 +128,7 @@ func (n *fakeNotices) Send(ctx context.Context, room, eventType, txn string, con
 	}
 	n.txns = append(n.txns, txn)
 	n.contents = append(n.contents, content)
+	n.rooms = append(n.rooms, room)
 	count := len(n.txns)
 	n.mu.Unlock()
 	switch {
@@ -194,6 +197,46 @@ type fakeTeam struct {
 	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
 	ended       bool
 	flushedLive int
+	// reportsAnswers are VerifyReports's answers in order (the last one repeats; none is nil),
+	// reportsVerifies counts its calls, reports is the room's state for status.
+	reportsAnswers  []error
+	reportsVerifies int
+	reports         team.ReportsRoom
+	// reportsHold, when set, is called for each verification before its answer, off the lock:
+	// it may wait for the caller's context.
+	reportsHold func(context.Context) error
+}
+
+// VerifyReports answers from reportsAnswers.
+func (f *fakeTeam) VerifyReports(ctx context.Context) error {
+	f.mu.Lock()
+	hold := f.reportsHold
+	f.mu.Unlock()
+	if hold != nil {
+		if err := hold(ctx); err != nil {
+			return err
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reportsVerifies++
+	switch n := len(f.reportsAnswers); {
+	case n == 0:
+		return nil
+	case f.reportsVerifies <= n:
+		return f.reportsAnswers[f.reportsVerifies-1]
+	default:
+		return f.reportsAnswers[n-1]
+	}
+}
+
+func (f *fakeTeam) ReportsRoom() team.ReportsRoom {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.reports.State == "" {
+		return team.ReportsRoom{State: team.ReportsJoined}
+	}
+	return f.reports
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {

@@ -78,6 +78,8 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 		return err
 	}
 	defer s.startReceipts(ctx)()
+	// RP1: the reports join runs beside the long-poll, never in its way.
+	t.kickReports(true)
 	return s.poll(ctx, since)
 }
 
@@ -489,7 +491,11 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		if err := s.verify(ctx); err != nil {
 			return err
 		}
+		if !a.first {
+			t.kickReports(false)
+		}
 	}
+	s.faults(a.resp.Join)
 	events, gap, err := s.eventsOf(ctx, since, a, main)
 	if err != nil {
 		return err

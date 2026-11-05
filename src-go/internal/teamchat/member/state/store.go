@@ -94,6 +94,7 @@ const (
 	SendText   = "text"
 	SendPing   = "ping"
 	SendNotice = "notice"
+	SendReport = "report"
 
 	NoticeLeft         = "left"
 	NoticeDisconnected = "disconnected"
@@ -110,7 +111,7 @@ const (
 var (
 	storeRooms  = []string{proto.PurposeMain, proto.PurposeReports, proto.PurposeQuestions}
 	storeItems  = []string{records.KindHuman, records.KindPeer, records.KindPing, records.KindNotice, records.KindTimeout}
-	sendKinds   = []string{SendText, SendPing, SendNotice}
+	sendKinds   = []string{SendText, SendPing, SendNotice, SendReport}
 	endReasons  = []string{"exit", "logout", "other"}
 	noneReasons = []string{ReasonRestart, ReasonLaunchFailed}
 	nonceRe     = regexp.MustCompile(`^[0-9a-f]{8}$`)

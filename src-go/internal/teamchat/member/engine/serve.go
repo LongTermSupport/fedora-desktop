@@ -60,7 +60,7 @@ func (e *Engine) Serve(ctx context.Context, req wire.Request, out RecordWriter) 
 			return doneOf(err)
 		}
 		return e.history(ctx, a, out)
-	case wire.OpSay, wire.OpPing, wire.OpReply:
+	case wire.OpSay, wire.OpPing, wire.OpReply, wire.OpReport:
 		return e.serveSend(ctx, req, out)
 	}
 	return doneOf(exits.New(exits.CodeInternal, nil, msgUnbuilt, exits.Name(req.Op)))
@@ -81,6 +81,12 @@ func (e *Engine) serveSend(ctx context.Context, req wire.Request, out RecordWrit
 			return doneOf(err)
 		}
 		return e.ping(ctx, a, req.Stdin, out)
+	case wire.OpReport:
+		var a wire.ReportArgs
+		if err := wire.DecodeArgs(req.Args, &a); err != nil {
+			return doneOf(err)
+		}
+		return e.report(ctx, a, req.Stdin, out)
 	}
 	var a wire.ReplyArgs
 	if err := wire.DecodeArgs(req.Args, &a); err != nil {

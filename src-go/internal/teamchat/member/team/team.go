@@ -196,6 +196,32 @@ type Team interface {
 	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
 	// engine's state goroutine calls it.
 	FloorRaised(floor int64)
+	// VerifyReports is RP4, at a `report` and again at the sender before a queued report is
+	// posted: the join tried when this member is not in the reports room (RP1), then the room's
+	// state read and judged against main's verified roster. Nil is a room that verifies; an
+	// *exits.Error of code forbidden or untrusted is a refusal, which the room's state records;
+	// any other error is transient (the homeserver did not answer, or main has not been
+	// verified yet), and a send queues. It makes the team's requests, so it is not for the
+	// engine's state goroutine.
+	VerifyReports(ctx context.Context) error
+	// ReportsRoom is the reports room's state as the team last found it, from memory, for status.
+	ReportsRoom() ReportsRoom
+}
+
+// The states of a reports room (SPEC-n3f RP1, RP4): its join is not answered yet, it is joined
+// and verified or not yet checked, its join was refused, or it fails a check.
+const (
+	ReportsJoining   = "joining"
+	ReportsJoined    = "joined"
+	ReportsRefused   = "refused"
+	ReportsUntrusted = "untrusted"
+)
+
+// ReportsRoom is a reports room's state. Check is the errcode of a refused join, or the check an
+// untrusted room failed; "" for any other state.
+type ReportsRoom struct {
+	State string
+	Check string
 }
 
 // Notices is the matrix calls the ends make, on the team's client.

@@ -46,6 +46,7 @@ const (
 	OpReply     = "reply"
 	OpSay       = "say"
 	OpPing      = "ping"
+	OpReport    = "report"
 	OpQuestions = "questions"
 
 	OpHookSessionStart = "hook.session-start"
@@ -60,6 +61,7 @@ var deadlines = map[string]time.Duration{
 	OpHookStop: 300 * time.Millisecond, OpHookSessionEnd: 300 * time.Millisecond,
 	OpRecv: 2 * time.Second, OpInbox: 2 * time.Second, OpStatus: 2 * time.Second,
 	OpReply: 30 * time.Second, OpSay: 30 * time.Second, OpPing: 30 * time.Second, OpVerify: 30 * time.Second,
+	OpReport:  30 * time.Second,
 	OpHistory: time.Minute, OpQuestions: time.Minute,
 	OpWait: 0,
 }
@@ -212,6 +214,12 @@ type PingArgs struct {
 	To            []string      `json:"to"`
 	ToCoordinator bool          `json:"to_coordinator"`
 	Branch        *string       `json:"branch"`
+}
+
+// ReportArgs are report's: the --team, null for the one active team. The report is the
+// request's stdin, whole, with one trailing newline removed (n3f-D1).
+type ReportArgs struct {
+	Team *paths.TeamID `json:"team"`
 }
 
 // TeamsArgs are recv's, inbox's and status's: the --team, null for every active team.

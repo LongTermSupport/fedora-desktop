@@ -103,7 +103,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		timeout time.Duration
 	)
 	switch op {
-	case wire.OpReply, wire.OpSay, wire.OpPing:
+	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport:
 		var err error
 		if args, stdin, err = sendArgs(e, inv, op); err != nil {
 			return wire.Request{}, 0, err
@@ -261,7 +261,7 @@ func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 // isSend is a verb whose request, once taken, may be charged and posted whatever the client
 // hears afterwards (B-m3).
 func isSend(op string) bool {
-	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing
+	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing || op == wire.OpReport
 }
 
 // copy copies record lines to stdout until the done; then flushes stdout and, for a hand-out,
