@@ -195,6 +195,23 @@ assert_filter "a UUID does not shield a real address on the same line" \
 assert_filter "a case-differing near-miss of a UUID is NOT exempt" \
     "1: ${NEAR_MISS}" "${REPO_ROOT}" "1: ${NEAR_MISS}"
 
+# Ansible's `--vault-id <label>@<source>` is not an address. Only the argument of that flag
+# is exempt; the source here ends in a file extension so the email pattern does match it.
+# Assembled from halves for the same reason as REAL_ADDRESS: this file is scanned too.
+VAULT_EXT="txt"
+VAULT_ARG="prod@vault-pass.${VAULT_EXT}"
+assert_filter "a --vault-id label@source argument is not an email" \
+    "" "${REPO_ROOT}" "1: ansible-vault encrypt_string 'x' --vault-id ${VAULT_ARG}"
+assert_filter "a --vault-id=label@source argument is not an email" \
+    "" "${REPO_ROOT}" "1: ansible-vault encrypt_string 'x' --vault-id=${VAULT_ARG}"
+assert_filter "a --vault-id argument does not shield a real address on the same line" \
+    "1: --vault-id ${VAULT_ARG} mail ${REAL_ADDRESS}" "${REPO_ROOT}" \
+    "1: --vault-id ${VAULT_ARG} mail ${REAL_ADDRESS}"
+assert_filter "the same label@source without --vault-id is still flagged" \
+    "1: use ${VAULT_ARG}" "${REPO_ROOT}" "1: use ${VAULT_ARG}"
+assert_filter "a real address AS the --vault-id flag's neighbour word is still flagged" \
+    "1: --vault-idx ${REAL_ADDRESS}" "${REPO_ROOT}" "1: --vault-idx ${REAL_ADDRESS}"
+
 # ── the ANCHORS are the load-bearing part, so they get their own cases ────────────────────
 #
 # The emitter prints "^" + re.escape(uuid) + "$". Without those two anchors the exemption
