@@ -9,6 +9,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -203,11 +204,12 @@ func pt1Schedule(seed uint64) []pt1Op {
 // another seed.
 func pt1Text(seed uint64, o pt1Op) string { return fmt.Sprintf("pt1 seed %d op %d", seed, o.n) }
 
-// pt1Copy is one copy of an item the transcript holds: its event id, and whether the entry said
-// it may be a second copy.
+// pt1Copy is one copy of an item the transcript holds: its event id, whether the entry said it may
+// be a second copy, and the nonce of the delivery that carried it (its marker line's).
 type pt1Copy struct {
 	id     string
 	repeat bool
+	nonce  string
 }
 
 // pt1Row is the part of a transcript line a delivery is read from: an idle user turn's message,
@@ -261,7 +263,11 @@ func pt1Entries(text string) []pt1Copy {
 	for line := range strings.SplitSeq(text, "\n") {
 		switch {
 		case strings.HasPrefix(line, "<<teamchat "):
+			// The marker is `<<teamchat <nonce> <i>/<n>>>` (proto.Delivery.Render).
 			cur = &pt1Copy{}
+			if fields := strings.Fields(line); len(fields) > 1 {
+				cur.nonce = fields[1]
+			}
 		case strings.HasPrefix(line, "<<end teamchat "):
 			if cur != nil && cur.id != "" {
 				out = append(out, *cur)
@@ -321,6 +327,120 @@ type pt1Seen struct {
 	// transcript held of it then; every later copy must carry the mark. What such a recv printed
 	// is not in recv: the agent that ran it saw nothing.
 	marked map[string]int
+	// marks is the record each mark was taken with (pt1Mark), and firstSeen, for each transcript
+	// copy by place, the harness's sequence number when a read of the transcript first held it.
+	// They decide only what a P2 failure prints (its reading), never whether it fails.
+	marks     map[string]pt1Mark
+	firstSeen []int
+}
+
+// pt1Snap is the store as the harness read it at one moment, for one item: the harness's sequence
+// number then, whether the store was read (err why not), the item's state there, and the nonces of
+// the deliveries of it in flight (an awaiting or missed entry holding it).
+type pt1Snap struct {
+	seq      int
+	read     bool
+	err      string
+	item     string
+	inFlight []string
+}
+
+// pt1Mark is one mark's record: the transcript's copies of the item when it was sampled (the
+// count marked holds), the store just before the failing recv ran, and the store just before the
+// transcript was read for the mark.
+type pt1Mark struct {
+	copies     int
+	before, at pt1Snap
+}
+
+// pt1Reading is which of issue 156's readings a P2 failure's record supports.
+type pt1Reading string
+
+const (
+	pt1Harness    pt1Reading = "reading (b), the harness"
+	pt1Production pt1Reading = "reading (a), production"
+	pt1Ambiguous  pt1Reading = "neither reading: the record cannot tell"
+)
+
+// pt1Classify is the reading of the i-th transcript copy of id, one P2 judged unmarked after its
+// mark, and why. A delivery's awaiting entry is in the store before its user line goes, and only
+// a proof (its line in the transcript) or a return of nothing written takes it out, so a delivery
+// begun before the recv is in the "before" snapshot unless it was proven (then its copy is counted
+// at the mark, never judged), taken back as unwritten, or dropped by a link's restart.
+func pt1Classify(o pt1Seen, id string, i int) (pt1Reading, string) {
+	m, ok := o.marks[id]
+	k := pt1Place(o.transcript, id, i)
+	c := o.transcript[k]
+	switch {
+	case !ok:
+		return pt1Ambiguous, "no record of the mark"
+	case !m.before.read:
+		return pt1Ambiguous, "the store was not read before the recv: " + m.before.err
+	case c.nonce == "":
+		return pt1Ambiguous, "the copy has no delivery nonce"
+	case k < len(o.firstSeen) && o.firstSeen[k] <= m.at.seq:
+		return pt1Ambiguous, fmt.Sprintf("the copy was first seen at seq %d, not after the mark (seq %d): the record contradicts itself", o.firstSeen[k], m.at.seq)
+	case slices.Contains(m.before.inFlight, c.nonce):
+		return pt1Harness, fmt.Sprintf("delivery %s was in flight before the recv ran, so it began before the hand-out, its copy rightly carries no repeat line, and the mark (seq %d) was sampled before it landed; a delivery holding the item while a recv handed it out is itself P11's question, read the item's state in both snapshots", c.nonce, m.at.seq)
+	case o.crashes > 0:
+		return pt1Ambiguous, fmt.Sprintf("delivery %s was not in flight before the recv, but a link crashed in the run, and a restart drops an earlier run's deliveries from the store", c.nonce)
+	case slices.Contains(m.at.inFlight, c.nonce):
+		return pt1Production, fmt.Sprintf("delivery %s was not in flight before the recv ran and was at the mark: it began after the recv handed the item out (a redelivery after the return) and lacks the repeat line", c.nonce)
+	}
+	return pt1Production, fmt.Sprintf("delivery %s was in flight neither before the recv ran nor at the mark: it began after the recv handed the item out (after the mark, or a delivery the link took back as unwritten: grep link.log for the nonce) and lacks the repeat line", c.nonce)
+}
+
+// pt1Place is the place in transcript of the i-th copy of id.
+func pt1Place(transcript []pt1Copy, id string, i int) int {
+	for k, c := range transcript {
+		if c.id != id {
+			continue
+		}
+		if i == 0 {
+			return k
+		}
+		i--
+	}
+	return -1
+}
+
+// pt1Record is the record a returned item's P2 finding prints: both snapshots of the store, the
+// count at the mark, and every transcript copy of the item with its delivery and when the harness
+// first saw it.
+func pt1Record(o pt1Seen, id string) string {
+	m, ok := o.marks[id]
+	if !ok {
+		return "record of " + id + ": none"
+	}
+	lines := []string{
+		"record of " + id + ":",
+		"  before the recv (seq " + strconv.Itoa(m.before.seq) + "): " + m.before.describe(id),
+		"  at the mark (seq " + strconv.Itoa(m.at.seq) + "): " + strconv.Itoa(m.copies) + " copies in the transcript, " + m.at.describe(id),
+	}
+	n := 0
+	for k, c := range o.transcript {
+		if c.id != id {
+			continue
+		}
+		n++
+		repeat, seen := "no repeat line", "never seen by a read"
+		if c.repeat {
+			repeat = "repeat line"
+		}
+		if k < len(o.firstSeen) {
+			seen = "first seen at seq " + strconv.Itoa(o.firstSeen[k])
+		}
+		lines = append(lines, fmt.Sprintf("  copy %d: delivery %s, %s, %s", n, c.nonce, repeat, seen))
+	}
+	return strings.Join(lines, "\n    ")
+}
+
+// describe is the snapshot as a record line for id.
+func (s pt1Snap) describe(id string) string {
+	if !s.read {
+		return "store not read (" + s.err + ")"
+	}
+	return fmt.Sprintf("store read, %s %s, in flight %v", id, s.item, s.inFlight)
 }
 
 // pt1Check is the properties B 2.15 names, as far as a run's observations reach them; each
@@ -427,7 +547,8 @@ func pt1Repeats(o pt1Seen, byID map[string][]pt1Copy) []string {
 	for _, id := range slices.Sorted(maps.Keys(o.marked)) {
 		for i := o.marked[id]; i < len(byID[id]); i++ {
 			if !byID[id][i].repeat {
-				out = append(out, fmt.Sprintf("P2: %s was returned to pending marked repeat and its copy %d in the transcript carries no repeat line", id, i+1))
+				reading, why := pt1Classify(o, id, i)
+				out = append(out, fmt.Sprintf("P2: %s was returned to pending marked repeat and its copy %d in the transcript carries no repeat line\n    %s: %s\n    %s", id, i+1, reading, why, pt1Record(o, id)))
 			}
 		}
 	}
