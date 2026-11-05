@@ -30,9 +30,11 @@ const (
 	ExitCannotRun ExitCode = 2
 )
 
+// PolicyFile is the policy's path under the repository root.
+const PolicyFile = "scripts/branch-policy.toml"
+
 const (
 	defaultBranch = "F44"
-	policyFile    = "scripts/branch-policy.toml"
 	gitTimeout    = time.Minute
 )
 
@@ -86,7 +88,7 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
-	pol, err := readPolicy(env, filepath.Join(root, policyFile))
+	pol, err := ReadPolicy(env.ReadFile, root)
 	if err != nil {
 		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
@@ -105,17 +107,19 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	return ExitOK
 }
 
-func readPolicy(env Env, path string) (Policy, error) {
-	data, err := env.ReadFile(path)
+// ReadPolicy reads and validates PolicyFile under root; branch-delete-list reads it here too, so
+// the two commands cannot disagree on what is exempt or parked.
+func ReadPolicy(readFile func(path string) ([]byte, error), root string) (Policy, error) {
+	data, err := readFile(filepath.Join(root, PolicyFile))
 	if err != nil {
 		return Policy{}, fmt.Errorf("policy: %w", err)
 	}
 	var pol Policy
 	if err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&pol); err != nil {
-		return Policy{}, fmt.Errorf("policy %s: %w", policyFile, err)
+		return Policy{}, fmt.Errorf("policy %s: %w", PolicyFile, err)
 	}
 	if err := pol.Validate(); err != nil {
-		return Policy{}, fmt.Errorf("policy %s: %w", policyFile, err)
+		return Policy{}, fmt.Errorf("policy %s: %w", PolicyFile, err)
 	}
 	return pol, nil
 }

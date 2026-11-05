@@ -592,7 +592,10 @@ and runs the command. Unlike every gate above it is not in `qa-gates.tsv` or `qa
 `.github/workflows/branch-hygiene.yml` runs it, because it judges the repository's global state
 ([QA.md](../CLAUDE/QA.md#branch-hygiene--the-repositorys-branches-judged-daily)). The rule is pure
 over branch facts, the policy and an injected clock; git goes through `qa/internal/proc`, faked in
-the unit tests.
+the unit tests. `qa/branchdelete` + `qa/cmd/branch-delete-list` are `scripts/branch-delete-list.bash`,
+the one way to build a bulk delete list (issue #150): it reads the policy through
+`branchhygiene.ReadPolicy` and origin's refs through one `git ls-remote --symref origin`, and
+refuses the whole list, naming each offender, rather than filtering it. Not a gate either.
 
 `qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
 clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
