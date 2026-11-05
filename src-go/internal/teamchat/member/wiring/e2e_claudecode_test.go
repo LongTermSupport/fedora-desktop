@@ -94,6 +94,8 @@ type claudeCode struct {
 	auth  string
 	inbox *fakeinbox.Inbox
 	tr    *faketranscript.Transcript
+	// release ends the inbox's hold, nil when it is not held.
+	release func()
 }
 
 // fakeClaude is the `claude` command: its pid and TEAMCHAT_RUNTIME on the first line, as the
@@ -164,7 +166,8 @@ func (c *claudeCode) serve(stdout io.Writer, line string) error {
 	return werr
 }
 
-// handle runs one command: begin, hook <Event> [active], statusline, frames or transcript.
+// handle runs one command: begin, hook <Event> [active], statusline, frames, transcript, hold,
+// release or refuse.
 func (c *claudeCode) handle(verb string, args []string) (any, error) {
 	if c.inbox == nil && verb != "begin" {
 		return nil, fmt.Errorf("claude: %s before begin", verb)
@@ -183,8 +186,27 @@ func (c *claudeCode) handle(verb string, args []string) (any, error) {
 		return c.frames(), nil
 	case "transcript":
 		return c.transcript()
+	case "hold", "release", "refuse":
+		return true, c.socketFault(verb)
 	}
 	return nil, fmt.Errorf("claude: no command %q", verb)
+}
+
+// socketFault is the inbox's hold (it reads nothing until released), its release, or its refusal
+// of every connect from now on (PT1's socket faults).
+func (c *claudeCode) socketFault(verb string) error {
+	switch {
+	case verb == "hold" && c.release == nil:
+		c.release = c.inbox.Hold()
+	case verb == "release" && c.release != nil:
+		c.release()
+		c.release = nil
+	case verb == "refuse":
+		c.inbox.Refuse()
+	default:
+		return fmt.Errorf("claude: %s with the inbox's hold at %v", verb, c.release != nil)
+	}
+	return nil
 }
 
 // begin makes the session's inbox socket, at <runtime>/cc-socks/<pid>.sock, and its transcript,
