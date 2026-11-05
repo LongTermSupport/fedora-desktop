@@ -33,12 +33,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Matrix clients: the play declared a stale Flathub ID for Nheko (now im.nheko.Nheko), and
-# its Flatpak install now verifies the installed ID, so it re-runs.
-playbooks/imports/optional/common/play-matrix-clients.yml
-
-# The ccy launcher and image changes from the private-name guard and the fzf pin (the pinned
-# upstream fzf replaces the Fedora package; the image rebuilds as container 2.79.24), plus
-# play-basic-configs (histclean, the nohist=1 prefix, the Ctrl+R footer), play-cli-tools and the
-# freeze tooling, all of which now install fzf from its release.
+# Agent bus v2 (PR #124) landed as Go source only: no play installs teamchat or its units, and
+# no play or task file changed. Its new module dependencies (go.mod, vendor/) and the shared
+# internal/execx make every play that builds a Go command rebuild it: basic-configs,
+# git-configure-and-tools, github-cli-multi, python, agent-bus (pingbus-status-line only; the
+# live v1 bus is untouched), image-watermarking, rclone and speech-to-text. ccy 3.112.0 changes
+# only its version line. Acceptance: the status line still renders and `pingbus status` answers.
 changed-plays
