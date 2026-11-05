@@ -33,10 +33,3 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Agent bus v2 (PR #124) landed as Go source only: no play installs teamchat or its units, and
-# no play or task file changed. Its new module dependencies (go.mod, vendor/) and the shared
-# internal/execx make every play that builds a Go command rebuild it: basic-configs,
-# git-configure-and-tools, github-cli-multi, python, agent-bus (pingbus-status-line only; the
-# live v1 bus is untouched), image-watermarking, rclone and speech-to-text. ccy 3.112.0 changes
-# only its version line. Acceptance: the status line still renders and `pingbus status` answers.
-changed-plays
