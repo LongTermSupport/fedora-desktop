@@ -52,7 +52,20 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   kit's command (SL1, PK1) and the deterministic Stop block (HK2). Not covered by them: Busy
   mode, a rotated transcript, `missing` (180 s of quiet, the engine's fake-clock tests own it),
   membership notices, the 300 ms bound itself, the 10-minute repeats. Not built: the OF1 row
-  with one team's server down (needs a second team and about 15 s of real time) and n3e-13, PT1.
+  with one team's server down (needs a second team and about 15 s of real time).
+
+  n3e-13, PT1, is built in part (`subagent-reports/261105-n3e-pt1-sonnet.md`), in package `wiring`
+  under `busfailpoints` (`pt1_model_test.go`, `pt1_run_test.go`, `pt1_model_unit_test.go`): a seed
+  draws a schedule of posts, recv, wait, sends, a held, released or refusing inbox, homeserver
+  restarts and a link SIGKILL, run over the real keeper and link with the fake Claude Code as CMD,
+  drained, and judged for P1, P2, P5, P6 and P11; 12 fixed seeds run in the gate's tagged stage
+  (about 20 s) and `-pt1.random=<n>` is the manual run; a failing seed prints
+  its replay (`-pt1.seed=N`). `TestPT1Points` kills the link at the 8 points a one-team session
+  reaches (judge-before-persist, auth, awaiting, user-line, hand-out, while-handed, charge, send)
+  and checks the same. Shown red by an `Ack` that leaves items pending (P11, six seeds). Not
+  reached: P3 directly (a lost item is the observable), P4 and the removal and end points (their
+  rows are `e2e_failpoints_test.go`'s), P7, P8-P10 and `link-after-missing` (180 s of quiet: no
+  clock seam in the link), `link-between-store-writes` (needs two teams).
 
 ## Task 3.3: LXC members
 
