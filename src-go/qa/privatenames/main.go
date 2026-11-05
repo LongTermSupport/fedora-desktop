@@ -245,7 +245,7 @@ func withoutPublic(terms []Term, public []string) []Term {
 	}
 	var out []Term
 	for _, t := range terms {
-		if !drop[strings.ToLower(t.Text)] {
+		if !isPublic(t.Text, drop) {
 			out = append(out, t)
 		}
 	}

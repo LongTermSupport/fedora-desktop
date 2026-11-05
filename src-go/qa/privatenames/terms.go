@@ -109,9 +109,24 @@ type deriver struct {
 	out    []Term
 }
 
+// isPublic is whether a term names nothing private: a public token itself, or a handle form built
+// on one (token.1, token.1+local.podman) whose every other word is a seat number or a generic
+// word. A handle whose site is a specific word (token.1+somehost.podman) is not public.
+func isPublic(text string, public map[string]bool) bool {
+	key := strings.ToLower(text)
+	if public[key] {
+		return true
+	}
+	project, rest, found := strings.Cut(key, ".")
+	if !found || !public[project] {
+		return false
+	}
+	return !Specific(rest)
+}
+
 func (d *deriver) add(source, text string) {
 	key := strings.ToLower(text)
-	if d.seen[key] || !Specific(text) || d.public[key] {
+	if d.seen[key] || !Specific(text) || isPublic(text, d.public) {
 		return
 	}
 	d.seen[key] = true
