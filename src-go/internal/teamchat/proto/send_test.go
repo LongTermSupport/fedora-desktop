@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -258,6 +259,32 @@ func TestAdmitReportsPerHour(t *testing.T) {
 	c.NowMs += ReportWindowMs
 	if err := c.Admit(out); err != nil {
 		t.Errorf("an hour later: %v", err)
+	}
+}
+
+// n3f G6: the caller maps a refusal to 14 `report-rate` or 14 `rate` by its detail, so the
+// window's refusal names DetailReportPerHour and the bucket's names nothing.
+func TestAdmitSaysWhichRateRefused(t *testing.T) {
+	c := composer(t, workerID)
+	c.Roster.Limits.ReportPerHour = 1
+	seeded := SeedWindow(workerID, []int64{c.NowMs - 1000})
+	c.Reports = &seeded
+	out := mustSend(t)(c.Report("Report one"))
+	re, ok := errors.AsType[*RefusalError](c.Admit(out))
+	if !ok || re.Reason != ReasonRate || re.Detail != DetailReportPerHour {
+		t.Fatalf("the window's refusal = %+v, want rate with the detail %q", re, DetailReportPerHour)
+	}
+	if oldest, found := c.Reports.Oldest(workerID, ReportWindowMs, c.NowMs); !found || oldest != c.NowMs-1000 {
+		t.Fatalf("the refused report's window names %d %v", oldest, found)
+	}
+	c.Reports = &Window{}
+	c.Gate.Bucket.Credit = 0
+	re, ok = errors.AsType[*RefusalError](c.Admit(out))
+	if !ok || re.Reason != ReasonRate || re.Detail != "" {
+		t.Fatalf("the bucket's refusal = %+v, want rate with no detail", re)
+	}
+	if n := c.Reports.Count(workerID, ReportWindowMs, c.NowMs); n != 0 {
+		t.Fatalf("a report the bucket refused entered the window %d times", n)
 	}
 }
 

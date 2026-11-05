@@ -84,6 +84,16 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   that draws one of the four, which is 1673 of the first 2000 seeds (the reviewer's count), so the
   manual long run is not usable.
 
+- **n3f-a built in part** on `feat/bus-v2-n3f-a` (SPEC-n3f section 10's row n3f-a;
+  `subagent-reports/261105-n3f-a-sonnet.md`). Built: G7 (exit 20's set gains `not-ready`, exit
+  10's gains `open-limit`, row 20's meaning and next step as SPEC-n3f 12.5 words them; the
+  skill's four class lines are unchanged because the classes are) and G6 (`proto.SeedWindow`,
+  `Window.Oldest`, `Window.Within`, and `proto.DetailReportPerHour`, the detail by which a caller
+  tells the report window's `rate` refusal, 14 `report-rate`, from the bucket's, 14 `rate`).
+  Coverage of the touched packages: see the report. Not built: G1 (the question index), G2 (the
+  store's keys and `MaxStore` at 4 MiB), G4 (records), G5 (the filter's argument), section 6's
+  codecs. Nothing of n3f-b to n3f-e is built.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.

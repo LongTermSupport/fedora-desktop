@@ -30,12 +30,12 @@ func TestTableIsBsTable(t *testing.T) {
 		1:  {[]string{"internal"}, ClassTell},
 		4:  {[]string{"timed-out"}, ClassWait},
 		5:  {[]string{"partial"}, ClassRead},
-		10: {[]string{"size", "schema", "secret", "target", "verb", "ref", "re", "body", "empty"}, ClassFix},
+		10: {[]string{"size", "schema", "secret", "target", "verb", "ref", "re", "body", "empty", "open-limit"}, ClassFix},
 		11: {[]string{"role"}, ClassFix},
 		13: {[]string{"forge", "provenance"}, ClassFix},
 		14: {[]string{"rate", "server-rate", "report-rate", "forge-rate"}, ClassWait},
 		15: {[]string{"duplicate"}, ClassFix},
-		20: {[]string{"unreachable", "forge-down"}, ClassWait},
+		20: {[]string{"unreachable", "forge-down", "not-ready"}, ClassWait},
 		21: {[]string{"token"}, ClassTell},
 		22: {[]string{"untrusted", "forbidden"}, ClassTell},
 		23: {[]string{"not-found"}, ClassFix},
@@ -63,6 +63,43 @@ func TestTableIsBsTable(t *testing.T) {
 		if r.Meaning == "" || r.Next == "" {
 			t.Errorf("exit %d has no meaning or next step", r.Exit)
 		}
+	}
+}
+
+// n3f G7, B 2.2.4 row 20 as SPEC-n3f 12.5 words it: the exit also means a room or an index the
+// verb needs is not ready yet, and its next step says that not-ready comes ready by itself.
+func TestNotReadyAndOpenLimitAreInTheirExits(t *testing.T) {
+	for code, want := range map[string]term.ExitCode{CodeNotReady: ExitUnreachable, CodeOpenLimit: ExitRefused} {
+		if got, ok := ExitOf(code); !ok || got != want {
+			t.Errorf("ExitOf(%q) = %d %v, want %d", code, got, ok, want)
+		}
+	}
+	if CodeNotReady != "not-ready" || CodeOpenLimit != "open-limit" {
+		t.Errorf("the codes are %q and %q", CodeNotReady, CodeOpenLimit)
+	}
+	var row Row
+	for _, r := range Table() {
+		if r.Exit == ExitUnreachable {
+			row = r
+		}
+	}
+	for _, s := range []string{"a room or index the verb needs is not ready yet"} {
+		if !strings.Contains(row.Meaning, s) {
+			t.Errorf("row 20's meaning %q lacks %q", row.Meaning, s)
+		}
+	}
+	for _, s := range []string{
+		"not-ready comes ready by itself: try again after your next item, or when a teamchat line says it is ready",
+		"tell a human if it persists",
+		"unreachable: the send is queued and the link retries it",
+	} {
+		if !strings.Contains(row.Next, s) {
+			t.Errorf("row 20's next step %q lacks %q", row.Next, s)
+		}
+	}
+	e := New(CodeNotReady, nil, "the questions room is not ready")
+	if e.Exit != ExitUnreachable || e.Code != "not-ready" {
+		t.Errorf("a not-ready error = %+v", e)
 	}
 }
 

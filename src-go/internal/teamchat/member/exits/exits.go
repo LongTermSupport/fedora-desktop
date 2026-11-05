@@ -100,6 +100,8 @@ const (
 	CodeDuplicate       = "duplicate"
 	CodeUnreachable     = "unreachable"
 	CodeForgeDown       = "forge-down"
+	CodeNotReady        = "not-ready"
+	CodeOpenLimit       = "open-limit"
 	CodeToken           = "token"
 	CodeUntrusted       = "untrusted"
 	CodeForbidden       = "forbidden"
@@ -147,12 +149,12 @@ var table = []Row{
 	{ExitInternal, "internal error (a bug; never returned on purpose)", []string{CodeInternal}, ClassTell, "tell a human"},
 	{ExitTimedOut, "wait timed out with nothing", []string{CodeTimedOut}, ClassWait, "run wait again if you still wait"},
 	{ExitPartial, "a multi-team verb succeeded for some teams only", []string{CodePartial}, ClassRead, "read the team-failed records"},
-	{ExitRefused, "refused by the protocol rules", []string{CodeSize, CodeSchema, CodeSecret, CodeTarget, CodeVerb, CodeRef, CodeRe, CodeBody, CodeEmpty}, ClassFix, "fix the message; do not retry it unchanged"},
+	{ExitRefused, "refused by the protocol rules", []string{CodeSize, CodeSchema, CodeSecret, CodeTarget, CodeVerb, CodeRef, CodeRe, CodeBody, CodeEmpty, CodeOpenLimit}, ClassFix, "fix the message; do not retry it unchanged"},
 	{ExitRole, "refused by role", []string{CodeRole}, ClassFix, "ask the coordinator instead"},
 	{ExitForge, "a reference did not resolve at the forge, or its provenance failed", []string{CodeForge, CodeProvenance}, ClassFix, "push first, or reference what exists"},
 	{ExitRate, "rate limited", []string{CodeRate, CodeServerRate, CodeReportRate, CodeForgeRate}, ClassWait, "wait; do not loop"},
 	{ExitDuplicate, "the same message again within the duplicate window", []string{CodeDuplicate}, ClassFix, "it was already sent; do not resend"},
-	{ExitUnreachable, "the homeserver or the forge did not answer", []string{CodeUnreachable, CodeForgeDown}, ClassWait, "unreachable: the send is queued and the link retries it; forge-down: nothing was sent, send it again later; tell a human if it persists"},
+	{ExitUnreachable, "the homeserver or the forge did not answer, or a room or index the verb needs is not ready yet", []string{CodeUnreachable, CodeForgeDown, CodeNotReady}, ClassWait, "unreachable: the send is queued and the link retries it; forge-down: nothing was sent, send it again later; not-ready comes ready by itself: try again after your next item, or when a teamchat line says it is ready; tell a human if it persists"},
 	{ExitToken, "the member's token was refused", []string{CodeToken}, ClassTell, "tell a human"},
 	{ExitUntrusted, "a room is missing or not trusted, or the homeserver forbade it", []string{CodeUntrusted, CodeForbidden}, ClassTell, "run status; tell a human"},
 	{ExitNotFound, "the event or question named does not exist", []string{CodeNotFound}, ClassFix, "check the id"},
