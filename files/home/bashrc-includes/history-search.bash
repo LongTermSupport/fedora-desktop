@@ -3,59 +3,20 @@
 # directory (Plan 00138). play-basic-configs.yml deploys it for the desktop user only;
 # root keeps stock Ctrl+R.
 #
-# The recorder notes, for each command, the directory it started in and its exit status,
-# NUL-terminated, in ~/.local/state/bash/context. It uses bash builtins only, so a command
-# line never appears in another process's argv. A command bash kept out of history
-# (HISTCONTROL, HISTIGNORE) is kept out of this file too: a record is written only when
-# the history number has moved.
-#
 # Ctrl+R: bash-history-rank orders all history — this directory first, then this git
 # repository, then everything — and fzf draws it. The pick replaces the line for review;
-# it is never run straight away.
+# it is never run straight away. The recorder that feeds it is history-record.bash.
 
 [[ $- == *i* ]] || return 0
 [[ ${EUID} -ne 0 ]] || return 0
-# The history block in zz_lts-fedora-desktop.bash has already said why when this is
-# missing; recording into it would fail at every prompt.
 [[ -O "${HOME}/.local/state/bash" ]] || return 0
 
-__history_search_file="${HOME}/.local/state/bash/context"
-if [[ ! -e "${__history_search_file}" ]]; then
-    (umask 077 && : >>"${__history_search_file}")
-fi
-
-# Kept if already set: a re-source (`source ~/.bashrc`) must not make the next prompt
-# start over and drop the command that did the sourcing.
-__history_search_number="${__history_search_number-}"
-__history_search_dir="${__history_search_dir-${PWD}}"
-
-# bash hands every PROMPT_COMMAND element the command's own $?, whatever the element
-# before it returned, so this reads it first and can sit anywhere in the array.
-__history_search_record() {
-    local status=$? entry number command=""
-    entry="$(HISTTIMEFORMAT='' builtin history 1)"
-    if [[ "${entry}" =~ ^[[:space:]]*([0-9]+)[*[:space:]][[:space:]](.*)$ ]]; then
-        number="${BASH_REMATCH[1]}"
-        command="${BASH_REMATCH[2]}"
-    else
-        number=0
-    fi
-    # The first prompt only learns where history stands: any entry it sees was not run
-    # in this shell.
-    if [[ -n "${__history_search_number}" && "${number}" != "${__history_search_number}" && -n "${command}" ]]; then
-        printf '%s\t%s\t%s\t%s\0' "${EPOCHSECONDS}" "${status}" \
-            "${__history_search_dir}" "${command}" >>"${__history_search_file}"
-    fi
-    __history_search_number="${number}"
-    __history_search_dir="${PWD}"
-}
-
-if [[ " ${PROMPT_COMMAND[*]-} " != *" __history_search_record "* ]]; then
-    PROMPT_COMMAND+=(__history_search_record)
-fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=history-record.bash
+source "${BASH_SOURCE[0]%/*}/history-record.bash"
 
 __history_search() {
-    local context="${__history_search_file}" picked
+    local context="${__history_search_file}" picked status=0 take=query moved
     # What is typed so far becomes the query through fzf's ENVIRONMENT, which only this user
     # can read. As a --query argument it would sit in fzf's argv, readable by every local
     # user through /proc for as long as the list is open. The bound command is fixed text,
@@ -63,15 +24,26 @@ __history_search() {
     # reads an Esc and the key typed just after it as that key with Alt, so each is bound to
     # abort, but alt-b, alt-f, alt-d and alt-bs keep fzf's word editing of the query
     # (project_esc_joined, CLAUDE/GoProjectRules.md).
-    if [[ ! -r "${context}" ]]; then
-        context=/dev/null
-    fi
-    if ! picked="$(bash-history-rank "${context}" "${HISTFILE}" "${PWD}" |
-        __history_search_query="${READLINE_LINE}" fzf --read0 --scheme=history --tiebreak=index \
-            --height=40% --layout=reverse --prompt='history> ' --footer='nohist=1 CMD: run unrecorded (any case) · histclean TEXT: remove from history' --bind=ctrl-r:toggle-sort --bind='alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort,alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort,ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort,ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort,alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort' \
-            --bind="start:transform-query:printf %s \"\${__history_search_query}\"")"; then
-        return 0
-    fi
+    # Enter takes what was typed until the person moves the cursor, then the highlighted
+    # match; typing again returns to the query. Only events carry that (a key bound to
+    # anything but a move or an accept is a hidden binding): a move touches a file in a
+    # private directory, a change removes it, and both change the prompt to say what Enter
+    # will take. --print-query hands back both, and the file says which to use. An empty
+    # query has nothing to keep, so Enter takes the match. SHELL pins the shell fzf runs the
+    # bound commands with.
+    [[ -r "${context}" ]] || context=/dev/null
+    moved="$(mktemp -d)"
+    picked="$(bash-history-rank "${context}" "${HISTFILE}" "${PWD}" |
+        __history_search_query="${READLINE_LINE}" __history_search_moved="${moved}/m" SHELL=/bin/bash fzf --read0 --print-query --scheme=history --tiebreak=index \
+            --height=40% --layout=reverse --prompt='history [Enter: this match]> ' --footer='nohist=1 CMD: run unrecorded (any case) · histclean TEXT: remove from history' --bind=ctrl-r:toggle-sort --bind='alt-up:abort,alt-down:abort,alt-left:abort,alt-right:abort,alt-enter:abort,alt-space:abort,alt-a:abort,alt-c:abort,alt-e:abort,alt-g:abort,alt-h:abort,alt-i:abort,alt-j:abort,alt-k:abort,alt-l:abort,alt-m:abort,alt-n:abort,alt-o:abort,alt-p:abort,alt-q:abort,alt-r:abort,alt-s:abort,alt-t:abort,alt-u:abort,alt-v:abort,alt-w:abort,alt-x:abort,alt-y:abort,alt-z:abort,ctrl-alt-a:abort,ctrl-alt-b:abort,ctrl-alt-c:abort,ctrl-alt-d:abort,ctrl-alt-e:abort,ctrl-alt-f:abort,ctrl-alt-g:abort,ctrl-alt-h:abort,ctrl-alt-i:abort,ctrl-alt-j:abort,ctrl-alt-k:abort,ctrl-alt-l:abort,ctrl-alt-m:abort,ctrl-alt-n:abort,ctrl-alt-o:abort,ctrl-alt-p:abort,ctrl-alt-q:abort,ctrl-alt-r:abort,ctrl-alt-s:abort,ctrl-alt-t:abort,ctrl-alt-u:abort,ctrl-alt-v:abort,ctrl-alt-w:abort,ctrl-alt-x:abort,ctrl-alt-y:abort,ctrl-alt-z:abort,alt-0:abort,alt-1:abort,alt-2:abort,alt-3:abort,alt-4:abort,alt-5:abort,alt-6:abort,alt-7:abort,alt-8:abort,alt-9:abort' \
+            --bind="change:transform:rm -f \"\${__history_search_moved}\"; if [ -n \"\${FZF_QUERY}\" ]; then echo 'change-prompt(history [Enter: as typed]> )'; else echo 'change-prompt(history [Enter: this match]> )'; fi" \
+            --bind="focus:transform:case \"\${FZF_ACTION}\" in up|down|page-up|page-down|half-page-up|half-page-down|first|last|*click*|*scroll*) : >\"\${__history_search_moved}\"; echo 'change-prompt(history [Enter: this match]> )';; esac" \
+            --bind="start:transform-query:printf %s \"\${__history_search_query}\"")" || status=$?
+    [[ -e "${moved}/m" ]] && take=match
+    rm -rf "${moved}"
+    [[ ${status} -le 1 ]] || return 0
+    if [[ ${take} == query && -n "${picked%%$'\n'*}" ]]; then picked="${picked%%$'\n'*}"; else picked="${picked#*$'\n'}"; fi
+    [[ -n "${picked}" ]] || return 0
     READLINE_LINE="${picked}"
     READLINE_POINT="${#picked}"
 }

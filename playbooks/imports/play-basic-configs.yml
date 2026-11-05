@@ -305,13 +305,16 @@
 
     # The desktop user only: root keeps plain history and stock Ctrl+R, since a recorder
     # running as root adds a second copy of root's commands for no search benefit.
-    - name: Deploy the Ctrl+R history search
+    - name: Deploy the Ctrl+R history search and its recorder
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/history-search.bash"
-        dest: "/home/{{ user_login }}/.bashrc-includes/history-search.bash"
+        src: "{{ root_dir }}/files/home/bashrc-includes/{{ item }}"
+        dest: "/home/{{ user_login }}/.bashrc-includes/{{ item }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
+      loop:
+        - history-record.bash
+        - history-search.bash
 
     # The desktop user only: that is the shell a dropped SSH session falls back to. A root
     # shell gets the same clean-up from the user prompt it returns to.
