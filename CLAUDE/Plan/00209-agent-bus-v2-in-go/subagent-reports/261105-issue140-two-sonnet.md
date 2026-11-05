@@ -125,10 +125,12 @@ Code commit `f15e4f694`. Run in the worktree:
 - `golangci-lint run` default and `--build-tags busfailpoints` over `wiring`, `restore`,
   `teamsync`: clean; over `qa/rules` and `qa/driver`: clean. `go vet` default and tagged over the
   three packages: clean.
-- `./scripts/qa-changed.bash`: started (it planned the `docs`, `go` and `teamchat-keeps-off-v1`
-  checks), then waited on the QA lock held by another worktree's run; it had not finished when
-  this report was written, so there is no qa-changed result. `qa-all.bash` was not run (not
-  allowed here). `extensions/node_modules` was not consulted (issue 135).
+- `./scripts/qa-changed.bash` over the 13 changed files (run with the code staged, before the code
+  commit; it queued behind other worktrees' runs on the QA lock): exit 0, with
+  `docs: whole gate`, `go: go-qa, both modules (diff mode on a git change)` and
+  `teamchat-keeps-off-v1` all passing. The js checks were not planned (no JavaScript changed), so
+  issue 135 did not arise. This report was added after that run; `qa-all.bash` was not run (not
+  allowed here).
 - Not run: the full `./internal/teamchat/...` `-count=2` stage, and the other teamchat packages'
   tests (no file of theirs changed).
 
