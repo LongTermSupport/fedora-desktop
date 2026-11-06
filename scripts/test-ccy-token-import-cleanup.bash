@@ -34,6 +34,7 @@ if ! command -v script > /dev/null; then
 fi
 
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-import-cleanup.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 

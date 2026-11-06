@@ -183,8 +183,9 @@ Every effect goes through one of these, and each has a fake in the package's tes
   text of C 3.12.1's `teamchat-backup.timer` (`OnCalendar=daily`, `RandomizedDelaySec=1h`,
   `Persistent=true`) and `teamchat-backup.service` (`Type=oneshot`,
   `ExecStart=/usr/local/sbin/teamchat-admin backup --all`, `TimeoutStartSec=30min`, the health
-  unit's sandbox with C's `ReadWritePaths=` and no `CAP_SYS_PTRACE`). A test pins each
-  directive. Nothing installs them (gate A); Task 2.5's play renders them.
+  unit's sandbox with C's `ReadWritePaths=` and no `CAP_SYS_PTRACE`, and D 4.2's
+  `InaccessiblePaths=` line, `v1names.InaccessiblePaths`). A test pins each directive. Nothing
+  installs them (gate A); Task 2.5's play renders them.
 
 ## 2. The internal backup (BT, C 3.12.1)
 
@@ -705,7 +706,8 @@ cannot be made). `--offline` gives up those two, and nothing else.
   - Its properties are each line of `host.BaseSandbox`, the base unit's `[Service]` sandbox of
     C 3.2.3 held once as data (n2g-D17). These are the identity, hardening and deny lines
     (`DynamicUser` to `InaccessiblePaths`, with `UMask`, `IPAddressDeny=any` and
-    `SocketBindDeny=any`). They are not the lifecycle lines (`Type`, `NotifyAccess`,
+    `SocketBindDeny=any`). The last line is D 4.2's `InaccessiblePaths=` (`v1names`), so the
+    staging unit carries it. They are not the lifecycle lines (`Type`, `NotifyAccess`,
     `WatchdogSec`, `Timeout*`, `Restart*`), nor `LoadCredential` and `Environment`.
   - Its own lifecycle is `Restart=no`, `NotifyAccess=main`, `TimeoutStartSec=15min` (the start
     job ends at READY, after the restore; H-C5 confirms that READY is sent under
@@ -724,8 +726,9 @@ cannot be made). `--offline` gives up those two, and nothing else.
 - **RU2. The secure unit** is `teamchat-restore-ctl@<t>.service`, run as
   `systemd-run --pipe --wait --collect --quiet`. Its properties are
   `JoinsNamespaceOf=<staging unit>`, `PrivateNetwork=yes`, `User=teamchat-ctl`,
-  `Group=teamchat-ctl`, `WorkingDirectory=/`, `NoNewPrivileges=yes`, `IPAddressDeny=any` and
-  `IPAddressAllow=127.0.0.1/32 ::1/128`. Its command is
+  `Group=teamchat-ctl`, `WorkingDirectory=/`, `NoNewPrivileges=yes`, `IPAddressDeny=any`,
+  `IPAddressAllow=127.0.0.1/32 ::1/128` and D 4.2's `InaccessiblePaths=` line
+  (`v1names.InaccessiblePaths`; it takes no part of the base sandbox). Its command is
   `/usr/bin/env -i PATH=/usr/bin:/bin <self> ctl-child`, with the request on stdin.
   - The answer is judged as `ExecChild` judges it: capped, exit and answer agreeing.
   - Both argvs are pure functions, so the properties are asserted in tests (3.14).
