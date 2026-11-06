@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.112.3 — container 2.79.27
+## 3.113.0 — container 2.80.0
 
 The image builds on arm64 as well as x86_64 (Plan 00243, issue 118). Each download that was
 x86_64 only is chosen by the image architecture: the phpantom-lsp musl target (`uname -m`),

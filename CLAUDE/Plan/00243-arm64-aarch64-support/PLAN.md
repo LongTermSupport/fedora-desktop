@@ -25,8 +25,10 @@ logs, and re-test each fix from the snapshot.
 
 This plan folder lives on F44, which claims its number. The work itself collects on the
 feature branch `F44-arm`, branched from F44: each item is a worktree branched off `F44-arm`
-and merged back into it. None of the work goes to F44 for now. The plan's own progress is
-recorded on F44, and `F44-arm` merges F44 in to stay current. The end state is full arm64 support in the default version branch (F44 today), and
+and merged back into it. The work reaches F44 by pull request (`arm/onto-f44`, #189): the
+fixes that leave x86_64 unchanged, gated on x86_64 QA, the aarch64 install lane and an
+aarch64 dev VM as the proof. The plan's own progress is recorded on F44, and `F44-arm` merges
+F44 in to stay current. The end state is full arm64 support in the default version branch (F44 today), and
 on every version branch after it. So `F44-arm` is merged into F44 once the test bed proves
 it, and arm64 support is a standing requirement from then on: the architecture rule
 (Task 1.2) keeps it from regressing.
@@ -72,7 +74,13 @@ it, and arm64 support is a standing requirement from then on: the architecture r
 - [x] ✅ **Task 2.3**: The playbook, ccy image, ISO, VM lab and CI lane fixes ported from
   `F44-arm` onto `F44` as x86_64-neutral changes, so an aarch64 host following the `F44` tip
   gets them. Pins `F44-arm` added that change x86_64 (yq 4.54.1, hifi-rs 0.3.8, pinned
-  shellcheck and golangci-lint digests) and the `arch-pinned-artefact` gate stay on `F44-arm`.
+  shellcheck and golangci-lint digests) stay on `F44-arm`.
+- [x] ✅ **Task 2.4**: The `arch-pinned-artefact` gate on `F44`, in the same pull request as
+  the fixes: the rule and fixture as `F44-arm` has them, run by `scripts/qa-arch-pin.bash`
+  (the ghscopes engine's `ArchPin` spec), blocking with no allowlist. Red on 19 lines in 5
+  files of the `F44` tree, green once each was fixed; the daemon-owned
+  `.claude/ccy/claude-supervise.py` is excluded with its reason. The aarch64 install lane
+  runs for every pull request into `F44`.
 
 ### Phase 3: the test loop with example-team
 

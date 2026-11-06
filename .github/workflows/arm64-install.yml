@@ -3,13 +3,16 @@ name: arm64 install
 # The real unattended install (run.bash headless, server profile) on real aarch64 silicon,
 # in a Fedora container with systemd as PID 1 on GitHub's arm64 runner (Plan 00243). It
 # catches an x86-only download, a package Fedora does not build for aarch64, or a hardcoded
-# x86 path, which QA's arch-pinned-artefact rule cannot always see.
+# x86 path, which QA's arch-pinned-artefact rule (scripts/qa-arch-pin.bash) cannot always see.
 #
 # A container has no kernel modules, no boot loader of its own, no GDM and no real hardware,
 # so a play that fails only for that is a limit of this lane, not of the play: the plays are
-# never taught to skip inside a container. The run is long, so it is not on every branch.
+# never taught to skip inside a container. The run is long, so it runs for a pull request
+# into F44 and for pushes to the arm branches, not for every branch push.
 
 on:
+  pull_request:
+    branches: ["F44"]
   push:
     branches: ["F44-arm", "arm/**"]
   workflow_dispatch:
@@ -137,10 +140,12 @@ jobs:
           echo "CI_UID=${uid}" >> "$GITHUB_ENV"
 
       # run.bash clones fedora-desktop over HTTPS itself (the GitHub-less headless path) and
-      # pins the clone to the commit under test, so what runs is this push's tree.
+      # pins the clone to the commit under test, so what runs is this push's tree. For a pull
+      # request that is the head commit: github.sha is then a merge commit only the pull
+      # request's own ref holds, which the clone's plain fetch of origin does not bring.
       - name: Run the unattended install
         env:
-          GIT_REF: ${{ github.sha }}
+          GIT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           sudo podman exec --user "$CI_USER" --workdir "/home/${CI_USER}" "$CONTAINER" \
