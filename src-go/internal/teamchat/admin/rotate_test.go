@@ -101,7 +101,7 @@ func TestX33TheVerbRotatesAndListsOnlyTheSeatsTheHostDoesNotPlace(t *testing.T) 
 	for _, want := range []string{
 		"old CA sha256:" + oldFP, "new CA sha256:" + newFP,
 		"member reissue --team alpha --handle <handle>", "seat place-issued",
-		lxcSeat, "lxc apply", "play-agent-bus-element.yml", "rotate-ca again",
+		lxcSeat, "lxc apply", "run the Element play again (" + paths.ElementPlayFile + ")", "rotate-ca again",
 	} {
 		if !strings.Contains(out.stderr, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, out.stderr)

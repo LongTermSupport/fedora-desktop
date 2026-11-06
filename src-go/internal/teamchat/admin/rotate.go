@@ -20,9 +20,6 @@ import (
 
 const verbRotateCA = "team rotate-ca"
 
-// elementPlay is the play that places a team's CA where Element reads it (X34).
-const elementPlay = "playbooks/imports/optional/common/play-agent-bus-element.yml"
-
 // rotateHelp is `team rotate-ca --help`, its payload.
 const rotateHelp = `usage: ` + paths.AdminBinary + ` team rotate-ca --team <team>
 
@@ -33,8 +30,8 @@ carries, so the cut is hard: every seat is cut off until its bundle carries the 
 stdout is the handles of the seats this host does not place itself (placed by the owner's
 ` + "`seat place-issued`" + ` pipe, here or over ssh), one per line: place each again with
   sudo ` + paths.AdminBinary + ` member reissue --team <team> --handle <handle> --credential password|token | [ssh <alias>] teamchat seat place-issued --checkout <dir>
-The LXC seats are reissued with the new CA by the next lxc apply (the agent-bus play).
-Run the Element play again afterwards: the CA it placed is the old one.
+The LXC seats are reissued with the new CA by the next lxc apply (` + paths.PlayFile + `).
+Run the Element play (` + paths.ElementPlayFile + `) again afterwards: the CA it placed is the old one.
 
 The team's backups hold its CA. A backup taken before a rotation holds the old CA and leaf, and
 restoring it undoes the rotation: run team rotate-ca again after restoring one.
@@ -171,9 +168,9 @@ func rotatedText(team paths.TeamID, r rotation) string {
 			" | [ssh <alias>] teamchat seat place-issued --checkout <dir>")
 	}
 	if len(r.lxcReissue) > 0 {
-		say("the LXC seats " + strings.Join(r.lxcReissue, ", ") + " are reissued with the new CA by the next lxc apply (the agent-bus play)")
+		say("the LXC seats " + strings.Join(r.lxcReissue, ", ") + " are reissued with the new CA by the next lxc apply (" + paths.PlayFile + ")")
 	}
-	say("run the Element play again (" + elementPlay + "): the CA it placed for this team is the old one")
+	say("run the Element play again (" + paths.ElementPlayFile + "): the CA it placed for this team is the old one")
 	say("a backup taken before this rotation holds the old CA: after restoring one, run " + verbRotateCA + " again")
 	return b.String()
 }
