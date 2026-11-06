@@ -44,11 +44,13 @@ fixed there.
   for a branch merged into the default branch, which the remote guard already allows, and
   (b) a coordinator merge tool that merges, pushes and deletes. File (a) upstream with
   `/hooks-daemon issue-report` if chosen.
-- [ ] ⬜ **Task 1.3**: Hidden git mutations (TRIAGE cause 1). Defence Before Fix: name the
+- [x] ✅ **Task 1.3**: Hidden git mutations (TRIAGE cause 1). Defence Before Fix: name the
   class, write the detector (a hooks-daemon guard that refuses to run a script file holding
   git mutation verbs unless it is a tracked tool), prove it red on `rescue.bash`, and make it
   blocking. The guard belongs upstream; file it with `issue-report`, and add a project
-  handler under `.claude/hooks/handlers/` until it ships.
+  handler under `.claude/hooks/handlers/` until it ships. Built as `hidden_git_mutation`
+  (`R-UNTRACKED-SCRIPT-GIT-MUTATION`); the upstream issue is drafted in
+  `subagent-reports/261106-task-1-3-opus.md`, still to be filed.
 - [ ] ⬜ **Task 1.4**: Sub-agent scratch (TRIAGE cause 3). Make a worktree's scratch survive its
   removal by design. One option is to seed `untracked/scratch/` as a symlink to the main
   checkout's (worktree seed config). Another is to send reports to the main checkout, as

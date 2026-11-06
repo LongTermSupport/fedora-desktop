@@ -533,13 +533,17 @@ discarded. So are `.claude/init.sh`, `.claude/hooks/*`, the `*.sh` scripts under
 tracked, none of them ours to edit.
 
 **Which of those the gates actually open is a separate question**, and the two
-must not be conflated. `.claude/init.sh`, `.claude/hooks/*`, `mkplan.bash` and
-`claude-supervise.py` are all discovered and gated. The skill scripts are **not**:
+must not be conflated. `.claude/init.sh`, `mkplan.bash` and `claude-supervise.py`
+are discovered and gated. The generated hook scripts in `.claude/hooks/` are not:
+v3.72.1 shipped them failing shellcheck under its default rules (SC2034) and gave
+`status-line` 119 lines, so the shell gates (`scripts/qa-trees.tsv`) and bash-limits
+(`Exemptions`) exclude them by the owner's decision, and the defect goes upstream.
+The Python project handlers under `.claude/hooks/handlers/` are still gated. The skill scripts are **not**:
 `.claude/skills` is in `QA_EXCLUDE_DIRS`, so nothing under it reaches a gate —
 confirm with `jq '.paths.scanned[]' /tmp/qa-results.json`, which lists zero paths
 there. Upstream guarantees each daemon-owned file is clean under its language's
 **default** rule set (`ruff --isolated`, shellcheck with no rc), which is why
-gating the four costs nothing today. If an upgrade ever lands a finding under a
+gating the other three costs nothing today. If an upgrade ever lands a finding under a
 rule *this repo* chose, the remedy is to exclude the file (or narrow the rule —
 see the `BLE` note in `ruff.toml`) and never to edit it, because the next upgrade
 overwrites the fix. Report it upstream if it fails under default rules.

@@ -400,3 +400,9 @@ plugins:
       event_type: "pre_tool_use"
       handlers: ["AnsibleEnforcementHandler"]
       enabled: true
+
+    # Git mutations hidden in an untracked script, out of sight of the command guards (Plan 00250)
+    - path: ".claude/hooks/handlers/pre_tool_use/hidden_git_mutation.py"
+      event_type: "pre_tool_use"
+      handlers: ["HiddenGitMutationHandler"]
+      enabled: true
