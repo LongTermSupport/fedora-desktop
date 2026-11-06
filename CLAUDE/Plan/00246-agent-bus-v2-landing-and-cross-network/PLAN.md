@@ -130,8 +130,8 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   host check, and two owner questions (SPEC 6 and 7) stand. S13 is built (pull request 176, against
   173): the health tick probes each listen address through the terminator with the team CA
   (`matrix.Reach`), one problem per silent address (report
-  `subagent-reports/261106-crossnet-s13-opus-report.md`). S14 is built on
-  `feat/crossnet-s14-int`: `teamchat-admin team rotate-ca`, which makes a new CA and leaf, checks
+  `subagent-reports/261106-crossnet-s13-opus-report.md`). S14 is built (pull
+  request 177, against 176): `teamchat-admin team rotate-ca`, which makes a new CA and leaf, checks
   them before replacing anything, and marks the LXC seats for the next `lxc apply` to reissue
   (report `subagent-reports/261106-crossnet-s14-opus-report.md`). It found that the production
   `TeamCA` is still not wired, so no `https` bundle can be issued in the production build; that
