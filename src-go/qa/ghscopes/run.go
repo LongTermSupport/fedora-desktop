@@ -3,6 +3,9 @@
 // any file the analyser did not read. semgrep is the engine (the rule is data); this package owns
 // what is scanned, the proof the rule still works and the judgement of what semgrep reports. The
 // specification is the plan's SPEC-qa-gh-scopes.md.
+//
+// The same engine, given its FindRace spec, is the find-race-negated-stat-test gate over
+// .semgrep/find-race.yml: one generic rule file, every published file, the same proofs.
 package ghscopes
 
 import (
@@ -29,12 +32,45 @@ const (
 	ExitCannotRun ExitCode = 2
 )
 
-// The rule and its fixture, relative to the repository root, and the rule's name in the output.
+// The gh-scopes rule and its fixture, relative to the repository root, and the rule's name in the
+// output.
 const (
 	ruleFile    = ".semgrep/gh-scopes.yml"
 	fixtureFile = ".semgrep/gh-scopes.fixture"
 	ruleName    = "gh-scope-outside-ssot"
 )
+
+// Spec is one generic rule file and the gate that runs it over every published file: its short
+// name (the heading of a skip warning), the rule file and fixture, the rule's identifier, what a
+// finding line says the line does, and the usage text.
+type Spec struct {
+	short       string
+	ruleFile    string
+	fixtureFile string
+	ruleName    string
+	finding     string
+	usage       string
+}
+
+// GHScopes is the gh-scope-outside-ssot gate.
+var GHScopes = Spec{
+	short:       "gh-scopes",
+	ruleFile:    ruleFile,
+	fixtureFile: fixtureFile,
+	ruleName:    ruleName,
+	finding:     "name a GitHub scope outside vars/github-required-scopes.yml",
+	usage:       usageText,
+}
+
+// FindRace is the find-race-negated-stat-test gate (issue #152).
+var FindRace = Spec{
+	short:       "find-race",
+	ruleFile:    ".semgrep/find-race.yml",
+	fixtureFile: ".semgrep/find-race.fixture",
+	ruleName:    "find-race-negated-stat-test",
+	finding:     "run find -ignore_readdir_race with a negated stat test",
+	usage:       findRaceUsageText,
+}
 
 // Timeouts bound each process.
 const (
@@ -66,6 +102,19 @@ its fixture.
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
+const findRaceUsageText = `usage: qa-find-race [--root DIR] [--scripts DIR]
+
+Applies the semgrep rule in .semgrep/find-race.yml (find -ignore_readdir_race with a negated
+stat test, which matches an entry that vanished during the walk) to every file git would
+publish, after proving the rule against its fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
 // options is the parsed command line.
 type options struct {
 	help    bool
@@ -81,50 +130,54 @@ func parseArgs(args []string) (options, error) {
 
 // gate is one run.
 type gate struct {
+	spec   Spec
 	env    Env
 	root   string
 	stdout bytes.Buffer
 }
 
-// Main runs the gate and returns the exit status.
-func Main(args []string, env Env) ExitCode {
+// Main runs the gh-scopes gate and returns the exit status.
+func Main(args []string, env Env) ExitCode { return GHScopes.Main(args, env) }
+
+// Main runs the gate of this rule file and returns the exit status.
+func (s Spec) Main(args []string, env Env) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		return fail(env, err, true)
+		return s.fail(env, err, true)
 	}
 	if opts.help {
-		return write(env, usageText)
+		return s.write(env, s.usage)
 	}
 	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		return fail(env, err, false)
+		return s.fail(env, err, false)
 	}
-	g := &gate{env: env, root: root}
+	g := &gate{spec: s, env: env, root: root}
 	verdict, err := g.run()
 	if err != nil {
-		fail(env, err, false)
+		s.fail(env, err, false)
 		return verdict
 	}
 	if _, err := env.Stdout.Write(g.stdout.Bytes()); err != nil {
-		return fail(env, fmt.Errorf("cannot write to stdout: %w", err), false)
+		return s.fail(env, fmt.Errorf("cannot write to stdout: %w", err), false)
 	}
 	return verdict
 }
 
 // write sends text to stdout; the status is that of the write.
-func write(env Env, text string) ExitCode {
+func (s Spec) write(env Env, text string) ExitCode {
 	if _, err := io.WriteString(env.Stdout, text); err != nil {
-		return fail(env, fmt.Errorf("cannot write to stdout: %w", err), false)
+		return s.fail(env, fmt.Errorf("cannot write to stdout: %w", err), false)
 	}
 	return ExitOK
 }
 
 // fail prints an ERROR line (and the usage, for a usage error) on stderr. A stderr that cannot
 // be written to has nowhere left to say so; the status is the same either way.
-func fail(env Env, err error, usage bool) ExitCode {
+func (s Spec) fail(env Env, err error, usage bool) ExitCode {
 	text := "ERROR: " + err.Error() + "\n"
 	if usage {
-		text += usageText
+		text += s.usage
 	}
 	return statusAfter(io.WriteString(env.Stderr, text))
 }

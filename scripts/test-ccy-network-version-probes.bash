@@ -50,6 +50,7 @@ expect() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-network-version-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$SCRATCH"' EXIT
 export BIN="$SCRATCH/bin"
 mkdir -p "$BIN"

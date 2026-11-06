@@ -13,7 +13,10 @@
 # The search stops at the first such file (-quit) and stays on the store's filesystem (-xdev),
 # which keeps it out of mounted container roots. Running containers add and delete files in the
 # store while it walks, so a file gone before find reaches it is not an error
-# (-ignore_readdir_race).
+# (-ignore_readdir_race). find still tests such a file, and every -uid test is false for it, so
+# each negated one would be true and the deleted file would be reported (issue #152). -links +0
+# comes first: it is false for a file that cannot be stat'ed, and find keeps the stat it made,
+# so the uid tests judge a file that existed (CLAUDE/QA.md "find-race-negated-stat-test").
 #
 # Needs: user_login, and podman_store_home from tasks/podman-store-repair.yml.
 
@@ -54,6 +57,8 @@
       - "{{ podman_store_home }}/.local/share/containers/storage/overlay"
       - -xdev
       - -ignore_readdir_race
+      - -links
+      - "+0"
       - "!"
       - -uid
       - "0"

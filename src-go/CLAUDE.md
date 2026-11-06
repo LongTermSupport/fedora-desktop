@@ -468,7 +468,10 @@ the refusal to pass over a script semgrep did not read or parse. git and semgrep
 `gh-scope-outside-ssot` gate: semgrep stays the engine and `.semgrep/gh-scopes.yml` the data; the
 Go owns scope (what git would publish, handed by name), the rule self-test against its fixture and
 the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
-which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
+which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification. The same engine,
+given its `FindRace` spec, is `qa/cmd/qa-find-race` and `scripts/qa-find-race.bash`, the gate for
+`.semgrep/find-race.yml` (`find-race-negated-stat-test`, issue #152); its real-semgrep tests are
+in the command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
 `scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the
@@ -589,7 +592,10 @@ and runs the command. Unlike every gate above it is not in `qa-gates.tsv` or `qa
 `.github/workflows/branch-hygiene.yml` runs it, because it judges the repository's global state
 ([QA.md](../CLAUDE/QA.md#branch-hygiene--the-repositorys-branches-judged-daily)). The rule is pure
 over branch facts, the policy and an injected clock; git goes through `qa/internal/proc`, faked in
-the unit tests.
+the unit tests. `qa/branchdelete` + `qa/cmd/branch-delete-list` are `scripts/branch-delete-list.bash`,
+the one way to build a bulk delete list (issue #150): it reads the policy through
+`branchhygiene.ReadPolicy` and origin's refs through one `git ls-remote --symref origin`, and
+refuses the whole list, naming each offender, rather than filtering it. Not a gate either.
 
 `qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
 clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
