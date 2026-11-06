@@ -243,7 +243,7 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 	tl := resp.Join[s.a.MainRoom].Timeline
 	events, gap := tl.Events, false
 	if tl.Limited && tl.PrevBatch != "" {
-		older, g, ferr := s.fill(ctx, tl.PrevBatch, "", s.passed(bd))
+		older, g, ferr := s.fill(ctx, s.a.MainRoom, tl.PrevBatch, "", s.passed(bd))
 		if ferr != nil {
 			return "", ferr
 		}
@@ -362,13 +362,14 @@ func originTs(v proto.Value) int64 {
 	return -1
 }
 
-// fill reads main backwards from a batch token (down to another, when not empty), 100 a page, until stop says so
-// or the pages end; past the page bound it is a gap. The events come oldest first.
-func (s *sess) fill(ctx context.Context, from, to string, stop func([]json.RawMessage) bool) ([]json.RawMessage, bool, error) {
+// fill reads a room backwards from a batch token (down to another, when not empty), 100 a page,
+// until stop says so or the pages end; past the page bound it is a gap. The events come oldest
+// first.
+func (s *sess) fill(ctx context.Context, room, from, to string, stop func([]json.RawMessage) bool) ([]json.RawMessage, bool, error) {
 	var pages [][]json.RawMessage
 	done := false
 	for range s.t.pages.max {
-		page, err := s.c.Messages(ctx, s.a.MainRoom, matrix.MessagesRequest{From: from, To: to, Dir: matrix.Backward, Limit: s.t.pages.size})
+		page, err := s.c.Messages(ctx, room, matrix.MessagesRequest{From: from, To: to, Dir: matrix.Backward, Limit: s.t.pages.size})
 		if err != nil {
 			return nil, false, err
 		}
@@ -538,7 +539,7 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 	if err != nil {
 		return err
 	}
-	if err = s.qjudge(ctx, &j, a); err != nil {
+	if err = s.qjudge(ctx, &j, since, a); err != nil {
 		return err
 	}
 	if gap {
@@ -578,7 +579,7 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 	if !tl.Limited || tl.PrevBatch == "" {
 		return tl.Events, false, nil
 	}
-	older, gap, err := s.fill(ctx, tl.PrevBatch, since, func([]json.RawMessage) bool { return false })
+	older, gap, err := s.fill(ctx, s.a.MainRoom, tl.PrevBatch, since, func([]json.RawMessage) bool { return false })
 	if err != nil {
 		return nil, false, err
 	}

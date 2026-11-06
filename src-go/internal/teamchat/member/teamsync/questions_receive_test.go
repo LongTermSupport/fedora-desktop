@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -36,18 +35,7 @@ func (w *world) sayIn(room, local string, content map[string]any) string {
 // with the coordinator filter.
 func (w *world) readyCoordinator() {
 	w.t.Helper()
-	w.asCoordinator()
-	tm := w.newTeam(withBuilder(&fakeBuilder{}))
-	filters := filtersOf(tm)
-	r := w.startTeam(tm)
-	w.batch()
-	r.poll(w.t)
-	tm.IndexAtHead(proto.NewQuestionIndex(server, 0), w.main)
-	for coordinator := w.filterFor(true); nextFilter(w.t, filters) != coordinator; {
-		continue
-	}
-	// What is posted next is later than the join, the room's floor (QS5), on the fake clock.
-	w.clk.Advance(time.Second)
+	w.readyWith(w.main, nil)
 }
 
 // lastIs is a batch whose questions key's last folded event is id.
