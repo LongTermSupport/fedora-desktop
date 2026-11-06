@@ -39,11 +39,13 @@ fixed there.
 - [ ] 🔄 **Task 1.1**: `branches.cleanup_after_merge.mode: act`, so a merge into F44 deletes the
   merged local branch. Set, and the daemon restarted. Still to do: prove it on a throwaway
   branch, which the WIP cap refuses to create until open work is under 10.
+
 - [ ] ⬜ **Task 1.2**: Remote deletes after a local merge. Today `cleanup_after_merge` prints the
   remote delete but never runs it. Decide between (a) a daemon change that runs the delete
   for a branch merged into the default branch, which the remote guard already allows, and
   (b) a coordinator merge tool that merges, pushes and deletes. File (a) upstream with
   `/hooks-daemon issue-report` if chosen.
+
 - [x] ✅ **Task 1.3**: Hidden git mutations (TRIAGE cause 1). Defence Before Fix: name the
   class, write the detector (a hooks-daemon guard that refuses to run a script file holding
   git mutation verbs unless it is a tracked tool), prove it red on `rescue.bash`, and make it
@@ -51,15 +53,29 @@ fixed there.
   handler under `.claude/hooks/handlers/` until it ships. Built as `hidden_git_mutation`
   (`R-UNTRACKED-SCRIPT-GIT-MUTATION`); the upstream issue is drafted in
   `subagent-reports/261106-task-1-3-opus.md`, still to be filed.
+
 - [ ] ⬜ **Task 1.4**: Sub-agent scratch (TRIAGE cause 3). Make a worktree's scratch survive its
   removal by design. One option is to seed `untracked/scratch/` as a symlink to the main
   checkout's (worktree seed config). Another is to send reports to the main checkout, as
   `subagent_report_persistence` already does. Choose one, and prove that a merged agent
   worktree is then removed by `branch-sweep --clean`.
 
+- [ ] ⬜ **Task 1.5**: The interrupted worktree creation (TRIAGE cause 1a). Prove what kills
+  `git worktree add` (time a creation under QA load against the 30-second
+  `Timeout.GIT_WORKTREE`). The fix is the daemon's: on failure, remove the partial worktree and
+  its branch, never hand it to an agent, and size the timeout to the checkout. File it upstream
+  with `/hooks-daemon issue-report`. The check needed in the meantime: a WorktreeCreate or
+  SessionStart advisory naming any worktree still locked `initializing`.
+
+- [ ] ⬜ **Task 1.6**: Daemon defects found by the host-side triage (seat 2). `branch-sweep`
+  reports a branch whose tip is on origin under `refs/archive/*` as "contained nowhere", and
+  advises pushing it back to `refs/heads`. A worktree registered under container paths looks
+  prunable from the host, so a host-side `git worktree prune` would drop every registration.
+  File both upstream.
+
 ### Phase 2: clean up every instance, through the tools
 
-- [ ] ⬜ **Task 2.1**: The eight worktrees with a script-damaged index: put each index back to
+- [x] ✅ **Task 2.1** (done 2026-11-06, see TRIAGE cause 1a; the seven rescue-commit branches done too): The eight worktrees with a script-damaged index: put each index back to
   HEAD (`git reset` without `--hard` touches only the index), confirm `git status` is clean
   and the files on disk match HEAD, then let `branch-sweep --clean` remove them.
 - [ ] ⬜ **Task 2.2**: The eleven agent branches made unmerged by a rescue commit: read each
