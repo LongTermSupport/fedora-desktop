@@ -373,8 +373,10 @@ func (s *sess) qjoin(ctx context.Context, room string) bool {
 	return true
 }
 
+// quntrusted is QS8's failed check: the room out of the filter, and its index owed again, so
+// that the recovery loads it or catches it up from its token (QX1).
 func (s *sess) quntrusted(room, check string) {
-	if s.t.qset(room, func(q *qstate) { q.verified, q.head, q.check = false, false, check }) {
+	if s.t.qset(room, func(q *qstate) { q.verified, q.head, q.check, q.begun = false, false, check, false }) {
 		s.t.log.Printf("the questions room %s is untrusted: the check %s failed", room, check)
 		s.t.poke()
 	}
