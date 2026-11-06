@@ -10,6 +10,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// leakcheckPkgName is the name of the package whose functions the leak-check rules recognise.
+const leakcheckPkgName = "leakcheck"
+
 // LeakcheckOnce forbids a second leakcheck.Check on one test, which judges too early.
 var LeakcheckOnce = &analysis.Analyzer{
 	Name: "project_leakcheck_once",
@@ -135,7 +138,7 @@ func (c checkers) tests(pass *analysis.Pass, call *ast.CallExpr) []*ast.Ident {
 
 func isLeakcheckCheck(fn *types.Func) bool {
 	sig, ok := fn.Type().(*types.Signature)
-	return ok && sig.Recv() == nil && fn.Name() == "Check" && fn.Pkg() != nil && fn.Pkg().Name() == "leakcheck"
+	return ok && sig.Recv() == nil && fn.Name() == "Check" && fn.Pkg() != nil && fn.Pkg().Name() == leakcheckPkgName
 }
 
 // judge reports, in body, a registration on a test already registered on, or one in a loop.

@@ -111,10 +111,11 @@ func (w *world) textsFrom(local, text string) []string {
 }
 
 // postedOnce waits until C's queue is empty and its text is in main, then holds that it is
-// there exactly once: its event id. A team whose server is back resumes within the backoff's cap.
+// there exactly once: its event id. A team whose server is back resumes within the backoff's cap,
+// and its held send is tried again within retryHold after that (deliveredBound).
 func (s *session) postedOnce(text string) string {
 	s.w.t.Helper()
-	within(s.w.t, backoffCap+settle, func() bool {
+	within(s.w.t, deliveredBound, func() bool {
 		return len(s.status("queued")) == 0 && len(s.w.textsFrom(coord, text)) > 0
 	}, s.describe)
 	ids := s.w.textsFrom(coord, text)
@@ -199,7 +200,7 @@ func TestE2EAReferencedPingWithNoGhIsForgeLogin(t *testing.T) {
 func TestE2EQueuedWhileDown(t *testing.T) {
 	k, _, ks, cs := pair(t, fakeServer(t))
 	check(t, k.hs.fake.Stop())
-	eventually(t, func() bool { return cs.down(teamName) }, cs.describe)
+	cs.awaitDown(teamName)
 	const text = "said while the server was down"
 	cs.queued(new(text), "say", "--to", kShort, "--team", teamName)
 	if q := cs.status("queued"); len(q) != 1 || q[0]["send"] != "text" {
@@ -222,7 +223,7 @@ func TestE2EQueuedAtStart(t *testing.T) {
 	cs.wait()
 	check(t, k.hs.fake.Stop())
 	again := c.seated()
-	eventually(t, func() bool { return again.down(teamName) }, again.describe)
+	again.awaitDown(teamName)
 	const text = "said by a link that never reached its server"
 	again.queued(new(text), "say", "--to", kShort, "--team", teamName)
 	check(t, k.hs.fake.Start())

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -104,6 +103,9 @@ type fakeNotices struct {
 	txns        []string
 	contents    [][]byte
 	own         map[string]proto.Related
+	// gate, when set, holds every Send once it has recorded its txn, until it is closed: the
+	// PUT has reached the server and its answer is not yet read.
+	gate chan struct{}
 }
 
 func (*fakeNotices) RoomState(context.Context, string) ([]json.RawMessage, error) { return nil, nil }
@@ -120,7 +122,7 @@ func (n *fakeNotices) Messages(ctx context.Context, room string, req matrix.Mess
 
 func (n *fakeNotices) Send(ctx context.Context, room, eventType, txn string, content json.RawMessage) (string, error) {
 	n.mu.Lock()
-	hs, err := n.hs, n.sendErr
+	hs, err, gate := n.hs, n.sendErr, n.gate
 	if len(n.sendErrs) > 0 {
 		err, n.sendErrs = n.sendErrs[0], n.sendErrs[1:]
 	}
@@ -128,6 +130,13 @@ func (n *fakeNotices) Send(ctx context.Context, room, eventType, txn string, con
 	n.contents = append(n.contents, content)
 	count := len(n.txns)
 	n.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	switch {
 	case err != nil:
 		return "", err
@@ -576,17 +585,15 @@ func (w *world) awaitDue(d time.Duration) {
 	check(w.t, w.clk.AwaitDue(w.t.Context(), d))
 }
 
-// until polls the state goroutine until cond holds.
+// until polls the state goroutine until cond holds, and fails the test once every other
+// goroutine is blocked and it still does not (leakcheck.Poll): nothing can change it then.
 func (w *world) until(cond func() bool) {
 	w.t.Helper()
-	for {
+	leakcheck.Poll(w.t, func() bool {
 		var ok bool
 		w.local(func() { ok = cond() })
-		if ok {
-			return
-		}
-		runtime.Gosched()
-	}
+		return ok
+	})
 }
 
 func humanItem(id paths.TeamID, n int, sent int64, text string) team.Item {

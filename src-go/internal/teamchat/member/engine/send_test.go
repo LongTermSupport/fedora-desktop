@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
@@ -193,6 +194,17 @@ func (n *fakeNotices) setSendErr(err error) {
 	n.sendErr = err
 }
 
+// holdAnswers holds the answer of every Send made from now on, once the fake has recorded it
+// (sent lists it), until the returned release is called: the sender is past its PUT and has not
+// yet read what the homeserver said.
+func (n *fakeNotices) holdAnswers() func() {
+	gate := make(chan struct{})
+	n.mu.Lock()
+	n.gate = gate
+	n.mu.Unlock()
+	return sync.OnceFunc(func() { close(gate) })
+}
+
 func (n *fakeNotices) owned() map[string]proto.Related {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -258,12 +270,11 @@ func (w *world) sendsLeft(id paths.TeamID) func() bool {
 	return func() bool { return len(w.e.teams[id].store.Outbox.Sending) == 0 }
 }
 
-// waitFor polls cond, giving the state goroutine a turn each time.
+// waitFor polls cond, which reads the fakes and not the engine, and fails the test once every
+// other goroutine is blocked and it still does not hold (leakcheck.Poll).
 func waitFor(w *world, cond func() bool) {
 	w.t.Helper()
-	for !cond() {
-		w.local(func() {})
-	}
+	leakcheck.Poll(w.t, cond)
 }
 
 func up(sync int64) team.Health { return team.Health{LastSyncOKMS: sync} }
@@ -558,6 +569,10 @@ func TestSD3_8bAQueuedSendOutlivesA401(t *testing.T) {
 	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 401, "M_UNKNOWN_TOKEN"))
 	w.e.SetHealth(ops, up(startWall))
 	waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
+	// The fake records a PUT as it is made: the sender has not yet read the 401 and set the
+	// team's send stop. A health told before it would be undone by the stop, which then
+	// stands over a healthy team (TestAPutIsRecordedBeforeItsAnswerIsHandled).
+	w.until(func() bool { return w.e.teams[ops].sendStop == exits.CodeToken })
 	w.e.SetHealth(ops, team.Health{Stopped: exits.CodeToken, LastSyncOKMS: startWall})
 	if q := w.queuedRecords(); len(q) != 1 || !q[0].Tried {
 		t.Fatalf("after the 401 status lists %+v", q)
@@ -572,6 +587,28 @@ func TestSD3_8bAQueuedSendOutlivesA401(t *testing.T) {
 	if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {
 		t.Errorf("posts %v, want the one txn twice (the refused try, then the post)", got)
 	}
+}
+
+// A PUT is recorded by the fake as it is made, before the sender has read its answer: until it
+// has, the team holds no send stop for a 401, whatever its health is told. This is why a test
+// waits for the stop, and not for the PUT, before it plays the team's recovery (issue 140).
+func TestAPutIsRecordedBeforeItsAnswerIsHandled(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	w.e.SetHealth(ops, team.Health{Down: true})
+	queued(t, w.say(&ops, "while down", "repo.2"))
+	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 401, "M_UNKNOWN_TOKEN"))
+	release := f.notices.holdAnswers()
+	w.e.SetHealth(ops, up(startWall))
+	waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
+	var stop string
+	w.local(func() { stop = w.e.teams[ops].sendStop })
+	if stop != "" {
+		t.Fatalf("the send stop %q was set before the 401 was read", stop)
+	}
+	release()
+	w.until(func() bool { return w.e.teams[ops].sendStop == exits.CodeToken })
 }
 
 // SD3-9: the 33rd send in flight is 78 store, and an answer-expecting ping past 256 outbox and
