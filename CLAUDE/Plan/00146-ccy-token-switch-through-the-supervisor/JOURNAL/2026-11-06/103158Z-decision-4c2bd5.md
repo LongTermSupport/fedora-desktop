@@ -1,0 +1,7 @@
+## 10:31 · decision · —   — forwarder becomes the primary design
+
+Refreshed the prior art against the official Claude Code docs (fetchable now) and three community proxies, then rewrote PLAN.md with the forwarder as the primary design.
+
+Findings: the env-vars reference now states CLAUDE_CODE_OAUTH_TOKEN is used for the whole session and is ignored in project/local settings, so no in-session swap exists short of /login. apiKeyHelper still returns an API key only (issue 97350 still open). The gateway compatibility guide documents a claude.ai credential with a custom ANTHROPIC_BASE_URL as supported, requires anthropic-beta (which carries the OAuth capability) and the unified rate-limit headers to be forwarded unchanged, and lists two calls that go directly to api.anthropic.com (fast-mode check, WebFetch preflight). claude-rotate (MIT, Python) uses the same placeholder-in-CLAUDE_CODE_OAUTH_TOKEN design. The legal page's OAuth restrictions are quoted in the research file for the owner's decision.
+
+Decision taken in the plan (pending owner): host-side per-session forwarder on a mounted unix socket plus an in-container loopback relay, because the network policy refuses the host's addresses and this keeps the real token out of the container. The respawn design moved to FALLBACK-supervisor-respawn.md. Next: owner answers decisions 1 to 8, then Task 0.1 (TDD the Go forwarder) and the host spike.

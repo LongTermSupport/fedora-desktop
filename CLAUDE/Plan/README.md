@@ -202,7 +202,7 @@ Use these Unicode icons in plan documents:
 
 - [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Not Started (owner decisions). A "Fedora Desktop" entry in the tmux F12 menu, built from drop-ins.
 
-- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions). Switch a running ccy session's token through the supervisor.
+- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions, then a host spike). Hot-swap a running ccy or `cc` session's token through a local Go forwarder behind `ANTHROPIC_BASE_URL`; supervisor respawn is the fallback.
 
 - [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - In Progress (deployed; logout and visual check left). Container Watch folds into the one Fedora Desktop panel icon.
 
