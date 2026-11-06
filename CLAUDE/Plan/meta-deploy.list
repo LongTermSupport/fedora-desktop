@@ -39,3 +39,8 @@
 # owner's own teams and host_vars are not touched. Plan 00203 Task 3.23 brings them up again
 # itself when it runs.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/chooser-teams-down.bash
+
+# Plan 00249: read-only storage triage of every agent-bus team (database, WAL archive, backups,
+# state tars, media, disk headroom), the measurement the 14-day retention cap is judged against.
+# It changes nothing; this is its first run on the host (it was tried only on a fake tree).
+00249-agent-bus-retention
