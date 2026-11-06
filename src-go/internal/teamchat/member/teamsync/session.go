@@ -69,7 +69,8 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 		return err
 	}
 	s.epoch, s.floor = s.roster.RestoreEpoch, store.Sync.FloorMS[proto.PurposeMain]
-	t.knowFloor(s.floor, s.epoch)
+	t.knowFloor(proto.PurposeMain, s.floor, s.epoch)
+	t.knowFloor(proto.PurposeQuestions, store.Sync.FloorMS[proto.PurposeQuestions], s.epoch)
 	t.freeze.reset()
 	if qerr := s.qstart(ctx, store); qerr != nil {
 		return qerr
@@ -226,7 +227,7 @@ type bounds struct {
 func (s *sess) resume(ctx context.Context) (string, error) {
 	var bd bounds
 	var err error
-	if bd.floor, bd.hasFloor, err = s.marker(ctx); err != nil {
+	if bd.floor, bd.hasFloor, err = s.marker(ctx, s.a.MainRoom); err != nil {
 		return "", err
 	}
 	if h := s.pair.Bundle.Held; h != nil && h.ReleasedMS != nil {
@@ -256,16 +257,17 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 	return resp.NextBatch, nil
 }
 
-// marker is the teamchat.floor marker, decoded strictly; an undecodable one is none, said once.
-func (s *sess) marker(ctx context.Context) (int64, bool, error) {
-	raw, found, err := s.c.RoomAccountData(ctx, s.a.Self, s.a.MainRoom, paths.FloorAccountData)
+// marker is room's teamchat.floor marker, decoded strictly; an undecodable one is none, said
+// once per room.
+func (s *sess) marker(ctx context.Context, room string) (int64, bool, error) {
+	raw, found, err := s.c.RoomAccountData(ctx, s.a.Self, room, paths.FloorAccountData)
 	if err != nil || !found {
 		return 0, false, err
 	}
 	floor, ok := decodeMarker(raw)
-	if !ok && !s.t.markerSaid {
-		s.t.markerSaid = true
-		s.t.log.Printf("the %s marker does not decode; resuming as with none", paths.FloorAccountData)
+	if !ok && !s.t.markerSaid[room] {
+		s.t.markerSaid[room] = true
+		s.t.log.Printf("the %s marker in %s does not decode; resuming as with none", paths.FloorAccountData, room)
 	}
 	return floor, ok, nil
 }
@@ -561,8 +563,18 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		}
 		s.dropOwed = false
 	}
+	return s.settle(ctx, j, floor)
+}
+
+// settle is what a handled answer leaves once persisted: its effects committed, the questions
+// fold made live, the markers moved and put, the failure streak ended.
+func (s *sess) settle(ctx context.Context, j judged, floor int64) error {
+	t := s.t
 	s.commit(j, floor)
 	t.qcommit(j)
+	if err := s.qmarked(j); err != nil {
+		return err
+	}
 	t.qhealth()
 	t.putFloorIfDue(ctx, s.c, s.a)
 	t.recovered()
@@ -602,7 +614,7 @@ func (s *sess) commit(j judged, f int64) {
 	t.noteForge(j.forge)
 	if f > 0 && f != s.floor {
 		s.floor = f
-		t.floorMoved(f, s.epoch)
+		t.floorMoved(proto.PurposeMain, f, s.epoch)
 	}
 }
 
@@ -920,24 +932,55 @@ func copyWindow(w proto.Window) proto.Window {
 // knowFloor is the floor a session starts from, which FlushFloor puts. Unless this goroutine
 // already put that floor, it is owed: the last link may have ended, or been killed, before its
 // coalesced put, and the marker may lag the store (A2).
-func (t *Team) knowFloor(floor, epoch int64) {
+func (t *Team) knowFloor(purpose string, floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if floor > 0 {
-		f := &t.floor
+	if f := t.markerOf(purpose); floor > 0 && f != nil {
 		f.ms, f.epoch, f.known = floor, epoch, true
 		f.dirty = !f.sent || f.sentMS != floor || f.sentEpoch != epoch
 	}
 }
 
-// floorMoved is a persisted floor move; a move down is owed at once, never coalesced, so a
-// seat taken with no store never cuts the item it was lowered for.
-func (t *Team) floorMoved(floor, epoch int64) {
+// markerOf is the marker of the room of purpose, nil for a room that has none; t.mu is held.
+func (t *Team) markerOf(purpose string) *floorMarker {
+	switch purpose {
+	case proto.PurposeMain:
+		return &t.floor
+	case proto.PurposeQuestions:
+		return &t.qfloor
+	}
+	return nil
+}
+
+// floorMoved is a persisted floor move of the room of purpose; a move down is owed at once,
+// never coalesced, so a seat taken with no store never cuts the item it was lowered for. The
+// floor already known changes nothing.
+func (t *Team) floorMoved(purpose string, floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	f := &t.floor
+	f := t.markerOf(purpose)
+	if f == nil || f.known && f.ms == floor && f.epoch == epoch {
+		return
+	}
 	f.urgent = f.urgent || f.known && floor < f.ms
 	f.ms, f.epoch, f.known, f.dirty = floor, epoch, true, true
+}
+
+// qmarked gives a write that held the questions floor to that room's marker: the store's floor,
+// which the engine keeps below the room's owed items (B 2.3.2), since Persist answers main's.
+func (s *sess) qmarked(j judged) error {
+	t := s.t
+	if _, held := j.batch.Floors[proto.PurposeQuestions]; !held {
+		return nil
+	}
+	store, err := t.cfg.Engine.Load(t.cfg.Team, s.a.Self)
+	if err != nil {
+		return err
+	}
+	if f, ok := store.Sync.FloorMS[proto.PurposeQuestions]; ok {
+		t.floorMoved(proto.PurposeQuestions, f, s.epoch)
+	}
+	return nil
 }
 
 // FloorRaised is the store's main floor raised outside a sync answer (team.Team): the marker's
@@ -951,46 +994,76 @@ func (t *Team) FloorRaised(floor int64) {
 	}
 }
 
-// putFloorIfDue is SY10's coalescing without a timer: a moved floor is put after an answer once
-// floorPutGap has passed since the last put, and a floor moved down at once.
+// markerRoom is a room a marker is put in, and the purpose whose marker it is.
+type markerRoom struct{ purpose, id string }
+
+// markerRooms are the rooms the markers are put in now: main, and the questions room while this
+// member coordinates it and is joined to it.
+func (t *Team) markerRooms(a proto.Anchors) []markerRoom {
+	rooms := []markerRoom{{proto.PurposeMain, a.MainRoom}}
+	if q := t.qget(); q.room != "" && q.joined {
+		rooms = append(rooms, markerRoom{proto.PurposeQuestions, q.room})
+	}
+	return rooms
+}
+
+// putFloorIfDue is SY10's coalescing without a timer, per room: a moved floor is put after an
+// answer once floorPutGap has passed since that room's last put, and a floor moved down at once.
 func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anchors) {
-	t.mu.Lock()
-	due := t.floor.dirty && (t.floor.urgent || !t.floor.put || t.cfg.Clock.Boot()-t.floor.putAt >= floorPutGap)
-	t.mu.Unlock()
-	if due {
-		if err := t.putFloor(ctx, c, a); err != nil {
-			t.log.Printf("the %s marker was not put: %s", paths.FloorAccountData, matrix.Class(err))
+	for _, r := range t.markerRooms(a) {
+		t.mu.Lock()
+		f := t.markerOf(r.purpose)
+		due := f == nil || f.dirty && (f.urgent || !f.put || t.cfg.Clock.Boot()-f.putAt >= floorPutGap)
+		t.mu.Unlock()
+		if !due {
+			continue
+		}
+		if err := t.putFloor(ctx, c, a.Self, r); err != nil {
+			t.log.Printf("the %s marker in %s was not put: %s", paths.FloorAccountData, r.id, matrix.Class(err))
 		}
 	}
 }
 
-func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) error {
+func (t *Team) putFloor(ctx context.Context, c *matrix.Client, self string, r markerRoom) error {
 	t.mu.Lock()
-	f := t.floor
+	m := t.markerOf(r.purpose)
+	if m == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("teamsync: the %s room has no floor marker", r.purpose)
+	}
+	f := *m
 	if f.known {
-		t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+		m.put, m.putAt = true, t.cfg.Clock.Boot()
 	}
 	t.mu.Unlock()
 	if !f.known {
 		return nil
 	}
-	if err := c.PutRoomAccountData(ctx, a.Self, a.MainRoom, paths.FloorAccountData, markerContent(f.ms, f.epoch)); err != nil {
+	if err := c.PutRoomAccountData(ctx, self, r.id, paths.FloorAccountData, markerContent(f.ms, f.epoch)); err != nil {
 		return err
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.floor.sent, t.floor.sentMS, t.floor.sentEpoch = true, f.ms, f.epoch
-	if t.floor.ms == f.ms && t.floor.epoch == f.epoch {
-		t.floor.dirty, t.floor.urgent = false, false
+	m.sent, m.sentMS, m.sentEpoch = true, f.ms, f.epoch
+	if m.ms == f.ms && m.epoch == f.epoch {
+		m.dirty, m.urgent = false, false
 	}
 	return nil
 }
 
-// FlushFloor puts the floor marker at once, at a removal before the store goes (SY10).
+// FlushFloor puts every room's floor marker at once, at a removal before the store goes (SY10);
+// each room is tried, and the failures are its error.
 func (t *Team) FlushFloor(ctx context.Context) error {
 	c, pair, err := t.current()
 	if err != nil {
 		return err
 	}
-	return t.putFloor(ctx, c, anchorsOf(t.cfg.Team, pair))
+	a := anchorsOf(t.cfg.Team, pair)
+	var errs []error
+	for _, r := range t.markerRooms(a) {
+		if perr := t.putFloor(ctx, c, a.Self, r); perr != nil {
+			errs = append(errs, perr)
+		}
+	}
+	return errors.Join(errs...)
 }

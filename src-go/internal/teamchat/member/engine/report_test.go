@@ -571,7 +571,8 @@ func TestStatusShowsTheReportsRoomsState(t *testing.T) {
 		}
 	}
 	for _, r := range w.statusRecords(&ops) {
-		if room, ok := r.(records.Room); ok && room.Purpose == proto.PurposeQuestions && room.State != "joined" {
+		// The team's questions health was never set: a worker's record, whatever the reports room.
+		if room, ok := r.(records.Room); ok && room.Purpose == proto.PurposeQuestions && room.State != roomNotCoordinator {
 			t.Errorf("the questions room's record changed: %+v", room)
 		}
 	}

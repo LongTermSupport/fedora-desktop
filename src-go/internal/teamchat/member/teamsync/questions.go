@@ -384,7 +384,7 @@ func (s *sess) quntrusted(room, check string) {
 
 // qindex is QS5's index: loaded from the store when its key is at the store's position with no
 // build owed, else QX1's build or catch-up begun; and the floor items resume from, the later
-// of the store's and this member's own latest join.
+// of the store's (with none, qresume's) and this member's own latest join.
 func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 	t := s.t
 	store, err := t.cfg.Engine.Load(t.cfg.Team, s.a.Self)
@@ -392,8 +392,10 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 		return err
 	}
 	floor, ok := store.Sync.FloorMS[proto.PurposeQuestions]
-	if h := s.pair.Bundle.Held; !ok && h != nil && h.ReleasedMS != nil {
-		floor = *h.ReleasedMS
+	if !ok {
+		if floor, err = s.qresume(ctx, room); err != nil {
+			return err
+		}
 	}
 	floor = max(floor, joinTS)
 	key := store.Questions
@@ -409,6 +411,24 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 	t.qset(room, func(q *qstate) { q.floor = floor })
 	t.qbegin(ctx, IndexJob{Key: key, RoomID: room, Floor: floor})
 	return nil
+}
+
+// qresume is QS5's floor with no store floor: the earlier of the room's own marker (SY10, per
+// room) and the seat's release time, either alone when only one exists, 0 with neither.
+func (s *sess) qresume(ctx context.Context, room string) (int64, error) {
+	marker, hasMarker, err := s.marker(ctx, room)
+	if err != nil {
+		return 0, err
+	}
+	h := s.pair.Bundle.Held
+	hasReleased := h != nil && h.ReleasedMS != nil
+	switch {
+	case hasMarker && hasReleased:
+		return min(marker, *h.ReleasedMS), nil
+	case hasReleased:
+		return *h.ReleasedMS, nil
+	}
+	return marker, nil
 }
 
 // stateMember is self's membership among a room's state events, and the time of that event.
