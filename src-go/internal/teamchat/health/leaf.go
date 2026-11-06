@@ -40,6 +40,7 @@ func (t *Tick) leaf(ctx context.Context, team Team, f *facts, run UnitState, rea
 			f.events = append(f.events, status.Event{AtMS: at.UnixMilli(), What: EventLeafPrefix + got.Why})
 		}
 		if got.Restarted {
+			f.tlsRestarted = true
 			f.events = append(f.events, status.Event{AtMS: at.UnixMilli(), What: EventLeafRestarted})
 		}
 		if err != nil {

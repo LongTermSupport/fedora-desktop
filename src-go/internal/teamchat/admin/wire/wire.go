@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
@@ -99,7 +100,9 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Backups: backup.States(backup.Deps{Root: root, StateOwnerUID: stateOwnerUID}), Restores: restore.Records{Root: root}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: m.guests(),
 			Announcer: admin.ChildAnnouncer{Child: child, Root: root}, Locks: health.TeamLocks{Dir: run, Clock: clock},
 			// X31: the leaf renewed by apply's step; the tick runs as root, which reads the CA key.
-			Leaves:        host.LeafRenewer{Root: root, Clock: clock, Rand: rand.Reader, Units: systemd.Health(), Names: host.AppliedLeafNames(root)},
+			Leaves: host.LeafRenewer{Root: root, Clock: clock, Rand: rand.Reader, Units: systemd.Health(), Names: host.AppliedLeafNames(root)},
+			// X32: each listen address probed through the terminator, bounded on the real timers.
+			Reach: host.AppliedReach(root), Timers: matrix.SystemTimers(),
 			StatusPath:    func(t paths.TeamID) string { return root + paths.StatusFile(t) },
 			LXCOnlinePath: func(t paths.TeamID) string { return root + paths.LXCOnlineFile(t) },
 			GID:           gid,

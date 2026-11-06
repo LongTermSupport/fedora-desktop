@@ -213,6 +213,16 @@ the builder takes where this text is silent goes in its report.
   problem; one listener closed, a problem naming only it; a leaf signed by another CA, a
   problem naming the fingerprint; an address that hangs, a problem at the bound on the fake
   clock; an inactive unit, X18c's problem only and no probe made; a restore recorded, nothing.
+  **As built** (`subagent-reports/261106-crossnet-s13-opus-report.md`): `matrix.Reach` is the
+  probe (the pin of X16 with the listen address as the URL host, `matrix.ReachLimit`, 5 s, armed
+  on the injected timers); `host.AppliedReach` gives the team CA and the listen set of units.json
+  on the port of team.json; the tick starts one goroutine per address after the renewal and
+  collects them at the end of its gather, so the view, the guests, the backups and the disk are
+  read while they run. A failing address is one problem, `the TLS terminator does not answer on <addr>: <cause>`, fix `systemctl status <unit>`, the cause one of `the connection was refused`,
+  the pin's fixed handshake text with the fingerprint, `no answer within 5s`, `it answered HTTP <code>`, `the connection failed`; a reach that cannot be read is one problem with apply as
+  its fix. Not probed: a unit not active or not read, a restore recorded (also when seen under
+  the lock), and a terminator the renewal restarted this tick (it is starting with its new leaf;
+  the next tick probes it). `Refresh` probes too, as it changes nothing.
 - **X33** (S14) **Rotating the CA.** A root verb makes a new team CA and a new leaf and
   reissues every bundle, for a lost or exposed CA key. A member trusts exactly its bundle's CA
   (X16), so a hard cut is what the protocol gives: the terminator, restarted with the new leaf,
