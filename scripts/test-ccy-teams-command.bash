@@ -59,6 +59,7 @@ check_lacks() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-teams-command-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 # Every seat lock holder (seat_hold) is ended before the scratch directory goes.
 cleanup() {
     local pid

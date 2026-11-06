@@ -52,6 +52,7 @@ has() { if [[ "$1" == *"$2"* ]]; then echo yes; else echo no; fi; }
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 WORK="$(mktemp -d "$REPO_ROOT/untracked/scratch/compose-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$WORK"' EXIT
 PROJECT="$WORK/project-a"
 mkdir -p "$PROJECT"

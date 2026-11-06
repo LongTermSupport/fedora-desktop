@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
 // systemdRun is the transient units' runner (RU1, RU2).
@@ -86,8 +87,8 @@ func checkSandbox(team paths.TeamID, lines []string) error {
 }
 
 // SecureArgv is the secure unit's systemd-run argv (RU2): teamchat-admin's own copy self as
-// the teamchat-ctl child in the staging unit's network, with a cleared environment; the
-// request goes on stdin.
+// the teamchat-ctl child in the staging unit's network, with a cleared environment and D 4.2's
+// v1 paths made inaccessible (it takes no part of the base sandbox); the request goes on stdin.
 func SecureArgv(team paths.TeamID, self string) ([]string, error) {
 	if !filepath.IsAbs(self) || filepath.Clean(self) != self || strings.ContainsAny(self, " \t\n") {
 		return nil, errors.New("restore: the secure unit's command is not an absolute, clean path")
@@ -95,7 +96,7 @@ func SecureArgv(team paths.TeamID, self string) ([]string, error) {
 	argv := []string{systemdRun, "--unit=" + paths.RestoreCtlUnit(team), "--pipe", "--wait", "--collect", "--quiet"}
 	for _, p := range []string{
 		"JoinsNamespaceOf=" + paths.RestoreUnit(team), "PrivateNetwork=yes", "User=" + paths.CtlUser, "Group=" + paths.CtlUser,
-		"WorkingDirectory=/", "NoNewPrivileges=yes", "IPAddressDeny=any", loopbackAllow,
+		"WorkingDirectory=/", "NoNewPrivileges=yes", "IPAddressDeny=any", loopbackAllow, v1names.InaccessiblePaths,
 	} {
 		argv = append(argv, "--property="+p)
 	}
