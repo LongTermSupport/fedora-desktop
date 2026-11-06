@@ -187,6 +187,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case out.fault.Drop, out.fault.DropAfter:
 		drop(w)
 		return
+	case out.fault.Hold != nil:
+		select {
+		case <-out.fault.Hold:
+		case <-r.Context().Done():
+			// Stop closed the connection: there is no one to answer.
+			return
+		}
 	case out.fault.Redirect != "":
 		w.Header().Set("Location", out.fault.Redirect)
 		if out.status == 0 {
