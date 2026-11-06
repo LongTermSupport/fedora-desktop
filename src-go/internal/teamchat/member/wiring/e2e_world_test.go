@@ -244,8 +244,8 @@ func (w *world) placeSeat() {
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(t, err)
 	b := seat.Bundle{
-		V: 1, Team: w.team.id, ServerName: w.team.server, UserID: w.user(w.self), AdminID: proto.AdminID(w.team.server),
-		MainRoom: w.main, BaseURL: w.hs.base, PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: w.team.id, ServerName: w.team.server, UserID: w.user(w.self), AdminID: proto.AdminID(w.team.server),
+		MainRoom: w.main, BaseURL: w.hs.base,
 		DeviceID: paths.SeatDevice, IssuedMS: clock.System().WallMS() - 1000, Issuer: issuer,
 	}
 	data, err := b.Encode()
@@ -284,7 +284,7 @@ func (w *world) desireInbound(gen int64, seats []state.DesiredSeat, farewell []s
 // client is local's own client.
 func (w *world) client(local string) *matrix.Client {
 	w.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.hs.base, PlainHTTPHosts: []string{"127.0.0.1"}, Token: w.tokens[local], Clock: clock.System()})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.hs.base, Token: w.tokens[local], Clock: clock.System()})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
 	return c

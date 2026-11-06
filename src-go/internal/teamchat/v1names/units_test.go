@@ -113,6 +113,7 @@ var unitSources = []struct{ file, why string }{
 	{"backup/units.go", "the backup service, in madeUnits"},
 	{"host/lxc/unit/unit.go", "a seat's session unit, which runs inside an LXC guest (C 3.9.4): not a host unit D 4.2 names"},
 	{"host/render.go", "a team's drop-in, which extends the base unit that carries the line"},
+	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ (X18a: the homeserver's hardening lines, which host.BaseSandbox holds); no Go code or play makes that base unit's text yet, so nothing judges its six paths: the code that does must add it to madeUnits"},
 	{"restore/argv.go", "the restore's staging and secure units, in madeUnits"},
 }
 

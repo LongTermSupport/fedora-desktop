@@ -178,15 +178,22 @@ and written under `Deps.Root`.
   itself, the hand-over and the independence of two teams' locks are TL1's.
 - **HS3. The refusals (step 2)**, each drift (exit 70), before anything changes: a
   `server_name` other than the one `server-name` fixed at the first apply (even when that first
-  apply failed after fixing it); an unapproved declaration (`declare.Hold`); a listen address
-  that is a wildcard, not an address, on no interface or on more than one; a port another v2
-  team's `units.json` records, or that a socket of anything but this team's unit listens on.
+  apply failed after fixing it); an unapproved declaration (`declare.Hold`); the effective
+  networks (C 3.2.5): a network no route covers, or a declared network only the default route
+  covers (the bus address and the bridge may use it), each named by its CIDR, a route to an
+  interface the host does not have or that has no address to serve the network from, a derived
+  listen address on more than one interface, and a `url` whose IP-literal host is no derived
+  listen address; a port another v2 team's `units.json` records, or that a socket of anything
+  but this team's unit listens on.
   Entries of `root/` that are not team ids or not directories are not teams.
 - **HS4. The render (step 3)** is C 3.2.3's config, 3.2.4's drop-in and declare's canonical
   `team.json`, in memory: every config key is one the pinned Tuwunel documents, bare keys
   before tables; loopback is bound and allowed once; an IPv6 listen address is allowed as a
-  /128; a team with a present LXC member also admits the live bridge's subnet (a bridge that
-  cannot be read fails `render`); each listen interface's device unit is systemd's escaped
+  /128; the unit's IP filter is loopback, each derived listen address as a host prefix and each
+  effective network, and the config binds loopback and the derived listen addresses (the
+  effective networks are the declared ones, the bus address as a host prefix, and the live
+  bridge's subnet while the team has a present LXC member; a bridge that cannot be read fails
+  step 2, where the set is made); each listen interface's device unit is systemd's escaped
   name. A registration key that is not 128 lowercase hex, no pinned version, or a `MemoryHigh`
   or `cache_capacity_modifier` that is not a positive value is refused.
 - **HS5. The digest sets and the five-way answer.** The restart set covers the base unit,
@@ -204,12 +211,13 @@ and written under `Deps.Root`.
   (a crash between the mkdir and the chmod), through a descriptor opened without following a
   link, so the control user cannot steer root's chmod through `ctl/` (C 3.2.2). A created
   file's directory is synced after the link.
-- **HS7. The firewall (step 5).** One rule per allow_from source in the zone that routes it;
+- **HS7. The firewall (step 5).** One rule per effective network in the zone that routes it;
   `firewall.json` holds the union while rules are added and removed, adds come before removes,
   each converged on its own in the permanent and the runtime configuration (a rule lost from
   one alone is added back there), then the new set alone is recorded. A removal that fails
-  stops the apply with the union still recorded. A changed allow_from is a reload, never a
-  restart. `firewall.json` round-trips in order and is read strictly.
+  stops the apply with the union still recorded. A changed set of networks that leaves the
+  derived listen addresses as they were is a reload, never a restart. `firewall.json`
+  round-trips in order and is read strictly.
 - **HS8. The backup (step 6).** A team with a database whose restart set changes is backed up
   through `Deps.Backup` under the held lock, before anything is rewritten or restarted; an
   inactive homeserver is first started on the version `units.json` records (its drop-in
@@ -219,7 +227,7 @@ and written under `Deps.Root`.
   `server_version` to answer; activating and reloading are waited for; any other state fails
   at once, the journal tail given only as explanation.
 - **HS10. Bound addresses (step 9).** The unit's sockets on the port are loopback and the
-  listen addresses exactly, or `addresses` fails.
+  derived listen addresses exactly, or `addresses` fails.
 - **HS11. Records and the stamp (step 11).** `team.json` and `units.json` are written when they
   differ, then the stamp (0644 in the 0755 status directory) last, then `Status.Refresh`, told
   `first` when there was no stamp before. Two stamps that differ only in `applied_ms` are the
@@ -249,21 +257,21 @@ and written under `Deps.Root`.
 
 Decisions where the design is silent (n2d-H):
 
-| ID      | Decision                                                                                                                                                                                      |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n2d-H1  | Apply and Remove take the team lock themselves (`team.apply`, `team.remove`); root, Fedora and decoding the input are the verb's.                                                             |
-| n2d-H2  | The approval gate (`declare.Hold`) is also held at step 2, so no firewall or listen change of an unapproved declaration lands before bootstrap's own gate.                                    |
-| n2d-H3  | `team.json` is `in.Team.Canonical()`, equal to the bootstrap's approved TeamFile whenever the gate holds (lists as sets, scalars equal).                                                      |
-| n2d-H4  | The registration key is inline in `config.toml`, read back from the installed config; a first apply makes it from `Deps.Rand` and creates the config by link in step 4, with `server-name`.   |
-| n2d-H5  | A first apply is one with no `server-name`; the status record's `first` is no stamp before this apply.                                                                                        |
-| n2d-H6  | Step 7 starts a unit it finds stopped even when nothing changed.                                                                                                                              |
-| n2d-H7  | `units.json` absent with a drop-in present is a restart; no drop-in is a first start.                                                                                                         |
-| n2d-H8  | The step 6 backup start writes the old drop-in from `units.json` (version, port, listen) with no device ordering and no allow_from; a database with neither a drop-in nor `units.json` fails. |
-| n2d-H9  | Rules record their port, so a rule of an old port is still removed; a CHANGED line is per rule, whichever configuration changed.                                                              |
-| n2d-H10 | `MemoryHigh` and `cache_capacity_modifier` come from `Deps.Pin` (H-C1 not yet measured).                                                                                                      |
-| n2d-H11 | The old `tuwunel-<version>` binary deletion (C 3.2.3) is not built here.                                                                                                                      |
-| n2d-H12 | Every directory root makes is chmodded to its mode after the mkdir, so the umask of the shell that ran the verb never decides it.                                                             |
-| n2d-H13 | "Not installed" is none of `root/<team>/`, `ctl/<team>/`, the drop-in or the stamp; it is asked under the lock, as `installed`, a step of its own.                                            |
-| n2d-H14 | Remove deletes the drop-in directory only when it is empty: another file there is the owner's override and stays.                                                                             |
-| n2d-H15 | `--purge` also deletes `approved.json`: a purged team that comes back is approved again. `root/<team>/` goes last, so a purge that failed is still installed and the next one finishes it.    |
-| n2d-H16 | The purge's `systemctl clean` runs only when the homeserver's private state directory is there, so a purge after a plain remove of a team never started reports nothing for it.               |
+| ID      | Decision                                                                                                                                                                                              |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2d-H1  | Apply and Remove take the team lock themselves (`team.apply`, `team.remove`); root, Fedora and decoding the input are the verb's.                                                                     |
+| n2d-H2  | The approval gate (`declare.Hold`) is also held at step 2, so no firewall or listen change of an unapproved declaration lands before bootstrap's own gate.                                            |
+| n2d-H3  | `team.json` is `in.Team.Canonical()`, equal to the bootstrap's approved TeamFile whenever the gate holds (lists as sets, scalars equal).                                                              |
+| n2d-H4  | The registration key is inline in `config.toml`, read back from the installed config; a first apply makes it from `Deps.Rand` and creates the config by link in step 4, with `server-name`.           |
+| n2d-H5  | A first apply is one with no `server-name`; the status record's `first` is no stamp before this apply.                                                                                                |
+| n2d-H6  | Step 7 starts a unit it finds stopped even when nothing changed.                                                                                                                                      |
+| n2d-H7  | `units.json` absent with a drop-in present is a restart; no drop-in is a first start.                                                                                                                 |
+| n2d-H8  | The step 6 backup start writes the old drop-in from `units.json` (version, port, listen) with no device ordering and no effective networks; a database with neither a drop-in nor `units.json` fails. |
+| n2d-H9  | Rules record their port, so a rule of an old port is still removed; a CHANGED line is per rule, whichever configuration changed.                                                                      |
+| n2d-H10 | `MemoryHigh` and `cache_capacity_modifier` come from `Deps.Pin` (H-C1 not yet measured).                                                                                                              |
+| n2d-H11 | The old `tuwunel-<version>` binary deletion (C 3.2.3) is not built here.                                                                                                                              |
+| n2d-H12 | Every directory root makes is chmodded to its mode after the mkdir, so the umask of the shell that ran the verb never decides it.                                                                     |
+| n2d-H13 | "Not installed" is none of `root/<team>/`, `ctl/<team>/`, the drop-in or the stamp; it is asked under the lock, as `installed`, a step of its own.                                                    |
+| n2d-H14 | Remove deletes the drop-in directory only when it is empty: another file there is the owner's override and stays.                                                                                     |
+| n2d-H15 | `--purge` also deletes `approved.json`: a purged team that comes back is approved again. `root/<team>/` goes last, so a purge that failed is still installed and the next one finishes it.            |
+| n2d-H16 | The purge's `systemctl clean` runs only when the homeserver's private state directory is there, so a purge after a plain remove of a team never started reports nothing for it.                       |

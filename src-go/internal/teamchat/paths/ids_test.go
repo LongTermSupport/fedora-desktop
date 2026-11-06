@@ -94,6 +94,31 @@ func TestParseCheckoutKeyIsThirtyTwoLowercaseHex(t *testing.T) {
 	}
 }
 
+// C 3.7: a checkout key is the first 32 hex of the SHA-256 of the checkout's real path. The
+// vectors are `printf <path> | sha256sum`, cut at 32 characters.
+func TestCheckoutKeyOfIsTheFirst32HexOfTheSHA256OfTheRealPath(t *testing.T) {
+	for path, want := range map[string]string{
+		"/srv/checkout":   "dd7318cb8be3e8765a8d2c0b8795e82d",
+		"/srv/checkout-b": "8fb7df0b4689416c7ce7d3f5690a852c",
+	} {
+		key, err := CheckoutKeyOf(path)
+		if err != nil || key.String() != want {
+			t.Errorf("CheckoutKeyOf(%q) = %q, %v, want %q", path, key.String(), err, want)
+		}
+	}
+}
+
+// A real path is absolute, clean and not the root; anything else is not a checkout's real path,
+// and the refusal does not quote it.
+func TestCheckoutKeyOfRefusesWhatIsNotARealPath(t *testing.T) {
+	for _, p := range []string{"", "/", "srv/checkout", "./checkout", "/srv/../checkout", "/srv//checkout", "/srv/checkout/", "/srv/check\nout"} {
+		_, err := CheckoutKeyOf(p)
+		if !errors.Is(err, ErrInvalid) || (p != "" && strings.Contains(err.Error(), p)) {
+			t.Errorf("CheckoutKeyOf(%q) = %v, want ErrInvalid that does not quote it", p, err)
+		}
+	}
+}
+
 func TestParseGuestUserIsAPortableUserName(t *testing.T) {
 	for _, s := range []string{"a", "_svc", "dev-1", "u_2", strings.Repeat("a", 32)} {
 		if _, err := ParseGuestUser(s); err != nil {

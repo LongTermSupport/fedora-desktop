@@ -19,6 +19,9 @@ var ErrInvalid = errors.New("seat: invalid")
 
 const (
 	recordVersion = 1
+	// BundleVersion is seat.json's version: v 2 replaced plain_http_hosts by tls_ca (Plan 00246
+	// X15). The other records carry no bundle and stay at recordVersion.
+	BundleVersion = 2
 	// maxRecord bounds every record the store reads (SW3).
 	maxRecord = 16 << 10
 	// maxSecret bounds a credential, as S19 bounds a token.
@@ -36,22 +39,24 @@ const (
 )
 
 // Bundle is a seat's seat.json in the pool's form (C 3.7.2): no claim and no release time.
+// TLSCA is the team CA certificate in PEM that BaseURL is pinned to (Plan 00246 X15): required
+// for an https BaseURL and empty, though the key is always there, for a loopback http one.
 type Bundle struct {
-	V              int          `json:"v"`
-	Team           paths.TeamID `json:"team"`
-	ServerName     string       `json:"server_name"`
-	UserID         string       `json:"user_id"`
-	AdminID        string       `json:"admin_id"`
-	MainRoom       string       `json:"main_room"`
-	BaseURL        string       `json:"base_url"`
-	PlainHTTPHosts []string     `json:"plain_http_hosts"`
-	DeviceID       string       `json:"device_id"`
-	IssuedMS       int64        `json:"issued_ms"`
-	Issuer         paths.Digest `json:"issuer"`
+	V          int          `json:"v"`
+	Team       paths.TeamID `json:"team"`
+	ServerName string       `json:"server_name"`
+	UserID     string       `json:"user_id"`
+	AdminID    string       `json:"admin_id"`
+	MainRoom   string       `json:"main_room"`
+	BaseURL    string       `json:"base_url"`
+	TLSCA      string       `json:"tls_ca"`
+	DeviceID   string       `json:"device_id"`
+	IssuedMS   int64        `json:"issued_ms"`
+	Issuer     paths.Digest `json:"issuer"`
 }
 
 var bundleKeys = []string{
-	"v", "team", "server_name", "user_id", "admin_id", "main_room", "base_url", "plain_http_hosts",
+	"v", "team", "server_name", "user_id", "admin_id", "main_room", "base_url", "tls_ca",
 	"device_id", "issued_ms", "issuer",
 }
 
@@ -74,6 +79,13 @@ func (b Bundle) Handle() proto.Handle {
 	return h
 }
 
+// MemberConfig is the member client configuration this bundle gives: its URL and the CA that URL
+// is pinned to (X15, X16). Every client built from a bundle starts here, so none forgets the CA;
+// the caller adds the clocks.
+func (b Bundle) MemberConfig(token string) matrix.Config {
+	return matrix.Config{BaseURL: b.BaseURL, CAPEM: b.TLSCA, Token: token}
+}
+
 // Encode is the pool's seat.json.
 func (b Bundle) Encode() ([]byte, error) {
 	if err := b.check(); err != nil {
@@ -93,6 +105,9 @@ func (h HeldBundle) Encode() ([]byte, error) {
 // DecodeBundle reads a pool seat.json (SR1).
 func DecodeBundle(data []byte) (Bundle, error) {
 	var b Bundle
+	if err := refuseOtherVersion(data); err != nil {
+		return Bundle{}, err
+	}
 	if err := decodeStrict(data, bundleKeys, &b); err != nil {
 		return Bundle{}, err
 	}
@@ -102,6 +117,9 @@ func DecodeBundle(data []byte) (Bundle, error) {
 // DecodeHeldBundle reads a held seat.json (SR1).
 func DecodeHeldBundle(data []byte) (HeldBundle, error) {
 	var h HeldBundle
+	if err := refuseOtherVersion(data); err != nil {
+		return HeldBundle{}, err
+	}
 	if err := decodeStrict(data, append(slices.Clone(bundleKeys), keyClaim, "released_ms"), &h); err != nil {
 		return HeldBundle{}, err
 	}
@@ -152,8 +170,8 @@ func (h HeldBundle) check() error {
 }
 
 func (b Bundle) check() error {
-	if b.V != recordVersion {
-		return invalid("seat.json: v is not 1")
+	if b.V != BundleVersion {
+		return invalidVersion(b.V)
 	}
 	if b.Team.String() == "" || b.ServerName != paths.ServerName(b.Team) {
 		return invalid("seat.json: server_name is not the team's")
@@ -167,9 +185,9 @@ func (b Bundle) check() error {
 	if !proto.ValidRoomID(b.MainRoom) {
 		return invalid("seat.json: main_room is not a room ID")
 	}
-	c, err := matrix.NewMember(matrix.Config{BaseURL: b.BaseURL, PlainHTTPHosts: b.PlainHTTPHosts, Token: checkToken})
+	c, err := matrix.NewMember(b.MemberConfig(checkToken))
 	if err != nil {
-		return invalid("seat.json: base_url is not a member URL its plain_http_hosts allow")
+		return invalid("seat.json: base_url and tls_ca are not a member URL and the CA certificate pinned to it")
 	}
 	c.Close()
 	if b.DeviceID != paths.SeatDevice {
@@ -185,6 +203,36 @@ func (b Bundle) check() error {
 }
 
 func invalid(detail string) error { return fmt.Errorf("%w %s", ErrInvalid, detail) }
+
+func invalidVersion(got int) error {
+	return invalid(fmt.Sprintf("seat.json: v is %d, this build reads only v %d", got, BundleVersion))
+}
+
+// refuseOtherVersion refuses a seat.json whose v is an integer other than BundleVersion, naming
+// it, before the keys are judged: an old bundle is told its version, not that a key it never had
+// is missing. A document that is not an object with such a v is left to decodeStrict.
+func refuseOtherVersion(data []byte) error {
+	if got, ok := versionOf(data); ok && got != BundleVersion {
+		return invalidVersion(int(got))
+	}
+	return nil
+}
+
+// versionOf is the integer v of a JSON object within the cap, and whether there is one.
+func versionOf(data []byte) (int64, bool) {
+	if len(data) > maxRecord {
+		return 0, false
+	}
+	v, err := proto.Parse(data)
+	if err != nil || v.Kind() != proto.KindObject {
+		return 0, false
+	}
+	ver, ok := v.Get("v")
+	if !ok || ver.Kind() != proto.KindInt {
+		return 0, false
+	}
+	return ver.Int(), true
+}
 
 // decodeStrict decodes one record: at most maxRecord bytes, proto's strict JSON (no repeated
 // key, nothing after the value, integers only), an object holding every key of want and no

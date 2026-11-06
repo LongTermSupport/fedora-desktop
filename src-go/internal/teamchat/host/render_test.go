@@ -2,6 +2,7 @@ package host
 
 import (
 	"encoding/json"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -28,12 +29,14 @@ func mustVersion(t *testing.T, s string) paths.ServerVersion {
 	return v
 }
 
-// teamDoc is ops's one-team input: one listen address, one allowed network, no LXC member.
+// teamDoc is ops's one-team input: one declared network and the bus address, so the effective
+// networks are 192.0.2.0/24 and 192.0.2.10/32, and the one listen address is 192.0.2.10; no LXC
+// member.
 func teamDoc() map[string]any {
 	return map[string]any{
 		"team": map[string]any{
 			"team": "ops", "state": "present", "port": 8448, "description": "The team that runs things.",
-			"listen": []any{"192.0.2.10"}, "allow_from": []any{"192.0.2.0/24"}, "humans": []any{"alice"},
+			"networks": []any{"192.0.2.0/24"}, "humans": []any{"alice"},
 			"trust": map[string]any{
 				"kind": "github", "org": "example-org",
 				"repos": []any{map[string]any{"repo": "example-org/thing", "branches": []any{"main"}}},
@@ -68,14 +71,31 @@ func input(t *testing.T, doc map[string]any) declare.Input {
 func spec(t *testing.T, in declare.Input) renderSpec {
 	t.Helper()
 	return renderSpec{
-		team: in.Team, allowFrom: in.Team.AllowFrom, devices: []string{deviceUnit("eth0")},
-		regKey: regKey, pin: pin(t), baseUnit: []byte("[Unit]\nDescription=base\n"),
+		team: in.Team, listen: addrs("192.0.2.10"), networks: prefixes("192.0.2.0/24", "192.0.2.10/32"),
+		devices: []string{deviceUnit("eth0")},
+		regKey:  regKey, pin: pin(t), baseUnit: []byte("[Unit]\nDescription=base\n"),
 	}
+}
+
+func addrs(s ...string) []netip.Addr {
+	out := make([]netip.Addr, 0, len(s))
+	for _, a := range s {
+		out = append(out, netip.MustParseAddr(a))
+	}
+	return out
+}
+
+func prefixes(s ...string) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(s))
+	for _, p := range s {
+		out = append(out, netip.MustParsePrefix(p))
+	}
+	return out
 }
 
 const wantConfig = `# Rendered by teamchat-admin team apply for team ops; do not edit.
 server_name = "ops.teamchat.internal"
-address = ["127.0.0.1", "192.0.2.10"]
+address = ["127.0.0.1"]
 port = 8448
 database_path = "/var/lib/teamchat/ops/db"
 database_backup_path = "/var/lib/teamchat/ops/backups"
@@ -116,15 +136,13 @@ per_second = 0.006
 burst_count = 10
 `
 
+// wantDropIn is the homeserver's drop-in: it binds loopback alone (X18), so its filter allows
+// loopback alone and it waits for no device; the terminator's drop-in carries the networks.
 const wantDropIn = `# Rendered by teamchat-admin team apply for team ops; do not edit.
-[Unit]
-After=sys-subsystem-net-devices-eth0.device
-Wants=sys-subsystem-net-devices-eth0.device
-
 [Service]
 ExecStart=/usr/local/lib/teamchat/server/tuwunel-1.9.4
 MemoryHigh=512M
-IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.10/32 192.0.2.0/24
+IPAddressAllow=127.0.0.1/32 ::1/128
 SocketBindAllow=tcp:8448
 `
 
@@ -180,40 +198,38 @@ func TestConfigKeysAreThePinnedTuwunels(t *testing.T) {
 	}
 }
 
-// HS4: listen holding loopback binds it once, and allows it once; no device leaves [Unit] empty.
+// HS4: a terminator with no listen address and no device allows loopback once and leaves [Unit]
+// empty.
 func TestRenderDeduplicatesLoopback(t *testing.T) {
 	doc := teamDoc()
-	docTeam(doc)["listen"] = []any{"127.0.0.1"}
-	docTeam(doc)["allow_from"] = []any{}
 	s := spec(t, input(t, doc))
-	s.devices = nil
+	s.listen, s.networks, s.devices = nil, nil, nil
 	r, err := render(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(r.config), "address = [\"127.0.0.1\"]\n") {
-		t.Errorf("config:\n%s", r.config)
-	}
-	if !strings.Contains(string(r.dropIn), "[Unit]\n\n[Service]") || !strings.Contains(string(r.dropIn), "IPAddressAllow=127.0.0.1/32 ::1/128\n") {
-		t.Errorf("drop-in:\n%s", r.dropIn)
+	if !strings.Contains(string(r.tlsDropIn), "[Unit]\n\n[Service]") || !strings.Contains(string(r.tlsDropIn), "IPAddressAllow=127.0.0.1/32 ::1/128\n") {
+		t.Errorf("terminator drop-in:\n%s", r.tlsDropIn)
 	}
 }
 
-// HS4: an IPv6 listen address is allowed as a /128.
+// HS4: an IPv6 listen address is allowed as a /128, and given to the terminator as it is.
 func TestRenderIPv6Listen(t *testing.T) {
 	doc := teamDoc()
-	docTeam(doc)["listen"] = []any{"2001:db8::1"}
-	r, err := render(spec(t, input(t, doc)))
+	s := spec(t, input(t, doc))
+	s.listen, s.networks = addrs("2001:db8::1"), prefixes("2001:db8::/32")
+	r, err := render(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(r.dropIn), " 2001:db8::1/128 ") {
-		t.Errorf("drop-in:\n%s", r.dropIn)
+	if !strings.Contains(string(r.tlsDropIn), " 2001:db8::1/128 ") || !strings.Contains(string(r.tlsDropIn), " --listen 2001:db8::1\n") {
+		t.Errorf("terminator drop-in:\n%s", r.tlsDropIn)
 	}
 }
 
 // HS5: the restart set is the base unit, ExecStart and the config; the reload set is the
-// cgroup lines and [Unit]; each changes only with what it covers.
+// cgroup lines; each changes only with what it covers. The networks, the listen addresses and the
+// devices are the terminator's (X4, X18), so none of them is in either set.
 func TestDigestSets(t *testing.T) {
 	in := input(t, teamDoc())
 	base, err := render(spec(t, in))
@@ -224,14 +240,15 @@ func TestDigestSets(t *testing.T) {
 		change          func(*renderSpec)
 		restart, reload bool
 	}{
-		"base unit":  {func(s *renderSpec) { s.baseUnit = []byte("other") }, true, false},
-		"version":    {func(s *renderSpec) { s.pin.Version = mustVersion(t, "1.9.5") }, true, false},
-		"key":        {func(s *renderSpec) { s.regKey = strings.Repeat("f", 128) }, true, false},
-		"cache":      {func(s *renderSpec) { s.pin.CacheCapacityModifier = "1" }, true, false},
-		"memory":     {func(s *renderSpec) { s.pin.MemoryHigh = "1G" }, false, true},
-		"allow_from": {func(s *renderSpec) { s.allowFrom = []string{"198.51.100.0/24"} }, false, true},
-		"devices":    {func(s *renderSpec) { s.devices = []string{deviceUnit("eth1")} }, false, true},
-		"name":       {func(s *renderSpec) { s.team.Name = "Ops team" }, false, false},
+		"base unit": {func(s *renderSpec) { s.baseUnit = []byte("other") }, true, false},
+		"version":   {func(s *renderSpec) { s.pin.Version = mustVersion(t, "1.9.5") }, true, false},
+		"key":       {func(s *renderSpec) { s.regKey = strings.Repeat("f", 128) }, true, false},
+		"cache":     {func(s *renderSpec) { s.pin.CacheCapacityModifier = "1" }, true, false},
+		"memory":    {func(s *renderSpec) { s.pin.MemoryHigh = "1G" }, false, true},
+		"networks":  {func(s *renderSpec) { s.networks = prefixes("198.51.100.0/24") }, false, false},
+		"listen":    {func(s *renderSpec) { s.listen = addrs("192.0.2.10", "198.51.100.1") }, false, false},
+		"devices":   {func(s *renderSpec) { s.devices = []string{deviceUnit("eth1")} }, false, false},
+		"name":      {func(s *renderSpec) { s.team.Name = "Ops team" }, false, false},
 	} {
 		s := spec(t, in)
 		c.change(&s)

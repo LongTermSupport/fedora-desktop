@@ -2,7 +2,12 @@ package guestfacts
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,7 +106,7 @@ func TestRefusalsDoNotEchoGuestBytes(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("error %v", err)
 	}
-	_, err = Prefix(member(t, ""), []byte("[remote \"origin\"]\n\turl = SECRET\"\n"), nil)
+	_, err = Prefix(member(t, ""), []byte("[remote \"origin\"]\n\turl = SECRET\"\n"))
 	if err == nil || strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("error %v", err)
 	}
@@ -182,7 +187,7 @@ func TestPrefixRepoFromOrigin(t *testing.T) {
 		"/srv/git/local.git":                          "local",
 		"https://example.com/a/My_Repo # a comment":   "my_repo",
 	} {
-		p, err := Prefix(member(t, ""), gitConfig(url), nil)
+		p, err := Prefix(member(t, ""), gitConfig(url))
 		if err != nil {
 			t.Errorf("%s: %v", url, err)
 			continue
@@ -195,55 +200,57 @@ func TestPrefixRepoFromOrigin(t *testing.T) {
 
 // With no origin, the repo is the checkout directory's base name normalised (v1's rule).
 func TestPrefixRepoFromTheCheckoutWithNoOrigin(t *testing.T) {
-	p, err := Prefix(member(t, ""), []byte("[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = https://example.com/x/y.git\n"), nil)
+	p, err := Prefix(member(t, ""), []byte("[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = https://example.com/x/y.git\n"))
 	if err != nil || p.String() != "my-thing+local.lxc" {
 		t.Fatalf("prefix %v, %v", p, err)
 	}
 }
 
+// The site is the entry's (which the declaration reader fills from the machine's teamchat_site)
+// or local (X25): nothing the guest or the machine holds feeds it.
 func TestPrefixSite(t *testing.T) {
 	cfg := gitConfig("https://example.com/o/repo.git")
-	for name, c := range map[string]struct {
-		site string
-		env  []byte
-		want string
-	}{
-		"entry wins":    {"desk", []byte("HOOKS_DAEMON_HOSTNAME=other\n"), "repo+desk.lxc"},
-		"env":           {"", []byte("# set by ccy\n\nexport FOO=bar\nHOOKS_DAEMON_HOSTNAME=Box_One\n"), "repo+box-one.lxc"},
-		"no file":       {"", nil, "repo+local.lxc"},
-		"no assignment": {"", []byte("FOO=1\n"), "repo+local.lxc"},
-		"indented note": {"", []byte("  # note\n\t\nexport HOOKS_DAEMON_HOSTNAME=h1\n"), "repo+h1.lxc"},
+	for name, c := range map[string]struct{ site, want string }{
+		"the entry's": {"desk", "repo+desk.lxc"},
+		"none":        {"", "repo+local.lxc"},
 	} {
-		p, err := Prefix(member(t, c.site), cfg, c.env)
+		p, err := Prefix(member(t, c.site), cfg)
 		if err != nil || p.String() != c.want {
 			t.Errorf("%s: prefix %v, %v; want %s", name, p, err, c.want)
 		}
 	}
 }
 
-func TestPrefixRefusesTheEnvFile(t *testing.T) {
-	cfg := gitConfig("https://example.com/o/repo.git")
-	for name, env := range map[string]string{
-		"dollar":        "HOOKS_DAEMON_HOSTNAME=$(id)\n",
-		"backtick":      "HOOKS_DAEMON_HOSTNAME=`id`\n",
-		"double quote":  "HOOKS_DAEMON_HOSTNAME=\"h\"\n",
-		"single quote":  "HOOKS_DAEMON_HOSTNAME='h'\n",
-		"space":         "HOOKS_DAEMON_HOSTNAME=a b\n",
-		"backslash":     "HOOKS_DAEMON_HOSTNAME=a\\\n",
-		"semicolon":     "HOOKS_DAEMON_HOSTNAME=a;id\n",
-		"second":        "HOOKS_DAEMON_HOSTNAME=a\nHOOKS_DAEMON_HOSTNAME=b\n",
-		"second other":  "FOO=a\nexport FOO=b\n",
-		"command":       "source other.env\n",
-		"bad name":      "1FOO=a\n",
-		"export alone":  "export FOO\n",
-		"no site":       "HOOKS_DAEMON_HOSTNAME=\n",
-		"site grammar":  "HOOKS_DAEMON_HOSTNAME=---\n",
-		"over the cap":  strings.Repeat("#", MaxCheckout+1),
-		"control":       "FOO=a\x07\n",
-		"trailing tail": "FOO=a # c\n",
-	} {
-		_, err := Prefix(member(t, ""), cfg, []byte(env))
-		refused(t, name, err, "ccy.env.local")
+// No file of the machine's own teamchat code names the guest's hostname variable: it fed a
+// handle's site before X25, and a handle is permanent.
+func TestNoSourceNamesTheHostnameVariable(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			var text string
+			switch n := n.(type) {
+			case *ast.BasicLit:
+				text = n.Value
+			case *ast.Comment:
+				text = n.Text
+			}
+			if strings.Contains(text, "HOOKS_DAEMON_HOSTNAME") {
+				t.Errorf("%s names HOOKS_DAEMON_HOSTNAME: a handle's site is declared (teamchat_site) and read from nothing else", fset.Position(n.Pos()))
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -272,10 +279,10 @@ func TestPrefixRefusesTheGitConfig(t *testing.T) {
 		"control":                  "[core]\n\tx = \x1b[2J\n",
 		"over the cap":             strings.Repeat("#", MaxCheckout+1),
 	} {
-		_, err := Prefix(member(t, ""), []byte(cfg), nil)
+		_, err := Prefix(member(t, ""), []byte(cfg))
 		refused(t, name, err, ".git/config")
 	}
-	if _, err := Prefix(member(t, ""), nil, nil); !errors.Is(err, ErrRefused) {
+	if _, err := Prefix(member(t, ""), nil); !errors.Is(err, ErrRefused) {
 		t.Errorf("no git config: %v", err)
 	}
 }
@@ -284,17 +291,17 @@ func TestPrefixRefusesTheGitConfig(t *testing.T) {
 func TestPrefixRefusesAnUnusableCheckoutName(t *testing.T) {
 	m := member(t, "")
 	m.Checkout = "/srv/---"
-	_, err := Prefix(m, []byte("[core]\n\tbare = false\n"), nil)
+	_, err := Prefix(m, []byte("[core]\n\tbare = false\n"))
 	refused(t, "checkout", err, "checkout")
 }
 
 // A subsection is case sensitive, so ORIGIN is not origin: the base name is used.
 func TestPrefixOriginIsCaseSensitive(t *testing.T) {
-	p, err := Prefix(member(t, ""), []byte("[REMOTE \"ORIGIN\"]\n\turl = https://a.example/o/r.git\n"), nil)
+	p, err := Prefix(member(t, ""), []byte("[REMOTE \"ORIGIN\"]\n\turl = https://a.example/o/r.git\n"))
 	if err != nil || p.Repo != "my-thing" {
 		t.Fatalf("prefix %v, %v", p, err)
 	}
-	p, err = Prefix(member(t, ""), []byte("[Remote \"origin\"]\n\tURL = https://a.example/o/r.git\n"), nil)
+	p, err = Prefix(member(t, ""), []byte("[Remote \"origin\"]\n\tURL = https://a.example/o/r.git\n"))
 	if err != nil || p.Repo != "r" {
 		t.Fatalf("section and key case: prefix %v, %v", p, err)
 	}
@@ -303,12 +310,12 @@ func TestPrefixOriginIsCaseSensitive(t *testing.T) {
 // B6: git reads a subsection's backslash as an escape of the next byte, so orig\in is origin.
 func TestPrefixOriginSubsectionEscapes(t *testing.T) {
 	for _, header := range []string{`[remote "orig\in"]`, `[remote "\o\r\i\g\i\n"]`} {
-		p, err := Prefix(member(t, ""), []byte(header+"\n\turl = https://a.example/o/r.git\n"), nil)
+		p, err := Prefix(member(t, ""), []byte(header+"\n\turl = https://a.example/o/r.git\n"))
 		if err != nil || p.Repo != "r" {
 			t.Errorf("%s: prefix %v, %v", header, p, err)
 		}
 	}
-	p, err := Prefix(member(t, ""), []byte(`[remote "origin\"x"]`+"\n\turl = https://a.example/o/r.git\n"), nil)
+	p, err := Prefix(member(t, ""), []byte(`[remote "origin\"x"]`+"\n\turl = https://a.example/o/r.git\n"))
 	if err != nil || p.Repo != "my-thing" {
 		t.Errorf("an escaped quote: prefix %v, %v", p, err)
 	}
@@ -377,18 +384,18 @@ func TestParseConfig(t *testing.T) {
 
 func TestSource(t *testing.T) {
 	addrs := []netip.Addr{netip.MustParseAddr("fe80::1"), netip.MustParseAddr("198.51.100.7")}
-	allow := []string{"192.0.2.0/24", "198.51.100.0/24"}
-	if err := Source(addrs, allow, "lxcbr0", "lxcbr0"); err != nil {
+	networks := []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.51.100.0/24")}
+	if err := Source(addrs, networks, "lxcbr0", "lxcbr0"); err != nil {
 		t.Fatal(err)
 	}
 	mapped := []netip.Addr{netip.MustParseAddr("::ffff:198.51.100.7")}
-	if err := Source(mapped, allow, "lxcbr0", "lxcbr0"); err != nil {
+	if err := Source(mapped, networks, "lxcbr0", "lxcbr0"); err != nil {
 		t.Fatalf("a v4-mapped address: %v", err)
 	}
-	refused(t, "other link", Source(addrs, allow, "virbr0", "lxcbr0"), "bridge")
-	refused(t, "outside", Source(addrs, []string{"192.0.2.0/24"}, "lxcbr0", "lxcbr0"), "allow_from")
-	refused(t, "no address", Source(nil, allow, "lxcbr0", "lxcbr0"), "no address")
-	refused(t, "bad prefix", Source(addrs, []string{"198.51.100.0/33"}, "lxcbr0", "lxcbr0"), "allow_from")
+	refused(t, "other link", Source(addrs, networks, "virbr0", "lxcbr0"), "bridge")
+	refused(t, "outside", Source(addrs, networks[:1], "lxcbr0", "lxcbr0"), "inside the team's effective networks")
+	refused(t, "no networks", Source(addrs, nil, "lxcbr0", "lxcbr0"), "inside the team's effective networks")
+	refused(t, "no address", Source(nil, networks, "lxcbr0", "lxcbr0"), "no address")
 }
 
 func TestStartTicks(t *testing.T) {

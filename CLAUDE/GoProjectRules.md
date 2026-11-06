@@ -57,6 +57,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)              | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                                                                                         |
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                               | `teams` board: every member not parked shown green "active" (Plan 00177)                                                                                                  |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter             | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
+| `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies            | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00246 Task 8.8)                                                                                  |
+| `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued                     | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)                                                                    |
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                               | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
@@ -1231,6 +1233,112 @@ session.pid and the frame). The other flags every comparison of any string field
 literal in teamchat: it would report every `Kind`, `Inbound` and `Desired` check, so the
 `agentBranches` table would become a list of unrelated exceptions and stop saying where the
 agent is branched on.
+
+### project_transport_home
+
+**What it is about.** Whom a client trusts, which TLS versions it speaks and which name it
+verifies are decided where the `http.Transport` and the `tls.Config` are made. A team's members
+reach their homeserver over TLS with the team's own CA pinned as the only root (Plan 00246
+SPEC-cross-network X16): `matrix.NewMember` builds that transport. A second place in teamchat
+that makes a transport or a TLS configuration is a second place that can trust the system's
+roots, accept a lower version or skip a name check for a connection to a homeserver, and no
+review of the pinned path would see it.
+
+**Why it exists.** SPEC X19: before the first TLS client two packages already built their own
+transport (the readiness probe and the forge client), and nothing stopped a third from being
+written with a bare `tls.Config`. The rule keeps the building in one reviewed package.
+
+**What it flags**, in the non-test files of `internal/teamchat`, `cmd/teamchat` and
+`cmd/teamchat-admin` and below, outside package `matrix`, package `pki` (the certificate
+package) and package `tlsterm` (the terminator of X18, which builds the one server
+configuration: TLS 1.3, the leaf, no client authentication):
+
+- a composite literal of `http.Transport` or `tls.Config`, by value or by pointer, through an
+  alias, nested or with its type elided in a slice literal;
+- `new(http.Transport)` and `new(tls.Config)`;
+- a variable declared with either type by value (`var t http.Transport`);
+- a `Clone` of either (`http.DefaultTransport.(*http.Transport).Clone()`, `cfg.Clone()`).
+
+A package below `matrix` (the fake homeserver, `fakehs`) is not `matrix`: it takes the
+`*tls.Config` it serves with from its caller, and a test builds one. Test files are not judged.
+There is no allowance table.
+
+**How to fix a violation.** Ask `matrix` for the client or the transport: `matrix.NewMember` for
+a homeserver, `matrix.LoopbackClient` for a probe of the homeserver's own loopback listener,
+`matrix.PublicTransport` for a public https service that is not a homeserver. A case they do not
+cover is a constructor added to `matrix`.
+
+- Red, fixture: `testdata/transporthome/src/fix/internal/teamchat/badtls` (`bad.go`: a transport
+  literal by pointer and by value, `new`, a `var`, an alias, a `Clone` of the default transport,
+  a `tls.Config` literal, `new`, a `var`, a `Clone`, a slice literal with the type elided, a
+  literal in a struct field; `good.go`: a configuration only passed on or read, a listener given
+  one, a pool, a key pair, a nil pointer, clean; `bad_test.go`, clean), beside `matrix`, `pki` and
+  `tlsterm` stand-ins (the owners, clean), `matrix/below` (a package under matrix: one clean use, one
+  flagged), `outsidetls` (outside teamchat, clean) and `cmd/teamchat` and `cmd/teamchat-admin`
+  (the commands, flagged). The root is its own, because the owner is a package path and the
+  shared root's `matrix` and command packages carry other rules' expectations. With the analyzer
+  reporting nothing the test failed on every flagged line (14 missed diagnostics) and passed once
+  the rule was written.
+- Red, real tree, at the rule's own commit (untagged, `busfailpoints` and `tuwunel` alike): two
+  findings, `hostnet/probe.go:69` (the loopback readiness and health probe's client) and
+  `member/forge/forge.go:138` (the forge client's transport). Both now ask `matrix`
+  (`matrix.LoopbackClient`, `matrix.PublicTransport`).
+- Green: the tree after the fix, untagged and with each tag, with no finding; the probe's and
+  the forge's own tests pass unchanged.
+- Not caught: an `http.Client` with no `Transport`, `http.DefaultClient`, `http.Get` and its
+  siblings (each uses the default transport, which trusts the system's roots); a transport built
+  by a function of a package this rule does not judge; `reflect.New`.
+
+### project_hostname_read
+
+**What it is about.** A handle is `<repo>.<seat>+<site>.<type>` and is permanent once issued
+(Plan 00246 SPEC-cross-network X28): it is in every roster, mention and log of the team, and a
+hostname in it cannot be taken back. The site is declared per machine (`teamchat_site`, default
+`local`) and no other source feeds a handle (X25). A teamchat function that reads the machine's
+hostname, or the name an address resolves to, is a function that can put a real hostname in a
+handle, however sound its first caller is.
+
+**Why it exists.** SPEC X27, and the code map's Item 5: `guestfacts.Prefix` read
+`HOOKS_DAEMON_HOSTNAME` into a site, and normalising it hid nothing (`member-machine-1` stays
+`member-machine-1`). The tree read the hostname nowhere else; the rule keeps it that way.
+
+**What it flags**, in `internal/teamchat`, `cmd/teamchat` and `cmd/teamchat-admin` and below,
+tests included, every use of:
+
+- `os.Hostname`;
+- `net.LookupAddr`, and a resolver's `LookupAddr` (`net.DefaultResolver.LookupAddr`, a
+  `*net.Resolver` of its own);
+
+as a call or as a value (a function value, a package-level seam), through any import name.
+
+**The one exemption**, part of this rule's own definition and not a row of any allowance table:
+the file `internal/teamchat/declare/machinehost.go`, which reads the hostname once so the
+declaration reader can refuse a site that spells it (X26). It is matched as a whole path: another
+file of package `declare`, and a file of that name in another package, are judged. A test gets
+the hostname through the seam (an injected `func() (string, error)`), as a fake.
+
+**How to fix a violation.** Declare the site (`teamchat_site`). A function that must compare
+against the hostname takes it from `declare.MachineHostname`, handed in as the seam, and never
+reads it where a handle is made.
+
+- Red, fixture: `testdata/hostnameread/src/fix/internal/teamchat/badhost` (`bad.go`: a call, a
+  function value, a package-level seam, `net.LookupAddr`, the default resolver's and a resolver
+  of its own; `alias.go`: an import under another name; `bad_test.go`: a test; `good.go`: the
+  environment, a forward lookup, a parse and two names of the package's own, clean), beside
+  `declare` (the exempt file, clean, and a sibling file, flagged), `other` (a file of the
+  exempt file's name in another package, flagged), `outsidehost` (outside teamchat, clean) and
+  `cmd/teamchat` and `cmd/teamchat-admin` (flagged). The root is its own, because the exemption is
+  a file path. With the analyzer reporting nothing the test failed on every flagged line (19
+  missed diagnostics, the package with a test file being judged twice) and passed once the rule
+  was written.
+- Red, real tree: no instance. The rule found nothing to fix, untagged, with `busfailpoints` and
+  with `tuwunel`, over `./internal/teamchat/...` (and the two commands untagged); the defect it
+  stands for, the environment-file read, is not an `os.Hostname` call and is fixed in the same
+  slice, with a test that no non-test file of teamchat names `HOOKS_DAEMON_HOSTNAME`.
+- Green: the tree after the slice, with no finding, untagged and with each tag.
+- Not caught: `net.LookupHost` and `net.LookupIP` of a name that came from a handle; a hostname
+  read through the `hostname` program, `/etc/hostname`, `/proc/sys/kernel/hostname` or the
+  environment; reflection.
 
 ### project_test_chown
 

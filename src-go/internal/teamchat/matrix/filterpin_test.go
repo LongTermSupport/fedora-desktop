@@ -29,7 +29,7 @@ func TestTheSyncFilterIsProtosByteForByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), Token: token})
 	if err != nil {
 		t.Fatal(err)
 	}

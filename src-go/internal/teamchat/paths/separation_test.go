@@ -136,7 +136,8 @@ func constNames() map[string][]string {
 	values := map[string]string{
 		"Product": Product, "MatrixNamespace": MatrixNamespace, "MatrixPrefix": MatrixPrefix,
 		"EnvPrefix": EnvPrefix, "EnvRuntime": EnvRuntime, "EnvKit": EnvKit,
-		"EnvStatusLineInner": EnvStatusLineInner, "MemberBinary": MemberBinary,
+		"EnvStatusLineInner": EnvStatusLineInner, "EnvCredentials": EnvCredentials,
+		"LeafCertCredential": LeafCertCredential, "LeafKeyCredential": LeafKeyCredential, "MemberBinary": MemberBinary,
 		"AdminBinary": AdminBinary, "InstallBinary": InstallBinary,
 		"MemberBinaryPath": MemberBinaryPath, "AdminBinaryPath": AdminBinaryPath,
 		"PluginName": PluginName, "SkillName": SkillName, "TmuxSocket": TmuxSocket,
@@ -147,7 +148,7 @@ func constNames() map[string][]string {
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
 		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot,
 		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile, "LXCRecordDir": LXCRecordDir,
-		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate,
+		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate, "TLSUnitTemplate": TLSUnitTemplate,
 		"FenceUnitTemplate": FenceUnitTemplate, "ServerStateDirectory": ServerStateDirectory,
 		"HealthService": HealthService, "HealthTimer": HealthTimer, "BackupService": BackupService,
 		"BackupTimer": BackupTimer, "SeatsService": SeatsService, "SeatsTimer": SeatsTimer,
@@ -349,6 +350,8 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"ServerUnitDropIn":       ServerUnitDropIn(team),
 		"ServerRuntimeDirectory": ServerRuntimeDirectory(team),
 		"FenceUnit":              FenceUnit(team),
+		"TLSUnit":                TLSUnit(team),
+		"TLSUnitDropIn":          TLSUnitDropIn(team),
 		"FenceTable":             FenceTable(team),
 		"HomeserverState":        HomeserverState(team),
 		"HomeserverPrivateState": HomeserverPrivateState(team),
@@ -359,6 +362,11 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"MigrationDir":           MigrationDir(team),
 		"FenceFile":              FenceFile(team),
 		"FirewallRecord":         FirewallRecord(team),
+		"TLSDir":                 TLSDir(team),
+		"CACertFile":             CACertFile(team),
+		"CAKeyFile":              CAKeyFile(team),
+		"LeafCertFile":           LeafCertFile(team),
+		"LeafKeyFile":            LeafKeyFile(team),
 		"CtlState":               CtlState(team),
 		"RosterFile":             RosterFile(team),
 		"RoomsFile":              RoomsFile(team),
@@ -417,11 +425,12 @@ func poolDerived(t *testing.T, team TeamID) map[string]string {
 }
 
 // notName is whether an exported identifier is not a v2 name: a parser or a predicate over a
-// name or a checkout, the seat bound, an id's, a kit's or a port's own text or number and its encoding, or the error the
+// name or a checkout, the maker of a checkout's key from its path, the seat bound, an id's, a
+// kit's or a port's own text or number and its encoding, or the error the
 // parsers wrap. (A kit's text is sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
-	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "ErrInvalid" ||
+	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "CheckoutKeyOf" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "ErrInvalid" ||
 		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 
@@ -496,8 +505,13 @@ func TestPrefixCheckDiscriminates(t *testing.T) {
 // teamchat_teams entry, the XDG state home the seat store sits under, and the seat's Matrix
 // device id (C 3.7.2), which is no path, and Claude Code's inbox socket, which is Claude Code's
 // name (B 2.7.1), an LXC seat's session name, lxc-<key> (C 3.9.1), which is no path either,
-// and the seat's key and repo label, which are parts of names, not names.
-var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession", "LXCSeatKey", "LXCRepoLabel"}
+// and the seat's key and repo label, which are parts of names, not names; systemd's variable that
+// names a unit's credentials directory and the two credential file names inside it, which belong
+// to that directory and not to the product.
+var notDerived = []string{
+	"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession", "LXCSeatKey", "LXCRepoLabel",
+	"EnvCredentials", "LeafCertCredential", "LeafKeyCredential",
+}
 
 // D 3.1: every v2 name is formed from the product name.
 func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {

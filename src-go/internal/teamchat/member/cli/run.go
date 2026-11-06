@@ -38,13 +38,14 @@ var runs = map[string]RunFunc{
 	verbMembership:  runMembership,
 	verbGuestRemove: runGuestRemove,
 	verbSetAside:    runSetAside,
+	verbPlaceIssued: runPlaceIssued,
 }
 
 // outside are the verbs built outside this package, which cmd/teamchat passes in Env.Verbs.
 var outside = []string{
 	verbHook, verbStatusLine,
 	verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-	"reply", "say", "ping",
+	"tls", "reply", "say", "ping",
 }
 
 // Outside is the verbs a binary must pass in Env.Verbs; a copy the caller may change.

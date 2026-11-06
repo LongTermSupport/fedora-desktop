@@ -451,8 +451,8 @@ func (w *world) bundle(id paths.TeamID) []byte {
 	}
 	w.mu.Unlock()
 	b := seat.Bundle{
-		V: 1, Team: id, ServerName: server, UserID: agent(id, 1), AdminID: "@admin:" + server,
-		MainRoom: main, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: id, ServerName: server, UserID: agent(id, 1), AdminID: "@admin:" + server,
+		MainRoom: main, BaseURL: "http://127.0.0.1:8448",
 		DeviceID: paths.SeatDevice, IssuedMS: startWall, Issuer: issuer,
 	}
 	data, err := b.Encode()

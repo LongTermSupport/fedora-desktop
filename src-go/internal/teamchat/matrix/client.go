@@ -9,7 +9,13 @@
 //
 // The transport follows no redirect and no proxy, sends the token only in the Authorization
 // header of the request it was given to, caps every answer, and never puts the token, a query
-// or the server's error text into an error. A 429 is waited out through an injected Clock.
+// or the server's error text into an error. Plain http reaches a loopback IP literal only; an
+// https URL needs the team's CA certificate (Config.CAPEM), which is then the whole of the
+// client's trust: its root pool is that one certificate, the system's roots are not consulted,
+// TLS 1.3 is the minimum and the certificate must be valid for the URL's host at the time of the
+// injected wall clock (Plan 00246 X12, X16, X17). A failed handshake is reported with a fixed
+// detail naming the host and the pinned CA's fingerprint, never certificate text.
+// A 429 is waited out through an injected Clock.
 // net/http itself resends a GET, once, when a reused keep-alive connection closes before any
 // answer byte; a dropped held sync is then held again rather than reported. That resend is
 // safe: a sync with a since token is idempotent, so the resent request is answered from the same
@@ -86,9 +92,12 @@ func SystemTimers() Timers { return clock.System() }
 type Config struct {
 	// BaseURL is the homeserver: scheme, host and port, nothing after.
 	BaseURL string
-	// PlainHTTPHosts are the IP literals a member client may reach over plain http; an admin
-	// client takes none, as it only reaches 127.0.0.1.
-	PlainHTTPHosts []string
+	// CAPEM is the team's CA certificate in PEM, the one certificate a member client trusts for an
+	// https URL (X16). An https URL needs it and a plain http URL, which is for a loopback IP
+	// literal only (X12), refuses it; an admin client takes none.
+	CAPEM string
+	// Wall is the clock a certificate's validity is judged by; nil is the system clock.
+	Wall WallClock
 	// Token is the access token; an admin client may start without one.
 	Token string
 	// Clock is how the client waits; nil is SystemClock.
@@ -103,6 +112,7 @@ type Config struct {
 type Client struct {
 	base   string
 	http   *http.Client
+	pin    *pin
 	clock  Clock
 	timers Timers
 	agent  string
@@ -112,19 +122,26 @@ type Client struct {
 	authorize func(http.Header)
 }
 
-// NewMember builds a member-side client: the bundle's base URL rule (SPEC M14) and a token.
+// NewMember builds a member-side client: the bundle's base URL rule (SPEC M14, Plan 00246 X12,
+// X16, X17), the trust an https URL needs and a token.
 func NewMember(cfg Config) (*Client, error) {
-	base, err := memberBase(cfg.BaseURL, cfg.PlainHTTPHosts)
+	base, err := memberBase(cfg.BaseURL, cfg.CAPEM != "")
 	if err != nil {
 		return nil, err
 	}
 	if cfg.Token == "" {
 		return nil, invalid("a member client needs an access token")
 	}
-	return newClient(cfg, base, memberAgent, memberLimit)
+	var trust *pin
+	if cfg.CAPEM != "" {
+		if trust, err = newPin(cfg.CAPEM, base, cfg.Wall); err != nil {
+			return nil, err
+		}
+	}
+	return newClient(cfg, base, memberAgent, memberLimit, trust)
 }
 
-func newClient(cfg Config, base, agent string, limit time.Duration) (*Client, error) {
+func newClient(cfg Config, base, agent string, limit time.Duration, trust *pin) (*Client, error) {
 	if cfg.UserAgent != "" {
 		if !agentRE.MatchString(cfg.UserAgent) {
 			return nil, invalid("the User-Agent is not one line of printable ASCII")
@@ -139,25 +156,11 @@ func newClient(cfg Config, base, agent string, limit time.Duration) (*Client, er
 	if timers == nil {
 		timers = SystemTimers()
 	}
-	c := &Client{base: base, http: newHTTPClient(), clock: clk, timers: timers, agent: agent, limit: limit}
+	c := &Client{base: base, http: newHTTPClient(trust), pin: trust, clock: clk, timers: timers, agent: agent, limit: limit}
 	if cfg.Token == "" {
 		return c, nil
 	}
 	return c.WithToken(cfg.Token)
-}
-
-func newHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			Proxy:                  nil,
-			DialContext:            (&net.Dialer{Timeout: dialLimit}).DialContext,
-			MaxResponseHeaderBytes: maxHeaderBytes,
-			DisableCompression:     true,
-			TLSHandshakeTimeout:    dialLimit,
-			IdleConnTimeout:        time.Minute,
-		},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
 }
 
 // WithToken is a client like c that sends token; the two share their connections.
@@ -414,7 +417,7 @@ func (c *Client) once(ctx context.Context, cl call) (*answer, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, cl.lost(ctx, tryCtx, detailNoAnswer)
+		return nil, c.failed(ctx, tryCtx, cl, err)
 	}
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxAnswerBytes+1))
 	closeErr := resp.Body.Close()
@@ -427,6 +430,18 @@ func (c *Client) once(ctx context.Context, cl call) (*answer, error) {
 		return nil, cl.lost(ctx, tryCtx, "answer cut short")
 	}
 	return &answer{status: resp.StatusCode, header: resp.Header, body: data}, nil
+}
+
+// failed is a request that got no answer at all. The caller's cancellation and this client's
+// time limit come first; then a failed handshake with the pinned server, which no retry mends and
+// whose detail names the host and the pinned CA (SPEC X16); else the connection.
+func (c *Client) failed(ctx, tryCtx context.Context, cl call, err error) *Error {
+	if ctx.Err() == nil && tryCtx.Err() == nil {
+		if detail := c.pin.detail(err); detail != "" {
+			return cl.fail(ErrUnreachable, 0, "", detail, false)
+		}
+	}
+	return cl.lost(ctx, tryCtx, detailNoAnswer)
 }
 
 // lost is a request that got no whole answer: the caller's cancellation, this client's time
@@ -628,8 +643,9 @@ func adminBase(raw string) (string, error) {
 }
 
 // memberBase applies the bundle's base URL rule (SPEC M14) and gives the URL with its host
-// lower-cased.
-func memberBase(raw string, plainHosts []string) (string, error) {
+// lower-cased. Plain http is only for a loopback IP literal and carries no CA; https needs one
+// (Plan 00246 X12, X15, X17).
+func memberBase(raw string, hasCA bool) (string, error) {
 	u, err := parseBase(raw)
 	if err != nil {
 		return "", err
@@ -639,13 +655,28 @@ func memberBase(raw string, plainHosts []string) (string, error) {
 	switch {
 	case ip != nil && (strings.Contains(host, "%") || canonicalIP(ip) != host):
 		return "", invalid("the base URL's IP literal is not canonical")
-	case u.Scheme == "http" && (ip == nil || !listed(host, plainHosts)):
-		return "", invalid("plain http is only for an IP literal in plain_http_hosts")
+	case u.Scheme == schemeHTTP && (ip == nil || !ip.IsLoopback()):
+		return "", invalid(detailPlainHTTP)
+	case u.Scheme == schemeHTTP && hasCA:
+		return "", invalid(detailCAOnPlain)
+	case u.Scheme == schemeHTTPS && !hasCA:
+		return "", invalid(detailNeedCA)
 	case ip == nil && !dnsName(host):
 		return "", invalid("the base URL's host is not a DNS name or an IP literal")
 	}
 	out := url.URL{Scheme: u.Scheme, Host: hostPort(host, ip != nil, u.Port())}
 	return out.String(), nil
+}
+
+// CanonicalMemberBase is raw in the one normal form two bundles' base URLs are compared in (Plan
+// 00246 X9): memberBase's, judged with the CA the scheme needs (https has one, http none), so a URL
+// no bundle could carry is refused.
+func CanonicalMemberBase(raw string) (string, error) {
+	u, err := parseBase(raw)
+	if err != nil {
+		return "", err
+	}
+	return memberBase(raw, u.Scheme == schemeHTTPS)
 }
 
 // parseBase is the base URL's shape: printable ASCII, scheme http or https, a host and a valid
@@ -658,7 +689,7 @@ func parseBase(raw string) (*url.URL, error) {
 	if err != nil || strings.ContainsAny(raw, "?#") || u.Opaque != "" || u.User != nil || u.Path != "" || u.RawPath != "" {
 		return nil, invalid("the base URL is not scheme://host[:port] alone")
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS {
 		return nil, invalid("the base URL's scheme is not http or https")
 	}
 	if u.Hostname() == "" {
@@ -684,15 +715,6 @@ func canonicalIP(ip net.IP) string {
 		return v4.String()
 	}
 	return ip.String()
-}
-
-func listed(host string, hosts []string) bool {
-	for _, h := range hosts {
-		if strings.EqualFold(h, host) {
-			return true
-		}
-	}
-	return false
 }
 
 func dnsName(host string) bool {

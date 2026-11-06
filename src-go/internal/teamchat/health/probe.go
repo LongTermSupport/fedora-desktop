@@ -83,6 +83,25 @@ func (t *Tick) homeserver(ctx context.Context, team Team, f *facts) error {
 	return t.restart(ctx, team, unit, f)
 }
 
+// terminator is X18c's second unit: members reach the homeserver only through it, so one that
+// is not active is a problem while the homeserver answers on loopback. Its unit state is judged
+// and nothing is restarted: systemd restarts it always, so a unit that is not active was stopped
+// or failed past its start limit, and that is for a person to see. A recorded restore stops
+// units on purpose (HB3), so none is judged while one is.
+func (t *Tick) terminator(ctx context.Context, team Team, f *facts) {
+	if f.restore != nil {
+		return
+	}
+	unit := paths.TLSUnit(team.ID)
+	state, read := t.unitState(ctx, unit)
+	switch {
+	case !read:
+		f.problems = append(f.problems, status.Problem{What: "the TLS terminator unit's state cannot be read", Fix: "systemctl status " + unit})
+	case state.Active != unitActive:
+		f.problems = append(f.problems, status.Problem{What: "the TLS terminator unit is " + state.Active + ": no member can reach the homeserver", Fix: "systemctl status " + unit})
+	}
+}
+
 // reread records the state a re-probe stopped on, a unit no longer active or a new invocation,
 // with any restart between the two reads as its event.
 func (t *Tick) reread(f *facts, unit string, now UnitState) {

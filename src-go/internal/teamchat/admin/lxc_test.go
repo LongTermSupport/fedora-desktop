@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -473,17 +474,87 @@ func TestLXCRosterParksAndReturns(t *testing.T) {
 	}
 }
 
-// Reach is guest check's stdin: v, team, base_url and plain_http_hosts, nothing else.
-func TestLXCRosterReach(t *testing.T) {
-	w := newWorld(t)
-	w.applied(t)
-	reach, err := lxcRoster{sys: w.sys()}.Reach(t.Context(), alpha(t))
+// setTeamURL rewrites the applied alpha team.json's default URL to url.
+func setTeamURL(t *testing.T, w *world, url string) {
+	t.Helper()
+	name := w.root + paths.TeamDeclaration(alpha(t))
+	raw := string(testfiles.Read(t, w.root, name))
+	changed := strings.Replace(raw, "http://192.0.2.10:8448", url, 1)
+	if changed == raw {
+		t.Fatalf("team.json does not name the default URL: %s", raw)
+	}
+	f := testfiles.OpenFile(t, w.root, name, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if _, err := f.WriteString(changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// reachFacts is Reach's answer for alpha with the team URL set to url, decoded.
+func reachFacts(t *testing.T, w *world, sys *System, url string) map[string]any {
+	t.Helper()
+	setTeamURL(t, w, url)
+	reach, err := lxcRoster{sys: sys}.Reach(t.Context(), alpha(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var facts map[string]any
-	if jerr := json.Unmarshal(reach, &facts); jerr != nil || facts["v"] != 1.0 || facts["team"] != "alpha" || facts["base_url"] == "" || facts["plain_http_hosts"] == nil || len(facts) != 4 {
+	if jerr := json.Unmarshal(reach, &facts); jerr != nil {
 		t.Fatalf("reach %s: %v", reach, jerr)
+	}
+	return facts
+}
+
+// Reach is guest check's stdin: v 2, team, base_url and tls_ca, nothing else (Plan 00246 X15). A
+// team whose URL is plain http has no CA to carry and none is asked for.
+func TestLXCRosterReach(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	ca := newTeamCA(t)
+	sys := w.sys()
+	sys.TeamCA = ca.get
+	facts := reachFacts(t, w, sys, "http://127.0.0.1:8448")
+	if facts["v"] != 2.0 || facts["team"] != "alpha" || facts["base_url"] != "http://127.0.0.1:8448" || facts["tls_ca"] != "" || len(facts) != 4 {
+		t.Fatalf("reach %v", facts)
+	}
+	if len(ca.asked) != 0 {
+		t.Errorf("the CA was asked for %v for a plain http team", ca.asked)
+	}
+}
+
+// Reach for an https team carries the team's CA certificate, asked for by team.
+func TestLXCRosterReachCarriesTheTeamCA(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	ca := newTeamCA(t)
+	sys := w.sys()
+	sys.TeamCA = ca.get
+	facts := reachFacts(t, w, sys, httpsURL)
+	if facts["v"] != 2.0 || facts["base_url"] != httpsURL || facts["tls_ca"] != ca.pem || len(facts) != 4 {
+		t.Fatalf("reach %v", facts)
+	}
+	if len(ca.asked) != 1 || ca.asked[0] != alpha(t) {
+		t.Errorf("the CA was asked for %v, want alpha once", ca.asked)
+	}
+}
+
+// Reach for an https team fails when the team CA is not there: the guest would be handed a check
+// it cannot pass.
+func TestLXCRosterReachFailsWithoutTheTeamCA(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	setTeamURL(t, w, httpsURL)
+	for name, provider := range map[string]TeamCA{
+		"not made":    (&teamCA{err: errors.New("the team CA is not made yet")}).get,
+		"no provider": nil,
+	} {
+		sys := w.sys()
+		sys.TeamCA = provider
+		if _, err := (lxcRoster{sys: sys}).Reach(t.Context(), alpha(t)); err == nil {
+			t.Errorf("%s: Reach answered for an https team with no CA", name)
+		}
 	}
 }
 

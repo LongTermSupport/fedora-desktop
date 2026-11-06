@@ -1,6 +1,6 @@
 // Package guestfacts parses what `lxc apply` reads of an LXC guest and its container before it
 // changes anything (Plan 00209 SPEC-n3.md LX4, DESIGN-v2-C-host.md 3.9.2 step 03): the guest's
-// passwd and group, the checkout's .git/config and ccy.env.local, the container settings
+// passwd and group, the checkout's .git/config, the container settings
 // lxc-info prints, the guest's source address and a /proc stat's start time. It parses bytes
 // and never opens a path; the caller reads them through the guest root (TB1).
 //
@@ -28,7 +28,7 @@ import (
 // The caps of the guest files, and the site of an entry that names none.
 const (
 	MaxPasswd   = 1 << 20  // /etc/passwd and /etc/group
-	MaxCheckout = 64 << 10 // the checkout's .git/config and ccy.env.local
+	MaxCheckout = 64 << 10 // the checkout's .git/config, and the apply's read of its ccy.env.local
 	MaxStat     = 4096     // a /proc/<pid>/stat
 	DefaultSite = "local"
 )
@@ -263,31 +263,24 @@ func ParseConfig(kv map[string]string) (Config, error) {
 
 const guestSource = "the guest's address"
 
-// Source checks that one of the guest's addresses is inside a prefix of the team's
-// allow_from, on a link that is the host bridge.
-func Source(addrs []netip.Addr, allowFrom []string, link, bridge string) error {
+// Source checks that one of the guest's addresses is inside one of the team's effective
+// networks (declare.Input.EffectiveNetworks, the set the unit's filter and the firewall use),
+// on a link that is the host bridge.
+func Source(addrs []netip.Addr, networks []netip.Prefix, link, bridge string) error {
 	if link != bridge {
 		return refuse(guestSource, "the container's link is not the host bridge %s", bridge)
 	}
 	if len(addrs) == 0 {
 		return refuse(guestSource, "the container has no address")
 	}
-	prefixes := make([]netip.Prefix, 0, len(allowFrom))
-	for _, s := range allowFrom {
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			return refuse(guestSource, "the team's allow_from holds a prefix that does not parse")
-		}
-		prefixes = append(prefixes, p)
-	}
 	for _, a := range addrs {
-		for _, p := range prefixes {
+		for _, p := range networks {
 			if p.Contains(a.Unmap()) {
 				return nil
 			}
 		}
 	}
-	return refuse(guestSource, "no address of the container is inside the team's allow_from")
+	return refuse(guestSource, "no address of the container is inside the team's effective networks")
 }
 
 const procStat = "a /proc stat"
@@ -322,9 +315,11 @@ func StartTicks(stat []byte) (int64, error) {
 
 // Prefix is the handle prefix of an LXC entry's first join (C 3.7.4, 3.9.2 step 03),
 // `<repo>+<site>.lxc`: repo from gitConfig's origin, else the checkout's base name; site from
-// the entry, else envLocal's HOOKS_DAEMON_HOSTNAME, else local. A nil envLocal is no file;
-// a nil gitConfig is refused, since a checkout has one.
-func Prefix(m declare.LXCMember, gitConfig, envLocal []byte) (proto.Prefix, error) {
+// the entry, which the declaration reader fills from the machine's teamchat_site when the entry
+// names none, else local. The site is declared and nothing the guest or the machine holds feeds
+// it (Plan 00246 SPEC-cross-network X25): a hostname in a handle is permanent. A nil gitConfig
+// is refused, since a checkout has one.
+func Prefix(m declare.LXCMember, gitConfig []byte) (proto.Prefix, error) {
 	if gitConfig == nil {
 		return proto.Prefix{}, refuse(gitFile, "the checkout has none")
 	}
@@ -336,20 +331,9 @@ func Prefix(m declare.LXCMember, gitConfig, envLocal []byte) (proto.Prefix, erro
 	if err != nil {
 		return proto.Prefix{}, err
 	}
-	hostname, hasHostname, err := envHostname(envLocal)
-	if err != nil {
-		return proto.Prefix{}, err
-	}
 	site := m.Site
 	if site == "" {
 		site = DefaultSite
-		if hasHostname {
-			norm, ok := proto.NormaliseSite(hostname)
-			if !ok {
-				return proto.Prefix{}, refuse(envFile, "HOOKS_DAEMON_HOSTNAME is not a site label")
-			}
-			site = norm
-		}
 	}
 	p, ok := proto.ParsePrefix(repo + "+" + site + ".lxc")
 	if !ok {
@@ -385,18 +369,13 @@ func SameMember(derived, recorded proto.Handle) error {
 	return nil
 }
 
-const (
-	gitFile = "the checkout's .git/config"
-	envFile = "the checkout's ccy.env.local"
-)
+const gitFile = "the checkout's .git/config"
 
 var (
 	gitSection = regexp.MustCompile(`^\s*\[([A-Za-z0-9-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\]\s*(?:[#;].*)?$`)
 	gitKey     = regexp.MustCompile(`^\s*([A-Za-z][A-Za-z0-9-]*)\s*(?:=(.*))?$`)
 	// gitURL is a bare value, with nothing git would unquote or unescape.
 	gitURL = regexp.MustCompile(`^\s*([^\s"\\#;]+)\s*(?:[#;].*)?$`)
-	// envLine is an assignment of a literal: nothing a shell would expand, quote, join or end.
-	envLine = regexp.MustCompile("^(?:export )?([A-Za-z_][A-Za-z0-9_]*)=([^\\s$`'\"\\\\;&|<>()~]*)$")
 )
 
 // gitScan is the reading of a .git/config so far.
@@ -498,41 +477,4 @@ func (g *gitScan) key(line string) error {
 	}
 	g.urls = append(g.urls, v[1])
 	return nil
-}
-
-// envHostname is ccy.env.local's HOOKS_DAEMON_HOSTNAME literal; found is false when it is unset
-// or there is no file (nil). The file is parsed, never sourced: only blank lines, # comments and
-// `[export ]NAME=literal` lines, each name assigned once.
-func envHostname(data []byte) (string, bool, error) {
-	if data == nil {
-		return "", false, nil
-	}
-	if len(data) > MaxCheckout {
-		return "", false, refuse(envFile, "larger than %d bytes", MaxCheckout)
-	}
-	if err := text(data, envFile, true); err != nil {
-		return "", false, err
-	}
-	var (
-		seen     = map[string]bool{}
-		hostname string
-		found    bool
-	)
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed == "" || trimmed[0] == '#' {
-			continue
-		}
-		m := envLine.FindStringSubmatch(line)
-		switch {
-		case m == nil:
-			return "", false, refuse(envFile, "a line is not a comment or [export ]NAME=literal with no $, `, quote, space or shell operator")
-		case seen[m[1]]:
-			return "", false, refuse(envFile, "a name is assigned twice")
-		}
-		seen[m[1]] = true
-		if m[1] == "HOOKS_DAEMON_HOSTNAME" {
-			hostname, found = m[2], true
-		}
-	}
-	return hostname, found, nil
 }

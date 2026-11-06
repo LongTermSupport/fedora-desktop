@@ -24,14 +24,14 @@ type Admin struct {
 // NewAdmin builds an admin-side client; the token may be empty until Register or Login gives
 // one.
 func NewAdmin(cfg Config) (*Admin, error) {
-	if len(cfg.PlainHTTPHosts) > 0 {
-		return nil, invalid("an admin client takes no plain_http_hosts")
+	if cfg.CAPEM != "" {
+		return nil, invalid(detailAdminNoCA)
 	}
 	base, err := adminBase(cfg.BaseURL)
 	if err != nil {
 		return nil, err
 	}
-	c, err := newClient(cfg, base, adminAgent, adminLimit)
+	c, err := newClient(cfg, base, adminAgent, adminLimit, nil)
 	if err != nil {
 		return nil, err
 	}

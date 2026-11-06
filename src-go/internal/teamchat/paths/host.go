@@ -8,6 +8,9 @@ const systemdDir = "/etc/systemd/system"
 // ServerUnitTemplateFile is the installed base unit of every team's homeserver.
 const ServerUnitTemplateFile = systemdDir + "/" + ServerUnitTemplate
 
+// TLSUnitTemplateFile is the installed base unit of every team's TLS terminator.
+const TLSUnitTemplateFile = systemdDir + "/" + TLSUnitTemplate
+
 // UnitsRecord is the team's restart and reload digest sets, with the Tuwunel version, port and
 // listen set last started.
 func UnitsRecord(t TeamID) string { return AdminState(t) + "/units.json" }
@@ -17,6 +20,9 @@ func ServerNameFile(t TeamID) string { return AdminState(t) + "/server-name" }
 
 // ServerDropInFile is the drop-in `team apply` renders for the team's homeserver unit.
 func ServerDropInFile(t TeamID) string { return systemdDir + "/" + ServerUnitDropIn(t) + "/team.conf" }
+
+// TLSDropInFile is the drop-in `team apply` renders for the team's terminator unit.
+func TLSDropInFile(t TeamID) string { return systemdDir + "/" + TLSUnitDropIn(t) + "/team.conf" }
 
 // HomeserverDatabase is the homeserver's database, as the unit sees it.
 func HomeserverDatabase(t TeamID) string { return HomeserverState(t) + "/db" }

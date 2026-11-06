@@ -179,6 +179,27 @@ func TestStatusIsTheTicks(t *testing.T) {
 	}
 }
 
+// Plan 00246 S6: the team CA is read from the files the host keeps, which slice S7a wires; until
+// then the System's provider and the one the bundles carry both say the CA is not made yet, so an
+// https team issues nothing instead of a bundle without its CA.
+func TestTeamCAIsNotMadeYet(t *testing.T) {
+	sys := build(t, &fakeMachine{root: t.TempDir()})
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sys.TeamCA(team); !errors.Is(err, ErrTeamCANotMade) || err.Error() != "the team CA is not made yet" {
+		t.Errorf("System.TeamCA = %v", err)
+	}
+	bundles, ok := sys.Bundles.(admin.SeatBundles)
+	if !ok {
+		t.Fatalf("Bundles is a %T, want the seat side's", sys.Bundles)
+	}
+	if _, err := bundles.CA(team); !errors.Is(err, ErrTeamCANotMade) {
+		t.Errorf("SeatBundles.CA = %v", err)
+	}
+}
+
 // WR2: New is the host's wiring; building it reads only the running binary.
 func TestNewIsTheHostsWiring(t *testing.T) {
 	sys, err := New(digest)()

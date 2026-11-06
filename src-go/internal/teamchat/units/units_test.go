@@ -688,6 +688,15 @@ func TestUnitNamesAreCheckedBeforeAnyCall(t *testing.T) {
 			t.Errorf("%q reached the bus or a program", unit)
 		}
 	}
+	// The team's TLS terminator is started, enabled and read like its homeserver (X18).
+	for _, unit := range []string{"teamchat-tls@a.service", `teamchat-tls@a\x2db.service`} {
+		if err := checkUnit(unit); err != nil {
+			t.Errorf("the terminator's unit %q: %v", unit, err)
+		}
+	}
+	if err := checkUnit("teamchat-tls@.service"); !errors.Is(err, ErrUnitName) {
+		t.Errorf("the terminator's template is a unit name: %v", err)
+	}
 	long := "teamchat-server@" + strings.Repeat("a", 230) + ".service"
 	if err := checkUnit(long); err != nil {
 		t.Errorf("a %d-byte name is valid: %v", len(long), err)

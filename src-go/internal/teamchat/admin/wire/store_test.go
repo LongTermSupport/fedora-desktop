@@ -151,8 +151,8 @@ func TestCtlUID(t *testing.T) {
 	}
 }
 
-const alphaTeamJSON = `{"v":1,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
-	`"description":"The team that builds the thing.","listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],` +
+const alphaTeamJSON = `{"v":2,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
+	`"description":"The team that builds the thing.","networks":["192.0.2.0/24"],` +
 	`"url":"http://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
 	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
 

@@ -87,9 +87,20 @@ type units struct {
 	maxSeen      atomic.Int32
 	gate         chan struct{}
 	stateCall    int
+	// tls is the TLS terminator unit's state, answered apart from the list above (its read error
+	// is tlsErr), and tlsAsked the terminator units asked about.
+	tls      UnitState
+	tlsErr   error
+	tlsAsked []string
 }
 
-func (u *units) State(context.Context, string) (UnitState, error) {
+func (u *units) State(_ context.Context, unit string) (UnitState, error) {
+	if strings.HasPrefix(unit, paths.Product+"-tls@") {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.tlsAsked = append(u.tlsAsked, unit)
+		return u.tls, u.tlsErr
+	}
 	n := u.inflight.Add(1)
 	defer u.inflight.Add(-1)
 	for {
@@ -247,10 +258,13 @@ func newWorld(t *testing.T, names ...string) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{
-		dir:    dir,
-		clock:  &clock{now: t0},
-		teams:  &teams{removed: map[paths.TeamID]bool{}},
-		units:  &units{states: []UnitState{{Active: "active", Sub: "running", InvocationID: "inv1", ActiveSince: t0.Add(-time.Hour)}}},
+		dir:   dir,
+		clock: &clock{now: t0},
+		teams: &teams{removed: map[paths.TeamID]bool{}},
+		units: &units{
+			states: []UnitState{{Active: "active", Sub: "running", InvocationID: "inv1", ActiveSince: t0.Add(-time.Hour)}},
+			tls:    UnitState{Active: "active", Sub: "running", InvocationID: "tls1", ActiveSince: t0.Add(-time.Hour)},
+		},
 		prober: &prober{},
 		viewer: &viewer{view: View{
 			Members: []status.Member{

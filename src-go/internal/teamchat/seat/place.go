@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -65,24 +66,17 @@ func (c *Claim) Abandon() error {
 // Fill writes the issued credential, then seat.json, into the claim, and swaps it in: by
 // RENAME_NOREPLACE when the seat has no record, else by RENAME_EXCHANGE, the old record moved
 // to quarantine with its credential unlinked (SP2). An answer that is not this seat's pool
-// record, or not this store's credential, is refused before any write.
-func (c *Claim) Fill(is Issued) error {
+// record, or not this store's credential, is refused before any write; so is one for a team the
+// checkout has on another homeserver (X8), and one that would create the seat for a homeserver
+// that does not answer (X10). The team's homeserver is recorded once the seat is in place.
+func (c *Claim) Fill(ctx context.Context, is Issued) error {
 	s := c.store
 	if !s.holds(c.alloc) {
 		return ErrNotLocked
 	}
-	if is.Kind != s.credential.Kind() {
-		return invalid(fmt.Sprintf("issued bundle: a %s, not this pool's %s", is.Kind, s.credential.Kind()))
-	}
-	if is.Seat.Team != c.seat.Team {
-		return invalid("issued bundle: another team's seat")
-	}
-	data, err := is.Seat.Encode()
+	data, p, err := c.checkIssued(ctx, is)
 	if err != nil {
 		return err
-	}
-	if is.Seat.Handle().String() != c.seat.Name.String() {
-		return invalid("issued bundle: another handle's seat")
 	}
 	pool := s.store.PoolSeat(s.checkout, c.seat.Team, c.seat.Name)
 	released, err := s.lastRelease(pool)
@@ -103,7 +97,45 @@ func (c *Claim) Fill(is Issued) error {
 			return err
 		}
 	}
-	return s.swapIn(c.seat, c.claim.Dir())
+	if err := s.swapIn(c.seat, c.claim.Dir()); err != nil {
+		return err
+	}
+	return p.write()
+}
+
+// checkIssued is the checks of an issued bundle that come before any write: it is this store's
+// kind, and this claim's team and handle; it is the checkout's homeserver for the team (the pin,
+// which a later write records); and a seat that is new, with no pool directory yet, has a
+// homeserver that answers from this machine. It answers seat.json's text and the pin.
+func (c *Claim) checkIssued(ctx context.Context, is Issued) ([]byte, pin, error) {
+	s := c.store
+	if is.Kind != s.credential.Kind() {
+		return nil, pin{}, invalid(fmt.Sprintf("issued bundle: a %s, not this pool's %s", is.Kind, s.credential.Kind()))
+	}
+	if is.Seat.Team != c.seat.Team {
+		return nil, pin{}, invalid("issued bundle: another team's seat")
+	}
+	data, err := is.Seat.Encode()
+	if err != nil {
+		return nil, pin{}, err
+	}
+	if is.Seat.Handle().String() != c.seat.Name.String() {
+		return nil, pin{}, invalid("issued bundle: another handle's seat")
+	}
+	p, err := s.pinOf(is.Seat)
+	if err != nil {
+		return nil, pin{}, err
+	}
+	found, err := s.root.exists(s.store.PoolSeat(s.checkout, c.seat.Team, c.seat.Name).Dir())
+	if err != nil {
+		return nil, pin{}, err
+	}
+	if !found {
+		if err = s.reachNew(ctx, is.Seat); err != nil {
+			return nil, pin{}, err
+		}
+	}
+	return data, p, nil
 }
 
 // lastRelease is the seat's released.json, checked, for a placement to carry over the record
