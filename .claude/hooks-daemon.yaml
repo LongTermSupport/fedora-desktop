@@ -40,14 +40,13 @@ ccy:
 # Branch policy (daemon v3.72.0). The repository's own policy is scripts/branch-policy.toml
 # (cap 10, the release and architecture lines exempt), judged daily by qa-branch-hygiene.
 # F<nn> release lines and F44-arm are never counted, judged or deleted by an agent.
-# wip.mode is warn, not block: the daemon also counts local branches, and this checkout holds
-# about 200 old agent-worktree branches, so block would deny every new branch and isolated
-# agent until those are swept. Back to block is the owner's call once the sweep is done.
+# wip.mode is block, at the owner's request: while open work is over the cap, no new branch or
+# isolated agent is created, so existing branches are finished, parked or deleted first.
 branches:
   exempt: ["F[0-9][0-9]", "F[0-9][0-9]-arm"]
   wip:
     cap: 10
-    mode: warn
+    mode: block
   sweep:
     behind_threshold: 50
 
