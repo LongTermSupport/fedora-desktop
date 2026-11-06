@@ -172,8 +172,11 @@ func TestQS2ARefusedJoinAwaitsTheInviteAndTheInviteIsTheSignal(t *testing.T) {
 		t.Errorf("%d joins before the invite, want 1", n)
 	}
 	w.invited(me)
-	check(t, w.clk.AwaitDue(t.Context(), longPoll))
+	// The 30 s pass, then a post in main ends the long-poll whether or not its hold was armed
+	// before them: AwaitDue cannot name that hold, since the reports join's retry can fall due
+	// at the same instant.
 	w.clk.Advance(joinGap)
+	w.quiet("the next answer")
 	r.poll(t)
 	if n := w.joinsOf(w.qroom()); n != 2 {
 		t.Errorf("%d joins after the invite, want 2", n)
