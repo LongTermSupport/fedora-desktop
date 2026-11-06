@@ -133,21 +133,7 @@ func newPT1Runner(t *testing.T, seed uint64, point failpoint.Name) *pt1Runner {
 	if point != "" {
 		w.arm = arm("link", point)
 	}
-	return &pt1Runner{t: t, seed: seed, w: w, s: w.pt1Seated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}}
-}
-
-// pt1Seated is claudeSeated that does not let a loaded host cost the run its session: a
-// SessionStart the link could not answer within the hook's deadline answers the hook's own
-// recovery line and tells the engine no session, so a run whose link never learns where to deliver
-// waits for ever for its first delivery. Claude Code's next hook would tell it, and here the
-// SessionStart is run again until the link answers it.
-func (w *world) pt1Seated(flags ...string) *session {
-	w.t.Helper()
-	s := w.claude(flags...)
-	starting := withContext(evStart, msgStarting)
-	eventually(w.t, func() bool { return answer(w.t, s.hook(evStart)) != starting }, s.describe)
-	s.seatedIn()
-	return s
+	return &pt1Runner{t: t, seed: seed, w: w, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}}
 }
 
 // judge drains the run and fails the test with every check ops broke.
