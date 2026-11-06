@@ -204,6 +204,9 @@ handlers:
       options:
         exclude_paths:
           - ".semgrep/bash-conventions.bash"
+        command_overrides:
+          Ansible:
+            extended: null   # syntax-check only: no QA gate runs ansible-lint (.qa-versions), so the edit hook must not either (#153)
     goal_injection: {enabled: true}          # Goal-intent signal when a plan becomes In Progress
     plan_fact_check_feed: {enabled: true}    # Feed plan edits to the fact-check debouncer
 
