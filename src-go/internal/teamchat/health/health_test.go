@@ -92,6 +92,9 @@ type units struct {
 	tls      UnitState
 	tlsErr   error
 	tlsAsked []string
+	// tlsRestarts counts the terminator's restarts, each of which starts it at the clock's time.
+	tlsRestarts int
+	clock       *clock
 }
 
 func (u *units) State(_ context.Context, unit string) (UnitState, error) {
@@ -122,9 +125,14 @@ func (u *units) State(_ context.Context, unit string) (UnitState, error) {
 	return s, nil
 }
 
-func (u *units) Restart(context.Context, string) error {
+func (u *units) Restart(_ context.Context, unit string) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if strings.HasPrefix(unit, paths.Product+"-tls@") {
+		u.tlsRestarts++
+		u.tls.ActiveSince = u.clock.Now()
+		return nil
+	}
 	u.restarts++
 	if u.afterRestart != nil {
 		u.err = u.afterRestart
@@ -252,6 +260,7 @@ type world struct {
 	guests    *guests
 	announcer *announcer
 	locks     *locks
+	leaves    Leaves
 }
 
 func newWorld(t *testing.T, names ...string) *world {
@@ -279,7 +288,9 @@ func newWorld(t *testing.T, names ...string) *world {
 		guests:    &guests{probes: map[string]GuestProbe{lxcA: {Held: true, Record: lockRecord(runA, false)}}},
 		announcer: &announcer{out: Notice{Posted: true}},
 		locks:     &locks{dir: dir, busy: map[paths.TeamID]bool{}},
+		leaves:    &leaves{},
 	}
+	w.units.clock = w.clock
 	for _, n := range names {
 		team := id(t, n)
 		if err := os.MkdirAll(filepath.Join(dir, n), 0o700); err != nil {
@@ -301,7 +312,7 @@ func (w *world) tick(t *testing.T) *Tick {
 	t.Helper()
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
+		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,

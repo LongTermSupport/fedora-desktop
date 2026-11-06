@@ -122,6 +122,7 @@ type Config struct {
 	Guests    Guests
 	Announcer Announcer
 	Locks     Locks
+	Leaves    Leaves
 	// StatusPath and LXCOnlinePath name a team's two files (paths.StatusFile and
 	// paths.LXCOnlineFile on the host).
 	StatusPath    func(paths.TeamID) string
@@ -135,7 +136,7 @@ type Tick struct{ cfg Config }
 
 // New is a tick; a config that lacks a part is refused.
 func New(cfg Config) (*Tick, error) {
-	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Restores, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks}
+	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Restores, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks, cfg.Leaves}
 	if slices.Contains(parts, nil) || cfg.StatusPath == nil || cfg.LXCOnlinePath == nil {
 		return nil, errors.New("health: every part of the config is required")
 	}
@@ -220,7 +221,9 @@ func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error)
 	if hsErr := t.homeserver(ctx, team, f); hsErr != nil {
 		return nil, hsErr
 	}
-	t.terminator(ctx, team, f)
+	if tlsErr := t.terminator(ctx, team, f); tlsErr != nil {
+		return nil, tlsErr
+	}
 	view, err := t.cfg.Viewer.View(ctx, team.ID)
 	if err != nil {
 		f.viewFailed = true

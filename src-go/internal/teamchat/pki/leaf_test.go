@@ -101,6 +101,27 @@ func TestP2ANewLeafRefusesAnEmptyCA(t *testing.T) {
 	}
 }
 
+// X31: a leaf says when it was made, to the second, from its own certificate, so that the
+// health tick can tell a terminator started before it (which serves the leaf it read at its start)
+// from one started after; the parsed leaf says the same as the one made.
+func TestALeafSaysWhenItWasMade(t *testing.T) {
+	m, clk := newWorld()
+	ca := mustCA(t, m, "team-a")
+	clk.Advance(90*24*time.Hour + 1500*time.Millisecond)
+	leaf := mustLeaf(t, m, ca, wantNames(t))
+	want := now(m.Clock).Truncate(time.Second)
+	if !leaf.MadeAt().Equal(want) {
+		t.Fatalf("MadeAt = %v, want %v", leaf.MadeAt(), want)
+	}
+	parsed, err := ParseLeaf(ca.CertPEM(), leaf.CertPEM(), leaf.KeyPEM())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.MadeAt().Equal(want) {
+		t.Fatalf("the parsed leaf's MadeAt = %v, want %v", parsed.MadeAt(), want)
+	}
+}
+
 func TestP4ALeafIsKeptWhileItsNamesAndItsTimeHold(t *testing.T) {
 	m := newMaker()
 	leaf := mustLeaf(t, m, mustCA(t, m, "team-a"), wantNames(t))

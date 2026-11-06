@@ -5,11 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"net/netip"
-	"net/url"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
@@ -63,20 +59,8 @@ func (a *applying) tls(_ context.Context) error {
 	return nil
 }
 
-// leafNames are what the leaf is reached by: the derived listen addresses, and the url host when
-// it is not an IP literal (X6 already holds a literal to the listen addresses). The declaration
-// holds the host to its canonical, lower-case form.
-func (a *applying) leafNames() (pki.Names, error) {
-	u, err := url.Parse(a.in.Team.URL)
-	if err != nil {
-		return pki.Names{}, err
-	}
-	names := pki.Names{IPs: slices.Clone(a.listen)}
-	if _, literal := netip.ParseAddr(u.Hostname()); literal != nil {
-		names.DNS = u.Hostname()
-	}
-	return names, nil
-}
+// leafNames are what this apply's leaf is reached by.
+func (a *applying) leafNames() (pki.Names, error) { return leafNames(a.in.Team.URL, a.listen) }
 
 // makeCA makes the team's CA and writes it without replacing anything. The key goes first: a
 // crash between the two files leaves a key that signed nothing and no certificate any bundle
@@ -131,54 +115,17 @@ func loadCA(root string, team paths.TeamID) (pki.CA, bool, error) {
 	return ca, true, nil
 }
 
-// ensureLeaf makes the leaf again when it must be, and says why. A leaf is derived, so one that
-// is missing, torn, or signed by another CA is made again rather than refused, and the apply
-// says what was wrong with it.
+// ensureLeaf is the leaf step apply shares with the health tick (X31), with the CA this apply
+// loaded or made; the line says why the leaf was made.
 func (a *applying) ensureLeaf(m pki.Maker, ca pki.CA, want pki.Names) error {
-	line, err := a.leafVerdict(ca, want)
-	if err != nil || line == "" {
-		return err
-	}
-	leaf, err := m.NewLeaf(ca, want)
-	if err != nil {
-		return err
-	}
-	if err = state.WriteFile(a.path(paths.LeafKeyFile(a.team)), leaf.KeyPEM(), keyMode, -1); err != nil {
-		return err
-	}
-	if err = state.WriteFile(a.path(paths.LeafCertFile(a.team)), leaf.CertPEM(), certMode, -1); err != nil {
+	step := leafStep{root: a.d.Root, team: a.team, maker: m}
+	out, err := step.ensure(ca.CertPEM(), func() (pki.CA, error) { return ca, nil }, want)
+	if err != nil || !out.made() {
 		return err
 	}
 	a.leafMade = true
-	a.note(line)
+	a.note(out.line)
 	return nil
-}
-
-// leafVerdict is the CHANGED line for a leaf that must be made, and "" for one that is kept.
-func (a *applying) leafVerdict(ca pki.CA, want pki.Names) (string, error) {
-	cert, haveCert, err := state.ReadFile(a.path(paths.LeafCertFile(a.team)), fileMax)
-	if err != nil {
-		return "", err
-	}
-	key, haveKey, err := state.ReadFile(a.path(paths.LeafKeyFile(a.team)), fileMax)
-	if err != nil {
-		return "", err
-	}
-	switch {
-	case !haveCert && !haveKey:
-		return "leaf made", nil
-	case !haveCert || !haveKey:
-		return "leaf made again: a file of its pair is not there", nil
-	}
-	leaf, err := pki.ParseLeaf(ca.CertPEM(), cert, key)
-	if err != nil {
-		return "leaf made again: " + strings.TrimPrefix(err.Error(), "pki: "), nil
-	}
-	renewal, err := leaf.NeedsRenewal(wallClock{a.d.Clock}, want)
-	if err != nil || !renewal.Needed() {
-		return "", err
-	}
-	return "leaf made again: " + renewal.String(), nil
 }
 
 // CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle (X15). It is
