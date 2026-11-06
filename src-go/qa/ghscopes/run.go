@@ -5,7 +5,8 @@
 // specification is the plan's SPEC-qa-gh-scopes.md.
 //
 // The same engine, given its FindRace spec, is the find-race-negated-stat-test gate over
-// .semgrep/find-race.yml: one generic rule file, every published file, the same proofs.
+// .semgrep/find-race.yml, and given its ArchPin spec the arch-pinned-artefact gate over
+// .semgrep/arch-pin.yml: one generic rule file, every published file, the same proofs.
 package ghscopes
 
 import (
@@ -72,6 +73,16 @@ var FindRace = Spec{
 	usage:       findRaceUsageText,
 }
 
+// ArchPin is the arch-pinned-artefact gate (Plan 00243).
+var ArchPin = Spec{
+	short:       "arch-pin",
+	ruleFile:    ".semgrep/arch-pin.yml",
+	fixtureFile: ".semgrep/arch-pin.fixture",
+	ruleName:    "arch-pinned-artefact",
+	finding:     "fix a download, package or image to one CPU architecture",
+	usage:       archPinUsageText,
+}
+
 // Timeouts bound each process.
 const (
 	versionTimeout = time.Minute
@@ -107,6 +118,19 @@ const findRaceUsageText = `usage: qa-find-race [--root DIR] [--scripts DIR]
 Applies the semgrep rule in .semgrep/find-race.yml (find -ignore_readdir_race with a negated
 stat test, which matches an entry that vanished during the walk) to every file git would
 publish, after proving the rule against its fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const archPinUsageText = `usage: qa-arch-pin [--root DIR] [--scripts DIR]
+
+Applies the semgrep rule in .semgrep/arch-pin.yml (a download, package or image fixed to one
+CPU architecture, with no selection by the architecture the build or host runs on) to every
+file git would publish, after proving the rule against its fixture.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
