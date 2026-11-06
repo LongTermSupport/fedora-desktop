@@ -122,7 +122,8 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `asked_by`, `re`, `remind_after_s`, `asked_ms` and the `Question:` section as its SHA-256
   (`OpenDuplicate` hashes what it is given); `Unanswered` as ids (16 kept, a count past them,
   reset by an agent thread post); the caps of QX6 in the fold (64 open with the evicted counted,
-  128 closed, 1024 posts, 64 unattached); redacted slots (`Slot`, `Next()` past them, held
+  128 closed, 1024 posts, 64 unattached; OW5 (b) since split the posts into 1024 human posts and
+  256 agent thread posts and slots, see the n3f-a OW5 entry below); redacted slots (`Slot`, `Next()` past them, held
   numbers as closed redacted entries); provisional own entries (`PlaceQuestion`, `PlaceThread`,
   `TakeDropped`); `State()` and `Copy()`; `Reminder.DueMs`. Not built yet: the strict codec of
   the state with the build record, `RedactedSlot` over the raw event.
@@ -132,12 +133,13 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `questions` key: `index`, `token`, `last`, `build`) with `Encode(server)`,
   `DecodeQuestionsState(data, server)` (strict as `member/state`'s files: repeated keys and
   integers past 2^53 refused, unknown keys refused, a round trip that must equal the parsed
-  value, then `Check(server)`; at most `MaxQuestionsStateBytes` 1 101 056), `IndexState.Check`
+  value, then `Check(server)`; at most `MaxQuestionsStateBytes`, 1 101 056 then, 1 125 888 with
+  OW5 (b)), `IndexState.Check`
   and `LoadQuestionIndex(server, floor, state)`; the build record (`BuildRecord`: no record with
   an index, a build owed with none of the three and `after` set, a build under way with the
   three and `start` set; the engine's use of it is n3f-c's); `RedactedSlot(raw, server)`; and
   the two property tests (live equals restarted over 3 seeds of 2600 events, every cap fired;
-  QX6's worst case, 1 001 559 bytes). `proto` 98.3% of statements. The fold's `State()` and
+  QX6's worst case, 1 001 559 bytes, 1 020 775 with OW5 (b)). `proto` 98.3% of statements. The fold's `State()` and
   `IndexedQuestion.clone()` now give `[]`, never `null`, for an empty list. Not built: the
   store (`member/state`, G2) that embeds `QuestionsState`; the engine's use of the build record.
 
@@ -151,7 +153,8 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `Check` with the team's server, `paths.ServerName`), `reminded_ms` and `remind_late` (at
   most 64 distinct numbers from 1). `MaxStore` is 16 x 256 KiB, 4 MiB; `TestStoreFullFitsTheFileCap`
   holds a store with every cap full at its widest (3 428 163 bytes, its `questions` key
-  1 001 559 of at most 1 101 056), the caps' sum counted as written (4 110 165 bytes: every
+  1 001 559 of at most 1 101 056; with OW5 (b) 3 447 379, its key 1 020 775 of at most
+  1 125 888), the caps' sum counted as written (4 110 165 bytes, 4 134 997 with OW5 (b): every
   fixed field a row of `fixedWritten`, the questions room's lists and key among them) and the
   round-up to 4 MiB; the compact-form sums the test once pinned (3 001 136 and 4 104 600) went
   with n3d's store sizing (#164), which counts as written.
@@ -165,6 +168,17 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   Open for the owner (the report's finding 1): `outbox.sending[].content` is sized in A's
   compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
   against its 20 KiB size.
+
+- **n3f-a, OW5 (b)** on `feat/bus-v2-n3f-a-ow5b` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261106-n3f-a-ow5b-opus.md`; OW5: (b), coordinator, 2026-11-05): the index's
+  folded events are two lists (SPEC-n3f QX6). `IndexState.Posts` holds the 1024 most recent
+  human posts, `{"id","q","t"}` with `t` 0 or 1 (a post in its question's thread); the new
+  `IndexState.AgentPosts` (`agent_posts`, `proto.AgentPost`, cap `MaxAgentPosts` 256) holds
+  agent thread posts and slots, `{"id","q"}`, `q` 0 for a slot. Each evicts its own oldest; the
+  fold looks in both before it applies an event, the codec refuses an id in both, a kind of 2 or
+  3 in `posts`, a null `agent_posts` and a 257th entry. `MaxQuestionsStateBytes` 1 125 888; the
+  store at its widest 3 447 379 bytes, the caps' sum as written 4 134 997, `MaxStore` 4 MiB.
+  The live-equals-rebuilt property now feeds events again across both lists while each evicts.
 
 - **n3f-b, the reports room, built in part** on `feat/bus-v2-n3f-b` (from
   `feat/bus-v2-n3f-a-int`; `subagent-reports/261105-n3f-b-sonnet.md`). Built: the team goroutine's
