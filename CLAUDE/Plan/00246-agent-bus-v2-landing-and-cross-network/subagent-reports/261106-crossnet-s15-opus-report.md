@@ -191,7 +191,27 @@ and that Element's Chromium honours the store. That is the host check.
 
 ## Gate results
 
-QA_RESULT_PLACEHOLDER
+`./scripts/qa-changed.bash --base spike/v2-cross-network`, three runs:
+
+1. First run, over the first draft of the change. `ansible-patterns` failed with root-umask
+   at the `update-ca-trust` task, which now runs as a shell starting `umask 022`, as
+   play-fonts.yml does. I stopped this run myself (it was holding the QA lock and judging a
+   tree that had already changed).
+2. Second run. `go` failed with golangci findings: gocognit on the not-placed test, nestif on
+   `profile`, unparam on `placeCA`, plus the same findings under the busfailpoints tag. Fixes:
+   the test's assertions moved into `assertToldToRunThePlay`, the note into `Env.sayCA`, and
+   `placeCA` writes web's record only. All four Go plants were run again after this refactor
+   and each went red again.
+3. Final run, over the committed tree: **passed**, 13 changed files. Green: toolchain,
+   ready-wait-files, stt-rules-files, hook-handler-rules-files, ruff, unit-tests (1 module),
+   ansible-syntax (1 playbook), ansible-patterns, docs, go (go-qa on both modules, diff mode),
+   teamchat-keeps-off-v1, ansible-pause, hidden-bindings, version-pins, vmtest-manifest, and
+   the suites test-ccy-teams-command (395), test-run-bash-gh-scopes (62) and
+   test-fedora-desktop-health (48). One warning: `localhost.yml.dist` is not covered by
+   qa-changed, so qa-all.bash is the only check of it.
+
+The ansible syntax gate passed, so the environmental failure of issue #146 did not occur. I did
+not run `qa-all.bash`.
 
 ## Host run: none queued, and why
 
