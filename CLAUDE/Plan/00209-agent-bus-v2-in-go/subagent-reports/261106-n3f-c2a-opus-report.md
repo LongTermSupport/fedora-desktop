@@ -55,9 +55,9 @@ Each plant made by hand, the test run, the code restored (each restoration re-ru
   0aefa07a9 (`untracked/scratch/qa-c2a/`), log `untracked/scratch/qa-c2a.log` in this builder's
   worktree: **exit 1**, go failed on `engine/send.go` cyclop alone (Findings 5); the test
   runners were not started. After the fix, a second run over the branch head in a fresh detached
-  worktree (`untracked/scratch/qa-c2a-2/`, log `untracked/scratch/qa-c2a-2.log`) was started and
-  had not finished when this builder stopped. The coordinator should read that log, or run the
-  gate on the branch head, before merging. A failure of the four `qa/cmd/qa-js` tests alone is the known
+  worktree of 3ccec9fd6 (`untracked/scratch/qa-c2a-2/`, log `untracked/scratch/qa-c2a-2.log`):
+  **exit 0**, "qa-changed passed: 18 changed file(s)" (docs whole gate, go-qa over both modules in
+  diff mode, teamchat-keeps-off-v1 whole gate). A failure of the four `qa/cmd/qa-js` tests alone is the known
   environmental one (issue #135); a cyclop failure on `engine/send.go` is Findings 5.
 
 ## Readings where the spec was silent
