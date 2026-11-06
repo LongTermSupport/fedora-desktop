@@ -12,8 +12,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/client"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/ends"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/hook"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/keeper"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/link"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/statusline"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/teamsync"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/tlsverb"
@@ -26,6 +28,8 @@ var clientVerbs = []string{"recv", "wait", "inbox", "status", "verify", "history
 // Verbs are the verbs cmd/teamchat passes in cli.Env.Verbs: every name of cli.Outside.
 func Verbs() map[string]cli.RunFunc {
 	v := map[string]cli.RunFunc{
+		"hook":              hook.Main,
+		"status-line":       statusline.Main,
 		"run":               keeper.Main,
 		"link":              link.Main(link.Wiring{NewTeam: NewTeam, NewEnds: NewEnds}),
 		"seat disconnected": client.SeatDisconnected,

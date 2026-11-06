@@ -703,10 +703,18 @@ from the admin, which is a carried open v1 question (7.7). Questions is invite-o
 and only the admin invites, and it invites only the coordinator, so the server's membership is the
 authorisation for those posts. The index is never delivered: it numbers questions and tracks their
 state, so a new coordinator continues the numbering and sees which questions are closed. For
-numbering, counting starts from the roster's `question_floor` (5.1) rather than 0: an agent's
-question counts only when its `n` is exactly 1 plus the highest counted so far (at first,
-`question_floor`), in stream order; any other `n` from an agent is ignored for numbering, so one bad
-post (a client bypassed, 6.9) cannot push the numbering past the `Q` grammar for ever. A question the
+numbering, counting starts from the roster's `question_floor` (5.1) rather than 0. A redacted slot is
+an event in questions from an agent account or the admin that the server returns redacted by the
+admin (`unsigned.redacted_because`, 12.4); the index counts the slots since the highest counted was
+last raised. An agent's question counts only when its `n` is from 1 plus the highest counted so far
+(at first, `question_floor`) to that number plus the slots, in stream order; each number a counted
+question skips is held by a redacted event, a closed question with no text, and the slot count
+starts again at 0. Any other `n` from an agent is ignored for numbering, so one bad post (a client
+bypassed, 6.9) cannot push the numbering past the `Q` grammar for ever, and a question the server
+returns redacted never breaks the chain. The index's next number is 1 plus the highest counted plus
+the slots since it, so no number is given out twice, a redacted question's included. An admin
+redaction in questions removes its target from the index entirely: the index is always the one a
+fresh read of the room gives. A question the
 **admin** posts is counted whatever its `n`, and raises the highest counted to its `n` when higher.
 A number already in the index is not counted again, the admin's included; the first in stream
 order holds it. An uncounted question, or one whose body fails 10.2's form, is not in the index:
@@ -1422,9 +1430,10 @@ coordinator in main (00211 D7).
 - The secret check of 7.3 runs over the whole text: secret shapes and the sender's own token are
   refused `secret` (R43, P51). The room's history is `shared` and only the owner can redact (12.4), so
   a pasted token would be read by every later coordinator until then.
-- `n` is 1 plus the larger of the roster's `question_floor` (5.1) and the highest counted `n` of the
-  question index (6.5), so a replacement coordinator numbers the same way
-  with no session state (00211).
+- `n` is the question index's next number (6.5): 1 plus the larger of the roster's `question_floor`
+  (5.1) and the highest counted `n`, plus the redacted slots since that highest was raised, so a
+  replacement coordinator numbers the same way with no session state (00211), and a number held by
+  a redacted question is never given out again.
   The admin names a question's `n` when it composes one (a re-posted open v1 question, 7.7); the
   coordinator never does: its question takes that next number, and a coordinator naming one is
   refused `schema`.
@@ -1938,9 +1947,12 @@ B's farewell reasons are `released`, `removed` and `parked` (B 2.10); proto rend
 (`FarewellRemoved`, v1's one reason) and refuses any other (`reason`), so the left-line texts for
 `released` and `parked` are owed to N3 with B. The role lines are the first clause of H12's `role_*`
 templates (`in team <t> you are the coordinator.`, `... you are a worker; the coordinator is <h>.`,
-`... you are a worker; the team has no coordinator now.`): how a role works is told at
-SessionStart (B), not in the notice, since v1's longer text names `pingbus` flags B's CLI may not
-have. The joined line names the handle, which carries the seat, so v1's `seat` slot is dropped.
+`... you are a worker; the team has no coordinator now.`), and the coordinator's line has one more
+sentence: `in team <t> you are the coordinator. Human posts made in the questions room while the coordinator changed are not delivered to you; to see them, run teamchat questions --team <t>.` That
+sentence is in the notice because a promotion's notice is where a new coordinator learns it must
+look, and nothing else delivers those posts (B's questions room, SPEC-n3f OW4); it names only the
+`teamchat questions` verb, which B's CLI has. Otherwise how a role works is told at SessionStart
+(B), not in the notice, since v1's longer text names `pingbus` flags B's CLI may not have. The joined line names the handle, which carries the seat, so v1's `seat` slot is dropped.
 `Teams`, the session's teams after the change, holds each joined and role-changed team once and no
 left team, else the notice is refused `teams`; a role change's handle and description are not
 shown. B gives proto what changed; proto writes every line, and the corpus pins it beside the 13.2

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
+	tcclock "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -261,6 +263,11 @@ type world struct {
 	announcer *announcer
 	locks     *locks
 	leaves    Leaves
+	// reaches is the terminator's reach, no address by default, and timers the probes' bound.
+	reaches *reaches
+	timers  *tcclock.Fake
+	// bounds, when set, are the timers the tick is given in place of timers.
+	bounds matrix.Timers
 }
 
 func newWorld(t *testing.T, names ...string) *world {
@@ -289,6 +296,8 @@ func newWorld(t *testing.T, names ...string) *world {
 		announcer: &announcer{out: Notice{Posted: true}},
 		locks:     &locks{dir: dir, busy: map[paths.TeamID]bool{}},
 		leaves:    &leaves{},
+		reaches:   &reaches{},
+		timers:    tcclock.NewFake(0, t0.UnixMilli()),
 	}
 	w.units.clock = w.clock
 	for _, n := range names {
@@ -310,9 +319,14 @@ func lockRecord(run string, failed bool) []byte {
 
 func (w *world) tick(t *testing.T) *Tick {
 	t.Helper()
+	var timers matrix.Timers = w.timers
+	if w.bounds != nil {
+		timers = w.bounds
+	}
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
 		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
+		Reach: w.reaches.get, Timers: timers,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,

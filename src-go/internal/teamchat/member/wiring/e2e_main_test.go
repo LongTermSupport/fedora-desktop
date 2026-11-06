@@ -38,6 +38,8 @@ func TestMain(m *testing.M) {
 		})))
 	case agentName:
 		os.Exit(agent(os.Stdin, os.Stdout))
+	case claudeName:
+		os.Exit(fakeClaude(os.Args[1:], os.Stdin, os.Stdout))
 	}
 	os.Exit(leakcheck.Tests(m).Run())
 }
