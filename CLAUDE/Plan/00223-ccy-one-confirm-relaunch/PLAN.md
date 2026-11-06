@@ -65,6 +65,9 @@ DESIGN, Words.) Design and expectations R1-R20: [DESIGN.md](DESIGN.md).
 
 ## Dependencies
 
+- **Plan 00248** proposes to supersede this plan's screen (its D1): Plan 00201 Task 2.33 has
+  since built `ccy-teams launch-summary`, and 00248 extends that one screen to every team start
+  instead of building `quick-launch`. Nothing here is built until the owner answers 00248 D1.
 - **The token-usage gate** (a sibling worker, `ccy-token-usable`, `internal/ccylaunch` F15):
   **merged into F44 is the hard gate for every build task** (Task 0.2). Both edit `claude-yolo`,
   its allowlist row, `CCY_VERSION` and the Quick Launch difftest goldens. The screen reads its
