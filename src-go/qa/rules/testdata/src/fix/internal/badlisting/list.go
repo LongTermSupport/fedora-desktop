@@ -20,7 +20,7 @@ type Entry struct {
 type Dir struct{ path string }
 
 // List is the originating shape: the entries as the filesystem gives them.
-func (d Dir) List() ([]Entry, error) { // want List:"returns a listing in directory order"
+func (d Dir) List() ([]Entry, error) { // want List:"returns a listing in directory order" `List returns a directory listing in directory order`
 	f, err := os.Open(d.path)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (d Dir) List() ([]Entry, error) { // want List:"returns a listing in direct
 }
 
 // Names is the names of the directory: Readdirnames, returned as it came.
-func (d Dir) Names() ([]string, error) { // want Names:"returns a listing in directory order"
+func (d Dir) Names() ([]string, error) { // want Names:"returns a listing in directory order" `Names returns a directory listing in directory order`
 	f, err := os.Open(d.path)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func (d Dir) Names() ([]string, error) { // want Names:"returns a listing in dir
 }
 
 // Infos is Readdir, returned as it came.
-func (d Dir) Infos() ([]fs.FileInfo, error) { // want Infos:"returns a listing in directory order"
+func (d Dir) Infos() ([]fs.FileInfo, error) { // want Infos:"returns a listing in directory order" `Infos returns a directory listing in directory order`
 	f, err := os.Open(d.path)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (d Dir) MustNames() []string { // want MustNames:"returns a listing in dire
 }
 
 // Opened lists through an fs.ReadDirFile, whose ReadDir is as unordered as the file's.
-func Opened(f fs.ReadDirFile) ([]fs.DirEntry, error) { // want Opened:"returns a listing in directory order"
+func Opened(f fs.ReadDirFile) ([]fs.DirEntry, error) { // want Opened:"returns a listing in directory order" `Opened returns a directory listing in directory order`
 	return f.ReadDir(-1)
 }
 
@@ -92,6 +92,63 @@ func (d Dir) SortedList() ([]Entry, error) {
 	entries, err := d.List()
 	slices.SortFunc(entries, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
 	return entries, err
+}
+
+// SortedAtTheRoot reads the directory itself and sorts before it returns: not reported.
+func (d Dir) SortedAtTheRoot() ([]string, error) {
+	f, err := os.Open(d.path)
+	if err != nil {
+		return nil, err
+	}
+	names, err := f.Readdirnames(-1)
+	slices.Sort(names)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return names, err
+}
+
+// SortedThroughAHelper reads the directory and sorts through a function of its own that sorts:
+// not reported, and not marked.
+func (d Dir) SortedThroughAHelper() ([]string, error) {
+	f, err := os.Open(d.path)
+	if err != nil {
+		return nil, err
+	}
+	names, err := f.Readdirnames(-1)
+	byLength(names)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return names, err
+}
+
+// byLength sorts names by their length, then by name.
+func byLength(names []string) {
+	slices.SortFunc(names, func(a, b string) int {
+		if len(a) != len(b) {
+			return len(a) - len(b)
+		}
+		return strings.Compare(a, b)
+	})
+}
+
+// Removed reads the directory to act on each entry and returns no listing: not reported.
+func (d Dir) Removed() error {
+	f, err := os.Open(d.path)
+	if err != nil {
+		return err
+	}
+	names, err := f.Readdirnames(-1)
+	for _, n := range names {
+		if err == nil {
+			err = os.Remove(d.path + "/" + n)
+		}
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // SortedNames sorts through package sort.

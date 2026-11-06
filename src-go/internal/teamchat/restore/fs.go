@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -40,7 +41,7 @@ type Entry struct {
 // paths. Every write or removal is a kill point of SM5.
 type FS interface {
 	Kind(team paths.TeamID, name string) (Kind, error)
-	// ReadDir lists a directory; a missing one is none.
+	// ReadDir lists a directory by name; a missing one is none.
 	ReadDir(team paths.TeamID, name string) ([]Entry, error)
 	// Rename renames one entry of the state directory to another name in it, never over an
 	// entry that exists (renameat2 RENAME_NOREPLACE).
@@ -119,6 +120,8 @@ func (o OS) ReadDir(team paths.TeamID, name string) ([]Entry, error) {
 		}
 		return errors.Join(err, d.Close())
 	})
+	// By name, as homefs.Root.Entries lists: the directory's own order is the filesystem's.
+	slices.SortFunc(out, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
 	return out, err
 }
 

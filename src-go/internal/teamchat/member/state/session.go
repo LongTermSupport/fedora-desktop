@@ -7,8 +7,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// MaxSession bounds session.json: the longest paths and every team's role fit in half of it.
-const MaxSession = 8 << 10
+// MaxSession bounds session.json as it is written: the longest paths, written with `<`, `>` or
+// `&` escaped at six bytes each, and every team's role fit in it (TestTheLargestSessionIsWritten).
+const MaxSession = 16 << 10
 
 const sessionFile = "session.json"
 
@@ -65,7 +66,7 @@ func (s Session) Encode() ([]byte, error) {
 // DecodeSession reads session.json strictly.
 func DecodeSession(data []byte) (Session, error) {
 	var s Session
-	if _, err := decodeStrict(sessionFile, data, MaxSession, &s, func(c *rules) { s.check(c) }); err != nil {
+	if err := decodeStrict(sessionFile, data, MaxSession, &s, func(c *rules) { s.check(c) }); err != nil {
 		return Session{}, err
 	}
 	return s, nil

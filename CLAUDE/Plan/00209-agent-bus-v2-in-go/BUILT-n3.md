@@ -151,7 +151,10 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   `Check` with the team's server, `paths.ServerName`), `reminded_ms` and `remind_late` (at
   most 64 distinct numbers from 1). `MaxStore` is 16 x 256 KiB, 4 MiB; `TestStoreFullFitsTheFileCap`
   holds a store with every cap full at its widest (3 428 163 bytes, its `questions` key
-  1 001 559 of at most 1 101 056), n3d's sum 3 001 136, QX6's sum 4 104 600 and the round-up.
+  1 001 559 of at most 1 101 056), the caps' sum counted as written (4 110 165 bytes: every
+  fixed field a row of `fixedWritten`, the questions room's lists and key among them) and the
+  round-up to 4 MiB; the compact-form sums the test once pinned (3 001 136 and 4 104 600) went
+  with n3d's store sizing (#164), which counts as written.
   `Version` stays 1: a store written before this change has none of the keys and is refused by
   the strict decoder (the engine's refused-store path), never read with them defaulted; a new
   store (`NewStore`) writes all seven. The item id grammar takes `~humans`, the reminder's key
@@ -162,6 +165,13 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   Open for the owner (the report's finding 1): `outbox.sending[].content` is sized in A's
   compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
   against its 20 KiB size.
+
+- **n3d's caps measured as written** on `fix/store-size-as-written`
+  (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
+  `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
+  U+2028 and U+2029 longer; the store now measures every entry through its one encoder, a send
+  whose entry does not fit as written is refused 10 `size` at the verb, and the two file caps
+  hold their largest values escaped. Not yet reviewed.
 
 ## Task 3.3: LXC members
 
