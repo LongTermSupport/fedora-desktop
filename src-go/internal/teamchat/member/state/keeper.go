@@ -40,7 +40,7 @@ func (k Keeper) Encode() ([]byte, error) {
 // DecodeKeeper reads keeper.json strictly.
 func DecodeKeeper(data []byte) (Keeper, error) {
 	var k Keeper
-	if _, err := decodeStrict(keeperFile, data, MaxKeeper, &k, func(c *rules) { k.check(c) }); err != nil {
+	if err := decodeStrict(keeperFile, data, MaxKeeper, &k, func(c *rules) { k.check(c) }); err != nil {
 		return Keeper{}, err
 	}
 	return k, nil

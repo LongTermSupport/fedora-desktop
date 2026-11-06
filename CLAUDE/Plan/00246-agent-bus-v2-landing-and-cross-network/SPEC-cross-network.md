@@ -209,11 +209,14 @@ the builder takes where this text is silent goes in its report.
   the old CA, leaf and bundles whole. The verb refuses while a restore is recorded. It logs the
   old and the new CA's fingerprints, never a key. A backup made before the rotation holds the
   old CA and leaf: restoring it undoes the rotation, and the verb's help says to rotate again
-  after such a restore. Tests: the new CA's fingerprint differs; the new leaf verifies under the
+  after such a restore. The verb also says, on stderr, that the Element play (X34) must be run
+  again: the record that play leaves holds the old CA, and `teamchat-admin element check` and
+  `apply`, which cannot read the root-only CA, go on treating it as placed until the play's own
+  check fails on it. Tests: the new CA's fingerprint differs; the new leaf verifies under the
   new CA and not the old; every reachable seat's `tls_ca` is the new CA; the remote seats are
   listed and no other; a client holding an old bundle refuses the new leaf with X16's message; a
   failure at each step leaves everything as it was; a restore recorded refuses; stdout holds
-  only the handles.
+  only the handles; stderr names the Element play.
 - **X34** (S15) **Element trusts the CA, built.** X20 says only that the CA must be trusted.
   The play now installs the team CA where the Flatpak build of Element Desktop reads it, so no
   hand step is needed, and fails loudly if the CA is not trusted afterwards: its last task
@@ -230,7 +233,19 @@ the builder takes where this text is silent goes in its report.
   and `apply` stop saying the CA must be trusted by hand for a team whose CA the play placed.
   Tests: the Go side (what `element check` and `apply` say, with the CA placed and not
   placed); the play passes the project's Ansible gates, and its check task is proven to fail
-  on a store without the CA by a fixture.
+  on a store without the CA by a fixture. **As built** (`subagent-reports/261106-crossnet-s15-opus-report.md`):
+  the play imports `tasks/element-team-ca.yml` as its last step, for each team whose approved
+  url is `https`; the variable `agent_bus_element_ca_store` is `nssdb` by default, Chromium's
+  NSS database kept in Element's Flatpak data (`flatpak override --user --persist=.pki`), with
+  `system` (the host's trust anchors) as the alternative, which makes every program on the host
+  trust a CA that has no name constraints; `helpers/element_ca/nss.py` places and checks through
+  NSS and is tested against a real TLS server and real NSS stores. Not proven: that Element's
+  Chromium honours the store; the host check has to see Element sign in to the team with no
+  certificate warning. The order to try if it fails is in the report. Not built: removing a
+  team's CA and record when the team is undeclared, a fallback for a runtime with no `python3`,
+  and a host run (no v2 `https` team is deployed on any host, so none is queued). The play is
+  still v1's profile step (`helpers.agent_bus.element`); the new tasks key on v2's
+  `approved.json` and need no change when that step is ported.
 
 ## Acceptance
 
@@ -307,3 +322,25 @@ directly, and said that every connection that leaves loopback is TLS.
    **Answer: confirmed.** A root-run ssh would give root on the homeserver host a credential
    that reaches other machines. With the pipe, sudo is needed only on the homeserver side, and
    the ssh uses the owner's own keys and agent. The secret travels on stdin and never in argv.
+
+## Owner questions
+
+Found by the S15 builder; X34 is built as specified and neither is decided here.
+
+6. **Which URL does Element use on the homeserver host?** Owner answer 1 says Element on the
+   homeserver host uses loopback and needs no CA, but `element.Env.profile` writes the team's
+   approved `url` as `base_url`, and for a cross-network team that is `https://<listen address>`, not loopback. Options: (a) the profile points at `http://127.0.0.1:<port>` on the
+   homeserver host, so X34 is needed nowhere there; (b) the premise of answer 1 is wrong for
+   Element and X34 is what makes its https profile work. **Recommendation: (a)**, since it
+   matches the answer and keeps the homeserver host's Element off the CA store; X34 then serves
+   the case of question 7 only.
+7. **How does the human's Element on another machine get the team CA and a profile?** No
+   Element profile exists on any machine but the homeserver host (`element` builds one only for
+   a team with an `approved.json`, which only `team approve` writes there), and the CA's only
+   path off that host is the seat bundle's `tls_ca`, which reaches the member's agent seat pool
+   (X22), not the human. Options: (a) a verb on the homeserver host prints the team CA (a public
+   certificate) and the profile's settings, and the human's machine places both with the X34
+   play; (b) the CA and profile ride the X21 pipe to that machine; (c) out of scope, the human
+   trusts the CA by hand. **Recommendation: (a)**: the CA is not a secret, so it adds no secret
+   path, and it reuses X34's check. Until this is answered X30's second machine cannot have a
+   working Element, only working agent seats.

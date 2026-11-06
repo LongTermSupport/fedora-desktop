@@ -31,7 +31,7 @@ func (r Conversation) Encode() ([]byte, error) {
 // same rule (C9).
 func DecodeConversation(data []byte) (Conversation, error) {
 	var r Conversation
-	if _, err := decodeStrict(conversationFile, data, MaxConversation, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(conversationFile, data, MaxConversation, &r, func(c *rules) { r.check(c) }); err != nil {
 		return Conversation{}, err
 	}
 	return r, nil
