@@ -445,8 +445,13 @@ func TestElementPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	placed, err := ElementCAPlaced("/home/u", team)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct{ got, want string }{
 		{dir, "/home/u/.var/app/im.riot.Riot/config/Element-teamchat-ops"},
+		{placed, "/home/u/.var/app/im.riot.Riot/config/teamchat-ca/ops.pem"},
 		{launcher, "/home/u/.local/share/applications/teamchat-ops-element.desktop"},
 		{consent, "/home/u/.config/teamchat/element-consent"},
 	} {
@@ -473,6 +478,7 @@ func TestBaseDirectoriesMustBeAbsoluteAndClean(t *testing.T) {
 		"ElementConfigDir":   func(d string) error { _, err := ElementConfigDir(d, team); return err },
 		"ElementLauncher":    func(d string) error { _, err := ElementLauncher(d, team); return err },
 		"ElementConsentFile": func(d string) error { _, err := ElementConsentFile(d); return err },
+		"ElementCAPlaced":    func(d string) error { _, err := ElementCAPlaced(d, team); return err },
 		"ProbeState":         func(d string) error { _, err := ProbeState(d, team); return err },
 		"Layout.WithState":   func(d string) error { _, err := CCYLayout().WithState(d); return err },
 		"SeatAt":             func(d string) error { _, err := SeatAt(d); return err },

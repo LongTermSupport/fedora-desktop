@@ -8,6 +8,9 @@
 # locked-down profile and launcher per agent_bus_element_teams entry through
 # helpers/agent_bus/element.py, which owns the config.json keys and is tested for each, and
 # removes the launcher and profile it wrote for a team that is not declared or is absent.
+# Last, for a declared team whose v2 approved url is https, it places the team CA where
+# Element reads it and fails unless a handshake from Element's sandbox trusts it
+# (tasks/element-team-ca.yml, Plan 00246 SPEC-cross-network X34).
 #
 # The Element profile holds the human's Matrix session token, readable by every process of
 # that user, so no agent may run as user_login: the helper refuses (exit 78) a user holding
@@ -34,6 +37,9 @@
       {{ agent_bus_element_declared | rejectattr('team', 'in', agent_bus_element_absent) | list }}
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
+    # Where an https team's CA is put for Element (tasks/element-team-ca.yml): nssdb or system,
+    # chosen in host_vars by agent_bus_element_ca_store. The play's last task proves it.
+    agent_bus_element_ca_default_store: nssdb
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -102,4 +108,17 @@
         chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
       register: agent_bus_element_apply
       changed_when: agent_bus_element_apply.stdout_lines | select('match', agent_bus_element_changed_re) | list | length > 0
+      tags: [agent-bus-element]
+
+    # Last, because its last task is the proof: for each declared team whose approved url is
+    # https, the team CA placed where Element reads it and a handshake from Element's sandbox
+    # checked against it (SPEC-cross-network X34). A team with no v2 approval here is untouched.
+    - name: Trust each https team's CA in Element Desktop, and prove it from Element's sandbox
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-team-ca.yml"
+      vars:
+        element_team_ca_teams: "{{ agent_bus_element_profiles | map(attribute='team') | list }}"
+        element_team_ca_store: "{{ agent_bus_element_ca_store | default(agent_bus_element_ca_default_store) }}"
+        # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
+        element_team_ca_approved_root: /var/lib/teamchat-status/teams
+        element_team_ca_admin_root: /var/lib/teamchat-admin
       tags: [agent-bus-element]

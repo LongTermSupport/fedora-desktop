@@ -20,6 +20,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
@@ -198,7 +199,7 @@ func (env Env) profile(team paths.TeamID) (files, bool, error) {
 		return files{}, false, fmt.Errorf("%w: %s: the approved url has no host", ErrRefused, team)
 	}
 	if u.Scheme == "https" {
-		if _, err = fmt.Fprintf(env.Stderr, noteCA, team, paths.CACertFile(team)); err != nil {
+		if err = env.sayCA(team); err != nil {
 			return files{}, false, err
 		}
 	}
@@ -209,12 +210,51 @@ func (env Env) profile(team paths.TeamID) (files, bool, error) {
 	}, true, nil
 }
 
-// noteCA is said for a team whose url is https (SPEC-cross-network X20): the team's own CA signs
-// its homeserver's certificate, and no system root does. Whether the Flatpak build of Element
-// honours a CA added for it is not established here, so the note says so.
-const noteCA = "%s: the team's url is https, so Element must trust the team's CA, %s " +
-	"(in a root-only directory: copy it out as root to import it); whether the Flatpak build " +
-	"honours a CA added for it has not been checked\n"
+// noteCA is said for a team whose url is https and whose CA the Element play has not placed
+// (SPEC-cross-network X20, X34): the team's own CA signs its homeserver's certificate, and no
+// system root does. The play places it and proves it from Element's sandbox, so no hand step is
+// asked for.
+const noteCA = "%s: the team's url is https and Element does not trust the team's CA, %s, yet: " +
+	"run the Element play, which places it where Element reads it and checks a handshake from " +
+	"Element's sandbox\n"
+
+// sayCA says noteCA for an https team unless the Element play placed its CA.
+func (env Env) sayCA(team paths.TeamID) error {
+	placed, err := env.caPlaced(team)
+	if err != nil || placed {
+		return err
+	}
+	_, err = fmt.Fprintf(env.Stderr, noteCA, team, paths.CACertFile(team))
+	return err
+}
+
+// caPlaced is whether the Element play's check left team's CA (paths.ElementCAPlaced): a regular
+// file of this user that no one else may write, holding a team CA certificate. Anything else
+// standing there is refused, naming the path.
+func (env Env) caPlaced(team paths.TeamID) (bool, error) {
+	path, err := paths.ElementCAPlaced(env.Home, team)
+	if err != nil {
+		return false, err
+	}
+	fi, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !fi.Mode().IsRegular() || !ownedBy(fi, env.UID) || fi.Mode().Perm()&0o022 != 0 {
+		return false, fmt.Errorf("%w: %s is not a regular file of this user that only it may write", ErrRefused, path)
+	}
+	data, _, err := state.ReadFile(path, maxFile)
+	if err != nil {
+		return false, err
+	}
+	if _, err = pki.Fingerprint(data); err != nil {
+		return false, fmt.Errorf("%w: %s is not a team CA certificate (%w); run the Element play again", ErrRefused, path, err)
+	}
+	return true, nil
+}
 
 // files are a team's three files' content.
 type files struct {
