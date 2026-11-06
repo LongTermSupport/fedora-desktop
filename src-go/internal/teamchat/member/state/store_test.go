@@ -296,7 +296,7 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 	if len(data) > MaxStore {
 		t.Fatalf("a full store is %d bytes, over the file cap", len(data))
 	}
-	bound := 4096 + maxNextBatch // every fixed field, the position at its longest
+	bound := 4096 + writtenFixed() // the keys, numbers and punctuation, and every fixed field as written
 	for _, l := range listCaps {
 		bound += l.count * (l.size + 1)
 	}

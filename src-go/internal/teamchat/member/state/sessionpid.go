@@ -45,7 +45,7 @@ func (p SessionPID) Encode() ([]byte, error) {
 // DecodeSessionPID reads session.pid strictly.
 func DecodeSessionPID(data []byte) (SessionPID, error) {
 	var p SessionPID
-	if _, err := decodeStrict(sessionPIDFile, data, MaxSessionPID, &p, func(c *rules) { p.check(c) }); err != nil {
+	if err := decodeStrict(sessionPIDFile, data, MaxSessionPID, &p, func(c *rules) { p.check(c) }); err != nil {
 		return SessionPID{}, err
 	}
 	return p, nil
