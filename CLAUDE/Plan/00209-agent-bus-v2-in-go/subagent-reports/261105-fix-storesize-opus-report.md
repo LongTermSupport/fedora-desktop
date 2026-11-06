@@ -143,7 +143,15 @@ and `reminded_ms` hold only numbers and booleans and need none. Neither new list
 
 ## Gates
 
-GATES-PLACEHOLDER
+- `./scripts/qa-changed.bash --base origin/merge/pr157-onto-f44`, run after the last code
+  commit (f500967c3): exit 0. Its lines: `plan: 22 changed file(s)`, checks `docs`, `go`,
+  `teamchat-keeps-off-v1`; `✓ docs: whole gate`, `✓ go: go-qa, both modules (diff mode on a git change)`, `✓ teamchat-keeps-off-v1: whole gate`, `✓ qa-changed passed: 22 changed file(s)`. No "tests failed in ." line: the root module passed. (`ansible-syntax` and `qa-js`
+  were not selected for this diff.) It queued on the shared QA lock behind another run first.
+- `go test -race -count=1 -cover`: `state` ok, 100.0%; `engine` ok, 92.6%; `keeper` ok, 91.1%;
+  `wire` ok, 94.2%; `cli` ok, 98.9%; `link` ok, 92.4%; `teamsync` ok, 95.2%; `wiring` ok,
+  100.0%.
+- `golangci-lint run` over `member/state` and `member/engine`: 0 issues.
+- `qa-all.bash` not run (not this builder's to run).
 
 ## Not done
 
