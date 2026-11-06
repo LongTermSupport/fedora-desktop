@@ -15,14 +15,17 @@ var ListingOrder = &analysis.Analyzer{
 	Doc: `project_listing_order flags a _test.go comparison that asserts the order of a directory
 listing nothing sorted: slices.Equal, slices.EqualFunc, slices.Compare, slices.CompareFunc or
 reflect.DeepEqual given, as an argument, a call of a function that returns a listing in
-directory order, or a variable last assigned from one with no sort of it between.
+directory order, or a variable last assigned from one with no sort of it between. Outside
+_test.go files it flags each function that reads a directory itself and returns the listing in
+directory order: the place to sort it, so no caller meets the filesystem's order.
 
 A function returns a listing in directory order when its body calls (*os.File).ReadDir, Readdir
 or Readdirnames (or fs.ReadDirFile's ReadDir), or a function that does, has a slice among its
-results, and calls nothing that sorts (a function of package sort, or slices.Sort, SortFunc,
-SortStableFunc, Sorted, SortedFunc, SortedStableFunc). os.ReadDir, fs.ReadDir, filepath.Glob and
-filepath.WalkDir are sorted by the standard library and are not listing calls. The mark crosses
-packages as an analysis fact, so a test of one package is judged against the function of another.
+results, and calls nothing that sorts (a function of package sort, slices.Sort, SortFunc,
+SortStableFunc, Sorted, SortedFunc, SortedStableFunc, or a function of the same package whose body
+sorts). os.ReadDir, fs.ReadDir, filepath.Glob and filepath.WalkDir are sorted by the standard
+library and are not listing calls. The mark crosses packages as an analysis fact, so a test of one
+package is judged against the function of another.
 
 The order of a directory's entries is the filesystem's: ext4 hashes the names with a seed made at
 mkfs, tmpfs lists the newest first, btrfs by index. A test that expects the order its author's
@@ -32,9 +35,10 @@ another way: restore's TestOSReadDir expected [2 5] and CI got [5 2] (fedora-des
 Not caught: an order asserted through an index (got[0]), a loop over the listing and the want
 together, a value derived from the listing (the names of its entries, a joined string), a
 listing read through an interface method (no body to mark), a comparison helper of the test's own
-that wraps slices.Equal, and the production use of such an order (a message that names the
-entries in directory order). An unsorted listing returned from production code is not judged
-here: the function that returns it is the one to sort.
+that wraps slices.Equal, a production function that uses a directory order without returning it
+(a message that names the entries as read), a sort through another package's helper (not counted
+as a sort, so its listing is flagged), and a sort of something other than the listing in the same
+function (counted as one).
 
 How to fix: sort the listing before comparing (slices.SortFunc on the entries' names), or
 compare it as a set (a map or a sorted copy); a function whose callers need an order sorts at its
@@ -67,22 +71,35 @@ var orderedComparisons = []struct{ pkg, name string }{
 const slicesPkg = "slices"
 
 func runListingOrder(pass *analysis.Pass) {
-	markListings(pass)
+	s := localSorters(pass)
+	markListings(pass, s)
 	for _, f := range pass.Files {
 		if !isTestFile(pass, f) {
+			reportUnsortedReturns(pass, f)
 			continue
 		}
 		for _, decl := range f.Decls {
 			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body != nil {
-				checkListingComparisons(pass, fd.Body)
+				checkListingComparisons(pass, s, fd.Body)
 			}
 		}
 	}
 }
 
-// markListings exports the fact for each function of the package that returns a listing in
-// directory order, to a fixed point so a wrapper of such a function is marked too.
-func markListings(pass *analysis.Pass) {
+// sorters are the functions of the package under analysis whose body sorts: a library sort, or
+// another of them. Only the package's own count, so a listing sorted through a helper of its own
+// (seat's sortNames) is not marked, while a function of another package that sorts something
+// inside (testing's) does not pass for a sort of what it is given.
+type sorters map[*types.Func]bool
+
+// sorts is whether fn orders what it is given: a library sort or one of the package's sorters.
+func (s sorters) sorts(fn *types.Func) bool {
+	return fn != nil && (s[fn.Origin()] || isSortCall(fn))
+}
+
+// localSorters finds the package's sorters, to a fixed point.
+func localSorters(pass *analysis.Pass) sorters {
+	s := sorters{}
 	for changed := true; changed; {
 		changed = false
 		for _, f := range pass.Files {
@@ -92,7 +109,42 @@ func markListings(pass *analysis.Pass) {
 					continue
 				}
 				fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
-				if !ok || !returnsSlice(fn) || isMarkedListing(pass, fn) || !listsUnsorted(pass, fd.Body) {
+				if !ok || s[fn] || !s.calledIn(pass, fd.Body) {
+					continue
+				}
+				s[fn] = true
+				changed = true
+			}
+		}
+	}
+	return s
+}
+
+// calledIn is whether body calls something that sorts.
+func (s sorters) calledIn(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && s.sorts(calledFunc(pass, call)) {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// markListings exports the fact for each function of the package that returns a listing in
+// directory order, to a fixed point so a wrapper of such a function is marked too.
+func markListings(pass *analysis.Pass, s sorters) {
+	for changed := true; changed; {
+		changed = false
+		for _, f := range pass.Files {
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
+				if !ok || !returnsSlice(fn) || isMarkedListing(pass, fn) || !listsUnsorted(pass, s, fd.Body) {
 					continue
 				}
 				pass.ExportObjectFact(fn, new(unsortedListingFact))
@@ -100,6 +152,39 @@ func markListings(pass *analysis.Pass) {
 			}
 		}
 	}
+}
+
+// reportUnsortedReturns reports each function of f, a file that is not a test, that reads a
+// directory itself (one of the unsorted listing methods) and returns the listing in directory
+// order. A wrapper of such a function is marked but not reported: sorting at the read unmarks it.
+func reportUnsortedReturns(pass *analysis.Pass, f *ast.File) {
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
+		if ok && isMarkedListing(pass, fn) && readsDirectory(pass, fd.Body) {
+			pass.Reportf(fd.Name.Pos(), listingReturnMsg, fd.Name.Name)
+		}
+	}
+}
+
+const listingReturnMsg = "%s returns a directory listing in directory order, which is the filesystem's and differs " +
+	"between machines (project_listing_order): sort it at its return, as homefs.Root.Entries does"
+
+// readsDirectory is whether body calls one of the unsorted listing methods itself.
+func readsDirectory(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if fn := calledFunc(pass, call); fn != nil && isUnsortedListingMethod(fn) {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // returnsSlice is whether one of fn's results is a slice.
@@ -122,13 +207,13 @@ func isMarkedListing(pass *analysis.Pass, fn *types.Func) bool {
 }
 
 // listsUnsorted is whether body reads a listing in directory order and sorts nothing.
-func listsUnsorted(pass *analysis.Pass, body *ast.BlockStmt) bool {
+func listsUnsorted(pass *analysis.Pass, s sorters, body *ast.BlockStmt) bool {
 	lists, sorts := false, false
 	ast.Inspect(body, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			fn := calledFunc(pass, call)
 			lists = lists || isListingCall(pass, fn)
-			sorts = sorts || isSortCall(fn)
+			sorts = sorts || s.sorts(fn)
 		}
 		return true
 	})
@@ -184,14 +269,14 @@ func isSortCall(fn *types.Func) bool {
 }
 
 // checkListingComparisons reports each ordered comparison in body of a listing nothing sorted.
-func checkListingComparisons(pass *analysis.Pass, body *ast.BlockStmt) {
+func checkListingComparisons(pass *analysis.Pass, s sorters, body *ast.BlockStmt) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || !isOrderedComparison(calledFunc(pass, call)) {
 			return true
 		}
 		for _, arg := range call.Args {
-			if what, unsorted := unsortedListing(pass, body, arg, call.Pos()); unsorted {
+			if what, unsorted := unsortedListing(pass, s, body, arg, call.Pos()); unsorted {
 				pass.Reportf(arg.Pos(), listingOrderMsg, what)
 				break
 			}
@@ -213,7 +298,7 @@ func isOrderedComparison(fn *types.Func) bool {
 // unsortedListing is what arg is, when it is a listing in directory order at the comparison at
 // pos: a call of a listing function, or a variable last assigned from one with no sort of it
 // since.
-func unsortedListing(pass *analysis.Pass, body *ast.BlockStmt, arg ast.Expr, pos token.Pos) (string, bool) {
+func unsortedListing(pass *analysis.Pass, s sorters, body *ast.BlockStmt, arg ast.Expr, pos token.Pos) (string, bool) {
 	arg = ast.Unparen(arg)
 	switch e := arg.(type) {
 	case *ast.CallExpr:
@@ -228,7 +313,7 @@ func unsortedListing(pass *analysis.Pass, body *ast.BlockStmt, arg ast.Expr, pos
 			return "", false
 		}
 		from, call := lastListingAssign(pass, body, v, pos)
-		if call == nil || sortedBetween(pass, body, v, from, pos) {
+		if call == nil || sortedBetween(pass, s, body, v, from, pos) {
 			return "", false
 		}
 		return e.Name, true
@@ -269,11 +354,11 @@ func assigns(pass *analysis.Pass, as *ast.AssignStmt, v *types.Var) bool {
 }
 
 // sortedBetween is whether body sorts v between from and to: a sort call given v.
-func sortedBetween(pass *analysis.Pass, body *ast.BlockStmt, v *types.Var, from, to token.Pos) bool {
+func sortedBetween(pass *analysis.Pass, s sorters, body *ast.BlockStmt, v *types.Var, from, to token.Pos) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || call.Pos() < from || call.End() > to || !isSortCall(calledFunc(pass, call)) {
+		if !ok || call.Pos() < from || call.End() > to || !s.sorts(calledFunc(pass, call)) {
 			return !found
 		}
 		for _, arg := range call.Args {

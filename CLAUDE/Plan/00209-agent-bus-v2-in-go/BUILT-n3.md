@@ -93,6 +93,34 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   (`TestPT1P2VerdictIsTheRecordsNot`); `pt1_readings_unit_test.go` holds the forced timelines and
   `TestPT1MarkBeforeAnInFlightDelivery` forces (b) over a real run. Seed 57 stays in `pt1Fixed`.
 
+- **n3d's caps measured as written** on `fix/store-size-as-written`
+  (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
+  `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
+  U+2028 and U+2029 longer; the store now measures every entry through its one encoder, a send
+  whose entry does not fit as written is refused 10 `size` at the verb, and the two file caps
+  hold their largest values escaped. Reviewed by the coordinator and merged (PR #164,
+  2026-11-06).
+
+- **The sender's stale stop** (issue #159, on `fix/recover-stale-401-159`): a PUT under the old
+  token answered 401 or 403 after the team's recovery under a reissued token had cleared the
+  send stop set it again, over the new token. The team's `sendsUnder` (the digest of the token
+  its sends run under) is set by a recovery in the step that clears the stop, and the sender
+  sets the stop only when the PUT's token is that one; a refusal of another is tried again
+  under the new token. Tests `TestARefusalOfAnOldTokenDoesNotStopTheNewOne` (red before the
+  fix) and `TestARefusalOfTheTokenTheSenderRecoveredUnderStops`; the class has no rule
+  ([GoProjectRules.md](../../GoProjectRules.md#defect-classes-that-cannot-be-a-rule)). Report:
+  `subagent-reports/261105-fix-sender-opus-report.md`.
+
+- **The retry hold** (on `fix/retry-hold-lift`, tests only): a send held after a transient
+  failure is posted at the team's next answered sync without waiting `retryHold`, a sync
+  answered before the failure does not lift the hold, and with no sync the timer posts it
+  (`TestN3dD1ANewerSyncLiftsTheRetryHold`, green as built, three plants red). The E2E's 55 to
+  62 s delivery is not the hold: a team back after an outage is shown up only at its first
+  long-poll's answer, `longPoll` after its retry in an idle room
+  (`TestABackTeamIsShownUpAtItsFirstLongPoll`); the wiring's `upBound` and `deliveredBound`
+  derive from that. Whether to mark a team up on its first answered request instead is left to
+  the coordinator (same report).
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
