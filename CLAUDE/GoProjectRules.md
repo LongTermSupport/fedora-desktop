@@ -1990,6 +1990,24 @@ bash they replaced and in the Go during review; each instance is in the audit re
   other hooks (`gated`'s and `held`'s `onPoll`, `watchReports`, the budget and receipt waits)
   announce nothing before they decide, or decide on nothing the test writes.
 
+- **A test that forgets a stream of announcements after the act that makes more of them** (Plan
+  00209 n3f-c1d: `TestQS5AQuestionsFloorMoveIsMarkedInTheQuestionsRoom` posted to the questions
+  room, called `drainPolls()` to forget the long-poll `readyWith` left, then waited for the batch
+  and for the team's next long-poll. The post ends the poll that was in flight and the team goes
+  on to its next at once, so when it announced that one before the drain ran, the drain took it
+  too and the wait for it was for ever: 29 minutes at `[select]` in CI, PR 178, run
+  42179368091, the team parked in a held `/sync` of the fake server.) A 100 ms pause between the
+  post and the drain made it hang on the one run made. `TestQX4AFailedWriteLeavesTheLiveIndexUnfolded`
+  had the same order. No rule: which acts cause an announcement, and which announcements a
+  later wait must still see, are what the code under test does, not a shape in the syntax tree;
+  a rule on "a drain after a post" would flag the gate tests, whose drain follows a post while
+  the team is held in a request and so cannot announce. What holds it instead: forget the stream
+  before the act (`drainPolls()` first, then the post), so everything announced after the drain
+  is the act's; the same pause after the post, run against the test, shows an order that does not
+  (the old order hangs, the new one passes, 150 runs at `-cpu 1,2,4`). Swept in `teamsync`'s
+  tests: the other uses of `drainPolls` are the gate tests' (the team is held when it runs) and
+  `TestQS8ATrustTriggerInTheRoomReVerifies` (before its act).
+
 - **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
   merge: `units.Conn` says the connection closes the signal channel it was given when it is
   closed, and n3e made `session.close` wait for `dispatch`, which that close ends; n2's

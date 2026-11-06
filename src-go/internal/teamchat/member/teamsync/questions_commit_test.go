@@ -31,8 +31,10 @@ func TestQX4AFailedWriteLeavesTheLiveIndexUnfolded(t *testing.T) {
 	w := newWorld(t)
 	w.inQuestions(alice, false)
 	rt := w.readyWith(w.main, nil)
-	first := w.sayIn(w.qroom(), alice, human("is the build green?"))
+	// Forgotten before the post: the post ends the long-poll readyWith left, and the next poll the
+	// team makes is the one waited for below.
 	rt.drainPolls()
+	first := w.sayIn(w.qroom(), alice, human("is the build green?"))
 	w.batchWith(lastIs(first))
 	rt.r.poll(t)
 

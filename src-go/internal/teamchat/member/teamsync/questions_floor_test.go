@@ -32,8 +32,11 @@ func TestQS5AQuestionsFloorMoveIsMarkedInTheQuestionsRoom(t *testing.T) {
 	w.inQuestions(alice, false)
 	rt := w.readyWith(w.main, nil)
 	mainBefore := w.coordMarker(w.main)
-	id := w.sayIn(w.qroom(), alice, human("is the build green?"))
+	// The long-poll readyWith left is forgotten before the post, not after it: the post ends that
+	// poll and the team makes its next at once, which the poll below waits for and a drain after
+	// the post could take with the first.
 	rt.drainPolls()
+	id := w.sayIn(w.qroom(), alice, human("is the build green?"))
 	b := w.batchWith(lastIs(id))
 	rt.r.poll(t)
 	if len(b.Items) != 1 || b.Items[0].Pending.ID != id {
