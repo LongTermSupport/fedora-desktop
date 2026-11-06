@@ -27,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
@@ -133,6 +134,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 		Home:       admin.LookupHome,
 		LXC:        sync.OnceValues(func() (*lxc.Deps, error) { return m.lxcDeps(clock, ownerGroup) }),
 		Backup:     backups,
+		// X33: team rotate-ca replaces the CA, the leaf and the LXC record as apply writes files.
+		RotateWrite: state.WriteFile,
 	}
 	sys.Restore = func() (admin.Restorer, error) {
 		if !m.restoreProven {

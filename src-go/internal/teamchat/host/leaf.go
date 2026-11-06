@@ -70,18 +70,34 @@ func (s leafStep) ensure(caPEM []byte, sign func() (pki.CA, error), want pki.Nam
 	if err != nil {
 		return kept, leafFailed("the CA key "+s.root+paths.CAKeyFile(s.team)+" cannot be read", err)
 	}
-	leaf, err := s.maker.NewLeaf(ca, want)
+	leaf, err := s.make(ca, want)
 	if err != nil {
-		return kept, leafFailed("the leaf cannot be signed by the CA", err)
+		return kept, err
 	}
-	err = state.WriteFile(s.root+paths.LeafKeyFile(s.team), leaf.KeyPEM(), keyMode, -1)
-	if err == nil {
-		err = state.WriteFile(s.root+paths.LeafCertFile(s.team), leaf.CertPEM(), certMode, -1)
-	}
-	if err != nil {
-		return kept, leafFailed("the leaf cannot be written to "+s.root+paths.TLSDir(s.team), err)
+	for _, f := range s.files(leaf) {
+		if err = state.WriteFile(f.Path, f.New, f.Mode, f.GID); err != nil {
+			return kept, leafFailed("the leaf cannot be written to "+s.root+paths.TLSDir(s.team), err)
+		}
 	}
 	return leafOutcome{line: out.line, notAfter: leaf.NotAfter(), madeAt: leaf.MadeAt()}, nil
+}
+
+// make signs a leaf for want with ca: apply's, the tick's and a CA rotation's one way to make it.
+func (s leafStep) make(ca pki.CA, want pki.Names) (pki.Leaf, error) {
+	leaf, err := s.maker.NewLeaf(ca, want)
+	if err != nil {
+		return pki.Leaf{}, leafFailed("the leaf cannot be signed by the CA", err)
+	}
+	return leaf, nil
+}
+
+// files are the leaf's two files where apply writes them, with its modes, the key before the
+// certificate.
+func (s leafStep) files(leaf pki.Leaf) []Replacement {
+	return []Replacement{
+		{Path: s.root + paths.LeafKeyFile(s.team), New: leaf.KeyPEM(), Mode: keyMode, GID: -1},
+		{Path: s.root + paths.LeafCertFile(s.team), New: leaf.CertPEM(), Mode: certMode, GID: -1},
+	}
 }
 
 // verdict is the leaf on disk judged: its line when it must be made, and its end when it parses.
