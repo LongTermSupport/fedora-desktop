@@ -57,6 +57,16 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   ([GoProjectRules.md](../../GoProjectRules.md#defect-classes-that-cannot-be-a-rule)). Report:
   `subagent-reports/261105-fix-sender-opus-report.md`.
 
+- **The retry hold** (on `fix/retry-hold-lift`, tests only): a send held after a transient
+  failure is posted at the team's next answered sync without waiting `retryHold`, a sync
+  answered before the failure does not lift the hold, and with no sync the timer posts it
+  (`TestN3dD1ANewerSyncLiftsTheRetryHold`, green as built, three plants red). The E2E's 55 to
+  62 s delivery is not the hold: a team back after an outage is shown up only at its first
+  long-poll's answer, `longPoll` after its retry in an idle room
+  (`TestABackTeamIsShownUpAtItsFirstLongPoll`); the wiring's `upBound` and `deliveredBound`
+  derive from that. Whether to mark a team up on its first answered request instead is left to
+  the coordinator (same report).
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.

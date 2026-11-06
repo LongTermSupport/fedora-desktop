@@ -1843,15 +1843,18 @@ bash they replaced and in the Go during review; each instance is in the audit re
   fourth retry falls short of 15 s and the fifth, 23 to 31 s after the first failure, is the one
   that marks it down. A bound of 30 s is shorter than that worst case, so on an idle machine
   one run in eight failed with `not within 30s` and an empty `link.log` (it logs only `down`
-  and `back up`); the second wait chains the team's retry (up to 30 s) and the sender's
-  `retryHold` (30 s), and 62.3 s was seen against 60. Nothing was lost: every queued send was
-  answered `queued` and posted once. The test owns no event to wait on, because the clock is the
-  link's own, in another process; the bound is the derived worst case (`downBound`,
-  `deliveredBound` in `member/wiring/e2e_test.go`, each stating its derivation). No rule: whether
-  a bound covers a schedule is a fact of the production code's constants and its jitter, not a
-  shape in the test's syntax tree; the `project_realtime_bound` rule already stops a test
-  *shortening* a bound, and the fix for this class is to state the bound as the schedule's
-  worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
+  and `back up`); the second wait chains the team's retry (up to 30 s) and its first long-poll
+  (30 s in an idle room: a team that resumes from a stored position is shown up only when that
+  answers, `teamsync`'s `TestABackTeamIsShownUpAtItsFirstLongPoll`), and 62.3 s was seen
+  against 60. Nothing was lost: every queued send was answered `queued` and posted once. The
+  test owns no event to wait on, because the clock is the link's own, in another process; the
+  bound is the derived worst case (`downBound`, `upBound` and `deliveredBound` in
+  `member/wiring/e2e_test.go`, each stating its derivation; the reverse wait of
+  `TestE2EOfflineServer`, `backoffCap + settle`, had the same gap and now waits `upBound`). No
+  rule: whether a bound covers a schedule is a fact of the production code's constants and its
+  jitter, not a shape in the test's syntax tree; the `project_realtime_bound` rule already stops
+  a test *shortening* a bound, and the fix for this class is to state the bound as the
+  schedule's worst case.
 
 - **A request's wait ending reported as a failure of the engine rather than as a bound that
   expired** (fedora-desktop#160: under heavy CPU starvation `status` answered 1 `internal`, "the

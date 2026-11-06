@@ -111,8 +111,9 @@ func (w *world) textsFrom(local, text string) []string {
 }
 
 // postedOnce waits until C's queue is empty and its text is in main, then holds that it is
-// there exactly once: its event id. A team whose server is back resumes within the backoff's cap,
-// and its held send is tried again within retryHold after that (deliveredBound).
+// there exactly once: its event id. A team whose server is back retries within the backoff's
+// cap and is shown up at its first long-poll's answer, and its queued send is posted then
+// (deliveredBound).
 func (s *session) postedOnce(text string) string {
 	s.w.t.Helper()
 	within(s.w.t, deliveredBound, func() bool {

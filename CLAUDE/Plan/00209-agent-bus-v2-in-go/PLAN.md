@@ -332,6 +332,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     `sizeAwaiting` is raised.
   - The sender's stale stop (issue #159): a 401 or 403 stops a team's sends only for the token
     the PUT was made under; built on `fix/recover-stale-401-159` ([BUILT-n3.md](BUILT-n3.md)).
+  - The retry hold (`fix/retry-hold-lift`): a newer sync already lifts it, now pinned; the E2E's
+    slow delivery is the team's up-mark at its first long-poll, left to the coordinator ([BUILT-n3.md](BUILT-n3.md)).
 
 - [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,

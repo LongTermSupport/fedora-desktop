@@ -99,3 +99,90 @@ waited about three hours for the QA lock behind other agents' runs.
 2. A 403 refuses the user (membership), not the token, so gating it on the token is not needed
    for correctness. It is gated as decided, at no cost: a 403 under the new token stops the
    sends at its own PUT.
+
+## Fix 2: the retry hold and the 55 to 62 s delivery
+
+No production code changes in fix 2. As the coordinator's correction said, the lift and the
+wake already exist, and the delay is not the sender's.
+
+### (a) A newer sync lifts a standing hold: GREEN, now pinned
+
+`TestN3dD1ANewerSyncLiftsTheRetryHold` (`sender_test.go`, subtests "a newer sync" and "the
+timer"): a send's PUT fails 502 with its answer held; a sync is answered while it is in flight;
+the answer is released and the hold arms (`awaitDue(retryHold)`); once the world is idle
+(`quiet`, through `leakcheck.Drive`) the send must not have been posted (that sync came before
+the failure was read); then either a newer sync is answered with the clock untouched, or the
+clock is advanced to `retryHold`, and the send must be posted.
+
+- Green against the code as built (`-race -count=5`).
+- Planted, the lift removed from `mayPost`: "a newer sync" red (`leakcheck: every other goroutine is blocked and the condition does not hold`).
+- Planted, any sync lifts (`>=`): both red, `a sync answered before the failure lifted the hold`.
+- Planted, the timer ignored (`hold.fired` dropped): "the timer" red (leakcheck).
+
+### (b) Where the 55 to 62 s comes from: the team's up-mark waits for its first long-poll
+
+Measured on the fake clock in `teamsync`, with a test of the claim "a team is shown up as soon as
+the server answers it again" (not committed: it is red by design). A team with a stored position
+long-polls; six `/sync` answers are 502 (waits 1, 2, 4, 8, 16, 30 s; down at the fifth); after
+the sixth wait the retry reaches the server, the new session verifies main (answered) and, since
+`start()` makes no sync when `next_batch` is stored, goes straight to its long-poll, which the
+fake holds in an idle room. Red, 3 of 3 runs:
+
+```
+the server answers (main's state verified, the long-poll accepted), yet the team is shown down: {Down:true ... LastSyncOKMS:1760000030000 ...}
+shown up 30000 ms (fake wall) after the retry reached the server; LastSyncOKMS 1760000030000 -> 1760000121000
+```
+
+So a team back after an outage is shown up, and its `LastSyncOKMS` moves, exactly `longPoll`
+(30 s) after the retry that reached the server, in an idle room: `recovered()` and `answeredAt()`
+run only on a sync's answer, and the first one is the long-poll's. The E2E worst case is the retry
+(within `backoffCap`, 30 s) plus `longPoll` (30 s) plus the processes' own time, which explains
+55 to 62 s against 60. In those tests the send is queued while the team is shown down, so the
+sender makes no PUT and no retry hold ever stands: `retryHold` is not on that path. Faster runs
+are those where an event lands in the room during the long-poll (the other member's activity
+after its own retry), which answers it early.
+
+Committed in its place: `TestABackTeamIsShownUpAtItsFirstLongPoll` (`run_test.go`), green,
+pinning the bound the wiring now derives from (shown down while the first long-poll is held; up,
+with `LastSyncOKMS` at `retried + longPoll`, at its answer). Planted, the team marked up when the
+session's verify succeeds: red, but at an earlier step (`not down after six failures`), because
+the fault refuses only `/sync`, so verify succeeds at every retry: the plant changes the outage
+the test builds rather than giving the exact message.
+
+### (c) The wiring bounds
+
+`member/wiring/e2e_test.go`: `retryHold` removed (no wait depends on it), `longPoll` added
+(teamsync's), `upBound = backoffCap + longPoll + settle` with its derivation, and
+`deliveredBound = upBound` (the sender posts nothing while the team is shown down, then posts
+at once). The value is unchanged (90 s); the derivation was wrong. `TestE2EOfflineServer` waited
+`backoffCap + settle` for the team to show up: the same class as #140 (no margin past retry plus
+long-poll), so it now waits `upBound`. The #140 entry of `GoProjectRules.md`, which named that
+wait as the model, is corrected.
+
+### Recommendation (the coordinator's call, not built)
+
+Mark a team up, and record an answered request, at a session's first successful request under
+the pair (verify's main-state read) rather than at its first sync answer. That would make the
+up-mark `backoffCap + settle`, lift a standing hold at once, and shrink `upBound` and
+`deliveredBound` by `longPoll`. The cost to weigh: `LastSyncOKMS` would then mean "last answered
+request", which status and status.json show as the last sync; a separate field may be cleaner.
+The n3d handoff's sender rule ("waits for a health change with Down false and a newer
+LastSyncOKMS, or 30 s") matches what is built. SY8's text on when a team is back was not read.
+
+### Tests run (fix 2)
+
+engine 92.7, teamsync 95.2, wiring 100.0 (`go test -race -cover`, all passed); golangci-lint 0
+issues on those three packages.
+
+`./scripts/qa-changed.bash --base fix/recover-stale-401-159` over the fix-2 commit (9 changed
+files): docs whole gate passed; go: go-qa, both modules (diff mode) passed, and no module
+printed test output, so the root module's tests passed; teamchat-keeps-off-v1 passed; exit 0.
+
+## Not done
+
+- No production change for the slow up-mark: that is the coordinator's call (recommendation
+  above).
+- SY8's spec text on when a team is "back" was not read or checked against the measurement.
+- The planted check of `TestABackTeamIsShownUpAtItsFirstLongPoll` goes red at an earlier step
+  than the one it pins (see (b)); there is no plant that reaches its own assertion.
+- Nothing pushed, merged or run on a host; `qa-all.bash` not run (the coordinator's).
