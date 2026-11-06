@@ -142,6 +142,9 @@ type Fault struct {
 	// DropAfter handles the request, then closes the connection: the effect lands and the
 	// answer is lost.
 	DropAfter bool
+	// Hold handles the request, then answers it only once Hold is closed: a request kept in
+	// flight while the test does something else. A Stop or Restart meanwhile drops it.
+	Hold <-chan struct{}
 	// Redirect answers with Location set to it, and Status (307 when 0).
 	Redirect string
 	// Times is how many requests the fault answers; 0 is one.
@@ -490,7 +493,7 @@ func (s *Server) process(ctx context.Context, method, path string, query url.Val
 		return s.answer(ctx, method, path, query, body, token)
 	case f.Drop:
 		return outcome{fault: f}
-	case f.DropAfter:
+	case f.DropAfter, f.Hold != nil:
 		out := s.answer(ctx, method, path, query, body, token)
 		out.fault = f
 		return out

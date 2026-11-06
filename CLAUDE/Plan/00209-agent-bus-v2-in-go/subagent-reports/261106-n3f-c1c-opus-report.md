@@ -64,11 +64,16 @@ after each):
 - Second run, in a detached worktree of 97b288b8e: queued behind another agent's run on the
   shared lock for over ten minutes, then stopped by this builder so that one run covers the
   whole branch.
-- **Third run: not finished when this builder stopped.** It runs in a detached worktree of the
-  commit holding this report (`untracked/scratch/qa-head/`), writing
-  `untracked/scratch/qa-head.log` in this builder's worktree (its last line is `exit <code>`).
-  The coordinator should read that log, or run the gate on the branch head, before merging. A
-  failure of the four `qa/cmd/qa-js` tests alone is the known environmental one (issue #135).
+- Third run, in a detached worktree of 3367c8199 (every commit of the branch): **failed go**,
+  on one test only: `wiring`'s `TestClaudeStopBlocks` (`e2e_claude_test.go:359`, "the Stop of
+  a new pending set answered `{}`", shuffle seed 1793940311914825481). Every other go-qa stage
+  passed (fmt, record, suppression, summary, docs, golangci, analyzers, deadcode, the
+  failpoints lint and vet, project-rules-tagged, vuln, mod, build). teamsync's tests passed (94.8%
+  coverage), and the docs and `teamchat-keeps-off-v1` gates passed. The same test run again
+  alone at that commit (`go test -race -count=5 -run TestClaudeStopBlocks`) passed 5 of 5. It is
+  a real-process end-to-end test of the main room's Stop hook, which this branch does not touch,
+  so it reads as a flake under a loaded host; it was not investigated further. The coordinator
+  should re-run the gate on the head before merging.
 - Not run by hand: the tagged builds (go-qa runs them).
 
 ## Readings where the spec was silent

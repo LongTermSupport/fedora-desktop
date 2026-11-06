@@ -67,10 +67,21 @@ func countOf(ss []string, s string) int {
 // next answer is checked and persisted as any other.
 func TestARestartedServerBetweenPolls(t *testing.T) {
 	w := newWorld(t)
+	// The post's answer is held, so the post is still in flight when the store write it
+	// causes begins (the worst interleaving, made every run). The test, not the hook, restarts
+	// the server: the hook answers the post, tells the test the write has begun and waits; the
+	// test restarts once its post is answered, then lets the write go on (issue 149).
+	hold, writing, restarted := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	w.srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: "/send/", Hold: hold})
 	writes := 0
 	w.eng.setPersistErr(func(team.Batch) error {
 		if writes++; writes == 2 {
-			check(t, w.srv.Restart())
+			close(hold)
+			close(writing)
+			select {
+			case <-restarted:
+			case <-t.Context().Done():
+			}
 		}
 		return nil
 	})
@@ -78,6 +89,9 @@ func TestARestartedServerBetweenPolls(t *testing.T) {
 	w.batch()
 	r.poll(t)
 	w.say(alice, human("before the restart", user(me)))
+	<-writing
+	check(t, w.srv.Restart())
+	close(restarted)
 	w.batch()
 	id := w.say(alice, human("after the restart", user(me)))
 	if got := itemIDs(w.batchOrWait(r)); len(got) != 1 || got[0] != id {

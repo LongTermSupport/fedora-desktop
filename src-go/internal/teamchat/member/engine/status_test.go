@@ -58,13 +58,69 @@ func checkOpsStatus(t *testing.T, out *recorder) {
 	if m, ok := out.recs[2].(records.Member); !ok || m.Present {
 		t.Fatalf("the other agent = %+v", out.recs[2])
 	}
-	for i, st := range []string{roomJoined, roomJoined, roomAbsent} {
+	for i, st := range []string{roomJoined, roomNotCoordinator, roomAbsent} {
 		if r, ok := out.recs[3+i].(records.Room); !ok || r.State != st {
 			t.Fatalf("room %d = %+v, want %s", i, out.recs[3+i], st)
 		}
 	}
 	if r, ok := out.recs[6].(records.Team); !ok || r.Team.String() != "dev" || !r.Down || r.Delivery != state.DeliveryNone {
 		t.Fatalf("the refused add = %+v", out.recs[6])
+	}
+}
+
+// questionsRoom is the questions room's record among a status's records.
+func questionsRoom(t *testing.T, out *recorder) records.Room {
+	t.Helper()
+	for _, r := range out.recs {
+		if room, ok := r.(records.Room); ok && room.Purpose == proto.PurposeQuestions {
+			return room
+		}
+	}
+	t.Fatalf("no questions room record in %s", out.kinds())
+	return records.Room{}
+}
+
+// Section 6's `room` record for questions, QS2, QS8, QX1: the team's own reading of the room
+// (Health.Questions), each state with its check; a worker's is `not-coordinator`, and a roster
+// that names no questions room has it `absent`.
+func TestStatusShowsTheQuestionsRoomAsTheTeamReadsIt(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.held(ops)
+	r := proto.Roster{
+		Members: map[string]proto.RosterMember{agent(ops, 1): {Role: "coordinator"}, alice(ops): {}},
+		Rooms:   proto.SideRooms{Questions: qRoom},
+	}
+	f.notices.set(r)
+	cases := []struct {
+		health     team.QuestionsHealth
+		state      string
+		check      string
+		withoutQus bool
+	}{
+		{health: team.QuestionsHealth{State: team.QuestionsReady}, state: roomJoined},
+		{health: team.QuestionsHealth{State: team.QuestionsAwaitingInvite}, state: "awaiting-invite"},
+		{health: team.QuestionsHealth{State: team.QuestionsLeft}, state: "left"},
+		{health: team.QuestionsHealth{State: team.QuestionsBuilding}, state: "building"},
+		{health: team.QuestionsHealth{State: team.QuestionsUntrusted, Check: "state"}, state: "untrusted", check: "state"},
+		{health: team.QuestionsHealth{State: team.QuestionsUntrusted, Check: team.CheckInvite}, state: "untrusted", check: "invite"},
+		{health: team.QuestionsHealth{}, state: "not-coordinator"},
+		{health: team.QuestionsHealth{}, state: roomAbsent, withoutQus: true},
+	}
+	for _, c := range cases {
+		if c.withoutQus {
+			f.notices.set(proto.Roster{Members: r.Members})
+		}
+		w.e.SetHealth(ops, team.Health{Role: "coordinator", Questions: c.health})
+		_, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
+		got := questionsRoom(t, out)
+		gotCheck := ""
+		if got.Check != nil {
+			gotCheck = *got.Check
+		}
+		if got.State != c.state || gotCheck != c.check {
+			t.Errorf("health %+v: the questions room %q check %q, want %q check %q", c.health, got.State, gotCheck, c.state, c.check)
+		}
 	}
 }
 

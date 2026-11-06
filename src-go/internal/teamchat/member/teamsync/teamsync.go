@@ -91,7 +91,9 @@ type Team struct {
 	client   *matrix.Client
 	roster   proto.Roster
 	verified bool
-	floor    floorMarker
+	// floor is main's marker, qfloor the questions room's (SY10, per room: QS5).
+	floor  floorMarker
+	qfloor floorMarker
 	// savedRev is the roster rev last given to the engine's roster cache (n3d-D3).
 	savedRev int64
 	// loginSaid is forge-login said, until a forge check next answers (n3d-D10).
@@ -105,7 +107,8 @@ type Team struct {
 	authRetried bool
 	persistSaid bool
 	backStarted bool
-	markerSaid  bool
+	// markerSaid are the rooms whose undecodable marker was said.
+	markerSaid map[string]bool
 	// recoveredPair is the pair the sends were last recovered under, nil before the first: a
 	// session under another pair recovers them again (n3d-D4).
 	recoveredPair *bundle.Pair
@@ -184,7 +187,7 @@ func New(cfg Config) (*Team, error) {
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
 		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1), qres: newResolver(l),
-		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize), faulted: newBounded[struct{}](memorySize),
+		pendingSaid: map[string]bool{}, markerSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize), faulted: newBounded[struct{}](memorySize),
 		reportsKick: make(chan struct{}, 1), reportsTry: make(chan struct{}, 1),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
 		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},

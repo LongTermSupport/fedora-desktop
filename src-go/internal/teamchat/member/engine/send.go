@@ -346,20 +346,9 @@ func (e *Engine) composeSend(ctx context.Context, st sendTeam, kind string, comp
 	if err != nil {
 		return composedSend{}, doneOf(refusal(st.id, err)), false
 	}
-	entry, err := sendingOf(kind, o, st.roster.Limits)
-	if err != nil {
-		return composedSend{}, internal(err), false
-	}
-	// A content within A's cap whose `<`, `>` or `&` make its entry too large for the store is
-	// refused as the composer refuses an over-size content, before anything is spent (n3d-D1).
-	switch err := entry.Fits(); {
-	case errors.Is(err, state.ErrTooLarge):
-		return composedSend{}, doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize})), false
-	case err != nil:
-		return composedSend{}, internal(err), false
-	}
-	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
-		return composedSend{}, doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets))), false
+	entry, d, ok := fitEntry(st, kind, o)
+	if !ok {
+		return composedSend{}, d, false
 	}
 	return composedSend{c: c, o: o, entry: entry}, wire.Done{}, true
 }
@@ -407,6 +396,26 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 		return answerSent(out, st.id, entry.Room, nil)
 	}
 	return e.awaitSend(ctx, out, st.id, entry, wait)
+}
+
+// fitEntry is a composed send's store entry, or its refusal before anything is spent: a content
+// within A's cap whose `<`, `>` or `&` make its entry too large for the store is refused as the
+// composer refuses an over-size content (n3d-D1), and a ping past its addressee bound.
+func fitEntry(st sendTeam, kind string, o proto.Outgoing) (state.Sending, wire.Done, bool) {
+	entry, err := sendingOf(kind, o, st.roster.Limits)
+	if err != nil {
+		return state.Sending{}, internal(err), false
+	}
+	switch err := entry.Fits(); {
+	case errors.Is(err, state.ErrTooLarge):
+		return state.Sending{}, doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize})), false
+	case err != nil:
+		return state.Sending{}, internal(err), false
+	}
+	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
+		return state.Sending{}, doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets))), false
+	}
+	return entry, wire.Done{}, true
 }
 
 // awaitSend is a charged send's answer: posted when the sender answers by ctx's end, else queued.
