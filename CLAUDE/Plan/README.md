@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00250-branches-cleaned-up-when-done](00250-branches-cleaned-up-when-done/) - In Progress. A done branch is deleted with its worktree: defences first (delete on merge, no hidden git mutations in scripts, scratch outside worktrees), then every instance cleaned through the tools.
+
 - [00249-agent-bus-retention](00249-agent-bus-retention/) - Not Started (plan only; owner decisions D1-D15 open, the 14-day maximum decided). Bounds agent team bus homeserver storage: RocksDB's WAL archive, 75-90% of each database and pruned by nothing, first; then a 14-day event cap per room through Tuwunel's `purge_history`, from a per-team `retention_days` (default and ceiling 14) and a timer the play installs. Research cites Tuwunel 1.9.4; `triage.bash` measures each team's storage.
 
 - [00248-teams-quick-launch](00248-teams-quick-launch/) - Not Started (plan only; owner decisions D1-D11 open). Every team start (`ccy --teams`, `--teams TEAM`, the picker's and the create wizard's "Start a ccy session", adding a team to a running session) settled on the one launch summary of Plan 00201 Task 2.33: each team, seat and role defaulted, Enter accepts all, a held seat or used-up token shown and asked; proposes to supersede Plan 00223's separate screen

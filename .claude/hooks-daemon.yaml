@@ -49,6 +49,10 @@ branches:
     mode: block
   sweep:
     behind_threshold: 50
+  # A merge into F44 deletes the merged local branch itself, so done work does not pile up as
+  # branches; advise only printed the delete, and nothing ran it (Plan 00250 TRIAGE cause 2).
+  cleanup_after_merge:
+    mode: act
 
 # Plan workflow + QA policy.
 # Made explicit in Plan 00059 (the daemon otherwise synthesises this block from
