@@ -40,7 +40,7 @@
     # Slack publishes Linux builds for x86_64 only, and its Flathub manifest says so
     # (flathub.json only-arches). On any other architecture the block is skipped by
     # name, and the task below says so; Slack in a browser is the alternative there.
-    - name: Say Slack is skipped on this architecture (Flathub has x86_64 builds only)
+    - name: Say Slack is skipped on this architecture (Flathub has no Slack build for it)
       ansible.builtin.debug:
         msg: "Slack: no {{ ansible_facts['architecture'] }} build on Flathub (x86_64 only); skipped, use Slack in a browser"
       when: ansible_facts['architecture'] != 'x86_64'

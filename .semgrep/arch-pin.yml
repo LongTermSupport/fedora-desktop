@@ -53,6 +53,9 @@ rules:
         # Vendored and upstream-owned trees.
         - 'src-go/vendor/**'
         - '.claude/hooks-daemon/**'
+        # Daemon-owned: the hooks-daemon installer replaces it on every upgrade, so a fix
+        # belongs upstream, never in this copy.
+        - '/.claude/ccy/claude-supervise.py'
         - '.claude/skills/**'
         - 'untracked/**'
     languages: [generic]

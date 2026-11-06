@@ -95,7 +95,7 @@
     # Last.fm scrobbling is optional: not everyone uses Last.fm. An empty API key at the
     # prompt skips the scrobbling setup for this run and the rest of the play carries on;
     # nothing is saved, so the next run asks again.
-    - name: Say Last.fm scrobbling is skipped on this architecture (rescrobbled is x86_64 only)
+    - name: Say Last.fm scrobbling is skipped on this architecture (rescrobbled publishes no build for it)
       ansible.builtin.debug:
         msg: "rescrobbled: no {{ ansible_facts['architecture'] }} build (x86_64 only); Last.fm scrobbling skipped"
       when: not (rescrobbled_has_build | bool)
