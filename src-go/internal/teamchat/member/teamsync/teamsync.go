@@ -3,6 +3,7 @@ package teamsync
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -62,6 +63,9 @@ type Config struct {
 	Jitter func(time.Duration) time.Duration
 	// Receipts is the engine's read receipts, which the team sends (B 2.7.5); nil sends none.
 	Receipts team.Receipts
+	// Builder is QX1's builder of the question index; nil builds none, so a coordinator whose
+	// store holds no index at the position never has its questions room at the head.
+	Builder IndexBuilder
 }
 
 // Watcher is a source of seat directory changes.
@@ -121,10 +125,19 @@ type Team struct {
 	// last.
 	budget    proto.Window
 	factsNote string
+	// q is the questions room (QS); qmoved is poked when its readiness may have moved, which
+	// ends a long-poll in flight whose filter it changed (QS4).
+	q      qroom
+	qmoved chan struct{}
+	// qres resolves the questions room's relations apart from main's, so a relation there
+	// naming a main event marks nothing unknown for main (QS6).
+	qres *resolver
 
 	// Test seams.
 	onPoll func(since string)
-	onWait func(time.Duration)
+	// onFilter is told each request's filter just before the request is made.
+	onFilter func(json.RawMessage)
+	onWait   func(time.Duration)
 	// onReceiptWait is told each receipt backoff.
 	onReceiptWait func(time.Duration)
 	// onReports is told each state the reports room is put in (RP1, RP4).
@@ -164,11 +177,11 @@ func New(cfg Config) (*Team, error) {
 	}
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
-		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
+		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1), qres: newResolver(l),
 		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize), faulted: newBounded[struct{}](memorySize),
 		reportsKick: make(chan struct{}, 1), reportsTry: make(chan struct{}, 1),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
-		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},
+		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},
 		onReports: func(team.ReportsRoom) {}, readPair: bundle.ReadPair,
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
@@ -197,6 +210,7 @@ func (t *Team) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	defer cancel()
+	defer t.stopBuilder()
 	if t.cfg.Watcher != nil {
 		wg.Go(func() { t.forward(ctx) })
 	}

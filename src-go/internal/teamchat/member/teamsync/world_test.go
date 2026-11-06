@@ -164,11 +164,12 @@ func (w *world) seatDir() {
 	w.place(w.tokens[w.self], nil)
 }
 
-// as makes local the member under test: its pair placed in the seat directory.
-func (w *world) as(local string) {
+// asCoordinator makes the roster's coordinator the member under test: its pair placed in the
+// seat directory.
+func (w *world) asCoordinator() {
 	w.t.Helper()
-	w.self = local
-	w.place(w.tokens[local], nil)
+	w.self = coord
+	w.place(w.tokens[coord], nil)
 }
 
 func (w *world) bundle() seat.Bundle {
@@ -470,6 +471,16 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 		if !slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == it.Pending.ID }) {
 			s.Pending = append(s.Pending, it.Pending)
 		}
+	}
+	// The questions keys as the engine's one writer leaves them (QX5, QS9): written only by a
+	// batch that holds them, dropped only by a demotion's.
+	if b.Questions != nil {
+		s.Questions = b.Questions
+	}
+	if b.DropQuestions {
+		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })
+		s.Questions, s.RemindedMS, s.RemindLate = nil, 0, []int64{}
+		s.Outbox.QuestionsUnechoed, s.Outbox.QuestionsUncounted, s.Outbox.QuestionsHandover = nil, state.Uncounted{}, false
 	}
 	e.persisted++
 	floor := s.Sync.FloorMS[proto.PurposeMain]

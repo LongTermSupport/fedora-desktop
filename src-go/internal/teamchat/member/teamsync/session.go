@@ -41,6 +41,10 @@ type sess struct {
 	epoch int64
 	// floor is main's floor as persisted.
 	floor int64
+	// dropOwed is QS9's drop of the questions room, owed by the next write.
+	dropOwed bool
+	// qinvited is an invite to the questions room seen in this answer, QS2's signal to join.
+	qinvited bool
 }
 
 // session is one pass of the loop: verify, load, start (SY1), the run's ends, SY6's read, then
@@ -67,6 +71,9 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	s.epoch, s.floor = s.roster.RestoreEpoch, store.Sync.FloorMS[proto.PurposeMain]
 	t.knowFloor(s.floor, s.epoch)
 	t.freeze.reset()
+	if qerr := s.qstart(ctx, store); qerr != nil {
+		return qerr
+	}
 	since, readd, err := s.start(ctx, store)
 	if err != nil {
 		return err
@@ -180,13 +187,19 @@ func (s *sess) start(ctx context.Context, store state.Store) (string, bool, erro
 	return since, false, err
 }
 
-// filter is the sync filter; the questions room is asked for whenever the roster names this
-// member the coordinator, because nothing here yet knows whether that room is ready (QS3).
-func (s *sess) filter() json.RawMessage { return proto.SyncFilter(s.roster, s.a, true).Compact() }
+// filterOf is the sync filter (QS4, G5): the questions room is asked for only while it is
+// joined, verified and its index at the head.
+func (s *sess) filterOf() json.RawMessage { return s.filterFor(s.t.qget().ready()) }
+
+func (s *sess) filterFor(ready bool) json.RawMessage {
+	return proto.SyncFilter(s.roster, s.a, ready).Compact()
+}
 
 // readd is SY1 (c): one sync with timeline limit 0, persisted with no items.
 func (s *sess) readd(ctx context.Context) (string, error) {
-	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: proto.SyncFilterReAdd(s.roster, s.a, true).Compact()})
+	f := proto.SyncFilterReAdd(s.roster, s.a, s.t.qget().ready()).Compact()
+	s.t.onFilter(f)
+	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: f})
 	if err != nil {
 		return "", err
 	}
@@ -219,7 +232,10 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 	if h := s.pair.Bundle.Held; h != nil && h.ReleasedMS != nil {
 		bd.released, bd.hasReleased = *h.ReleasedMS, true
 	}
-	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: s.filter()})
+	held := s.t.qget().ready()
+	f := s.filterFor(held)
+	s.t.onFilter(f)
+	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: f})
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +250,7 @@ func (s *sess) resume(ctx context.Context) (string, error) {
 		events, gap = append(older, events...), g
 	}
 	kept, restored := s.cut(events, bd)
-	if err := s.handle(ctx, "", answer{resp: resp, events: kept, first: true, gap: gap, restored: restored}); err != nil {
+	if err := s.handle(ctx, "", answer{resp: resp, events: kept, first: true, gap: gap, restored: restored, qheld: held}); err != nil {
 		return "", err
 	}
 	return resp.NextBatch, nil
@@ -445,18 +461,21 @@ func (s *sess) poll(ctx context.Context, since string) error {
 		}
 		t.onPoll(since)
 		started := t.cfg.Clock.Boot()
-		resp, err := s.c.Sync(ctx, matrix.SyncRequest{Since: since, Timeout: longPoll, FilterJSON: s.filter()})
+		p, err := s.longPoll(ctx, since)
 		if pause, frozen := t.freeze.atAnswer(started); frozen {
 			return s.frozen(pause)
 		}
 		if err != nil {
 			return err
 		}
+		if p.moved {
+			continue
+		}
 		t.answeredAt()
-		if err := s.handle(ctx, since, answer{resp: resp}); err != nil {
+		if err := s.handle(ctx, since, answer{resp: p.resp, qheld: p.held}); err != nil {
 			return err
 		}
-		since = resp.NextBatch
+		since = p.resp.NextBatch
 	}
 }
 
@@ -479,14 +498,20 @@ type answer struct {
 	first    bool
 	gap      bool
 	restored func(int64) bool
+	// qheld is the request's filter holding the questions room (QS4), whose events only then
+	// are this answer's to judge.
+	qheld bool
 }
 
-// handle is one answer's steps: invites, trust, the gap, the verdicts, SY6, the persist and the
-// floor marker.
+// handle is one answer's steps in QS1's order: main's invite, main's trust, the questions
+// room's role (QS9, QS10), the side rooms' invites, the questions room's membership and trust,
+// then the gap, the verdicts, SY6, the persist and the floor marker.
 func (s *sess) handle(ctx context.Context, since string, a answer) error {
 	t := s.t
-	joined := s.invites(ctx, a.resp.Invite)
+	mainInv, sideInv := splitInvites(a.resp.Invite, s.a.MainRoom)
+	joined := s.invites(ctx, mainInv)
 	main := a.resp.Join[s.a.MainRoom]
+	rev := s.roster.Rev
 	if s.trustTriggered(a, main, joined) {
 		if err := s.verify(ctx); err != nil {
 			return err
@@ -496,12 +521,24 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		}
 	}
 	s.faults(a.resp.Join)
+	promoted, err := s.qrole()
+	if err != nil {
+		return err
+	}
+	s.qinvited = false
+	s.invites(ctx, sideInv)
+	if err = s.qanswer(ctx, a, promoted || s.roster.Rev != rev); err != nil {
+		return err
+	}
 	events, gap, err := s.eventsOf(ctx, since, a, main)
 	if err != nil {
 		return err
 	}
 	j, err := s.judgeAll(ctx, events, a.restored)
 	if err != nil {
+		return err
+	}
+	if err = s.qjudge(ctx, &j, a); err != nil {
 		return err
 	}
 	if gap {
@@ -512,6 +549,8 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		return err
 	}
 	j.batch.NextBatch = a.resp.NextBatch
+	j.batch.DropQuestions = s.dropOwed
+	qkey(&j, a.first)
 	floor := s.floor
 	if a.first || !empty(j.batch) {
 		failpoint.Hit(failpoint.LinkAfterJudgeBeforePersist)
@@ -519,8 +558,11 @@ func (s *sess) handle(ctx context.Context, since string, a answer) error {
 		if floor, err = s.persist(ctx, j.batch); err != nil {
 			return err
 		}
+		s.dropOwed = false
 	}
 	s.commit(j, floor)
+	t.qcommit(j)
+	t.qhealth()
 	t.putFloorIfDue(ctx, s.c, s.a)
 	t.recovered()
 	return nil
@@ -565,7 +607,8 @@ func (s *sess) commit(j judged, f int64) {
 
 func empty(b team.Batch) bool {
 	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && len(b.Answered) == 0 &&
-		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0
+		len(b.Echoes) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0 &&
+		b.Questions == nil && !b.DropQuestions
 }
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
@@ -594,6 +637,11 @@ func (s *sess) invites(ctx context.Context, invites map[string]matrix.InvitedRoo
 		inviter, creator := inviteSenders(invites[room].InviteState, s.a.Self)
 		switch proto.Invite(room, inviter, creator, s.a, &s.roster) {
 		case proto.InviteAccept:
+			if room == s.roster.Rooms.Questions {
+				// QS2: an invite is only the signal; the room is joined by the roster's id.
+				s.qinvited = true
+				continue
+			}
 			if _, err := s.c.Join(ctx, room); err != nil {
 				t.log.Printf("invite to %s not joined: %s", room, matrix.Class(err))
 				continue
@@ -657,6 +705,8 @@ type judged struct {
 	// flood is; now is the judging's wall time.
 	budget proto.Window
 	now    int64
+	// q is the questions room's fold, nil when the answer did not hold the room.
+	q *qfold
 }
 
 // judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
@@ -665,12 +715,54 @@ type judged struct {
 func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored func(int64) bool) (judged, error) {
 	t := s.t
 	j := judged{flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS()}
-	type parsed struct {
-		v  proto.Value
-		id string
+	jr, err := s.judgeRoom(ctx, &j, roomJudge{room: s.a.MainRoom, purpose: proto.PurposeMain, events: events, res: t.res, floor: s.floor})
+	if err != nil || len(jr.evs) == 0 {
+		return j, err
 	}
+	j.forge = t.forgeCheck(ctx, s.roster.Forge, jr.vs)
+	if err := ctx.Err(); err != nil {
+		return judged{}, err
+	}
+	counted := map[string]bool{}
+	for i, e := range jr.evs {
+		s.take(&j, jr.vs[i], e.id, restored, jr.lk, counted, proto.PurposeMain)
+	}
+	if jr.floor > s.floor {
+		j.batch.Floors = map[string]int64{proto.PurposeMain: jr.floor}
+	}
+	return j, nil
+}
+
+// roomJudge is one room's events to judge: the room, its purpose, and the resolver of its
+// relations (a room's own, so a relation naming another room's event poisons nothing there).
+type roomJudge struct {
+	room, purpose string
+	events        []json.RawMessage
+	res           *resolver
+	floor         int64
+}
+
+type parsed struct {
+	v  proto.Value
+	id string
+}
+
+// roomJudged is a room's verdicts, in its events' order, the Lookup they were judged over and
+// the latest origin time among them.
+type roomJudged struct {
+	evs   []parsed
+	vs    []proto.Verdict
+	lk    *memLookup
+	floor int64
+}
+
+// judgeRoom is SY4 with SY4a's resolve first over one room's events, oldest first, over a
+// Lookup that answers from memory; a transient failure of a related fetch is the error, before
+// any verdict.
+func (s *sess) judgeRoom(ctx context.Context, j *judged, rj roomJudge) (roomJudged, error) {
+	t := s.t
 	var evs []parsed
-	for _, raw := range events {
+	for _, raw := range rj.events {
 		v, err := proto.Parse(raw)
 		if err != nil {
 			j.batch.Counts.Dropped++
@@ -683,7 +775,7 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 		evs = append(evs, parsed{v, str(v, "event_id")})
 	}
 	if len(evs) == 0 {
-		return j, nil
+		return roomJudged{floor: rj.floor}, nil
 	}
 	ids := make([]string, 0, len(evs))
 	var rels []relation
@@ -697,58 +789,47 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 	}
 	view, err := t.cfg.Engine.View(t.cfg.Team, ids, relIDs, s.roster)
 	if err != nil {
-		return judged{}, err
+		return roomJudged{}, err
 	}
-	resolved, err := t.res.resolve(ctx, s.resolveInput(view), rels)
+	resolved, err := rj.res.resolve(ctx, s.resolveInput(view, rj.room), rels)
 	if err != nil {
-		return judged{}, err
+		return roomJudged{}, err
 	}
 	lk := &memLookup{view: view, resolved: resolved, judged: map[string]bool{}}
 	judge := proto.Judge{
-		Server: s.a.Server, Self: s.a.Self, RoomID: s.a.MainRoom, Purpose: proto.PurposeMain,
+		Server: s.a.Server, Self: s.a.Self, RoomID: rj.room, Purpose: rj.purpose,
 		Roster: s.roster, NowMs: j.now, Lookup: lk, Flood: &j.flood,
 	}
-	floor := s.floor
-	vs := make([]proto.Verdict, 0, len(evs))
+	out := roomJudged{evs: evs, lk: lk, floor: rj.floor, vs: make([]proto.Verdict, 0, len(evs))}
 	for _, e := range evs {
-		vs = append(vs, t.judge(judge, e.v))
+		out.vs = append(out.vs, t.judge(judge, e.v))
 		if e.id != "" {
 			lk.judged[e.id] = true
 		}
-		floor = max(floor, originTs(e.v))
+		out.floor = max(out.floor, originTs(e.v))
 	}
-	j.forge = t.forgeCheck(ctx, s.roster.Forge, vs)
-	if err := ctx.Err(); err != nil {
-		return judged{}, err
-	}
-	counted := map[string]bool{}
-	for i, e := range evs {
-		s.take(&j, vs[i], e.id, restored, lk, counted)
-	}
-	if floor > s.floor {
-		j.batch.Floors = map[string]int64{proto.PurposeMain: floor}
-	}
-	return j, nil
+	return out, nil
 }
 
-func (s *sess) resolveInput(view team.View) resolveInput {
+func (s *sess) resolveInput(view team.View, room string) resolveInput {
 	return resolveInput{
-		self: s.a.Self, room: s.a.MainRoom, roster: s.roster, view: view,
+		self: s.a.Self, room: room, roster: s.roster, view: view,
 		get: func(ctx context.Context, id string) (json.RawMessage, error) {
-			return s.c.GetEvent(ctx, s.a.MainRoom, id)
+			return s.c.GetEvent(ctx, room, id)
 		},
 	}
 }
 
-// take is one verdict's outcome in the batch (the table of SY4), and UH1's count.
-func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) bool, lk proto.Lookup, counted map[string]bool) {
+// take is one verdict's outcome in the batch (the table of SY4), its item in the room of
+// purpose room, and UH1's count.
+func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) bool, lk proto.Lookup, counted map[string]bool, room string) {
 	switch v.Outcome {
 	case proto.Deliver:
 		if !s.admit(j, v) {
 			return
 		}
 		p := state.Pending{
-			ID: v.Event.ID, Room: proto.PurposeMain, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
+			ID: v.Event.ID, Room: room, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
 			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),
 		}
 		if p.Item == records.KindPing {
