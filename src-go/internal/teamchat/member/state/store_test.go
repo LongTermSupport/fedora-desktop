@@ -466,6 +466,9 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 		"questions posts": {func(s *Store) {
 			s.Questions.Index.Posts = append(s.Questions.Index.Posts, proto.PostEntry{ID: eventID(900_000), Q: 1, T: 1})
 		}, "questions: more than 1024 posts"},
+		"questions agent posts": {func(s *Store) {
+			s.Questions.Index.AgentPosts = append(s.Questions.Index.AgentPosts, proto.AgentPost{ID: eventID(900_000), Q: 1})
+		}, "questions: more than 256 agent posts"},
 		"questions unattached": {func(s *Store) {
 			s.Questions.Index.Unattached = append(s.Questions.Index.Unattached, proto.UnattachedPost{ID: eventID(900_000), From: aliceID, SentMs: 1})
 		}, "questions: more than 64 unattached posts"},
