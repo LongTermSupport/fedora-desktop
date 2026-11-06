@@ -69,6 +69,10 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   Fedora 44 container with systemd as PID 1. Green on `F44-arm` with no architecture fault;
   every failure it met was the container's and was fixed in the workflow, not the plays. The
   desktop profile, optional plays, a reboot and a real boot loader stay for Task 3.1.
+- [x] ✅ **Task 2.3**: The playbook, ccy image, ISO, VM lab and CI lane fixes ported from
+  `F44-arm` onto `F44` as x86_64-neutral changes, so an aarch64 host following the `F44` tip
+  gets them. Pins `F44-arm` added that change x86_64 (yq 4.54.1, hifi-rs 0.3.8, pinned
+  shellcheck and golangci-lint digests) and the `arch-pinned-artefact` gate stay on `F44-arm`.
 
 ### Phase 3: the test loop with example-team
 
