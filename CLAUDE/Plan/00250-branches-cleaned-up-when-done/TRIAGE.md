@@ -56,9 +56,17 @@ state looks like this:
 
 The daemon's WorktreeCreate handler runs `git worktree add -b` with a 30-second timeout
 (`Timeout.GIT_WORKTREE`). This repository checks out about 8,600 files, and the host is often
-loaded by QA. The likely killer is that timeout, but it is not yet proven. If it is, a
-creation that times out leaves a half-made, locked worktree, and the agent is still sent to
-work in it. That is a daemon defect, Task 1.5.
+loaded by QA. The likely killer is that timeout, but it is not yet proven.
+
+The installed handler (v3.72.1) does clean up after a failed add. It runs `worktree remove --force`, `worktree prune` and `branch -D`, then raises, so Claude Code gets no path; a cleanup
+failure is only logged. Yet agents did commit in these worktrees. That is not explained:
+
+- The daemon version that created them (2026-10-22 to 10-27) may have lacked the cleanup.
+- Or the cleanup failed on the lock, since `worktree remove --force` given once refuses a
+  locked worktree and needs `-f -f`, and the path stayed usable.
+
+Task 1.5 proves which, with the fact-check
+(`subagent-reports/261106-plan-fact-checker-2-sonnet.md`).
 
 **Repair (2026-11-06), with no forced removal and no unproven delete:**
 
