@@ -250,6 +250,36 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   while still named, each failed check, recovery), per-room floor markers, `Refetch` of a
   questions item; see the report.
 
+- **n3f-c1c, c1d and c2a** (pull requests 171, 175 and 178, each stacked on the one before;
+  reports `subagent-reports/261106-n3f-c1c-opus-report.md`, `261106-n3f-c1d-opus-report.md` and
+  `261106-n3f-c2a-opus-report.md`) built what the entry above left open, and QX1's builder:
+
+  - **c1c**: QS7 (`qgap` fills a limited questions timeline back to the page holding `q.last`;
+    when it is not reached `qcatchup` drops the head, pokes, and hands `IndexJob{Key, RoomID, Floor}` to the builder), QS8's tests (each failed check at the start, a trust event
+    re-verifies, a refused history read is `state`, a kick with the roster still naming the
+    member is `left` and restarts the 300 s clock), QS6's missing tests, two test-only flake
+    fixes, and a defect QS8's tests found: `quntrusted` dropped the head but left `begun` set, so
+    a room that passed its check again stayed `building` until a session restart.
+  - **c1d**: per-room floor markers (`markerOf` is a switch with a case per room and nil for any
+    other, after `project_room_default` caught its first form), `Refetch` of a questions item
+    (`refetchRoom`), the commit rule's test (QX4) and `status`'s questions record
+    (`questionsRoomRecord`).
+  - **c2a**: `teamsync.Builder` (the build from the room's start, a resumed build record, the
+    catch-up, a refused token as a rebuild), pages judged and folded by `qtake` under one judging
+    hold shared with answers, `Batch.Page` and `Batch.Handover`, and fakehs's `Gate`.
+  - **Open, from the reports**: the ready line itself is not in the engine (n3f-e); `Health.Questions` lags `IndexAtHead`, so `status` says `building` for up to one long-poll; `FloorRaised`
+    stays main's (the questions marker lags low, which costs a redelivery, never a lost item); a
+    post in the same millisecond as the floor is never delivered (true of main too); the
+    kill-mid-build test, QS7's end-to-end tests and a test that makes a page and an answer judge
+    at once (the hold is held by review only); QX1's `ask` during a held build (n3f-d); QX3, QX4
+    and QX7 (n3f-c2b and c2c). SPEC-n3f's OW6 stands: how a member waiting for its questions
+    invite learns it has come.
+  - **The stack's integration**: the pull request for n3f-b failed CI on a cyclop finding in
+    `engine/send.go` (n3f-b2's change and PR 164's size check merged cleanly and together made 17
+    against 15; `send`'s fit is now `fitEntry`) and, once that was fixed and the tests ran for the
+    first time, on two `teamsync` tests that wait on the fake clock while the reports join's 30 s
+    bound is armed (`reportsSettled` is the helper). Both are recorded in that pull request.
+
 - **n3d's caps measured as written** on `fix/store-size-as-written`
   (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
   `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
