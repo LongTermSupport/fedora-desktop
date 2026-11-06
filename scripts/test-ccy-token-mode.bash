@@ -76,6 +76,7 @@ done
 # namespace collides with the same PID in another, so two concurrent runs could
 # share a fixture dir and delete each other's on exit.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-mode-fixtures.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 BANNERS="$WORK/banners.log"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
