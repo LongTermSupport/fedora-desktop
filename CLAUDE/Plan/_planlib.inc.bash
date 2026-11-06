@@ -12,8 +12,8 @@
 #
 #   Standards, rule by rule: ../PlanScriptStandards.md
 #   Tests:                   ../../scripts/test-planlib.bash
-#   Sibling implementation:  lts-infra's CLAUDE/Plan/_planlib.inc.bash
-#   Donor of the concept:    ballicom-infra's CLAUDE/Plan/_planlib.bash
+#   Sibling implementation:  example-team's CLAUDE/Plan/_planlib.inc.bash
+#   Donor of the concept:    example-d-infra's CLAUDE/Plan/_planlib.bash
 #
 # THE INCIDENT THIS EXISTS TO PREVENT
 #   Plan 00068's triage.bash resolved its repo root with
@@ -29,10 +29,10 @@
 #   the filesystem only (never `git`), and STOPS AT THE REPOSITORY BOUNDARY.
 #
 #   The boundary bound matters MORE here than anywhere. This repo is routinely
-#   checked out INSIDE another one (lts-infra keeps it at
+#   checked out INSIDE another one (example-team keeps it at
 #   untracked/repos/fedora-desktop), and both repos have an `ansible.cfg` at their
 #   root. An unbounded walk from a plan script here would sail past this repo and
-#   find LTS-INFRA's marker — then read its files, write reports into it, and
+#   find example-team's marker — then read its files, write reports into it, and
 #   appear to work. Failing loudly beats operating on the wrong repo.
 #
 # CANONICAL BOOTSTRAP (copy verbatim; see PlanScriptStandards.md R1)
@@ -76,7 +76,7 @@
 #   a container calls it first and refuses to produce a confident wrong answer.
 #
 # ANSIBLE HERE IS PLAIN AND LOCAL
-#   Unlike lts-infra (which must go through shellscripts/ansible-run.bash for
+#   Unlike example-team (which must go through shellscripts/ansible-run.bash for
 #   vault-id, inventory and a vaulted connect key), this repo's ansible.cfg
 #   already supplies `inventory = ./environment/localhost`,
 #   `vault_password_file = ./vault-pass.secret`, `vault_identity = localhost` and
@@ -93,7 +93,7 @@
 #   and the ordering is enforced rather than documented.
 #
 # RUN LOGS ARE NOT COMMITTED
-#   ballicom-infra pipes its run log through a secret scrubber before committing
+#   example-d-infra pipes its run log through a secret scrubber before committing
 #   it — committed run logs are valuable BECAUSE the scrubber makes them safe.
 #   A plan run here can stream vault-decrypted values, so these logs land under
 #   `untracked/plan-runs/<plan>/<script>/<timestamp>/` and `_plan_finalize_log`

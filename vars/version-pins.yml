@@ -172,3 +172,13 @@ version_pins:
         non-DKMS pin is compared on every host, servers included, and only hosts that ran
         agent-bus-install have the binary; whether to hold every host to it is a
         decision for the play (U22), not taken here.
+
+  # Not a playbook: tasks/install-fzf.yml and the ccy image build both read the fzf release
+  # from this file, in the same `var: value` line form. Its per-architecture sha256 lines
+  # change with every bump.
+  - playbook: vars/fzf-pin.yml
+    var: fzf_version
+    github: junegunn/fzf
+    installed:
+      kind: command
+      name: fzf

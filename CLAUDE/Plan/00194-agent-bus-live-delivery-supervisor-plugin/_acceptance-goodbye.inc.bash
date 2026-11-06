@@ -850,8 +850,8 @@ gb_teardown() {
 # ── the fake mode: the verdict legs over fixture rooms, no host needed ───────────────────
 
 #: The fixture seat members, one per team, and the scenario's start.
-readonly GB_FAKE_USERS=("@fedora-desktop.1:${TEAM_A}.bus" "@fedora-desktop.1:${TEAM_B}.bus")
-readonly GB_FAKE_HANDLE="fedora-desktop.1"
+readonly GB_FAKE_USERS=("@example-repo.1:${TEAM_A}.bus" "@example-repo.1:${TEAM_B}.bus")
+readonly GB_FAKE_HANDLE="example-repo.1"
 readonly GB_FAKE_SINCE=1700000000000
 
 # gb_fake_room <case> <team-index> <end|''> <n> [<text>...] — page <n> of a fixture room: the

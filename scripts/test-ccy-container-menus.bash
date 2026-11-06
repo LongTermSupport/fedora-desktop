@@ -44,6 +44,7 @@ if [ -z "$(command -v go)" ]; then
 fi
 mkdir -p "$REPO_ROOT/untracked/scratch"
 work=$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-container-menus-test.XXXXXX")
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$work"' EXIT
 MENU_INPUT="$work/input"
 

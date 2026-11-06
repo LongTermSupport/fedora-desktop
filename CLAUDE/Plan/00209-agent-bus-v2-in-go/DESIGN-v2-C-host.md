@@ -292,7 +292,14 @@ TemporaryFileSystem=/run/systemd/resolve:ro
 BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
 BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
 InaccessiblePaths=-/run/dbus
+InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 ```
+
+The second `InaccessiblePaths=` line is D 4.2's runtime confinement: the six places v1 keeps its
+state, so that a v1 path reached by mistake fails with EACCES instead of touching v1. The directive
+is cumulative with the `-/run/dbus` line. Go holds the line once, as `v1names.InaccessiblePaths`
+(slice S7a), and `host.BaseSandbox` renders it; every v2 system unit carries it (the health and
+seats units, which Go does not yet make, with them).
 
 `Before=lxc.service` orders the homeservers before the LXC containers that autostart, so at
 shutdown the guests, and the members' goodbyes in them, stop first while the homeserver still

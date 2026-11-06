@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -379,27 +379,29 @@ func TestWaitRetriesARestoredItemThatCouldNotBeFetched(t *testing.T) {
 	go func() {
 		got <- w.e.Serve(t.Context(), wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":10}`)}, out)
 	}()
-	for tried := false; !tried; runtime.Gosched() {
+	leakcheck.Poll(t, func() bool {
 		f.mu.Lock()
-		tried = len(f.refetched) == 1
-		f.mu.Unlock()
-	}
+		defer f.mu.Unlock()
+		return len(f.refetched) == 1
+	})
 	f.mu.Lock()
 	f.refetchErr = nil
 	f.verdicts[evID(1)] = humanItem(ops, 1, 1, "back").Verdict
 	f.mu.Unlock()
-	// The retry's hold may not be armed yet: advance until the wait answers.
-	for {
+	// The retry's hold may not be armed yet (status.json's pacing timer is due at the same
+	// instant, so AwaitDue cannot name it): advance each time every other goroutine is blocked
+	// and the wait has not answered, which fails the test if it never does.
+	var d wire.Done
+	leakcheck.Drive(t, func() bool {
 		select {
-		case d := <-got:
-			if d.Ack == "" || out.kinds() != "human" {
-				t.Fatalf("wait = %+v %s", d, out.kinds())
-			}
-			return
+		case d = <-got:
+			return true
 		default:
-			w.clk.Advance(waitRetry)
-			runtime.Gosched()
+			return false
 		}
+	}, func() { w.clk.Advance(waitRetry) })
+	if d.Ack == "" || out.kinds() != "human" {
+		t.Fatalf("wait = %+v %s", d, out.kinds())
 	}
 }
 

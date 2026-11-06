@@ -36,11 +36,13 @@ Use these Unicode icons in plan documents:
 
 - [00246-agent-bus-v2-landing-and-cross-network](00246-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
 
+- [00247-shell-history-clean-and-skip](00247-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
+
 - [00245-valuable-work-never-untracked](00245-valuable-work-never-untracked/) - In Progress. Valuable work written to untracked places gets lost; triage, then a blocking defence (Defence Before Fix).
 
-- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - In Progress (waiting for the next exit to be captured, or a reproduction). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
+- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - On Hold (the quit investigation is parked by the owner: it has not happened again lately; reopen if it does). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
 
-- [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the lts-infra aarch64 test bed; the work collects on branch `F44-arm`.
+- [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the example-team aarch64 test bed; the work collects on branch `F44-arm`.
 
 - [00242-consumer-install-follow-ups](00242-consumer-install-follow-ups/) - Not Started. What Plan 00228's consumer install decided on but did not build: the "Update fedora-desktop" launcher, a route from a consumer box to a developer one, run.bash as a thin Go wrapper, the mixed plays gated, a consumer `--changed` in Go, the kickstart choice, and the final review's open findings (the re-run's unchecked speech-to-text play, play-rclone's developer closing message).
 
@@ -112,7 +114,7 @@ Use these Unicode icons in plan documents:
 
 - [00196-team-coordinator-role](00196-team-coordinator-role/) - In Progress. One agent per team is the coordinator: copied on what workers tell humans, addressable with `--to-coordinator`, set from `ccy-teams` and bare `ccy --teams`
 
-- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
+- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - In Progress (design written). A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
 - [00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker](00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/) - In Progress. `ccy --teams`: one session on several teams, a description for every team, and a picker instead of a hard stop when no team covers the checkout
 

@@ -1,6 +1,6 @@
 # Plan 00244: element quits while typing
 
-**Status**: In Progress
+**Status**: On Hold (the quit investigation is parked by the owner, 2026-11-04: it has not happened again lately; Phase 3, the Matrix clients play, is built and separate). Every open task needs the owner's host or decision, none an agent's: 1.3 needs the exit to recur there, 1.4 needs the Element window and a keyboard there (this container has neither), 2.1 and 2.2 are the owner's decisions. See the journal entry of 2026-11-04 titled "What is left".
 **Created**: 2026-11-03
 **Owner**: joseph
 **Priority**: Medium
@@ -72,11 +72,18 @@ show the prompt. Ctrl+W is ruled out: with the tray icon on, it only hides the w
 ### Phase 3: Matrix clients get their own play
 
 - [x] ✅ **Task 3.1**: `playbooks/imports/optional/common/play-matrix-clients.yml` installs
-  Nheko from Flathub (`io.github.NhekoReborn.Nheko`, plain install), decoupled from the
+  Nheko from Flathub (`im.nheko.Nheko`, plain install), decoupled from the
   agent bus. Queued in `CLAUDE/Plan/meta-deploy.list`.
-- [ ] ⬜ **Task 3.2**: TODO, bring Element across: its Flatpak install moves from
-  `play-agent-bus-element.yml` into `play-matrix-clients.yml`, and the agent-bus play keeps
-  only its per-team profile and launcher wiring (`helpers/agent_bus/element.py`).
+- [x] ✅ **Task 3.2**: Bring Element across: its Flatpak install and its keyring grant move
+  from `play-agent-bus-element.yml` into `tasks/element-desktop.yml`, which
+  `play-matrix-clients.yml` imports, and the agent-bus play keeps its per-team profile and
+  launcher wiring (`helpers/agent_bus/element.py`). Built as a shared task file and not as a
+  plain move, because `ccy-teams` runs the agent-bus play on its own after a team's play
+  (`src-go/internal/teams/ops/ops.go`), so a play that no longer installed Element would fail
+  on a host that never ran the clients play. The owner chose this design on 2026-11-04 over
+  the stricter move (the agent-bus play only checks that Element is there, and `ccy-teams`
+  runs the clients play first: a Go change to `ops.go`, its tests and its usage text). The
+  clients play is queued in `CLAUDE/Plan/meta-deploy.list` for the owner's host.
 
 ## Success Criteria
 

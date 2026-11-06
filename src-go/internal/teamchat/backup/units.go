@@ -1,6 +1,9 @@
 package backup
 
-import "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+import (
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
+)
 
 // TimerUnit is `teamchat-backup.timer` (C 3.12.1, BU1). Nothing installs it here (gate A):
 // Task 2.5's play renders it.
@@ -17,7 +20,8 @@ WantedBy=timers.target
 `
 
 // ServiceUnit is `teamchat-backup.service` (C 3.12.1, BU1): `backup --all` in the health unit's
-// sandbox (3.11.1), writing the tars, the records and the locks, without CAP_SYS_PTRACE.
+// sandbox (3.11.1), writing the tars, the records and the locks, without CAP_SYS_PTRACE, and with
+// D 4.2's v1 paths made inaccessible (v1names).
 const ServiceUnit = `[Unit]
 Description=Backups of every ` + paths.Product + ` team
 
@@ -41,4 +45,4 @@ SystemCallFilter=~ptrace process_vm_readv process_vm_writev
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 IPAddressDeny=any
 IPAddressAllow=localhost
-`
+` + v1names.InaccessiblePaths + "\n"

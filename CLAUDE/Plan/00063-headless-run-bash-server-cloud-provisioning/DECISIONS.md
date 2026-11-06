@@ -1,7 +1,8 @@
 # Plan 00063 — Technical decisions
 
-Supporting document for [PLAN.md](PLAN.md). Owner decisions and their rationale,
-in the order they were taken. The mechanisms they select are specified in
+Supporting document for [PLAN.md](PLAN.md). Decisions and their rationale, in the
+order they were taken. Each is marked (owner) where the owner took it; the rest are
+this plan's, derived from the review loop. The mechanisms they select are specified in
 [DESIGN.md](DESIGN.md); the discussion that led to each is in `JOURNAL/`.
 
 ## Decision 1: Env vars as the single headless input channel
@@ -50,10 +51,12 @@ exposed two ways on exactly the cloud-init use case Decision 1 targets: cloud-in
 persists `user-data` to `/var/lib/cloud/instance/user-data.txt` and the metadata
 service, world-readable indefinitely; and every child process inherits an
 exported secret via `/proc/PID/environ`.
-**Decision** (owner-confirmed): support both forms; docs recommend file-based. For
-each secret (GitHub token, vault password, SSH passphrase) accept a literal env
-var and a `*_FILE` path var; `*_FILE` takes precedence and `--help-run-headless`
-advises it. The literal form is guarded by V3.10 (hard-fail on cloud, loud warn
+**Decision** (owner): support both forms; docs recommend file-based
+(`JOURNAL/00063-Journal-26-07-23.md:204`).
+**Mechanism** (this plan, from the round-1 security audit): for each secret
+(GitHub token, vault password, SSH passphrase) accept a literal env var and a
+`*_FILE` path var; `*_FILE` takes precedence and `--help-run-headless` advises
+it. The literal form is guarded by V3.10 (hard-fail on cloud, loud warn
 elsewhere, fail if both set, never fall back on an unreadable file, unset before
 the first child). Even the file must be delivered out-of-band on cloud (V3.1),
 never via `write_files`. Mirrors the repo's existing `VAULT_PASS_FILE`.
@@ -63,7 +66,8 @@ never via `write_files`. Mirrors the repo's existing `VAULT_PASS_FILE`.
 
 **Context**: The round-1 coverage audit proved the load-bearing interactive walls
 are not bash prompts: direct `sudo` (password) and `gh` device-code OAuth.
-**Decision**: headless requires NOPASSWD:ALL sudo (probed at startup with
+**Decision** (this plan, from the round-1 audits, `JOURNAL/00063-Journal-26-07-23.md:74-82`):
+headless requires NOPASSWD:ALL sudo (probed at startup with
 `sudo -k -n true`, fail fast if absent; the default cloud user has it) and a
 scoped GitHub token file (`gh auth login --with-token`). v1 supports a single
 GitHub account; multiple accounts fail fast rather than silently partially

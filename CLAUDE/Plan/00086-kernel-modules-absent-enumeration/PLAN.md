@@ -93,10 +93,10 @@ mechanisms are implicated here.
   **PASS**.
 - [x] ✅ **Task 1.6**: merged (PR #36, merge commit `e8686ec`). CI green
   (`qa-all.bash`, helper unit tests, gitleaks — all pass) at merge time.
-- [ ] ⬜ **Task 1.9**: re-pin lts-infra's live-proof harness at this merged
+- [ ] ⬜ **Task 1.9**: re-pin example-team's live-proof harness at this merged
   commit and re-run it — the first run that can actually exercise this fix
   (the harness's pin only ever covered `run.bash` itself, never the
-  self-cloned repo's playbook content — see lts-infra Plan 00045's journal).
+  self-cloned repo's playbook content — see example-team Plan 00045's journal).
 
 ## Success Criteria
 

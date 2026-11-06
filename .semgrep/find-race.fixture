@@ -1,0 +1,117 @@
+# Fixture for .semgrep/find-race.yml (semgrep --test). Each "ruleid" line marks the line below it
+# as the start of a finding; each "ok" line marks the line below it as clean.
+
+# The issue #152 probe, as an Ansible argv list.
+- name: Find a File in the Store Owned Outside the Range
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ store }}/overlay"
+      - -xdev
+      # ruleid: find-race-negated-stat-test
+      - -ignore_readdir_race
+      - "!"
+      - -uid
+      - "0"
+      - "!"
+      - (
+      - -uid
+      - "+99999"
+      - -uid
+      - "-165536"
+      - )
+      - -print
+      - -quit
+
+# ruleid: find-race-negated-stat-test
+find "$store" -xdev -ignore_readdir_race ! -uid 0 ! -uid "$user" -print -quit
+
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race \! -user root -print
+
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -not -perm -u+w -print
+
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -type f '!' -newer "$stamp" -print
+
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -name '*.tmp' ! \( -name keep -o -group wheel \) -delete
+
+# ruleid: find-race-negated-stat-test
+find "$dir" -xdev -ignore_readdir_race \
+    -type f \
+    ! -size 0 -print
+
+# ruleid: find-race-negated-stat-test
+subprocess.run(["find", root, "-ignore_readdir_race", "!", "-uid", str(uid), "-print"], check=True)
+
+# ruleid: find-race-negated-stat-test
+out = subprocess.run(["find", root, "-ignore_readdir_race",
+                      "-not", "-mtime", "-1", "-print"], check=True)
+
+# The option after the test: find warns that it belongs first, and the guard is still missing.
+# ruleid: find-race-negated-stat-test
+find "$dir" ! -uid 0 -ignore_readdir_race -print
+
+# ok: find-race-negated-stat-test
+find "$store" -xdev -ignore_readdir_race -links +0 ! -uid 0 ! -uid "$user" -print -quit
+
+# ok: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -links +0 -not -perm -u+w -print
+
+# ok: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race ! -name '*.keep' -print
+
+# ok: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -uid 0 -print
+
+# ok: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race ! -name '*.keep' -uid 0 -print
+
+# ok: find-race-negated-stat-test
+find "$dir" ! -uid 0 -print
+
+# The guarded probe, as an Ansible argv list.
+- name: Find a File in the Store Owned Outside the Range
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ store }}/overlay"
+      - -xdev
+      # ok: find-race-negated-stat-test
+      - -ignore_readdir_race
+      - -links
+      - "+0"
+      - "!"
+      - -uid
+      - "0"
+      - -print
+      - -quit
+
+# A later, unrelated command is not part of the find.
+# ok: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -print
+if [ ! -e "$marker" ]; then stat -c %u "$marker"; fi
+test ! -s "$file" && echo empty >&2
+
+# The guard with +0 unquoted in YAML is the integer 0: Ansible passes -links 0, no guard at all.
+- name: Find with an unquoted guard
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ store }}/overlay"
+      # ruleid: find-race-negated-stat-test
+      - -ignore_readdir_race
+      - -links
+      - +0
+      - "!"
+      - -uid
+      - "0"
+
+# A -links test that is not the guard does not guard.
+# ruleid: find-race-negated-stat-test
+find "$dir" -ignore_readdir_race -links 1 ! -uid 0 -print
+
+# ok: find-race-negated-stat-test
+subprocess.run(["find", root, "-ignore_readdir_race", "-links", "+0", "!", "-uid", str(uid)], check=True)

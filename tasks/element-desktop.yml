@@ -1,0 +1,38 @@
+# Element Desktop (the Flathub `im.riot.Riot` Flatpak) and the one grant it needs.
+#
+# Matrix clients are installed by playbooks/imports/optional/common/play-matrix-clients.yml.
+# playbooks/imports/optional/common/play-agent-bus-element.yml imports this file as well,
+# because `ccy-teams` runs that play on its own after a team's play and so cannot count on the
+# clients play having run. The install is written once, here.
+#
+#   - name: Install Element Desktop
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-desktop.yml"
+#     tags: [matrix-clients]
+#
+# The importing play defines `root_dir` and `user_login` and enables the Flathub remote first,
+# as every play that installs a Flatpak does. The install is a dynamic include, so a play that
+# selects these tasks by tag must tag the include's own tasks too; nothing selects them by tag.
+- name: Install Element Desktop
+  ansible.builtin.include_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+  vars:
+    flatpak_app_id: im.riot.Riot
+
+# Flathub's im.riot.Riot is not granted the secret service, so Element cannot reach the
+# keyring and asks, on a profile's first start, to keep its login unencrypted instead
+# (flathub/im.riot.Riot issue 528; the grant is PR 530, still open). The grant is per
+# user and must be in place before a profile's first start answers that question.
+- name: Probe Element's per-user Flatpak overrides
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv: [flatpak, override, --user, --show, im.riot.Riot]
+  register: element_desktop_override
+  changed_when: false
+  check_mode: false
+
+- name: Let Element reach the keyring (secret service)
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv: [flatpak, override, --user, --talk-name=org.freedesktop.secrets, im.riot.Riot]
+  when: "'org.freedesktop.secrets=talk' not in element_desktop_override.stdout"

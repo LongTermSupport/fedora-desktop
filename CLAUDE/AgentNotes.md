@@ -13,6 +13,27 @@ pointer rather than restated.
 
 How to work effectively on this repo (the `feedback`-type notes).
 
+### Running this repo's tooling is dogfooding it: find the faults, then fix or log each one
+
+Whenever you run a tool this repository ships, you are also its tester. Watch for its faults
+while you use it, and leave each one fixed or logged before you move on.
+
+- **What counts:** everything this repository ships or runs. That means pingbus and the agent
+  bus, `run.bash`, `meta-deploy.bash` and the plan scripts, the QA gates and hooks, ccy and
+  ccy-teams, and the Go commands.
+- **What to look for:** bugs, and also the smaller things: an error that does not say what to
+  do, a prompt that is unclear, output that misleads, a doc that is wrong or missing, a step
+  that takes two tries.
+- **What to do with each one:** fix it if it is in your task's reach, under the usual rules
+  (Defence Before Fix for a defect). Otherwise log it the moment you meet it: a GitHub issue,
+  or a plan when it needs design. Write what you ran, what happened and what should happen,
+  with no install-specific names.
+- **Never just work around one.** A retry in a different form that gets past a fault is
+  fine, as long as the fault is logged too. A silent workaround is how the same fault costs
+  every later session the same time.
+- **A seat that cannot fix or file** (a host seat with no write access to the forge, say)
+  reports each finding to the team's coordinator, and the coordinator logs it.
+
 ### Never wait in the foreground — the owner cannot type while a command blocks
 
 A wait for a long job (QA, a build, a log line) runs in the background: Bash with

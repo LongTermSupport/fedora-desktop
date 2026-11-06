@@ -8,11 +8,11 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
@@ -142,16 +142,14 @@ func TestTheSeatIsWatchedWhileTheTeamRuns(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	ran := make(chan error, 1)
 	go func() { ran <- tm.Run(ctx) }()
-	var ch <-chan struct{}
-	for ch == nil {
+	leakcheck.Poll(t, func() bool {
 		select {
 		case err := <-ran:
 			t.Fatalf("Run ended: %v", err)
 		default:
 		}
-		runtime.Gosched()
-		ch = w.changes.Changes()
-	}
+		return w.changes.Changes() != nil
+	})
 	cancel()
 	if err := <-ran; err != nil {
 		t.Fatalf("Run: %v", err)

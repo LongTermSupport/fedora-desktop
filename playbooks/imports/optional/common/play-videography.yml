@@ -34,8 +34,6 @@
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
     - name: Install Shotcut
-      become: true
-      community.general.flatpak:
-        name: org.shotcut.Shotcut
-        remote: flathub
-        state: present
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: org.shotcut.Shotcut

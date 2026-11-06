@@ -50,7 +50,7 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
   on two teams may carry two labels, or one, or none.
 - **L3 Workers only.** A coordinator has no label. `set-label` refuses one ("the coordinator
   has no label: it is the team's coordinator"). Making a labelled worker the coordinator clears
-  its label, and the confirm screen says so before it happens ("fedora-desktop.2's label infra
+  its label, and the confirm screen says so before it happens ("example-repo.2's label infra
   is cleared"). Making the coordinator a worker sets no label; the flow offers one.
 - **L4 Parked and removed.** A parked member keeps its label (it keeps its role too); a removed
   member's label goes with it.
@@ -158,7 +158,7 @@ record, 3.13 what ccy-teams reads), as they stand on `feat/bus-v2-n3` at e3b6c30
 ### 2.5 Where it is shown
 
 - **L19 Status line** (both implementations, Plan 00213's parity oracle re-recorded):
-  `alpha: fedora-desktop.2 [infra] (w)`; the label in square brackets between the member and
+  `alpha: example-repo.2 [infra] (w)`; the label in square brackets between the member and
   its role, in the team's colour, part of the team's piece so it wraps whole (00217 C15, C17).
   No label, no brackets: the bytes of an unlabelled piece are unchanged.
 - **L20 pingbus status** prints a `label=<label>` field at the end of this member's TEAM line

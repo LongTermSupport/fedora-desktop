@@ -153,11 +153,11 @@ four other files.
   `PLAN.md:131`; `ci-flow.md:53-57` recast as the `--disallowedTools` addition;
   `mcp-and-egress.md:227-231` fixed in place and gone from the sweep (10 folder findings → 9);
   00113 journal has three real entries; §2 scopes the credential to push and files dirty-tree on
-  lts-infra 00030 (`:50-53`, `:153-154`); 00089 stated as code-landed/proof-unticked in both
+  example-team 00030 (`:50-53`, `:153-154`); 00089 stated as code-landed/proof-unticked in both
   places with Task 0.6 to discharge it.
 - **Public-repo safety**: clean. Scanned all 8 changed files for home paths, non-`example.com`
   emails, RFC1918 addresses, hostnames, container/project names — nothing. `**Owner**: joseph` is
-  established convention; "another repo's runner" and "lts-infra" carry no identifiers.
+  established convention; "another repo's runner" and "example-team" carry no identifiers.
 - **Prose honesty**: the journal entries name the author's own errors directly and do not flatter.
   No invented facts found beyond findings 2 and 4.
 - **Plan Commit Rule / index**: nothing from 00068 or 00113 dangling; the modified and untracked

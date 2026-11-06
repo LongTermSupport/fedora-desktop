@@ -338,20 +338,42 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		record(d.id, o)
 	}
 	for _, suite := range s.plan.suites {
-		res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
-			return s.script(c, nil, strings.TrimPrefix(suite.name, "scripts/"))
-		})
-		if o == interrupted {
-			return s.interrupted()
+		for _, argv := range s.suiteRuns(suite) {
+			res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
+				return s.exec(c, nil, argv.argv...)
+			})
+			if o == interrupted {
+				return s.interrupted()
+			}
+			name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
+			if o == passed {
+				o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
+			}
+			s.report(name, reasons, res, o)
+			record(name, o)
 		}
-		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
-		if o == passed {
-			o, reasons, res.output = judgeSuite(res.output, reasons, suite.rows)
-		}
-		s.report(name, reasons, res, o)
-		record(name, o)
 	}
 	return s.verdict(failures, cannot)
+}
+
+// suiteRun is one command of a picked suite and the row that gives it, which judges its output.
+type suiteRun struct {
+	argv []string
+	rows []gates.Gate
+}
+
+// suiteRuns is the commands a suite runs: one per row of qa-gates.tsv, with the arguments the row
+// gives, as qa-all runs that gate. A script with no row runs bare and is judged unreadable.
+func (s *session) suiteRuns(suite pickedSuite) []suiteRun {
+	script := filepath.Join(s.scripts, strings.TrimPrefix(suite.name, "scripts/"))
+	if len(suite.rows) == 0 {
+		return []suiteRun{{argv: []string{toolBash, script}}}
+	}
+	runs := make([]suiteRun, 0, len(suite.rows))
+	for _, row := range suite.rows {
+		runs = append(runs, suiteRun{argv: slices.Concat([]string{toolBash, script}, row.Argv[1:]), rows: []gates.Gate{row}})
+	}
+	return runs
 }
 
 // judgeSuite settles a suite that exited 0 by each of its rows' own readers, the judge qa-all

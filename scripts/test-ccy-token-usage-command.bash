@@ -45,6 +45,7 @@ WANT_VERSION=$(grep -m1 '^CCY_VERSION=' "$LAUNCHER" | cut -d'"' -f2)
 
 # Under the repo's gitignored scratch area rather than /tmp, as the sibling usage test does.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-usage-command.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 

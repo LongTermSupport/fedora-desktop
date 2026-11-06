@@ -17,17 +17,59 @@ Two version numbers move independently — see
 
 ---
 
-## 3.108.1 — container 2.79.22
+## 3.112.2 — container 2.79.26
+
+The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix
+once, not twice, and `pingbus say`, `report`, `ask-human` and `thread` refuse a text argument
+with a hint that the text goes on stdin, instead of a bare usage error.
+
+## 3.112.1 — container 2.79.25
+
+The image is rebuilt for a status-line fix (issue 138): the baked status line runs its inner
+command with `CLAUDE_PROJECT_DIR` set to the project it resolved, and says in red which
+variable to set when it finds no project.
+
+## 3.112.0 — container 2.79.24
+
+The image is rebuilt: this branch's launcher now requires 2.79.24, the image 3.110.0 made.
+
+- **3.110.0 reaches the agent bus v2 branch.** The image installs the pinned, checksum-verified
+  upstream fzf (see 3.110.0), and the pickers hide fzf's gutter (`--gutter=' '`, in
+  `lib/tmux-session.bash` and `internal/ui`). 3.111.0's adapters are as they were, and nothing
+  else changed.
+
+---
+
+## 3.111.0 — container 2.79.23
 
 The image is unchanged, so there is no rebuild.
 
 - **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
   the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
-  3.108.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  3.109.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
   waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
   which runs a child as root of its own user and mount namespace for a real-kernel mount test;
   and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
   Nothing in the launcher calls any of them.
+
+---
+
+## 3.110.0 — container 2.79.24
+
+The image is rebuilt: fzf is the upstream release, not the Debian package.
+
+- **fzf is pinned and checksum-verified.** The image installs the `junegunn/fzf` release named
+  in `vars/fzf-pin.yml` (the pin the host plays use), for amd64 or arm64, and the build fails
+  if the tarball's sha256 differs from the one the project publishes. The pickers' gutter,
+  which newer fzf draws as a visible bar, is hidden with `--gutter=' '`.
+
+---
+
+## 3.109.0 — container 2.79.23
+
+The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.
+
+---
 
 ## 3.108.0 — container 2.79.22
 
@@ -706,7 +748,7 @@ Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never r
 branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
-  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  00217). A team piece reads `alpha: example-repo.2 (c)`: the team, this session's member in
   it and its role, in the team's colour. The colour comes from the team's name, in a palette
   legible on dark terminals, unless the team's `colour:` overrides it.
 

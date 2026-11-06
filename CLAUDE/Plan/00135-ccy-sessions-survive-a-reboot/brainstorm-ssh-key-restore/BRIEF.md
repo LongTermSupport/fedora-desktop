@@ -27,8 +27,12 @@ not for a headless server**. There, sessions must come back after an unattended 
   `git push` and sign commits. Since Plan 00139 D5, commits are signed with the *login*
   keys through an ssh-agent: `~/.ssh/id`, or `~/.ssh/github_<alias>` per GitHub account.
   Those keys are passphrase-protected on purpose.
-- **Passphrase-free keys were deliberately retired.** The owner rejected them, and D5
-  deleted them. Signing keys must not bloat the ssh-agent.
+- **The separate signing keys were retired.** Plan 00139 D5 retired the per-account
+  signing keys, which had no passphrase, after the owner asked why the login keys were
+  not used to sign (00139 `JOURNAL/00139-Journal-26-09-25.md:507-509,524`). Whether a
+  passphrase-free key is acceptable for unattended restore is undecided — open. Whether
+  the ssh-agent must hold only the login keys is also open: the recorded problem was the
+  extra keys crowding the ccy key picker.
 - **The passphrase is already in the vault.** `github_ssh_passphrase` is in Ansible vault
   in `localhost.yml`, and `vault-pass.secret` sits on disk in the checkout.
   `scripts/gh-account-setup.bash` `decrypt_passphrase` reads it. `run.bash` also loads

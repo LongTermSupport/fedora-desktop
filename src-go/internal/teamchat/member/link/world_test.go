@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -34,17 +34,11 @@ func agent(tm paths.TeamID) string {
 	return "@repo.1+site.podman:" + paths.ServerName(tm)
 }
 
-// until polls cond, yielding between tries, until it holds or the test's time is up.
+// until polls cond, yielding between tries, until it holds; the test fails once every other
+// goroutine is blocked and it does not (leakcheck.Poll).
 func until(t *testing.T, cond func() bool) {
 	t.Helper()
-	for !cond() {
-		select {
-		case <-t.Context().Done():
-			t.Fatal("the condition never held")
-		default:
-			runtime.Gosched()
-		}
-	}
+	leakcheck.Poll(t, cond)
 }
 
 // logBuf is link.log.

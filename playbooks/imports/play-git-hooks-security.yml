@@ -39,6 +39,12 @@
       register: commit_msg_hook
       failed_when: not commit_msg_hook.stat.exists or not commit_msg_hook.stat.executable
 
+    - name: Verify pre-push hook exists and is executable
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks/pre-push"
+      register: pre_push_hook
+      failed_when: not pre_push_hook.stat.exists or not pre_push_hook.stat.executable
+
     # Both hooks source this. Without it neither can run, so its absence must
     # fail the play rather than surface later as a hook that exits 1 on every
     # commit.

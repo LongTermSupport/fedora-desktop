@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
 func lines(text string) []string { return strings.Split(strings.TrimSuffix(text, "\n"), "\n") }
@@ -19,7 +21,7 @@ func TestTimerUnitIsC3121(t *testing.T) {
 }
 
 // TestServiceUnitIsC3121 is BU1's service: `backup --all`, the health unit's sandbox with the
-// backup's write paths and no CAP_SYS_PTRACE.
+// backup's write paths and no CAP_SYS_PTRACE, and D 4.2's InaccessiblePaths= line.
 func TestServiceUnitIsC3121(t *testing.T) {
 	got := lines(ServiceUnit)
 	writePaths := "ReadWritePaths=/var/lib/teamchat-admin /var/lib/teamchat-status /run/teamchat-admin"
@@ -44,6 +46,7 @@ func TestServiceUnitIsC3121(t *testing.T) {
 		"RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
 		"IPAddressDeny=any",
 		"IPAddressAllow=localhost",
+		v1names.InaccessiblePaths,
 	}
 	for _, w := range want {
 		if !slices.Contains(got, w) {

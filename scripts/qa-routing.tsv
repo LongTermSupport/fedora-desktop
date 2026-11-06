@@ -51,6 +51,10 @@ also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patt
 also	.semgrep/gh-scopes.yml,.semgrep/gh-scopes.fixture	gh-scopes	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-gh-scopes/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	gh-scopes	-
 also	scripts/qa-gh-scopes.bash,scripts/lib/go-tool.bash	gh-scopes	-
+# The find-race gate runs whole when its rule, the rule's fixture, its wrapper or its tool change.
+also	.semgrep/find-race.yml,.semgrep/find-race.fixture	find-race	covered
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-find-race/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	find-race	-
+also	scripts/qa-find-race.bash,scripts/lib/go-tool.bash	find-race	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
@@ -139,6 +143,7 @@ also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa
 # its controls are Go tests, which the go check runs for a src-go change.
 also	vars/version-pins.yml	version-pins	covered
 also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
+also	vars/fzf-pin.yml	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
 # to it runs the go check.
@@ -208,7 +213,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -224,4 +229,4 @@ post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

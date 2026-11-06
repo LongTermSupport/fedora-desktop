@@ -36,7 +36,7 @@ files/home/.local/bin/ssh-keys-rekey	228	5	250	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-
-files/home/bashrc-includes/history-search.bash	56	2	64	ui
+files/home/bashrc-includes/history-search.bash	36	1	54	ui
 files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	95	-
 files/usr/local/bin/agent-bus	119	9	124	-
 files/usr/local/bin/compress	96	2	63	-
@@ -69,7 +69,7 @@ scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	364	9	365	-
 scripts/git-hooks/commit-msg	117	0	134	-
 scripts/git-hooks/lib/secret-scan.bash	225	6	126	assoc,data
-scripts/git-hooks/pre-commit	273	0	292	-
+scripts/git-hooks/pre-commit	273	0	278	-
 scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-

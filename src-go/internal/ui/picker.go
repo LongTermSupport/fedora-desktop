@@ -263,6 +263,8 @@ func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
 		"--color=" + pickerColours,
 		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
 		"--margin=1," + strconv.Itoa(frameMargin), "--padding=1," + strconv.Itoa(framePadding), "--header-first", "--pointer=▶",
+		// The gutter is a visible bar in its default colour; only a space character hides it.
+		"--gutter= ",
 		"--prompt=filter > ", "--bind=q:abort",
 	}, headerArgs...)
 	if s.RankMatches {

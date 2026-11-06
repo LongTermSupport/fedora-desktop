@@ -14,7 +14,7 @@ tightly egress-fenced host such as a self-hosted GitHub Actions runner VM, which
 own egress posture independently before ever invoking `ccy` and has no reason to grant a
 generic liveness probe requirements its own provisioning does not otherwise need.
 
-This is the one hard blocker `lts-infra` Plan 00030 (runner CI dispatch via real `ccy`) recorded
+This is the one hard blocker `example-team` Plan 00030 (runner CI dispatch via real `ccy`) recorded
 in its Open Question 2, and the same problem fedora-desktop's own unmerged Plan 00068
 (`plan-00066-ccy-ci-runner` branch, 90 commits ahead of `F44`, never merged) chose to solve by a
 different route — Decision 8: give `ccy` unfettered egress at launch, which defuses rather than
@@ -38,8 +38,8 @@ such a host — only the one launch-time gate this plan is scoped to.
   remains a live, separate, larger decision, unresolved by this plan.
 - Does **not** touch `ccy`'s other launch-time assumptions (GH_TOKEN derivation, MCP/tool
   restriction, compose/network auto-detection) — see Plan 00068 for that work.
-- Does **not** deploy `ccy` itself onto the `lts-infra` runner or wire up dispatch — that is
-  `lts-infra` Plan 00030's Phase 1/2, still unbuilt.
+- Does **not** deploy `ccy` itself onto the `example-team` runner or wire up dispatch — that is
+  `example-team` Plan 00030's Phase 1/2, still unbuilt.
 
 ## Tasks
 
@@ -65,7 +65,7 @@ such a host — only the one launch-time gate this plan is scoped to.
 
 - [x] `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy` bypasses the reachability check entirely (verified by
   reading the guarded control flow; not yet exercised against a live fenced host — that proof
-  belongs to `lts-infra` Plan 00030 once it actually deploys `ccy` to the runner).
+  belongs to `example-team` Plan 00030 once it actually deploys `ccy` to the runner).
 - [x] Every existing caller's behaviour is unchanged (the new branch is `elif`-gated after the
   opt-in check, so the default path is byte-identical to before).
 

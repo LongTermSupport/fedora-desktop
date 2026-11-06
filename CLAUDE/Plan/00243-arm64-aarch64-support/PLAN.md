@@ -5,7 +5,7 @@
 **Owner**: joseph
 **Priority**: High
 
-Addresses the owner's request, passed on by the lts-infra coordinator: fedora-desktop must
+Addresses the owner's request, passed on by the example-team coordinator: fedora-desktop must
 fully support arm64. The tracking issue is linked under Delivery & Milestones.
 
 ## Overview
@@ -16,7 +16,7 @@ assumptions, and the ccy install path. This plan finds every one and, for each, 
 it work on aarch64 or records that no aarch64 build exists, with the alternative, and makes
 the play say so instead of failing.
 
-The proof is external. The lts-infra team owns a disposable Fedora aarch64 test bed VM
+The proof is external. The example-team team owns a disposable Fedora aarch64 test bed VM
 (their Plan 00182). Each cycle is a clean install, then `dnf upgrade`, then a snapshot, then
 an unattended `run.bash`. They raise every failure as an issue on this repository with its
 logs, and re-test each fix from the snapshot.
@@ -39,11 +39,11 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   (Defence Before Fix): a hardcoded architecture is a defect class, not a one-off.
 - Each one is fixed for aarch64, or declared unavailable there, with the alternative named
   and the play skipping it loudly for that architecture.
-- An unattended `run.bash` completes on the lts-infra aarch64 test bed with no manual step.
+- An unattended `run.bash` completes on the example-team aarch64 test bed with no manual step.
 
 ## Non-Goals
 
-- The test bed itself (lts-infra Plan 00182).
+- The test bed itself (example-team Plan 00182).
 - 32-bit ARM, or other architectures.
 
 ## Tasks
@@ -70,15 +70,15 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   every failure it met was the container's and was fixed in the workflow, not the plays. The
   desktop profile, optional plays, a reboot and a real boot loader stay for Task 3.1.
 
-### Phase 3: the test loop with lts-infra
+### Phase 3: the test loop with example-team
 
-- [ ] ⬜ **Task 3.1**: Each issue the lts-infra test bed raises is fixed here and handed back
+- [ ] ⬜ **Task 3.1**: Each issue the example-team test bed raises is fixed here and handed back
   for a re-test from the snapshot.
 
 ## Success Criteria
 
 - [ ] An unattended `run.bash` completes on the clean aarch64 test bed, proven from the
-  snapshot by lts-infra.
+  snapshot by example-team.
 - [ ] The same run still passes on the x86_64 desktop host.
 - [ ] The architecture rule blocks in QA (it does on `F44-arm`; ticked when merged into `F44`).
 

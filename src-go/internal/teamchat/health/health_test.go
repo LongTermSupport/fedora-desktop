@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -463,9 +463,7 @@ func TestAtMostFourTeamsAtOnce(t *testing.T) {
 		}
 		done <- out
 	}()
-	for w.units.inflight.Load() < MaxParallel {
-		runtime.Gosched()
-	}
+	leakcheck.Poll(t, func() bool { return w.units.inflight.Load() >= MaxParallel })
 	close(w.units.gate)
 	out := <-done
 	if len(out) != 6 || w.units.maxSeen.Load() != MaxParallel {
