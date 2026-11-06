@@ -445,10 +445,20 @@ func splitInvites(all map[string]matrix.InvitedRoom, mainRoom string) (map[strin
 	return mainInv, side
 }
 
-// longPoll is SY2's request with QS4's filter; a change of the filter while it is in flight ends
-// it, and moved says so, with no answer to handle.
-func (s *sess) longPoll(ctx context.Context, since string) (matrix.SyncResponse, bool, error) {
-	sent := s.filter()
+// polled is a long-poll's outcome: its answer, whether its filter held the questions room, and
+// moved, a request ended by a change of its filter, with no answer to handle.
+type polled struct {
+	resp  matrix.SyncResponse
+	held  bool
+	moved bool
+}
+
+// longPoll is SY2's request with QS4's filter; a change of the filter while it is in flight
+// ends it.
+func (s *sess) longPoll(ctx context.Context, since string) (polled, error) {
+	held := s.t.qget().ready()
+	sent := s.filterFor(held)
+	s.t.onFilter(sent)
 	rctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	var wg sync.WaitGroup
@@ -457,9 +467,87 @@ func (s *sess) longPoll(ctx context.Context, since string) (matrix.SyncResponse,
 	cancel(nil)
 	wg.Wait()
 	if err != nil && ctx.Err() == nil && errors.Is(context.Cause(rctx), errFilterMoved) {
-		return matrix.SyncResponse{}, true, nil
+		return polled{moved: true}, nil
 	}
-	return resp, false, err
+	return polled{resp: resp, held: held}, err
+}
+
+// qfold is an answer's fold of the questions room: a copy of the index with the answer's events
+// folded, which replaces the live one only once the answer is persisted (QX4), and its last
+// folded event.
+type qfold struct {
+	room   string
+	idx    *proto.QuestionIndex
+	last   string
+	events bool
+}
+
+// qjudge is QS6: the questions room's events of an answer whose filter held it, judged as the
+// questions room's after main's: each human post attached by the index whatever its verdict
+// (n3f-D18), an agent's question or thread post folded, a delivery's item in `room: questions`
+// from the room's floor on (QS5).
+func (s *sess) qjudge(ctx context.Context, j *judged, a answer) error {
+	q := s.t.qget()
+	if !a.qheld || !q.ready() {
+		return nil
+	}
+	events := a.resp.Join[q.room].Timeline.Events
+	jr, err := s.judgeRoom(ctx, j, roomJudge{room: q.room, purpose: proto.PurposeQuestions, events: events, res: s.t.qres, floor: q.floor})
+	if err != nil {
+		return err
+	}
+	f := &qfold{room: q.room, idx: q.idx.Copy(), last: q.last, events: len(events) > 0}
+	counted := map[string]bool{}
+	for i, e := range jr.evs {
+		v := jr.vs[i]
+		f.idx.Feed(v)
+		if v.Human.Body != "" {
+			f.idx.Attach(v.Event, v.Human)
+		}
+		if e.id != "" {
+			f.last = e.id
+		}
+		if v.Outcome == proto.Deliver && v.Event.OriginTs <= q.floor {
+			continue
+		}
+		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
+	}
+	if jr.floor > q.floor {
+		if j.batch.Floors == nil {
+			j.batch.Floors = map[string]int64{}
+		}
+		j.batch.Floors[proto.PurposeQuestions] = jr.floor
+	}
+	j.q = f
+	return nil
+}
+
+// qkey is the `questions` key the answer's write carries (QX5, n3f-D19): set only by an
+// answer whose filter held the room and that is written anyway or folded an event, at the
+// answer's position.
+func qkey(j *judged, first bool) {
+	f := j.q
+	if f == nil || !f.events && !first && empty(j.batch) {
+		return
+	}
+	st, tok, last := f.idx.State(), j.batch.NextBatch, f.last
+	j.batch.Questions = &proto.QuestionsState{Index: &st, Token: &tok, Last: &last}
+}
+
+// qcommit is a persisted answer's fold made the live index; a write that held the key keeps the
+// chain (QS7).
+func (t *Team) qcommit(j judged) {
+	f := j.q
+	if f == nil {
+		return
+	}
+	written := j.batch.Questions != nil
+	t.qset(f.room, func(q *qstate) {
+		q.idx, q.last, q.chain = f.idx, f.last, q.chain || written
+		if fl, ok := j.batch.Floors[proto.PurposeQuestions]; ok {
+			q.floor = max(q.floor, fl)
+		}
+	})
 }
 
 func (s *sess) watchFilter(ctx context.Context, cancel context.CancelCauseFunc, sent json.RawMessage) {

@@ -176,8 +176,15 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   by the roster's id (403 is `awaiting-invite`, 300 s is `untrusted` with the check `invite`,
   judged at the call), QS4's filter (the coordinator form only when joined, verified and at the
   head; a change ends the long-poll in flight), QS5's `VerifySide` before the first sync and
-  the index loaded at the position or the `IndexBuilder` seam's `Begin`. `teamsync` 92.5 under
-  `-race`. Open: see the report.
+  the index loaded at the position or the `IndexBuilder` seam's `Begin`; QS6's receive path
+  (the room's events judged after main's with its own resolver, each human post attached
+  whatever its verdict, the fold into a copy of the index made live only after the write, items
+  in `room: questions` from the room's floor, the key written at the answer's position only by an
+  answer whose filter held the room); QS9's drop in the answer's own write, and at a start over
+  a stale store; QS10's join and build at a promotion. `teamsync` 92.8, `engine` 92.7 under
+  `-race`. Open: QS7 (a limited questions timeline: no fill, no catch-up), QS8's tests (a kick
+  while still named, each failed check, recovery), per-room floor markers, `Refetch` of a
+  questions item; see the report.
 
 ## Task 3.3: LXC members
 

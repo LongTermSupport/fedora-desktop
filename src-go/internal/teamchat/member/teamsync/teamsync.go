@@ -122,6 +122,9 @@ type Team struct {
 	// ends a long-poll in flight whose filter it changed (QS4).
 	q      qroom
 	qmoved chan struct{}
+	// qres resolves the questions room's relations apart from main's, so a relation there
+	// naming a main event marks nothing unknown for main (QS6).
+	qres *resolver
 
 	// Test seams.
 	onPoll func(since string)
@@ -165,7 +168,7 @@ func New(cfg Config) (*Team, error) {
 	}
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
-		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1),
+		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1), qres: newResolver(l),
 		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
 		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,

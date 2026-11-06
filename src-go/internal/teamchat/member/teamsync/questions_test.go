@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,19 +117,6 @@ func (w *world) joinsOf(room string) int { return w.calls(http.MethodPost, "/joi
 
 func (w *world) leavesOf(room string) int { return w.calls(http.MethodPost, "/leave", room) }
 
-// order is the paths of the requests so far, unescaped, in the order they reached the server.
-func (w *world) order() []string {
-	w.t.Helper()
-	reqs := w.srv.Requests()
-	out := make([]string, 0, len(reqs))
-	for _, r := range reqs {
-		path, err := url.PathUnescape(r.Path)
-		check(w.t, err)
-		out = append(out, r.Method+" "+path)
-	}
-	return out
-}
-
 // atHead is an empty index at the head, as a finished build would hand it over.
 func atHead(last string) (*proto.QuestionIndex, string) {
 	return proto.NewQuestionIndex(server, 0), last
@@ -184,6 +172,7 @@ func TestQS2ARefusedJoinAwaitsTheInviteAndTheInviteIsTheSignal(t *testing.T) {
 		t.Errorf("%d joins before the invite, want 1", n)
 	}
 	w.invited(me)
+	check(t, w.clk.AwaitDue(t.Context(), longPoll))
 	w.clk.Advance(joinGap)
 	r.poll(t)
 	if n := w.joinsOf(w.qroom()); n != 2 {
@@ -317,8 +306,13 @@ func TestQS4TheFilterFollowsTheQuestionsRoomsReadiness(t *testing.T) {
 	}
 	idx, last := atHead(w.main)
 	tm.IndexAtHead(idx, last)
-	r.poll(t)
-	if got := nextFilter(t, filters); got != coordinator {
+	// The next filter that is not the worker form: the request in flight ended and made again,
+	// or, when the head came before the request was made, that request itself.
+	got := nextFilter(t, filters)
+	for got == worker {
+		got = nextFilter(t, filters)
+	}
+	if got != coordinator {
 		t.Fatalf("filter once the index is at the head:\n%s\nwant\n%s", got, coordinator)
 	}
 	// A demotion: the roster no longer names this member.
@@ -348,7 +342,17 @@ func TestQS5ALoadedIndexAtThePositionNeedsNoBuild(t *testing.T) {
 	fb := &fakeBuilder{}
 	tm := w.newTeam(withBuilder(fb))
 	filters := filtersOf(tm)
-	before := len(w.order())
+	// The state reads of the room so far, and those seen just before the first sync is made
+	// (onFilter runs on the team goroutine before each request); counting requests after the
+	// fact would also count the first run's long-poll, which fakehs records when it ends.
+	statesBefore := w.calls(http.MethodGet, "/state", w.qroom())
+	announce := tm.onFilter
+	var statesAtSync atomic.Int64
+	statesAtSync.Store(-1)
+	tm.onFilter = func(f json.RawMessage) {
+		statesAtSync.CompareAndSwap(-1, int64(w.calls(http.MethodGet, "/state", w.qroom())))
+		announce(f)
+	}
 	w.startTeam(tm)
 	if got := nextFilter(t, filters); got != w.filterFor(true) {
 		t.Errorf("the first filter of a seat with its index at the position:\n%s\nwant the coordinator form", got)
@@ -359,16 +363,7 @@ func TestQS5ALoadedIndexAtThePositionNeedsNoBuild(t *testing.T) {
 	if st := tm.QuestionsStatus(); st.State != team.QuestionsReady {
 		t.Errorf("status %+v, want ready", st)
 	}
-	var sawState bool
-	for _, req := range w.order()[before:] {
-		if strings.HasPrefix(req, "GET ") && strings.Contains(req, w.qroom()) && strings.HasSuffix(req, "/state") {
-			sawState = true
-		}
-		if strings.HasSuffix(req, "/sync") && !sawState {
-			t.Error("a sync was made before the questions room was verified")
-		}
-	}
-	if !sawState {
-		t.Error("the questions room's state was never read")
+	if n := statesAtSync.Load(); n <= int64(statesBefore) {
+		t.Errorf("%d state reads of the questions room before the first sync, %d before the run: it was not verified first", n, statesBefore)
 	}
 }
