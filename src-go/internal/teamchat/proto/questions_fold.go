@@ -5,77 +5,91 @@ import (
 	"slices"
 )
 
-// The kinds of post the index remembers by event ID (QX6's 1024 most recent): a human post that
-// no question's thread holds, a human post in a question's thread, an agent's thread post, and a
-// redacted event whose number a question may have held.
+// The kinds of human post the index remembers by event ID (QX6's 1024 most recent): one that no
+// question's thread holds, and one in a question's thread, which A 10.4 rule 2 attaches a reply
+// to as it does an agent's thread post.
 const (
 	postHuman       = 0
 	postHumanThread = 1
-	postAgent       = 2
-	postSlot        = 3
 )
 
-// PostEntry is one post the index has folded: its event ID, the question it was attached to (0
-// for none; a slot holds none) and its kind. An agent's thread post and a human post in a
-// thread are what A 10.4 rule 2 attaches a reply to; a slot makes a redacted event idempotent.
+// PostEntry is one human post the index has folded: its event ID, the question it was attached
+// to (0 for none) and its kind.
 type PostEntry struct {
 	ID string `json:"id"`
 	Q  int64  `json:"q"`
 	T  int    `json:"t"`
 }
 
-func (e PostEntry) human() bool    { return e.T == postHuman || e.T == postHumanThread }
-func (e PostEntry) inThread() bool { return e.T == postHumanThread || e.T == postAgent }
+func (e PostEntry) eventID() string { return e.ID }
 
-// postRing is the newest MaxAttachments posts, oldest evicted first.
-type postRing struct {
-	byID  map[string]PostEntry
+// AgentPost is one agent event the index has folded by event ID (QX6's second list, OW5 (b)):
+// an agent's thread post in question Q, which A 10.4 rule 2 attaches a reply to, or, with Q 0,
+// a redacted event whose number a question may have held (a slot). Each is remembered so that
+// the event fed again applies once: a thread post resets its question's unanswered count and
+// may close it, and a slot widens Next().
+type AgentPost struct {
+	ID string `json:"id"`
+	Q  int64  `json:"q"`
+}
+
+func (e AgentPost) eventID() string { return e.ID }
+
+// foldedEntry is an entry of one of the index's two lists of folded events.
+type foldedEntry interface{ eventID() string }
+
+// ring is the newest limit entries of a list, oldest evicted first, in stream order.
+type ring[E foldedEntry] struct {
+	limit int
+	byID  map[string]E
 	order []string
 	head  int
 }
 
-func newPostRing() postRing { return postRing{byID: map[string]PostEntry{}} }
+func newRing[E foldedEntry](limit int) ring[E] { return ring[E]{limit: limit, byID: map[string]E{}} }
 
-func (r *postRing) get(id string) (PostEntry, bool) {
+func (r *ring[E]) get(id string) (E, bool) {
 	e, ok := r.byID[id]
 	return e, ok
 }
 
-func (r *postRing) add(e PostEntry) {
-	r.byID[e.ID] = e
-	r.order = append(r.order, e.ID)
-	for len(r.order)-r.head > MaxAttachments {
+func (r *ring[E]) add(e E) {
+	r.byID[e.eventID()] = e
+	r.order = append(r.order, e.eventID())
+	for len(r.order)-r.head > r.limit {
 		delete(r.byID, r.order[r.head])
 		r.head++
 	}
-	if r.head >= MaxAttachments {
+	if r.head >= r.limit {
 		r.order, r.head = slices.Clone(r.order[r.head:]), 0
 	}
 }
 
-func (r *postRing) entries() []PostEntry {
-	out := make([]PostEntry, 0, len(r.order)-r.head)
+func (r *ring[E]) entries() []E {
+	out := make([]E, 0, len(r.order)-r.head)
 	for _, id := range r.order[r.head:] {
 		out = append(out, r.byID[id])
 	}
 	return out
 }
 
-func (r *postRing) clone() postRing {
-	c := postRing{byID: make(map[string]PostEntry, len(r.byID)), order: slices.Clone(r.order[r.head:])}
+func (r *ring[E]) clone() ring[E] {
+	c := ring[E]{limit: r.limit, byID: make(map[string]E, len(r.byID)), order: slices.Clone(r.order[r.head:])}
 	maps.Copy(c.byID, r.byID)
 	return c
 }
 
 // IndexState is the bounded state of a QuestionIndex that the store keeps (QX5, QX6): the
-// questions by number, the posts and the unattached posts oldest first, and the three counters
-// that make Next(). The coordinator's own placed entries are never in it.
+// questions by number, the human posts, the agent posts and slots and the unattached posts
+// oldest first, and the three counters that make Next(). The coordinator's own placed entries
+// are never in it.
 type IndexState struct {
 	Highest    int64             `json:"highest"`
 	Slots      int64             `json:"slots"`
 	Evicted    int64             `json:"evicted"`
 	Questions  []IndexedQuestion `json:"questions"`
 	Posts      []PostEntry       `json:"posts"`
+	AgentPosts []AgentPost       `json:"agent_posts"`
 	Unattached []UnattachedPost  `json:"unattached"`
 }
 
@@ -88,7 +102,7 @@ func (x *QuestionIndex) State() IndexState {
 	}
 	return IndexState{
 		Highest: x.highest, Slots: x.slots, Evicted: x.evicted,
-		Questions: qs, Posts: x.posts.entries(), Unattached: cloneList(x.unattached),
+		Questions: qs, Posts: x.posts.entries(), AgentPosts: x.agents.entries(), Unattached: cloneList(x.unattached),
 	}
 }
 
@@ -98,7 +112,7 @@ func (x *QuestionIndex) Copy() *QuestionIndex {
 	c := &QuestionIndex{
 		server: x.server, highest: x.highest, slots: x.slots, evicted: x.evicted,
 		questions: make(map[int64]*IndexedQuestion, len(x.questions)), roots: make(map[string]int64, len(x.roots)),
-		posts: x.posts.clone(), unattached: slices.Clone(x.unattached), dropped: slices.Clone(x.dropped),
+		posts: x.posts.clone(), agents: x.agents.clone(), unattached: slices.Clone(x.unattached), dropped: slices.Clone(x.dropped),
 	}
 	for n, q := range x.questions {
 		cq := q.clone()
@@ -228,14 +242,14 @@ func (x *QuestionIndex) threadPost(v Verdict) foldResult {
 	if t.N == 0 {
 		return x.plainReply(v.Content.Relation)
 	}
-	if _, seen := x.posts.get(v.Event.ID); seen {
+	if _, seen := x.folded(v.Event.ID); seen {
 		return repeated
 	}
 	q, ok := x.questions[t.N]
 	if !ok || q.Redacted() || v.Content.Relation.Root != q.EventID {
 		return notCounted
 	}
-	x.posts.add(PostEntry{ID: v.Event.ID, Q: t.N, T: postAgent})
+	x.agents.add(AgentPost{ID: v.Event.ID, Q: t.N})
 	q.Latest, q.Unanswered, q.UnansweredMore = v.Event.ID, []string{}, 0
 	if t.Close && !q.Closed {
 		q.Closed = true
@@ -258,10 +272,11 @@ func (x *QuestionIndex) plainReply(r Relation) foldResult {
 
 // Attach takes a human post delivered in questions and attaches it by the first rule of A
 // 10.4 that holds, whatever its delivery verdict (n3f-D18): the question it is attached to, or
-// false for none. A post already folded changes nothing and gives the same answer.
+// false for none. An event already folded, in either list, changes nothing and gives the same
+// answer.
 func (x *QuestionIndex) Attach(ev Event, h Human) (IndexedQuestion, bool) {
-	if e, seen := x.posts.get(ev.ID); seen {
-		return x.attached(e.Q)
+	if n, seen := x.folded(ev.ID); seen {
+		return x.attached(n)
 	}
 	n := x.attachment(h)
 	q := x.questions[n]
@@ -301,7 +316,7 @@ func (x *QuestionIndex) attached(n int64) (IndexedQuestion, bool) {
 // redacted event holds, takes no post: the post is attached to none.
 func (x *QuestionIndex) attachment(h Human) int64 {
 	if h.Revises != "" {
-		if e, ok := x.posts.get(h.Revises); ok && e.human() && x.live(e.Q) != 0 {
+		if e, ok := x.posts.get(h.Revises); ok && x.live(e.Q) != 0 {
 			return e.Q
 		}
 		return x.live(questionNumber(h.Body))
@@ -312,10 +327,23 @@ func (x *QuestionIndex) attachment(h Human) int64 {
 	if n, ok := x.roots[h.ReplyTo]; ok {
 		return n
 	}
-	if e, ok := x.posts.get(h.ReplyTo); ok && e.inThread() && x.live(e.Q) != 0 {
+	if e, ok := x.posts.get(h.ReplyTo); ok && e.T == postHumanThread && x.live(e.Q) != 0 {
+		return e.Q
+	}
+	if e, ok := x.agents.get(h.ReplyTo); ok && x.live(e.Q) != 0 {
 		return e.Q
 	}
 	return x.live(questionNumber(h.Body))
+}
+
+// folded is whether the event is in either list of folded events (an event is in at most one),
+// and the question its entry names.
+func (x *QuestionIndex) folded(id string) (int64, bool) {
+	if e, ok := x.posts.get(id); ok {
+		return e.Q, true
+	}
+	e, ok := x.agents.get(id)
+	return e.Q, ok
 }
 
 // live is n if a question that an event holds is kept at that number, else 0.

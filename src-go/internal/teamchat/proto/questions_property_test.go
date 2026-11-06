@@ -165,16 +165,16 @@ func generateRoom(seed, size int) []streamEvent {
 
 // summary is what a cap leaves visible in an index's state.
 type summary struct {
-	open, closed, unattached, posts int
-	evicted                         int64
-	lowestClosed                    int64
-	firstPost, lastUnattached       string
-	more                            bool
+	open, closed, unattached, posts, agentPosts int
+	evicted                                     int64
+	lowestClosed                                int64
+	firstPost, firstAgentPost, lastUnattached   string
+	more                                        bool
 }
 
 func summarize(x *QuestionIndex) summary {
 	st := x.State()
-	s := summary{evicted: st.Evicted, unattached: len(st.Unattached), posts: len(st.Posts)}
+	s := summary{evicted: st.Evicted, unattached: len(st.Unattached), posts: len(st.Posts), agentPosts: len(st.AgentPosts)}
 	for _, q := range st.Questions {
 		if q.Closed {
 			s.closed++
@@ -189,6 +189,9 @@ func summarize(x *QuestionIndex) summary {
 	if len(st.Posts) > 0 {
 		s.firstPost = st.Posts[0].ID
 	}
+	if len(st.AgentPosts) > 0 {
+		s.firstAgentPost = st.AgentPosts[0].ID
+	}
 	if len(st.Unattached) > 0 {
 		s.lastUnattached = st.Unattached[len(st.Unattached)-1].ID
 	}
@@ -197,7 +200,8 @@ func summarize(x *QuestionIndex) summary {
 
 // firedCaps are the caps of QX6 that the step from before to after applied: an open question
 // evicted, the lowest closed one evicted, the 17th unanswered post counted, the oldest post of
-// 1024 forgotten, the oldest of 64 unattached posts forgotten.
+// 1024 forgotten, the oldest agent post or slot of 256 forgotten, the oldest of 64 unattached posts
+// forgotten.
 func firedCaps(before, after summary) []string {
 	var fired []string
 	if after.evicted > before.evicted {
@@ -211,6 +215,9 @@ func firedCaps(before, after summary) []string {
 	}
 	if before.posts == MaxAttachments && after.posts == MaxAttachments && after.firstPost != before.firstPost {
 		fired = append(fired, "posts")
+	}
+	if before.agentPosts == MaxAgentPosts && after.agentPosts == MaxAgentPosts && after.firstAgentPost != before.firstAgentPost {
+		fired = append(fired, "agent posts")
 	}
 	if before.unattached == MaxUnattached && after.unattached == MaxUnattached && after.lastUnattached != before.lastUnattached {
 		fired = append(fired, "unattached")
@@ -250,14 +257,17 @@ func restart(t *testing.T, x *QuestionIndex, last string) *QuestionIndex {
 }
 
 // TestQuestionIndexLiveEqualsRebuilt is QX6's and QX7's property: one index that folds a room
-// as it comes, and one that is stored, read back and loaded between pages, with the last few
-// events of every page folded again as a catch-up's overlap is, hold the same state after
-// every page. Every seed's room fires every cap.
+// as it comes, and one that is stored, read back and loaded between pages, with events fed
+// again, hold the same state after every page. The second index is fed again the last few
+// events of every page, as a catch-up's overlap is, an event of the last 40 after one event in
+// four, as a page re-read or a held answer is (so a thread post comes again after later human
+// posts), and after every page the oldest event each of its two lists still holds, the human
+// posts' and the agent posts' and slots'. Every seed's room fires every cap, both lists' included.
 func TestQuestionIndexLiveEqualsRebuilt(t *testing.T) {
 	for _, seed := range []int{1, 2, 3} {
 		t.Run("seed "+strconv.Itoa(seed), func(t *testing.T) {
 			fired := foldLiveAndRestarted(t, generateRoom(seed, 2600), &splitmix{state: seed + 1000})
-			for _, name := range []string{"open", "closed", "unanswered", "posts", "unattached"} {
+			for _, name := range []string{"open", "closed", "unanswered", "posts", "agent posts", "unattached"} {
 				if !fired[name] {
 					t.Errorf("the %s cap never fired: the room does not test it (fired %v)", name, slices.Sorted(maps.Keys(fired)))
 				}
@@ -271,11 +281,15 @@ func TestQuestionIndexLiveEqualsRebuilt(t *testing.T) {
 func foldLiveAndRestarted(t *testing.T, room []streamEvent, rng *splitmix) map[string]bool {
 	t.Helper()
 	live, restarted := NewQuestionIndex(testServer, 0), NewQuestionIndex(testServer, 0)
+	byID := make(map[string]streamEvent, len(room))
+	for _, ev := range room {
+		byID[ev.id] = ev
+	}
 	fired := map[string]bool{}
 	before, from := summarize(live), 0
 	for _, size := range pageSizes(rng, len(room)) {
 		page := room[from : from+size]
-		for _, ev := range page {
+		for i, ev := range page {
 			ev.apply(live)
 			after := summarize(live)
 			for _, name := range firedCaps(before, after) {
@@ -283,15 +297,31 @@ func foldLiveAndRestarted(t *testing.T, room []streamEvent, rng *splitmix) map[s
 			}
 			before = after
 			ev.apply(restarted)
+			if at := from + i; rng.intN(4) == 0 {
+				room[max(0, at-rng.intN(40))].apply(restarted)
+			}
 		}
 		restarted = restart(t, restarted, page[len(page)-1].id)
 		for _, ev := range page[max(0, len(page)-rng.intN(7)):] {
 			ev.apply(restarted)
 		}
+		refeedOldest(restarted, byID)
 		if want, got := stateJSON(t, live), stateJSON(t, restarted); got != want {
 			t.Fatalf("after events %d to %d the restarted index differs from the live one:\nlive      %s\nrestarted %s", from, from+size, want, got)
 		}
 		from += size
 	}
 	return fired
+}
+
+// refeedOldest feeds the index again the oldest event each of its two lists holds, which it
+// must still remember.
+func refeedOldest(x *QuestionIndex, byID map[string]streamEvent) {
+	st := x.State()
+	if len(st.Posts) > 0 {
+		byID[st.Posts[0].ID].apply(x)
+	}
+	if len(st.AgentPosts) > 0 {
+		byID[st.AgentPosts[0].ID].apply(x)
+	}
 }

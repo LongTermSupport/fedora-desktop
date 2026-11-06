@@ -22,6 +22,7 @@ const (
 	MaxClosedQuestions = 128
 	MaxUnanswered      = 16
 	MaxAttachments     = 1024
+	MaxAgentPosts      = 256
 	MaxUnattached      = 64
 	maxIndexedUserID   = 128
 )
@@ -115,7 +116,8 @@ type QuestionIndex struct {
 	evicted    int64
 	questions  map[int64]*IndexedQuestion
 	roots      map[string]int64
-	posts      postRing
+	posts      ring[PostEntry]
+	agents     ring[AgentPost]
 	unattached []UnattachedPost
 	prov       []provisional
 	dropped    []string
@@ -125,7 +127,8 @@ type QuestionIndex struct {
 func NewQuestionIndex(server string, floor int64) *QuestionIndex {
 	return &QuestionIndex{
 		server: server, highest: floor,
-		questions: map[int64]*IndexedQuestion{}, roots: map[string]int64{}, posts: newPostRing(),
+		questions: map[int64]*IndexedQuestion{}, roots: map[string]int64{},
+		posts: newRing[PostEntry](MaxAttachments), agents: newRing[AgentPost](MaxAgentPosts),
 	}
 }
 
@@ -171,12 +174,10 @@ func (x *QuestionIndex) Question(n int64) (IndexedQuestion, bool) {
 
 // Attachment is the question a human post was attached to (0 for none), and whether the
 // index has seen the post (A 10.3's index check). Only a human post is known by it, never an
-// agent's thread post or a slot.
+// agent's thread post or a slot, which are in the other list.
 func (x *QuestionIndex) Attachment(post string) (int64, bool) {
-	if e, ok := x.posts.get(post); ok && e.human() {
-		return e.Q, true
-	}
-	return 0, false
+	e, ok := x.posts.get(post)
+	return e.Q, ok
 }
 
 // AttachmentOf is the question the rules of A 10.4 would attach the post to (0 for none),
@@ -235,10 +236,10 @@ func (x *QuestionIndex) Slot(id string) bool {
 	if _, folded := x.roots[id]; folded {
 		return false
 	}
-	if _, seen := x.posts.get(id); seen {
+	if _, seen := x.folded(id); seen {
 		return false
 	}
-	x.posts.add(PostEntry{ID: id, T: postSlot})
+	x.agents.add(AgentPost{ID: id})
 	x.slots++
 	return true
 }
