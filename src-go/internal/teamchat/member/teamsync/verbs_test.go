@@ -98,7 +98,8 @@ func TestHistoryOfPingsNoticesAndRooms(t *testing.T) {
 	}
 }
 
-// LN6: Refetch judges an event again, with no flood or seen of its own; only main is read.
+// LN6: Refetch judges an event again, with no flood or seen of its own; a room it does not know
+// is refused.
 func TestRefetch(t *testing.T) {
 	w := newWorld(t)
 	tm := w.newTeam()
@@ -111,11 +112,32 @@ func TestRefetch(t *testing.T) {
 			t.Errorf("verdict %+v", v)
 		}
 	}
-	if _, err := tm.Refetch(t.Context(), proto.PurposeQuestions, id); !isCode(err, exits.CodeUsage) {
-		t.Errorf("questions: %v", err)
+	if _, err := tm.Refetch(t.Context(), proto.PurposeReports, id); !isCode(err, exits.CodeUsage) {
+		t.Errorf("reports: %v", err)
 	}
 	if _, err := tm.Refetch(t.Context(), proto.PurposeMain, "$"+"nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaaa"); err == nil {
 		t.Error("a missing event was judged")
+	}
+}
+
+// B 2.7.3, QS6: a restored questions item is fetched from the questions room and judged as that
+// room's (addressed with no mention, its item in `room: questions`); main's id is not looked for
+// there.
+func TestRefetchOfAQuestionsItem(t *testing.T) {
+	w := newWorld(t)
+	w.inQuestions(alice, false)
+	w.asCoordinator()
+	w.inQuestions(coord, true)
+	tm := w.newTeam()
+	id := w.sayIn(w.qroom(), alice, human("is the build green?"))
+	v, err := tm.Refetch(t.Context(), proto.PurposeQuestions, id)
+	check(t, err)
+	// Unmentioned, it is delivered only when judged as the questions room's (QS6).
+	if v.Outcome != proto.Deliver || v.Event.ID != id || v.Kind != proto.KindHuman {
+		t.Errorf("verdict %+v, want the post delivered as the questions room's", v)
+	}
+	if _, err := tm.Refetch(t.Context(), proto.PurposeMain, id); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("a questions event refetched as main's: %v", err)
 	}
 }
 
@@ -130,8 +152,12 @@ func TestARefetchOfAnEventThatIsGoneSaysSo(t *testing.T) {
 	if err := refetch(proto.PurposeMain, missing); !errors.Is(err, team.ErrItemGone) {
 		t.Errorf("404: %v", err)
 	}
-	if err := refetch(proto.PurposeQuestions, id); !errors.Is(err, team.ErrItemGone) || !isCode(err, exits.CodeUsage) {
-		t.Errorf("questions: %v", err)
+	if err := refetch("elsewhere", id); !errors.Is(err, team.ErrItemGone) || !isCode(err, exits.CodeUsage) {
+		t.Errorf("a room it does not know: %v", err)
+	}
+	// A worker is not in the questions room: the server refuses the read, and the item is gone.
+	if err := refetch(proto.PurposeQuestions, id); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("questions as a worker: %v", err)
 	}
 	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/event/", Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN","error":"x"}`)})
 	if err := refetch(proto.PurposeMain, id); !errors.Is(err, team.ErrItemGone) {
