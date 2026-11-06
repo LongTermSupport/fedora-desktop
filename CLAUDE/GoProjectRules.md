@@ -1875,6 +1875,23 @@ bash they replaced and in the Go during review; each instance is in the audit re
   reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
   reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
   lists its ops by hand.
+- **A refusal state set from the answer to a request, without checking that the answer belongs
+  to the credential held now** (fedora-desktop#159: `engine`'s sender set the team's send stop
+  from a PUT's 401 or 403; a PUT made under the old token and answered after the team's
+  recovery under a reissued one had cleared the stop set it again, over the new token, until
+  the next health out of a stop). The answer outlives the credential it was made under. No
+  rule: which field is a refusal state, which call is a request made under a credential, and
+  which value is "the credential held now" are the program's meaning, not shapes a syntax tree
+  shows (a rule keyed on the one field `sendStop` would be a check of this instance, not of
+  the class). What holds it instead: the state carries the credential it applies to. The
+  sender keeps the digest of the token a PUT was made under, and the stop is set only when it
+  is the team's `sendsUnder`, which a recovery sets in the same state-goroutine step as it
+  clears the stop (`TestARefusalOfAnOldTokenDoesNotStopTheNewOne`, red before the fix for a
+  401 and a 403; `TestARefusalOfTheTokenTheSenderRecoveredUnderStops`). The sweep of the
+  member's other refusals set from an answer found them sound: `teamsync`'s session stop
+  re-reads the pair on a 401 and retries a changed one (n3c-D12); a verb's refusal is an
+  answer, not a state; the receipts loop's 401 ends it only until the next session; the
+  resolver's 403 and 404 are about the user and the event, which a reissue does not change.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and

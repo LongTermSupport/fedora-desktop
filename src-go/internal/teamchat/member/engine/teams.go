@@ -73,8 +73,11 @@ type held struct {
 	unsent    int64
 	// sendStop is a send-side stop (SD3-8c): the exits code of a token refused or a send
 	// forbidden at a PUT, "" for none. It clears when the team next runs: a recovery, or a
-	// health out of a stop or down.
-	sendStop string
+	// health out of a stop or down. sendsUnder, the SHA-256 of the token the team's sends run
+	// under, is set by a recovery as it starts; a refusal stops the sends only when the PUT was
+	// made under it (issue 159). Both are the state goroutine's.
+	sendStop   string
+	sendsUnder [sha256.Size]byte
 	// postMu serialises the sender's post with a recovery, off the state goroutine;
 	// recoveredUnder, the SHA-256 of the token the last recovery ran under, is read and
 	// written holding it.

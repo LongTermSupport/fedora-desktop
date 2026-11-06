@@ -330,6 +330,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     reviewed by the coordinator 2026-11-06; [BUILT-n3.md](BUILT-n3.md)). Open, the owner's:
     whether `awaiting` refuses a transcript path heavy in `<>&` (it measures as escaped) or
     `sizeAwaiting` is raised.
+  - The sender's stale stop (issue #159): a 401 or 403 stops a team's sends only for the token
+    the PUT was made under; built on `fix/recover-stale-401-159` ([BUILT-n3.md](BUILT-n3.md)).
 
 - [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
