@@ -34,7 +34,7 @@ func (r LockRecord) Encode() ([]byte, error) {
 // sweep read a member's by the same rule.
 func DecodeLockRecord(data []byte) (LockRecord, error) {
 	var r LockRecord
-	_, err := decodeStrict(lockRecordFile, data, MaxLockRecord, &r, func(c *rules) {
+	err := decodeStrict(lockRecordFile, data, MaxLockRecord, &r, func(c *rules) {
 		c.need(validMS(r.StartedMS), "started_ms is not a time")
 		c.need(r.LaunchFailedMS == nil || validMS(*r.LaunchFailedMS), "launch_failed_ms is not a time")
 	})

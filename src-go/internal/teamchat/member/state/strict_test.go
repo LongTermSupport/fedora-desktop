@@ -24,7 +24,7 @@ func (s sample) check(c *rules) {
 
 func TestDecodeStrict(t *testing.T) {
 	var s sample
-	if _, err := decodeStrict("sample", []byte(`{"v":1,"names":["a"]}`), 64, &s, func(c *rules) { s.check(c) }); err != nil {
+	if err := decodeStrict("sample", []byte(`{"v":1,"names":["a"]}`), 64, &s, func(c *rules) { s.check(c) }); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{
@@ -37,7 +37,7 @@ func TestDecodeStrict(t *testing.T) {
 		`{"v":1,"names":["a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a"]}`,
 	} {
 		var got sample
-		_, err := decodeStrict("sample", []byte(bad), 64, &got, func(c *rules) { got.check(c) })
+		err := decodeStrict("sample", []byte(bad), 64, &got, func(c *rules) { got.check(c) })
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("decodeStrict(%q) = %v, want ErrInvalid", bad, err)
 		}

@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -109,17 +111,78 @@ func TestServeRefusesBadArgumentsAndUnbuiltOps(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)}, &recorder{}); d.Exit != 1 {
-		t.Fatalf("verify on an ended context = %+v", d)
+	for _, req := range endedRequests() {
+		if d := w.e.Serve(ctx, req, &recorder{}); d.Exit != int(exits.ExitTimedOut) || d.Error == nil || d.Error.Code != exits.CodeTimedOut {
+			t.Fatalf("%s on an ended context = %+v", req.Op, d)
+		}
 	}
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)}, &recorder{}); d.Exit != int(exits.ExitTimedOut) {
-		t.Fatalf("wait on an ended context = %+v", d)
+}
+
+// endedRequests are a request of every op Serve answers that reaches the state goroutine.
+func endedRequests() []wire.Request {
+	text := "x"
+	return []wire.Request{
+		{Op: wire.OpStatus, Args: []byte(`{"team":null}`)},
+		{Op: wire.OpInbox, Args: []byte(`{"team":null}`)},
+		{Op: wire.OpRecv, Args: []byte(`{"team":null}`)},
+		{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)},
+		{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)},
+		{Op: wire.OpHistory, Args: []byte(`{"team":null,"room":"main","limit":5}`)},
+		{Op: wire.OpSay, Args: []byte(`{"team":null,"to":["alice"],"to_coordinator":false}`), Stdin: &text},
+		{Op: wire.OpPing, Args: []byte(`{"team":null,"verb":"review","ref":null,"to":["alice"],"to_coordinator":false,"branch":null}`)},
+		{Op: wire.OpReply, Args: []byte(`{"team":null,"id":"x","verb":null,"ref":null,"to_coordinator":false}`), Stdin: &text},
 	}
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpInbox, Args: []byte(`{"team":null}`)}, &recorder{}); d.Exit != 1 {
-		t.Fatalf("inbox on an ended context = %+v", d)
+}
+
+// Issue 160: under CPU starvation the state goroutine does not take a request's step before the
+// request's deadline. That end is the request's bound expiring, 4 timed-out, never 1 internal
+// ("the link failed inside"). The state goroutine is held here, and the deadline ends only once
+// the request is blocked waiting for it (leakcheck.Drive's step), so no CPU load is needed.
+func TestARequestWhoseStepTheStateGoroutineDoesNotTakeTimesOut(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	w.held(tid(t, "ops"))
+	for _, req := range endedRequests() {
+		entered, release, held := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		go func() {
+			held <- w.e.do(t.Context(), func() {
+				close(entered)
+				<-release
+			})
+		}()
+		<-entered
+		ctx, cancel := context.WithCancel(t.Context())
+		got := make(chan wire.Done, 1)
+		go func() { got <- w.e.Serve(ctx, req, &recorder{}) }()
+		var d wire.Done
+		leakcheck.Drive(t, func() bool {
+			select {
+			case d = <-got:
+				return true
+			default:
+				return false
+			}
+		}, cancel)
+		cancel()
+		close(release)
+		check(t, <-held)
+		if d.Exit != int(exits.ExitTimedOut) || d.Error == nil || d.Error.Code != exits.CodeTimedOut {
+			t.Errorf("%s whose step the state goroutine did not take = %+v", req.Op, d)
+		}
 	}
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpStatus, Args: []byte(`{"team":null}`)}, &recorder{}); d.Exit != 1 {
-		t.Fatalf("status on an ended context = %+v", d)
+}
+
+// doneOf and internal are the one sink of a request's failure: a context's end reaching either is
+// the request's bound expiring, never a failure inside the link.
+func TestAContextsEndIsNeverInternal(t *testing.T) {
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded, fmt.Errorf("a step: %w", context.Canceled)} {
+		for name, d := range map[string]wire.Done{"doneOf": doneOf(err), "internal": internal(err)} {
+			if d.Exit != int(exits.ExitTimedOut) || d.Error == nil || d.Error.Code != exits.CodeTimedOut || d.Error.Team != nil {
+				t.Fatalf("%s(%v) = %+v", name, err, d)
+			}
+		}
+	}
+	if d := internal(errors.New("x")); d.Exit != int(exits.ExitInternal) {
+		t.Fatalf("internal of another error = %+v", d)
 	}
 }
 
