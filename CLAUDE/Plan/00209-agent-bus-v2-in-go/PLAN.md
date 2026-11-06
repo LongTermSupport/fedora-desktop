@@ -314,7 +314,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12). Built, fakes only, none installed:
-  n3a-n3d, n3e (hooks, e2e, PT1: seeds, kill rows, removal, ends, redelivery); open: n3f
+  n3a-n3d; n3e in part (hooks, e2e, PT1: seeds, kill rows, removal, ends, redelivery), its rest
+  open (the OF1 row, PT1's unreached points, seed 57 in issue 156); open: n3f
   (n3f-a built, awaiting review, on `feat/bus-v2-n3f-a-int`: G6 and G7, G4 and G5 (the records
   and the filter), G1 whole (the question index: fold and caps, the strict codec and load, the
   build record, `RedactedSlot`, the property tests) and G2 (the store's seven keys, `MaxStore`
