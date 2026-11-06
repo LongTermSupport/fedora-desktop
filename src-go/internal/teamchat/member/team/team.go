@@ -49,6 +49,13 @@ type Batch struct {
 	// key, `reminded_ms`, `remind_late` and the three questions keys of the outbox dropped in
 	// this one write, and a `sending` questions post with them. It excludes Questions.
 	DropQuestions bool
+	// Page is a QX1 page's write, made beside the team's sync: its items, floors and key are
+	// written, and the store's position (next_batch, restore epoch, fresh) stays as the sync left
+	// it, whatever NextBatch holds.
+	Page bool
+	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
+	// a build begun with no `questions` key.
+	Handover bool
 }
 
 // Answer is an answer-form event to an own ping: From answered Ping with Verb in event ID, at

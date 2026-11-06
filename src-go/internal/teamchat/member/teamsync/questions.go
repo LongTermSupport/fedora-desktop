@@ -43,6 +43,9 @@ type IndexJob struct {
 	Key    *proto.QuestionsState
 	RoomID string
 	Floor  int64
+	// s is the session the job was begun in: its client reads the room, and its judging takes the
+	// room's items (Builder).
+	s *sess
 }
 
 // qroom is the questions room as this link stands to it, guarded by its own lock: the team
@@ -300,11 +303,7 @@ func (s *sess) qenter(ctx context.Context, force bool) error {
 		return nil
 	}
 	if verr := proto.VerifySide(proto.PurposeQuestions, room, proto.StateEvents(raw), s.roster, s.a); verr != nil {
-		check := "verify"
-		if te, ok := errors.AsType[*proto.TrustError](verr); ok {
-			check = te.Check
-		}
-		s.quntrusted(room, check)
+		s.quntrusted(room, sideCheck(verr))
 		return nil
 	}
 	joinTS := max(ownMember(raw, s.a.Self).ts, 0)
@@ -407,7 +406,7 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 		t.log.Printf("the stored question index does not load; it is built again: %v", lerr)
 	}
 	t.qset(room, func(q *qstate) { q.floor = floor })
-	t.qbegin(ctx, IndexJob{Key: key, RoomID: room, Floor: floor})
+	t.qbegin(ctx, IndexJob{Key: key, RoomID: room, Floor: floor, s: s})
 	return nil
 }
 
@@ -501,29 +500,42 @@ func (s *sess) qjudge(ctx context.Context, j *judged, since string, a answer) er
 		return err
 	}
 	f := &qfold{room: q.room, idx: q.idx.Copy(), last: q.last, events: len(events) > 0}
+	if last := s.qtake(j, jr, f.idx, q.floor, func(string) bool { return true }); last != "" {
+		f.last = last
+	}
+	j.q = f
+	return nil
+}
+
+// qtake is the questions room's judged events folded into idx and taken (QX2, QS6), the one
+// fold of the sync, the build and the catch-up: each event fed, each human post attached
+// whatever its verdict (n3f-D18), and each event the room owes taken as an item in `room:
+// questions` from the room's floor on (QS5); the questions floor raised to the newest. It gives
+// the last folded event, "" for none.
+func (s *sess) qtake(j *judged, jr roomJudged, idx *proto.QuestionIndex, floor int64, owes func(string) bool) string {
+	last := ""
 	counted := map[string]bool{}
 	for i, e := range jr.evs {
 		v := jr.vs[i]
-		f.idx.Feed(v)
+		idx.Feed(v)
 		if v.Human.Body != "" {
-			f.idx.Attach(v.Event, v.Human)
+			idx.Attach(v.Event, v.Human)
 		}
 		if e.id != "" {
-			f.last = e.id
+			last = e.id
 		}
-		if v.Outcome == proto.Deliver && v.Event.OriginTs <= q.floor {
+		if !owes(e.id) || v.Outcome == proto.Deliver && v.Event.OriginTs <= floor {
 			continue
 		}
 		s.take(j, v, e.id, nil, jr.lk, counted, proto.PurposeQuestions)
 	}
-	if jr.floor > q.floor {
+	if jr.floor > floor {
 		if j.batch.Floors == nil {
 			j.batch.Floors = map[string]int64{}
 		}
 		j.batch.Floors[proto.PurposeQuestions] = jr.floor
 	}
-	j.q = f
-	return nil
+	return last
 }
 
 // qgap is QS7's fill of a limited questions timeline, SY3's within its page bound: read back
@@ -573,7 +585,7 @@ func (s *sess) qcatchup(ctx context.Context, q qstate) error {
 	if err != nil {
 		return err
 	}
-	t.qbegin(ctx, IndexJob{Key: store.Questions, RoomID: q.room, Floor: q.floor})
+	t.qbegin(ctx, IndexJob{Key: store.Questions, RoomID: q.room, Floor: q.floor, s: s})
 	return nil
 }
 

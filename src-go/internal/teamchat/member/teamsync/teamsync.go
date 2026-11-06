@@ -132,9 +132,15 @@ type Team struct {
 	// qres resolves the questions room's relations apart from main's, so a relation there
 	// naming a main event marks nothing unknown for main (QS6).
 	qres *resolver
+	// judging is held while an answer, or a builder's page, is judged, written and committed
+	// (judgingHold).
+	judging chan struct{}
 
 	// Test seams.
-	onPoll func(since string)
+	// onBuildEnd is told each builder job's end, onBuildWait each of its backoff waits.
+	onBuildEnd  func()
+	onBuildWait func(time.Duration)
+	onPoll      func(since string)
 	// onFilter is told each request's filter just before the request is made.
 	onFilter func(json.RawMessage)
 	onWait   func(time.Duration)
@@ -183,6 +189,7 @@ func New(cfg Config) (*Team, error) {
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
 		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},
 		onReports: func(team.ReportsRoom) {}, readPair: bundle.ReadPair,
+		judging: make(chan struct{}, 1), onBuildEnd: func() {}, onBuildWait: func(time.Duration) {},
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
 	}, nil

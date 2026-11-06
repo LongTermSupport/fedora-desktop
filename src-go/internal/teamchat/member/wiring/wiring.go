@@ -63,6 +63,7 @@ func teamsyncConfig(c engine.TeamConfig, w teamsync.Watcher) teamsync.Config {
 		Team: c.Team, Seat: c.Seat, Root: c.Root, Run: c.Run, Engine: c.Engine, Ends: c.Ends,
 		Clock: c.Clock, Watcher: w, RemovedUserIDs: c.RemovedUserIDs, Plain: c.Plain,
 		FirstSessionStart: c.FirstSessionStart, Log: c.Log, Receipts: c.Receipts, Forge: c.Forge,
+		Builder: teamsync.NewBuilder(),
 	}
 }
 
