@@ -264,12 +264,18 @@ func (w *world) replace(path string, data []byte) {
 // desire writes the desired membership generation gen, inbound accept, by rename.
 func (w *world) desire(gen int64, seats []state.DesiredSeat, farewell []state.Farewell) {
 	w.t.Helper()
+	w.desireInbound(gen, seats, farewell, state.InboundAccept)
+}
+
+// desireInbound is desire with the inbound the file says.
+func (w *world) desireInbound(gen int64, seats []state.DesiredSeat, farewell []state.Farewell, inbound string) {
+	w.t.Helper()
 	session, err := paths.ParseSessionName("e2e")
 	check(w.t, err)
 	data, err := state.Desired{
 		Session: session, Generation: gen, WrittenMS: clock.System().WallMS(),
 		Seats: append([]state.DesiredSeat{}, seats...), Farewell: append([]state.Farewell{}, farewell...),
-		Inbound: state.InboundAccept,
+		Inbound: inbound,
 	}.Encode()
 	check(w.t, err)
 	w.replace(w.desired+"/desired.json", data)
@@ -379,7 +385,7 @@ func within(t *testing.T, limit time.Duration, cond func() bool, what func() str
 // env is a member process's environment: the world's home and runtime directory, and a race
 // detector that does not sleep at exit.
 func (w *world) env(extra ...string) []string {
-	env := []string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0"}
+	env := []string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0", "CLAUDE_CONFIG_DIR="}
 	if w.arm != "" {
 		env = append(env, envArm+"="+w.arm, envArmDir+"="+w.dir)
 	}
@@ -395,7 +401,10 @@ type session struct {
 	errOut  *lines
 	agent   int
 	runtime string
-	ended   chan execx.ExitStatus
+	// transcript is the path of the fake Claude Code's transcript, "" for a session that has no
+	// fake: its file outlives the fake, which a command to the fake does not.
+	transcript string
+	ended      chan execx.ExitStatus
 	// outputs are the read ends of the process's stdout and stderr, each with its reader.
 	outputs []output
 }
@@ -439,10 +448,13 @@ func (l *lines) find(prefix string) (string, bool) {
 }
 
 // start is `teamchat run --plain --kind other <flags> --kit <kit> -- agent`, started.
-func (w *world) start(flags ...string) *session {
+func (w *world) start(flags ...string) *session { return w.startCmd("--plain", w.agent, flags...) }
+
+// startCmd is `teamchat run <mode> --kind other <flags> --kit <kit> -- cmd`, started.
+func (w *world) startCmd(mode, cmd string, flags ...string) *session {
 	w.t.Helper()
-	args := append([]string{"run", "--plain", "--kind", "other"}, flags...)
-	args = append(args, "--kit", w.kit, "--", w.agent)
+	args := append([]string{"run", mode, "--kind", "other"}, flags...)
+	args = append(args, "--kit", w.kit, "--", cmd)
 	inR, inW, err := os.Pipe()
 	check(w.t, err)
 	outR, outW, err := os.Pipe()
@@ -476,14 +488,16 @@ func (w *world) start(flags ...string) *session {
 }
 
 // launch is start, once its CMD has started.
-func (w *world) launch(flags ...string) *session {
+func (w *world) launch(flags ...string) *session { return w.awaitCmd(w.start(flags...), agentName) }
+
+// awaitCmd is s, once its CMD, which says its name first, has started.
+func (w *world) awaitCmd(s *session, name string) *session {
 	w.t.Helper()
-	s := w.start(flags...)
 	eventually(w.t, func() bool {
-		_, ok := s.out.find(agentName + " ")
+		_, ok := s.out.find(name + " ")
 		return ok || s.exited()
 	}, s.describe)
-	line, ok := s.out.find(agentName + " ")
+	line, ok := s.out.find(name + " ")
 	if !ok {
 		w.t.Fatalf("the session ended before CMD started: %s", s.describe())
 	}

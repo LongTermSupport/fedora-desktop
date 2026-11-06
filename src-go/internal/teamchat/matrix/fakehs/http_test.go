@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 )
 
 type web struct {
@@ -144,6 +146,47 @@ func TestADroppedConnectionLosesTheRequestOrTheAnswer(t *testing.T) {
 	if n := w.messageCount(); n != 1 {
 		t.Fatalf("the retry with the same transaction ID landed %d messages", n)
 	}
+}
+
+// A held request is handled at once and answered only when its hold is released, so a test can
+// keep it in flight across what it does next; a Stop while it is held drops it.
+func TestAHeldRequestIsHandledAndAnsweredOnRelease(t *testing.T) {
+	w := serve(t)
+	agent := w.tm.tok[w.tm.agent]
+	hold := make(chan struct{})
+	w.tm.s.Inject(Fault{Method: "PUT", Path: "/send/", Hold: hold})
+	done := make(chan error, 1)
+	go func() {
+		got, err := w.do(context.Background(), "PUT", w.sendPath("h1"), agent, `{"body":"x"}`)
+		if err == nil && got.status != http.StatusOK {
+			err = errors.New(got.body)
+		}
+		done <- err
+	}()
+	leakcheck.Poll(t, func() bool { return w.messageCount() == 1 })
+	select {
+	case err := <-done:
+		t.Fatalf("a held request was answered before its release: %v", err)
+	default:
+	}
+	close(hold)
+	if err := <-done; err != nil {
+		t.Fatalf("a released request: %v", err)
+	}
+	held := make(chan struct{})
+	w.tm.s.Inject(Fault{Method: "PUT", Path: "/send/", Hold: held})
+	go func() {
+		_, err := w.do(context.Background(), "PUT", w.sendPath("h2"), agent, `{"body":"y"}`)
+		done <- err
+	}()
+	leakcheck.Poll(t, func() bool { return w.messageCount() == 2 })
+	if err := w.tm.s.Restart(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("a request held across a restart was answered")
+	}
+	close(held)
 }
 
 func TestARedirectTargetReceivesNothing(t *testing.T) {

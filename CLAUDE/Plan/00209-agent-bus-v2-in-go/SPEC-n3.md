@@ -993,8 +993,7 @@ section keeps the scope it was written from. The addendum covers at least:
   `report-rate` (14); `thread Q<n> --ask` and `--close`; `ask --remind-after`; `questions --all`
   and the "unanswered" rule; the `question` record's fields; `history --room questions`; the
   reports room's "verified at each send" failure (22).
-- **SR2. The questions room** in a coordinator's filter; its invite left pending while `human_text`
-  is false (said in `status` and the frame); a demotion stops syncing it at once and drops its
+- **SR2. The questions room** in a coordinator's filter; a demotion stops syncing it at once and drops its
   pending items; a human's edit there is an item with `revises`.
 
 ## 8. The requirements carried from Plan 00194
