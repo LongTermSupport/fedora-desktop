@@ -159,4 +159,18 @@ the unit timelines only.
 
 ## 7. qa-changed
 
-(filled in below after the run)
+Two runs of `./scripts/qa-changed.bash --base origin/feat/bus-v2-n3e-wire`, both exit 1.
+
+- Run 1 (after the second commit): docs passed, teamchat-keeps-off-v1 passed; go FAILED in
+  `teamchat-failpoints-lint`: `pt1_readings_unit_test.go:128:6: Consider preallocating out` (prealloc,
+  mine). Every other go-qa detector passed and the runners were not started. Fixed in the third
+  commit; the rule was not touched.
+- Run 2 (on the third commit): docs passed, teamchat-keeps-off-v1 passed; go: every detector
+  passed (`teamchat-failpoints-lint` 0 issues), and runners vuln, mod, build, test and coverage
+  passed (no "tests failed in ." line: the root module's tests passed). `teamchat-failpoints-test`
+  FAILED on one test outside this change: `TestE2EQueuedWhileDown (35.14s)`,
+  `e2e_sends_test.go:202: not within 30s` (shuffle 1793927854166642084), in `wiring` after 590.9 s
+  under the shared lock and load; every other teamchat package passed, and every PT1 test passed in
+  that run. It is the known 30 s-class timeout of open issue 140, which names this very test. Run
+  alone on this branch (`-race -tags busfailpoints -count=3 -run 'TestE2EQueuedWhileDown$'`) it
+  passed, 164.3 s. I did not change it or any e2e file.
