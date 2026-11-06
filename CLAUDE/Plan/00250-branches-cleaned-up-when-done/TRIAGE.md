@@ -40,6 +40,44 @@ ran it over every worktree. In each one it ran `git add -A` (or `git add --ignor
 command line of a Bash call. `bash some-script.bash` hides every git command inside the script
 from them. The script then turns one refused step into a partial state across many trees.
 
+## Cause 1a, found during the repair: a worktree whose creation was killed mid-checkout
+
+The rescue script did not create the partial worktrees; it found them. Fifteen agent worktrees
+were still git-locked with reason `initializing`. That lock is the one `git worktree add`
+holds while it runs and removes when it ends, so their creation never finished. The partial
+state looks like this:
+
+- **Eight worktrees: the checkout was cut short.** Half the files were missing on disk, and the
+  index stopped at the same sorted point as the checkout. The agent then worked in that
+  worktree and committed its own files, and its branch was merged into F44.
+- **Seven worktrees: the rescue made it worse.** On 2026-11-04 the rescue script committed
+  each partial tree, a "WIP rescue" commit that deleted 3,881 to 6,509 files and nothing else.
+  No such branch is under `refs/heads` on origin.
+
+The daemon's WorktreeCreate handler runs `git worktree add -b` with a 30-second timeout
+(`Timeout.GIT_WORKTREE`). This repository checks out about 8,600 files, and the host is often
+loaded by QA. The likely killer is that timeout, but it is not yet proven.
+
+The installed handler (v3.72.1) does clean up after a failed add. It runs `worktree remove --force`, `worktree prune` and `branch -D`, then raises, so Claude Code gets no path; a cleanup
+failure is only logged. Yet agents did commit in these worktrees. That is not explained:
+
+- The daemon version that created them (2026-10-22 to 10-27) may have lacked the cleanup.
+- Or the cleanup failed on the lock, since `worktree remove --force` given once refuses a
+  locked worktree and needs `-f -f`, and the path stayed usable.
+
+Task 1.5 proves which, with the fact-check
+(`subagent-reports/261106-plan-fact-checker-2-sonnet.md`).
+
+**Repair (2026-11-06), with no forced removal and no unproven delete:**
+
+- Eight worktrees: `git reset` put each index back to HEAD (index only). Then
+  `git checkout-index -a`, without `-f`, wrote only the files missing on disk. Each worktree
+  was then clean. The stale `initializing` lock was removed, and `branch-sweep --clean`
+  removed the worktree and deleted its merged branch, behind a recovery bundle.
+- Seven worktrees: each was clean. The lock was removed, the worktree removed without
+  `--force`, and the branch deleted by `delete-branch`, which proved every file version on it
+  reachable from F44 ("content-preserved").
+
 ## Cause 2: a merged branch is never deleted by anything
 
 - **Local.** `cleanup_after_merge` ran at its default mode, `advise`. After each merge it
