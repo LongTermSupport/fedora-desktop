@@ -1972,6 +1972,24 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `-cpu 1,2,4`, 300 times, the old form fails and the new one does not). No rule: every shape
   that reads after a close also matches the many reads that are ordered.
 
+- **A test hook that announces an event and then reads the control state its test sets once it has
+  seen the announcement** (Plan 00209 n3f-c1c: `teamsync`'s `gateFilter` held the team's next
+  request whose filter was the coordinator's. Its hook called `announce(f)`, then looked at the
+  channel `armed()` fills. `readyWith` returns when it has seen that announcement, and
+  `TestQS6AnOldHumanPostIsStillDelivered` arms the gate straight after, so under load the arm
+  landed before the hook's look: the request in flight, the one the test's post was to answer, was
+  held, and the test waited for a batch that request had to make. 29 minutes at `[select]` in CI,
+  PR 175, run 42176134603; locally 1 hang in 150 runs at `-cpu 1,2,4` with the machine busy.) A
+  100 ms pause after the announcement made it hang on every run. Whether a hook's later read is a
+  control the test writes after the announcement is the order of two goroutines' steps, not a
+  shape in the syntax tree: every hook that announces first also matches the many that read
+  nothing the test writes. What holds it instead: a hook decides, then announces, then blocks
+  (`gateFilter` takes the arm before `announce`, so an arm made after the announcement is for the
+  request after it), and the same pause after the announcement, run against the test, shows a
+  hook that does not (the old form hangs, the new one passes). Swept in `teamsync`'s tests: the
+  other hooks (`gated`'s and `held`'s `onPoll`, `watchReports`, the budget and receipt waits)
+  announce nothing before they decide, or decide on nothing the test writes.
+
 - **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
   merge: `units.Conn` says the connection closes the signal channel it was given when it is
   closed, and n3e made `session.close` wait for `dispatch`, which that close ends; n2's

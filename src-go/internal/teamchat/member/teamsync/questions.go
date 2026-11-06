@@ -373,8 +373,10 @@ func (s *sess) qjoin(ctx context.Context, room string) bool {
 	return true
 }
 
+// quntrusted is QS8's failed check: the room out of the filter, and its index owed again, so
+// that the recovery loads it or catches it up from its token (QX1).
 func (s *sess) quntrusted(room, check string) {
-	if s.t.qset(room, func(q *qstate) { q.verified, q.head, q.check = false, false, check }) {
+	if s.t.qset(room, func(q *qstate) { q.verified, q.head, q.check, q.begun = false, false, check, false }) {
 		s.t.log.Printf("the questions room %s is untrusted: the check %s failed", room, check)
 		s.t.poke()
 	}
@@ -404,15 +406,8 @@ func (s *sess) qindex(ctx context.Context, room string, joinTS int64) error {
 		}
 		t.log.Printf("the stored question index does not load; it is built again: %v", lerr)
 	}
-	said := false
-	t.qset(room, func(q *qstate) { q.floor, said, q.noneSaid = floor, q.noneSaid, true })
-	if t.cfg.Builder == nil {
-		if !said {
-			t.log.Printf("no index builder: the questions room stays building")
-		}
-		return nil
-	}
-	t.cfg.Builder.Begin(ctx, IndexJob{Key: key, RoomID: room, Floor: floor})
+	t.qset(room, func(q *qstate) { q.floor = floor })
+	t.qbegin(ctx, IndexJob{Key: key, RoomID: room, Floor: floor})
 	return nil
 }
 
@@ -485,13 +480,22 @@ type qfold struct {
 // qjudge is QS6: the questions room's events of an answer whose filter held it, judged as the
 // questions room's after main's: each human post attached by the index whatever its verdict
 // (n3f-D18), an agent's question or thread post folded, a delivery's item in `room: questions`
-// from the room's floor on (QS5).
-func (s *sess) qjudge(ctx context.Context, j *judged, a answer) error {
+// from the room's floor on (QS5). A limited timeline is filled first (QS7).
+func (s *sess) qjudge(ctx context.Context, j *judged, since string, a answer) error {
 	q := s.t.qget()
 	if !a.qheld || !q.ready() {
 		return nil
 	}
-	events := a.resp.Join[q.room].Timeline.Events
+	events, reached, err := s.qgap(ctx, q, since, a.resp.Join[q.room].Timeline)
+	switch {
+	case errors.Is(err, matrix.ErrForbidden) || errors.Is(err, matrix.ErrNotFound):
+		s.quntrusted(q.room, "state")
+		return nil
+	case err != nil:
+		return err
+	case !reached:
+		return s.qcatchup(ctx, q)
+	}
 	jr, err := s.judgeRoom(ctx, j, roomJudge{room: q.room, purpose: proto.PurposeQuestions, events: events, res: s.t.qres, floor: q.floor})
 	if err != nil {
 		return err
@@ -520,6 +524,70 @@ func (s *sess) qjudge(ctx context.Context, j *judged, a answer) error {
 	}
 	j.q = f
 	return nil
+}
+
+// qgap is QS7's fill of a limited questions timeline, SY3's within its page bound: read back
+// to the page holding the index's last folded event, or, when the previous request's fold was
+// written (the chain), to the position the answer was asked from. The events after that event
+// come oldest first; reached is false when the fill did not reach it (past the bound, or the
+// room's start with no such event), which only QX1's catch-up can then place.
+func (s *sess) qgap(ctx context.Context, q qstate, since string, tl matrix.Timeline) ([]json.RawMessage, bool, error) {
+	if !tl.Limited {
+		return tl.Events, true, nil
+	}
+	if tl.PrevBatch == "" {
+		return nil, false, nil
+	}
+	isLast := func(raw json.RawMessage) bool {
+		v, err := proto.Parse(raw)
+		return err == nil && q.last != "" && str(v, "event_id") == q.last
+	}
+	to := ""
+	if q.chain {
+		to = since
+	}
+	older, gap, err := s.fill(ctx, q.room, tl.PrevBatch, to, func(page []json.RawMessage) bool {
+		return slices.ContainsFunc(page, isLast)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	events := slices.Concat(older, tl.Events)
+	if i := slices.IndexFunc(events, isLast); i >= 0 {
+		return events[i+1:], true, nil
+	}
+	return events, q.chain && !gap, nil
+}
+
+// qcatchup is QS7 past the bound: the room leaves the filter (QS4) and QX1's catch-up is begun
+// from the store's key; the answer takes nothing of the room and leaves the key as it was
+// (n3f-D19).
+func (s *sess) qcatchup(ctx context.Context, q qstate) error {
+	t := s.t
+	if !t.qset(q.room, func(q *qstate) { q.head = false }) {
+		return nil
+	}
+	t.log.Printf("the questions room %s has a gap the sync cannot fill; it is caught up apart", q.room)
+	t.poke()
+	store, err := t.cfg.Engine.Load(t.cfg.Team, s.a.Self)
+	if err != nil {
+		return err
+	}
+	t.qbegin(ctx, IndexJob{Key: store.Questions, RoomID: q.room, Floor: q.floor})
+	return nil
+}
+
+// qbegin hands QX1 its job; with no builder the room stays building, said once.
+func (t *Team) qbegin(ctx context.Context, job IndexJob) {
+	if t.cfg.Builder != nil {
+		t.cfg.Builder.Begin(ctx, job)
+		return
+	}
+	said := false
+	t.qset(job.RoomID, func(q *qstate) { said, q.noneSaid = q.noneSaid, true })
+	if !said {
+		t.log.Printf("no index builder: the questions room stays building")
+	}
 }
 
 // qkey is the `questions` key the answer's write carries (QX5, n3f-D19): set only by an
