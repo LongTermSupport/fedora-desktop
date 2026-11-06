@@ -123,14 +123,32 @@ func (w *world) claude(flags ...string) *session {
 	return s
 }
 
-// claudeSeated is claude, its SessionStart hook run (the answer is the rows' to judge) and the
-// seat held.
+// claudeSeated is claude, its SessionStart hook run until the link has answered it (startAnswered:
+// a SessionStart the link answers late tells it no session, so a run whose link never learns where
+// to deliver waits for ever for its first delivery) and the seat held.
 func (w *world) claudeSeated(flags ...string) *session {
 	w.t.Helper()
 	s := w.claude(flags...)
-	answer(w.t, s.hook(evStart))
+	s.startAnswered()
 	s.seatedIn()
 	return s
+}
+
+// startAnswered is the answer of the session's SessionStart hook once the link has answered it.
+// The hook dials the link once and, when the answer is later than its 300 ms deadline (LN2), as
+// it is on a loaded host, gives its own recovery line, which says teamchat is starting, and the
+// link never learns the session. Claude Code fires SessionStart again on a resume, so the row
+// asks again until the answer is not that line. Only SessionStart: Stop blocks once per pending
+// set, so a Stop the link answered late would answer differently when asked again.
+func (s *session) startAnswered() string {
+	s.w.t.Helper()
+	starting := withContext(evStart, msgStarting)
+	var got string
+	eventually(s.w.t, func() bool {
+		got = answer(s.w.t, s.hook(evStart))
+		return got != starting
+	}, s.describe)
+	return got
 }
 
 // answer is the one line a hook that ran answered: it exits 0, says nothing on stderr and ends
@@ -173,7 +191,7 @@ func userFrames(all []ccFrame) []ccFrame {
 func TestClaudeDelivers(t *testing.T) {
 	w := newWorld(t, fakeServer(t))
 	s := w.claude(w.desiredFlags(state.InboundAccept)...)
-	if got, want := answer(t, s.hook(evStart)), withContext(evStart, w.frameOf(state.DeliverySocket)); got != want {
+	if got, want := s.startAnswered(), withContext(evStart, w.frameOf(state.DeliverySocket)); got != want {
 		t.Fatalf("SessionStart answered\n%s\nwant\n%s", got, want)
 	}
 	s.seatedIn()
@@ -267,7 +285,7 @@ func TestClaudeLinkSilent(t *testing.T) {
 	}
 	kill(t, link, syscall.SIGCONT)
 	eventually(t, func() bool { return !procIs(link, 'T') }, s.describe)
-	if got, want := answer(t, s.hook(evStart)), withContext(evStart, w.frameOf(state.DeliverySocket)); got != want {
+	if got, want := s.startAnswered(), withContext(evStart, w.frameOf(state.DeliverySocket)); got != want {
 		t.Fatalf("SessionStart with the link continued answered\n%s\nwant\n%s", got, want)
 	}
 }
@@ -310,7 +328,7 @@ func TestClaudeStatusLine(t *testing.T) {
 func TestClaudeStopBlocks(t *testing.T) {
 	w := newWorld(t, fakeServer(t))
 	s := w.claude(w.desiredFlags(state.InboundRefuse)...)
-	if got, want := answer(t, s.hook(evStart)), withContext(evStart, w.frameOf(state.DeliveryWait)); got != want {
+	if got, want := s.startAnswered(), withContext(evStart, w.frameOf(state.DeliveryWait)); got != want {
 		t.Fatalf("SessionStart of a run that refuses the inbox answered\n%s\nwant\n%s", got, want)
 	}
 	s.seatedIn()
