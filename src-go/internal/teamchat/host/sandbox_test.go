@@ -4,10 +4,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
-// baseUnitText is C 3.2.3's base unit as DESIGN-v2-C-host.md gives it. BaseSandbox is pinned
-// against its [Service] section; a change to either is a change to both.
+// baseUnitText is C 3.2.3's base unit as DESIGN-v2-C-host.md gives it, ending with D 4.2's
+// InaccessiblePaths= line. BaseSandbox is pinned against its [Service] section; a change to either
+// is a change to both.
 const baseUnitText = `[Unit]
 Description=v2 team homeserver %i
 StartLimitIntervalSec=0
@@ -61,7 +64,7 @@ TemporaryFileSystem=/run/systemd/resolve:ro
 BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
 BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
 InaccessiblePaths=-/run/dbus
-`
+` + v1names.InaccessiblePaths + "\n"
 
 // notSandbox are the [Service] keys n2g-D17 keeps per unit: the lifecycle, and the credential
 // and environment, whose paths differ between the server and the staging unit.
@@ -90,8 +93,8 @@ func TestBaseSandboxIsTheBaseUnitsSandbox(t *testing.T) {
 	if !slices.Equal(base, want) {
 		t.Fatalf("BaseSandbox =\n%s\nwant\n%s", strings.Join(base, "\n"), strings.Join(want, "\n"))
 	}
-	if base[0] != "DynamicUser=yes" || base[len(base)-1] != "InaccessiblePaths=-/run/dbus" {
-		t.Fatalf("BaseSandbox runs from %q to %q", base[0], base[len(base)-1])
+	if base[0] != "DynamicUser=yes" || base[len(base)-1] != v1names.InaccessiblePaths || base[len(base)-2] != "InaccessiblePaths=-/run/dbus" {
+		t.Fatalf("BaseSandbox runs from %q to %q after %q", base[0], base[len(base)-1], base[len(base)-2])
 	}
 	base[0] = "changed"
 	if BaseSandbox()[0] != "DynamicUser=yes" {
@@ -106,7 +109,7 @@ func TestTeamSandbox(t *testing.T) {
 	if len(lines) != len(BaseSandbox()) {
 		t.Fatalf("%d lines, want %d", len(lines), len(BaseSandbox()))
 	}
-	for _, want := range []string{"User=teamchat-ops", "StateDirectory=teamchat/ops", "IPAddressDeny=any", "SocketBindDeny=any", "UMask=0077"} {
+	for _, want := range []string{"User=teamchat-ops", "StateDirectory=teamchat/ops", "IPAddressDeny=any", "SocketBindDeny=any", "UMask=0077", v1names.InaccessiblePaths} {
 		if !slices.Contains(lines, want) {
 			t.Errorf("no %q in %q", want, lines)
 		}
