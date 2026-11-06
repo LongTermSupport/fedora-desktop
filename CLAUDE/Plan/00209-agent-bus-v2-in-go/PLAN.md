@@ -313,9 +313,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   seats are token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
 
 - [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
-  delivery, hooks, status line, plugin and skill (B 2.1-2.12). Slices n3a to n3e are built and
-  merged into `spike/v2-merge-up`, tested under fakes only, with no binary installed anywhere;
-  n3f, the side rooms of Plan 00211, has its spec only.
+  delivery, hooks, status line, plugin and skill (B 2.1-2.12). Built, fakes only, none installed:
+  n3a-n3d; n3e in part (hooks wired, four `--claude` e2e rows, PT1 slices 1-4). Open: n3e's
+  rest (the OF1 row, PT1's unreached points, seed 57 in issue 156), n3f.
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and
@@ -330,6 +330,13 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     reviewed by the coordinator 2026-11-06; [BUILT-n3.md](BUILT-n3.md)). Open, the owner's:
     whether `awaiting` refuses a transcript path heavy in `<>&` (it measures as escaped) or
     `sizeAwaiting` is raised.
+  - The sender's stale stop (issue #159): a 401 or 403 stops a team's sends only for the token
+    the PUT was made under; built on `fix/recover-stale-401-159` ([BUILT-n3.md](BUILT-n3.md)).
+  - The retry hold (`fix/retry-hold-lift`): a newer sync already lifts it, now pinned; the E2E's
+    slow delivery is the team's up-mark at its first long-poll, left to the coordinator ([BUILT-n3.md](BUILT-n3.md)).
+  - Issue #149: `teamsync` `TestARestartedServerBetweenPolls` restarts fakehs on the test's
+    goroutine after its post is answered; rule `project_fake_restart` holds the class
+    (`fix/teamsync-restart-149`).
 
 - [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,
