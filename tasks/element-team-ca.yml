@@ -170,16 +170,20 @@
       - flatpak
       - run
       - --command=python3
-      - "--filesystem={{ root_dir }}/helpers/element_ca:ro"
+      - "--filesystem={{ element_ca_checkout }}:ro"
       - im.riot.Riot
       - -I
-      - "{{ root_dir }}/helpers/element_ca/nss.py"
+      - "{{ element_ca_checkout }}/nss.py"
       - check
       - --team
       - "{{ item.item.key }}"
       - --url
       - "{{ item.item.value }}"
     stdin: "{{ item.content | b64decode }}"
+  vars:
+    # The sandbox is given this one directory, read-only; `flatpak --filesystem=<path>:ro` takes the
+    # mode after a colon, so the checkout path is named here and the mount adds the mode.
+    element_ca_checkout: "{{ root_dir }}/helpers/element_ca"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
   loop: "{{ element_team_ca_pem.results }}"
