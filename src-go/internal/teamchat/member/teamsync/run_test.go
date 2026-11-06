@@ -183,9 +183,12 @@ func TestTransientFailuresBackOff(t *testing.T) {
 // that reached the server. The wiring tests' upBound is derived from this (Plan 00209).
 func TestABackTeamIsShownUpAtItsFirstLongPoll(t *testing.T) {
 	w := newWorld(t)
-	r := w.start()
+	tm := w.newTeam()
+	rooms := watchReports(tm)
+	r := w.startTeam(tm)
 	w.batch()
 	r.poll(t)
+	reportsSettled(t, tm, rooms)
 	check(t, w.clk.AwaitDue(t.Context(), longPoll))
 	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
 	w.clk.Advance(longPoll)
