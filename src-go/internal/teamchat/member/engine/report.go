@@ -116,10 +116,15 @@ func (e *Engine) postRoom(ctx context.Context, h *held, p nextPost, token string
 	if err := e.recheck(p, token, r); err != nil {
 		return "", e.unposted(ctx, h, p.entry, err), true
 	}
-	if p.entry.Room != proto.PurposeReports {
+	switch p.entry.Room {
+	case proto.PurposeMain:
 		return p.main, nil, false
+	case proto.PurposeReports:
+		return e.reportsTarget(ctx, h, p, r)
 	}
-	return e.reportsTarget(ctx, h, p, r)
+	// recheck refuses every other room, so none reaches here; a room added there and not here
+	// is refused all the same.
+	return "", e.unposted(ctx, h, p.entry, unknownRoom(h.id, p.entry.Room)), true
 }
 
 // reportsTarget is the sender's half of RP4 (n3f-D16): the reports room verified again before a

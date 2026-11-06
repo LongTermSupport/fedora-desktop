@@ -137,6 +137,7 @@ type world struct {
 	team    teamOf
 	hs      homeserver
 	main    string
+	reports string
 	tokens  map[string]string
 	dir     string
 	home    string
@@ -174,7 +175,7 @@ func newWorld(t *testing.T, hs homeserver) *world {
 func (w *world) join(tm teamOf, hs homeserver) *world {
 	w.t.Helper()
 	other := *w
-	other.team, other.hs, other.main, other.tokens = tm, hs, "", map[string]string{}
+	other.team, other.hs, other.main, other.reports, other.tokens = tm, hs, "", "", map[string]string{}
 	other.populate()
 	return &other
 }
@@ -224,7 +225,10 @@ func (w *world) populate() {
 	if _, err := rooms.Converge(t.Context(), w.hs.admin, rec, rooms.Team{Server: w.team.server, Team: w.team.name, Roster: roster}, proto.RoomIDs{}); err != nil {
 		t.Fatalf("Converge: %v", err)
 	}
-	w.main = rec.ids.Main
+	w.main, w.reports = rec.ids.Main, rec.ids.Reports
+	if w.main == "" || w.reports == "" {
+		t.Fatalf("Converge made rooms %+v, want main and reports", rec.ids)
+	}
 	for _, local := range accounts {
 		token, err := w.hs.mint(w.user(local))
 		check(t, err)

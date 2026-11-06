@@ -61,6 +61,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
+| `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's          | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                        |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1432,6 +1433,49 @@ A condition that takes what it finds, a receive, is not an act: it holds once, a
   another function (a helper that advances), and an act that is not a clock move, a send or a
   close (a write to a fake, a call that releases a gate).
 
+### project_room_default
+
+**What it is about.** A teamchat send picks its room, and what is done with its answer, by its
+purpose (`state.Sending.Room`, `proto.Outgoing.Purpose`). A test against one side room, such as
+`if room != proto.PurposeReports { post to main }`, gives every other room main's path: when a
+further room's sends are built (the questions room), each one is posted to main, re-checked as
+main's content, or has its 403 stop the team's main sends, and nothing fails.
+
+**Why it exists.** The reports room's builder (Plan 00209 n3f-b2) removed it from `sendingOf`,
+`answerSent` and `recordPosted`, which each took main's room for a report. Three were left:
+`postRoom` (every room not the reports room posted to main), `recheck` (every send not a report
+decoded as main's) and `sendFailed` (a 403 for anything not a report handled as main's).
+
+**What it flags**, in `internal/teamchat/member/engine` and `internal/teamchat/member/teamsync`
+(not their tests): a `!=` comparison with a side room's purpose (a `proto.Purpose*` constant other
+than `PurposeMain`) anywhere; an `==` comparison with one that is the condition, or one of the
+`&&` terms of the condition, of an `if` with an `else` or whose body ends in a return, a branch
+or a panic; and an `==` comparison with one in a case of a tagless switch that another case
+follows.
+
+**Not flagged**: a test for main itself (`==` or `!=` `proto.PurposeMain`), whose path is main's
+alone; a side room's own addition (an `if` with no `else` whose body falls through, such as the
+report window `spend` adds); the last case of a tagless switch; a switch on the room. Other
+packages (delivery, the verdicts, `health/view`) test purposes for what they show, not for where
+a send goes, and are not judged.
+
+**How to fix a violation.** Switch on the room: a case for each room the code handles and a
+default that refuses the rest by name (`unknownRoom` in the engine), so a room added later is
+refused until its own case is written.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/engine` (`bad.go`: the three
+  originating forms, an `if` with an `else` and a negated side room in a plain expression;
+  `good.go`: a switch with a default, tests for main, an addition, a last case, a constant that
+  is not a purpose) and `member/roomelsewhere` (out of scope: not judged).
+- Red, real tree: three findings, `engine/report.go` (`postRoom`) and `engine/sender.go`
+  (`recheck`, `sendFailed`); none in `teamsync`.
+- Green: each is a switch on the room with a default that refuses it (`unknownRoom`);
+  `TestAQueuedSendToAnUnpostedRoomIsNotPostedToMain` was red with the old default restored (the
+  questions-room send posted to main) and is green.
+- Not caught: a room held in a variable compared to another variable, a helper that answers
+  whether a room is a side room, or a default written as a map lookup. A test fake that records
+  no room is a related class with no rule: see below.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -1470,6 +1514,20 @@ guessing; the catalogue claims no more than the code does.
   runs that test: it holds that a write through a bind mount is refused by the kernel
   (`RESOLVE_NO_XDEV`), which `TestMkdirAll` shows only by the flag it passes. Whether CI should
   allow the mount (a runner setting) or the skip is accepted is the owner's question on PR 124.
+
+- **A test fake that keeps fewer rooms than the code under test uses** (Plan 00209 n3f-b3: the
+  engine's fakehs fixture kept only main's id of the rooms `rooms.Converge` made, so no engine
+  test could post to, read or recover in the reports room on a homeserver, and the recovery of
+  a tried report went unpinned). Which of a fake's arguments matter is what the tests will ask of
+  it, not a shape in the syntax tree: a fake `RoomState` that answers nothing for every room is
+  correct where no test reads a room's state, and the same body is the defect where one does. A
+  narrow rule (a `rooms.Recorder` whose `Record` keeps some purposes) would catch only the one
+  shape already fixed. What holds it: the recorders keep every purpose (`roomRecorder` in
+  `engine`, `hsRecorder` in `client`, `recorder` in `teamsync`, `ends` and `wiring`), the engine's
+  fixture fails when Converge made no reports room, and the sends' fake keeps the room of every
+  send (`fakeNotices.rooms`). Swept in the member packages' tests: the stubs that still take no
+  room (`fakeNotices.RoomState` in `engine`, and `RoomState`, `Messages`, `Send` in `link`) answer
+  nothing for every room and back no assertion on one.
 
 - **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
   fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails

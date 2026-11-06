@@ -18,24 +18,33 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 )
 
-// mainRecorder keeps the main room's id as rooms.Converge makes it.
-type mainRecorder struct{ main string }
+// roomRecorder keeps every room's id by its purpose as rooms.Converge makes it, so no room a
+// test posts to is left unknown.
+type roomRecorder struct{ ids map[string]string }
 
-func (*mainRecorder) Intent(string) error { return nil }
+func (*roomRecorder) Intent(string) error { return nil }
 
-func (r *mainRecorder) Record(purpose, id string) error {
-	if purpose == proto.PurposeMain {
-		r.main = id
+func (r *roomRecorder) Record(purpose, id string) error {
+	if r.ids == nil {
+		r.ids = map[string]string{}
 	}
+	r.ids[purpose] = id
 	return nil
 }
 
 // hsTeam is team id's rooms on fakehs, its clock the world's wall clock, with this member
-// (agent 1) joined to main through client.
+// (agent 1) joined to main and the reports room through client.
 type hsTeam struct {
-	srv    *fakehs.Server
-	client *matrix.Client
-	main   string
+	srv           *fakehs.Server
+	client        *matrix.Client
+	main, reports string
+}
+
+// roster is sendRoster naming the reports room this server made.
+func (h hsTeam) roster(id paths.TeamID) proto.Roster {
+	r := sendRoster(id)
+	r.Rooms.Reports = h.reports
+	return r
 }
 
 func (w *world) onHS(id paths.TeamID) hsTeam {
@@ -65,33 +74,45 @@ func (w *world) onHS(id paths.TeamID) hsTeam {
 	admin, err := matrix.NewAdmin(matrix.Config{BaseURL: srv.URL(), Token: adminToken, Clock: noSleep{}})
 	check(w.t, err)
 	w.t.Cleanup(admin.Close)
-	rec := &mainRecorder{}
+	rec := &roomRecorder{}
 	r.Rooms = proto.SideRooms{}
 	if _, convErr := rooms.Converge(w.t.Context(), admin, rec, rooms.Team{Server: server, Team: id.String(), Roster: r}, proto.RoomIDs{}); convErr != nil {
 		w.t.Fatalf("Converge: %v", convErr)
+	}
+	main, reports := rec.ids[proto.PurposeMain], rec.ids[proto.PurposeReports]
+	if main == "" || reports == "" {
+		w.t.Fatalf("Converge made rooms %v, want main and reports", rec.ids)
 	}
 	token, err := srv.MintToken(agent(id, 1))
 	check(w.t, err)
 	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
-	if _, err := c.Join(w.t.Context(), rec.main); err != nil {
-		w.t.Fatalf("join main: %v", err)
+	for _, room := range []string{main, reports} {
+		if _, err := c.Join(w.t.Context(), room); err != nil {
+			w.t.Fatalf("join %s: %v", room, err)
+		}
 	}
 	w.mu.Lock()
-	w.mains[id] = rec.main
+	w.mains[id] = main
 	w.mu.Unlock()
 	f := w.fake(id)
 	f.notices.mu.Lock()
 	f.notices.hs = c
 	f.notices.mu.Unlock()
-	return hsTeam{srv: srv, client: c, main: rec.main}
+	return hsTeam{srv: srv, client: c, main: main, reports: reports}
 }
 
 // own are this member's message events in main, oldest first: each event's id and content.
 func (h hsTeam) own(t *testing.T, self string) []proto.Value {
 	t.Helper()
-	page, err := h.client.Messages(t.Context(), h.main, matrix.MessagesRequest{Dir: matrix.Backward, Limit: 1000})
+	return h.ownIn(t, h.main, self)
+}
+
+// ownIn are this member's message events in room, oldest first.
+func (h hsTeam) ownIn(t *testing.T, room, self string) []proto.Value {
+	t.Helper()
+	page, err := h.client.Messages(t.Context(), room, matrix.MessagesRequest{Dir: matrix.Backward, Limit: 1000})
 	check(t, err)
 	var out []proto.Value
 	for _, raw := range slices.Backward(page.Chunk) {
@@ -208,6 +229,154 @@ func TestSD3_10TheRecoveryFindsTriedSends(t *testing.T) {
 	w.until(w.sendsLeft(dev))
 	if n := hd.requests(http.MethodGet, "/messages"); n != 0 {
 		t.Errorf("an untried send was searched for: %d reads", n)
+	}
+}
+
+// postedElsewhere is content posted to room by agent 1 of id from another device, which the
+// server then gives no transaction id: its event id.
+func postedElsewhere(t *testing.T, h hsTeam, id paths.TeamID, room string, content []byte) string {
+	t.Helper()
+	token, err := h.srv.MintToken(agent(id, 1))
+	check(t, err)
+	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	check(t, err)
+	t.Cleanup(other.Close)
+	ev, err := other.Send(t.Context(), room, proto.MessageType, "tc"+strings.Repeat("8", 32), content)
+	check(t, err)
+	return ev
+}
+
+// triedReport is report text of team id marked tried under txn, composed against roster r.
+func triedReport(t *testing.T, id paths.TeamID, r proto.Roster, text, txn string, sinceMS int64) state.Sending {
+	t.Helper()
+	c := proto.Composer{Server: paths.ServerName(id), Self: agent(id, 1), Roster: r}
+	out, err := c.Report(text)
+	check(t, err)
+	return state.Sending{
+		Txn: txn, Room: proto.PurposeReports, Kind: state.SendReport, SinceMS: sinceMS, Tried: true,
+		Type: proto.MessageType, Content: out.Content.Compact(),
+	}
+}
+
+// SD3-10 for the reports room (n3f-D16): a tried report the server already holds, put by another
+// device so that it carries no transaction id, is found in the reports room and recorded posted
+// under the new token, never put again; a tried report it lacks is posted by its txn. Neither
+// touches main's anchor or the resolver's own sends.
+func TestSD3_10TheRecoveryFindsATriedReport(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	h := w.onHS(ops)
+	r := h.roster(ops)
+	found := triedReport(t, ops, r, reportText, "tc"+strings.Repeat("b", 32), w.clk.WallMS())
+	postedElsewhere(t, h, ops, h.reports, reordered(t, found.Content))
+	w.clk.Advance(5 * time.Second)
+	lacking := triedReport(t, ops, r, "Tests still pass\nAll 13 of them.", "tc"+strings.Repeat("c", 32), w.clk.WallMS())
+
+	s := w.newStore(ops)
+	s.Outbox.Sending = []state.Sending{found, lacking}
+	f := w.sendingUnder(ops, s, r)
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); !slices.Equal(got, []string{lacking.Txn}) {
+		t.Errorf("posted %v, want only the report the server lacks", got)
+	}
+	if n := len(h.ownIn(t, h.reports, agent(ops, 1))); n != 2 {
+		t.Errorf("the reports room holds %d own events, want 2: the found report once and the lacking one", n)
+	}
+	if n := len(h.own(t, agent(ops, 1))); n != 0 {
+		t.Errorf("main holds %d own events, want none", n)
+	}
+	st := w.store(ops)
+	if st.Outbox.LastSent != nil || len(st.Outbox.Pings) != 0 || len(f.notices.owned()) != 0 {
+		t.Errorf("a recovered report touched main's bookkeeping: last_sent %v, pings %d, own sends %v",
+			st.Outbox.LastSent, len(st.Outbox.Pings), f.notices.owned())
+	}
+}
+
+// A read of the reports room the homeserver forbids finds no report there: the recovery ends, and
+// the sender's own verification decides the report (here it is posted, as the room verifies).
+func TestTheRecoveryTakesAForbiddenReportsReadAsNotFound(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	h := w.onHS(ops)
+	r := h.roster(ops)
+	tried := triedReport(t, ops, r, reportText, "tc"+strings.Repeat("d", 32), w.clk.WallMS())
+	h.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/messages", Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN","error":"not joined"}`)})
+	s := w.newStore(ops)
+	s.Outbox.Sending = []state.Sending{tried}
+	f := w.sendingUnder(ops, s, r)
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); !slices.Equal(got, []string{tried.Txn}) {
+		t.Errorf("posted %v, want the report by its txn", got)
+	}
+}
+
+// A read of the reports room that fails otherwise is the recovery's failure, as main's is: the
+// report waits, unposted.
+func TestTheRecoveryReturnsAFailedReportsRead(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	h := w.onHS(ops)
+	r := h.roster(ops)
+	s := w.newStore(ops)
+	s.Outbox.Sending = []state.Sending{triedReport(t, ops, r, reportText, "tc"+strings.Repeat("e", 32), w.clk.WallMS())}
+	f := w.add(ops, encodeStore(t, s))
+	<-f.running
+	f.notices.set(r)
+	h.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/messages", Status: http.StatusBadGateway})
+	if err := w.e.RecoverSends(t.Context(), ops, f.notices); err == nil {
+		t.Fatal("a failed read of the reports room recovered")
+	}
+	if len(f.notices.sent()) != 0 || len(w.store(ops).Outbox.Sending) != 1 {
+		t.Fatal("a report was posted or removed before its recovery")
+	}
+}
+
+// A tried report with no roster to name the reports room, or a tried send to a room no recovery
+// reads, fails the recovery rather than leave a send that may be held to be put again.
+func TestTheRecoveryRefusesATriedSendItCannotLookFor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	for _, c := range []struct {
+		team   string
+		room   string
+		roster bool
+	}{
+		{"ops", proto.PurposeReports, false},
+		{"dev", proto.PurposeQuestions, true},
+	} {
+		id := tid(t, c.team)
+		r := sendRoster(id)
+		sending := triedReport(t, id, r, reportText, "tc"+strings.Repeat("f", 32), w.clk.WallMS())
+		sending.Room = c.room
+		s := w.newStore(id)
+		s.Outbox.Sending = []state.Sending{sending}
+		f := w.add(id, encodeStore(t, s))
+		<-f.running
+		if c.roster {
+			f.notices.set(r)
+		}
+		if err := w.e.RecoverSends(t.Context(), id, f.notices); err == nil {
+			t.Errorf("a tried send to %s (roster %v): the recovery passed", c.room, c.roster)
+		}
+	}
+}
+
+// project_room_default: a queued send to a room this link does not post to is refused at its
+// post, never posted to main; the main send behind it goes on.
+func TestAQueuedSendToAnUnpostedRoomIsNotPostedToMain(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	question := queuedText(w, ops, 1)
+	question.Room = proto.PurposeQuestions
+	after := queuedText(w, ops, 2)
+	s.Outbox.Sending = []state.Sending{question, after}
+	f := w.sendingWith(ops, s)
+	w.until(w.sendsLeft(ops))
+	if got := f.notices.sent(); !slices.Equal(got, []string{after.Txn}) {
+		t.Fatalf("posted %v, want only the main send", got)
+	}
+	if got := f.notices.sentRooms(); !slices.Equal(got, []string{mainRoom}) {
+		t.Errorf("the sends went to %v", got)
 	}
 }
 

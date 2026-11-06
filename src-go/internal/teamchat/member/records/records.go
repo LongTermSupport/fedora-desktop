@@ -236,8 +236,9 @@ func (s Sent) MarshalJSON() ([]byte, error) {
 	}{s.Team, s.ID, s.Room, s.Queued})
 }
 
-// Queued is a send the link holds until its homeserver answers (n3d-D21): Send is text or
-// ping, Verb the ping's, To the addressees' short names.
+// Queued is a send the link holds until its homeserver answers (n3d-D21): Send is text, ping or
+// report, Room the room it is posted to, Verb the ping's, To the addressees' short names (none
+// for a report).
 type Queued struct {
 	Team    paths.TeamID `json:"team"`
 	Room    string       `json:"room"`
@@ -387,8 +388,8 @@ type Member struct {
 	Present bool         `json:"present"`
 }
 
-// Room is one of a team's side rooms. Check names the failed check of an untrusted room, else it
-// is null; Uncounted is the questions room's count of this member's own questions and thread
+// Room is one of a team's side rooms. Check names the failed check of an untrusted room, or the
+// errcode of a refused join, else it is null; Uncounted is the questions room's count of this member's own questions and thread
 // posts whose echo was not counted (QX3), null for any other room.
 type Room struct {
 	Team      paths.TeamID `json:"team"`
