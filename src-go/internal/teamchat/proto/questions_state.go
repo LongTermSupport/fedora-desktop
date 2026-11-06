@@ -11,8 +11,9 @@ import (
 )
 
 // MaxQuestionsStateBytes is the most the store's `questions` key may hold (SPEC-n3f QX6's worst
-// case): 192 questions, 1024 posts, 64 unattached posts, the longest token and a build record.
-const MaxQuestionsStateBytes = 1_101_056
+// case): 192 questions, 1024 human posts, 256 agent posts and slots, 64 unattached posts, the
+// longest token and a build record.
+const MaxQuestionsStateBytes = 1_125_888
 
 // The codes of a refused questions state: the strict decoder's own refusal of the document
 // (`json`), and every other rule (`schema`).
@@ -220,10 +221,17 @@ func (s IndexState) checkPosts(c *stateRules) {
 		c.need(ValidEventID(p.ID), "a post's id is not an event id")
 		c.need(!seen[p.ID], "a post id is repeated")
 		seen[p.ID] = true
-		c.need(p.T >= postHuman && p.T <= postSlot, "a post's kind is not 0 to 3")
+		c.need(p.T == postHuman || p.T == postHumanThread, "a post's kind is not 0 or 1")
 		c.need(p.Q >= 0, "a post's question is negative")
-		c.need(p.Q > 0 || p.T != postHumanThread && p.T != postAgent, "a thread post has no question")
-		c.need(p.Q == 0 || p.T != postSlot, "a slot has a question")
+		c.need(p.Q > 0 || p.T != postHumanThread, "a thread post has no question")
+	}
+	c.need(s.AgentPosts != nil, "agent_posts is null")
+	c.need(len(s.AgentPosts) <= MaxAgentPosts, "more than 256 agent posts")
+	for _, p := range s.AgentPosts {
+		c.need(ValidEventID(p.ID), "an agent post's id is not an event id")
+		c.need(!seen[p.ID], "an agent post id is repeated, in its list or in posts")
+		seen[p.ID] = true
+		c.need(p.Q >= 0, "an agent post's question is negative")
 	}
 }
 
@@ -279,7 +287,7 @@ func validIndexUserOf(id, server string) bool {
 
 // LoadQuestionIndex is the index of a stored state, the state refused unless it passes Check. The
 // counting starts from the highest of the state and the roster's `question_floor`; the lookups
-// the fold makes (the roots of the questions with an event, the posts, the unattached posts) are
+// the fold makes (the roots of the questions with an event, the posts, the agent posts, the unattached posts) are
 // rebuilt from it. The index shares nothing with s.
 func LoadQuestionIndex(server string, floor int64, s IndexState) (*QuestionIndex, error) {
 	if err := s.Check(server); err != nil {
@@ -296,6 +304,9 @@ func LoadQuestionIndex(server string, floor int64, s IndexState) (*QuestionIndex
 	}
 	for _, p := range s.Posts {
 		x.posts.add(p)
+	}
+	for _, p := range s.AgentPosts {
+		x.agents.add(p)
 	}
 	x.unattached = slices.Clone(s.Unattached)
 	return x, nil
