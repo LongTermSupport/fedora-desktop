@@ -119,7 +119,9 @@ func TestAFailedEpochReadHoldsTheStart(t *testing.T) {
 // marker alone, and a post made after the restore is delivered.
 func TestARestoreUnderALongPoll(t *testing.T) {
 	w := newWorld(t)
-	r := w.start()
+	tm := w.newTeam()
+	rooms := watchReports(tm)
+	r := w.startTeam(tm)
 	w.batch()
 	r.poll(t)
 	snap := w.srv.Snapshot()
@@ -127,6 +129,10 @@ func TestARestoreUnderALongPoll(t *testing.T) {
 	w.batch()
 	r.poll(t)
 	check(t, w.srv.RestoreTo(snap))
+	// The start's reports join is bounded by the same 30 s the long-poll is held for: the due
+	// is asked only once that try has ended, or its bound answers for the hold (and the advance
+	// cancels the join).
+	reportsSettled(t, tm, rooms)
 	// fakehs holds the poll to its timeout; the request's own deadline is later and not this
 	// test's.
 	check(t, w.clk.AwaitDue(t.Context(), longPoll))
