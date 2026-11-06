@@ -173,3 +173,16 @@ LastSyncOKMS, or 30 s") matches what is built. SY8's text on when a team is back
 
 engine 92.7, teamsync 95.2, wiring 100.0 (`go test -race -cover`, all passed); golangci-lint 0
 issues on those three packages.
+
+`./scripts/qa-changed.bash --base fix/recover-stale-401-159` over the fix-2 commit (9 changed
+files): docs whole gate passed; go: go-qa, both modules (diff mode) passed, and no module
+printed test output, so the root module's tests passed; teamchat-keeps-off-v1 passed; exit 0.
+
+## Not done
+
+- No production change for the slow up-mark: that is the coordinator's call (recommendation
+  above).
+- SY8's spec text on when a team is "back" was not read or checked against the measurement.
+- The planted check of `TestABackTeamIsShownUpAtItsFirstLongPoll` goes red at an earlier step
+  than the one it pins (see (b)); there is no plant that reaches its own assertion.
+- Nothing pushed, merged or run on a host; `qa-all.bash` not run (the coordinator's).
