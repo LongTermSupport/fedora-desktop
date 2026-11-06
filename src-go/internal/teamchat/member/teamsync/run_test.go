@@ -177,6 +177,41 @@ func TestTransientFailuresBackOff(t *testing.T) {
 	}
 }
 
+// SY8's way back: a team with a stored position whose server answers again after an outage
+// resumes from that position with no sync of its own, so it is shown up, and its last answered
+// sync moves, only when its first long-poll answers: in an idle room, longPoll after the retry
+// that reached the server. The wiring tests' upBound is derived from this (Plan 00209).
+func TestABackTeamIsShownUpAtItsFirstLongPoll(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	check(t, w.clk.AwaitDue(t.Context(), longPoll))
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
+	w.clk.Advance(longPoll)
+	r.poll(t)
+	for range 6 {
+		w.clk.Advance(r.wait(t))
+	}
+	down := w.eng.lastHealth()
+	if !down.Down {
+		t.Fatalf("not down after six failures: %+v", down)
+	}
+	if since := r.poll(t); since == "" {
+		t.Fatal("the session after the outage has no stored position")
+	}
+	retried := w.clk.WallMS()
+	check(t, w.clk.AwaitDue(t.Context(), longPoll))
+	if h := w.eng.lastHealth(); !h.Down || h.LastSyncOKMS != down.LastSyncOKMS {
+		t.Fatalf("shown up before the first long-poll answered: %+v", h)
+	}
+	w.clk.Advance(longPoll)
+	w.waitHealth(func(h team.Health) bool { return !h.Down && h.LastSyncOKMS > down.LastSyncOKMS })
+	if up := w.eng.lastHealth(); up.Down || up.LastSyncOKMS != retried+longPoll.Milliseconds() {
+		t.Errorf("shown up %+v, want at the long-poll's answer, %d", up, retried+longPoll.Milliseconds())
+	}
+}
+
 // SY8's down mark with the jitter the shipped code draws (fedora-desktop#140): any jitter that
 // shortens each of the first four waits leaves the fourth retry short of downAfter, so the team
 // is marked down by the sixth failure, 31 s after the first less those jitters, not by the fifth
