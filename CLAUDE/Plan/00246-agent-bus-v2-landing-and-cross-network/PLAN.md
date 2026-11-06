@@ -124,9 +124,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `feat/crossnet-s12-s13`: the health tick renews the leaf by apply's own step
   (`host.LeafRenewer`), with the project rule `project_problem_error_text`; the health unit's
   write paths must include the team's TLS directory when that unit is written (report
-  `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). Not yet built: S13 a probe through
-  the terminator (X32), S14 rotating the CA (X33) and S15 Element trusts the CA through the play
-  (X34). Then X30, the second-machine run,
+  `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S15 is built on
+  `feat/crossnet-s15` (pull request 172, against 128): the Element play places the team CA and
+  checks it from inside Element's sandbox; whether Element's Chromium honours the store is the
+  host check, and two owner questions (SPEC 6 and 7) stand. Not yet built: S13 a probe through
+  the terminator (X32) and S14 rotating the CA (X33). Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher, which the coordinator queues
   once S12 to S15 are in.
 
