@@ -17,6 +17,10 @@
         owner: root
       - home: "/home/{{ user_login }}"
         owner: "{{ user_login }}"
+    # yq names its builds amd64/arm64; the map is keyed by the arch as Fedora names it.
+    yq_arch_names:
+      x86_64: amd64
+      aarch64: arm64
   tasks:
     # Priority 0: PS1_Colour given as an extra-var. run.bash passes RUN_BASH_PS1_COLOUR this way
     # on a headless run, where nobody can answer the prompt below; an extra-var outranks every
@@ -571,11 +575,17 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Fail on an architecture yq publishes no build for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in yq_arch_names
+        fail_msg: "yq: no build for {{ ansible_facts['architecture'] }} (published: {{ yq_arch_names | list | join(', ') }})"
+      tags: yq
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
-        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod 0755 /usr/bin/yq
+        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_{{ yq_arch_names[ansible_facts['architecture']] }} && chmod 0755 /usr/bin/yq
       args:
         executable: /bin/bash
         creates: /usr/bin/yq
