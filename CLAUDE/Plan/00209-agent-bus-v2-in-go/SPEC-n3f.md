@@ -181,14 +181,23 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   3. the side-room invites, judged by `proto.Invite` against that roster;
   4. the questions room's membership and trust (QS4, QS7, QS8), against that roster;
   5. main's timeline, then the questions timeline.
-     So a roster that names this member coordinator and the invite that follows it (A 5.2) in one
-     answer join the room; a demotion's roster and its kick in one answer are a demotion (QS8).
+     So a roster that names this member coordinator joins the room at once, and an invite to the
+     room in the same answer (seen only under a filter that names the room, QS2) is accepted, not
+     left; a demotion's roster and its kick in one answer are a demotion (QS8).
 - **QS2. The invite and the join** (A 6.3). The questions room is joined by its id from the verified
   roster (`POST /join/<questions id>`), never by an invite's id: an invite is only the signal to
   try. The join is tried while the roster names this member the non-parked coordinator and the
-  room is not joined: at a team's start, at each roster change, at each invite seen and at each
-  questions verb, at most once per 30 s. A 403 is "not invited yet" (`awaiting-invite` in
-  `status`); a success starts QS5. An invite `proto.Invite` rejects is rejected (`leave`) and
+  room is not joined: at a trigger (a team's start, a roster change, a promotion, this member's
+  own leave of the room (QS8), an invite seen, a questions verb), and at every sync answer 30 s
+  or more after the last try; between triggers, never twice within 30 s. An invite is seen only
+  under a filter that names the room, and the worker form (QS4) names main alone while the
+  server filters invites by room, so a member waiting for its invite is not told by it: its
+  next try is the first answer 30 s on (OW6). The room's state is read first, and the join made
+  only when it shows this member not joined (a 403 on the read counts as not joined): a restart
+  or a retry never makes a second join, which would move QS5's floor. A 403 on the join is "not
+  invited yet" (`awaiting-invite` in `status`); any other failure of it (a 5xx, a timeout) is one
+  log line and the next try 30 s on, holds nothing and is not SY8's backoff, so main goes on
+  (QS8, n3f-D8); a success starts QS5. An invite `proto.Invite` rejects is rejected (`leave`) and
   logged by room id; one left pending is logged once by room id and not answered. An awaited
   invite is a passing state (n3f-D13): the questions verbs wait for it within their deadline,
   then exit 20 `not-ready`; once 300 s have passed since the clock's start, with the join still
@@ -199,7 +208,10 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   kick, QS8); both are this link's times, so a link restart starts the clock again at its first
   roster read. Tests: each row of `proto.Invite`'s table through the team goroutine; one answer
   holding the roster naming this member and the invite: joined, not left; a roster naming the
-  room after the invite arrived: joined at that roster change; no invite for 299 s then 301 s
+  room after the invite arrived: joined at that roster change; a join refused 403 is not tried
+  again by an answer before 30 s and is by the first after (fake clock), and a join failed 502 is
+  one log line, tried again 30 s on, with main's items delivered meanwhile; a restart of a
+  member already in the room makes no second join; no invite for 299 s then 301 s
   (fake clock): 20, then 22; a kick 10 h into a term with the roster still naming this member:
   20 `not-ready` at 299 s after the kick, 22 at 301 s.
 - **QS3. A coordinator with `human_text: false` cannot happen**: A 5.1 makes such a roster
@@ -212,7 +224,8 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   through the coordinator filter, so waiting for it would hold `outbox.questions_unechoed` set,
   and every questions verb at 20, for ever. The unechoed post holds back only the composes, the
   verbs and the reminders (QX3, RM1). A change of any of the three ends the long-poll in
-  flight and starts the next with the new filter (B 2.6 step 10). Tests: promotion, demotion,
+  flight and starts the next with the new filter (B 2.6 step 10). The worker form names main
+  alone, so an invite to the questions room is not seen under it (QS2, OW6). Tests: promotion, demotion,
   the index reaching the head and the room becoming untrusted each change the next request's
   filter, pinned byte-equal to proto's; a restart with `outbox.questions_unechoed` set: the
   first long-poll's filter is the coordinator form, the echo is folded, and the key goes back
@@ -224,7 +237,9 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   or with no store the earlier of its `teamchat.floor` marker and `released_ms`, and (b) this
   member's latest own join event in the room. A first join therefore delivers nothing posted
   before it, and `questions` shows those posts (n3f-X4, OW4); a re-promotion delivers nothing the
-  coordinator in between handled. The marker is SY10's, per room. Tests: a first promotion over a
+  coordinator in between handled. The comparison with the floor is strict, as main's: a post in
+  the same millisecond as the own join is attached (QS6) but not delivered. The marker is SY10's,
+  per room. Tests: a first promotion over a
   room with three human posts: none delivered, all three in `questions`; a restart within a term
   resumes from the floor; a re-promotion with a surviving floor resumes from the new join.
 - **QS6. The receive path** (A 7.6 rule 05): for the coordinator every human message in
@@ -252,7 +267,8 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   catch-up and the link killed mid-catch-up, then a restart: the catch-up resumes from the last
   page's token, nothing in the gap is skipped, and the next `ask` takes the next number.
 - **QS8. A side-room failure is that room's alone** (A 6.5): a questions room that fails
-  `VerifySide`, or whose state or history read is refused (403, 404), is untrusted alone: the
+  `VerifySide`, or whose state or history read is refused (403, 404; the check is named
+  `state`), is untrusted alone: the
   filter drops it (QS4), its pending and handed items stay (they passed when they were judged),
   `ask`, `thread`, `questions`, `history --room questions` and `reply` on a questions item exit 22
   `untrusted` naming the room and the check, `status` shows `untrusted` with the check, the
@@ -275,7 +291,12 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
   filter (QS4), stops a running build or catch-up, drops the questions room's `pending` items and
   returns and drops its `handed` ones, drops the index (the store's `questions` key),
   `reminded_ms`, `remind_late`, `outbox.questions_unechoed`,
-  `outbox.questions_uncounted` and `outbox.questions_handover`, in one store write (each item logged by id, never by body), and refuses every
+  `outbox.questions_uncounted` and `outbox.questions_handover`, in one store write (each item
+  logged by id, never by body). That write is the demoting answer's own SY5 write, which carries
+  the drop: a write of its own before the answer would need a position, and the answer's would
+  skip main's events not yet persisted; the room is ignored for the rest of the answer. A
+  start by a member the roster does not name coordinator, over a store that still holds any of
+  these, drops them in its first write. The member refuses every
   questions verb with 11 `role`. `awaiting` entries already written to the socket settle as any
   other (DV4); a `sending` questions post is dropped with a log line naming its transaction id
   (it may have landed; the room is the record). Reminders owed are not made. The questions floor
@@ -876,7 +897,7 @@ Where it was weak:
 | n3f-D5  | **Questions-room composes are serialised per team by the team goroutine** (QX4), each numbered against the index after the previous one's SD3 write placed its provisional entry. Why: the index's `Next` is the only numbering, and two concurrent `ask`s would both take it; the second would then be uncounted by every member (A 6.5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | n3f-D6  | **`report_per_hour` is kept in the store**: `outbox.reports`, a list of at most 60 report times (the limit's upper bound), pruned past 3600 s, written in SD3's store write. A report charged and then refused at its post (RP4) still holds its slot, and the 14 `report-rate` message says so ("a report that was not posted still counts"). Why: an in-memory window resets at every link restart, so a crash-looping or restarted link could post past the limit; B 2.3.2 had no home for it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | n3f-D7  | **`questions` and `history --room questions` without `--team` act over the teams where this member is coordinator**, and refuse 11 only when there is none. Why: B 2.2.3 runs a multi-team verb over every active team, which would make every coordinator in a session that is also a worker elsewhere get exit 5 with a `team-failed` it can do nothing about.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| n3f-D8  | **A side room's transient failures in the sync are the team's** (SY8's backoff, the answer held): one sync token covers main and questions, so a questions fill that fails transiently holds the whole answer, as v1 learnt (its gap fill was never contained). A fill past SY3's bound, and every history read of the index, is QX1's on its own goroutine, so a questions room whose history fails for ever never holds main. A non-transient failure is the side room's alone (QS8).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| n3f-D8  | **A side room's transient failures in the sync are the team's** (SY8's backoff, the answer held): one sync token covers main and questions, so a questions fill that fails transiently holds the whole answer, as v1 learnt (its gap fill was never contained). A fill past SY3's bound, and every history read of the index, is QX1's on its own goroutine, so a questions room whose history fails for ever never holds main. A non-transient failure is the side room's alone (QS8). The questions room's join (QS2) is not a sync request: its failure other than a 403 is one log line and the next try 30 s on, never the team's backoff.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | n3f-D9  | **The index is persisted in the store with its position, and the room is read from its start only when the seat has none** (QX1, QX5). This replaces the 100-page bound and its repair: raising `question_floor` is an admin migration-only write (A 5.1) that would not have shortened a read from `m.room.create` anyway, so past the bound `ask` would have been refused for ever. Now a link restart reads nothing; a build happens on a first promotion, after an epoch change, a refused token or an admin redaction (QX7); a gap or a recovery is a catch-up from the token. The build has no page bound, because nothing waits on it: it runs off the delivery path, its memory is the caps of QX6 plus one page, and its requests are at most 2 x ceil(E/100) + 1 for E events in the room (a room of 100 000 events is 2001 requests, under the team's backoff). The verbs wait and exit 20 `not-ready` meanwhile, which says "retry", never "tell a human". Rejected: the high-water and the numbers alone in the store (a restart would forget which questions were answered, review M1); a checkpoint posted in the room (a new A event and trust rule for what the store does for restarts, promotions being rare); a page bound with any repair (every repair needs an admin write the protocol does not have). The persisted state is the room's fold, the same on every seat, so A's "no session state" holds.                                                                       |
 | n3f-D10 | **`ask`, `thread` and `reply` in questions print n3d's `sent` record, then the question's record**; a queued question's record has a null `id` and `asked_ms`. Why: B 2.2.1 has `ask` print one `question` record, whose `id` is the event id; with n3d-D2 a send may be queued with no id yet, and `sent` is the one record that says so. `thread` changes a question's state, which the agent should see without a second verb. B 2.2.1's `ask` line is to read "a `sent` record, then the `question` record" (section 12.4).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | n3f-D11 | **Reminders made are kept as a watermark**: `reminded_ms`, the latest due time this seat has reminded; a reminder whose due time is at or below it is not made again, and the TIMEOUT is keyed `<id>~humans` (A 10.5, `proto.ReminderKey`). Every reminder due is made in one write that raises the watermark, in due order, and only from a ready index (RM1). A question `open` with `remind_after_s` and first counted by a build or a catch-up is put in `remind_late` by the page write that counts it, and is removed when reminded, when it leaves `open` and when it is evicted, so the list holds at most 64 numbers, the cap on questions not closed (RM1 shows the bound across a rebuild); and is judged by its own due time, not the watermark. Why it is exact: a question's due time is fixed by history; a question the sync counts is known from its own post (QX3) or the sync before its due time passes, so it is never found below the watermark; the questions found late are those a catch-up or a build counts (an admin's or a predecessor's post that landed while the room was untrusted, or before a rebuild), and `remind_late`, written in the same write as the fold that counts them, makes each one reminded once, across a crash too; a new term starts with neither (QS9 drops both), so a promotion reminds each overdue open question once. One number and a list bounded by the open cap replace a list of every reminder made, so no reminder is ever dropped. |
@@ -894,10 +915,10 @@ Where it was weak:
 ## 9. For the owner
 
 Product behaviours with no clear best answer. The team coordinator has set each recommendation
-below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a) and OW4 (a).
-Each stays open to the owner changing it later; the coordinator lists them for the owner. OW5
-was the coordinator's to answer, an engineering reading and not a product behaviour, and is
-decided: (b).
+below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a), OW4 (a) and
+OW6 (a). Each stays open to the owner changing it later; the coordinator lists them for the
+owner. OW5 and OW6 are for the coordinator to answer, engineering readings and not product
+behaviours: OW5 is decided, (b); OW6 is built as (a).
 
 - **OW1. A human posts in questions while the coordinator is offline.** Nothing tells the human
   that no coordinator session is running; the post waits and is delivered when one runs (OF1).
@@ -986,6 +1007,34 @@ decided: (b).
   other posts are kept. If the coordinator would rather the humans' window never shrink, (b) is
   the choice, and it is cheaper before n3f-c writes the key than after. The coordinator chose
   (b); QX6 and n3f-D17 say which list holds what.
+
+- **OW6. How a member waiting for its questions invite learns it has come** (QS2, QS4; for the
+  coordinator to answer, found by the n3f-c1b builder). QS2 makes an invite the signal to try
+  the join, and QS4 makes the filter the worker form, which names main alone, while the room is
+  not ready. The server filters invites by room (fakehs does, as Tuwunel's room filter), so the
+  invite never reaches a member that is waiting for it. Options:
+
+  - (a) **As built in n3f-c1b:** an invite is judged when one arrives (QS1's test calls `handle`
+    with one), but none arrives under the worker form; the join is tried at each trigger and at
+    each answer 30 s or more after the last try. **What it breaks:** a promoted coordinator whose
+    first try is refused 403 because A 5.2's invite has not been sent yet is joined at the first
+    answer 30 s on, and a long-poll ends within 30 s, so up to two long-polls after the refusal,
+    with its questions verbs at 20 `not-ready` meanwhile; the invite trigger is code nothing in a
+    running team can reach.
+  - (b) QS4 lets the coordinator form through while the room is awaited (this member the
+    non-parked coordinator, the room not joined): a room not joined has no timeline, so the
+    filter then delivers the room's invite and nothing else of it, the invite is the signal, and
+    the join is at once. **What it breaks:** QS4's rule (the coordinator form only when joined,
+    verified and at the head) and its filter tests change, and the filter changes once more at
+    the join; the build's and the catch-up's filter (worker form while they run) is unchanged.
+  - (c) QS2 drops the invite trigger and says the join is polled. **What it breaks:** nothing
+    that runs today; the QS1 test of an invite in an answer goes, and a first promotion costs
+    the 30 s above, as in (a).
+
+  **Recommendation: (b).** It makes the design's own signal (A 5.2) work for the cost of one
+  condition in `filterFor`, and removes the 30 to 60 s in a promotion's first minute. Until the
+  coordinator answers, n3f is built on (a): the cost is only the first promotion's latency, and
+  (c) is the same behaviour with the dead code removed.
 
 ## 10. The slicing
 

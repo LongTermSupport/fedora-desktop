@@ -223,11 +223,15 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 			unknown []string
 			pruned  []string
 			lines   []proto.Answered
+			dropped questionsDrop
 		)
 		now := e.cfg.Clock.WallMS()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
 			if added, err = apply(s, b); err != nil {
+				return false, err
+			}
+			if dropped, err = applyQuestions(s, b); err != nil {
 				return false, err
 			}
 			floor = s.Sync.FloorMS[proto.PurposeMain]
@@ -247,6 +251,13 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 			if !awaiting[id] {
 				delete(h.content, id)
 			}
+		}
+		for _, id := range dropped.items {
+			delete(h.content, id)
+			e.logf("team %s: the questions item %s is dropped with the questions room", b.Team, id)
+		}
+		for _, txn := range dropped.sends {
+			e.logf("team %s: the questions post sent as %s is dropped with the questions room; it may have landed", b.Team, txn)
 		}
 		h.counts = addCounts(h.counts, b.Counts)
 		h.delivery.hold(b, lines)

@@ -16,7 +16,7 @@ import (
 // SY11: the coordinator accepts the admin's invite to the questions room, and verifies again.
 func TestTheCoordinatorJoinsTheQuestionsRoom(t *testing.T) {
 	w := newWorld(t)
-	w.as(coord)
+	w.asCoordinator()
 	joins := w.joinsExceptReports()
 	w.start()
 	w.batch()
@@ -31,7 +31,7 @@ func TestTheCoordinatorJoinsTheQuestionsRoom(t *testing.T) {
 // SY11: a failed join of an accepted invite is one line and holds nothing.
 func TestAFailedJoinHoldsNothing(t *testing.T) {
 	w := newWorld(t)
-	w.as(coord)
+	w.asCoordinator()
 	w.srv.Inject(fakehs.Fault{Method: http.MethodPost, Path: "/join", Status: http.StatusBadGateway, Body: []byte(`{}`)})
 	r := w.start()
 	w.batch()

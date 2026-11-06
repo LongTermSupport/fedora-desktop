@@ -277,7 +277,7 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 	for _, rid := range relIDs {
 		rels = append(rels, relation{event: id, id: rid})
 	}
-	resolved, err := t.res.resolve(ctx, s.resolveInput(view), rels)
+	resolved, err := t.res.resolve(ctx, s.resolveInput(view, s.a.MainRoom), rels)
 	if err != nil {
 		return proto.Verdict{}, err
 	}
