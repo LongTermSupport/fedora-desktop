@@ -31,6 +31,9 @@ func sendArgs(e cli.Env, inv cli.Invocation, op string) (any, *string, error) {
 	case wire.OpSay:
 		text, err := readText(e, inv)
 		return wire.SayArgs{Team: inv.Team, To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator)}, text, err
+	case wire.OpReport:
+		text, err := readReport(e, inv)
+		return wire.ReportArgs{Team: inv.Team}, text, err
 	case wire.OpPing:
 		a := wire.PingArgs{
 			Team: inv.Team, Verb: inv.Args[0], To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator),
@@ -79,12 +82,9 @@ func optional(args []string, i int) *string {
 // one byte past the cap and its newline is read, one trailing newline is removed, and the
 // text must be 1 to proto.MaxText bytes of UTF-8.
 func readText(e cli.Env, inv cli.Invocation) (*string, error) {
-	if term.FileIsTerminal(e.Stdin) {
-		return nil, exits.New(exits.CodeUsage, inv.Team, msgTerminal, exits.Words(inv.Verb.Name), exits.Words(inv.Verb.Name))
-	}
-	data, err := io.ReadAll(io.LimitReader(e.Stdin, proto.MaxText+2))
+	data, err := readStdin(e, inv, proto.MaxText+2)
 	if err != nil {
-		return nil, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("read its stdin"))
+		return nil, err
 	}
 	data = bytes.TrimSuffix(data, []byte("\n"))
 	switch {
@@ -93,6 +93,39 @@ func readText(e cli.Env, inv cli.Invocation) (*string, error) {
 	case len(data) == 0:
 		return nil, exits.New(exits.CodeEmpty, inv.Team, msgEmpty)
 	case !utf8.Valid(data):
+		return nil, exits.New(exits.CodeSchema, inv.Team, msgUTF8)
+	}
+	text := string(data)
+	return &text, nil
+}
+
+// readStdin is at most limit bytes of stdin; a terminal is refused before any read.
+func readStdin(e cli.Env, inv cli.Invocation, limit int64) ([]byte, error) {
+	if term.FileIsTerminal(e.Stdin) {
+		return nil, exits.New(exits.CodeUsage, inv.Team, msgTerminal, exits.Words(inv.Verb.Name), exits.Words(inv.Verb.Name))
+	}
+	data, err := io.ReadAll(io.LimitReader(e.Stdin, limit))
+	if err != nil {
+		return nil, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("read its stdin"))
+	}
+	return data, nil
+}
+
+// readReport is a report's text by n3f-D1's rule with the cap proto.MaxReportBody: at most cap + 2
+// bytes are read, and one trailing newline is removed unless the read reached cap + 2 bytes,
+// which is over the cap whatever its end is, so it is sent whole. It refuses no size and no
+// empty text: RP3's role check (11) comes before its size check (10 body), and only the link
+// knows the role. Text that is not UTF-8 cannot travel in the request's JSON, so it is 10
+// schema, as say's.
+func readReport(e cli.Env, inv cli.Invocation) (*string, error) {
+	data, err := readStdin(e, inv, proto.MaxReportBody+2)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < proto.MaxReportBody+2 {
+		data = bytes.TrimSuffix(data, []byte("\n"))
+	}
+	if !utf8.Valid(data) {
 		return nil, exits.New(exits.CodeSchema, inv.Team, msgUTF8)
 	}
 	text := string(data)

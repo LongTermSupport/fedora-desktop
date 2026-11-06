@@ -319,7 +319,15 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   (n3f-a built, awaiting review, on `feat/bus-v2-n3f-a-int`: G6 and G7, G4 and G5 (the records
   and the filter), G1 whole (the question index: fold and caps with its two post lists, OW5 (b),
   the strict codec and load, the build record, `RedactedSlot`, the property tests) and G2 (the
-  store's seven keys, `MaxStore` 4 MiB); n3f-b to n3f-e open, see BUILT-n3.md).
+  store's seven keys, `MaxStore` 4 MiB); n3f-b built in part: the team goroutine's half of the
+  reports room (RP1, RP2, RP4's
+  verification) on `feat/bus-v2-n3f-b`, and on `feat/bus-v2-n3f-b2` the `report` verb end to end
+  (RP3, RP5, RP6), the sender's post to the reports room with its own verification (RP4), the
+  `status` `room` record and the wiring, so the release test fails on `ask`, `thread` and
+  `questions` only; on `feat/bus-v2-n3f-b3` the recovery of a tried report under a reissued
+  token (n3f-D16) and the end-to-end rows (OF1-n3f's `report` row, the n3f-D1 stdin cases
+  through the real binary, RP5's two-member check, a refused join in `status`); n3f-c to n3f-e
+  open, see BUILT-n3.md).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

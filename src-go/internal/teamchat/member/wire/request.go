@@ -46,6 +46,7 @@ const (
 	OpReply     = "reply"
 	OpSay       = "say"
 	OpPing      = "ping"
+	OpReport    = "report"
 	OpQuestions = "questions"
 
 	OpHookSessionStart = "hook.session-start"
@@ -60,6 +61,7 @@ var deadlines = map[string]time.Duration{
 	OpHookStop: 300 * time.Millisecond, OpHookSessionEnd: 300 * time.Millisecond,
 	OpRecv: 2 * time.Second, OpInbox: 2 * time.Second, OpStatus: 2 * time.Second,
 	OpReply: 30 * time.Second, OpSay: 30 * time.Second, OpPing: 30 * time.Second, OpVerify: 30 * time.Second,
+	OpReport:  30 * time.Second,
 	OpHistory: time.Minute, OpQuestions: time.Minute,
 	OpWait: 0,
 }
@@ -83,8 +85,9 @@ type Request struct {
 	// DeadlineMS is the client's deadline, absolute CLOCK_BOOTTIME milliseconds.
 	DeadlineMS int64 `json:"deadline_ms"`
 	// Args is one object, the op's own (DecodeArgs).
-	Args  json.RawMessage `json:"args"`
-	Stdin *string         `json:"stdin"`
+	Args json.RawMessage `json:"args"`
+	// Stdin is a send's text (say, a plain reply, report), null for every other op.
+	Stdin *string `json:"stdin"`
 }
 
 // maxDeadlineMS is the latest deadline_ms a request may name: the most whole milliseconds a
@@ -185,8 +188,8 @@ type HistoryArgs struct {
 	Limit int           `json:"limit"`
 }
 
-// The send ops' args. Their text is Request.Stdin: required for say and a plain reply, null for
-// ping and reply --verb (n3d-D15).
+// The send ops' args. Their text is Request.Stdin: required for say, a plain reply and report,
+// null for ping and reply --verb (n3d-D15, SPEC-n3f RP3).
 
 // ReplyArgs are reply's: the item replied to, and --verb, --ref and --to-coordinator.
 type ReplyArgs struct {
@@ -212,6 +215,12 @@ type PingArgs struct {
 	To            []string      `json:"to"`
 	ToCoordinator bool          `json:"to_coordinator"`
 	Branch        *string       `json:"branch"`
+}
+
+// ReportArgs are report's: the --team, null for the one active team. The report is the
+// request's stdin, whole, with one trailing newline removed (n3f-D1).
+type ReportArgs struct {
+	Team *paths.TeamID `json:"team"`
 }
 
 // TeamsArgs are recv's, inbox's and status's: the --team, null for every active team.

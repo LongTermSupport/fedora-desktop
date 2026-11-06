@@ -107,9 +107,16 @@ type Team struct {
 	recoveredPair *bundle.Pair
 	pendingSaid   map[string]bool
 	unheard       *bounded[struct{}]
-	flood         proto.Window
-	spent         spentChecks
-	freeze        freezeDetector
+	// faulted are the reports events a fault line was said for (RP2); reports is the reports
+	// room's state under mu, reportsKick asks the reports loop to try the join (RP1) and
+	// reportsTry is held by the try in progress.
+	faulted     *bounded[struct{}]
+	reports     reportsState
+	reportsKick chan struct{}
+	reportsTry  chan struct{}
+	flood       proto.Window
+	spent       spentChecks
+	freeze      freezeDetector
 	// budget is B 2.7.3's delivery budget, per (team, sender); factsNote the colour note said
 	// last.
 	budget    proto.Window
@@ -120,9 +127,11 @@ type Team struct {
 	onWait func(time.Duration)
 	// onReceiptWait is told each receipt backoff.
 	onReceiptWait func(time.Duration)
-	readPair      func(*homefs.Root, paths.Seat) (bundle.Pair, error)
-	judge         func(proto.Judge, proto.Value) proto.Verdict
-	pages         pageBound
+	// onReports is told each state the reports room is put in (RP1, RP4).
+	onReports func(team.ReportsRoom)
+	readPair  func(*homefs.Root, paths.Seat) (bundle.Pair, error)
+	judge     func(proto.Judge, proto.Value) proto.Verdict
+	pages     pageBound
 }
 
 // pageBound is a backwards read's page size and page count.
@@ -156,9 +165,11 @@ func New(cfg Config) (*Team, error) {
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
 		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
-		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
+		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize), faulted: newBounded[struct{}](memorySize),
+		reportsKick: make(chan struct{}, 1), reportsTry: make(chan struct{}, 1),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
-		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
+		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},
+		onReports: func(team.ReportsRoom) {}, readPair: bundle.ReadPair,
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
 	}, nil
@@ -189,6 +200,7 @@ func (t *Team) Run(ctx context.Context) error {
 	if t.cfg.Watcher != nil {
 		wg.Go(func() { t.forward(ctx) })
 	}
+	wg.Go(func() { t.reportsLoop(ctx) })
 	for {
 		err := t.session(ctx, &wg)
 		switch code, stop := stopCode(err); {

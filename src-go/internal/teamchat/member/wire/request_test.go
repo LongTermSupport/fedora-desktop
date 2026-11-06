@@ -243,6 +243,7 @@ func TestDeadlineIsLN2sTable(t *testing.T) {
 		OpHookStop: 300 * time.Millisecond, OpHookSessionEnd: 300 * time.Millisecond,
 		OpRecv: 2 * time.Second, OpInbox: 2 * time.Second, OpStatus: 2 * time.Second,
 		OpReply: 30 * time.Second, OpSay: 30 * time.Second, OpPing: 30 * time.Second, OpVerify: 30 * time.Second,
+		OpReport:  30 * time.Second, // RP6: a send's deadline, the reports state read and the join inside it
 		OpHistory: time.Minute, OpQuestions: time.Minute,
 		OpWait: 110 * time.Second,
 	} {
@@ -318,6 +319,28 @@ func TestN3dSendArgsDecodeStrictly(t *testing.T) {
 	check(t, DecodeArgs(json.RawMessage(`{"team":null,"verb":"review","ref":"pr:o/r#1@x","to":[],"to_coordinator":false,"branch":"feat/x"}`), &p))
 	if p.Verb != "review" || *p.Ref != "pr:o/r#1@x" || len(p.To) != 0 || *p.Branch != "feat/x" {
 		t.Fatalf("ping %+v", p)
+	}
+}
+
+// n3f RP3: report's args are its --team alone; its text is the request's stdin.
+func TestN3fReportArgsDecodeStrictly(t *testing.T) {
+	var r ReportArgs
+	check(t, DecodeArgs(json.RawMessage(`{"team":"alpha"}`), &r))
+	if r.Team == nil || r.Team.String() != "alpha" {
+		t.Fatalf("report %+v", r)
+	}
+	check(t, DecodeArgs(json.RawMessage(`{"team":null}`), &r))
+	if r.Team != nil {
+		t.Fatalf("report %+v", r)
+	}
+	for name, raw := range map[string]string{
+		"no team":     `{}`,
+		"unknown key": `{"team":null,"text":"x"}`,
+	} {
+		err := DecodeArgs(json.RawMessage(raw), &r)
+		if exit, code := refused(t, err); exit != 10 || code != exits.CodeSchema {
+			t.Errorf("%s: exit %d code %s", name, exit, code)
+		}
 	}
 }
 

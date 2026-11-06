@@ -1,6 +1,6 @@
 // Package client is the member CLI's side of link.sock (Plan 00209 B 2.4.4, SPEC-n3 LN3) and
 // the verbs that run outside a link: recv, wait, inbox, status, verify, history and the sends
-// reply, say and ping frame one request each, copy the link's record lines to stdout and its
+// reply, say, ping and report frame one request each, copy the link's record lines to stdout and its
 // error to stderr, and exit with its done; `seat disconnected` (EN5) and `reach` (n3c-D16) talk to the homeserver themselves.
 //
 // When no link answers (ENOENT, ECONNREFUSED, or a close before done) the client reads
@@ -11,6 +11,9 @@
 // say and a reply without --verb take their text on stdin (n3d-D15, n3d-D28): a terminal is 64
 // usage before any read; one trailing newline is removed; then over 4096 bytes is 10 size,
 // none 10 empty, not UTF-8 10 schema. ping and reply --verb send stdin null without reading it.
+// report reads its text by n3f-D1's rule with the cap 1500 (at most 1502 bytes; one trailing
+// newline removed unless 1502 were read), a terminal 64, not UTF-8 10 schema; it refuses no size
+// and no empty text, as the link's role check comes first (SPEC-n3f RP3).
 package client
 
 import (
@@ -103,7 +106,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		timeout time.Duration
 	)
 	switch op {
-	case wire.OpReply, wire.OpSay, wire.OpPing:
+	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport:
 		var err error
 		if args, stdin, err = sendArgs(e, inv, op); err != nil {
 			return wire.Request{}, 0, err
@@ -261,7 +264,7 @@ func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 // isSend is a verb whose request, once taken, may be charged and posted whatever the client
 // hears afterwards (B-m3).
 func isSend(op string) bool {
-	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing
+	return op == wire.OpReply || op == wire.OpSay || op == wire.OpPing || op == wire.OpReport
 }
 
 // copy copies record lines to stdout until the done; then flushes stdout and, for a hand-out,

@@ -321,14 +321,26 @@ func memberRecords(v teamView, roster proto.Roster, server string) []records.Rec
 		out = append(out, records.Member{Team: v.id, Handle: hd.String(), Role: roster.Members[id].Role, Present: id == v.userID})
 	}
 	out = append(out, records.Room{Team: v.id, Purpose: proto.PurposeMain, State: roomJoined})
-	for _, r := range []struct{ purpose, id string }{
-		{proto.PurposeQuestions, roster.Rooms.Questions}, {proto.PurposeReports, roster.Rooms.Reports},
-	} {
-		st := roomAbsent
-		if r.id != "" {
-			st = roomJoined
-		}
-		out = append(out, records.Room{Team: v.id, Purpose: r.purpose, State: st})
+	st := roomAbsent
+	if roster.Rooms.Questions != "" {
+		st = roomJoined
 	}
-	return out
+	out = append(out, records.Room{Team: v.id, Purpose: proto.PurposeQuestions, State: st})
+	return append(out, reportsRoomRecord(v, roster))
+}
+
+// reportsRoomRecord is the reports room's record (RP1, RP4): the team's own reading of the
+// room, from memory; check is the errcode of a refused join or the check an untrusted room
+// failed. A roster that names no reports room has none.
+func reportsRoomRecord(v teamView, roster proto.Roster) records.Room {
+	rec := records.Room{Team: v.id, Purpose: proto.PurposeReports, State: roomAbsent}
+	if roster.Rooms.Reports == "" {
+		return rec
+	}
+	rr := v.tm.ReportsRoom()
+	rec.State = rr.State
+	if rr.Check != "" {
+		rec.Check = &rr.Check
+	}
+	return rec
 }
