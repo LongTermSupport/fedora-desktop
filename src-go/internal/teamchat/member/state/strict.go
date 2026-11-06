@@ -74,10 +74,11 @@ func (c *rules) needCode(ok bool, code, rule string) {
 }
 
 // decodeStrict decodes data, the file named file, into out by the package's rules, then runs
-// check; it returns the parsed value for the checks a struct cannot make (an entry's size).
-func decodeStrict(file string, data []byte, limit int, out any, check func(*rules)) (proto.Value, error) {
-	fail := func(code, rule string) (proto.Value, error) {
-		return proto.Value{}, &InvalidError{File: file, Code: code, Rule: rule}
+// check. A size a rule needs is taken from out as written (writtenSize), not from data, which
+// another writer may have spelt otherwise.
+func decodeStrict(file string, data []byte, limit int, out any, check func(*rules)) error {
+	fail := func(code, rule string) error {
+		return &InvalidError{File: file, Code: code, Rule: rule}
 	}
 	if len(data) > limit {
 		return fail(CodeSchema, fmt.Sprintf("larger than its cap of %d bytes", limit))
@@ -105,12 +106,12 @@ func decodeStrict(file string, data []byte, limit int, out any, check func(*rule
 	if c.rule != "" {
 		return fail(c.code, c.rule)
 	}
-	return v, nil
+	return nil
 }
 
 // sameJSON is whether out encodes to the JSON value v.
 func sameJSON(out any, v proto.Value) bool {
-	again, err := json.Marshal(out)
+	again, err := marshal(out)
 	if err != nil {
 		return false
 	}
@@ -118,9 +119,19 @@ func sameJSON(out any, v proto.Value) bool {
 	return err == nil && back.Equal(v)
 }
 
+// marshal is the package's one encoder: every member file's bytes, and every size a rule
+// measures as written, so a size can never be taken in another form than the file's.
+func marshal(v any) ([]byte, error) { return json.Marshal(v) }
+
+// writtenSize is the bytes v takes in a file the package writes.
+func writtenSize(v any) (int, error) {
+	data, err := marshal(v)
+	return len(data), err
+}
+
 // encode is v's file, refused unless decode reads it back.
 func encode[T any](file string, v T, decode func([]byte) (T, error)) ([]byte, error) {
-	data, err := json.Marshal(v)
+	data, err := marshal(v)
 	if err != nil {
 		return nil, &InvalidError{File: file, Code: CodeSchema, Rule: "a value that is not set or not of its grammar"}
 	}
