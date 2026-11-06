@@ -466,7 +466,10 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	}
 	e.mu.Lock()
 	s := e.store
-	s.Sync.NextBatch, s.Sync.Fresh, s.Sync.RestoreEpoch = b.NextBatch, b.Fresh, b.RestoreEpoch
+	if !b.Page {
+		s.Sync.NextBatch, s.Sync.Fresh, s.Sync.RestoreEpoch = b.NextBatch, b.Fresh, b.RestoreEpoch
+	}
+	s.Outbox.QuestionsHandover = s.Outbox.QuestionsHandover || b.Handover
 	maps.Copy(s.Sync.FloorMS, b.Floors)
 	for _, it := range b.Items {
 		if !slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == it.Pending.ID }) {

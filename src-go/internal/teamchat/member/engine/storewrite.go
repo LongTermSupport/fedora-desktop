@@ -275,7 +275,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 // apply is b in a copy of its store; it is the items added, with their verdicts.
 func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 	added := map[string]proto.Verdict{}
-	s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
+	if !b.Page {
+		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
+	}
 	if len(b.Floors) > 0 && s.Sync.FloorMS == nil {
 		s.Sync.FloorMS = map[string]int64{}
 	}

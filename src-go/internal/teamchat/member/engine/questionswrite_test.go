@@ -99,3 +99,36 @@ func TestPersistDropsTheQuestionsRoomForADemotion(t *testing.T) {
 		t.Error("a dropped item's content is still in memory")
 	}
 }
+
+// QX1 (the engine's half): a builder's page write carries its items, the questions floor and
+// the key, and leaves the sync position as the store holds it, which the team goroutine's own
+// writes move meanwhile; the first page of a build begun with no key sets the ready line owed.
+func TestPersistAPageLeavesThePositionAndSetsTheHandover(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1"})
+	item := humanItem(ops, 5, 50, "a question's answer")
+	item.Pending.Room = proto.PurposeQuestions
+	w.persistBatch(team.Batch{
+		Team: ops, NextBatch: "p0", Page: true, Handover: true, Questions: questionsKey("p1"), Items: []team.Item{item},
+		Floors: map[string]int64{proto.PurposeQuestions: 50},
+	})
+	got := w.store(ops)
+	if got.Sync.NextBatch != "s1" || got.Sync.Fresh {
+		t.Errorf("the position after a page write = %+v, want s1 as the sync left it", got.Sync)
+	}
+	if got.Questions == nil || *got.Questions.Token != "p1" {
+		t.Errorf("the key after a page write = %+v", got.Questions)
+	}
+	if !got.Outbox.QuestionsHandover {
+		t.Error("the first page of a build begun with no key left the ready line not owed")
+	}
+	if len(got.Pending) != 1 || got.Pending[0].Room != proto.PurposeQuestions {
+		t.Errorf("pending %+v, want the page's item", got.Pending)
+	}
+	w.persistBatch(team.Batch{Team: ops, Page: true, Questions: questionsKey("p2")})
+	if got := w.store(ops); !got.Outbox.QuestionsHandover || got.Sync.NextBatch != "s1" {
+		t.Errorf("a later page cleared the handover or moved the position: %+v %+v", got.Outbox, got.Sync)
+	}
+}

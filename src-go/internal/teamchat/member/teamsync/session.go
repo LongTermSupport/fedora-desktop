@@ -55,6 +55,8 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 		return err
 	}
 	s := &sess{t: t, c: c, pair: pair, a: anchorsOf(t.cfg.Team, pair)}
+	// A job reads through this session's client; the next session begins its own (QS5).
+	defer t.stopBuilder()
 	if verr := s.verify(ctx); verr != nil {
 		return verr
 	}
@@ -508,8 +510,13 @@ type answer struct {
 
 // handle is one answer's steps in QS1's order: main's invite, main's trust, the questions
 // room's role (QS9, QS10), the side rooms' invites, the questions room's membership and trust,
-// then the gap, the verdicts, SY6, the persist and the floor marker.
+// then the gap, the verdicts, SY6, the persist and the floor marker; under the team's judging
+// hold, which the builder's pages take too.
 func (s *sess) handle(ctx context.Context, since string, a answer) error {
+	return s.t.judgingHold(ctx, func() error { return s.handleHeld(ctx, since, a) })
+}
+
+func (s *sess) handleHeld(ctx context.Context, since string, a answer) error {
 	t := s.t
 	mainInv, sideInv := splitInvites(a.resp.Invite, s.a.MainRoom)
 	joined := s.invites(ctx, mainInv)
@@ -598,9 +605,19 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 	return append(older, tl.Events...), gap, nil
 }
 
-// commit is what a persisted answer leaves: the flood window, UH1's counted ids, the log lines
-// and the floor f the store keeps, which the marker carries (B 2.3.2).
+// commit is what a persisted answer leaves: the judging's effects, and the floor f the store
+// keeps, which the marker carries (B 2.3.2).
 func (s *sess) commit(j judged, f int64) {
+	s.commitJudged(j)
+	if f > 0 && f != s.floor {
+		s.floor = f
+		s.t.floorMoved(proto.PurposeMain, f, s.epoch)
+	}
+}
+
+// commitJudged is what a persisted judging leaves, an answer's or a builder's page: the flood
+// window, the delivery budget, UH1's counted ids, the log lines and the forge news.
+func (s *sess) commitJudged(j judged) {
 	t := s.t
 	t.flood = j.flood
 	t.budget = j.budget
@@ -612,10 +629,6 @@ func (s *sess) commit(j judged, f int64) {
 		t.log.Print(line)
 	}
 	t.noteForge(j.forge)
-	if f > 0 && f != s.floor {
-		s.floor = f
-		t.floorMoved(proto.PurposeMain, f, s.epoch)
-	}
 }
 
 func empty(b team.Batch) bool {

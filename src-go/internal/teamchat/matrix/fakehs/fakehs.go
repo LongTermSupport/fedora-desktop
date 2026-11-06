@@ -217,6 +217,9 @@ type Server struct {
 	changed       chan struct{}
 	routes        []route
 	web           webState
+	// gates hold requests before they are handled, under gateMu, never mu (Gate).
+	gateMu sync.Mutex
+	gates  []*Gate
 }
 
 // New is an empty server.
@@ -479,6 +482,9 @@ type outcome struct {
 }
 
 func (s *Server) process(ctx context.Context, method, path string, query url.Values, body []byte, token string) outcome {
+	if !s.gated(ctx, method, path) {
+		return outcome{fault: &Fault{Drop: true}}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := s.takeFault(method, path)

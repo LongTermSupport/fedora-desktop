@@ -327,9 +327,12 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   `questions` only; on `feat/bus-v2-n3f-b3` the recovery of a tried report under a reissued
   token (n3f-D16) and the end-to-end rows (OF1-n3f's `report` row, the n3f-D1 stdin cases
   through the real binary, RP5's two-member check, a refused join in `status`); n3f-c1 (the
-  questions room's sync) in part: the engine's write of the `questions` key and a demotion's
-  drop, and in `teamsync` QS1 to QS6, QS9, QS10 (n3f-c1b, on `feat/bus-v2-n3f-c1b`); QS7 and
-  QS8's tests open; n3f-c2 to n3f-e open, see BUILT-n3.md).
+  questions room's sync) built: the engine's write of the `questions` key and a demotion's
+  drop, and in `teamsync` QS1 to QS10 with QS7, QS8's tests, the per-room floor markers,
+  `Refetch` of a questions item and `status`'s questions record (n3f-c1b, c1c and c1d, pull
+  requests 168, 171 and 175); n3f-c2a built (QX1's index build and catch-up, pull request 178;
+  its kill-and-resume and QS7 end-to-end tests are not written); n3f-c2b, n3f-c2c, n3f-d and
+  n3f-e open, see BUILT-n3.md).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

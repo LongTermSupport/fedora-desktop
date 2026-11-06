@@ -33,6 +33,9 @@ func applyQuestions(s *state.Store, b team.Batch) (questionsDrop, error) {
 		}
 		s.Questions = &key
 	}
+	if b.Handover {
+		s.Outbox.QuestionsHandover = true
+	}
 	if !b.DropQuestions {
 		return out, nil
 	}
