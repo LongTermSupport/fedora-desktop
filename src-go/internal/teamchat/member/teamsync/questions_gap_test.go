@@ -59,18 +59,25 @@ func gateFilter(t *testing.T, tm *Team, want string) *filterGate {
 	g := &filterGate{t: t, arm: make(chan chan struct{}, 1), held: make(chan struct{}, 1)}
 	announce := tm.onFilter
 	tm.onFilter = func(f json.RawMessage) {
+		// Armed or not is read before the request is announced: a test that arms the gate once
+		// it has seen the announcement means the request after this one, and one read after the
+		// announcement could be the arm of that test, which holds the request that would carry
+		// the very post the test then waits for.
+		var rel chan struct{}
+		if string(f) == want {
+			select {
+			case rel = <-g.arm:
+			default:
+			}
+		}
 		announce(f)
-		if string(f) != want {
+		if rel == nil {
 			return
 		}
+		g.held <- struct{}{}
 		select {
-		case rel := <-g.arm:
-			g.held <- struct{}{}
-			select {
-			case <-rel:
-			case <-t.Context().Done():
-			}
-		default:
+		case <-rel:
+		case <-t.Context().Done():
 		}
 	}
 	return g

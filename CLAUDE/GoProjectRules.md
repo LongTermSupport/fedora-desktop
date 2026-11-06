@@ -33,36 +33,37 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                              | Defect class                                                                                                                                                   | Found in                                                                                                                                                                  |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `project_seam_exec`               | a process started outside the runner, so no fake sees it                                                                                                       | `teams`: `syscall.Exec` in the launcher hand-over                                                                                                                         |
-| `project_seam_commands`           | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)                            | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`                                                                                            |
-| `project_tmux_targets`            | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                                       | the bash library, before the port                                                                                                                                         |
-| `project_testclock`               | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                                             | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                                                                                                              |
-| `project_waitdelay`               | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                                       | `qa/internal/proc`: bug B25 of the qa-all port                                                                                                                            |
-| `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                                            | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                                                                                           |
-| `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                                   | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                                                                                       |
-| `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)                      | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                                                                                                |
-| `project_lifecycle_turn`          | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                        | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)                                                                                            |
-| `project_keeper_log_barrier`      | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                          | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)                                                                                         |
-| `project_fakeclock_count`         | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies              | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge                                                                                 |
-| `project_goroutine_end`           | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                               | `link`: `go l.read()`, about 145 control readers left blocked in one test binary                                                                                          |
-| `project_rawconn_probe`           | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends         | `link`: the pidfd watch never saw a keeper that died before the watch first ran                                                                                           |
-| `project_leakcheck_once`          | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak                | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher                                                                                 |
-| `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong                | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                                                                                            |
-| `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires                           | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)                                                                                |
-| `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)                    | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                                                                                      |
-| `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                                | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                                                                                    |
-| `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                                             | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9)                                                                  |
-| `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)              | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                                                                                         |
-| `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                               | `teams` board: every member not parked shown green "active" (Plan 00177)                                                                                                  |
-| `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter             | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
-| `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                               | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
-| `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
-| `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
-| `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
-| `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's          | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                        |
-| `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
+| Rule                              | Defect class                                                                                                                                                                           | Found in                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project_seam_exec`               | a process started outside the runner, so no fake sees it                                                                                                                               | `teams`: `syscall.Exec` in the launcher hand-over                                                                                                                         |
+| `project_seam_commands`           | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)                                                    | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`                                                                                            |
+| `project_tmux_targets`            | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                                                               | the bash library, before the port                                                                                                                                         |
+| `project_testclock`               | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                                                                     | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                                                                                                              |
+| `project_waitdelay`               | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                                                               | `qa/internal/proc`: bug B25 of the qa-all port                                                                                                                            |
+| `project_package_tests`           | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                                                                    | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it                                                                                           |
+| `project_homeabbrev`              | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                                                           | `teams` tests: `strings.Replace(..., "~", 1)` twice                                                                                                                       |
+| `project_hidden_bindings`         | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)                                              | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N                                                                                                |
+| `project_lifecycle_turn`          | a member's lifecycle notice decided from a read of main and posted outside the team's turn, so another post of the run can come between                                                | teamchat `ends`: `back` posted after the run's own `disconnected` (Plan 00209)                                                                                            |
+| `project_keeper_log_barrier`      | a keeper test reading keeper.log past the harness's turn-aware reader, so a wait on a line releases before its turn has done the rest                                                  | teamchat `keeper`: `TestOwedNotice` saw the seat held after its line (Plan 00209)                                                                                         |
+| `project_fakeclock_count`         | a test that judges a fake clock's timers by the number armed, which a timer it did not mean changes: a wait advances too early, an assertion lies                                      | `link` tests: `TestAnOpBeforeThePIDIsNotAnswered` hung; `engine` TIMEOUT tests at a merge                                                                                 |
+| `project_goroutine_end`           | a goroutine that signals no end, so no owner can wait for it, and a stop missed on one path leaks it for the life of the process                                                       | `link`: `go l.read()`, about 145 control readers left blocked in one test binary                                                                                          |
+| `project_rawconn_probe`           | a RawConn readiness callback that answers without testing its descriptor, so readiness the poller saw and Read reset is missed and the wait never ends                                 | `link`: the pidfd watch never saw a keeper that died before the watch first ran                                                                                           |
+| `project_leakcheck_once`          | a second `leakcheck.Check` on one test, which judges before the cleanups registered between the two run and reports a world they stop as a leak                                        | `engine`: `TestLiveNeedsEveryFact`'s second world reported the first's transcript watcher                                                                                 |
+| `project_refusal_kind`            | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong                                        | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)                                                                                            |
+| `project_realtime_bound`          | a bound on real time that a test can shorten, which then races the step the test asserts; a test that passes when a real timer fires                                                   | teamchat `host/lxc`: 1 of 4 probes reached the fake hang before a 20 ms bound (Plan 00209)                                                                                |
+| `project_esc_joined`              | a screen that loses an Esc typed just before another key, which arrives as that key with Alt (also in shell fzf: `qa-hidden-bindings.bash`)                                            | `teams` row menu: Esc then Down left the menu open and moved its cursor (Plan 00177)                                                                                      |
+| `project_duration_overflow`       | a `time.Duration` built from a number with no bound that keeps it inside int64 nanoseconds, so a large input comes out negative                                                        | `vmtest prune-runs --older-than 200000` pruned every failed run (Plan 00192 Task 3.10)                                                                                    |
+| `project_command_failure_dropped` | a command's failure only tested, never carried, so the person sees a guessed cause                                                                                                     | `ccy --token-usage`: any curl failure was "could not reach the API" for 15 minutes (Plan 00191 Task 4.9)                                                                  |
+| `project_self_erasing_clipboard`  | a secret kept short-lived by a clipboard meant to erase itself after a paste, or text promising it (also in shell: `bash-self-erasing-clipboard`)                                      | `teams` login: `wl-copy --paste-once`, and "for one paste" (Plan 00201 Task 2.12)                                                                                         |
+| `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                                                       | `teams` board: every member not parked shown green "active" (Plan 00177)                                                                                                  |
+| `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter                                     | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
+| `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                                                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
+| `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner                                      | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
+| `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                                                  | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
+| `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still                         | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
+| `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                  | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                        |
+| `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                               | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
+| `project_shared_due`              | a teamsync test that names a fake-clock due (`AwaitDue`, `Armed`) equal to `reportsJoinLimit` before `reportsSettled`, so the reports join's bound can answer for the long-poll's hold | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally                                                 |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1491,7 +1492,6 @@ refused until its own case is written.
 - Not caught: a room held in a variable compared to another variable, a helper that answers
   whether a room is a side room, or a default written as a map lookup. A test fake that records
   no room is a related class with no rule: see below.
-  \=======
 
 ### project_fake_restart
 
@@ -1532,6 +1532,55 @@ requests are answered.
 - Not caught: a stop reached through a helper called in a literal, a server held in an
   interface, a fake named otherwise, and a literal stored and later called on the test's own
   goroutine (flagged, a false positive the same fix removes).
+
+### project_shared_due
+
+**What it is about.** The team's reports join (RP1) bounds each try by `reportsJoinLimit` on the
+injected clock, 30 s, the same time the long-poll is held for. While a try is in flight two
+waiters on the fake clock are due the same time. A test that waits for the long-poll's hold with
+`AwaitDue(ctx, longPoll)` is answered by whichever is armed: the join's bound, which says nothing
+of the hold. The test then advances the clock, which cancels the join in flight (a transient
+refusal, then one more retry wait the test did not plan for) while the hold is not armed yet; the
+hold is armed at the new time and never fires, and the test waits for ever. The clock refuses a
+due only when two waiters share it at the moment it is asked (`clock.ErrAmbiguousDue`), so a join
+that is not armed yet is not seen.
+
+**Why it exists.** CI's failpoint stage (`go test -race -shuffle=on -count=2` with
+`busfailpoints`, on a loaded runner) hung two tests of the n3f stack to the package's 30-minute
+timeout: `TestARestoreUnderALongPoll` (PR 166, run 42172755928) and `TestQS2...` (PR 168, run
+42173802166), after `go-qa`'s lint stage had been fixed and the test runners started. Locally the
+join had ended before either test asked. `TestABackTeamIsShownUpAtItsFirstLongPoll` had the same
+form and was fixed first, with the helper `reportsSettled` (the reports room's next state, then
+the try's slot taken and given back, which proves no bound is armed).
+
+**What it flags**, in a `_test.go` file of a package that declares the constant
+`reportsJoinLimit` (teamchat's `teamsync`): a call of a fake clock's `AwaitDue` or `Armed` (a type
+whose method set has `Advance(time.Duration)`) with a constant `time.Duration` argument equal to
+that constant's value, however it is spelt (`longPoll`, `reportsJoinLimit`, `30*time.Second`,
+`60*time.Second/2`), unless the same function declaration calls `reportsSettled` earlier in its
+text. A function literal belongs to the declaration holding it; a helper that names the due is
+judged on its own.
+
+**Not flagged**: a due the bound does not share, a call that moves the clock without naming a
+due (`Advance`), a due that is not a constant, and a package that does not declare the constant.
+
+**How to fix a violation.** Call `reportsSettled` before the `AwaitDue`, or wait on a due the join
+does not share.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/member/teamsync` (`teamsync.go` the
+  constants; `due_test.go`: the originating form, the `30*time.Second` and `60*time.Second/2`
+  spellings, the bool query, a subtest's closure and a helper flagged; a settled test, a settle
+  then a closure, another due, an `Advance` alone and a computed due clean) and
+  `member/noreports` (no `reportsJoinLimit`: not judged).
+- Red, real tree: exactly one finding over `./internal/teamchat/...`,
+  `teamsync/resend_test.go` (`TestARestoreUnderALongPoll`), seen with the test as it was.
+- Green: that test settles the reports room first (the same form as the back-team test); 20 runs
+  at `-race -shuffle=on`, then 40 at `-cpu 1,2,4` with `busfailpoints`, all passed, and the rule
+  reports nothing over `./internal/teamchat/...`.
+- Not caught: a due that is a variable or a call; a settle made by a helper under another name; a
+  join armed again after the settle (a second `AwaitDue` after an outage is judged settled by the
+  first call); a fake whose advance is spelled otherwise; a package that bounds its join by a
+  value it does not name `reportsJoinLimit`.
 
 ## Defect classes that cannot be a rule
 
@@ -1922,6 +1971,42 @@ bash they replaced and in the Go during review; each instance is in the audit re
   `send` and failed in 32 of 900 stressed runs until they awaited with `settled`; run under
   `-cpu 1,2,4`, 300 times, the old form fails and the new one does not). No rule: every shape
   that reads after a close also matches the many reads that are ordered.
+
+- **A test hook that announces an event and then reads the control state its test sets once it has
+  seen the announcement** (Plan 00209 n3f-c1c: `teamsync`'s `gateFilter` held the team's next
+  request whose filter was the coordinator's. Its hook called `announce(f)`, then looked at the
+  channel `armed()` fills. `readyWith` returns when it has seen that announcement, and
+  `TestQS6AnOldHumanPostIsStillDelivered` arms the gate straight after, so under load the arm
+  landed before the hook's look: the request in flight, the one the test's post was to answer, was
+  held, and the test waited for a batch that request had to make. 29 minutes at `[select]` in CI,
+  PR 175, run 42176134603; locally 1 hang in 150 runs at `-cpu 1,2,4` with the machine busy.) A
+  100 ms pause after the announcement made it hang on every run. Whether a hook's later read is a
+  control the test writes after the announcement is the order of two goroutines' steps, not a
+  shape in the syntax tree: every hook that announces first also matches the many that read
+  nothing the test writes. What holds it instead: a hook decides, then announces, then blocks
+  (`gateFilter` takes the arm before `announce`, so an arm made after the announcement is for the
+  request after it), and the same pause after the announcement, run against the test, shows a
+  hook that does not (the old form hangs, the new one passes). Swept in `teamsync`'s tests: the
+  other hooks (`gated`'s and `held`'s `onPoll`, `watchReports`, the budget and receipt waits)
+  announce nothing before they decide, or decide on nothing the test writes.
+
+- **A test that forgets a stream of announcements after the act that makes more of them** (Plan
+  00209 n3f-c1d: `TestQS5AQuestionsFloorMoveIsMarkedInTheQuestionsRoom` posted to the questions
+  room, called `drainPolls()` to forget the long-poll `readyWith` left, then waited for the batch
+  and for the team's next long-poll. The post ends the poll that was in flight and the team goes
+  on to its next at once, so when it announced that one before the drain ran, the drain took it
+  too and the wait for it was for ever: 29 minutes at `[select]` in CI, PR 178, run
+  42179368091, the team parked in a held `/sync` of the fake server.) A 100 ms pause between the
+  post and the drain made it hang on the one run made. `TestQX4AFailedWriteLeavesTheLiveIndexUnfolded`
+  had the same order. No rule: which acts cause an announcement, and which announcements a
+  later wait must still see, are what the code under test does, not a shape in the syntax tree;
+  a rule on "a drain after a post" would flag the gate tests, whose drain follows a post while
+  the team is held in a request and so cannot announce. What holds it instead: forget the stream
+  before the act (`drainPolls()` first, then the post), so everything announced after the drain
+  is the act's; the same pause after the post, run against the test, shows an order that does not
+  (the old order hangs, the new one passes, 150 runs at `-cpu 1,2,4`). Swept in `teamsync`'s
+  tests: the other uses of `drainPolls` are the gate tests' (the team is held when it runs) and
+  `TestQS8ATrustTriggerInTheRoomReVerifies` (before its act).
 
 - **A fake that does not keep the contract of the interface it stands for** (Plan 00209 n2/n3e
   merge: `units.Conn` says the connection closes the signal channel it was given when it is
