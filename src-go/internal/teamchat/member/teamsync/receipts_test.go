@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"runtime"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -183,12 +183,7 @@ func TestAReceiptRefusedTokenWaitsForTheNextSession(t *testing.T) {
 // waitLog waits for s in link.log.
 func (w *world) waitLog(s string) {
 	w.t.Helper()
-	for w.log.count(s) == 0 {
-		if w.t.Context().Err() != nil {
-			w.t.Fatalf("no %q in %q", s, w.log.String())
-		}
-		runtime.Gosched()
-	}
+	leakcheck.Poll(w.t, func() bool { return w.log.count(s) > 0 })
 }
 
 // The receipt's removed team ends the sender: ReceiptSent's ErrRemoved is its last call.
