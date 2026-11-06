@@ -1445,7 +1445,8 @@ Matrix desktop clients, independent of the agent team bus:
 Qobuz apps — gapless HD audio streaming from Qobuz:
 
 - **hifi-rs**: Rust-based Qobuz CLI player
-- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs
+- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs (x86_64 only: rescrobbled
+  publishes no aarch64 build, so scrobbling is skipped there)
 
 **Shell functions**:
 
@@ -1657,6 +1658,9 @@ NVIDIA GPU drivers:
 
 - Installs proprietary NVIDIA drivers
 - Configures kernel modules
+- Installs the CUDA toolkit and cuDNN on x86_64 (`nvidia_install_cuda: false` to skip). NVIDIA
+  publishes no CUDA toolkit for Fedora aarch64, so there the driver is installed alone, and
+  `nvidia_install_cuda: true` fails the play
 - Check the result with `./scripts/nvidia-status.bash` (a read-only report; `--check` gives only
   the exit status)
 
