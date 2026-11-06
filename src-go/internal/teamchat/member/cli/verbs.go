@@ -122,6 +122,12 @@ const (
 	verbQuestions = "questions"
 )
 
+// The hook and the status line, verbs built outside this package.
+const (
+	verbHook       = "hook"
+	verbStatusLine = "status-line"
+)
+
 // The guest operations' verbs and seat set-aside, which runs names too.
 const (
 	verbGuestCheck  = "guest check"
@@ -215,8 +221,8 @@ var table = []Verb{
 		Name: "link", Flags: []Flag{{Name: "run", Value: valueDir, Required: true, check: checkDir}, {Name: flagState, Value: valueDir, check: checkDir}},
 		Does: "the link; started by the keeper only, given run's --state",
 	},
-	{Name: "hook", Args: []Arg{{Name: "event", Form: strings.Join(HookEvents, "|"), check: checkHook}}, Does: "one Claude Code hook, run from the plugin's hooks.json"},
-	{Name: "status-line", Does: "the status line, run by Claude Code from the session's settings"},
+	{Name: verbHook, Args: []Arg{{Name: "event", Form: strings.Join(HookEvents, "|"), check: checkHook}}, Does: "one Claude Code hook, run from the plugin's hooks.json"},
+	{Name: verbStatusLine, Does: "the status line, run by Claude Code from the session's settings"},
 	{Name: "reach", Flags: []Flag{required(teamFlag)}, Does: "an unauthenticated GET of the team homeserver's versions, so a route is proven from the member side"},
 	{
 		Name:  "seat disconnected",

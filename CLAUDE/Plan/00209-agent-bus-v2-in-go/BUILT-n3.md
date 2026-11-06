@@ -39,6 +39,48 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   tests (review A n3; GATE A means none is deployed). Found here and fixed on
   `feat/bus-v2-n3-guestreg`: `guest`'s `TestRegister` could not run twice (`-count=2`).
 
+- **n3e built in part**: n3e-1 to n3e-11, the agent seam (SPEC-n3 6.1) and the goroutine review
+  are merged (`subagent-reports/261022-n3e-*.md`, `261023-n3e-*.md`). n3e-12's first half is
+  built: `hook` and `status-line` are in `wiring.Verbs`, off `cli`'s `unbuilt` table, and the CL2
+  test (`go test -tags teamchatrelease ./internal/teamchat/member/cli/`) now fails only on n3f's
+  four verbs (`ask`, `thread`, `questions`, `report`). n3e-12's second half is built in
+  part (`subagent-reports/261105-n3e-e2e-sonnet.md`): the wiring world runs a `--claude` session
+  whose CMD is a fake Claude Code (`e2e_claudecode_test.go`: the plugin's hook commands and the
+  settings' status line command run through `sh -c`, as Claude Code runs them, with a fakeinbox
+  and a faketranscript), and four rows pass over the real keeper, link and verbs: delivery
+  (DV1, DV3-DV5, HK1, PK1), a silent link (HK1's own recovery line), the status line through the
+  kit's command (SL1, PK1) and the deterministic Stop block (HK2). Not covered by them: Busy
+  mode, a rotated transcript, `missing` (180 s of quiet, the engine's fake-clock tests own it),
+  membership notices, the 300 ms bound itself, the 10-minute repeats. Not built: the OF1 row
+  with one team's server down (needs a second team and about 15 s of real time).
+
+  n3e-13, PT1, is built in part (`subagent-reports/261105-n3e-pt1-sonnet.md`), in package `wiring`
+  under `busfailpoints` (`pt1_model_test.go`, `pt1_run_test.go`, `pt1_model_unit_test.go`): a seed
+  draws a schedule of posts, recv, wait, sends, a held, released or refusing inbox, homeserver
+  restarts and a link SIGKILL, run over the real keeper and link with the fake Claude Code as CMD,
+  drained, and judged by one pure function that has P1, P2, P4, P5, P6 and P11; the gate's tagged
+  stage runs 22 fixed seeds, the 8 point rows and the redelivery row (about 60 s a count), and
+  `-pt1.random=<n>` is the manual run; a failing seed prints its replay (`-pt1.seed=N`).
+  `TestPT1Points` kills the link at the 8 points a one-team session reaches (judge-before-persist,
+  auth, awaiting, user-line, hand-out, while-handed, charge, send) and checks the same. Not
+  reached: P3 directly (a lost item is the observable), the removal and end points (their rows
+  are `e2e_failpoints_test.go`'s), P7, P8-P10 and `link-after-missing` (180 s of quiet: no clock
+  seam in the link), `link-between-store-writes` (needs two teams).
+
+  n3e-13 slices 3 and 4 (`subagent-reports/261105-n3e-pt1b-sonnet.md`, `-pt1c-sonnet.md`) built the
+  four more operations (`remove`, `end`, `die`, `recv-fail`), P4, P5 and P2 for returned items, and
+  the runner that runs them (`pt1_end_test.go`, `pt1_redeliver_test.go`), so the manual run is
+  usable on every seed. Each property was shown red on a planted defect in production code, put in,
+  run and reverted: P11 (`Ack` leaves items pending), P5 (a second goodbye post with another
+  transaction id, in `ends.Leave` and in `ends.send`), P4 (`Engine.Remove` returning at once, the team
+  still running) and P2 (the `repeat:` line never written in `closingLines`; a `Return` that does
+  not mark repeat). `-pt1.random=30` passed. One finding, open: seed 57 failed once in four
+  concurrent full runs (P2, the returned item's first transcript copy carries no repeat line), and
+  not in 25 unloaded replays; whether that is a production race or the harness sampling the
+  transcript before a delivery lands is not decided (the slice 4 report; issue 156, where the
+  reviewer's 180 isolated runs and 12 full-suite copies, none failing, are recorded, and the
+  decision to keep the seed in the gate is stated with its one-line alternative).
+
 - **n3d's caps measured as written** on `fix/store-size-as-written`
   (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
   `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
