@@ -32,6 +32,10 @@ func (l Leaf) KeyPEM() []byte { return bytes.Clone(l.keyPEM) }
 // NotAfter is when the leaf stops being valid.
 func (l Leaf) NotAfter() time.Time { return l.cert.NotAfter }
 
+// MadeAt is when the leaf was made, to the second: its NotBefore is the clock's time back-dated
+// by skew, and a CA is always back-dated as far, so the clamp to the CA's NotBefore never moves it.
+func (l Leaf) MadeAt() time.Time { return l.cert.NotBefore.Add(skew) }
+
 // Names are the names the leaf holds, sorted and once each.
 func (l Leaf) Names() Names {
 	return Names{IPs: slices.Clone(l.names.IPs), DNS: l.names.DNS}
