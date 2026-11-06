@@ -119,8 +119,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   X18c). The health tick reads the terminator unit's state and records a problem when it is not
   active; a probe through the terminator is not built (X18c). S11 is built: Element's check and
   apply say the CA must be trusted and where it is (X20; whether the Flatpak build honours an added
-  CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. Remaining: X30,
-  the second-machine run, a host or VM-lab check that needs the host play and the launcher.
+  CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. The owner's
+  slices after S11 are specified in SPEC-cross-network.md section 6 and not yet built: S12
+  unattended leaf renewal (X31), S13 a probe through the terminator (X32), S14 rotating the CA
+  (X33) and S15 Element trusts the CA through the play (X34). Then X30, the second-machine run,
+  a host or VM-lab check that needs the host play and the launcher, which the coordinator queues
+  once S12 to S15 are in.
 
 ## Success Criteria
 
