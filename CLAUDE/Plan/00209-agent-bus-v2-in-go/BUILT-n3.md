@@ -87,7 +87,10 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   U+2028 and U+2029 longer; the store now measures every entry through its one encoder, a send
   whose entry does not fit as written is refused 10 `size` at the verb, and the two file caps
   hold their largest values escaped. Reviewed by the coordinator and merged (PR #164,
-  2026-11-06).
+  2026-11-06). The question it left (does `awaiting` refuse a transcript path heavy in `<>&`, or
+  is `sizeAwaiting` raised) was decided on 2026-11-06 under the owner's delegation: the path is
+  refused and `sizeAwaiting` stays 2252. A Claude Code transcript path (a project slug and a
+  UUID `.jsonl`) never holds those characters, so the refusal is fail fast and loses nothing.
 
 - **The sender's stale stop** (issue #159, on `fix/recover-stale-401-159`): a PUT under the old
   token answered 401 or 403 after the team's recovery under a reissued token had cleared the
