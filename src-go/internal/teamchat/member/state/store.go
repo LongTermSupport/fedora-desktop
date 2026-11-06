@@ -15,7 +15,7 @@ import (
 
 // MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
 // 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, and
-// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 110 165 bytes counted as written, so
+// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 134 997 bytes counted as written, so
 // 4 MiB.
 const MaxStore = 16 * 256 << 10
 

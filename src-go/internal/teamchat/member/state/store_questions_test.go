@@ -15,8 +15,8 @@ import (
 // The tests of SPEC-n3f G2: the seven keys the questions room adds to the seat store (12.6).
 
 // questionsKey is a small `questions` key that holds each part the store keeps: an open question
-// with a reminder and an unanswered thread post, a number held by a redacted event, a post and an
-// unattached human post, an index at the head.
+// with a reminder and an unanswered thread post, a number held by a redacted event, a post, an
+// agent's thread post and an unattached human post, an index at the head.
 func questionsKey() *proto.QuestionsState {
 	st := proto.IndexState{
 		Highest: 2,
@@ -29,6 +29,7 @@ func questionsKey() *proto.QuestionsState {
 			{N: 2, Closed: true, AskedBy: []string{}, Re: []string{}, Unanswered: []string{}},
 		},
 		Posts:      []proto.PostEntry{{ID: eventID(23), Q: 1, T: 1}},
+		AgentPosts: []proto.AgentPost{{ID: eventID(22), Q: 1}},
 		Unattached: []proto.UnattachedPost{{ID: eventID(24), From: aliceID, SentMs: 1_760_000_001_000}},
 	}
 	return &proto.QuestionsState{Index: &st, Token: new("s72594_4483_1934_0_1"), Last: new(eventID(24))}
@@ -385,7 +386,7 @@ func TestReminderTakesTheReserveOfPending(t *testing.T) {
 // worstQuestionsKey is the `questions` key with every cap full at its widest (QX6): 64 questions
 // not closed and 128 closed, each with 16 `asked_by` of 128 bytes, 16 `re`, 16 unanswered, a
 // headline of 120 code points that is written as 6 bytes each, and the integers at their
-// widest; 1024 posts, 64 unattached posts, the longest token and a build under way.
+// widest; 1024 posts, 256 agent posts, 64 unattached posts, the longest token and a build under way.
 func worstQuestionsKey() *proto.QuestionsState {
 	const wide = 3_000_000_000_000_000
 	longUser := func(n int) string {
@@ -414,6 +415,9 @@ func worstQuestionsKey() *proto.QuestionsState {
 	for i := range proto.MaxAttachments {
 		st.Posts = append(st.Posts, proto.PostEntry{ID: eventID(500_000 + i), Q: wide, T: 1})
 	}
+	for i := range proto.MaxAgentPosts {
+		st.AgentPosts = append(st.AgentPosts, proto.AgentPost{ID: eventID(800_000 + i), Q: wide})
+	}
 	for i := range proto.MaxUnattached {
 		st.Unattached = append(st.Unattached, proto.UnattachedPost{ID: eventID(600_000 + i), From: longUser(i), SentMs: wide})
 	}
@@ -421,6 +425,13 @@ func worstQuestionsKey() *proto.QuestionsState {
 		Index: &st, Token: new(strings.Repeat("~", maxNextBatch)), Last: new(eventID(700_000)),
 		Build: &proto.BuildRecord{Start: new(eventID(700_001)), After: new(eventID(700_002)), LateFrom: new(int64(wide))},
 	}
+}
+
+// worstListsFull is whether the key's lists and token are at their caps: 192 questions, 1024
+// posts, 256 agent posts, 64 unattached posts and a 1024 byte token.
+func worstListsFull(k *proto.QuestionsState) bool {
+	ix := k.Index
+	return len(ix.Questions) == 192 && len(ix.Posts) == 1024 && len(ix.AgentPosts) == 256 && len(ix.Unattached) == 64 && len(*k.Token) == 1024
 }
 
 // QX6's worst case is the worst case: every cap full, and the widest entry of each list.
@@ -433,9 +444,10 @@ func TestWorstQuestionsKeyIsFull(t *testing.T) {
 		}
 	}
 	q := k.Index.Questions[0]
-	if open != 64 || len(k.Index.Questions) != 192 || len(k.Index.Posts) != 1024 || len(k.Index.Unattached) != 64 || len(*k.Token) != 1024 ||
+	if open != 64 || !worstListsFull(k) ||
 		len(q.AskedBy) != 16 || len(q.AskedBy[0]) != maxUserID || len(q.Re) != 16 || len(q.Unanswered) != 16 || q.UnansweredMore == 0 {
-		t.Fatalf("a cap is not full: %d open of %d, %d posts, %d unattached", open, len(k.Index.Questions), len(k.Index.Posts), len(k.Index.Unattached))
+		t.Fatalf("a cap is not full: %d open of %d, %d posts, %d agent posts, %d unattached",
+			open, len(k.Index.Questions), len(k.Index.Posts), len(k.Index.AgentPosts), len(k.Index.Unattached))
 	}
 	data, err := json.Marshal(q.Headline)
 	check(t, err)
