@@ -127,8 +127,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S15 is built on
   `feat/crossnet-s15` (pull request 172, against 128): the Element play places the team CA and
   checks it from inside Element's sandbox; whether Element's Chromium honours the store is the
-  host check, and two owner questions (SPEC 6 and 7) stand. Not yet built: S13 a probe through
-  the terminator (X32) and S14 rotating the CA (X33). Then X30, the second-machine run,
+  host check, and two owner questions (SPEC 6 and 7) stand. S13 is built on `feat/crossnet-s13`:
+  the health tick probes each listen address through the terminator with the team CA
+  (`matrix.Reach`), one problem per silent address (report
+  `subagent-reports/261106-crossnet-s13-opus-report.md`). Not yet built: S14 rotating the CA
+  (X33). Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher, which the coordinator queues
   once S12 to S15 are in.
 
