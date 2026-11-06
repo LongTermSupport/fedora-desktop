@@ -318,20 +318,25 @@ func members(r proto.Roster, server, name string) []string {
 	return ids
 }
 
-// send is a resolved send's steps 3 to 8 (A 9.3's order, SD3): the team's stop, the compose,
-// the addressee bound, the forge check, the charge in one store write, and the answer: queued
-// at once for a down team or behind older sends, else posted or queued by the deadline.
-func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose composeFunc, out RecordWriter) wire.Done {
+// composedSend is a send's steps 3 to 5: its composer, its composition and its `sending` entry.
+type composedSend struct {
+	c     proto.Composer
+	o     proto.Outgoing
+	entry state.Sending
+}
+
+// composeSend is a send's team stop, compose, store size and addressee bound; false with the
+// answer when one refuses it. ending is the answer for an engine that did not answer in time.
+func (e *Engine) composeSend(ctx context.Context, st sendTeam, kind string, compose composeFunc, ending func() wire.Done) (composedSend, wire.Done, bool) {
 	var (
-		lk     storeLookup
-		lkErr  error
-		ending = func() wire.Done { return doneOf(exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))) }
+		lk    storeLookup
+		lkErr error
 	)
 	if err := e.do(ctx, func() { lk, lkErr = e.sendable(st.id) }); err != nil {
-		return ending()
+		return composedSend{}, ending(), false
 	}
 	if lkErr != nil {
-		return doneOf(lkErr)
+		return composedSend{}, doneOf(lkErr), false
 	}
 	c := proto.Composer{
 		Server: st.anchors.Server, Self: st.self, Token: st.tm.Notices().Token(), Roster: st.roster,
@@ -339,23 +344,36 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 	}
 	o, err := compose(c)
 	if err != nil {
-		return doneOf(refusal(st.id, err))
+		return composedSend{}, doneOf(refusal(st.id, err)), false
 	}
 	entry, err := sendingOf(kind, o, st.roster.Limits)
 	if err != nil {
-		return internal(err)
+		return composedSend{}, internal(err), false
 	}
 	// A content within A's cap whose `<`, `>` or `&` make its entry too large for the store is
 	// refused as the composer refuses an over-size content, before anything is spent (n3d-D1).
 	switch err := entry.Fits(); {
 	case errors.Is(err, state.ErrTooLarge):
-		return doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize}))
+		return composedSend{}, doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize})), false
 	case err != nil:
-		return internal(err)
+		return composedSend{}, internal(err), false
 	}
 	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
-		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets)))
+		return composedSend{}, doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets))), false
 	}
+	return composedSend{c: c, o: o, entry: entry}, wire.Done{}, true
+}
+
+// send is a resolved send's steps 3 to 8 (A 9.3's order, SD3): the team's stop, the compose,
+// the addressee bound, the forge check, the charge in one store write, and the answer: queued
+// at once for a down team or behind older sends, else posted or queued by the deadline.
+func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose composeFunc, out RecordWriter) wire.Done {
+	ending := func() wire.Done { return doneOf(exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))) }
+	cs, d, ok := e.composeSend(ctx, st, kind, compose, ending)
+	if !ok {
+		return d
+	}
+	c, o, entry := cs.c, cs.o, cs.entry
 	if o.Forge != nil {
 		if d, refused := e.forgeCheck(ctx, st, *o.Forge); refused {
 			return d

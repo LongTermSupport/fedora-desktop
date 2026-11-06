@@ -53,10 +53,11 @@ Each plant made by hand, the test run, the code restored (each restoration re-ru
   against the base is empty for it).
 - `./scripts/qa-changed.bash --base feat/bus-v2-n3f-c1c-int`, in a detached worktree of
   0aefa07a9 (`untracked/scratch/qa-c2a/`), log `untracked/scratch/qa-c2a.log` in this builder's
-  worktree (its last line is `exit <code>`): **not finished when this builder stopped**. It had
-  planned docs, go and teamchat-keeps-off-v1 over 16 files and was queued on the shared QA lock
-  behind another agent's run. The coordinator should read that log, or run the gate on the
-  branch head, before merging. A failure of the four `qa/cmd/qa-js` tests alone is the known
+  worktree: **exit 1**, go failed on `engine/send.go` cyclop alone (Findings 5); the test
+  runners were not started. After the fix, a second run over the branch head in a fresh detached
+  worktree (`untracked/scratch/qa-c2a-2/`, log `untracked/scratch/qa-c2a-2.log`) was started and
+  had not finished when this builder stopped. The coordinator should read that log, or run the
+  gate on the branch head, before merging. A failure of the four `qa/cmd/qa-js` tests alone is the known
   environmental one (issue #135); a cyclop failure on `engine/send.go` is Findings 5.
 
 ## Readings where the spec was silent
@@ -104,8 +105,10 @@ Each plant made by hand, the test run, the code restored (each restoration re-ru
    tests running at once: the team's next coordinator-filter request was held by the test's gate
    before the post it waits for was answered. It looks like the class c1c's Findings 3 and 4
    name (a gate armed before the request in flight has answered); not reproduced since.
-5. **`engine/send.go` fails cyclop** at the base already (17 > 15); a `qa-changed` that lints the
-   engine package will fail on it whatever branch touches the engine.
+5. **`engine/send.go` failed cyclop** at the base already (17 > 15), and the first `qa-changed`
+   run of 0aefa07a9 failed on it alone (go: golangci and teamchat-failpoints-lint; every other
+   detector passed, runners not started). Fixed in a commit of its own: `send`'s first steps moved
+   into `composeSend` (behaviour unchanged; the engine's tests green under `-race -shuffle=on`).
 
 ## Not done, and what the next builder needs
 
