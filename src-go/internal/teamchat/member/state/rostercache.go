@@ -6,9 +6,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// MaxRosterCache bounds roster.json: a roster is a state event, which Matrix caps at 65536
-// bytes whole, so its content and the cache's few fields fit in 65 KiB.
-const MaxRosterCache = 65 << 10
+// MaxRosterCache bounds roster.json as it is written: a roster is a state event, which Matrix
+// caps at 65536 bytes whole in its canonical JSON, and the cache writes `<`, `>` and `&` at six
+// bytes each where that form writes one, so its content takes at most six times that, and the
+// cache's few fields fit in the last KiB (TestTheLargestRosterIsCachedAsWritten).
+const MaxRosterCache = 6*65536 + 1<<10
 
 const rosterCacheFile = "roster.json"
 
@@ -31,7 +33,7 @@ func (r RosterCache) Encode() ([]byte, error) {
 // DecodeRosterCache reads roster.json strictly.
 func DecodeRosterCache(data []byte) (RosterCache, error) {
 	var r RosterCache
-	if _, err := decodeStrict(rosterCacheFile, data, MaxRosterCache, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(rosterCacheFile, data, MaxRosterCache, &r, func(c *rules) { r.check(c) }); err != nil {
 		return RosterCache{}, err
 	}
 	return r, nil

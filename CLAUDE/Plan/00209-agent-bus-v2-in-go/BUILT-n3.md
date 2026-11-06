@@ -81,6 +81,13 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   reviewer's 180 isolated runs and 12 full-suite copies, none failing, are recorded, and the
   decision to keep the seed in the gate is stated with its one-line alternative).
 
+- **n3d's caps measured as written** on `fix/store-size-as-written`
+  (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
+  `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
+  U+2028 and U+2029 longer; the store now measures every entry through its one encoder, a send
+  whose entry does not fit as written is refused 10 `size` at the verb, and the two file caps
+  hold their largest values escaped. Not yet reviewed.
+
 ## Task 3.3: LXC members
 
 - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.

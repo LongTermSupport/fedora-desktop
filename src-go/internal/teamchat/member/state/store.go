@@ -17,7 +17,7 @@ import (
 // 256 KiB (n3d-D1), so a list cap always fires first.
 const MaxStore = 12 * 256 << 10
 
-// B 2.3.2's caps: entries per list, and bytes per entry as compact JSON.
+// B 2.3.2's caps: entries per list, and bytes per entry as the store writes it (writtenSize).
 const (
 	capPending = 2048
 	// sizePending and sizeLedger hold a TIMEOUT item keyed on the longest localpart (432 bytes)
@@ -61,23 +61,25 @@ const (
 	keyOutbox = "outbox"
 )
 
-// listCap is one list's cap: its name, where it is, how many entries and how large each.
+// listCap is one list's cap: its name, where it is, how many entries and how large each as
+// written, and its entries in a store.
 type listCap struct {
 	name        string
 	path        []string
 	count, size int
+	entries     func(s *Store) []any
 }
 
 // listCaps are every capped list of the store.
 var listCaps = []listCap{
-	{"pending", []string{"pending"}, capPending, sizePending},
-	{"awaiting", []string{"awaiting"}, capAwaiting, sizeAwaiting},
-	{"missed", []string{"missed"}, capMissed, sizeMissed},
-	{"ledger", []string{"ledger"}, capLedger, sizeLedger},
-	{"receipts", []string{"receipts"}, capReceipts, sizeReceipt},
-	{"pings", []string{keyOutbox, "pings"}, MaxPings, sizePing},
-	{"sending", []string{keyOutbox, "sending"}, MaxSending, sizeSending},
-	{"gate keys", []string{keyOutbox, "gate", "recent"}, capGateKeys, sizeGateKey},
+	{"pending", []string{"pending"}, capPending, sizePending, func(s *Store) []any { return anys(s.Pending) }},
+	{"awaiting", []string{"awaiting"}, capAwaiting, sizeAwaiting, func(s *Store) []any { return anys(s.Awaiting) }},
+	{"missed", []string{"missed"}, capMissed, sizeMissed, func(s *Store) []any { return anys(s.Missed) }},
+	{"ledger", []string{"ledger"}, capLedger, sizeLedger, func(s *Store) []any { return anys(s.Ledger) }},
+	{"receipts", []string{"receipts"}, capReceipts, sizeReceipt, func(s *Store) []any { return anys(s.Receipts) }},
+	{"pings", []string{keyOutbox, "pings"}, MaxPings, sizePing, func(s *Store) []any { return anys(s.Outbox.Pings) }},
+	{"sending", []string{keyOutbox, "sending"}, MaxSending, sizeSending, func(s *Store) []any { return anys(s.Outbox.Sending) }},
+	{"gate keys", []string{keyOutbox, "gate", "recent"}, capGateKeys, sizeGateKey, func(s *Store) []any { return anys(s.Outbox.Gate.Recent) }},
 }
 
 // The closed sets of the store's string fields.
@@ -292,32 +294,10 @@ func NewStore(team paths.TeamID, userID string, run StoreRun, gate Gate) Store {
 // DecodeStore reads a store strictly, with every cap (MS1).
 func DecodeStore(data []byte) (Store, error) {
 	var s Store
-	parsed, err := decodeStrict(storeFile, data, MaxStore, &s, func(c *rules) { s.check(c) })
-	if err != nil {
+	if err := decodeStrict(storeFile, data, MaxStore, &s, func(c *rules) { s.check(c) }); err != nil {
 		return Store{}, err
 	}
-	c := &rules{}
-	for _, l := range listCaps {
-		for _, item := range at(parsed, l.path).Items() {
-			c.need(item.Size() <= l.size, fmt.Sprintf("an entry of %s is over %d bytes", l.name, l.size))
-		}
-	}
-	if c.rule != "" {
-		return Store{}, &InvalidError{File: storeFile, Code: c.code, Rule: c.rule}
-	}
 	return s, nil
-}
-
-// at is the value at path below v; null when a key is missing.
-func at(v proto.Value, path []string) proto.Value {
-	for _, key := range path {
-		next, found := v.Get(key)
-		if !found {
-			return proto.Null()
-		}
-		v = next
-	}
-	return v
 }
 
 func (s *Sync) check(c *rules) {
@@ -351,6 +331,24 @@ func (o *Outbox) check(c *rules, server string) {
 	for _, k := range o.Gate.Recent {
 		c.need(sha256Re.MatchString(k.Key) && validMS(k.AtMS), "a gate key is not a SHA-256 and a time")
 	}
+}
+
+// ErrTooLarge is a send in flight whose entry, as the store writes it, is over its size: a
+// content within A's 16384 bytes whose `<`, `>`, `&`, U+2028 or U+2029 make it larger in the
+// file than a send in flight may be (n3d-D1).
+var ErrTooLarge = errors.New("state: a send in flight is larger than the store holds")
+
+// Fits is nil when s's entry, as the store writes it, is within a send in flight's size, and
+// ErrTooLarge when it is not: the store's own rule (checkLists), asked before the charge.
+func (s *Sending) Fits() error {
+	n, err := writtenSize(s)
+	if err != nil {
+		return fmt.Errorf("state: size a send in flight: %w", err)
+	}
+	if n > sizeSending {
+		return ErrTooLarge
+	}
+	return nil
 }
 
 func (s *Sending) check(c *rules, server string) {
@@ -549,10 +547,7 @@ func (s *Store) check(c *rules) {
 	s.checkDelivered(c, server)
 	s.Outbox.check(c, server)
 	s.Run.check(c)
-	counts := []int{len(s.Pending), len(s.Awaiting), len(s.Missed), len(s.Ledger), len(s.Receipts), len(s.Outbox.Pings), len(s.Outbox.Sending), len(s.Outbox.Gate.Recent)}
-	for i, l := range listCaps {
-		c.need(counts[i] <= l.count, fmt.Sprintf("%s holds more than %d entries", l.name, l.count))
-	}
+	s.checkLists(c)
 }
 
 // checkPending holds every pending entry well formed, each id once, and agent items within
@@ -591,4 +586,26 @@ func (s *Store) checkDelivered(c *rules, server string) {
 func (l *Ledger) check(c *rules, server string) {
 	c.need(validItemID(l.ID) && slices.Contains(storeRooms, l.Room) && slices.Contains(storeItems, l.Item) &&
 		(l.Thread == nil || proto.ValidEventID(*l.Thread)) && validUser(l.From, server) && validMS(l.AtMS) && validVerb(l.Item, l.Verb), "a ledger entry is not well formed")
+}
+
+func anys[T any](list []T) []any {
+	out := make([]any, 0, len(list))
+	for _, v := range list {
+		out = append(out, v)
+	}
+	return out
+}
+
+// checkLists holds each list within its count and each entry within its size as the store
+// writes it, through the writer's own encoder: an entry the compact form would pass is refused
+// when `<`, `>`, `&`, U+2028 or U+2029 make it larger in the file (n3d-D1).
+func (s *Store) checkLists(c *rules) {
+	for _, l := range listCaps {
+		entries := l.entries(s)
+		c.need(len(entries) <= l.count, fmt.Sprintf("%s holds more than %d entries", l.name, l.count))
+		for _, entry := range entries {
+			n, err := writtenSize(entry)
+			c.need(err == nil && n <= l.size, fmt.Sprintf("an entry of %s is over %d bytes", l.name, l.size))
+		}
+	}
 }
