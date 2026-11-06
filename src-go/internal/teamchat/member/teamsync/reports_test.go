@@ -53,6 +53,22 @@ func nextReports(t *testing.T, ch <-chan team.ReportsRoom) team.ReportsRoom {
 	return team.ReportsRoom{}
 }
 
+// reportsSettled waits for the reports room's next state and then for the try that put it there
+// to have ended. A try bounds its join by reportsJoinLimit on the fake clock, the same 30 s as
+// longPoll, so a test that moves the clock or waits on the long-poll's due while the try is under
+// way cancels the join or meets two waiters due together. The try's slot is released after its
+// bound is stopped, so taking the slot proves no bound is armed.
+func reportsSettled(t *testing.T, tm *Team, rooms <-chan team.ReportsRoom) {
+	t.Helper()
+	nextReports(t, rooms)
+	select {
+	case tm.reportsTry <- struct{}{}:
+		<-tm.reportsTry
+	case <-t.Context().Done():
+		t.Fatal("the reports try did not end")
+	}
+}
+
 // forbid answers the next join of the reports room 403, times times.
 func (w *world) forbidJoin(times int) {
 	w.srv.Inject(fakehs.Fault{
@@ -180,11 +196,13 @@ func TestARefusedReportsJoinIsTriedAgainAtARosterChangeAndAReport(t *testing.T) 
 	w.writeRoster(next)
 	r.poll(t)
 	w.batch()
-	if n := w.reportsJoins(); n != 2 {
-		t.Fatalf("%d joins after the roster change, want 2", n)
-	}
+	// The join is the reports loop's, beside the long-poll (RP1): the state its try puts comes
+	// after the try, so the joins are counted only then.
 	if rr := nextReports(t, rooms); rr.State != team.ReportsRefused {
 		t.Fatalf("the reports room is %+v after the second refusal", rr)
+	}
+	if n := w.reportsJoins(); n != 2 {
+		t.Fatalf("%d joins after the roster change, want 2", n)
 	}
 	err := tm.VerifyReports(t.Context())
 	if err != nil {

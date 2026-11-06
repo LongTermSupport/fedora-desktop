@@ -732,7 +732,7 @@ func TestALostLogLineIsCountedInTheNext(t *testing.T) {
 func TestN3dTheRecoveryOfATeamNotHeldIsRemoved(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	var eng team.Engine = w.e
-	if err := eng.RecoverSends(t.Context(), tid(t, "ops"), nil); !errors.Is(err, team.ErrRemoved) {
+	if err := eng.RecoverSends(t.Context(), tid(t, "ops"), &fakeNotices{}); !errors.Is(err, team.ErrRemoved) {
 		t.Fatalf("RecoverSends = %v, want ErrRemoved", err)
 	}
 }

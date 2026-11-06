@@ -617,6 +617,62 @@ func TestAPutIsRecordedBeforeItsAnswerIsHandled(t *testing.T) {
 	w.until(func() bool { return w.e.teams[ops].sendStop == exits.CodeToken })
 }
 
+// SD3-8c (issue 159): a refusal stops the team's sends only for the token that made the PUT. A
+// PUT under the old token whose 401 or 403 is read after the team's recovery under a new token
+// has cleared the stop leaves no stop over the new token: the send is posted under it.
+func TestARefusalOfAnOldTokenDoesNotStopTheNewOne(t *testing.T) {
+	for name, refused := range map[string]error{
+		"401": matrix.StatusError("PUT", "/send", 401, "M_UNKNOWN_TOKEN"),
+		"403": matrix.StatusError("PUT", "/send", 403, "M_FORBIDDEN"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, state.DeliverySocket)
+			ops := tid(t, "ops")
+			f := w.sending(ops)
+			w.e.SetHealth(ops, team.Health{Down: true})
+			queued(t, w.say(&ops, "while down", "repo.2"))
+			f.notices.setSendErr(refused)
+			release := f.notices.holdAnswers()
+			w.e.SetHealth(ops, up(startWall))
+			waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
+			// The PUT under the old token is made and its answer held; the token is reissued and
+			// the team's recovery under it starts, clearing the stop, then waits for the post.
+			f.notices.mu.Lock()
+			f.notices.token, f.notices.sendErr, f.notices.gate = "syt_bmV3_reissued", nil, nil
+			f.notices.mu.Unlock()
+			recovered := make(chan error, 1)
+			go func() { recovered <- w.e.RecoverSends(t.Context(), ops, f.notices) }()
+			w.until(func() bool { return !w.e.teams[ops].recovered })
+			release()
+			// The recovery took postMu after the sender let it go, so the refusal has been read.
+			check(t, <-recovered)
+			var stop string
+			w.local(func() { stop = w.e.teams[ops].sendStop })
+			if stop != "" {
+				t.Fatalf("the old token's refusal stops the new token's sends: %q", stop)
+			}
+			w.until(w.sendsLeft(ops))
+			if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {
+				t.Errorf("posts %v, want the one txn twice (the refused try, then the post)", got)
+			}
+		})
+	}
+}
+
+// SD3-8c (issue 159): the token the sender recovered under itself, with no recovery from the team,
+// is the token its sends run under: a refusal of it stops the sends.
+func TestARefusalOfTheTokenTheSenderRecoveredUnderStops(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	f.notices.mu.Lock()
+	f.notices.token = "syt_bmV3_reissued"
+	f.notices.mu.Unlock()
+	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 401, "M_UNKNOWN_TOKEN"))
+	refusedCode(t, "a 401 of the new token", firstOf(w.say(&ops, "hello", "repo.2")), exits.CodeToken)
+	refusedCode(t, "a send while it stops the sends", firstOf(w.say(&ops, "not yet", "repo.2")), exits.CodeToken)
+}
+
 // SD3-9: the 33rd send in flight is 78 store, and an answer-expecting ping past 256 outbox and
 // pending pings; nothing is charged.
 func TestSD3_9TheSendingAndPingCaps(t *testing.T) {
