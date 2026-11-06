@@ -935,19 +935,21 @@ func copyWindow(w proto.Window) proto.Window {
 func (t *Team) knowFloor(purpose string, floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if floor > 0 {
-		f := t.markerOf(purpose)
+	if f := t.markerOf(purpose); floor > 0 && f != nil {
 		f.ms, f.epoch, f.known = floor, epoch, true
 		f.dirty = !f.sent || f.sentMS != floor || f.sentEpoch != epoch
 	}
 }
 
-// markerOf is the marker of the room of purpose; t.mu is held.
+// markerOf is the marker of the room of purpose, nil for a room that has none; t.mu is held.
 func (t *Team) markerOf(purpose string) *floorMarker {
-	if purpose == proto.PurposeQuestions {
+	switch purpose {
+	case proto.PurposeMain:
+		return &t.floor
+	case proto.PurposeQuestions:
 		return &t.qfloor
 	}
-	return &t.floor
+	return nil
 }
 
 // floorMoved is a persisted floor move of the room of purpose; a move down is owed at once,
@@ -957,7 +959,7 @@ func (t *Team) floorMoved(purpose string, floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	f := t.markerOf(purpose)
-	if f.known && f.ms == floor && f.epoch == epoch {
+	if f == nil || f.known && f.ms == floor && f.epoch == epoch {
 		return
 	}
 	f.urgent = f.urgent || f.known && floor < f.ms
@@ -1011,7 +1013,7 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 	for _, r := range t.markerRooms(a) {
 		t.mu.Lock()
 		f := t.markerOf(r.purpose)
-		due := f.dirty && (f.urgent || !f.put || t.cfg.Clock.Boot()-f.putAt >= floorPutGap)
+		due := f == nil || f.dirty && (f.urgent || !f.put || t.cfg.Clock.Boot()-f.putAt >= floorPutGap)
 		t.mu.Unlock()
 		if !due {
 			continue
@@ -1025,6 +1027,10 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 func (t *Team) putFloor(ctx context.Context, c *matrix.Client, self string, r markerRoom) error {
 	t.mu.Lock()
 	m := t.markerOf(r.purpose)
+	if m == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("teamsync: the %s room has no floor marker", r.purpose)
+	}
 	f := *m
 	if f.known {
 		m.put, m.putAt = true, t.cfg.Clock.Boot()
