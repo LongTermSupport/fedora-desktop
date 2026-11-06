@@ -56,6 +56,11 @@ plan_start_log auto
 
 readonly REPORT="${PLAN_RUN_DIR}/triage-storage-report.txt"
 readonly PROBE="${PLAN_SCRIPT_DIR}/probe-storage.bash"
+# agent-bus's state roots, read from this checkout's product (never copied) and handed to the probe.
+readonly PRODUCT_VALUE=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" product-value)
+AGENT_BUS_STATE_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/render.py STATE_ROOT)"
+AGENT_BUS_INSTALL_ROOT="$("${PRODUCT_VALUE[@]}" helpers/agent_bus/health.py INSTALL_STATE_ROOT)"
+export AGENT_BUS_STATE_ROOT AGENT_BUS_INSTALL_ROOT
 
 plan_gather_leg "v1 (agent-bus) per-team storage" bash "${PROBE}" v1 "${REPORT}"
 plan_gather_leg "v2 (teamchat) per-team storage" bash "${PROBE}" v2 "${REPORT}"

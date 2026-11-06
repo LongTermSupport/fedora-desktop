@@ -19,6 +19,10 @@ readonly MODE="${1:?usage: probe-storage.bash v1|v2|df REPORT}"
 readonly REPORT="${2:?usage: probe-storage.bash v1|v2|df REPORT}"
 # A test runs this against a fake tree; triage.bash never sets it.
 readonly PREFIX="${PROBE_STORAGE_PREFIX:-}"
+# agent-bus's state roots, handed over by triage.bash, which reads them from the product
+# (render.py STATE_ROOT, health.py INSTALL_STATE_ROOT) so this script holds no copy of them.
+readonly V1_ROOT="${PREFIX}${AGENT_BUS_STATE_ROOT:?set by triage.bash from render.py STATE_ROOT}"
+readonly V1_TARS="${PREFIX}${AGENT_BUS_INSTALL_ROOT:?set by triage.bash from health.py INSTALL_STATE_ROOT}"
 FAILED=0
 
 probe() {
@@ -80,7 +84,7 @@ measure_team() {
 case "${MODE}" in
   v1 | v2)
     if [[ "${MODE}" == v1 ]]; then
-      root=${PREFIX}/var/lib/agent-bus tarRoot=${PREFIX}/var/lib/agent-bus-install marker=team.json
+      root=${V1_ROOT} tarRoot=${V1_TARS} marker=team.json
     else
       root=${PREFIX}/var/lib/private/teamchat tarRoot=${PREFIX}/var/lib/teamchat-admin marker=db
     fi
@@ -100,7 +104,7 @@ case "${MODE}" in
     done <<<"${teams}"
     ;;
   df)
-    for path in "${PREFIX}"/var/lib{,/agent-bus,/private,/agent-bus-install}; do
+    for path in "${PREFIX}/var/lib" "${V1_ROOT}" "${PREFIX}/var/lib/private" "${V1_TARS}"; do
       if sudo -n test -e "${path}"; then
         probe "filesystem holding ${path}" df -B1 --output=source,fstype,size,used,avail,pcent,ipcent,target "${path}"
       fi
