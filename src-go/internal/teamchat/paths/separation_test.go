@@ -328,19 +328,10 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 			names[name] = append(names[name], value)
 		}
 	}
-	dir, err := ElementConfigDir("/home/u", team)
-	if err != nil {
-		t.Fatal(err)
-	}
-	launcher, err := ElementLauncher("/home/u", team)
-	if err != nil {
-		t.Fatal(err)
-	}
-	probe, err := ProbeState("/home/u/.local/state", team)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for name, value := range poolDerived(t, team) {
+		names[name] = append(names[name], value)
+	}
+	for name, value := range homeDerived(t, team) {
 		names[name] = append(names[name], value)
 	}
 	for name, value := range map[string]string{
@@ -379,13 +370,30 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"LXCOnlineFile":          LXCOnlineFile(team),
 		"LXCRecord":              LXCRecord(team),
 		"ElementProfile":         ElementProfile(team),
-		"ElementConfigDir":       dir,
-		"ElementLauncher":        launcher,
-		"ProbeState":             probe,
 	} {
 		names[name] = append(names[name], value)
 	}
 	return names
+}
+
+// homeDerived is every name of a team under a desktop user's home: the Element profile, its
+// launcher, the CA record the Element play's check leaves, and the probe state.
+func homeDerived(t *testing.T, team TeamID) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for name, f := range map[string]func() (string, error){
+		"ElementConfigDir": func() (string, error) { return ElementConfigDir("/home/u", team) },
+		"ElementLauncher":  func() (string, error) { return ElementLauncher("/home/u", team) },
+		"ElementCAPlaced":  func() (string, error) { return ElementCAPlaced("/home/u", team) },
+		"ProbeState":       func() (string, error) { return ProbeState("/home/u/.local/state", team) },
+	} {
+		value, err := f()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[name] = value
+	}
+	return out
 }
 
 // poolDerived is every seat store name of a team: the pool seat's, its claim's, the session's

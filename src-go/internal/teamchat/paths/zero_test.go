@@ -86,6 +86,7 @@ func zeroDerivations() map[string]func() string {
 		"ElementLauncherName":    func() string { return ElementLauncherName(display) },
 		"ElementConfigDir":       func() string { return orError(ElementConfigDir("/home/u", team)) },
 		"ElementLauncher":        func() string { return orError(ElementLauncher("/home/u", team)) },
+		"ElementCAPlaced":        func() string { return orError(ElementCAPlaced("/home/u", team)) },
 		"ProbeState":             func() string { return orError(ProbeState("/home/u/.local/state", team)) },
 		"AllocLock":              func() string { return orError(AllocLock("/run/user/1000", key)) },
 		"GuestTokenCopy":         func() string { return GuestTokenCopy(team, SeatName{}) },

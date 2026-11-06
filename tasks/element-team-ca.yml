@@ -1,0 +1,207 @@
+# The team CA placed where Element Desktop (the Flathub im.riot.Riot) reads it, then proven from
+# inside Element's own sandbox (Plan 00246 SPEC-cross-network X34). No hand step: the CA a v2
+# team's `team apply` made is read here as root and put where Element trusts it.
+#
+#   - name: Trust each https team's CA in Element Desktop
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-team-ca.yml"
+#     vars:
+#       element_team_ca_teams: [<team id>, ...]
+#       element_team_ca_store: nssdb | system
+#       element_team_ca_approved_root: /var/lib/teamchat-status/teams
+#       element_team_ca_admin_root: /var/lib/teamchat-admin
+#
+# A team counts when its approved.json (written by `team approve`) names an https url; a team
+# with no approved.json is not a v2 team on this host and an http one needs no CA (X12, X15).
+# The two roots are paths.StatusRoot/teams and paths.AdminStateRoot (src-go teamchat/paths).
+#
+# The store is the one choice, and the check at the end is the same whichever it is:
+#   nssdb   Chromium's own NSS database, $HOME/.pki/nssdb inside the sandbox, kept in Element's
+#           Flatpak data (a --persist=.pki override, so ~/.var/app/im.riot.Riot/.pki/nssdb).
+#           Only Element trusts the CA.
+#   system  the host's trust anchors (update-ca-trust), which flatpak hands to the runtime's
+#           p11-kit trust module, the builtin roots Chromium loads. Every program on the host
+#           then trusts the CA, for any name.
+#
+# The check runs helpers/element_ca/nss.py with the sandbox's own python3 and NSS
+# (`flatpak run --command=python3 im.riot.Riot`): a TLS handshake to the team's url, the
+# certificate verified over the stores Chromium reads. On success it records the CA where
+# `teamchat-admin element check|apply` look for it; on failure the play fails, naming the CA
+# file and the store. The importing play defines root_dir and user_login and has installed
+# Element.
+- name: Assert the store for the team CA is one this file places
+  ansible.builtin.assert:
+    that:
+      - element_team_ca_store in ['nssdb', 'system']
+      - element_team_ca_teams is sequence and element_team_ca_teams is not string
+    fail_msg: >-
+      element_team_ca_store is {{ element_team_ca_store }}; it must be nssdb or system
+      (agent_bus_element_ca_store in host_vars), and element_team_ca_teams a list of team ids.
+    quiet: true
+
+- name: Probe each team's approved fields
+  become: true
+  ansible.builtin.stat:
+    path: "{{ element_team_ca_approved_root }}/{{ item }}/approved.json"
+  loop: "{{ element_team_ca_teams }}"
+  register: element_team_ca_approved_stat
+
+- name: Read each approved team's fields
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ item.stat.path }}"
+  loop: "{{ element_team_ca_approved_stat.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: element_team_ca_approved
+
+- name: Name the teams whose approved url is https
+  ansible.builtin.set_fact:
+    element_team_ca_https: >-
+      {{ dict(element_team_ca_approved.results | map(attribute='item') | map(attribute='item')
+              | zip(element_team_ca_approved.results | map(attribute='content') | map('b64decode')
+                    | map('from_json') | map(attribute='approved') | map(attribute='url')))
+         | dict2items | selectattr('value', 'match', 'https://') | list }}
+
+# A missing CA for an https team fails here, naming the file: X13 makes it at the first apply.
+- name: Read each https team's CA
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ element_team_ca_admin_root }}/{{ item.key }}/tls/ca.crt"
+  loop: "{{ element_team_ca_https }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: element_team_ca_pem
+
+- name: Resolve the desktop user's uid and home
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user_login }}"
+    # The verdict is the assert's, so the operator reads its message, not the module's.
+    fail_key: false
+  when: element_team_ca_https | length > 0
+
+- name: Assert the desktop user exists
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['getent_passwd'][user_login] is defined
+      - ansible_facts['getent_passwd'][user_login] is not none
+      - ansible_facts['getent_passwd'][user_login][1] | int > 0
+    fail_msg: >-
+      Could not resolve a uid for {{ user_login }}, so Element's sandbox cannot be run as that
+      user to check the team CA.
+    quiet: true
+  when: element_team_ca_https | length > 0
+
+# nssdb: Chromium's database is $HOME/.pki/nssdb. Kept in Element's own data, it outlives a run
+# and is Element's alone.
+- name: Probe Element's per-user Flatpak overrides for the NSS database
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv: [flatpak, override, --user, --show, im.riot.Riot]
+  register: element_team_ca_override
+  changed_when: false
+  check_mode: false
+  when: element_team_ca_store == 'nssdb' and element_team_ca_https | length > 0
+
+- name: Keep Element's NSS database in its Flatpak data
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv: [flatpak, override, --user, --persist=.pki, im.riot.Riot]
+  when:
+    - element_team_ca_store == 'nssdb' and element_team_ca_https | length > 0
+    - element_team_ca_override.stdout is not search('(?m)^persistent=(.*;)?[.]pki(;|$)')
+
+- name: Put each https team's CA in Element's NSS database
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -I
+      - "{{ root_dir }}/helpers/element_ca/nss.py"
+      - place
+      - --nssdb
+      - "{{ ansible_facts['getent_passwd'][user_login][4] }}/.var/app/im.riot.Riot/.pki/nssdb"
+      - --nickname
+      - "teamchat-{{ item.item.key }}"
+    stdin: "{{ item.content | b64decode }}"
+  loop: "{{ element_team_ca_pem.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  register: element_team_ca_placed
+  changed_when: element_team_ca_placed.stdout is search('^CHANGED\t')
+  when: element_team_ca_store == 'nssdb'
+
+# system: the host's anchors, which flatpak's p11-kit server carries into every sandbox.
+- name: Add each https team's CA to the host's trust anchors
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "/etc/pki/ca-trust/source/anchors/teamchat-{{ item.item.key }}.pem"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ element_team_ca_pem.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  register: element_team_ca_anchors
+  when: element_team_ca_store == 'system'
+
+# umask 022: every program reads the extracted bundles, and Ansible passes on whatever umask
+# the run inherited.
+- name: Rebuild the host's trust store
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    umask 022
+    update-ca-trust extract
+  args:
+    executable: /bin/bash
+  when: element_team_ca_store == 'system' and element_team_ca_anchors is changed
+
+# The check: from inside Element's sandbox, with its python3 and NSS, the store Chromium reads.
+- name: Check a TLS handshake from Element's sandbox to each https team trusts its CA
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - run
+      - --command=python3
+      - "--filesystem={{ root_dir }}/helpers/element_ca:ro"
+      - im.riot.Riot
+      - -I
+      - "{{ root_dir }}/helpers/element_ca/nss.py"
+      - check
+      - --team
+      - "{{ item.item.key }}"
+      - --url
+      - "{{ item.item.value }}"
+    stdin: "{{ item.content | b64decode }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+  loop: "{{ element_team_ca_pem.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  register: element_team_ca_check
+  changed_when: element_team_ca_check.stdout is search('^CHANGED\t')
+  failed_when: false  # FAIL-FAST-OK: probe — the next task fails, naming the CA file and store
+  # In --check nothing was placed, so there is nothing to prove.
+  when: not ansible_check_mode
+
+- name: Fail unless Element trusts every https team's CA
+  ansible.builtin.assert:
+    that:
+      - element_team_ca_check.results | rejectattr('rc', 'equalto', 0) | list | length == 0
+    fail_msg: >-
+      Element does not trust the team CA (store {{ element_team_ca_store }}:
+      {{ 'Element NSS database ~/.var/app/im.riot.Riot/.pki/nssdb'
+         if element_team_ca_store == 'nssdb' else 'host anchors /etc/pki/ca-trust/source/anchors' }}).
+      {% for r in element_team_ca_check.results | rejectattr('rc', 'equalto', 0) %}
+      Team {{ r.item.item.key }}, CA file {{ element_team_ca_admin_root }}/{{ r.item.item.key }}/tls/ca.crt,
+      url {{ r.item.item.value }}: {{ r.stderr | default(r.msg | default('')) }}
+      {% endfor %}
+    quiet: true
+  when: not ansible_check_mode
