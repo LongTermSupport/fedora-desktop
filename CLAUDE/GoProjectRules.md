@@ -1297,11 +1297,16 @@ fails on a runner whose filesystem lists the same names another way.
 of a function that returns a listing in directory order. A function does when its body calls one
 of the three unsorted listing methods of `os.File` (or `fs.ReadDirFile.ReadDir`) or a function
 that does, has a slice among its results, and calls nothing that sorts (package `sort`, or
-`slices.Sort*`). The mark is an analysis fact, so a test of one package is judged against another
-package's function.
+`slices.Sort*`, or a function of the same package whose body sorts, as `seat`'s `sortNames`). The
+mark is an analysis fact, so a test of one package is judged against another package's function.
+Outside `_test.go` files it flags each function that reads a directory itself (one of the
+unsorted listing methods) and returns the listing in directory order, at its declaration: the
+one place to sort it, so no caller, test or not, meets the filesystem's order. A wrapper of such
+a function is marked but not reported, since the sort at the read unmarks it.
 
 **How to fix a violation.** Sort the listing before comparing, or compare it as a set. A function
-whose callers need an order sorts at its return, and then it is not marked.
+that returns a listing sorts it by name at its return, as `homefs.Root.Entries` does, and then it
+is not marked.
 
 - Red, fixture: `testdata/src/fix/internal/badlisting` and `badlistingx` (the originating shape,
   each listing API, a wrapper, a test helper, another package through the fact; sorted, `os.ReadDir`,
@@ -1313,13 +1318,23 @@ whose callers need an order sorts at its return, and then it is not marked.
   function to judge (a conversion), now a fixture case.
 - Green: the test sorts what `OS.ReadDir` returned; 0 findings over `./...` untagged, with
   `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module.
+- The production clause (the coordinator's decision that `restore.OS.ReadDir` sorts by name):
+  the rule above did not reach it, a listing returned by a function that is not a test (0
+  findings with `OS.ReadDir` unsorted). Red, fixture: the four functions of `badlisting` that read
+  a directory and return it are reported (with the clause off, 4 `want` lines red); a function
+  that sorts at the read, one that sorts through a helper of its own package and one that reads
+  but returns no listing are clean (with the same-package sorter off, the helper case goes red).
+  Red, real tree: exactly one finding over `./...` untagged, with `busfailpoints` and `tuwunel`
+  (the same file), `ccyteamstest`, `difftest` and the nested `qa` module:
+  `internal/teamchat/restore/fs.go` `OS.ReadDir`. The first run also flagged `bus/seat`'s `names`,
+  which sorts through its own `sortNames`: a false positive, fixed in the rule (the same-package
+  sorter) before the sweep. Green: `OS.ReadDir` sorts by name; 0 findings.
 - Not caught: an order asserted through an index (`got[0]`), a loop over the listing and the
   expectation together, a value derived from the listing, a listing read through an interface
-  method (no body to mark), a comparison helper of the test's own, and the production use of a
-  directory order. `restore.OS.ReadDir` itself returns directory order: no caller needs it
-  (`raiseMinBackup` takes a maximum, `leftovers` names what it finds), but its refusal message
-  lists in directory order; sorting it is the owner's decision, as `homefs.Root.Entries` and
-  `seat`'s `entries` already do.
+  method (no body to mark), a comparison helper of the test's own, a production function that
+  uses a directory order without returning it (a message naming the entries as read), a sort
+  through another package's helper (not counted, so its listing is reported), and a sort of
+  something other than the listing in the same function (counted as one).
 
 ### project_test_spin
 
