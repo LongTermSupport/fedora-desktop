@@ -925,17 +925,29 @@ _provision_background_record() {
     } > "$tmp" && mv -f "$tmp" "$SYNC_STATE_FILE"
 }
 
+# Create the sync lock exclusively, holding this pid. Bash's noclobber redirect
+# opens a missing file with O_CREAT|O_EXCL, so one caller wins; set -C is
+# scoped to the subshell. The external `mkdir` is not trusted with this: the
+# uutils mkdir on Ubuntu 25.10+ let two callers both "create" one directory
+# (Plan 00474 N568). A lock DIRECTORY from an older provision.sh fails the
+# create too, and is judged by the pid file inside it.
+_provision_create_sync_lock() {
+    (set -C && printf '%s\n' "$$" > "$SYNC_LOCK_DIR") 2> /dev/null
+}
+
 # Take the lock every background sync holds, whatever its target. A lock whose
 # holder has gone is taken over. Returns 1 while a live sync holds it.
 _provision_background_lock() {
-    local holder=""
+    local holder="" pid_file="$SYNC_LOCK_DIR"
     mkdir -p "$SYNC_STATE_DIR"
-    if mkdir "$SYNC_LOCK_DIR" 2> /dev/null; then
-        printf '%s\n' "$$" > "$SYNC_LOCK_DIR/pid"
+    if _provision_create_sync_lock; then
         return 0
     fi
-    if [[ -f "$SYNC_LOCK_DIR/pid" ]]; then
-        IFS= read -r holder < "$SYNC_LOCK_DIR/pid" || [[ -n "$holder" ]]
+    if [[ -d "$SYNC_LOCK_DIR" ]]; then
+        pid_file="$SYNC_LOCK_DIR/pid"
+    fi
+    if [[ -f "$pid_file" ]]; then
+        IFS= read -r holder < "$pid_file" || [[ -n "$holder" ]]
     fi
     if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2> /dev/null; then
         _provision_say "A background sync is already running (pid $holder); this one stops without changing anything."
@@ -943,11 +955,10 @@ _provision_background_lock() {
     fi
     _provision_say "Taking over the background sync lock from pid ${holder:-unknown}, which is no longer running."
     rm -rf "$SYNC_LOCK_DIR"
-    if ! mkdir "$SYNC_LOCK_DIR"; then
+    if ! _provision_create_sync_lock; then
         _provision_say "Another background sync took the lock first; this one stops without changing anything."
         return 1
     fi
-    printf '%s\n' "$$" > "$SYNC_LOCK_DIR/pid"
 }
 
 # On exit: record the outcome from the exit status, then release the lock.

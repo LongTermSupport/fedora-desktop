@@ -232,7 +232,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.71.0"
+__version__ = "3.72.1"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -953,6 +953,17 @@ def _fd_readable(fd: int) -> bool:
     return bool(readable)
 
 
+# The focus hold is opt-in: keystrokes cannot tell a history recall (Up,
+# Enter at the main prompt) from panel navigation, and only Esc ends a hold,
+# so a hold latched by one recall deferred every send for hours.
+_FOCUS_HOLD_ENV_VAR = "CCY_FOCUS_HOLD"
+
+
+def _focus_hold_enabled_from_env() -> bool:
+    """True only when ``CCY_FOCUS_HOLD`` is exactly ``1``."""
+    return os.environ.get(_FOCUS_HOLD_ENV_VAR) == "1"
+
+
 @dataclass(frozen=True)
 class FocusHold:
     """Why the supervisor cannot confirm the main prompt has focus (Plan 00537).
@@ -994,7 +1005,9 @@ class MainFocusModel:
     :meth:`settle`. Bytes inside a bracketed paste are text, never keys.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, enabled: bool = True) -> None:
+        # Disabled, the model still parses keys but never reports a hold.
+        self._enabled: bool = enabled
         self._state: int = _ST_GROUND
         self._csi_params: list[int] = []
         self._in_paste: bool = False
@@ -1006,14 +1019,21 @@ class MainFocusModel:
         self._pending_since: float = 0.0
 
     @property
+    def enabled(self) -> bool:
+        """True when the model may report a hold."""
+        return self._enabled
+
+    @property
     def hold(self) -> FocusHold | None:
         """The current hold, or None when nothing suggests focus left the prompt."""
+        if not self._enabled:
+            return None
         return self._hold
 
     @property
     def confirmed(self) -> bool:
         """True when no hold is latched."""
-        return self._hold is None
+        return self.hold is None
 
     def settle(self, *, now: float) -> None:
         """Resolve a lone pending ESC as a bare Esc once nothing followed it in time.
@@ -1145,6 +1165,229 @@ class MainFocusModel:
         self._hold = FocusHold(reason=_FOCUS_REASON_ARROW, since=now, latch_bytes=latch_bytes)
 
 
+#: Plan 00538: the cap on the child-output copy the screen check renders.
+SCREEN_BUFFER_CAP_BYTES = 256 * 1024
+#: Sequences after which everything before them is dead to a screen replay:
+#: erase display, erase scrollback, and the alternate-screen switches.
+_SCREEN_REDRAW_BOUNDARIES = (b"\x1b[2J", b"\x1b[3J", b"\x1b[?1049h", b"\x1b[?1049l")
+#: Verdict words that keep a keystroke latch. Everything else fails open.
+_SCREEN_HOLD_WORDS = frozenset({"transcript", "panel-selected"})
+_SCREEN_ALL_WORDS = frozenset({"main", "transcript", "panel-selected", "unknown"})
+_SCREEN_UNKNOWN = "unknown"
+_SCREEN_TIMEOUT_SECONDS = 0.2
+_SCREEN_MIN_INTERVAL_SECONDS = 1.0
+_SCREEN_CAPTURE_KEEP = 20
+_SCREEN_CAPTURE_ENV_VAR = "CCY_SCREEN_CAPTURE"
+_SCREEN_BINARY_ENV_VAR = "CCY_HOOKS_SCREEN"
+_SCREEN_BUILT_NAME = "hooks-screen-x86_64-unknown-linux-musl"
+
+
+def _screen_capture_enabled_from_env() -> bool:
+    """True only when ``CCY_SCREEN_CAPTURE`` is exactly ``1``."""
+    return os.environ.get(_SCREEN_CAPTURE_ENV_VAR) == "1"
+
+
+def _winsize_cells(winsize: bytes) -> tuple[int, int]:
+    """(cols, rows) from a TIOCGWINSZ reply."""
+    rows, cols, _, _ = struct.unpack("HHHH", winsize[:8])
+    return cols, rows
+
+
+def resolve_screen_binary(project_dir: Path, env: Mapping[str, str]) -> Path | None:
+    """Where the hooks-screen binary is, or None. First executable match wins.
+
+    ``CCY_HOOKS_SCREEN`` overrides; then the deployed path
+    (``untracked/bin/hooks-screen``, where client installs put it); then the
+    path ``screen/build.sh`` builds to.
+    """
+    candidates: list[Path] = []
+    override = env.get(_SCREEN_BINARY_ENV_VAR)
+    if override:
+        candidates.append(Path(override))
+    candidates.append(project_dir / "untracked" / "bin" / "hooks-screen")
+    candidates.append(project_dir / "untracked" / "screen-build" / _SCREEN_BUILT_NAME)
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+class ScreenBuffer:
+    """A bounded copy of the child's raw output, for replay through hooks-screen.
+
+    The hot path is one `bytes.rfind` per redraw boundary and a copy: nothing
+    is parsed. On overflow the oldest bytes are dropped. A full-redraw
+    boundary (ED 2/3, alternate-screen switch) inside a chunk discards
+    everything before it, so a replay starts from a clean state. A boundary
+    split across two reads is missed; the cap bounds the cost.
+    """
+
+    def __init__(self, cap: int = SCREEN_BUFFER_CAP_BYTES) -> None:
+        if cap <= 0:
+            raise ValueError(f"ScreenBuffer cap must be positive, got {cap}")
+        self.cap = cap
+        self.total_appended = 0
+        self._data = bytearray()
+
+    def append(self, chunk: bytes) -> None:
+        """Copy one read of child output in."""
+        self.total_appended += len(chunk)
+        cut = max(chunk.rfind(marker) for marker in _SCREEN_REDRAW_BOUNDARIES)
+        if cut >= 0:
+            self._data.clear()
+            chunk = chunk[cut:]
+        self._data += chunk
+        overflow = len(self._data) - self.cap
+        if overflow > 0:
+            del self._data[:overflow]
+
+    def snapshot(self) -> bytes:
+        """The buffered bytes."""
+        return bytes(self._data)
+
+
+class ScreenFocusCheck:
+    """Plan 00538: asks hooks-screen what the child's screen shows.
+
+    Rendering is AD HOC: `effective_hold` spawns the binary only when a
+    keystroke latch exists, never more than once per ``min_interval`` seconds,
+    and not again while no new output arrived. Only `transcript` and
+    `panel-selected` keep the latch. A missing binary, a timeout, a non-zero
+    exit, an unreadable word, `main` and `unknown` all release it (fail open).
+    With ``capture_dir`` set, each render also writes the raw buffer, the
+    ``--dump`` rendering and the verdict there (newest ``capture_keep`` kept).
+    """
+
+    def __init__(
+        self,
+        buffer: ScreenBuffer,
+        *,
+        binary: Path | None,
+        size_fn: Callable[[], tuple[int, int]],
+        timeout: float = _SCREEN_TIMEOUT_SECONDS,
+        min_interval: float = _SCREEN_MIN_INTERVAL_SECONDS,
+        capture_dir: Path | None = None,
+        capture_keep: int = _SCREEN_CAPTURE_KEEP,
+        clock: Callable[[], float] = time.monotonic,
+        log: Callable[[str], object] | None = None,
+    ) -> None:
+        self._buffer = buffer
+        self._binary = binary
+        self._size_fn = size_fn
+        self._timeout = timeout
+        self._min_interval = min_interval
+        self._capture_dir = capture_dir
+        self._capture_keep = capture_keep
+        self._clock = clock
+        self._log = log
+        self._last_word: str | None = None
+        self._last_total = -1
+        self._last_at = 0.0
+        self._last_failure = ""
+        self._seq = 0
+
+    def effective_hold(self, latch: FocusHold | None) -> FocusHold | None:
+        """``latch`` if the screen confirms it, else None (fail open)."""
+        if latch is None:
+            return None
+        return latch if self._current_word() in _SCREEN_HOLD_WORDS else None
+
+    def _current_word(self) -> str:
+        now = self._clock()
+        if self._last_word is not None and (
+            self._last_total == self._buffer.total_appended
+            or now - self._last_at < self._min_interval
+        ):
+            return self._last_word
+        snapshot = self._buffer.snapshot()
+        total = self._buffer.total_appended
+        word = self._render(snapshot, "")
+        self._last_word, self._last_total, self._last_at = word, total, now
+        self._capture(snapshot, word)
+        return word
+
+    def verdict(self) -> str:
+        """Spawn hooks-screen on the buffer now; the word, or `unknown` on any failure."""
+        return self._render(self._buffer.snapshot(), "")
+
+    def _spawn(self, snapshot: bytes, extra: str) -> str | None:
+        """Raw stdout text of one hooks-screen run, or None (reason noted)."""
+        if self._binary is None:
+            self._failed("no hooks-screen binary found")
+            return None
+        cols, rows = self._size_fn()
+        argv = [str(self._binary), "--cols", str(cols), "--rows", str(rows)]
+        if extra:
+            argv.append(extra)
+        try:
+            proc = subprocess.run(  # nosec B603 - fixed argv, resolved binary, no shell
+                argv, input=snapshot, capture_output=True, timeout=self._timeout, check=False
+            )
+        except subprocess.TimeoutExpired:
+            self._failed(f"hooks-screen timed out after {self._timeout}s")
+            return None
+        except OSError as exc:
+            self._failed(f"hooks-screen could not run: {exc}")
+            return None
+        if proc.returncode != 0:
+            self._failed(f"hooks-screen exited {proc.returncode}")
+            return None
+        self._last_failure = ""
+        return proc.stdout.decode("utf-8", "replace")
+
+    def _failed(self, reason: str) -> None:
+        # Fail open, but say so once per distinct reason.
+        if reason != self._last_failure and self._log is not None:
+            self._log(f"screen check failed open: {reason}")
+        self._last_failure = reason
+
+    def _render(self, snapshot: bytes, extra: str) -> str:
+        text = self._spawn(snapshot, extra)
+        word = (text or "").strip()
+        return word if word in _SCREEN_ALL_WORDS else _SCREEN_UNKNOWN
+
+    def _capture(self, snapshot: bytes, word: str) -> None:
+        directory = self._capture_dir
+        if directory is None:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        self._seq += 1
+        stem = f"{int(time.time() * 1000):015d}-{self._seq:04d}"
+        dump = self._spawn(snapshot, "--dump")
+        (directory / f"{stem}.raw").write_bytes(snapshot)
+        (directory / f"{stem}.dump").write_text(dump if dump is not None else "")
+        (directory / f"{stem}.verdict").write_text(word + "\n")
+        stems = sorted({p.name.split(".")[0] for p in directory.iterdir()})
+        for old in stems[: -self._capture_keep]:
+            for leftover in directory.glob(f"{old}.*"):
+                leftover.unlink()
+
+
+def _build_screen_check(
+    output_activity: OutputActivity, *, stdin_fd: int, log: DecisionLog | None
+) -> ScreenFocusCheck:
+    """Attach a screen buffer to ``output_activity`` and return the check over it.
+
+    ``CCY_SCREEN_CAPTURE=1`` also sets the capture directory
+    (``untracked/supervise/screen-capture/``).
+    """
+    project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
+    buffer = ScreenBuffer()
+    output_activity.buffer = buffer
+    capture_dir = (
+        project_dir / "untracked" / "supervise" / "screen-capture"
+        if _screen_capture_enabled_from_env()
+        else None
+    )
+    return ScreenFocusCheck(
+        buffer,
+        binary=resolve_screen_binary(project_dir, os.environ),
+        size_fn=lambda: _winsize_cells(_get_winsize(stdin_fd)),
+        capture_dir=capture_dir,
+        log=log.write if log is not None else None,
+    )
+
+
 @dataclass
 class InputActivity:
     """Tracks observed stdin activity forwarded to the supervised child."""
@@ -1154,7 +1397,28 @@ class InputActivity:
     line: HumanInputLine = field(default_factory=HumanInputLine)
     # Plan 00537: host-side, long-lived like `line`, so a worker restart never
     # loses a hold.
-    focus: MainFocusModel = field(default_factory=MainFocusModel)
+    focus: MainFocusModel = field(
+        default_factory=lambda: MainFocusModel(enabled=_focus_hold_enabled_from_env())
+    )
+    # Plan 00538: the screen verdict that decides whether the keystroke latch
+    # is real. None (the default) keeps the latch alone in charge.
+    screen: ScreenFocusCheck | None = None
+
+    def effective_focus_hold(self) -> FocusHold | None:
+        """The hold the supervisor acts on: the latch, confirmed by the screen.
+
+        Without a latch nothing holds and nothing is rendered. With a latch
+        and a screen check, only a `transcript` / `panel-selected` verdict
+        keeps it; any other word, or any failure, fails OPEN.
+        """
+        latch = self.focus.hold
+        if latch is None or self.screen is None:
+            return latch
+        return self.screen.effective_hold(latch)
+
+    def focus_confirmed(self) -> bool:
+        """True when `effective_focus_hold` finds nothing holding."""
+        return self.effective_focus_hold() is None
 
     def record(self, data: bytes, *, now: float | None = None) -> None:
         """Record a chunk of stdin data that was forwarded to the child.
@@ -1224,11 +1488,16 @@ class OutputActivity:
 
     bytes_seen: int = 0
     last_output_monotonic: float | None = None
+    # Plan 00538: a bounded copy of the output for the screen check; None
+    # (the default) copies nothing.
+    buffer: ScreenBuffer | None = None
 
     def record(self, data: bytes) -> None:
         """Record a chunk of child output that was forwarded to stdout."""
         self.bytes_seen += len(data)
         self.last_output_monotonic = os.times().elapsed
+        if self.buffer is not None:
+            self.buffer.append(data)
 
 
 class DecisionLog:
@@ -10459,6 +10728,8 @@ def supervise(
     # enclosing scope, not just inside the closure. A variable whose ONLY
     # assignment is this one, of type `int`, carries no such ambiguity.
     resolved_stdin_fd: int = stdin_fd if stdin_fd is not None else sys.stdin.fileno()
+    if activity.screen is None and activity.focus.enabled:
+        activity.screen = _build_screen_check(output_activity, stdin_fd=resolved_stdin_fd, log=log)
     sidecar_dir = sidecar_dir if sidecar_dir is not None else _default_sidecar_dir()
     policy = policy if policy is not None else CompactPolicy()
     machine = CompactStateMachine(policy)
@@ -10565,7 +10836,7 @@ def supervise(
                 session_ids=cached_own_session_ids(pid),
                 plugin_host=plugin_host,
                 restart_worker=restart_worker,
-                focus_hold=activity.focus.hold,
+                focus_hold=activity.effective_focus_hold(),
                 status_dir=sidecar_dir.parent,
             )
         )
@@ -10627,7 +10898,7 @@ def supervise(
         # while stdin has unread bytes, which may be the rest of a split key.
         if not _fd_readable(resolved_stdin_fd):
             activity.focus.settle(now=now_wall)
-        focus_hold = activity.focus.hold
+        focus_hold = activity.effective_focus_hold()
         outcome = None
         if decider is not None:
             outcome = decider(
@@ -10678,7 +10949,7 @@ def supervise(
                 master_writer=_write_master,
                 log=log,
                 # Read now, not at tick start: the worker was waited on.
-                main_focus_confirmed=activity.focus.confirmed,
+                main_focus_confirmed=activity.focus_confirmed(),
                 now_wall=now_wall,
             )
             _handle_plugin_outcome(outcome)
