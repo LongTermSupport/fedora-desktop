@@ -41,6 +41,7 @@ done
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/rerun-plays-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
