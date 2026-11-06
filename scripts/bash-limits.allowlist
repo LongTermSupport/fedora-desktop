@@ -19,7 +19,7 @@ CLAUDE/Plan/meta-deploy.bash	161	0	180	assoc
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-
 fedora-install/push.bash	454	9	399	assoc,data
-fedora-install/setup-netinstall-boot.bash	959	30	1138	-
+fedora-install/setup-netinstall-boot.bash	958	30	1138	-
 files/etc/profile.d/zz_lts-fedora-desktop.bash	82	8	89	-
 files/home/.local/bin/bash-history-rank	68	1	46	-
 files/home/.local/bin/ccdt	144	6	117	-

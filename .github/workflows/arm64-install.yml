@@ -1,0 +1,171 @@
+name: arm64 install
+
+# The real unattended install (run.bash headless, server profile) on real aarch64 silicon,
+# in a Fedora container with systemd as PID 1 on GitHub's arm64 runner (Plan 00243). It
+# catches an x86-only download, a package Fedora does not build for aarch64, or a hardcoded
+# x86 path, which QA's arch-pinned-artefact rule cannot always see.
+#
+# A container has no kernel modules, no boot loader of its own, no GDM and no real hardware,
+# so a play that fails only for that is a limit of this lane, not of the play: the plays are
+# never taught to skip inside a container. The run is long, so it is not on every branch.
+
+on:
+  push:
+    branches: ["F44-arm", "arm/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: run.bash headless (server) on aarch64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    env:
+      CONTAINER: fedora-arm64-install
+      CI_USER: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install podman
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman
+          sudo podman version
+          # Ubuntu's AppArmor refuses unprivileged user namespaces to unprofiled programs, and
+          # the plays run rootless podman as the CI user inside the container, as Fedora allows.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The base image is not an installed box, so the lane makes it look like one: the core
+      # package group a minimal install carries, systemd as PID 1, so that hostnamectl,
+      # systemctl and the plays' services behave as installed, and the kernel package every
+      # installed Fedora carries (the dnf upgrade play reads it). The
+      # CI user gets ordinary password sudo through wheel, as the server profile expects (it
+      # never grants NOPASSWD). Fedora gives newuidmap and newgidmap their privilege as file
+      # capabilities, which the image layers did not carry to rootless podman inside the
+      # container, so they are setuid here, as the shadow-utils of other distributions ship.
+      - name: Build the Fedora image with systemd
+        run: |
+          set -euo pipefail
+          sudo podman build --tag fedora-desktop-arm64-install -f - . <<'CONTAINERFILE'
+          FROM registry.fedoraproject.org/fedora:44
+          RUN dnf -y group install core \
+           && dnf -y install systemd kernel-core \
+           && dnf clean all
+          RUN getcap /usr/bin/newuidmap /usr/bin/newgidmap \
+           && chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+          RUN useradd --create-home --groups wheel ci
+          CMD ["/sbin/init"]
+          CONTAINERFILE
+
+      # An installed box keeps /boot on a block device, and grub2-editenv refuses a grubenv it
+      # cannot place on one (an overlay root is not), so /boot is an ext4 loop device made
+      # before the container starts, so that the privileged container sees it in /dev. An
+      # installed box also has the module tree of the kernel it runs, which here is the
+      # runner's, so the plays' modprobe tasks get that tree, read-only.
+      - name: Start the container
+        run: |
+          set -euo pipefail
+          truncate -s 1G "$RUNNER_TEMP/boot.img"
+          boot_dev="$(sudo losetup --find --show "$RUNNER_TEMP/boot.img")"
+          sudo mkfs.ext4 -q "$boot_dev"
+          sudo podman run --detach --name "$CONTAINER" --systemd=always --privileged \
+            --hostname arm64-ci \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            --volume "/lib/modules/$(uname -r):/usr/lib/modules/$(uname -r):ro" \
+            fedora-desktop-arm64-install
+          state=""
+          for _ in $(seq 1 60); do
+            state="$(sudo podman exec "$CONTAINER" systemctl is-system-running 2>&1)" && break
+            case "$state" in running|degraded) break ;; esac
+            sleep 2
+          done
+          echo "systemd state: ${state}"
+          case "$state" in
+            running) ;;
+            degraded) sudo podman exec "$CONTAINER" systemctl --no-pager --failed ;;
+            *) echo "systemd did not come up in the container (state: ${state})" >&2; exit 1 ;;
+          esac
+          arch="$(sudo podman exec "$CONTAINER" uname -m)"
+          echo "container architecture: ${arch}"
+          [ "$arch" = aarch64 ] || { echo "this lane must run on aarch64, got ${arch}" >&2; exit 1; }
+          sudo podman exec "$CONTAINER" sh -c '
+            set -eu
+            mkdir /mnt/boot-copy
+            mount "$1" /mnt/boot-copy
+            cp -a /boot/. /mnt/boot-copy/
+            umount /mnt/boot-copy
+            mount "$1" /boot
+            findmnt /boot' sh "$boot_dev"
+
+      # Throwaway values made for this run only: nothing real is used and nothing is kept.
+      # They reach the container on stdin, never in argv.
+      - name: Provide throwaway sudo and vault passwords
+        run: |
+          set -euo pipefail
+          sudo_pw="$(openssl rand -hex 24)"
+          vault_pw="$(openssl rand -hex 24)"
+          printf '%s:%s\n' "$CI_USER" "$sudo_pw" | sudo podman exec -i "$CONTAINER" chpasswd
+          sudo podman exec "$CONTAINER" install -d -m 0700 -o "$CI_USER" -g "$CI_USER" /run/ci-secrets
+          printf '%s' "$sudo_pw" | sudo podman exec -i --user "$CI_USER" "$CONTAINER" \
+            sh -c 'umask 077 && cat > /run/ci-secrets/sudo-pass'
+          printf '%s' "$vault_pw" | sudo podman exec -i --user "$CI_USER" "$CONTAINER" \
+            sh -c 'umask 077 && cat > /run/ci-secrets/vault-pass'
+          sudo podman exec --user "$CI_USER" "$CONTAINER" \
+            install -m 0755 /src/run.bash "/home/${CI_USER}/run.bash"
+
+      # podman exec opens no login session, and the plays manage user units as a logged-in
+      # user would: linger starts the user's systemd manager, as a login does.
+      - name: Start the CI user's systemd manager
+        run: |
+          set -euo pipefail
+          sudo podman exec "$CONTAINER" loginctl enable-linger "$CI_USER"
+          uid="$(sudo podman exec "$CONTAINER" id -u "$CI_USER")"
+          for _ in $(seq 1 30); do
+            sudo podman exec "$CONTAINER" test -S "/run/user/${uid}/bus" && break
+            sleep 2
+          done
+          sudo podman exec "$CONTAINER" test -S "/run/user/${uid}/bus" \
+            || { echo "the CI user's systemd manager did not start (no /run/user/${uid}/bus)" >&2; exit 1; }
+          echo "CI_UID=${uid}" >> "$GITHUB_ENV"
+
+      # run.bash clones fedora-desktop over HTTPS itself (the GitHub-less headless path) and
+      # pins the clone to the commit under test, so what runs is this push's tree.
+      - name: Run the unattended install
+        env:
+          GIT_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          sudo podman exec --user "$CI_USER" --workdir "/home/${CI_USER}" "$CONTAINER" \
+            env HOME="/home/${CI_USER}" \
+              XDG_RUNTIME_DIR="/run/user/${CI_UID}" \
+              DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${CI_UID}/bus" \
+              RUN_BASH_HEADLESS=1 \
+              RUN_BASH_USER_EMAIL=ci@example.com \
+              RUN_BASH_USER_NAME="arm64 CI" \
+              RUN_BASH_HOSTNAME=arm64-ci.example.com \
+              RUN_BASH_GITHUB_ACCOUNTS=none \
+              RUN_BASH_CONFIG_SOURCE=none \
+              RUN_BASH_OPTIONAL_PLAYBOOKS=none \
+              RUN_BASH_PROVISIONING_PROFILE=server \
+              RUN_BASH_GIT_REF="$GIT_REF" \
+              RUN_BASH_VAULT_PASSWORD_FILE=/run/ci-secrets/vault-pass \
+              RUN_BASH_SUDO_PASSWORD_FILE=/run/ci-secrets/sudo-pass \
+              "/home/${CI_USER}/run.bash" < /dev/null
+
+      # The install step has already failed the job; this only shows why a service did not
+      # come up, which the play's own output cannot.
+      - name: Show the container's failed units and journal
+        if: failure()
+        run: |
+          set -euo pipefail
+          sudo podman exec "$CONTAINER" systemctl --no-pager --failed
+          sudo podman exec "$CONTAINER" sh -c 'getcap /usr/bin/newuidmap; ls -l /usr/bin/newuidmap; cat /etc/subuid; grep -E "NoNewPrivs|CapBnd" /proc/self/status'
+          sudo podman exec "$CONTAINER" journalctl --no-pager --boot --lines=400

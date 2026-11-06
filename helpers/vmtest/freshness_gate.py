@@ -27,9 +27,6 @@ import time
 
 from helpers.vmtest import basejson, freshness, scenarios, upstream
 
-ARCH = "x86_64"
-
-
 class GateInputError(ValueError):
     """The gate's inputs are not a coherent picture of one base; no verdict is possible."""
 
