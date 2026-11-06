@@ -25,7 +25,8 @@ func worstQuestion(i int, closed bool, highest int64) IndexedQuestion {
 }
 
 // worstState is the questions key with every cap full at its widest (QX6): 64 questions not
-// closed and 128 closed, 1024 posts, 64 unattached posts, a 1024 byte token and a build under way.
+// closed and 128 closed, 1024 posts, 256 agent posts, 64 unattached posts, a 1024 byte token and
+// a build under way.
 func worstState() QuestionsState {
 	const wide = 3_000_000_000_000_000
 	st := IndexState{Highest: wide, Slots: wide, Evicted: wide}
@@ -34,6 +35,9 @@ func worstState() QuestionsState {
 	}
 	for i := range MaxAttachments {
 		st.Posts = append(st.Posts, PostEntry{ID: eid(500000 + i), Q: wide, T: postHumanThread})
+	}
+	for i := range MaxAgentPosts {
+		st.AgentPosts = append(st.AgentPosts, AgentPost{ID: eid(800000 + i), Q: wide})
 	}
 	for i := range MaxUnattached {
 		st.Unattached = append(st.Unattached, UnattachedPost{ID: eid(600000 + i), From: agentIDOfLen(128, i+1), SentMs: maxSafeInt})
@@ -96,7 +100,8 @@ func TestQuestionsStateWorstCaseIsTheWorstCase(t *testing.T) {
 			open++
 		}
 	}
-	if open != MaxOpenQuestions || len(s.Index.Questions) != 192 || len(s.Index.Posts) != MaxAttachments || len(s.Index.Unattached) != MaxUnattached || len(*s.Token) != 1024 {
-		t.Errorf("a cap is not full: %d open of %d, %d posts, %d unattached, token %d", open, len(s.Index.Questions), len(s.Index.Posts), len(s.Index.Unattached), len(*s.Token))
+	if open != MaxOpenQuestions || len(s.Index.Questions) != 192 || len(s.Index.Posts) != MaxAttachments || len(s.Index.AgentPosts) != MaxAgentPosts || len(s.Index.Unattached) != MaxUnattached || len(*s.Token) != 1024 {
+		t.Errorf("a cap is not full: %d open of %d, %d posts, %d agent posts, %d unattached, token %d",
+			open, len(s.Index.Questions), len(s.Index.Posts), len(s.Index.AgentPosts), len(s.Index.Unattached), len(*s.Token))
 	}
 }

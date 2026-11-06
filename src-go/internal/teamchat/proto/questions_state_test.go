@@ -58,9 +58,10 @@ func encodeOK(t *testing.T, s QuestionsState) []byte {
 
 func TestQuestionsStateFixtureHoldsEachPostKind(t *testing.T) {
 	s := codecState(t)
-	want := []PostEntry{{eid(11), 1, postHumanThread}, {eid(21), 2, postAgent}, {eid(31), 0, postSlot}, {eid(12), 0, postHuman}}
-	if !reflect.DeepEqual(s.Index.Posts, want) || len(s.Index.Unattached) != 1 {
-		t.Errorf("posts = %+v unattached = %+v", s.Index.Posts, s.Index.Unattached)
+	want := []PostEntry{{eid(11), 1, postHumanThread}, {eid(12), 0, postHuman}}
+	agents := []AgentPost{{eid(21), 2}, {eid(31), 0}}
+	if !reflect.DeepEqual(s.Index.Posts, want) || !reflect.DeepEqual(s.Index.AgentPosts, agents) || len(s.Index.Unattached) != 1 {
+		t.Errorf("posts = %+v agent posts = %+v unattached = %+v", s.Index.Posts, s.Index.AgentPosts, s.Index.Unattached)
 	}
 }
 
@@ -216,9 +217,18 @@ func manyPosts(n int) []PostEntry {
 	return out
 }
 
+func manyAgentPosts(n int) []AgentPost {
+	out := make([]AgentPost, n)
+	for i := range out {
+		out[i] = AgentPost{ID: eid(6000 + i)}
+	}
+	return out
+}
+
 // ruleRows are the states each codec rule refuses: a mutation of codecState and the text of the
 // rule it breaks. Q1 is Questions[0], Q2 [1], the held Q3 [2]; the posts are, in order, a human
-// post in Q1's thread, an agent's thread post, a slot and a human post of no question.
+// post in Q1's thread and a human post of no question, and the agent posts an agent's thread
+// post in Q2 and a slot.
 func ruleRows() []ruleRow {
 	return slices.Concat(structureRows(), postRows(), tokenRows())
 }
@@ -301,12 +311,16 @@ func postRows() []ruleRow {
 		{"1025 posts", "1024 posts", func(s *QuestionsState) { s.Index.Posts = manyPosts(1025) }},
 		{"a post id that is not an event id", "post's id", func(s *QuestionsState) { s.Index.Posts[0].ID = "x" }},
 		{"a repeated post id", "post id is repeated", func(s *QuestionsState) { s.Index.Posts[1].ID = s.Index.Posts[0].ID }},
-		{"post kind 4", "kind", func(s *QuestionsState) { s.Index.Posts[0].T = 4 }},
-		{"post kind -1", "kind", func(s *QuestionsState) { s.Index.Posts[0].T = -1 }},
+		{"post kind 2", "kind", func(s *QuestionsState) { s.Index.Posts[0].T = 2 }},
+		{"post kind -1", "kind", func(s *QuestionsState) { s.Index.Posts[1].T = -1 }},
 		{"a human thread post of no question", "has no question", func(s *QuestionsState) { s.Index.Posts[0].Q = 0 }},
-		{"an agent thread post of no question", "has no question", func(s *QuestionsState) { s.Index.Posts[1].Q = 0 }},
-		{"a slot with a question", "slot has a question", func(s *QuestionsState) { s.Index.Posts[2].Q = 1 }},
-		{"a post of a negative question", "question is negative", func(s *QuestionsState) { s.Index.Posts[3].Q = -1 }},
+		{"a post of a negative question", "post's question is negative", func(s *QuestionsState) { s.Index.Posts[1].Q = -1 }},
+		{"null agent posts", "agent_posts is null", func(s *QuestionsState) { s.Index.AgentPosts = nil }},
+		{"257 agent posts", "256 agent posts", func(s *QuestionsState) { s.Index.AgentPosts = manyAgentPosts(257) }},
+		{"an agent post id that is not an event id", "agent post's id", func(s *QuestionsState) { s.Index.AgentPosts[0].ID = "x" }},
+		{"a repeated agent post id", "agent post id is repeated", func(s *QuestionsState) { s.Index.AgentPosts[1].ID = s.Index.AgentPosts[0].ID }},
+		{"an agent post id that is a post's", "agent post id is repeated", func(s *QuestionsState) { s.Index.AgentPosts[1].ID = s.Index.Posts[1].ID }},
+		{"an agent post of a negative question", "agent post's question is negative", func(s *QuestionsState) { s.Index.AgentPosts[0].Q = -1 }},
 		{"null unattached", "unattached is null", func(s *QuestionsState) { s.Index.Unattached = nil }},
 		{"65 unattached", "64 unattached", func(s *QuestionsState) {
 			s.Index.Unattached = nil
@@ -529,6 +543,7 @@ func TestLoadQuestionIndexRefusesWhatCheckRefusesAndSharesNothing(t *testing.T) 
 	s.Index.Questions[0].Unanswered[0] = "x"
 	s.Index.Questions[0].AskedBy[0] = "x"
 	s.Index.Posts[0].ID = "x"
+	s.Index.AgentPosts[0].ID = "x"
 	s.Index.Unattached[0].ID = "x"
 	if after := stateJSON(t, ix); after != before {
 		t.Errorf("the loaded index changed with the state it was loaded from:\n%s\n%s", before, after)
