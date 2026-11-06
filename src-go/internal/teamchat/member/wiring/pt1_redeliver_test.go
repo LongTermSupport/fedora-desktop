@@ -98,7 +98,7 @@ func (r *pt1Runner) storeAt() (state.Store, int, error) {
 }
 
 // pt1SnapOf is the snapshot of st for id, read at seq (err when it was not read): the item's state
-// in pending and the ledger, and the deliveries in flight holding it (awaiting, or missed).
+// in pending and the ledger, and the deliveries in flight holding it, awaiting and missed apart.
 func pt1SnapOf(seq int, st state.Store, err error, id string) pt1Snap {
 	if err != nil {
 		return pt1Snap{seq: seq, err: err.Error()}
@@ -119,18 +119,18 @@ func pt1SnapOf(seq int, st state.Store, err error, id string) pt1Snap {
 	if slices.ContainsFunc(st.Ledger, func(l state.Ledger) bool { return l.ID == id }) {
 		item += ", in the ledger"
 	}
-	inFlight := []string{}
+	awaiting, missed := []string{}, []string{}
 	for _, a := range st.Awaiting {
 		if slices.Contains(a.IDs, id) {
-			inFlight = append(inFlight, a.Nonce)
+			awaiting = append(awaiting, a.Nonce)
 		}
 	}
 	for _, m := range st.Missed {
 		if slices.Contains(m.IDs, id) {
-			inFlight = append(inFlight, m.Nonce)
+			missed = append(missed, m.Nonce)
 		}
 	}
-	return pt1Snap{seq: seq, read: true, item: item, inFlight: inFlight}
+	return pt1Snap{seq: seq, read: true, item: item, awaiting: awaiting, missed: missed}
 }
 
 // copiesByID is how many copies of each item the transcript holds.
@@ -186,13 +186,16 @@ func TestPT1Redelivery(t *testing.T) {
 	r.judge(ops)
 }
 
-// TestPT1MarkBeforeAnInFlightDelivery is issue 156's reading (b) forced over a real run, so the
-// record the runner takes is shown to name it: the inbox held, an item's delivery is in flight
-// (its awaiting entry in the store, its user line unread), the item is marked then, as a mark
-// sampled before a delivery in flight lands, and the inbox released. P2 fails on the copy, with
-// its first line as it always was, and reads (b); the same item marked once the copy has landed
-// passes. No recv runs: the mark is the harness's, which is the point of the reading.
-func TestPT1MarkBeforeAnInFlightDelivery(t *testing.T) {
+// TestPT1MarkBeforeAnAwaitingDelivery is a mark taken over a real run while an
+// item's delivery is awaiting (the inbox held, its awaiting entry in the store, its user line
+// unread), then the inbox released: the record the runner takes is shown to read it. A recv
+// hands out only an item handed to nobody, so a recv that handed out this item would be
+// production releasing an item a delivery held (P11's question), and the finding reads
+// production, never (b). P2 fails on the copy with its first line as it always was; the same
+// item marked once the copy has landed passes. No recv runs: the mark stands in for the recv a
+// released item would reach. A missed entry, the one (b), needs 180 s of quiet, which no
+// real-process run reaches (pt1Unreached); its timeline is TestPT1P2ReadsAMissedEntryFoundLateAsTheHarness.
+func TestPT1MarkBeforeAnAwaitingDelivery(t *testing.T) {
 	r := newPT1Runner(t, pt1RowSeed+1, "")
 	ccAsk[bool](r.s, "hold")
 	id := r.w.say(pt1Text(r.seed, pt1Op{pt1Say, 0}))
@@ -206,10 +209,10 @@ func TestPT1MarkBeforeAnInFlightDelivery(t *testing.T) {
 	r.drain()
 	got := pt1Check(r.seen())
 	first := "P2: " + id + " was returned to pending marked repeat and its copy 1 in the transcript carries no repeat line"
-	if len(got) != 1 || !strings.HasPrefix(got[0], first+"\n") || !strings.Contains(got[0], string(pt1Harness)) {
-		t.Fatalf("findings %q, want one, %q read as %q", got, first, pt1Harness)
+	if len(got) != 1 || !strings.HasPrefix(got[0], first+"\n") || !strings.Contains(got[0], string(pt1Production)) || !strings.Contains(got[0], "P11's question") {
+		t.Fatalf("findings %q, want one, %q read as %q naming P11", got, first, pt1Production)
 	}
-	t.Logf("the finding a mark before an in-flight delivery prints:\n%s", got[0])
+	t.Logf("the finding a mark before an awaiting delivery prints:\n%s", got[0])
 	r.mark([]string{id}, early)
 	if got := pt1Check(r.seen()); len(got) != 0 {
 		t.Fatalf("marked after its copy landed: findings %q", got)

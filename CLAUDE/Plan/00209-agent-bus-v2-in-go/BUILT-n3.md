@@ -85,13 +85,20 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   first-seen order alone cannot split the readings, since under both the unmarked copy is first
   seen after the mark. Each transcript copy now carries its delivery's nonce, each takes the
   harness's next sequence number when a read first holds it, and a failing recv's mark records
-  the store's in-flight deliveries of the item (awaiting or missed entries) before the recv runs
-  and again just before the count. A returned item's P2 finding prints, under its unchanged first
-  line, reading (b) (the copy's delivery was in flight before the hand-out), reading (a) (it was
-  not: it began after the hand-out and lacks the line) or neither (no record, store unread, no
-  nonce, a link crash, a contradictory record), with the record. The verdict is unchanged
-  (`TestPT1P2VerdictIsTheRecordsNot`); `pt1_readings_unit_test.go` holds the forced timelines and
-  `TestPT1MarkBeforeAnInFlightDelivery` forces (b) over a real run. Seed 57 stays in `pt1Fixed`.
+  the store's deliveries of the item, awaiting entries and missed entries apart, before the recv
+  runs and again just before the count. A returned item's P2 finding prints, under its unchanged
+  first line, reading (b) (the copy's delivery was a missed entry before the recv, found late),
+  reading (a) (it began after the hand-out and lacks the line, or it was awaiting before the recv,
+  so the recv handed out an item a delivery held: P11's question) or neither (no record, store
+  unread, no nonce, a link crash, a contradictory record), with the record. Caveat on (b): a recv
+  hands out only an item handed to nobody, and a missed entry's item is one only after
+  `declareMissing`, which needs 180 s of quiet that no seed run reaches; (b) printed after a recv
+  in a seed run therefore means a production defect (a delivery declared missing before it was
+  due), never the harness. The
+  verdict is unchanged (`TestPT1P2VerdictIsTheRecordsNot`); `pt1_readings_unit_test.go` holds the
+  forced timelines, (b) through a missed entry built from real stores, and
+  `TestPT1MarkBeforeAnAwaitingDelivery` shows an awaiting entry read as production over a real
+  run. Seed 57 stays in `pt1Fixed`.
 
 - **n3d's caps measured as written** on `fix/store-size-as-written`
   (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and

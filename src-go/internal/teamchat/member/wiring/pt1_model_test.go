@@ -336,13 +336,15 @@ type pt1Seen struct {
 
 // pt1Snap is the store as the harness read it at one moment, for one item: the harness's sequence
 // number then, whether the store was read (err why not), the item's state there, and the nonces of
-// the deliveries of it in flight (an awaiting or missed entry holding it).
+// the deliveries of it in flight, kept apart: awaiting entries holding it, and missed entries
+// (declared missing, watched for a late find) naming it.
 type pt1Snap struct {
 	seq      int
 	read     bool
 	err      string
 	item     string
-	inFlight []string
+	awaiting []string
+	missed   []string
 }
 
 // pt1Mark is one mark's record: the transcript's copies of the item when it was sampled (the
@@ -363,10 +365,13 @@ const (
 )
 
 // pt1Classify is the reading of the i-th transcript copy of id, one P2 judged unmarked after its
-// mark, and why. A delivery's awaiting entry is in the store before its user line goes, and only
-// a proof (its line in the transcript) or a return of nothing written takes it out, so a delivery
-// begun before the recv is in the "before" snapshot unless it was proven (then its copy is counted
-// at the mark, never judged), taken back as unwritten, or dropped by a link's restart.
+// mark, and why. A recv hands out only an item handed to nobody (engine/recv.go), and an awaiting
+// entry's items are handed to it, so the one delivery begun before the hand-out whose copy may
+// land after the mark is a missed entry (declareMissing gives its items back), found late: that
+// alone is reading (b). A copy of a delivery awaiting before the recv means production released
+// an item a delivery held (P11's question). A delivery begun before the recv is in the "before"
+// snapshot unless it was proven (its copy is counted at the mark, never judged), taken back as
+// unwritten, its watch expired, or dropped by a link's restart.
 func pt1Classify(o pt1Seen, id string, i int) (pt1Reading, string) {
 	m, ok := o.marks[id]
 	k := pt1Place(o.transcript, id, i)
@@ -380,11 +385,13 @@ func pt1Classify(o pt1Seen, id string, i int) (pt1Reading, string) {
 		return pt1Ambiguous, "the copy has no delivery nonce"
 	case k < len(o.firstSeen) && o.firstSeen[k] <= m.at.seq:
 		return pt1Ambiguous, fmt.Sprintf("the copy was first seen at seq %d, not after the mark (seq %d): the record contradicts itself", o.firstSeen[k], m.at.seq)
-	case slices.Contains(m.before.inFlight, c.nonce):
-		return pt1Harness, fmt.Sprintf("delivery %s was in flight before the recv ran, so it began before the hand-out, its copy rightly carries no repeat line, and the mark (seq %d) was sampled before it landed; a delivery holding the item while a recv handed it out is itself P11's question, read the item's state in both snapshots", c.nonce, m.at.seq)
+	case slices.Contains(m.before.missed, c.nonce):
+		return pt1Harness, fmt.Sprintf("delivery %s was declared missing before the recv ran, so it began before the hand-out, its copy rightly carries no repeat line, and it was found late, after the mark (seq %d)", c.nonce, m.at.seq)
+	case slices.Contains(m.before.awaiting, c.nonce):
+		return pt1Production, fmt.Sprintf("delivery %s was awaiting its proof before the recv ran, so the item it held was handed to it, and a recv hands out only an item handed to nobody: production released the item wrongly (a hand-out exclusivity breach, or an unawait of a line that was written), P11's question; read the item's state in both snapshots", c.nonce)
 	case o.crashes > 0:
 		return pt1Ambiguous, fmt.Sprintf("delivery %s was not in flight before the recv, but a link crashed in the run, and a restart drops an earlier run's deliveries from the store", c.nonce)
-	case slices.Contains(m.at.inFlight, c.nonce):
+	case slices.Contains(m.at.awaiting, c.nonce) || slices.Contains(m.at.missed, c.nonce):
 		return pt1Production, fmt.Sprintf("delivery %s was not in flight before the recv ran and was at the mark: it began after the recv handed the item out (a redelivery after the return) and lacks the repeat line", c.nonce)
 	}
 	return pt1Production, fmt.Sprintf("delivery %s was in flight neither before the recv ran nor at the mark: it began after the recv handed the item out (after the mark, or a delivery the link took back as unwritten: grep link.log for the nonce) and lacks the repeat line", c.nonce)
@@ -440,7 +447,7 @@ func (s pt1Snap) describe(id string) string {
 	if !s.read {
 		return "store not read (" + s.err + ")"
 	}
-	return fmt.Sprintf("store read, %s %s, in flight %v", id, s.item, s.inFlight)
+	return fmt.Sprintf("store read, %s %s, awaiting %v, missed %v", id, s.item, s.awaiting, s.missed)
 }
 
 // pt1Check is the properties B 2.15 names, as far as a run's observations reach them; each
