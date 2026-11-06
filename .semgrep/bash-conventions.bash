@@ -291,3 +291,43 @@ if [[ "$recorded" -lt "$(date +%s)" ]]; then echo ok; fi
 # A bound on the real clock that is the point of the test says so.
 # ok: bash-test-time-window
 [ "$stamp" -le "$(date +%s)" ]  # FAIL-FAST-OK: the stamp is the system clock's own
+
+# --- bash-test-scratch-inside-checkout ---
+
+# The compose-restore suite as it was: a scratch tree inside the checkout and
+# nothing stopping git from walking up into it.
+# ruleid: bash-test-scratch-inside-checkout
+WORK="$(mktemp -d "$REPO_ROOT/untracked/scratch/compose-test.XXXXXX")"
+PROJECT="$WORK/project-a"
+mkdir -p "$PROJECT"
+cd "$PROJECT" || exit 99
+
+# The braced spelling and an unquoted assignment are the same defect.
+# ruleid: bash-test-scratch-inside-checkout
+SCRATCH=$(mktemp -d "${REPO_ROOT}/untracked/scratch/registry-test.XXXXXX")
+trap 'rm -rf "$SCRATCH"' EXIT
+mkdir -p "$SCRATCH/home"
+mkdir -p "$SCRATCH/bin"
+
+# The fix: the ceiling goes straight after the directory is made.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/menus-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"
+
+# Two lines later is still "straight after".
+# ok: bash-test-scratch-inside-checkout
+work=$(mktemp -d "$REPO_ROOT/untracked/scratch/askpass-test.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"
+
+# A directory outside the checkout has no enclosing repository to read.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d)"
+
+# A suite that needs the checkout's own configuration says so.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/x.XXXXXX")"  # FAIL-FAST-OK: the case reads the checkout's remote on purpose
+
+# A comment that quotes the call is not the call.
+# ok: bash-test-scratch-inside-checkout
+# the suite used to run: mktemp -d "$REPO_ROOT/untracked/scratch/y.XXXXXX"
