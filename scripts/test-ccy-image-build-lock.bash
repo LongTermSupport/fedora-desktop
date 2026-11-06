@@ -49,6 +49,7 @@ lacks() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-image-build-lock-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 # Output a case does not judge goes here, never to /dev/null, so a failing case can be read.
 QUIET="$SCRATCH/quiet.log"
 kill_fakes() {

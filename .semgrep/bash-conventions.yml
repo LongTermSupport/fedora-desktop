@@ -347,3 +347,39 @@ rules:
     metadata:
       category: correctness
       confidence: MEDIUM
+
+  # A test suite whose scratch tree is inside the checkout, with no git ceiling.
+  #
+  # git, run from a directory with no repository of its own, walks up to the
+  # enclosing checkout and answers with ITS configuration: its remote, its hooks
+  # path, its identity. A case that means "a project with no remote" then reads
+  # the checkout's `origin`, so it passes where that is a plain URL (CI) and fails
+  # where it is an ssh-config alias (the CCY container, a host set up as this
+  # project sets one up). The result depends on whose checkout runs the suite.
+  #
+  # RIGHT: export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked" within three
+  #        lines after the mktemp: git then stops looking above the scratch tree
+  #        and reports "not a repository", as it would from a directory in /tmp.
+  # RIGHT: a case that needs a repository makes its own (`git init -q "$dir"`).
+  - id: bash-test-scratch-inside-checkout
+    patterns:
+      - pattern-regex: '(?m)^[^\n#]*\bmktemp\b[^\n]*\$\{?REPO_ROOT\}?/[^\n]*$(?!(?:\n[^\n]*?){1,3}GIT_CEILING_DIRECTORIES)'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'scripts/test-*'
+        - 'tests/**'
+    message: >
+      bash-test-scratch-inside-checkout: this suite makes its scratch directory
+      inside the checkout and does not put a git ceiling above it, so git run from
+      the scratch tree reads the checkout's own remote and configuration and the
+      result depends on whose checkout runs it. Export
+      GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked" within three lines after the
+      mktemp, or make the directory's own repository with `git init -q`. If the
+      suite genuinely needs the checkout's configuration, annotate with
+      # FAIL-FAST-OK and say why.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

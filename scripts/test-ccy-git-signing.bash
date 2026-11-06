@@ -50,6 +50,7 @@ if ! declare -F configure_git_signing >/dev/null; then
 fi
 
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-git-signing-fixtures.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 REAL_AGENT_PID=""
 trap '[ -n "$REAL_AGENT_PID" ] && kill "$REAL_AGENT_PID"; rm -rf "$WORK"' EXIT
 
