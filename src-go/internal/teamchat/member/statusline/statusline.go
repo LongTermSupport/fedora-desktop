@@ -45,7 +45,7 @@ type deps struct {
 	signals <-chan os.Signal
 }
 
-// Main is `teamchat status-line`; cmd/teamchat puts it in cli.Env.Verbs as "status-line".
+// Main is `teamchat status-line`; wiring.Verbs puts it in cli.Env.Verbs as "status-line".
 func Main(e cli.Env, _ cli.Invocation) term.ExitCode {
 	// Subscribed before stdin is read, so an early cancel is not lost (S12).
 	sigs := make(chan os.Signal, 4)
