@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -540,5 +541,54 @@ func TestN3dD4TheRecoveryReadsBackToTheAnchor(t *testing.T) {
 	}
 	if last := w.lastSent(ops); last != found {
 		t.Errorf("last_sent = %q, want the found %s", last, found)
+	}
+}
+
+// quiet waits until every other goroutine is blocked: the engine has done all it will do
+// without the clock or the test (leakcheck.Drive's step runs only then).
+func quiet(t *testing.T) {
+	t.Helper()
+	idle := false
+	leakcheck.Drive(t, func() bool { return idle }, func() { idle = true })
+}
+
+// n3d-D1: a send held after a transient failure is posted at the team's next answered sync, with
+// the clock short of retryHold; a sync answered before the failure was read does not lift the
+// hold; with no sync, the hold's timer posts it.
+func TestN3dD1ANewerSyncLiftsTheRetryHold(t *testing.T) {
+	for _, lift := range []string{"a newer sync", "the timer"} {
+		t.Run(lift, func(t *testing.T) {
+			w := newWorld(t, state.DeliverySocket)
+			ops := tid(t, "ops")
+			f := w.sending(ops)
+			w.e.SetHealth(ops, team.Health{Down: true})
+			queued(t, w.say(&ops, "while down", "repo.2"))
+			f.notices.mu.Lock()
+			f.notices.sendErrs = []error{matrix.StatusError("PUT", "/send", 502, "")}
+			f.notices.mu.Unlock()
+			release := f.notices.holdAnswers()
+			w.e.SetHealth(ops, up(startWall))
+			waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
+			// A sync answered while the PUT is in flight, before its failure is read.
+			w.e.SetHealth(ops, up(startWall+1))
+			f.notices.mu.Lock()
+			f.notices.gate = nil
+			f.notices.mu.Unlock()
+			release()
+			w.awaitDue(retryHold)
+			quiet(t)
+			if got := f.notices.sent(); len(got) != 1 {
+				t.Fatalf("a sync answered before the failure lifted the hold: posts %v", got)
+			}
+			if lift == "a newer sync" {
+				w.e.SetHealth(ops, up(startWall+2))
+			} else {
+				w.clk.Advance(retryHold)
+			}
+			w.until(w.sendsLeft(ops))
+			if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {
+				t.Errorf("posts %v, want the one txn twice", got)
+			}
+		})
 	}
 }

@@ -62,6 +62,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's          | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                        |
+| `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1490,6 +1491,47 @@ refused until its own case is written.
 - Not caught: a room held in a variable compared to another variable, a helper that answers
   whether a room is a side room, or a default written as a map lookup. A test fake that records
   no room is a related class with no rule: see below.
+  \=======
+
+### project_fake_restart
+
+**What it is about.** A test takes a fake server down (`Stop`, `Restart`) from a hook, a
+callback or a goroutine, while the test's own goroutine can be using it, with no point where the
+test waits for the restart to finish. A request in flight then is dropped, and the client's
+retries meet the stopped server: the request gets no answer, under load only.
+
+**Why it exists.** `teamsync` `TestARestartedServerBetweenPolls` failed once in CI
+(`resend_test.go:80: ... PUT .../send/...: no answer`, fedora-desktop#149). The engine's persist
+hook restarted fakehs on the team's goroutine at its second store write, and that write is the
+one the test's own post causes: the long-poll is woken when the event is stored, before the
+post's answer is written, so the restart can drop the post, and the client's three tries
+(`noWait` between them) can all land while the server is down.
+
+**What it flags**, in `_test.go` files: a call of `Stop` or `Restart` on a type named `Server`
+of a package whose name starts with `fake`, inside a function literal or as a go statement's
+call. A literal handed straight to a method of package `testing` (`Cleanup`, a subtest's `Run`)
+or deferred is not judged; a literal nested in one is.
+
+**How to fix a violation.** The literal tells the test it has reached the point (it closes a
+channel and waits on another), and the test restarts the server on its own goroutine once its
+requests are answered.
+
+- Red, fixture: `testdata/src/fix/internal/badrestart` with the stub `fix/internal/fakehs` (the
+  hook's restart, a stop in a goroutine, a go statement, a literal nested in a cleanup; the
+  test's own restart, a cleanup, a subtest, a deferred stop, `Start` and `Close`, and a `Server`
+  of a package not named fake: clean).
+- Red, real tree: exactly one finding over `./...`, the originating `resend_test.go:73`, seen
+  with the test as it was. The interleaving itself was forced red deterministically: with the
+  post's answer held (`fakehs.Fault.Hold`, new) and the hook's restart split so its `Start` waits
+  for the test's end, the test fails at its post with the CI message (`... no answer`), every run.
+- Green: the hook answers the post, signals and waits; the test restarts after its post is
+  answered (50 runs, then 60 at `-cpu 1,2,4`, all passed). 0 findings over `./...` untagged, with
+  `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module. The other tests
+  that stop or restart a fake server (`fakehs`, `matrix`, `guest`, `ctl`, `seat`, `wiring`) do so
+  on the test's goroutine, a subtest's or a cleanup.
+- Not caught: a stop reached through a helper called in a literal, a server held in an
+  interface, a fake named otherwise, and a literal stored and later called on the test's own
+  goroutine (flagged, a false positive the same fix removes).
 
 ## Defect classes that cannot be a rule
 
@@ -1901,15 +1943,18 @@ bash they replaced and in the Go during review; each instance is in the audit re
   fourth retry falls short of 15 s and the fifth, 23 to 31 s after the first failure, is the one
   that marks it down. A bound of 30 s is shorter than that worst case, so on an idle machine
   one run in eight failed with `not within 30s` and an empty `link.log` (it logs only `down`
-  and `back up`); the second wait chains the team's retry (up to 30 s) and the sender's
-  `retryHold` (30 s), and 62.3 s was seen against 60. Nothing was lost: every queued send was
-  answered `queued` and posted once. The test owns no event to wait on, because the clock is the
-  link's own, in another process; the bound is the derived worst case (`downBound`,
-  `deliveredBound` in `member/wiring/e2e_test.go`, each stating its derivation). No rule: whether
-  a bound covers a schedule is a fact of the production code's constants and its jitter, not a
-  shape in the test's syntax tree; the `project_realtime_bound` rule already stops a test
-  *shortening* a bound, and the fix for this class is to state the bound as the schedule's
-  worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
+  and `back up`); the second wait chains the team's retry (up to 30 s) and its first long-poll
+  (30 s in an idle room: a team that resumes from a stored position is shown up only when that
+  answers, `teamsync`'s `TestABackTeamIsShownUpAtItsFirstLongPoll`), and 62.3 s was seen
+  against 60. Nothing was lost: every queued send was answered `queued` and posted once. The
+  test owns no event to wait on, because the clock is the link's own, in another process; the
+  bound is the derived worst case (`downBound`, `upBound` and `deliveredBound` in
+  `member/wiring/e2e_test.go`, each stating its derivation; the reverse wait of
+  `TestE2EOfflineServer`, `backoffCap + settle`, had the same gap and now waits `upBound`). No
+  rule: whether a bound covers a schedule is a fact of the production code's constants and its
+  jitter, not a shape in the test's syntax tree; the `project_realtime_bound` rule already stops
+  a test *shortening* a bound, and the fix for this class is to state the bound as the
+  schedule's worst case.
 
 - **A request's wait ending reported as a failure of the engine rather than as a bound that
   expired** (fedora-desktop#160: under heavy CPU starvation `status` answered 1 `internal`, "the
@@ -1933,6 +1978,24 @@ bash they replaced and in the Go during review; each instance is in the audit re
   reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
   reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
   lists its ops by hand.
+
+- **A refusal state set from the answer to a request, without checking that the answer belongs
+  to the credential held now** (fedora-desktop#159: `engine`'s sender set the team's send stop
+  from a PUT's 401 or 403; a PUT made under the old token and answered after the team's
+  recovery under a reissued one had cleared the stop set it again, over the new token, until
+  the next health out of a stop). The answer outlives the credential it was made under. No
+  rule: which field is a refusal state, which call is a request made under a credential, and
+  which value is "the credential held now" are the program's meaning, not shapes a syntax tree
+  shows (a rule keyed on the one field `sendStop` would be a check of this instance, not of
+  the class). What holds it instead: the state carries the credential it applies to. The
+  sender keeps the digest of the token a PUT was made under, and the stop is set only when it
+  is the team's `sendsUnder`, which a recovery sets in the same state-goroutine step as it
+  clears the stop (`TestARefusalOfAnOldTokenDoesNotStopTheNewOne`, red before the fix for a
+  401 and a 403; `TestARefusalOfTheTokenTheSenderRecoveredUnderStops`). The sweep of the
+  member's other refusals set from an answer found them sound: `teamsync`'s session stop
+  re-reads the pair on a 401 and retries a changed one (n3c-D12); a verb's refusal is an
+  answer, not a state; the receipts loop's 401 ends it only until the next session; the
+  resolver's 403 and 404 are about the user and the event, which a reissue does not change.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
