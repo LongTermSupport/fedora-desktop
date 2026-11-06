@@ -58,7 +58,7 @@ func (d Desired) Encode() ([]byte, error) {
 // rest B 2.3.3's other codes, which the keeper names in report.json.
 func DecodeDesired(data []byte) (Desired, error) {
 	var d Desired
-	if _, err := decodeStrict(desiredFile, data, MaxDesired, &d, func(c *rules) { d.check(c) }); err != nil {
+	if err := decodeStrict(desiredFile, data, MaxDesired, &d, func(c *rules) { d.check(c) }); err != nil {
 		return Desired{}, err
 	}
 	return d, nil

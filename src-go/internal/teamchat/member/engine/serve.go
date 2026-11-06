@@ -104,12 +104,26 @@ func doneOf(err error) wire.Done {
 }
 
 // internal is a failure inside the link. Its message is a fixed template, which never quotes
-// err; err itself is in link.log when the caller logged it.
-func internal(error) wire.Done {
+// err; err itself is in link.log when the caller logged it. A context's end is not one: it is
+// the request's own bound expiring (a state goroutine that did not take its step in time, as
+// under CPU starvation, issue 160), 4 timed-out. doneOf and internal are the one sink of every
+// op's failure, so no op can answer a request's end as internal.
+func internal(err error) wire.Done {
+	if ended(err) {
+		return wire.Done{Exit: int(exits.ExitTimedOut), Error: exits.New(exits.CodeTimedOut, nil, msgEnded)}
+	}
 	return wire.Done{Exit: int(exits.ExitInternal), Error: exits.New(exits.CodeInternal, nil, msgInternal)}
 }
 
-const msgInternal exits.Template = "the link failed inside; run status, and tell a human if it goes on"
+// ended is whether err is a context's end.
+func ended(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+}
+
+const (
+	msgInternal exits.Template = "the link failed inside; run status, and tell a human if it goes on"
+	msgEnded    exits.Template = "the link did not answer within the request's deadline"
+)
 
 func notHeld(t paths.TeamID) wire.Done {
 	return doneOf(exits.New(exits.CodeUsage, &t, msgNotHeld, exits.Team(t)))
@@ -202,7 +216,7 @@ func (e *Engine) history(ctx context.Context, a wire.HistoryArgs, out RecordWrit
 
 // teamDone is a team call's failure: its own error object, or a context's end as timed-out.
 func teamDone(t paths.TeamID, err error) wire.Done {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if ended(err) {
 		return doneOf(exits.New(exits.CodeTimedOut, &t, msgTimedOut, exits.Team(t)))
 	}
 	return doneOf(err)

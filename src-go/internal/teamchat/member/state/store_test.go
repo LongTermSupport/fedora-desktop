@@ -303,8 +303,8 @@ func fullStore(t *testing.T) Store {
 }
 
 // The questions room's share of the file cap (SPEC-n3f QX6): a report time is 14 bytes with its
-// comma, a `remind_late` number 20, each list 16 for its key and brackets, and the three
-// `outbox.questions_*` keys with `reminded_ms` 256 together.
+// comma, a `remind_late` number 20, each list 16 for its key and brackets (the rows of
+// fixedWritten), and the three `outbox.questions_*` keys with `reminded_ms` 256 together.
 const (
 	sizeReportTime      = 14
 	sizeRemindLate      = 20
@@ -329,23 +329,19 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 		t.Fatalf("the full questions key is %d bytes, over the %d QX6 sizes it at", len(keyData), proto.MaxQuestionsStateBytes)
 	}
 	t.Logf("a full store is %d bytes of at most %d; its questions key %d of at most %d", len(data), MaxStore, len(keyData), proto.MaxQuestionsStateBytes)
-	base := 4096 + maxNextBatch // every fixed field, the position at its longest
+	bound := 4096 + writtenFixed() // the keys, numbers and punctuation, and every fixed field as written
 	for _, l := range listCaps {
-		base += l.count * (l.size + 1)
+		bound += l.count * (l.size + 1)
 	}
-	if base != 3_001_136 {
-		t.Fatalf("n3d's list caps sum to %d bytes, n3d-D1 says 3 001 136", base)
-	}
-	room := capReports*sizeReportTime + sizeListFrame + capRemindLate*sizeRemindLate + sizeListFrame +
-		proto.MaxQuestionsStateBytes + sizeQuestionScalars
-	bound := base + room
-	if bound != 4_104_600 {
-		t.Fatalf("the caps sum to %d bytes, QX6 says 4 104 600", bound)
-	}
+	// The questions room's lists and key are rows of fixedWritten; what is left of its share
+	// (QX6) is the scalars, 256 together, which already hold the event id that has a row too, so
+	// the bound is only larger.
+	bound += sizeQuestionScalars
+	t.Logf("the caps sum to %d bytes as written; the file cap is %d", bound, MaxStore)
 	if bound > MaxStore {
 		t.Fatalf("the list caps sum to %d bytes, over the file cap of %d", bound, MaxStore)
 	}
-	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more.
+	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more; QX6 makes it 4 MiB.
 	const step = 256 << 10
 	if want := (bound + step - 1) / step * step; MaxStore != want || MaxStore != 4<<20 {
 		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d (4 MiB)", MaxStore, bound, want)

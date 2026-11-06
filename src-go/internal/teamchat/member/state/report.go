@@ -93,7 +93,7 @@ func (r Report) Encode() ([]byte, error) {
 // DecodeReport reads report.json strictly.
 func DecodeReport(data []byte) (Report, error) {
 	var r Report
-	if _, err := decodeStrict(reportFile, data, MaxReport, &r, func(c *rules) { r.check(c) }); err != nil {
+	if err := decodeStrict(reportFile, data, MaxReport, &r, func(c *rules) { r.check(c) }); err != nil {
 		return Report{}, err
 	}
 	return r, nil

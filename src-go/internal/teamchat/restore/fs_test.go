@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -136,9 +135,6 @@ func TestOSReadDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ReadDir promises no order, and none of its callers needs one: a directory lists in its
-	// filesystem's order (tmpfs newest first, ext4 by name hash), so the test sorts what it got.
-	slices.SortFunc(got, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
 	want := []Entry{{Name: "2", Kind: KindFile}, {Name: "5", Kind: KindOther}}
 	if !slices.Equal(got, want) {
 		t.Errorf("ReadDir = %v, want %v", got, want)
@@ -152,6 +148,53 @@ func TestOSReadDir(t *testing.T) {
 	if file, err := o.ReadDir(ops, "backups/meta/2"); err == nil {
 		t.Errorf("a file listed as a directory: %v", file)
 	}
+}
+
+// ReadDir lists by name, whatever order the filesystem gives: tmpfs lists the newest first, ext4
+// by a hash of the name, btrfs by creation. The names are made in an order that is not sorted
+// and whose reverse is not either, and the test first shows that the directory itself, read
+// unsorted, does not list them by name.
+func TestOSReadDirListsByName(t *testing.T) {
+	o, state := osTree(t)
+	ops := opsTeam(t)
+	dir := state + "/backups/meta"
+	mkdirs(t, dir)
+	made := []string{"13", "04", "17", "00", "09", "21", "02", "15", "11", "06", "19", "08", "01", "16", "10", "03", "20", "05", "12", "18", "07", "14"}
+	for _, n := range made {
+		writeFile(t, dir+"/"+n, "1\n")
+	}
+	if slices.IsSorted(rawNames(t, dir)) {
+		t.Fatal("the filesystem listed the names sorted, so this test cannot show ReadDir's sort")
+	}
+	got, err := o.ReadDir(ops, "backups/meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(got))
+	for _, e := range got {
+		names = append(names, e.Name)
+	}
+	want := slices.Sorted(slices.Values(made))
+	if !slices.Equal(names, want) {
+		t.Errorf("ReadDir = %v, want %v", names, want)
+	}
+}
+
+// rawNames is dir's names in the filesystem's own order.
+func rawNames(t *testing.T, dir string) []string {
+	t.Helper()
+	f, err := os.Open(filepath.Clean(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := f.Readdirnames(-1)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
 }
 
 // RS16's rename: in the state directory's fd, never over an entry that exists.

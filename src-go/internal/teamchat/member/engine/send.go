@@ -345,6 +345,14 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 	if err != nil {
 		return internal(err)
 	}
+	// A content within A's cap whose `<`, `>` or `&` make its entry too large for the store is
+	// refused as the composer refuses an over-size content, before anything is spent (n3d-D1).
+	switch err := entry.Fits(); {
+	case errors.Is(err, state.ErrTooLarge):
+		return doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize}))
+	case err != nil:
+		return internal(err)
+	}
 	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
 		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets)))
 	}
