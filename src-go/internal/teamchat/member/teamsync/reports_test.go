@@ -180,11 +180,13 @@ func TestARefusedReportsJoinIsTriedAgainAtARosterChangeAndAReport(t *testing.T) 
 	w.writeRoster(next)
 	r.poll(t)
 	w.batch()
-	if n := w.reportsJoins(); n != 2 {
-		t.Fatalf("%d joins after the roster change, want 2", n)
-	}
+	// The join is the reports loop's, beside the long-poll (RP1): the state its try puts comes
+	// after the try, so the joins are counted only then.
 	if rr := nextReports(t, rooms); rr.State != team.ReportsRefused {
 		t.Fatalf("the reports room is %+v after the second refusal", rr)
+	}
+	if n := w.reportsJoins(); n != 2 {
+		t.Fatalf("%d joins after the roster change, want 2", n)
 	}
 	err := tm.VerifyReports(t.Context())
 	if err != nil {
