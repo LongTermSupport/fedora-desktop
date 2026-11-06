@@ -94,7 +94,7 @@ func TestE2EOfflineServer(t *testing.T) {
 		t.Fatalf("beta is down: %s", s.describe())
 	}
 	check(t, w.hs.fake.Start())
-	within(t, backoffCap+settle, func() bool { return !s.down(teamName) }, s.describe)
+	within(t, upBound, func() bool { return !s.down(teamName) }, s.describe)
 	s.recvUntil(w.say("alpha is back"))
 }
 
@@ -109,19 +109,24 @@ const (
 	// downAfter is how old a team's failure streak is when the retry that finds it so marks the
 	// team down (teamsync's downAfter).
 	downAfter = 15 * time.Second
-	// retryHold is how long a send that failed transiently waits before it is tried again,
-	// unless a sync newer than its failure lifts the hold (the engine's retryHold).
-	retryHold = 30 * time.Second
+	// longPoll is how long the server holds a team's sync when nothing new has happened in its
+	// rooms (teamsync's longPoll).
+	longPoll = 30 * time.Second
 	// downBound is the longest a team takes to show down. The retries come after delays of 1, 2,
 	// 4, 8 and 16 s, each less a jitter of up to a quarter, so the fourth falls short of
 	// downAfter and the fifth, up to 31 s after the first failure, is the one that marks the team
 	// down: a bound of settle alone is shorter than that. No delay is longer than backoffCap, so
 	// the first retry past downAfter comes within backoffCap of it.
 	downBound = downAfter + backoffCap + settle
+	// upBound is the longest a team whose server is back takes to show up. Its retry comes
+	// within backoffCap; the session it starts resumes from the stored position with no sync of
+	// its own, and the team is shown up only when its first long-poll answers, which in an idle
+	// room is longPoll later (teamsync's TestABackTeamIsShownUpAtItsFirstLongPoll).
+	upBound = backoffCap + longPoll + settle
 	// deliveredBound is the longest a send queued while the server was down takes to be posted
-	// once the server is back: the team's retry comes within backoffCap, and a send held after a
-	// transient failure waits retryHold more when no newer sync lifts the hold first.
-	deliveredBound = backoffCap + retryHold + settle
+	// once the server is back: the sender posts nothing while the team is shown down, so the
+	// send waits for the team to show up and is then posted at once.
+	deliveredBound = upBound
 )
 
 // awaitDown waits for status to show the team down, within downBound.
