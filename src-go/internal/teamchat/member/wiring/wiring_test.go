@@ -100,6 +100,16 @@ func TestVerbsAreTheVerbsBuiltOutsideCLI(t *testing.T) {
 	}
 }
 
+// n3e-12: the hook and the status line are among the verbs the binary passes in.
+func TestVerbsCarryTheHookAndTheStatusLine(t *testing.T) {
+	verbs := Verbs()
+	for _, name := range []string{"hook", "status-line"} {
+		if verbs[name] == nil {
+			t.Errorf("%s is not wired", name)
+		}
+	}
+}
+
 func TestNewTeamRefusesAnIncompleteConfig(t *testing.T) {
 	f := newFixture(t)
 	f.cfg.Engine = nil
