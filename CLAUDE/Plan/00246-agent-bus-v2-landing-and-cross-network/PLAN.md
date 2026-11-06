@@ -120,18 +120,22 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   active; a probe through the terminator is not built (X18c). S11 is built: Element's check and
   apply say the CA must be trusted and where it is (X20; whether the Flatpak build honours an added
   CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. The owner's
-  slices after S11 are specified in SPEC-cross-network.md section 6. S12 is built on branch
-  `feat/crossnet-s12-s13`: the health tick renews the leaf by apply's own step
+  slices after S11 are specified in SPEC-cross-network.md section 6. S12 is built (pull
+  request 173, against 128): the health tick renews the leaf by apply's own step
   (`host.LeafRenewer`), with the project rule `project_problem_error_text`; the health unit's
   write paths must include the team's TLS directory when that unit is written (report
   `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S15 is built on
   `feat/crossnet-s15` (pull request 172, against 128): the Element play places the team CA and
   checks it from inside Element's sandbox; whether Element's Chromium honours the store is the
-  host check, and two owner questions (SPEC 6 and 7) stand. S13 is built on `feat/crossnet-s13`:
-  the health tick probes each listen address through the terminator with the team CA
+  host check, and two owner questions (SPEC 6 and 7) stand. S13 is built (pull request 176, against
+  173): the health tick probes each listen address through the terminator with the team CA
   (`matrix.Reach`), one problem per silent address (report
-  `subagent-reports/261106-crossnet-s13-opus-report.md`). Not yet built: S14 rotating the CA
-  (X33). Then X30, the second-machine run,
+  `subagent-reports/261106-crossnet-s13-opus-report.md`). S14 is built (pull
+  request 177, against 176): `teamchat-admin team rotate-ca`, which makes a new CA and leaf, checks
+  them before replacing anything, and marks the LXC seats for the next `lxc apply` to reissue
+  (report `subagent-reports/261106-crossnet-s14-opus-report.md`). It found that the production
+  `TeamCA` is still not wired, so no `https` bundle can be issued in the production build; that
+  is the proposed slice S16 of the spec's build order. Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher, which the coordinator queues
   once S12 to S15 are in.
 

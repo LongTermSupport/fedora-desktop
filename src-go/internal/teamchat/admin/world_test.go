@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
@@ -101,6 +102,7 @@ type world struct {
 	gidErr  error
 
 	files       memFiles
+	rotateWrite host.FileWriter // a CA rotation's writer; nil is state.WriteFile
 	stagedPorts []int
 	stagedErr   error
 
@@ -261,7 +263,12 @@ func (w *world) now() time.Time {
 }
 
 func (w *world) sys() *System {
+	write := w.rotateWrite
+	if write == nil {
+		write = state.WriteFile
+	}
 	return &System{
+		RotateWrite: write,
 		Host: host.Deps{
 			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w,
 			Rand: io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), rand.Reader), Software: digest,

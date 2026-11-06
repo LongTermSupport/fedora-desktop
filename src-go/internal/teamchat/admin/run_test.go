@@ -91,7 +91,7 @@ func specVerbs() map[string]Class {
 			out[group+" "+w] = class
 		}
 	}
-	add(ClassRoot, "team", "apply", "approve", "remove")
+	add(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca")
 	add(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	add(ClassRoot, "role", "apply")
 	add(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")

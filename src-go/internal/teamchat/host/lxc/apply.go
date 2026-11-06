@@ -108,10 +108,14 @@ type member struct {
 	status, why string
 }
 
-// needsReissue is a recorded handle whose bundle was never placed (n3-D23): reissued, from
-// host facts only.
+// needsReissue is a recorded handle whose bundle was never placed (n3-D23), or holds a CA a
+// rotation replaced (X33): reissued, from host facts only.
 func (m *member) needsReissue() bool {
-	return m.prior.Handle != "" && (m.prior.Why == whyBundle || m.prior.Why == whySeatHeld || m.prior.Why == whyBundleFailed)
+	switch m.prior.Why {
+	case whyBundle, whySeatHeld, whyBundleFailed, WhyCARotated:
+		return m.prior.Handle != ""
+	}
+	return false
 }
 
 // name is the member as errors name it: `<user>@<container>/<repo>-<seat>`.

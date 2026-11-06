@@ -45,7 +45,7 @@ const (
 // The modes of the files and their directories: the record is the owner group's to read, the
 // copy root's alone.
 const (
-	recordMode    fs.FileMode = 0o640
+	RecordMode    fs.FileMode = 0o640
 	recordDirMode fs.FileMode = 0o755
 	copyMode      fs.FileMode = 0o600
 	copyDirMode   fs.FileMode = 0o700
@@ -285,7 +285,7 @@ func WriteRecord(root string, r Record, gid int) (bool, error) {
 	if err := mkdirExact(filepath.Dir(path), recordDirMode); err != nil {
 		return false, err
 	}
-	return true, state.WriteFile(path, data, recordMode, gid)
+	return true, state.WriteFile(path, data, RecordMode, gid)
 }
 
 // Copy is the host's copy of a seat's desired membership (C 3.9.3, n3-D13): written before the
