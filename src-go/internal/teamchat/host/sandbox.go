@@ -4,13 +4,14 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
 // baseSandbox is the identity, hardening and deny lines of C 3.2.3's base unit, in its order
-// (n2g-D17). The base unit's template is to be rendered from it (gate A), so the restore's
-// staging unit cannot drift from it. The lifecycle lines stay per unit, since the base unit's
-// Restart=always would let a staging restart wipe the secured copy; so do the credential and
-// the environment, whose paths differ.
+// (n2g-D17), ending with the v1 paths no v2 unit may reach (D 4.2, from v1names). The base unit's
+// template is to be rendered from it (gate A), so the restore's staging unit cannot drift from it.
+// The lifecycle lines stay per unit, since the base unit's Restart=always would let a staging
+// restart wipe the secured copy; so do the credential and the environment, whose paths differ.
 var baseSandbox = []string{
 	"DynamicUser=yes",
 	"User=" + paths.Product + "-%i",
@@ -47,6 +48,7 @@ var baseSandbox = []string{
 	"BindReadOnlyPaths=" + paths.ResolverStub + ":/run/systemd/resolve/stub-resolv.conf",
 	"BindReadOnlyPaths=" + paths.ResolverStub + ":/run/systemd/resolve/resolv.conf",
 	"InaccessiblePaths=-/run/dbus",
+	v1names.InaccessiblePaths,
 }
 
 // BaseSandbox is the base unit's sandbox lines as the template has them, with %i for the team:

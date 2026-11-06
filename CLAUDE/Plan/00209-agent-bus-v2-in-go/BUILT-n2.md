@@ -12,17 +12,22 @@ start spec with its self-check and strict request and answer codecs. Not covered
 child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6).
 DC17's dependencies: the YAML module (`go.yaml.in/yaml/v3`) has landed with slice n2b, with its
 go-deps allowlist row and the `keepout` row that holds it out of `teamchat-admin` (Task 2.4).
-`godbus/dbus/v5` has not: nothing uses D-Bus yet, and it lands with the first D-Bus adapter
-(the health tick's units seam, n2e).
+`godbus/dbus/v5` landed with slice n2f (n2f-D4, the units seam over D-Bus), with its go-deps
+allowlist row and the `keepout` rows that hold it out of the member binary.
 
 ## Task 2.2: the homeserver instance per team
 
 Done, as inert code: each team's `config.toml` (C 3.2.3) and its drop-in (C 3.2.4) are
 rendered by `host/render.go` (slice n2d, `SPEC-n2d.md` HS4, report
-`subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Not done: the
-pinned Tuwunel's install, the `teamchat-server@<team>` unit template with D's
-`InaccessiblePaths=`, and D's gate over it (seam 49). These are play tasks and a unit, so
-they wait for gate A (Task 2.5).
+`subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Slice S7a
+(`subagent-reports/261105-n2-s7-sonnet.md`) put D 4.2's `InaccessiblePaths=` line, held once as
+`v1names.InaccessiblePaths`, into every unit text Go makes: the base sandbox (so a team's
+sandbox and the restore's staging unit), the restore's secure unit and the backup service. A
+test makes that true of every Go file that holds unit text, so a new one fails until it is
+judged. Not done: the pinned Tuwunel's install and the `teamchat-server@<team>` unit template
+(play tasks, so they wait for gate A, Task 2.5), and the health and seats unit texts (slice
+S7b). Nothing ran on a host: the secure unit now has a mount namespace beside
+`JoinsNamespaceOf`, which H-C5's restore run is what proves harmless.
 
 ## Task 2.3: install and apply, the rooms engine, members and roles
 
@@ -53,7 +58,8 @@ the team lock; `team apply`'s steps 1-9 and 11 (`host.Apply`) and `team remove [
 `role apply`, `team approve|apply|remove`), with crash and roll-forward tests on fakehs. Not
 covered: the `-tags tuwunel` round trip of the verbs (CV6's last line); the production
 `Child`, `Opener`, `Bundles` and `OwnerGroup` (`cmd/teamchat-admin` wires no `Sys`); the
-play's install tasks and C 3.5.2 step 1's Fedora check (gate A).
+play's install tasks (gate A). C 3.5.2 step 1's Fedora check came with slice n2f (HF3:
+`checkFedora` in `admin/hostfiles.go`, run first by `team apply`).
 
 Slice n2f (`feat/bus-v2-n2f`, `SPEC-n2f.md`, report `subagent-reports/261022-n2f.md`) covers,
 as inert code, the production side of every seam: the `teamchat-ctl` child started by

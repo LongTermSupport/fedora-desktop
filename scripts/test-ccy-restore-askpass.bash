@@ -69,6 +69,7 @@ yes_if() { if "$@"; then echo yes; else echo no; fi; }
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/restore-askpass-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
