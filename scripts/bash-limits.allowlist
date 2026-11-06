@@ -61,7 +61,7 @@ files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	1695	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
 files/var/local/claude-yolo/lib/token-management.bash	1017	27	1080	-
 files/var/local/colours	65	16	65	-
-files/var/local/docker-in-lxc	668	20	526	-
+files/var/local/docker-in-lxc	667	20	525	-
 files/var/local/ps1-prompt	76	6	78	-
 run.bash	2836	66	2776	assoc,data
 scripts/check-displaylink-status.sh	211	1	231	-
