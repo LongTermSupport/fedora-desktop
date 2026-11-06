@@ -551,7 +551,9 @@ admin redaction makes it rebuilt (QX7).
     - n3d's bound (`TestStoreFullFitsTheFileCap`: 4096 + 1024 + each list's count x (size + 1))
       is 3 001 136 bytes. The new sum is 4 104 600 bytes, which n3d-D1's rule rounds up to 16 x
       256 KiB = 4 194 304: **`MaxStore` rises from 3 MiB to 4 MiB** (G2), so a cap always fires
-      before the file cap.
+      before the file cap. Counted as written, escaping included, as the store's sizing now is
+      (the coordinator's decision (c) on n3d's store sizing), the sum is 4 110 165 bytes: the
+      same 4 MiB, 84 139 bytes under it.
   - Tests: the 65th `ask` refused; 1100 human posts folded live and rebuilt: the same state; a
     store with every cap full at its maximum sizes (192 questions with 16 `asked_by` of 128
     bytes, 16 `re`, 16 unanswered, a headline of 120 escaped code points; 1024 attachments; 64

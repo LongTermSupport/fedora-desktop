@@ -61,7 +61,7 @@ func (s Status) Encode() ([]byte, error) {
 // DecodeStatus reads status.json strictly.
 func DecodeStatus(data []byte) (Status, error) {
 	var s Status
-	if _, err := decodeStrict(statusFile, data, MaxStatus, &s, func(c *rules) { s.check(c) }); err != nil {
+	if err := decodeStrict(statusFile, data, MaxStatus, &s, func(c *rules) { s.check(c) }); err != nil {
 		return Status{}, err
 	}
 	return s, nil

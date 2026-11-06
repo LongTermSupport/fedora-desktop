@@ -1298,11 +1298,16 @@ fails on a runner whose filesystem lists the same names another way.
 of a function that returns a listing in directory order. A function does when its body calls one
 of the three unsorted listing methods of `os.File` (or `fs.ReadDirFile.ReadDir`) or a function
 that does, has a slice among its results, and calls nothing that sorts (package `sort`, or
-`slices.Sort*`). The mark is an analysis fact, so a test of one package is judged against another
-package's function.
+`slices.Sort*`, or a function of the same package whose body sorts, as `seat`'s `sortNames`). The
+mark is an analysis fact, so a test of one package is judged against another package's function.
+Outside `_test.go` files it flags each function that reads a directory itself (one of the
+unsorted listing methods) and returns the listing in directory order, at its declaration: the
+one place to sort it, so no caller, test or not, meets the filesystem's order. A wrapper of such
+a function is marked but not reported, since the sort at the read unmarks it.
 
 **How to fix a violation.** Sort the listing before comparing, or compare it as a set. A function
-whose callers need an order sorts at its return, and then it is not marked.
+that returns a listing sorts it by name at its return, as `homefs.Root.Entries` does, and then it
+is not marked.
 
 - Red, fixture: `testdata/src/fix/internal/badlisting` and `badlistingx` (the originating shape,
   each listing API, a wrapper, a test helper, another package through the fact; sorted, `os.ReadDir`,
@@ -1314,13 +1319,23 @@ whose callers need an order sorts at its return, and then it is not marked.
   function to judge (a conversion), now a fixture case.
 - Green: the test sorts what `OS.ReadDir` returned; 0 findings over `./...` untagged, with
   `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module.
+- The production clause (the coordinator's decision that `restore.OS.ReadDir` sorts by name):
+  the rule above did not reach it, a listing returned by a function that is not a test (0
+  findings with `OS.ReadDir` unsorted). Red, fixture: the four functions of `badlisting` that read
+  a directory and return it are reported (with the clause off, 4 `want` lines red); a function
+  that sorts at the read, one that sorts through a helper of its own package and one that reads
+  but returns no listing are clean (with the same-package sorter off, the helper case goes red).
+  Red, real tree: exactly one finding over `./...` untagged, with `busfailpoints` and `tuwunel`
+  (the same file), `ccyteamstest`, `difftest` and the nested `qa` module:
+  `internal/teamchat/restore/fs.go` `OS.ReadDir`. The first run also flagged `bus/seat`'s `names`,
+  which sorts through its own `sortNames`: a false positive, fixed in the rule (the same-package
+  sorter) before the sweep. Green: `OS.ReadDir` sorts by name; 0 findings.
 - Not caught: an order asserted through an index (`got[0]`), a loop over the listing and the
   expectation together, a value derived from the listing, a listing read through an interface
-  method (no body to mark), a comparison helper of the test's own, and the production use of a
-  directory order. `restore.OS.ReadDir` itself returns directory order: no caller needs it
-  (`raiseMinBackup` takes a maximum, `leftovers` names what it finds), but its refusal message
-  lists in directory order; sorting it is the owner's decision, as `homefs.Root.Entries` and
-  `seat`'s `entries` already do.
+  method (no body to mark), a comparison helper of the test's own, a production function that
+  uses a directory order without returning it (a message naming the entries as read), a sort
+  through another package's helper (not counted, so its listing is reported), and a sort of
+  something other than the listing in the same function (counted as one).
 
 ### project_test_spin
 
@@ -1747,6 +1762,27 @@ bash they replaced and in the Go during review; each instance is in the audit re
   the `./` prefix, the tests against the program's own option strings (scp's getopt string), and
   the host checks.
 
+- **A size or a cap computed from another encoding than the one written** (Plan 00209, the seat
+  store): teamchat's `member/state` sized each store entry in A's compact form
+  (`proto.Value.Size`, which writes `<`, `>`, `&` as one byte and U+2028 as three) and wrote the
+  file with encoding/json, which writes each as a six-byte escape, so a send of 16 373 `<` passed
+  the 20 KiB entry rule and was written as 101 263 bytes; 32 of them were refused only by the file
+  cap, which n3d-D1 promised never fires first. The sweep found the same defect in the awaiting
+  list's transcript path, `MaxRosterCache` (a Matrix event's 65 536 canonical bytes, written up to
+  six times as large) and `MaxSession`. Its forms are many: compact against escaped JSON, a Go
+  `len` against a JSON length, characters against bytes, runes against bytes. No rule can be
+  written: which call measures the value a later write writes, and in which encoding that write
+  is, is the data flow between two places the syntax tree does not join (the size is taken on a
+  `proto.Value`, the bytes come from a `json.Marshal` of a struct elsewhere), and a rule that
+  flagged every `Size()` or `len` near a cap would flag A's own wire caps, which are right
+  because both ends measure the compact form. What holds it: one encoder per writer, and every
+  size a rule takes measured through it (`member/state`'s `marshal` and `writtenSize`; the
+  delivery cap is `proto.WireBytes`, the same escaper the socket line is written with), and a
+  table test per file over every capped field enumerated from the code
+  (`store_written_test.go` walks `listCaps` and the `Store` type, so a list or key added later
+  fails until it has a row; `files_written_test.go` for the roster cache and session.json),
+  filling each with `<`, `&`, `"`, `\`, controls, multibyte UTF-8 and U+2028.
+
 - **A structured value matched as loose text** (`lsmod | grep "^nvidia"` counted `nvidia_drm`,
   nvidia-status B5; `grep -F | head -1` picked an older profile, nord B8; any `://` read as a URL
   and a desktop ID matched at any depth, open B15 and B3; a package asked by its old name,
@@ -1874,6 +1910,29 @@ bash they replaced and in the Go during review; each instance is in the audit re
   shape in the test's syntax tree; the `project_realtime_bound` rule already stops a test
   *shortening* a bound, and the fix for this class is to state the bound as the schedule's
   worst case, as the sibling wait for the reverse transition (`backoffCap + settle`) does.
+
+- **A request's wait ending reported as a failure of the engine rather than as a bound that
+  expired** (fedora-desktop#160: under heavy CPU starvation `status` answered 1 `internal`, "the
+  link failed inside"). Each op the link's engine serves waits for the state goroutine
+  (`Engine.do`) under the request's own deadline (2 s for status, inbox and recv). When the state
+  goroutine does not take the step in time, `do` returns the context's error, and status, inbox,
+  recv, verify, history, say, ping and reply handed it to `internal` or `doneOf`, which answered
+  1; only wait (and some send steps) named it 4 `timed-out`. No rule: whether an error is a
+  context's end is a fact of what a call returns at run time, through `do`, a team call or a
+  helper that wraps it, not a shape a syntax tree shows; a rule on the call sites would also flag
+  the record-write and framing errors that are the link's own. What holds it instead: the engine's
+  one sink. `internal` (which `doneOf` falls back to) answers a context's end as 4 `timed-out`
+  ("the link did not answer within the request's deadline"), so no op can answer it as 1;
+  `TestAContextsEndIsNeverInternal` pins the sink and
+  `TestARequestWhoseStepTheStateGoroutineDoesNotTakeTimesOut` holds the state goroutine and ends
+  each served op's deadline only once it is blocked waiting (`leakcheck.Drive`'s step): red on
+  8 of the 9 ops before the fix (wait was sound), green after. Swept and sound: the hooks' view
+  (`link/hooks.go`) answers an empty hook answer on any engine error, by design; the client's
+  `internal` answers are its own framing, connection and acknowledgement failures, and a client
+  past its deadline sees the link gone (a 69 answer). Not closed: `ErrStopped` (a request that
+  reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
+  reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
+  lists its ops by hand.
 
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
