@@ -61,6 +61,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
+| `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1446,6 +1447,46 @@ A condition that takes what it finds, a receive, is not an act: it holds once, a
 - Not caught: a condition held in a variable or built by a function, a call that acts through
   another function (a helper that advances), and an act that is not a clock move, a send or a
   close (a write to a fake, a call that releases a gate).
+
+### project_fake_restart
+
+**What it is about.** A test takes a fake server down (`Stop`, `Restart`) from a hook, a
+callback or a goroutine, while the test's own goroutine can be using it, with no point where the
+test waits for the restart to finish. A request in flight then is dropped, and the client's
+retries meet the stopped server: the request gets no answer, under load only.
+
+**Why it exists.** `teamsync` `TestARestartedServerBetweenPolls` failed once in CI
+(`resend_test.go:80: ... PUT .../send/...: no answer`, fedora-desktop#149). The engine's persist
+hook restarted fakehs on the team's goroutine at its second store write, and that write is the
+one the test's own post causes: the long-poll is woken when the event is stored, before the
+post's answer is written, so the restart can drop the post, and the client's three tries
+(`noWait` between them) can all land while the server is down.
+
+**What it flags**, in `_test.go` files: a call of `Stop` or `Restart` on a type named `Server`
+of a package whose name starts with `fake`, inside a function literal or as a go statement's
+call. A literal handed straight to a method of package `testing` (`Cleanup`, a subtest's `Run`)
+or deferred is not judged; a literal nested in one is.
+
+**How to fix a violation.** The literal tells the test it has reached the point (it closes a
+channel and waits on another), and the test restarts the server on its own goroutine once its
+requests are answered.
+
+- Red, fixture: `testdata/src/fix/internal/badrestart` with the stub `fix/internal/fakehs` (the
+  hook's restart, a stop in a goroutine, a go statement, a literal nested in a cleanup; the
+  test's own restart, a cleanup, a subtest, a deferred stop, `Start` and `Close`, and a `Server`
+  of a package not named fake: clean).
+- Red, real tree: exactly one finding over `./...`, the originating `resend_test.go:73`, seen
+  with the test as it was. The interleaving itself was forced red deterministically: with the
+  post's answer held (`fakehs.Fault.Hold`, new) and the hook's restart split so its `Start` waits
+  for the test's end, the test fails at its post with the CI message (`... no answer`), every run.
+- Green: the hook answers the post, signals and waits; the test restarts after its post is
+  answered (50 runs, then 60 at `-cpu 1,2,4`, all passed). 0 findings over `./...` untagged, with
+  `busfailpoints`, `tuwunel` and `ccyteamstest`, and over the nested `qa` module. The other tests
+  that stop or restart a fake server (`fakehs`, `matrix`, `guest`, `ctl`, `seat`, `wiring`) do so
+  on the test's goroutine, a subtest's or a cleanup.
+- Not caught: a stop reached through a helper called in a literal, a server held in an
+  interface, a fake named otherwise, and a literal stored and later called on the test's own
+  goroutine (flagged, a false positive the same fix removes).
 
 ## Defect classes that cannot be a rule
 

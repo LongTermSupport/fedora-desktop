@@ -334,6 +334,9 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     the PUT was made under; built on `fix/recover-stale-401-159` ([BUILT-n3.md](BUILT-n3.md)).
   - The retry hold (`fix/retry-hold-lift`): a newer sync already lifts it, now pinned; the E2E's
     slow delivery is the team's up-mark at its first long-poll, left to the coordinator ([BUILT-n3.md](BUILT-n3.md)).
+  - Issue #149: `teamsync` `TestARestartedServerBetweenPolls` restarts fakehs on the test's
+    goroutine after its post is answered; rule `project_fake_restart` holds the class
+    (`fix/teamsync-restart-149`).
 
 - [ ] 🔄 **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   one `teamchat-session-<...>.service` per seat (n3b-D2: a member is (team, container, checkout,

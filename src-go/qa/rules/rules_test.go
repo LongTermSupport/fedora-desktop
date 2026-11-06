@@ -98,6 +98,10 @@ func TestTestSpin(t *testing.T) {
 // A condition handed to leakcheck.Poll or Drive is read twice around the idle reading, so it must
 // not act: the fixture has the clock moves, sends and closes in it (a select's, a nested
 // function literal's) and the reads, receives, steps and conditions held in a variable beside them.
+func TestFakeRestart(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), FakeRestart, "fix/internal/badrestart")
+}
+
 func TestPollPure(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PollPure, "fix/internal/pollpure")
 }
@@ -144,8 +148,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 26 {
-		t.Fatalf("want 26 rules, got %d", got)
+	if got := len(All()); got != 27 {
+		t.Fatalf("want 27 rules, got %d", got)
 	}
 }
 
