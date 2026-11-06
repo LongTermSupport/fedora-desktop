@@ -150,6 +150,16 @@ class TestEverySpellingOfRunningAScript:
             "cat rescue.bash | sh -s",
             'bash -c "$(cat rescue.bash)"',
             'eval "$(< rescue.bash)"',
+            "timeout -s KILL 5 bash rescue.bash",
+            "timeout --signal=KILL 5 bash rescue.bash",
+            "nice -n 10 bash rescue.bash",
+            "sudo -u nobody bash rescue.bash",
+            "env -u FOO bash rescue.bash",
+            "stdbuf -oL bash rescue.bash",
+            "flock /tmp/lock bash rescue.bash",
+            "(cd sub && bash ../rescue.bash)",
+            "cd -P sub && bash ../rescue.bash",
+            "{ bash rescue.bash; }",
         ],
     )
     def test_spelling_is_denied(self, handler, repo, command):
@@ -164,6 +174,34 @@ class TestEverySpellingOfRunningAScript:
     def test_absolute_path_is_denied(self, handler, repo, tmp_path):
         script = _write(repo / "rescue.bash", RESCUE_FIXTURE)
         assert handler.matches(_bash(f"bash {script}", tmp_path)) is True
+
+    def test_syntax_check_only_is_allowed(self, handler, repo):
+        _write(repo / "rescue.bash", RESCUE_FIXTURE)
+        assert handler.matches(_bash("bash -n rescue.bash", repo)) is False
+
+    def test_a_script_run_by_the_script_is_judged(self, handler, repo):
+        _write(repo / "inner.bash", RESCUE_FIXTURE)
+        _write(repo / "outer.bash", "#!/usr/bin/env bash\nbash ./inner.bash\n")
+        assert handler.matches(_bash("bash outer.bash", repo)) is True
+
+    def test_a_staged_but_uncommitted_script_is_denied(self, handler, repo):
+        _write(repo / "rescue.bash", RESCUE_FIXTURE)
+        _git(repo, "add", "rescue.bash")
+        assert handler.matches(_bash("bash rescue.bash", repo)) is True
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "printf 'git push origin x\\n' > f.bash && bash f.bash",
+            "cat > f.bash <<'EOF'\ngit add -A\ngit commit -m x\nEOF\nbash f.bash",
+        ],
+    )
+    def test_a_script_written_by_the_same_command_is_left_to_the_command_guards(self, handler, repo, command):
+        """Its text is on the command line, and the daemon's command view reads it as commands."""
+        from claude_code_hooks_daemon.utils.command_position import command_position_segments
+
+        assert handler.matches(_bash(command, repo)) is False
+        assert any("git" in segment for segment in command_position_segments(command))
 
 
 class TestEveryMutationVerb:
@@ -191,11 +229,50 @@ class TestEveryMutationVerb:
             "git clean -fd",
             'git -C "$w" add -A',
             "git -c core.hooksPath=/dev/null commit -m x",
+            "git cherry-pick abc123",
+            "git revert abc123",
+            "git pull --ff-only",
+            "git tag -d v1",
+            "git tag v1",
+            "git branch new-work",
+            "git branch -f main abc123",
+            "git branch -M old new",
+            "git worktree prune",
+            "git am patch.mbox",
+            "git apply --index p.diff",
+            "git mv a b",
+            "git reflog expire --expire=now --all",
+            "git gc --prune=now",
+            "git filter-branch --tree-filter x HEAD",
+            "/usr/bin/git push origin b",
+            '"git" push origin b',
+            'if out=$(git -C "$w" commit -F m 2>&1); then echo ok; fi',
+            'git -C "$w" \\\n  push -u origin "$b"',
+            "G=git\n$G push origin b",
+            'GIT=/usr/bin/git\n"${GIT}" -C x commit -m y',
+            'g() { git -C "$w" "$@"; }\ng push origin b',
         ],
     )
     def test_verb_is_denied(self, handler, repo, line):
         _write(repo / "s.bash", f"#!/usr/bin/env bash\n{line}\n")
         assert handler.matches(_bash("bash s.bash", repo)) is True
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            'echo "then run: git push origin --delete old"',
+            "printf '%s\\n' 'git commit -m x'",
+            "git push --dry-run origin x",
+            "git tag -l",
+            "git branch -a",
+            "git branch --show-current",
+            "git fetch origin",
+            "git worktree list",
+        ],
+    )
+    def test_hazard_free_line_is_allowed(self, handler, repo, line):
+        _write(repo / "s.bash", f"#!/usr/bin/env bash\n{line}\n")
+        assert handler.matches(_bash("bash s.bash", repo)) is False
 
 
 class TestPythonWrappingGit:
@@ -206,12 +283,32 @@ class TestPythonWrappingGit:
             'subprocess.run(["git", "-C", repo, "push", "-u", "origin", b], check=True)',
             "subprocess.run(['git', 'worktree', 'remove', path], check=True)",
             'subprocess.run(["git", "branch", "-D", b], check=True)',
+            'subprocess.run(["git", "--no-pager", "push"], check=True)',
+            'subprocess.run(\n    [\n        "git",\n        "commit",\n        "-m",\n        "x",\n    ],\n    check=True,\n)',
+            'run_shell("git push origin b")',
         ],
     )
     def test_python_subprocess_git_mutation_is_denied(self, handler, repo, line):
         _write(repo / "p.py", f"import subprocess\n{line}\n")
         assert handler.matches(_bash("python3 p.py", repo)) is True
         assert handler.matches(_bash("python p.py --dry-run", repo)) is True
+
+    def test_python_git_helper_function_is_denied(self, handler, repo):
+        _write(
+            repo / "p.py",
+            "import subprocess\n\n\ndef git(cwd, *args):\n"
+            '    subprocess.run(["git", *args], cwd=cwd, check=True)\n\n\n'
+            'git(".", "init", "-q")\ngit(".", "add", ".gitignore")\n',
+        )
+        assert handler.matches(_bash("python3 p.py", repo)) is True
+
+    def test_python_git_helper_with_only_reads_is_allowed(self, handler, repo):
+        _write(
+            repo / "p.py",
+            "import subprocess\n\n\ndef git(*args):\n"
+            '    return subprocess.run(["git", *args], check=True)\n\n\ngit("status")\ngit("log", "-1")\n',
+        )
+        assert handler.matches(_bash("python3 p.py", repo)) is False
 
     def test_python_read_only_git_is_allowed(self, handler, repo):
         _write(repo / "p.py", 'import subprocess\nsubprocess.run(["git", "stash", "list"], check=True)\n'
