@@ -388,7 +388,8 @@ a repository is no longer offered for a checkout of it. Report:
   seat files. Tests first (red: `Probe` and `Summary` undefined, `LAST_TEAM_ROLES` refused by
   the reader), then green. Open: the network line is asked at its usual later step, not inside
   the summary; adding a team from the summary is not offered (the list is `choose-teams`);
-  host check of the real gum screen after `play-claude-yolo.yml`. Report:
+  host check of the real gum screen after `play-claude-yolo.yml`. The first two open items are
+  taken by Plan 00248 (every team start through this summary). Report:
   [subagent-reports/261103-launch-summary.md](subagent-reports/261103-launch-summary.md).
 
 ## Success Criteria

@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00248-teams-quick-launch](00248-teams-quick-launch/) - Not Started (plan only; owner decisions D1-D11 open). Every team start (`ccy --teams`, `--teams TEAM`, the picker's and the create wizard's "Start a ccy session", adding a team to a running session) settled on the one launch summary of Plan 00201 Task 2.33: each team, seat and role defaulted, Enter accepts all, a held seat or used-up token shown and asked; proposes to supersede Plan 00223's separate screen
+
 - [00246-agent-bus-v2-landing-and-cross-network](00246-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
 
 - [00247-shell-history-clean-and-skip](00247-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
