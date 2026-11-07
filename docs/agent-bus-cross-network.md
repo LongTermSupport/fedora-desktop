@@ -25,7 +25,9 @@ the list:
   route is refused, naming the CIDR, unless it is the host's own bus address or the bridge: a
   homeserver is not meant to be on the internet, so add a route (a VPN, a static one) instead.
 - The unit's IP filter and the firewall rules are functions of the effective networks alone: the
-  filter allows loopback, each listen address and each effective network; the firewall has one
+  filter denies every address but loopback, each listen address and each effective network (the
+  drop-in carries `IPAddressDeny=any` as well as the allow, since systemd grants whatever no rule
+  denies), and the unit may bind only the team's port; the firewall has one
   rich rule per effective network, in the zone of the interface that routes it.
 - `networks` is an approved field, like the others that decide who can reach the team: a change
   needs the owner's approval (`team approve`), and `--add` and `--remove` work on it. Removing a
@@ -102,7 +104,8 @@ On one machine with two addresses: a team that declares both networks serves TLS
 a member connects through each with the bundle's CA, and the rules the render produces allow the
 declared networks and nothing outside them. That is held by tests, not by a second machine: the
 connection from an address outside the networks is refused by the filter and the firewall rules
-as rendered, which the tests read, not by a live firewall. The second-machine run (a member on
+as rendered, which the tests read (the filter as systemd applies it, deny half included), not by
+a live systemd or firewall. The second-machine run (a member on
 another host joins over TLS, its credential issued over ssh, and a connection from an undeclared
 network is refused) is a check for the VM lab or the host once the play and the launcher exist.
 Not built: a health probe that makes a TLS request through the terminator, which would also catch

@@ -142,7 +142,9 @@ const wantDropIn = `# Rendered by teamchat-admin team apply for team ops; do not
 [Service]
 ExecStart=/usr/local/lib/teamchat/server/tuwunel-1.9.4
 MemoryHigh=512M
+IPAddressDeny=any
 IPAddressAllow=127.0.0.1/32 ::1/128
+SocketBindDeny=any
 SocketBindAllow=tcp:8448
 `
 

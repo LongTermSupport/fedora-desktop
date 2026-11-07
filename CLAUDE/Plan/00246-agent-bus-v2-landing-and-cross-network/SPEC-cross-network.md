@@ -107,8 +107,12 @@ install are listed last, under "Owner questions".
 - **X18b** The drop-in holds everything that is a function of the effective networks (X4): the
   device units of the interfaces carrying a listen address (`After=`, `Wants=`), `ExecStart=`
   naming `teamchat tls` with the team, the port and each listen address, a `LoadCredential=` for
-  `leaf.crt` and for `leaf.key` (never the CA's key), `IPAddressAllow=` (loopback, each listen
-  address as a host prefix and each effective network) and `SocketBindAllow=tcp:<port>`. The
+  `leaf.crt` and for `leaf.key` (never the CA's key), `IPAddressDeny=any` with `IPAddressAllow=`
+  (loopback, each listen address as a host prefix and each effective network) and
+  `SocketBindDeny=any` with `SocketBindAllow=tcp:<port>`. systemd grants what no rule denies, so
+  an allow restricts only beside its deny; the drop-in carries the deny itself, as the
+  homeserver's drop-in does, and leans on no base unit for it (no Go code makes the base unit's
+  text, and a drop-in is judged alone: `TestEveryUnitTextDeniesWhatItDoesNotAllow`). The
   homeserver's own drop-in and config no longer change when a network does: the config binds
   `127.0.0.1` alone, its filter allows loopback alone and it waits for no device; units.json's
   digest sets lose the device-unit digest with them.
@@ -255,9 +259,12 @@ the builder takes where this text is silent goes in its report.
   Held by `TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused` (`host`): a real apply
   over two interfaces, the terminator on two loopback addresses with the leaf that apply made
   (the documentation addresses cannot be bound, so the member names each derived address while
-  dialling a loopback one), a member holding only the CA, and the filter line and the recorded
-  rules read for addresses inside and outside both networks. The refusal is of the rules as
-  rendered, not of a live firewall.
+  dialling a loopback one), a member holding only the CA, and the terminator's filter and the
+  recorded rules read for addresses inside and outside both networks. The filter is read as
+  systemd applies it (an allow lets in, else a deny keeps out, else the address is let in), so
+  its `IPAddressDeny=any` is what refuses an outside address, and the socket bind must be
+  `SocketBindDeny=any` beside the port's allow; a drop-in without either deny fails X29. The
+  refusal is of the unit text and the rules as rendered, not of a live systemd or firewall.
 - **X30** The success criterion of Plan 00246: a member on a second machine joins over TLS, its
   credential issued over ssh by X21, and a connection from an undeclared network is refused. The
   second-machine run is a VM-lab or host check the owner's coordinator queues; the code is proven
