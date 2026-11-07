@@ -84,8 +84,7 @@ func render(s renderSpec) (rendered, error) {
 	if err := s.check(); err != nil {
 		return rendered{}, err
 	}
-	d := dropInSpec{team: s.team.ID, version: s.pin.Version, memoryHigh: s.pin.MemoryHigh, port: s.team.Port}
-	tls := tlsDropInSpec{team: s.team.ID, port: s.team.Port, listen: s.listen, networks: s.networks, devices: s.devices}
+	d, tls := dropInSpecs(s.team.ID, s.team.Port, s.pin, s.listen, s.networks, s.devices)
 	config := renderConfig(s)
 	r := rendered{config: config, dropIn: d.text(), tlsDropIn: tls.text(), teamFile: s.team.Canonical()}
 	r.digests = digests{
@@ -99,6 +98,20 @@ func render(s renderSpec) (rendered, error) {
 		},
 	}
 	return r, nil
+}
+
+// dropInSpecs are a team's two drop-ins, the homeserver's and the terminator's, as render makes them.
+func dropInSpecs(team paths.TeamID, port int, pin Pin, listen []netip.Addr, networks []netip.Prefix, devices []string) (dropInSpec, tlsDropInSpec) {
+	return dropInSpec{team: team, version: pin.Version, memoryHigh: pin.MemoryHigh, port: port},
+		tlsDropInSpec{team: team, port: port, listen: listen, networks: networks, devices: devices}
+}
+
+// DropIns are the texts of a team's two drop-ins, the homeserver's then the terminator's, as
+// render makes them: what the unit-text judges outside this package read, so that every unit
+// text the Go code makes is judged in one place (v1names' units test).
+func DropIns(team paths.TeamID, port int, pin Pin, listen []netip.Addr, networks []netip.Prefix, devices []string) ([]byte, []byte) {
+	d, tls := dropInSpecs(team, port, pin, listen, networks, devices)
+	return d.text(), tls.text()
 }
 
 func (s renderSpec) check() error {

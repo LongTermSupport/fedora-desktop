@@ -198,6 +198,19 @@ func TestConfigKeysAreThePinnedTuwunels(t *testing.T) {
 	}
 }
 
+// DropIns, which the unit-text judges outside this package read, is render's two drop-ins.
+func TestDropInsAreRendersDropIns(t *testing.T) {
+	s := spec(t, input(t, teamDoc()))
+	r, err := render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, terminator := DropIns(s.team.ID, s.team.Port, s.pin, s.listen, s.networks, s.devices)
+	if string(server) != string(r.dropIn) || string(terminator) != string(r.tlsDropIn) {
+		t.Errorf("DropIns:\n%s\n%s\nrender:\n%s\n%s", server, terminator, r.dropIn, r.tlsDropIn)
+	}
+}
+
 // HS4: a terminator with no listen address and no device allows loopback once and leaves [Unit]
 // empty.
 func TestRenderDeduplicatesLoopback(t *testing.T) {
