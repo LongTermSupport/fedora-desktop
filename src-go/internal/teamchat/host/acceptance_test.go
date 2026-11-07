@@ -1,24 +1,28 @@
 package host
 
 import (
-	"crypto/tls"
-	"crypto/x509"
+	"bytes"
+	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/tlsverb"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/tlsterm"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // filterMatches is whether some entry of the unit's directive key (IPAddressAllow= or
@@ -60,84 +64,139 @@ func rulesAllow(rules []Rule, addr netip.Addr, port int) bool {
 	return slices.ContainsFunc(rules, func(r Rule) bool { return r.Port == port && r.Source.Contains(addr) })
 }
 
-// echoServer is a loopback server standing for the homeserver: it echoes each connection.
-func echoServer(t *testing.T) netip.AddrPort {
+// homeserver is the fake homeserver on 127.0.0.1 at a free port, which the team then declares as
+// its port: the terminator relays to 127.0.0.1 at the team's port, as the real one does.
+func homeserver(t *testing.T) (*fakehs.Server, uint16) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	hs := fakehs.New(fakehs.Options{ServerName: "ops.example.org", Now: func() time.Time { return t0 }})
+	if err := hs.Start(); err != nil {
 		t.Fatal(err)
 	}
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		for {
-			c, aerr := ln.Accept()
-			if aerr != nil {
-				return
-			}
-			wg.Go(func() {
-				if _, cerr := io.Copy(c, c); cerr != nil {
-					t.Logf("the echo ended: %v", cerr)
-				}
-				if cerr := c.Close(); cerr != nil {
-					t.Logf("closing the echo: %v", cerr)
-				}
-			})
-		}
-	})
 	t.Cleanup(func() {
-		if err := ln.Close(); err != nil {
+		if err := hs.Close(); err != nil {
 			t.Error(err)
 		}
-		wg.Wait()
 	})
-	return netip.MustParseAddrPort(ln.Addr().String())
+	at := netip.MustParseAddrPort(strings.TrimPrefix(hs.URL(), "http://"))
+	return hs, at.Port()
 }
 
-// memberReaches is a member's ping through the terminator at at: its one root is pool (the
-// bundle's CA), TLS 1.3 its least version, and name the address it means to connect to.
-func memberReaches(t *testing.T, pool *x509.CertPool, at netip.AddrPort, name string) error {
+// unitStop is the verb's Notify, a context that ends at the unit's stop, and the stop: the
+// test's end stops it too.
+func unitStop(t *testing.T) (func() (context.Context, context.CancelFunc), context.CancelFunc) {
 	t.Helper()
-	cfg := &tls.Config{RootCAs: pool, ServerName: name, MinVersion: tls.VersionTLS13, Time: func() time.Time { return t0 }}
-	c, err := (&tls.Dialer{Config: cfg}).DialContext(t.Context(), "tcp", at.String())
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := c.Close(); cerr != nil {
-			t.Errorf("closing the member's connection: %v", cerr)
-		}
-	}()
-	if _, err = c.Write([]byte("ping")); err != nil {
-		return err
-	}
-	got := make([]byte, 4)
-	if _, err = io.ReadFull(c, got); err != nil {
-		return err
-	}
-	if string(got) != "ping" {
-		return fmt.Errorf("the echo was %q", got)
-	}
-	return nil
+	ctx, stop := context.WithCancel(t.Context())
+	t.Cleanup(stop)
+	return func() (context.Context, context.CancelFunc) { return ctx, stop }, stop
 }
 
-// theTerminator is the terminator of a team's apply, listening on two loopback addresses with the
-// leaf the apply made, over the homeserver at up.
-func theTerminator(t *testing.T, w *world, up netip.AddrPort) *tlsterm.Server {
+// execStart is the drop-in's ExecStart= as the verb's parsed command line: the member binary, then
+// the arguments the unit starts it with.
+func execStart(t *testing.T, dropIn string) cli.Invocation {
 	t.Helper()
-	leaf := theLeaf(t, w)
-	srv, err := tlsterm.Start(t.Context(), tlsterm.Config{
-		Listen:   []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:0"), netip.MustParseAddrPort("127.0.0.2:0")},
-		Upstream: up, CertPEM: leaf.CertPEM(), KeyPEM: leaf.KeyPEM(), Clock: clock.NewFake(0, t0.UnixMilli()),
+	var argv []string
+	for line := range strings.SplitSeq(dropIn, "\n") {
+		if value, ok := strings.CutPrefix(line, "ExecStart="); ok {
+			if argv != nil {
+				t.Fatalf("the drop-in has more than one ExecStart=:\n%s", dropIn)
+			}
+			argv = strings.Fields(value)
+		}
+	}
+	if len(argv) < 2 || argv[0] != paths.MemberBinaryPath {
+		t.Fatalf("the drop-in's ExecStart= %q does not run %s", argv, paths.MemberBinaryPath)
+	}
+	inv, err := cli.Parse(argv[1:])
+	if err != nil {
+		t.Fatalf("the member binary refuses the unit's command line %q: %v", argv[1:], err)
+	}
+	return inv
+}
+
+// credentialsDir is the directory systemd gives the unit for its LoadCredential= lines: each named
+// file a copy of the host file the line names, read from the world's root, at mode 0400.
+func credentialsDir(t *testing.T, w *world, dropIn string) string {
+	t.Helper()
+	dir := t.TempDir()
+	n := 0
+	for line := range strings.SplitSeq(dropIn, "\n") {
+		value, ok := strings.CutPrefix(line, "LoadCredential=")
+		if !ok {
+			continue
+		}
+		name, from, ok := strings.Cut(value, ":")
+		if !ok || name == "" || strings.Contains(name, "/") {
+			t.Fatalf("LoadCredential=%s is not a name and a path", value)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(w.read(from)), 0o400); err != nil {
+			t.Fatal(err)
+		}
+		n++
+	}
+	if n == 0 {
+		t.Fatalf("the drop-in loads no credential:\n%s", dropIn)
+	}
+	return dir
+}
+
+// route maps an address the documentation ranges name, which no test can bind, to a loopback
+// address that stands for it: the terminator binds the stand-in, and the member's dial to the
+// documentation address reaches it.
+type route map[netip.Addr]netip.Addr
+
+func (r route) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	at, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	stand, ok := r[at.Addr()]
+	if !ok {
+		return nil, fmt.Errorf("no stand-in for %s", at.Addr())
+	}
+	return (&net.Dialer{}).DialContext(ctx, network, netip.AddrPortFrom(stand, at.Port()).String())
+}
+
+// terminator is the verb's terminator over the stand-ins: tlsterm itself, given exactly the
+// configuration the verb built, but with each listen address bound at its stand-in. It refuses a
+// listen address with no stand-in, and an upstream that is not upstream, and says on started that
+// it serves.
+func (r route) terminator(upstream netip.AddrPort, started chan<- struct{}) func(context.Context, tlsterm.Config) error {
+	return func(ctx context.Context, cfg tlsterm.Config) error {
+		if cfg.Upstream != upstream {
+			return fmt.Errorf("the verb's upstream is %s, want the homeserver %s", cfg.Upstream, upstream)
+		}
+		stood := make([]netip.AddrPort, 0, len(cfg.Listen))
+		for _, a := range cfg.Listen {
+			stand, ok := r[a.Addr()]
+			if !ok {
+				return fmt.Errorf("the verb listens on %s, which no network derived", a)
+			}
+			stood = append(stood, netip.AddrPortFrom(stand, a.Port()))
+		}
+		cfg.Listen = stood
+		srv, err := tlsterm.Start(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		close(started)
+		<-ctx.Done()
+		return srv.Close()
+	}
+}
+
+// memberOf is a member's client as a bundle builds it, for base, trusting only caPEM, and dialling
+// through r.
+func memberOf(t *testing.T, base, caPEM, token string, r route) *matrix.Client {
+	t.Helper()
+	c, err := matrix.NewMember(matrix.Config{
+		BaseURL: base, CAPEM: caPEM, Token: token, Wall: clock.NewFake(0, t0.UnixMilli()),
+		Clock: clock.NewFake(0, t0.UnixMilli()), Dial: r.dial,
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a member client for %s: %v", base, err)
 	}
-	t.Cleanup(func() {
-		if cerr := srv.Close(); cerr != nil {
-			t.Error(cerr)
-		}
-	})
-	return srv
+	t.Cleanup(c.Close)
+	return c
 }
 
 // letsIn is the addresses the unit's filter and the firewall rules, as the apply wrote them, let
@@ -181,16 +240,28 @@ func letsIn(t *testing.T, w *world, port int) {
 
 // X29: on one machine with two addresses, a team that declares both networks is reached through
 // each of them over TLS by a member that holds only the bundle's CA, and an address outside the
-// declared networks is refused by the filter and by the firewall rules the apply recorded. The
-// documentation addresses cannot be bound, so the terminator listens on two loopback addresses
-// with the leaf the apply made, and the member names each derived address as the one it is
-// connecting to: the handshake is the real one, and the names are the part the networks decide.
+// declared networks is refused by the filter and by the firewall rules the apply recorded.
+//
+// What runs is what the unit runs: the verb `teamchat tls` (tlsverb.Serve) is given the command
+// line parsed from the rendered ExecStart= and a credentials directory made from the rendered
+// LoadCredential= lines, and the terminator it configures is tlsterm itself over the fake
+// homeserver at 127.0.0.1 and the team's port. The member is matrix.NewMember with the CA the
+// admin issues bundles with (CAPEM) and the url's form, https to a derived address and the team's
+// port, and it makes an authenticated call. Its limit: the documentation addresses cannot be
+// bound, so the terminator binds a loopback stand-in for each derived listen address and the
+// member's dial to that address reaches the stand-in; the names the leaf carries, the name the
+// member checks, the port, the credentials and the trust are the real ones. systemd itself (the
+// filter, the socket bind, the credentials' copy) is not run: the drop-in's text is read as
+// systemd would apply it.
 func TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused(t *testing.T) {
 	leakcheck.Check(t)
+	hs, port := homeserver(t)
+	portText := strconv.Itoa(int(port))
 	w := newWorld(t)
 	withSecondNIC(w)
 	doc := teamDoc()
 	docTeam(doc)["networks"] = []any{"192.0.2.0/24", "203.0.113.0/24"}
+	docTeam(doc)["port"] = int(port)
 	if _, err := w.apply(approved(w, doc)); err != nil {
 		t.Fatal(err)
 	}
@@ -202,18 +273,61 @@ func TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused(t *testing.
 	if want := []string{"192.0.2.10", "203.0.113.9"}; !slices.Equal(units.listen, want) {
 		t.Fatalf("the listen addresses %v, want one in each network: %v", units.listen, want)
 	}
-	pool, err := pki.Pool(theCA(t, w).CertPEM())
+	dropIn := w.read(paths.TLSDropInFile(team))
+	r := route{
+		netip.MustParseAddr("192.0.2.10"):   netip.MustParseAddr("127.0.0.2"),
+		netip.MustParseAddr("203.0.113.9"):  netip.MustParseAddr("127.0.0.3"),
+		netip.MustParseAddr("198.51.100.7"): netip.MustParseAddr("127.0.0.2"),
+	}
+	creds := credentialsDir(t, w, dropIn)
+	var stderr bytes.Buffer
+	e := cli.Env{Stderr: &stderr, Getenv: func(k string) string {
+		if k == paths.EnvCredentials {
+			return creds
+		}
+		return ""
+	}}
+	inv := execStart(t, dropIn)
+	notify, stop := unitStop(t)
+	started := make(chan struct{})
+	done := make(chan term.ExitCode, 1)
+	go func() {
+		done <- tlsverb.Serve(e, inv, tlsverb.Deps{
+			Run:    r.terminator(netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), port), started),
+			Clock:  clock.NewFake(0, t0.UnixMilli()),
+			Notify: notify,
+		})
+	}()
+	select {
+	case <-started:
+	case code := <-done:
+		t.Fatalf("the verb ended before serving, exit %d: %s", code, stderr.String())
+	}
+	caPEM, err := CAPEM(w.root, team)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := theTerminator(t, w, echoServer(t))
-	for i, at := range srv.Addrs() {
-		if err := memberReaches(t, pool, at, units.listen[i]); err != nil {
-			t.Errorf("a member could not reach %s through %s: %v", units.listen[i], at, err)
+	token, err := hs.MintToken(hs.AddUser("alice", "", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range units.listen {
+		base := "https://" + addr + ":" + portText
+		who, werr := memberOf(t, base, caPEM, token, r).Whoami(t.Context())
+		if werr != nil || who.UserID != "@alice:ops.example.org" {
+			t.Errorf("a member could not reach the homeserver at %s: %+v, %v", base, who, werr)
 		}
 	}
-	if err := memberReaches(t, pool, srv.Addrs()[0], "198.51.100.7"); err == nil {
-		t.Error("a member took the leaf for an address no network declared")
+	outside := "https://198.51.100.7:" + portText
+	if _, werr := memberOf(t, outside, caPEM, token, r).Whoami(t.Context()); werr == nil {
+		t.Errorf("a member took the leaf for %s, an address no network declared", outside)
+	}
+	stop()
+	if code := <-done; code != term.ExitOK {
+		t.Errorf("the verb's stop exited %d: %s", code, stderr.String())
+	}
+	if units.port != int(port) {
+		t.Errorf("the units record the port %d, want the team's %d", units.port, port)
 	}
 	letsIn(t, w, units.port)
 }

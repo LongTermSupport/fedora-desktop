@@ -89,11 +89,11 @@ func env(dir string) (cli.Env, *bytes.Buffer) {
 }
 
 // deps is the verb's seams with f as its terminator and a context nothing cancels.
-func deps(f *terminator) runDeps {
-	return runDeps{
-		run:   f.run,
-		clock: clock.NewFake(0, 0),
-		notify: func() (context.Context, context.CancelFunc) {
+func deps(f *terminator) Deps {
+	return Deps{
+		Run:   f.run,
+		Clock: clock.NewFake(0, 0),
+		Notify: func() (context.Context, context.CancelFunc) {
 			return context.WithCancel(context.Background())
 		},
 	}
@@ -106,7 +106,7 @@ var listenArgs = []string{"--team", "ops", "--port", "8448", "--listen", "192.0.
 func TestV1ItServesTheLeafOnEveryListenAddressToTheLoopbackHomeserver(t *testing.T) {
 	f := newTerminator()
 	e, stderr := env(good(t))
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitOK {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	if f.calls != 1 {
@@ -138,7 +138,7 @@ func TestV1ItServesTheLeafOnEveryListenAddressToTheLoopbackHomeserver(t *testing
 func TestV2NoCredentialsDirectoryIsRefused(t *testing.T) {
 	f := newTerminator()
 	e, stderr := env("")
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
 		t.Fatalf("exit %d, want 78: %s", code, stderr)
 	}
 	if f.calls != 0 {
@@ -166,7 +166,7 @@ func TestV3AMissingOrEmptyCredentialIsRefusedByName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newTerminator()
 			e, stderr := env(credentials(t, c.files))
-			if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+			if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
 				t.Fatalf("exit %d, want 78: %s", code, stderr)
 			}
 			if f.calls != 0 {
@@ -188,7 +188,7 @@ func TestV4AFailedTerminatorIsTheVerbsFailure(t *testing.T) {
 	f := newTerminator()
 	f.err = errors.New("tlsterm: listening on 192.0.2.10:8448: address in use")
 	e, stderr := env(good(t))
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code == term.ExitOK {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code == term.ExitOK {
 		t.Fatal("a failed terminator exited 0")
 	}
 	if !strings.Contains(stderr.String(), "address in use") {
@@ -204,9 +204,9 @@ func TestV5TheStopSignalEndsTheRun(t *testing.T) {
 	f.block = true
 	e, stderr := env(good(t))
 	d := deps(f)
-	d.notify = stopOnSignal
+	d.Notify = stopOnSignal
 	done := make(chan term.ExitCode, 1)
-	go func() { done <- run(e, parsed(t, listenArgs...), d) }()
+	go func() { done <- Serve(e, parsed(t, listenArgs...), d) }()
 	<-f.started
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)

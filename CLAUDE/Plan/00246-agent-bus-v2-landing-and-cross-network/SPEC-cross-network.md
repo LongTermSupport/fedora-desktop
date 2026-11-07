@@ -270,10 +270,17 @@ the builder takes where this text is silent goes in its report.
   through each over TLS with the bundle's CA, and a connection from an address outside the
   declared networks is refused by the filter and by the firewall rule set the render produces.
   Held by `TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused` (`host`): a real apply
-  over two interfaces, the terminator on two loopback addresses with the leaf that apply made
-  (the documentation addresses cannot be bound, so the member names each derived address while
-  dialling a loopback one), a member holding only the CA, and the terminator's filter and the
-  recorded rules read for addresses inside and outside both networks. The filter is read as
+  over two interfaces at the fake homeserver's port; the verb `teamchat tls` (`tlsverb.Serve`) run
+  on the command line parsed from the rendered `ExecStart=` and a credentials directory made from
+  the rendered `LoadCredential=` lines, its terminator `tlsterm` relaying to the fake homeserver
+  on `127.0.0.1` at the team's port; and a member that is `matrix.NewMember` with the CA `CAPEM`
+  gives the admin and an `https` URL to each derived address, making an authenticated call. Its
+  limit: the documentation addresses cannot be bound, so the terminator binds a loopback stand-in
+  for each listen address the verb was given and the member's dial (`matrix.Config.Dial`) to
+  that address reaches the stand-in; the names on the leaf, the name the member checks, the port,
+  the credentials and the trust are the real ones. A client for an address outside the networks
+  fails the name check. The terminator's filter and the recorded rules are read for addresses
+  inside and outside both networks. The filter is read as
   systemd applies it (an allow lets in, else a deny keeps out, else the address is let in), so
   its `IPAddressDeny=any` is what refuses an outside address, and the socket bind must be
   `SocketBindDeny=any` beside the port's allow; a drop-in without either deny fails X29. The

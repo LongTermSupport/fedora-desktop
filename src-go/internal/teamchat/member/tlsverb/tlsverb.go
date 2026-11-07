@@ -41,15 +41,16 @@ var loopbackHomeserver = netip.MustParseAddr("127.0.0.1")
 
 // Main is `teamchat tls`.
 func Main(e cli.Env, inv cli.Invocation) term.ExitCode {
-	return run(e, inv, runDeps{run: tlsterm.Run, clock: clock.System(), notify: stopOnSignal})
+	return Serve(e, inv, Deps{Run: tlsterm.Run, Clock: clock.System(), Notify: stopOnSignal})
 }
 
-// runDeps are the verb's seams: the terminator, the clock its bounds are armed on, and the
-// context that ends when the unit is stopped.
-type runDeps struct {
-	run    func(context.Context, tlsterm.Config) error
-	clock  tlsterm.Clock
-	notify func() (context.Context, context.CancelFunc)
+// Deps are the verb's seams: the terminator, the clock its bounds are armed on, and the context
+// that ends when the unit is stopped. Main gives the real ones; a test that runs the verb as the
+// unit would (X29) gives its own.
+type Deps struct {
+	Run    func(context.Context, tlsterm.Config) error
+	Clock  tlsterm.Clock
+	Notify func() (context.Context, context.CancelFunc)
 }
 
 // stopOnSignal is a context that ends at the unit's stop (SIGTERM) or an interrupt.
@@ -57,14 +58,16 @@ func stopOnSignal() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 }
 
-func run(e cli.Env, inv cli.Invocation, d runDeps) term.ExitCode {
-	cfg, err := config(e, inv, d.clock)
+// Serve is the verb over d: the configuration read from inv and the unit's credentials, then the
+// terminator until the context d gives ends.
+func Serve(e cli.Env, inv cli.Invocation, d Deps) term.ExitCode {
+	cfg, err := config(e, inv, d.Clock)
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
-	ctx, stop := d.notify()
+	ctx, stop := d.Notify()
 	defer stop()
-	return exits.Write(e.Stderr, d.run(ctx, cfg))
+	return exits.Write(e.Stderr, d.Run(ctx, cfg))
 }
 
 // config is what the terminator serves: the credentials, every listen address at the port, and
