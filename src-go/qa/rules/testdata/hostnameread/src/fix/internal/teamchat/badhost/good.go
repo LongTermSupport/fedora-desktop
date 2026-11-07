@@ -25,5 +25,9 @@ func Clean(ctx context.Context) (string, error) {
 		return "", err
 	}
 	_ = Resolver{}.LookupAddr("192.0.2.7")
+	_ = os.Getenv("HOSTNAMES")
+	_ = "HOOKS_DAEMON_HOSTNAME=box\n" // a file's content, which a test writes to show it is ignored
+	_ = "/etc/hosts"
+	_ = "the hostname"
 	return Hostname(), nil
 }

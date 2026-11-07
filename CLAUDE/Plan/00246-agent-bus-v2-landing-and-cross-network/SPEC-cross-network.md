@@ -176,6 +176,9 @@ install are listed last, under "Owner questions".
   says so; the guarantee is that no code path reads a hostname into a handle.
 - **X27** `os.Hostname` and `net.LookupAddr` are not called under `teamchat/` except in the one
   file that reads the machine hostname for X26; a project rule holds it, red on a fixture.
+  The same rule holds `syscall.Uname`, `unix.Uname` and every constant naming the hostname's
+  variables (`HOOKS_DAEMON_HOSTNAME`, `HOSTNAME`) or files (`/etc/hostname`,
+  `/proc/sys/kernel/hostname`), and is red on the tree before X25's fix (review S4).
 - **X28** Handles that already embed a hostname are permanent identities; the owner retires and
   reissues them if wanted. (No v2 team is deployed, so there are none in the field.)
 
