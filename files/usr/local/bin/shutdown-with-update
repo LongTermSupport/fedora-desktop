@@ -12,7 +12,8 @@
 # restore is enabled, because that is what decides whether an agent should hand off.
 # Both are run bare by the desktop user and hand themselves to sudo, which the drop-in
 # /etc/sudoers.d/fedora-desktop-shutdown-with-update lets that user do without a password,
-# for exactly the argument lists the parser below accepts (Plan 00231). The root run needs
+# for exactly the argument lists the parser below accepts (Plan 00231), unless host_vars set
+# shutdown_with_update_sudoers: false, when sudo asks for the password instead. The root run needs
 # SUDO_USER: the sessions belong to that user and are found through that user's tmux server.
 # A consumer install has no ccy, so there are no sessions to warn (the install audience,
 # recorded by play-basic-configs.yml in AUDIENCE_FILE, says which).

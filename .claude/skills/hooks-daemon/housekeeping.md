@@ -35,15 +35,17 @@ because it restarts the daemon.
 | 9   | `block-report`          | `block-report`                | report only                     |
 | 10  | `harvest-background`    | `harvest-background`          | report only                     |
 | 11  | `worktree-reap`         | `worktree-reap` (no `--reap`) | report only                     |
-| 12  | `skill-scan`            | `skill-scan`                  | report only                     |
-| 13  | `format-markdown`       | `format-markdown .`           | acts without confirmation       |
-| 14  | `regenerate-docs`       | `regenerate-docs`             | acts without confirmation       |
-| 15  | `reconcile-settings`    | `reconcile-settings`          | HELD until `--apply`            |
-| 16  | `remote-docs-refresh`   | `remote-docs refresh`         | HELD until `--apply`            |
-| 17  | `prune-venvs`           | `prune-venvs`                 | HELD until `--apply`            |
-| 18  | `check-permissions-fix` | `check-permissions --fix`     | HELD until `--apply`            |
-| 19  | `worktree-reap-reap`    | `worktree-reap --reap`        | HELD until `--apply`            |
-| 20  | `optimise`              | the `optimise` subcommand     | HELD until `--apply`; runs LAST |
+| 12  | `branch-sweep`          | `branch-sweep` (no `--clean`) | report only                     |
+| 13  | `skill-scan`            | `skill-scan`                  | report only                     |
+| 14  | `format-markdown`       | `format-markdown .`           | acts without confirmation       |
+| 15  | `regenerate-docs`       | `regenerate-docs`             | acts without confirmation       |
+| 16  | `reconcile-settings`    | `reconcile-settings`          | HELD until `--apply`            |
+| 17  | `remote-docs-refresh`   | `remote-docs refresh`         | HELD until `--apply`            |
+| 18  | `prune-venvs`           | `prune-venvs`                 | HELD until `--apply`            |
+| 19  | `check-permissions-fix` | `check-permissions --fix`     | HELD until `--apply`            |
+| 20  | `worktree-reap-reap`    | `worktree-reap --reap`        | HELD until `--apply`            |
+| 21  | `branch-sweep-clean`    | `branch-sweep --clean`        | HELD until `--apply`            |
+| 22  | `optimise`              | the `optimise` subcommand     | HELD until `--apply`; runs LAST |
 
 Every command is the daemon CLI verb of the same name; the printed procedure
 carries the resolved wrapper path for this install. `optimise` has no CLI

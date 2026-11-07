@@ -35,9 +35,9 @@ import (
 // Bridge is the LXC bridge the members' allow rule is rendered from (NW4).
 const Bridge = "lxcbr0"
 
-// ErrTeamCANotMade is the team CA until the host's files that keep it are wired (Plan 00246 S7a):
-// an https team's bundle and reach facts need that CA, so they fail with this.
-var ErrTeamCANotMade = errors.New("the team CA is not made yet")
+// ErrTeamCANotMade is the team CA of a team no apply has made one for (host.ErrCANotMade): an https
+// team's bundle and reach facts need that CA, so they fail with this.
+var ErrTeamCANotMade = host.ErrCANotMade
 
 // New is the production wiring for a build of digest: Env.Wire of `teamchat-admin`'s main.
 func New(digest string) func() (*admin.System, error) {
@@ -80,6 +80,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 	}
 	clock := systemClock{}
 	root, run := m.root, m.root+paths.AdminRunDir
+	// The team CA is read from the host's files at each issue (Plan 00246 X15, S16).
+	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team) }
 	ownerGroup := sync.OnceValues(m.ownerGroup)
 	systemd := units.NewManager(m.dial, m.runner)
 	child := admin.ExecChild{Runner: m.runner, Self: self, Lookup: m.lookupUser}
@@ -121,8 +123,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 			},
 		},
 		Child:      child,
-		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCANotMade},
-		TeamCA:     teamCANotMade,
+		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCA},
+		TeamCA:     teamCA,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
 		Pin:        m.readPin,
@@ -161,7 +163,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 			c, err := backup.ReadTar(b, team, n)
 			return restore.Tar{
 				TimeMS: c.Manifest.TimeMS, ServerName: c.Manifest.ServerName, TeamFile: c.TeamJSON, Config: c.Config,
-				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token,
+				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token, CA: c.CA,
 			}, err
 		},
 		Backup: func(ctx context.Context, held *teamlock.Lock, keep []int64) (int64, error) {
@@ -212,9 +214,6 @@ func ctlUID(u admin.User) (uint32, error) {
 	}
 	return uint32(u.UID), nil
 }
-
-// teamCANotMade is admin.TeamCA until slice S7a reads the CA from the files the host keeps.
-func teamCANotMade(paths.TeamID) (string, error) { return "", ErrTeamCANotMade }
 
 func (m machine) ctlIDs() (admin.User, error) {
 	u, found, err := m.lookupUser(paths.CtlUser)

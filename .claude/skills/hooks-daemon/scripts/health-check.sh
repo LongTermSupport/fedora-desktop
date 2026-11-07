@@ -198,9 +198,10 @@ fi
 echo "Claude Code Hooks Daemon - Health Check"
 echo ""
 
-# Check if Python exists
-if [ ! -f "$PYTHON" ]; then
-    echo "❌ Python venv not found: $PYTHON"
+# The resolver already gated this path; ask the gate again so a venv whose
+# interpreter drifted after resolution is never run (Plan 00555).
+if ! venv_python_usable "$PYTHON"; then
+    echo "❌ Python venv not usable: $PYTHON"
     echo ""
     echo "Daemon installation may be corrupted. Try reinstalling."
     exit 1

@@ -98,7 +98,7 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   conflicts resolved by meaning, every gate re-run. Merged; the three branches are contained, and
   are deleted, locally and on GitHub, once F44 holds them (the remote delete is refused until
   then).
-- [ ] 🔄 **Task 8.8** (branch `spike/v2-cross-network`, draft pull request 128, stacked on 124; the
+- [ ] 🔄 **Task 8.8** (branch `spike/v2-cross-network`, draft pull request 128, based on F44 since 124 merged on 2026-11-05; the
   spec is [SPEC-cross-network.md](SPEC-cross-network.md), the code it starts from is mapped in
   [RESEARCH-cross-network-code-map.md](RESEARCH-cross-network-code-map.md)): Cross-network
   membership, direction 7 of Plan 00209, started on a branch cut from the head of pull request
@@ -120,11 +120,19 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   active; a probe through the terminator is not built (X18c). S11 is built: Element's check and
   apply say the CA must be trusted and where it is (X20; whether the Flatpak build honours an added
   CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. The owner's
-  slices after S11 are specified in SPEC-cross-network.md section 6 and not yet built: S12
-  unattended leaf renewal (X31), S13 a probe through the terminator (X32), S14 rotating the CA
-  (X33) and S15 Element trusts the CA through the play (X34). Then X30, the second-machine run,
-  a host or VM-lab check that needs the host play and the launcher, which the coordinator queues
-  once S12 to S15 are in.
+  slices after S11 (SPEC-cross-network.md section 6) are built, each in its own pull request
+  stacked on this one: S12 unattended leaf renewal (X31, #173), S13 a probe through the
+  terminator (X32, #176), S14 rotating the CA (X33, #177) and S15 Element trusts the CA through
+  the play (X34, #172). The coordinator's review of 128 (2026-11-07) found three things the
+  pull request called built that no production path reached, and they are fixed on this
+  branch: B1 the team backup carries the CA and a restore keeps it (backup manifest version 2);
+  B2 (S16) the production System serves the team CA, so https bundles can be issued; B3 both
+  teamchat drop-ins deny what they do not allow (`IPAddressDeny=any`, `SocketBindDeny=any`),
+  judged by `TestEveryUnitTextDeniesWhatItDoesNotAllow` and X29. S2 (the default url is https,
+  plain http only to a loopback address) and S3 (a url's port must be the team's) are fixed
+  too. Still open from that review: S1, S4 to S8 and the nits. Then X30, the second-machine run,
+  a host or VM-lab check that needs the host play and the launcher (the install path, #193
+  item 2), which the coordinator queues.
 
 ## Success Criteria
 
