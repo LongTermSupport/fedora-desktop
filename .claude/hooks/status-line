@@ -13,7 +13,86 @@
 
 set -euo pipefail
 
+# --- status fast path (generated; Plan 00542) ---
+if [[ "${BASH_SOURCE[0]}" == "/workspace/.claude/hooks/"* ]]; then
+    _rl_dir="/workspace/.claude/hooks-daemon/untracked"
+    _rl_sfx="-${HOSTNAME:-localhost}"; _rl_sfx="${_rl_sfx// /-}"
+    if [[ "$_rl_sfx" == *[[:upper:]]* ]]; then
+        for _rl_c in Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz; do
+            _rl_sfx="${_rl_sfx//${_rl_c:0:1}/${_rl_c:1:1}}"
+        done
+    fi
+    _rl_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-$_rl_dir/events$_rl_sfx}"
+    _sf_sock="$_rl_events_dir/status-line.sock"
+    # One red line naming the fault and its fix, then exit 0: the status line
+    # is the loud channel and nothing below falls back silently.
+    _sf_loud() { printf '\033[31m%s\033[0m\n' "$1"; exit 0; }
+    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-/workspace/.claude/hooks-daemon/untracked/bin/hooks-relay}"
+    if [[ ! -x "$_rl_bin" ]]; then
+        _sf_loud "⚠ hooks-relay missing or not executable ($_rl_bin): run bin/hooks-daemon transport on"
+    fi
+    if [[ -S "$_sf_sock" ]]; then
+        _sf_payload=""; _sf_rc=0
+        # read returns 1 at a normal EOF (no trailing NUL), above 1 on a real fault.
+        IFS= read -r -d '' _sf_payload || _sf_rc=$?
+        if [[ "$_sf_rc" -gt 1 ]]; then
+            _sf_loud "⚠ status line could not read its input (read status $_sf_rc)"
+        fi
+        _sf_req="${_sf_payload%"${_sf_payload##*[![:space:]]}"}"
+        _sf_req="${_sf_req#"${_sf_req%%[![:space:]]*}"}"
+        if [[ "$_sf_req" == "{"*"}" ]]; then
+            _sf_req="${_sf_req%\}}"
+            _sf_req="${_sf_req%"${_sf_req##*[![:space:]]}"}"
+            if [[ "$_sf_req" != "{" ]]; then _sf_req+=","; fi
+            _sf_req+='"hooks_daemon_raw_text":true'
+            if [[ "${COLUMNS:-}" =~ ^[1-9][0-9]{0,8}$ ]]; then
+                _sf_req+=",\"terminal_columns\":$COLUMNS"
+            fi
+            if [[ "${LINES:-}" =~ ^[1-9][0-9]{0,8}$ ]]; then
+                _sf_req+=",\"terminal_lines\":$LINES"
+            fi
+            _sf_req+="}"
+            _sf_reply=""; _sf_rc=0
+            _sf_reply="$("$_rl_bin" "$_sf_sock" --no-fallback --timeout-ms "2000" <<< "$_sf_req")" || _sf_rc=$?
+            # The ONE hand-off: no daemon answered. The start-up path below starts
+            # it and already reports loudly; every other outcome is judged here.
+            if [[ "$_sf_rc" -ne 10 ]]; then
+                if [[ "$_sf_rc" -eq 11 ]]; then
+                    _sf_loud "⚠ status timed out after 2s (daemon busy)"
+                fi
+                if [[ "$_sf_rc" -ne 0 ]]; then
+                    _sf_loud "⚠ status client failed (exit $_sf_rc)"
+                fi
+                if [[ -z "$_sf_reply" ]]; then
+                    _sf_loud "⚠ empty status reply (timed out after 2s, or protocol fault): run bin/hooks-daemon restart"
+                fi
+                if [[ "$_sf_reply" != $'\x1e'* ]]; then
+                    _sf_loud "⚠ daemon older than its forwarder: run bin/hooks-daemon restart"
+                fi
+                _sf_reply="${_sf_reply#$'\x1e'}"
+                if [[ -z "$_sf_reply" ]]; then
+                    _sf_loud "⚠ empty status reply (sentinel only): run bin/hooks-daemon restart"
+                fi
+                printf '%s\n' "$_sf_reply"
+                exit 0
+            fi
+        fi
+        # Hand-off: give the legacy path the stdin it was owed.
+        exec 0<<< "$_sf_payload"
+    fi
+fi
+# --- end status fast path ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --- init.sh parse guard (generated; Plan 00552) ---
+_ip_file="$SCRIPT_DIR/../init.sh"
+if ! _ip_err="$(bash -n "$_ip_file" 2>&1)"; then
+    _ip_msg="hooks daemon: $_ip_file does not parse (merge conflict markers?), so hooks are not running. Repair: run .claude/hooks-daemon/bin/hooks-daemon repair-install from the project root."
+    echo "HOOKS DAEMON ERROR [init_sh_unparseable]: $_ip_msg $_ip_err" >&2
+    printf '⚠ %s\n' "$_ip_msg"
+    exit 0
+fi
+unset _ip_file _ip_err
+# --- end init.sh parse guard ---
 source "$SCRIPT_DIR/../init.sh"
 
 # Ensure daemon is running (lazy startup)

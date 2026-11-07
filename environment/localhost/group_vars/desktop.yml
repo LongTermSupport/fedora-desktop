@@ -29,3 +29,8 @@ provisioning_profile: "{{ 'desktop' if _systemd_default_target == 'graphical.tar
 # declaring audience: all). A consumer install writes install_audience: consumer into
 # host_vars/localhost.yml, which outranks this default. See CLAUDE/AnsibleStyle.md.
 install_audience: developer
+
+# play-basic-configs.yml installs a scoped NOPASSWD sudoers rule for shutdown-with-update.
+# A managed VM whose policy forbids permanent NOPASSWD rules sets this false in
+# host_vars/localhost.yml: the rule is removed and the script asks for the sudo password.
+shutdown_with_update_sudoers: true

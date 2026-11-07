@@ -28,6 +28,50 @@ if [[ "${1:-}" != "--no-relay" && -f "$SCRIPT_DIR/../provision.sh" ]]; then
         nohup bash "$SCRIPT_DIR/../provision.sh" --background < /dev/null > /dev/null 2>&1 &
     fi
 fi
+# --- relay hot path (generated; Plan 00290) ---
+if [[ "${1:-}" != "--no-relay" && "${BASH_SOURCE[0]}" == "/workspace/.claude/hooks/"* ]]; then
+    _rl_dir="/workspace/.claude/hooks-daemon/untracked"
+    _rl_sfx="-${HOSTNAME:-localhost}"; _rl_sfx="${_rl_sfx// /-}"
+    if [[ "$_rl_sfx" == *[[:upper:]]* ]]; then
+        for _rl_c in Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz; do
+            _rl_sfx="${_rl_sfx//${_rl_c:0:1}/${_rl_c:1:1}}"
+        done
+    fi
+    _rl_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-$_rl_dir/events$_rl_sfx}"
+    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-/workspace/.claude/hooks-daemon/untracked/bin/hooks-relay}"
+    _rl_sock="$_rl_events_dir/session-start.sock"
+    if [[ -S "$_rl_sock" ]]; then
+        _rl_magic=""
+        if [[ -x "$_rl_bin" && -f "$_rl_bin" ]] \
+            && IFS= read -r -n 4 _rl_magic < "$_rl_bin" \
+            && [[ "$_rl_magic" == $'\x7fELF' || "$_rl_magic" == '#!'* ]]; then
+            _rl_opts="$-"
+            shopt -s execfail
+            set +e
+            _rl_exec_relay() {
+                HOOKS_DAEMON_RELAY_DAEMON_ROOT="/workspace/.claude/hooks-daemon" \
+                    exec "$_rl_bin" "$_rl_sock" --fallback "$1" \
+                    --timeout-ms "30000"
+            }
+            _rl_exec_relay "${BASH_SOURCE[0]}"
+            shopt -u execfail
+            if [[ "$_rl_opts" == *e* ]]; then set -e; fi
+        fi
+        HOOKS_DAEMON_RELAY_UNUSED="$_rl_bin"
+    fi
+fi
+# --- end relay hot path ---
+# --- init.sh parse guard (generated; Plan 00552) ---
+_ip_file="$SCRIPT_DIR/../init.sh"
+if ! _ip_err="$(bash -n "$_ip_file" 2>&1)"; then
+    _ip_msg="hooks daemon: $_ip_file does not parse (merge conflict markers?), so hooks are not running. Repair: run .claude/hooks-daemon/bin/hooks-daemon repair-install from the project root."
+    echo "HOOKS DAEMON ERROR [init_sh_unparseable]: $_ip_msg $_ip_err" >&2
+    _ip_json="${_ip_msg//\\/\\\\}"; _ip_json="${_ip_json//\"/\\\"}"
+    printf '{"systemMessage":"%s"}\n' "$_ip_json"
+    exit 0
+fi
+unset _ip_file _ip_err
+# --- end init.sh parse guard ---
 source "$SCRIPT_DIR/../init.sh"
 
 # Try to start daemon - if it fails, output proper JSON error to stdout

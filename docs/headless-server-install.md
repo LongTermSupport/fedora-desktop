@@ -99,6 +99,13 @@ password file on tmpfs that fails to be removed dies at the next boot and never 
 persistent storage. That is also why the cleanup unlinks rather than shreds: overwriting
 in place is what `shred` needs to mean anything, and tmpfs has no place to overwrite.
 
+**The provisioned box carries one scoped `NOPASSWD` rule of its own**:
+`/etc/sudoers.d/fedora-desktop-shutdown-with-update`, which lets the user run
+`shutdown-with-update` and `reboot-with-update` without a password. A managed VM whose policy
+forbids any permanent `NOPASSWD` rule sets `shutdown_with_update_sudoers: false` in
+`environment/localhost/host_vars/localhost.yml`; the next converge removes the rule, and the
+scripts still install and ask for the sudo password instead.
+
 ---
 
 ## Step 1 — Download and inspect run.bash
