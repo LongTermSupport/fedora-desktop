@@ -84,6 +84,7 @@ var checkDefs = []checkDef{
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "find-race", fixed: "find-race-negated-stat-test rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runFindRace},
+	{id: "arch-pin", fixed: "arch-pinned-artefact rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runArchPin},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
@@ -178,6 +179,10 @@ func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, er
 
 func runFindRace(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-find-race.bash")
+}
+
+func runArchPin(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-arch-pin.bash")
 }
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.

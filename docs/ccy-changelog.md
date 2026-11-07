@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.113.0 — container 2.80.0
+
+The image builds on arm64 as well as x86_64 (Plan 00243, issue 118). Each download that was
+x86_64 only is chosen by the image architecture: the phpantom-lsp musl target (`uname -m`),
+yq (`yq_linux_<dpkg arch>`, still the latest release), Lightpanda and opencode (one pinned
+sha256 per architecture). On arm64 agent-browser uses Debian `chromium`, since Chrome for
+Testing publishes no linux-arm64 build. An x86_64 image has the same content; it is rebuilt
+once because the Dockerfile changed. The custom-Dockerfile examples in
+`/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt` name the go and AWS CLI archives by
+architecture, and `docker-in-lxc` asks the LXC download template for the host architecture.
+
 ## 3.112.2 — container 2.79.26
 
 The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix

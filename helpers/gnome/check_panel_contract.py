@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import platform
 import re
 import sys
 
@@ -140,7 +141,7 @@ def document_keys() -> set[str]:
     """
     document = status_document.build(
         sections={login_report.HEALTH: [probe_results.broken("a finding")]},
-        kernel="7.2.4-200.fc44.x86_64",
+        kernel=f"7.2.4-200.fc44.{platform.machine()}",
         at="2026-01-01T00:00:00Z",
     )
     keys = set(document)

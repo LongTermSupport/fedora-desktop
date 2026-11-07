@@ -14,6 +14,7 @@ Example: If you have 6.16.12, 6.17.4, 6.17.5 installed:
 import argparse
 import logging
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -35,7 +36,7 @@ class KernelVersion:
     def parse(cls, version_string: str) -> "KernelVersion":
         """Parse kernel version string.
 
-        Expected format: X.Y.Z-RELEASE (e.g., 6.17.5-200.fc42.x86_64)
+        Expected format: X.Y.Z-RELEASE (e.g., 6.17.5-200.fc42), the arch already removed
         """
         match = re.match(r"^(\d+)\.(\d+)\.(\d+)-(.+)$", version_string)
         if not match:
@@ -77,9 +78,11 @@ class KernelVersion:
 class KernelManager:
     """Manages kernel versionlock operations."""
 
-    def __init__(self, notify_user: str | None = None, dry_run: bool = False):
+    def __init__(self, notify_user: str | None = None, dry_run: bool = False, arch: str | None = None):
         self.notify_user = notify_user
         self.dry_run = dry_run
+        # The last field of the kernel NEVRA and of `uname -r`: x86_64, aarch64, as rpm names it.
+        self.arch = arch if arch is not None else platform.machine()
         self.logger = self._setup_logging()
 
     def _setup_logging(self) -> logging.Logger:
@@ -165,7 +168,7 @@ class KernelManager:
         if returncode != 0:
             return None
 
-        version_str = stdout.strip().replace(".x86_64", "")
+        version_str = stdout.strip().removesuffix(f".{self.arch}")
         try:
             return KernelVersion.parse(version_str)
         except ValueError:
@@ -197,7 +200,7 @@ class KernelManager:
 
         self.logger.info(f"Locking kernel: {kernel}")
         returncode, _, stderr = self.run_command(
-            ["dnf", "versionlock", "add", f"kernel-0:{kernel.full_version}.x86_64"],
+            ["dnf", "versionlock", "add", f"kernel-0:{kernel.full_version}.{self.arch}"],
             check=False,
         )
 
@@ -216,7 +219,7 @@ class KernelManager:
 
         self.logger.info(f"Unlocking kernel: {kernel}")
         returncode, _, stderr = self.run_command(
-            ["dnf", "versionlock", "delete", f"kernel-0:{kernel.full_version}.x86_64"],
+            ["dnf", "versionlock", "delete", f"kernel-0:{kernel.full_version}.{self.arch}"],
             check=False,
         )
 

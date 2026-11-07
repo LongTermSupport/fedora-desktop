@@ -50,7 +50,8 @@ re-login is needed; the assertion is there for a host where that is not so.
 What lands:
 
 - packages: `libvirt-daemon-kvm`, `libvirt-daemon-config-network`,
-  `libvirt-client`, `virt-install`, `qemu-kvm`, `qemu-img`, `edk2-ovmf`,
+  `libvirt-client`, `virt-install`, `qemu-kvm`, `qemu-img`, the UEFI firmware
+  (`edk2-ovmf` on x86_64, `edk2-aarch64` on aarch64; any other host architecture fails),
   `guestfs-tools`, `virtiofsd`, `cloud-utils`, `xorriso`, `osinfo-db`, `lorax`,
   `swtpm`, `swtpm-tools`, `passt` (the guest's SSH port forward) and
   `distribution-gpg-keys` (names only, no pinned versions);
@@ -120,10 +121,16 @@ which the Secure Boot firmware refuses, so it runs with that firmware feature
 off; runs of the resulting base boot through shim with the default firmware.
 
 `fetch` locates the artefact by `releases.json`'s structured fields, downloads
-it conditionally, fetches the signed `Fedora-<Variant>-<label>-x86_64-CHECKSUM`
+it conditionally, fetches the signed `Fedora-<Variant>-<label>-<arch>-CHECKSUM`
 from beside it, verifies the clearsignature against the Fedora release key from
 `distribution-gpg-keys` (a hard failure, not best-effort), and requires the
 sha256 to agree with both the CHECKSUM and `releases.json`.
+
+Every guest is the host's architecture, x86_64 or aarch64 (vmtest names it from the host and
+fails on any other): the probe reads that architecture's trees and images, and the installer
+and the installed kernel write their console to its serial device (`ttyS0` on x86_64,
+`ttyAMA0` on aarch64, the kickstarts' `@SERIAL_CONSOLE@`). virt-install picks the machine type
+and the UEFI firmware for the architecture itself.
 
 `build-base` seeds a build disk from the image, boots it with the lab's own SSH
 key injected through cloud-init (then disables cloud-init for good), upgrades
@@ -443,7 +450,7 @@ access:
 
 ```bash
 python3 -c 'import json, sys, yaml; json.dump(yaml.safe_load(open("vars/vm-test-scenarios.yml")), sys.stdout)' > /tmp/manifest.json
-python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --manifest /tmp/manifest.json
+python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --arch "$(uname -m)" --manifest /tmp/manifest.json
 ```
 
 It prints one marker per fact:

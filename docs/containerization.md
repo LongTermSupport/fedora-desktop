@@ -88,8 +88,9 @@ Key features configured:
 ### Usage Examples
 
 ```bash
-# Create a container
-sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a amd64
+# Create a container (the image server spells the architecture amd64 or arm64)
+arch=$(case "$(uname -m)" in x86_64) echo amd64 ;; aarch64) echo arm64 ;; esac)
+sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a "$arch"
 
 # Start container
 sudo lxc-start -n mycontainer
@@ -577,9 +578,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ============================================================================
 # AWS CLI
 # ============================================================================
-# Used in CI/CD deployments
+# Used in CI/CD deployments. AWS names its builds x86_64 and aarch64, as uname -m does.
 
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf aws awscliv2.zip
@@ -791,7 +792,8 @@ git status .claude/ccy/Dockerfile
 
 ```bash
 # LXC: Full isolated staging environment
-sudo lxc-create -n staging -t download -- -d ubuntu -r jammy -a amd64
+arch=$(case "$(uname -m)" in x86_64) echo amd64 ;; aarch64) echo arm64 ;; esac)
+sudo lxc-create -n staging -t download -- -d ubuntu -r jammy -a "$arch"
 sudo lxc-start -n staging
 ssh ubuntu@<staging-ip>
 # Configure web server, database, services...

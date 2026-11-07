@@ -37,6 +37,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"private-names", "Plan 00245 Phase 3: no tracked file names an install (team, seat, container, host or client project); a ccy container fails rather than skip, CI without a term list says SKIPPED"},
 	{"randfile", "the owner's randfile command, which prints a random file from a directory, and its own suite proves it"},
 	{"find-race-negated-stat-test", "issue #152, Defence Before Fix: no find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk"},
+	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"podman-store-probe-race", "issue #152: the rootless store ownership probe prints nothing for a file a container deletes during the walk, raced for real"},
 }
 

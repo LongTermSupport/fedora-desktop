@@ -1,0 +1,72 @@
+rules:
+  # Rule: no download, package or image fixed to one CPU architecture (Defence Before Fix;
+  # CLAUDE/QA.md "arch-pinned-artefact"; Plan 00243).
+  #
+  # fedora-desktop runs on x86_64 and on aarch64. A URL, asset name, RPM arch or platform key
+  # that spells one architecture installs nothing, or the wrong binary, on the other: the ccy
+  # image did not build on arm64 because its Dockerfiles named x86_64 assets outright.
+  #
+  # WRONG: curl -o /tmp/yq https://github.com/mikefarah/yq/releases/download/v4/yq_linux_amd64
+  # RIGHT: select the asset AND its checksum by the architecture the build runs on:
+  #          case "$(dpkg --print-architecture)" in
+  #            amd64) asset=yq_linux_amd64; sha=... ;;
+  #            arm64) asset=yq_linux_arm64; sha=... ;;
+  #            *) echo "yq: no build for this architecture" >&2; exit 1 ;;
+  #          esac
+  #        or, in a play, a map keyed by ansible_facts['architecture'], or a `when:` on it.
+  #
+  # The literal is allowed only where it IS the selection: a case arm label, a map key, or a
+  # line that tests the architecture (ansible_facts['architecture'], uname -m, dpkg
+  # --print-architecture, TARGETARCH, GOARCH, platform.machine()). Comments are prose.
+  #
+  # Blocking with no allowlist: every published file outside the excludes below may have no
+  # finding (scripts/qa-arch-pin.bash). Never add an exclude to clear a finding.
+  - id: arch-pinned-artefact
+    patterns:
+      - pattern-regex: '(?<![A-Za-z0-9])(?:x86_64|x86-64|amd64|x64|linux64)(?![A-Za-z0-9])'
+      # A comment line.
+      - pattern-not-regex: '(?m)^[ \t]*(?:#|//)[^\n]*'
+      # A case arm: `amd64)`, `x86_64|amd64)`, `"x86_64")`, `sha256_x86_64 | sha256_aarch64)`.
+      - pattern-not-regex: '(?m)^[ \t]*\(?["'']?[A-Za-z0-9_-]*(?:x86_64|x86-64|amd64|x64|aarch64|arm64)["'']?(?:[ \t]*\|[ \t]*["'']?[A-Za-z0-9_-]+["'']?)*\)[^\n]*'
+      # A map keyed by architecture: `x86_64: ...`, `"amd64": ...`, `tool_sha256_x86_64: ...`.
+      - pattern-not-regex: '(?m)^[ \t]*-?[ \t]*["'']?[A-Za-z0-9_-]*(?:x86_64|x86-64|amd64|x64|aarch64|arm64)["'']?[ \t]*:[^\n]*'
+      # A line that tests the architecture.
+      - pattern-not-regex: '(?m)^[^\n]*(?:ansible_architecture|ansible_machine|ansible_facts(?:\[["'']architecture["'']\]|\.architecture)|uname -m|print-architecture|TARGETARCH|GOARCH|platform\.machine)[^\n]*'
+      # A line whose code names an ARM build beside the x86 one (both keys of a list, a message
+      # naming both). Only the code counts: a trailing comment ends the code (a # or // after a
+      # space), so `# arm64 later` beside a pinned URL is a promise and hides nothing.
+      - pattern-not-regex: '(?m)^(?:[^#/\n]|(?<!\s)#|/(?!/)|(?<!\s)//)*(?:aarch64|arm64)[^\n]*'
+      # A trailing comment is prose, as a comment line is.
+      - pattern-not-regex: '(?<=\s)(?:#|//)[^\n]*'
+    paths:
+      exclude:
+        # This rule and its fixture.
+        - '.semgrep/arch-pin.*'
+        # Prose: documents, plans and changelogs install nothing.
+        - '*.md'
+        - 'CLAUDE/Plan/**'
+        # Test data describes machines; it installs nothing.
+        - 'tests/**'
+        - '*_test.go'
+        - '**/testdata/**'
+        - 'scripts/test-*.bash'
+        # Vendored and upstream-owned trees.
+        - 'src-go/vendor/**'
+        - '.claude/hooks-daemon/**'
+        # Daemon-owned: the hooks-daemon installer replaces it on every upgrade, so a fix
+        # belongs upstream, never in this copy. This exclude hides one known instance (its
+        # x86_64-only hooks-screen name); leaving it until upstream fixes it is the owner's decision:
+        # https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/174
+        - '/.claude/ccy/claude-supervise.py'
+        - '.claude/skills/**'
+        - 'untracked/**'
+    languages: [generic]
+    severity: ERROR
+    message: >
+      arch-pinned-artefact: a download, package or image fixed to one CPU architecture.
+      Select it (and its checksum) by the architecture the build or host runs on, or fail
+      loudly naming the missing component. See CLAUDE/QA.md "arch-pinned-artefact".
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+      dbf-class: a download, package or image reference fixed to one CPU architecture

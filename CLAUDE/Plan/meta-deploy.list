@@ -44,3 +44,12 @@
 # state tars, media, disk headroom), the measurement the 14-day retention cap is judged against.
 # It changes nothing; this is its first run on the host (it was tried only on a fake tree).
 00249-agent-bus-retention
+
+# Plan 00243: the arm64 fixes are on F44, so this x86_64 host re-runs the plays they touched
+# (basic-configs, python, rpm-fusion, comms, markless, browsers, toolbox-install,
+# AB-dnf-upgrade, claude-yolo and claude-code-consumer, and of the optional plays those that
+# have run here: cli-tools, network-tools, photography, qobuz, vm-test-lab, nvidia, displaylink,
+# ipu6-webcam, virtualbox-windows and virtualbox-windows-vm-setup). On x86_64 each renders as
+# before; the ccy image is rebuilt once for its version label, and intel-media-driver is now
+# its own dnf task, already satisfied, enforced on every run.
+changed-plays

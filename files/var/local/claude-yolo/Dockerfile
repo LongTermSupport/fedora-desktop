@@ -9,11 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     musl-tools \
     git \
     && rm -rf /var/lib/apt/lists/*
-RUN rustup target add x86_64-unknown-linux-musl
+# The musl target is the build's own architecture (x86_64 or aarch64; rust:slim and musl-tools
+# are published for both), and the binary is copied to a fixed path so the runtime stage's COPY
+# names no architecture.
+RUN rustup target add "$(uname -m)-unknown-linux-musl"
 # Pin to a specific release tag for reproducible builds
 RUN git clone --depth 1 --branch 0.7.0 https://github.com/AJenbo/phpantom_lsp.git /build
 WORKDIR /build
-RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN target="$(uname -m)-unknown-linux-musl" \
+    && cargo build --release --target "${target}" \
+    && cp "target/${target}/release/phpantom_lsp" /build/phpantom_lsp
 # The static binary will be copied into the runtime image below
 
 # Track the latest Node LTS rather than pinning a major. Claude Code raises its
@@ -33,7 +38,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.79.26"
+LABEL claude-yolo-version="2.80.0"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -155,8 +160,14 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yq (YAML processor)
-RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+# Install yq (YAML processor). The asset is chosen by the image's architecture: yq names its
+# builds as dpkg does (amd64, arm64), and any other architecture fails the build.
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64|arm64) ;; \
+        *) echo "yq: no build for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /usr/bin/yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}" \
     && chmod +x /usr/bin/yq
 
 # pipx (installed via apt above, python3-venv is its venv backend) is the sanctioned
@@ -202,34 +213,57 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # the install finds it and only confirms it. agent-browser's own download gives each
 # attempt 120 seconds in total, so on a link slower than about 1.6 MB/s the 190 MB zip
 # never finishes. Each curl pass resumes the partial file; ten passes, then the build fails.
+#
+# On arm64 there is no Chrome for Testing: it publishes no linux-arm64 build, and
+# `agent-browser install` refuses linux aarch64, naming the system Chromium as the route. So arm64
+# installs Debian's chromium package (/usr/bin/chromium) and the config written below names it as
+# agent-browser's executablePath. Any other architecture fails the build here.
 RUN npm install -g agent-browser \
-    && curl -fsSL --retry 5 -o /tmp/chrome-for-testing.json \
-        https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
-    && chrome_version="$(jq -er '.channels.Stable.version' /tmp/chrome-for-testing.json)" \
-    && chrome_url="$(jq -er '.channels.Stable.downloads.chrome[] | select(.platform == "linux64") | .url' /tmp/chrome-for-testing.json)" \
-    && chrome_pass=0 \
-    && until curl -fL --continue-at - --speed-limit 1024 --speed-time 60 -o /tmp/chrome-linux64.zip "${chrome_url}"; do \
-        chrome_pass=$((chrome_pass + 1)); \
-        if [ "${chrome_pass}" -ge 10 ]; then echo "Chrome download failed 10 times: ${chrome_url}" >&2; exit 1; fi; \
-        sleep 5; \
-    done \
-    && mkdir -p "/root/.agent-browser/browsers/chrome-${chrome_version}" \
-    && unzip -q /tmp/chrome-linux64.zip -d "/root/.agent-browser/browsers/chrome-${chrome_version}" \
-    && rm /tmp/chrome-linux64.zip /tmp/chrome-for-testing.json \
-    && install_out="$(agent-browser install)" \
-    && printf '%s\n' "${install_out}" \
-    && case "${install_out}" in \
-        *"is already installed"*) ;; \
-        *) echo "agent-browser install did not find the Chrome curl unpacked" >&2; exit 1 ;; \
-    esac
+    && arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) cft_platform=linux64 ;; \
+        arm64) cft_platform="" ;; \
+        *) echo "agent-browser: no Chromium for ${arch} (Chrome for Testing: amd64; Debian chromium: arm64)" >&2; exit 1 ;; \
+    esac \
+    && if [ -z "${cft_platform}" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends chromium \
+        && apt-get clean && rm -rf /var/lib/apt/lists/* \
+        && /usr/bin/chromium --version; \
+    else \
+        curl -fsSL --retry 5 -o /tmp/chrome-for-testing.json \
+            https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
+        && chrome_version="$(jq -er '.channels.Stable.version' /tmp/chrome-for-testing.json)" \
+        && chrome_url="$(jq -er --arg platform "${cft_platform}" '.channels.Stable.downloads.chrome[] | select(.platform == $platform) | .url' /tmp/chrome-for-testing.json)" \
+        && chrome_pass=0 \
+        && until curl -fL --continue-at - --speed-limit 1024 --speed-time 60 -o /tmp/chrome.zip "${chrome_url}"; do \
+            chrome_pass=$((chrome_pass + 1)); \
+            if [ "${chrome_pass}" -ge 10 ]; then echo "Chrome download failed 10 times: ${chrome_url}" >&2; exit 1; fi; \
+            sleep 5; \
+        done \
+        && mkdir -p "/root/.agent-browser/browsers/chrome-${chrome_version}" \
+        && unzip -q /tmp/chrome.zip -d "/root/.agent-browser/browsers/chrome-${chrome_version}" \
+        && rm /tmp/chrome.zip /tmp/chrome-for-testing.json \
+        && install_out="$(agent-browser install)" \
+        && printf '%s\n' "${install_out}" \
+        && case "${install_out}" in \
+            *"is already installed"*) ;; \
+            *) echo "agent-browser install did not find the Chrome curl unpacked" >&2; exit 1 ;; \
+        esac; \
+    fi
 
 # Configure agent-browser with Wayland/Docker display args. Deliberately NO "headed" key:
 # headed vs headless is chosen per command by the agent-browser-headed and
-# agent-browser-headless wrappers below, never by an image-wide default.
-RUN mkdir -p /root/.agent-browser && \
-    echo '{\n\
-  "args": "--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage"\n\
-}' > /root/.agent-browser/config.json
+# agent-browser-headless wrappers below, never by an image-wide default. On arm64 it also names
+# Debian's Chromium, installed above in place of Chrome for Testing.
+RUN mkdir -p /root/.agent-browser \
+    && args="--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage" \
+    && arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) jq -n --arg args "${args}" '{args: $args}' ;; \
+        arm64) jq -n --arg args "${args}" '{args: $args, executablePath: "/usr/bin/chromium"}' ;; \
+        *) echo "agent-browser config: no Chromium for ${arch}" >&2; exit 1 ;; \
+    esac > /root/.agent-browser/config.json \
+    && jq -e .args /root/.agent-browser/config.json >/dev/null
 
 # Reap abandoned browsers. agent-browser's daemon shuts itself down after this much
 # inactivity, and upstream's default is ONE HOUR (3600000) — so a window an agent opened
@@ -262,13 +296,21 @@ ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 # SILENTLY, which is why this engine is reached only through the explicitly named
 # agent-browser-lite-headless. See the browsing skill for the rule the agent follows.
 #
-# The checksum is the sha256 GitHub publishes for this exact release asset, so a
-# re-tagged or substituted artifact fails the build rather than shipping quietly.
+# The asset is chosen by the image's architecture, and its checksum is the sha256 GitHub
+# publishes for that exact release asset, one per architecture, so a re-tagged or substituted
+# artifact fails the build rather than shipping quietly. Bump the version and both together.
 ARG LIGHTPANDA_VERSION="0.3.6"
-ARG LIGHTPANDA_SHA256="e438c0ad44e0f6916c14cf13beb003512c60438d8fd200738d2e596e73f652d6"
-RUN curl -fsSL -o /tmp/lightpanda \
-    "https://github.com/lightpanda-io/browser/releases/download/${LIGHTPANDA_VERSION}/lightpanda-x86_64-linux" \
-    && echo "${LIGHTPANDA_SHA256}  /tmp/lightpanda" | sha256sum -c - \
+ARG LIGHTPANDA_SHA256_AMD64="e438c0ad44e0f6916c14cf13beb003512c60438d8fd200738d2e596e73f652d6"
+ARG LIGHTPANDA_SHA256_ARM64="29c059cd0755a195350cc79dbcf7ee9580fd575ec3eaa31db755dbada417e616"
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) lp_asset=lightpanda-x86_64-linux; lp_sha="${LIGHTPANDA_SHA256_AMD64}" ;; \
+        arm64) lp_asset=lightpanda-aarch64-linux; lp_sha="${LIGHTPANDA_SHA256_ARM64}" ;; \
+        *) echo "Lightpanda: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/lightpanda \
+    "https://github.com/lightpanda-io/browser/releases/download/${LIGHTPANDA_VERSION}/${lp_asset}" \
+    && echo "${lp_sha}  /tmp/lightpanda" | sha256sum -c - \
     && install -m 0755 /tmp/lightpanda /usr/local/bin/lightpanda \
     && rm -f /tmp/lightpanda \
     && lightpanda version
@@ -375,8 +417,9 @@ RUN set -eu \
 # opencode, the open-source terminal coding agent (anomalyco/opencode), which `ccy --opencode`
 # runs instead of Claude Code (Plan 00215). The release publishes no checksum file; the sha256 is
 # the release API's `digest` for this asset (an immutable release whose attestation lists it), so a
-# substituted tarball fails the build. Bump the version and the sha256 together (the
-# update-versions skill). The tarball holds the one self-contained binary.
+# substituted tarball fails the build. The asset and its sha256 are chosen by the image's
+# architecture; bump the version and both checksums together (the update-versions skill). The
+# tarball holds the one self-contained binary.
 #
 # /etc/opencode/ is opencode's managed config, which no user or project config overrides: sessions
 # are never shared to upstream's share service, and the updater is off (the env var is what 1.19.x
@@ -384,11 +427,18 @@ RUN set -eu \
 # opencode suspends itself on it, and a suspended process in a container cannot be resumed. The
 # PTY supervisor that guards Claude Code's ctrl+z is Claude Code's, so an opencode session has none.
 ARG OPENCODE_VERSION="1.19.3"
-ARG OPENCODE_SHA256="13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b"
+ARG OPENCODE_SHA256_AMD64="13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b"
+ARG OPENCODE_SHA256_ARM64="7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405"
 ENV OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_TUI_CONFIG=/etc/opencode/tui.json
-RUN curl -fsSL --retry 5 -o /tmp/opencode.tar.gz \
-    "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
-    && echo "${OPENCODE_SHA256}  /tmp/opencode.tar.gz" | sha256sum -c - \
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+        amd64) oc_asset=opencode-linux-x64.tar.gz; oc_sha="${OPENCODE_SHA256_AMD64}" ;; \
+        arm64) oc_asset=opencode-linux-arm64.tar.gz; oc_sha="${OPENCODE_SHA256_ARM64}" ;; \
+        *) echo "opencode: no build pinned for ${arch}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL --retry 5 -o /tmp/opencode.tar.gz \
+    "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${oc_asset}" \
+    && echo "${oc_sha}  /tmp/opencode.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/opencode.tar.gz -C /tmp opencode \
     && install -m 0755 /tmp/opencode /usr/local/bin/opencode \
     && rm -f /tmp/opencode.tar.gz /tmp/opencode \
@@ -522,7 +572,7 @@ RUN npm install -g \
     bash-language-server \
     intelephense
 # PHPantom LSP: static musl binary from build stage (no GLIBC dependency)
-COPY --from=phpantom-builder /build/target/x86_64-unknown-linux-musl/release/phpantom_lsp /usr/local/bin/phpantom_lsp
+COPY --from=phpantom-builder /build/phpantom_lsp /usr/local/bin/phpantom_lsp
 RUN chmod 755 /usr/local/bin/phpantom_lsp
 # PHPantom Claude Code plugin (registers phpantom_lsp as an LSP server for .php files)
 COPY plugins/phpantom-lsp/ /opt/claude-yolo/plugins/phpantom-lsp/
