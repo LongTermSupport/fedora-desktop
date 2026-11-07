@@ -1,0 +1,4 @@
+# BEGIN claude-code-hooks-daemon managed block (rewritten on install and upgrade)
+.claude/hooks/** -merge
+.claude/init.sh -merge
+# END claude-code-hooks-daemon managed block

@@ -240,6 +240,8 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		".claude/provision.sh",
 		".claude/skills/hooks-daemon/scripts/x.sh",
 		".claude/skills/docs-qa/scripts/x.sh",
+		".claude/hooks/status-line",
+		".claude/hooks/pre-tool-use",
 		"src-go/vendor/golang.org/x/sys/unix/mkall.sh",
 		"CLAUDE/Plan/mkplan.bash",
 	}
@@ -251,6 +253,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		"files/var/local/colours",
 		"CLAUDE/Plan/_planlib.inc.bash",
 		".claude/skills/other/scripts/x.sh",
+		".claude/hooks/handlers/pre_tool_use/x.sh",
 		"scripts/qa-all.bash",
 		"src-go/vendorish/x.sh",
 	}

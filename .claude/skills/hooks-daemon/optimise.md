@@ -71,6 +71,22 @@ each scored PASS / WARN / FAIL:
 The top-level `plan_workflow` config section and "plans in use" are checked
 alongside, since no handler owns them.
 
+### Worktree CLAUDE.md excludes (Plan 00563)
+
+A sub-agent working in a git worktree that lives under the project root loads
+the root `CLAUDE.md` twice: the main checkout's copy and the worktree's own
+(up to ~30k tokens). Claude Code's `claudeMdExcludes` setting stops the second
+copy. `optimise-checklist` looks for worktree roots under the project
+(`untracked/worktrees/`, `.claude/worktrees/`, and any path
+`git worktree list --porcelain` reports inside the project root) and, when a
+root has no covering glob in `.claude/settings.json` or
+`.claude/settings.local.json`, prints an unscored
+`OPTIONAL (not scored): worktrees live under the project root ...` line naming
+the exact globs (for example `**/untracked/worktrees/*/CLAUDE.md`) and the file
+to put them in (`.claude/settings.local.json`). It is silent when every root is
+covered or no worktree lives under the root. This is a suggestion only: nothing
+writes the setting unless the user asks for it at the apply prompt.
+
 ## What It Outputs
 
 ```
