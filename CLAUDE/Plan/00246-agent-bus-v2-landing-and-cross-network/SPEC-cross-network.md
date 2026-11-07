@@ -71,6 +71,13 @@ install are listed last, under "Owner questions".
   state, and included in the team's backup so that a restore keeps every issued bundle valid.
   The backup stays root-only, as it is now; a copy of it taken off the host must be encrypted,
   because it holds the CA key. `teamchat/pki` makes it, with an injected clock.
+  As built (review blocker B1 of pull request 128): the backup tar is version 2 of `backup.json`
+  when the team has a CA, with `ca.crt` (0644) and `ca.key` (0600) after the six members of
+  version 1; a team with no CA yet is backed up as version 1, and a version 1 backup still
+  restores. A restore is refused at validation when the team has another CA (never replaced; the
+  refusal says to remove both CA files to take the backup's), writes the backup's CA at its
+  clean-up step when the team has none and says to run `team apply` for the leaf, and keeps the
+  team's CA for a backup without one, saying so in its notes.
 - **X14** The homeserver's leaf certificate is signed by the CA and has as subject alternative
   names every derived listen address (IP SANs) and the `url` host (a DNS SAN when it is a name).
   It is valid for one year and is made again at apply when the SAN set changes or fewer than 30

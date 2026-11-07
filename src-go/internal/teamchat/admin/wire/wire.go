@@ -161,7 +161,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 			c, err := backup.ReadTar(b, team, n)
 			return restore.Tar{
 				TimeMS: c.Manifest.TimeMS, ServerName: c.Manifest.ServerName, TeamFile: c.TeamJSON, Config: c.Config,
-				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token,
+				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token, CA: c.CA,
 			}, err
 		},
 		Backup: func(ctx context.Context, held *teamlock.Lock, keep []int64) (int64, error) {

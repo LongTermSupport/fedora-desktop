@@ -75,6 +75,8 @@ type engine struct {
 	config   []byte
 	decl     declare.Team
 	changed  []string
+	// caWritten is set when this run put the backup's CA back (Plan 00246 X13).
+	caWritten bool
 }
 
 // Run is a fresh restore of req.Backup under held (steps 01-10): validated, recorded, staged,
@@ -551,9 +553,13 @@ func (e *engine) cleanFailed(err error) (Answer, error) {
 	return a, fmt.Errorf("restored; clean-up failed: %w; restore --team %s --resume", err, e.team())
 }
 
-// cleaned is RS8's steps 2 to 6.
+// cleaned is RS8's steps 2 to 6, after the backup's CA is put back where the team has none
+// (Plan 00246 X13). host.RestoreCA leaves the same CA as it is, so a resume repeats it safely.
 func (e *engine) cleaned(ctx context.Context) error {
 	t := e.team()
+	if err := e.restoreCA(); err != nil {
+		return err
+	}
 	if e.rec.FromBackup {
 		if err := e.raiseMinBackup(); err != nil {
 			return err
@@ -571,6 +577,19 @@ func (e *engine) cleaned(ctx context.Context) error {
 	}
 	e.changed = append(e.changed, changed...)
 	return e.d.FS.Remove(paths.RestoreRecord(t))
+}
+
+// restoreCA puts the backup's CA back where the team has none, and says so.
+func (e *engine) restoreCA() error {
+	written, err := host.RestoreCA(e.d.Root, e.team(), e.tar.CA)
+	if err != nil {
+		return fmt.Errorf("the team CA of backup %d: %w", e.rec.Backup, err)
+	}
+	if written {
+		e.caWritten = true
+		e.changed = append(e.changed, fmt.Sprintf("CHANGED ca restored from backup %d", e.rec.Backup))
+	}
+	return nil
 }
 
 // raiseMinBackup is RS8's step 2 (RM11): no backup made so far may be restored again, since its
@@ -675,6 +694,12 @@ func (e *engine) answer() Answer {
 		notes = append(notes, e.offlineLine())
 	case r.Lost != nil:
 		notes = append(notes, fmt.Sprintf("events posted between the export's end (%d) and the stop are lost and were not exported", r.Lost.EndMS))
+	}
+	switch {
+	case len(e.tar.CA) == 0:
+		notes = append(notes, fmt.Sprintf("backup %d holds no team CA (it was taken before backups carried the CA): the team's CA, or its lack of one, is left as it is", r.Backup))
+	case e.caWritten:
+		notes = append(notes, fmt.Sprintf("the team CA was restored from backup %d: run team apply, which makes the homeserver's leaf again from it", r.Backup))
 	}
 	return Answer{
 		Team: r.Team, Backup: r.Backup, Offline: r.Offline, Pre: r.Pre, Lost: r.Lost, SinceMS: e.tar.TimeMS,

@@ -39,8 +39,17 @@ Plain HTTP is for the loopback address only. Every other member URL is `https`, 
 LXC members included.
 
 - A team has one CA, made at its first apply (ECDSA P-256, valid ten years). Its key is readable
-  by root only, under the team's root state, and the team's backup carries it, so a restore keeps
-  every issued bundle valid. The CA certificate is not secret; the key is.
+  by root only, under the team's root state. The CA certificate is not secret; the key is.
+- Every backup of a team that has a CA carries the CA certificate and key (`ca.crt`, `ca.key`,
+  version 2 of the backup's `backup.json`), so a restore keeps every issued bundle valid. The
+  backup stays readable by root only; a copy taken off the host must be encrypted, because it
+  holds the CA key.
+- A restore puts the backup's CA back when the team has none, and then says to run `team apply`,
+  which makes the leaf again from it. A team that already has that CA keeps it. A team with
+  another CA is refused before anything changes: a restore never replaces a CA. To take the
+  backup's CA instead, remove both CA files and restore again; every bundle the other CA issued
+  must then be reissued. A backup taken before backups carried the CA restores as before and
+  leaves the team's CA as it is; the restore's answer says so.
 - The homeserver's leaf certificate is signed by that CA and names every listen address (and the
   `url` host, when it is a name). It is valid for a year and is made again at apply when the
   addresses change or fewer than 30 days remain; no backup carries it.
