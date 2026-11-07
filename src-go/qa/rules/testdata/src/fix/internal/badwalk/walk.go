@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 var errNotRegular = errors.New("not a regular file")
@@ -239,7 +240,190 @@ func inAClosure(dir string, each func(func() error) error) error {
 	return nil
 }
 
+// A clause of a tagless switch that lists a check beside another condition runs when either
+// holds, so the check guards nothing.
+func caseListedBesideAnother(root string, force bool) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.Type().IsRegular(), force:
+			_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		}
+		return err
+	})
+}
+
+// A switch with a tag compares values; its clauses are not checks.
+func taggedSwitch(root string, regular bool) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		switch regular {
+		case d.Type().IsRegular():
+			_, err = os.ReadFile(p) // want `os.ReadFile opens an entry a directory walk found`
+		}
+		return err
+	})
+}
+
 // --- Clean: the check guards the open. ---
+
+// selfWalking opens what its own walk found, and is found for that where it opens; a name passed
+// to it is only a label, so a caller handing it a walked name opens nothing.
+func selfWalking(label, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if _, err := os.ReadFile(filepath.Join(dir, e.Name())); err != nil { // want `os.ReadFile opens an entry a directory walk found`
+			return fmt.Errorf("%s: %w", label, err)
+		}
+	}
+	return nil
+}
+
+func labelsFromAListing(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := selfWalking(e.Name(), "/etc"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readEntry checks the entry it is handed and opens the path handed beside it.
+func readEntry(p string, d fs.DirEntry) error {
+	if !d.Type().IsRegular() {
+		return nil
+	}
+	_, err := os.ReadFile(p)
+	return err
+}
+
+func walkedThenReadByACheckingHelper(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return readEntry(p, d)
+	})
+}
+
+// An open with no flag that keeps it from waiting blocks on a named pipe like any other.
+func openedWithFlags(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_CLOEXEC, 0) // want `os.OpenFile opens an entry a directory walk found`
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// An open that cannot wait: O_NONBLOCK returns at once from a pipe with no writer, and
+// O_DIRECTORY refuses anything that is not a directory before opening it.
+func openedWithoutWaiting(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		d, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_DIRECTORY, 0)
+		if err != nil {
+			return err
+		}
+		if err := d.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// regularNames keeps only the names of regular files: the check travels with each name it keeps.
+func regularNames(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".yml") {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+func readsWhatACheckingListerKept(dir string) error {
+	names, err := regularNames(dir)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if _, err := os.ReadFile(filepath.Join(dir, n)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Names kept in the branch a check holds are names of regular files, read after the loop.
+func keptWhereRegularThenRead(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var kept []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			kept = append(kept, filepath.Join(dir, e.Name()))
+		}
+	}
+	for _, p := range kept {
+		if _, err := os.ReadFile(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// The clause of a tagless switch runs only when its check holds.
+func walkedRegularByCase(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir():
+			return nil
+		case d.Type().IsRegular():
+			_, err = os.ReadFile(p)
+		}
+		return err
+	})
+}
 
 func skippedUnlessRegular(dir string) error {
 	entries, err := os.ReadDir(dir)
@@ -408,6 +592,31 @@ func readsWhatAListerReturned(dir string) error {
 	}
 	for _, n := range names {
 		if err := hashOf(n); err != nil { // want `hashOf opens an entry a directory walk found`
+			return err
+		}
+	}
+	return nil
+}
+
+// A listing taken where a check holds is still a listing: its entries were never checked.
+func listedUnderAnotherCheck(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var inner []fs.DirEntry
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		more, err := os.ReadDir(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		inner = append(inner, more...)
+	}
+	for _, e := range inner {
+		if _, err := os.ReadFile(filepath.Join(dir, e.Name())); err != nil { // want `os.ReadFile opens an entry a directory walk found`
 			return err
 		}
 	}

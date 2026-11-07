@@ -160,13 +160,18 @@ func (sum walkSummary) markOpeners(pass *analysis.Pass, fd *ast.FuncDecl, fn *ty
 		sum.opens[fn] = make([]bool, len(params))
 	}
 	changed := false
+	// The body's own walks are found where it opens them; a parameter opens only what seeding it
+	// adds to those.
+	checkable := entryParams(pass, fd)
+	base := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{}, checkable: checkable}
+	base.block(fd.Body.List, false)
 	for i, param := range params {
 		if sum.opens[fn][i] || param == nil {
 			continue
 		}
-		s := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{param: true}}
+		s := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{param: true}, checkable: checkable}
 		s.block(fd.Body.List, false)
-		if s.found {
+		if s.addsTo(base) {
 			sum.opens[fn][i] = true
 			changed = true
 		}
@@ -184,12 +189,43 @@ func (sum walkSummary) markReceiver(pass *analysis.Pass, fd *ast.FuncDecl, fn *t
 	if recv == nil {
 		return false
 	}
-	s := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{recv: true}}
+	checkable := entryParams(pass, fd)
+	base := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{}, checkable: checkable}
+	base.block(fd.Body.List, false)
+	s := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{recv: true}, checkable: checkable}
 	s.block(fd.Body.List, false)
-	if s.found {
-		sum.recvOpens[fn] = true
+	if !s.addsTo(base) {
+		return false
 	}
-	return s.found
+	sum.recvOpens[fn] = true
+	return true
+}
+
+// addsTo is whether this scan found an open the scan base did not.
+func (s *walkScan) addsTo(base *walkScan) bool {
+	for pos := range s.opened {
+		if !base.opened[pos] {
+			return true
+		}
+	}
+	return false
+}
+
+// entryParams is the receiver and parameters of a function: a caller hands it an entry with its
+// name, so a check of any of them, in its body, is a check of what the caller walked.
+func entryParams(pass *analysis.Pass, fd *ast.FuncDecl) map[types.Object]bool {
+	objs := map[types.Object]bool{}
+	for _, obj := range paramObjects(pass, fd) {
+		if obj != nil {
+			objs[obj] = true
+		}
+	}
+	if fd.Recv != nil && len(fd.Recv.List) > 0 && len(fd.Recv.List[0].Names) > 0 {
+		if recv := pass.TypesInfo.Defs[fd.Recv.List[0].Names[0]]; recv != nil {
+			objs[recv] = true
+		}
+	}
+	return objs
 }
 
 // paramObjects is the object of each parameter of the declaration, nil for an unnamed one.
@@ -209,11 +245,16 @@ func paramObjects(pass *analysis.Pass, fd *ast.FuncDecl) []types.Object {
 
 // walkScan follows walked names through one function body.
 type walkScan struct {
-	pass    *analysis.Pass
-	sum     walkSummary
-	taint   map[types.Object]bool
-	report  bool
-	found   bool
+	pass  *analysis.Pass
+	sum   walkSummary
+	taint map[types.Object]bool
+	// listings are the tainted variables that hold a whole listing, not one entry of it.
+	listings map[types.Object]bool
+	report   bool
+	// checkable are the parameters whose check a summary counts (entryParams).
+	checkable map[types.Object]bool
+	// opened is where each unguarded open was found.
+	opened  map[token.Pos]bool
 	returns bool
 }
 
@@ -231,9 +272,11 @@ func (s *walkScan) stmt(stmt ast.Stmt, guarded bool) {
 	switch st := stmt.(type) {
 	case *ast.AssignStmt:
 		s.exprs(st.Rhs, guarded)
-		if s.anyWalked(st.Rhs) {
+		if s.carriesUnchecked(st.Rhs, guarded) {
+			listing := s.anyListing(st.Rhs)
 			for _, lhs := range st.Lhs {
 				s.taintRoot(lhs)
+				s.markListing(lhs, listing)
 			}
 		}
 	case *ast.DeclStmt:
@@ -285,7 +328,18 @@ func (s *walkScan) compound(stmt ast.Stmt, guarded bool) {
 	case *ast.SwitchStmt:
 		s.optional(st.Init, guarded)
 		s.expr(st.Tag, guarded)
-		s.block(st.Body.List, guarded)
+		if st.Tag != nil {
+			s.block(st.Body.List, guarded)
+			return
+		}
+		for _, clause := range st.Body.List {
+			cc, ok := clause.(*ast.CaseClause)
+			if !ok {
+				continue
+			}
+			s.exprs(cc.List, guarded)
+			s.block(cc.Body, guarded || s.positiveCase(cc))
+		}
 	case *ast.TypeSwitchStmt:
 		s.optional(st.Init, guarded)
 		s.stmt(st.Assign, guarded)
@@ -328,9 +382,11 @@ func (s *walkScan) declStmt(st *ast.DeclStmt, guarded bool) {
 			continue
 		}
 		s.exprs(vs.Values, guarded)
-		if s.anyWalked(vs.Values) {
+		if s.carriesUnchecked(vs.Values, guarded) {
+			listing := s.anyListing(vs.Values)
 			for _, name := range vs.Names {
 				s.taintRoot(name)
+				s.markListing(name, listing)
 			}
 		}
 	}
@@ -388,7 +444,10 @@ func (s *walkScan) call(call *ast.CallExpr, guarded bool) {
 	if arg == nil || guarded || !s.walked(arg) {
 		return
 	}
-	s.found = true
+	if s.opened == nil {
+		s.opened = map[token.Pos]bool{}
+	}
+	s.opened[call.Pos()] = true
 	if s.report {
 		s.pass.Reportf(call.Pos(), walkOpenMsg, name)
 	}
@@ -418,6 +477,9 @@ func (s *walkScan) openedArg(call *ast.CallExpr) (string, ast.Expr) {
 func stdOpenedArg(pass *analysis.Pass, fn *types.Func, call *ast.CallExpr) (string, ast.Expr) {
 	for _, o := range openers {
 		if isPkgFunc(fn, o.pkg, o.name) && len(call.Args) > o.arg {
+			if o.name == "OpenFile" && len(call.Args) > 1 && cannotWait(pass, call.Args[1]) {
+				return "", nil
+			}
 			return fn.Pkg().Name() + "." + fn.Name(), call.Args[o.arg]
 		}
 	}
@@ -428,6 +490,24 @@ func stdOpenedArg(pass *analysis.Pass, fn *types.Func, call *ast.CallExpr) (stri
 		return fn.Name(), call.Args[0]
 	}
 	return "", nil
+}
+
+// cannotWait is whether an open's flags keep it from waiting on a named pipe: O_NONBLOCK returns
+// at once from a pipe with no writer, and O_DIRECTORY refuses what is not a directory first.
+func cannotWait(pass *analysis.Pass, flags ast.Expr) bool {
+	found := false
+	ast.Inspect(flags, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || found {
+			return !found
+		}
+		obj := pass.TypesInfo.Uses[sel.Sel]
+		if obj != nil && obj.Pkg() != nil && (obj.Pkg().Path() == "syscall" || obj.Pkg().Path() == "golang.org/x/sys/unix") {
+			found = obj.Name() == "O_NONBLOCK" || obj.Name() == "O_DIRECTORY"
+		}
+		return !found
+	})
+	return found
 }
 
 // isFSOpen is whether f is an Open method returning an fs.File (an fs.FS's).
@@ -487,6 +567,52 @@ func (s *walkScan) anyWalked(list []ast.Expr) bool {
 	return slices.ContainsFunc(list, s.walked)
 }
 
+// carriesUnchecked is whether an assignment of list carries walked names no check vouches for.
+// Where a check guards it, a name taken from the entry checked is a regular file's, so the check
+// travels with it; but a listing, taken there or before, is entries no check has seen.
+func (s *walkScan) carriesUnchecked(list []ast.Expr, guarded bool) bool {
+	if !guarded {
+		return s.anyWalked(list)
+	}
+	return s.anyListing(list)
+}
+
+// anyListing is whether a value in list is a listing itself (a walk source's result, or a
+// variable holding one), not one entry of it.
+func (s *walkScan) anyListing(list []ast.Expr) bool {
+	return slices.ContainsFunc(list, s.listingOf)
+}
+
+func (s *walkScan) listingOf(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if _, isLit := n.(*ast.FuncLit); isLit || found {
+			return false
+		}
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			found = s.isWalkSource(node)
+		case *ast.Ident:
+			obj := s.pass.TypesInfo.ObjectOf(node)
+			found = obj != nil && s.listings[obj]
+		}
+		return !found
+	})
+	return found
+}
+
+// markListing records that the variable an assignment target names holds a listing.
+func (s *walkScan) markListing(e ast.Expr, listing bool) {
+	obj := s.rootObject(e)
+	if !listing || obj == nil {
+		return
+	}
+	if s.listings == nil {
+		s.listings = map[types.Object]bool{}
+	}
+	s.listings[obj] = true
+}
+
 func (s *walkScan) isWalkSource(call *ast.CallExpr) bool {
 	fn := calledFunc(s.pass, call)
 	if fn == nil {
@@ -514,16 +640,24 @@ func (s *walkScan) isWalkSource(call *ast.CallExpr) bool {
 
 // taintRoot marks the variable (or the field) an assignment target or range variable names.
 func (s *walkScan) taintRoot(e ast.Expr) {
+	if obj := s.rootObject(e); obj != nil {
+		s.taint[obj] = true
+	}
+}
+
+// rootObject is the variable (or the field) an assignment target or range variable names, nil
+// for the blank identifier, an error, or a target that names none.
+func (s *walkScan) rootObject(e ast.Expr) types.Object {
 	for e != nil {
 		switch node := e.(type) {
 		case *ast.Ident:
 			if node.Name == "_" {
-				return
+				return nil
 			}
 			if obj := s.pass.TypesInfo.ObjectOf(node); obj != nil && !isErrorType(obj.Type()) {
-				s.taint[obj] = true
+				return obj
 			}
-			return
+			return nil
 		case *ast.IndexExpr:
 			e = node.X
 		case *ast.SelectorExpr:
@@ -534,15 +668,22 @@ func (s *walkScan) taintRoot(e ast.Expr) {
 		case *ast.ParenExpr:
 			e = node.X
 		default:
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 // positiveCheck is whether a condition holds only when a walked entry is regular: a check, or a
 // conjunction with one among its terms.
 func (s *walkScan) positiveCheck(cond ast.Expr) bool {
 	return slices.ContainsFunc(splitBinary(cond, token.LAND), s.regularCheck)
+}
+
+// positiveCase is whether a clause of a switch with no tag runs only when a walked entry is
+// regular: every expression it lists is a positive check (the default clause lists none).
+func (s *walkScan) positiveCase(cc *ast.CaseClause) bool {
+	return len(cc.List) > 0 && !slices.ContainsFunc(cc.List, func(e ast.Expr) bool { return !s.positiveCheck(e) })
 }
 
 // leavingCheck is whether an if leaves its block whenever a walked entry is not regular: a
@@ -570,7 +711,19 @@ func (s *walkScan) regularCheck(e ast.Expr) bool {
 	if !ok || sel.Sel.Name != "IsRegular" {
 		return false
 	}
-	return s.walked(sel.X)
+	return s.walked(sel.X) || s.mentionsCheckable(sel.X)
+}
+
+// mentionsCheckable is whether e names a parameter a summary may take a check of.
+func (s *walkScan) mentionsCheckable(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && s.checkable[s.pass.TypesInfo.ObjectOf(id)] {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // splitBinary is the terms of a chain of one boolean operator.
