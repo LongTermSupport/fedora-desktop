@@ -572,6 +572,50 @@ class TestHostOnlyPaths(FixtureCase):
         self.assertEqual(len(ap.play_inputs(self.fx.root, self._play()).unresolved), 1)
 
 
+class TestUntrackedTrees(FixtureCase):
+    """A directory reference that holds no checkout content (issue #191) is no input: git never
+    reports a change there, and play_text would walk scratch files and named pipes."""
+
+    def _git(self, *args: str) -> None:
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "-C", self.fx.root, *args], check=True, capture_output=True, env=env)
+
+    def _inputs(self) -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", """
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.assert:
+                    that: decisions.startswith(root_dir ~ '/scratch/')
+                - ansible.builtin.copy:
+                    src: "{{ root_dir }}/files/conf/"
+                    dest: /etc/conf/
+                - ansible.builtin.file:
+                    path: "{{ root_dir }}/spool/requests/"
+                    state: directory
+        """)
+        self.fx.file("files/conf/a.conf")
+        self.fx.file("scratch/.gitignore", "*\n")
+        self.fx.file("scratch/run.log")
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_in_a_checkout_a_tree_without_tracked_content_is_local_not_a_prefix(self) -> None:
+        self._git("init", "-q")
+        self._inputs()
+        self._git("add", "-A")
+        inputs = ap.play_inputs(self.fx.root, "playbooks/imports/play-a.yml")
+        self.assertEqual(inputs.prefixes, {"files/conf/"})
+        self.assertEqual(inputs.local, {"scratch/", "spool/requests/"})
+        self.assertFalse(ap.affects(inputs, "scratch/run.log"))
+        self.assertTrue(ap.affects(inputs, "files/conf/a.conf"))
+
+    def test_a_root_that_is_no_checkout_keeps_every_prefix(self) -> None:
+        inputs = self._inputs()
+        self.assertEqual(inputs.prefixes, {"files/conf/", "scratch/", "spool/requests/"})
+        self.assertEqual(inputs.local, set())
+
+
 class TestJoinedReferences(FixtureCase):
     """`root_dir ~ '/x'` and `root_dir + '/x'` are checkout references too (Plan 00192 3.6)."""
 

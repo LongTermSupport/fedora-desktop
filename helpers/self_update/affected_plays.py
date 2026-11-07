@@ -276,6 +276,10 @@ class Inputs:
     for each package, the commands built from it, which is how a reason names a change.
     `filled` names, for each `<file>:<line>` holding a templated rooted reference the play
     text fills in, the paths it was filled in with (rule play-input-dropped reads it).
+    `local` names the directories the play references that hold no checkout content (no tracked
+    file but a `.gitignore`: the scratch tree `untracked/`, a runtime directory): git never
+    reports a change there, so they are no input, and nothing walks them (rule
+    play-input-tree-untracked).
     """
 
     exact: set[str] = field(default_factory=set)
@@ -286,6 +290,7 @@ class Inputs:
     go_commands: set[str] = field(default_factory=set)
     go_builders: dict[str, set[str]] = field(default_factory=dict)
     filled: dict[str, list[str]] = field(default_factory=dict)
+    local: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -966,7 +971,34 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     walker.finish_templates()
     walker.finish_headed()
     walker.finish_go()
+    local = untracked_trees(repo_root, walker.inputs.prefixes)
+    walker.inputs.prefixes -= local
+    walker.inputs.local |= local
     return walker.inputs
+
+
+def untracked_trees(repo_root: str, prefixes: set[str]) -> set[str]:
+    """The prefixes that hold no checkout content: no file git tracks under them but a
+    `.gitignore`. A prefix is matched as a string (a templated one can end inside a name), so
+    the whole tracked list is read once. A root that is no git checkout (a test fixture) has no tracked files to judge
+    by, so it keeps every prefix."""
+    if not prefixes or not os.path.exists(os.path.join(repo_root, ".git")):
+        return set()
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    listed = subprocess.run(
+        ["git", "-C", repo_root, "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if listed.returncode != 0:
+        raise ValueError(f"git ls-files failed: {listed.stderr.strip()}")
+    content = [path for path in listed.stdout.split("\0") if path and posixpath.basename(path) != ".gitignore"]
+    return {prefix for prefix in prefixes if not any(path.startswith(prefix) for path in content)}
 
 
 def candidate_plays(repo_root: str) -> list[str]:
