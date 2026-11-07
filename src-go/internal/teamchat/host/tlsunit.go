@@ -56,7 +56,7 @@ func (d tlsDropInSpec) credentials() string {
 
 func (d tlsDropInSpec) text() []byte {
 	return []byte(header(d.team) + d.unit() + "\n[Service]\n" + d.execStart() + d.credentials() +
-		ipAllowLine(d.listen, d.networks) + socketBindLine(d.port))
+		ipFilterLines(d.listen, d.networks) + socketBindLines(d.port))
 }
 
 // terminate is the step after the homeserver is ready and bound to loopback alone: the

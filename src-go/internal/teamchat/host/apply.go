@@ -401,9 +401,13 @@ func (a *applying) listenText() []string {
 	return out
 }
 
-// urlHost holds the team's url to X6: an IP literal must be one of the listen addresses, a DNS
-// name is the owner's to point at the host.
+// urlHost holds the team's url to X12 and to the team's port by declare's rule, `declare check`'s
+// own, and to X6: an IP
+// literal must be one of the listen addresses, a DNS name is the owner's to point at the host.
 func (a *applying) urlHost() error {
+	if problem := declare.URLProblem(a.in.Team.URL, a.in.Team.Port); problem != "" {
+		return a.refuse("url %s: %s", a.in.Team.URL, problem)
+	}
 	u, err := url.Parse(a.in.Team.URL)
 	if err != nil {
 		return a.fail(StepRefusals, err)

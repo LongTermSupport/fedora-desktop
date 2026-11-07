@@ -141,7 +141,7 @@ func TestTheLeafNamesTheListenAddressesAndTheURLHost(t *testing.T) {
 			},
 			func(d map[string]any) {
 				docTeam(d)["networks"] = []any{"192.0.2.0/24", "2001:db8::/32"}
-				docTeam(d)["url"] = "http://[2001:db8::10]:8448"
+				docTeam(d)["url"] = "https://[2001:db8::10]:8448"
 			},
 			[]string{"192.0.2.10", "2001:db8::10"},
 			"",
@@ -495,8 +495,15 @@ func restored(t *testing.T, w *world, files []BackupFile) {
 	if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
 		t.Fatal(err)
 	}
-	if err := RestoreCA(w.root, ops(t), files); err != nil {
+	if err := CheckRestoreCA(w.root, ops(t), files); err != nil {
+		t.Fatalf("the check before the restore: %v", err)
+	}
+	written, err := RestoreCA(w.root, ops(t), files)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !written {
+		t.Error("a restore into a team with no CA says it wrote none")
 	}
 }
 
@@ -555,8 +562,15 @@ func TestRestoreNeverReplacesACA(t *testing.T) {
 		t.Fatal(err)
 	}
 	was := certificateFiles(t, w)
-	if err = RestoreCA(w.root, team, files); err != nil {
+	if err = CheckRestoreCA(w.root, team, files); err != nil {
+		t.Fatalf("the check of the same CA over itself: %v", err)
+	}
+	written, err := RestoreCA(w.root, team, files)
+	if err != nil {
 		t.Fatalf("the same CA over itself: %v", err)
+	}
+	if written {
+		t.Error("a restore over the same CA says it wrote the CA")
 	}
 	if !sameFiles(certificateFiles(t, w), was) {
 		t.Error("a restore over the same CA changed a file")
@@ -565,11 +579,22 @@ func TestRestoreNeverReplacesACA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RestoreCA(w.root, team, []BackupFile{
+	others := []BackupFile{
 		{Name: "ca.crt", Mode: 0o644, Data: other.CertPEM()}, {Name: "ca.key", Mode: 0o600, Data: other.KeyPEM()},
-	})
-	if err == nil || !strings.Contains(err.Error(), "another CA") || !strings.Contains(err.Error(), "ca.crt") {
-		t.Errorf("another CA over this one: %v, want a refusal naming ca.crt", err)
+	}
+	refusal := func(what string, err error) {
+		t.Helper()
+		for _, s := range []string{"another CA", "ca.crt", "remove both CA files"} {
+			if err == nil || !strings.Contains(err.Error(), s) {
+				t.Errorf("%s of another CA over this one: %v, want a refusal saying %q", what, err, s)
+			}
+		}
+	}
+	refusal("the check", CheckRestoreCA(w.root, team, others))
+	written, err = RestoreCA(w.root, team, others)
+	refusal("the restore", err)
+	if written {
+		t.Error("a refused restore says it wrote the CA")
 	}
 	if !sameFiles(certificateFiles(t, w), was) {
 		t.Error("a refused restore changed a file")
@@ -622,7 +647,10 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 			if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
 				t.Fatal(err)
 			}
-			err := RestoreCA(w.root, ops(t), files)
+			if err := CheckRestoreCA(w.root, ops(t), files); err == nil || !strings.Contains(err.Error(), c.text) {
+				t.Fatalf("the check: got %v, want a refusal saying %q", err, c.text)
+			}
+			_, err := RestoreCA(w.root, ops(t), files)
 			if err == nil || !strings.Contains(err.Error(), c.text) {
 				t.Fatalf("got %v, want a refusal saying %q", err, c.text)
 			}
@@ -631,19 +659,29 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 			}
 		})
 	}
-	t.Run("no members is a backup from before the CA", func(t *testing.T) {
-		w := applied(t)
-		if err := RestoreCA(w.root, ops(t), nil); err != nil {
-			t.Fatal(err)
-		}
-	})
+}
+
+// X13: no members is a backup taken before the backup carried the CA; the team's CA stays.
+func TestRestoreOfABackupWithoutTheCA(t *testing.T) {
+	w := applied(t)
+	if err := CheckRestoreCA(w.root, ops(t), nil); err != nil {
+		t.Fatal(err)
+	}
+	was := certificateFiles(t, w)
+	written, err := RestoreCA(w.root, ops(t), nil)
+	if err != nil || written {
+		t.Fatalf("RestoreCA of no members = %v, %v; want nothing written and no error", written, err)
+	}
+	if !sameFiles(certificateFiles(t, w), was) {
+		t.Error("a backup without a CA changed the team's CA")
+	}
 }
 
 // X13: the issuing side reads the team's CA certificate for a bundle; it is the file's, checked.
 func TestCAPEM(t *testing.T) {
 	team := ops(t)
 	w := newWorld(t)
-	if _, err := CAPEM(w.root, team); err == nil || !strings.Contains(err.Error(), "not made yet") {
+	if _, err := CAPEM(w.root, team); !errors.Is(err, ErrCANotMade) || !strings.Contains(err.Error(), "not made yet") {
 		t.Errorf("before any apply: %v, want a refusal saying the CA is not made yet", err)
 	}
 	w = applied(t)

@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-10-27 (v3.71.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-11-06 (v3.72.1) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -14,7 +14,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (76 handlers)
+### PreToolUse (77 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -64,6 +64,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 39 | reference_repo_freshness | BLOCKING | Gate a read of a governed reference repo on a cached freshness reading |
 | 39 | resume_guard | BLOCKING | Gate a SendMessage that would cold-resume a large stopped agent |
 | 39 | subagent_context_budget | BLOCKING | Advise a subagent past ``soft_tokens``; past ``hard_tokens`` allow only its handoff |
+| 40 | branch_creation_guard | BLOCKING | Hold the open work branches at ``branches.wip.cap``; warn on likely duplicates |
 | 40 | gh_issue_comments | BLOCKING | Ensure gh issue view commands always include --comments flag |
 | 40 | gh_pr_comments | BLOCKING | Ensure gh pr view commands always include --comments flag |
 | 40 | global_npm_advisor | NON-TERMINAL | Advise on global npm/yarn package installations |
@@ -95,7 +96,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 60 | subagent_tier_advisor | ADVISORY | Advise a cheaper tier on an unchosen or up-overridden dispatch, and a floor below it |
 | 60 | workflow_fanout_advisor | ADVISORY | Advise on a Workflow script's agent count, inherited sites and per-family ceiling |
 
-### PostToolUse (16 handlers)
+### PostToolUse (19 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -115,6 +116,9 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 36 | cron_record_keeper | ADVISORY | Record every CronCreate and forget every CronDelete, silently |
 | 37 | plan_fact_check_feed | ADVISORY | Feed plan edits to the debouncer so a burst yields one pending fact-check |
 | 38 | operator_signal_notice | ADVISORY | Surface a pending operator signal as hook context, once per signal per agent thread |
+| 39 | cleanup_after_merge | ADVISORY | Delete or advise deleting the branch a merge into the default just landed |
+| 40 | branch_touch_recorder | ADVISORY | Write the creator and touch records of the branches a call created or changed |
+| 41 | evacuation_recorder | ADVISORY | Keep the evacuations of this turn for destructive_git's same-turn check |
 
 ### SessionStart (35 handlers)
 
@@ -132,7 +136,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 54 | gitignore_safety_checker | ADVISORY | Warn when required .claude/ paths are absent from .gitignore |
 | 55 | suggest_status_line | ADVISORY | Suggest setting up daemon-based statusline on session start |
 | 55 | version_check | ADVISORY | Check daemon version against latest GitHub release on new sessions |
-| 56 | branch_count_advisor | ADVISORY | Name open work branches beyond the limit, and any far behind the default branch |
+| 56 | branch_sweep | ADVISORY | Summarise branches that need attention: unpushed, merged, dormant, over the cap |
 | 56 | git_upstream_checker | ADVISORY | Full-fetch + configurable pull policy when a branch is behind upstream |
 | 57 | plan_qa_sweep | ADVISORY | Advisory SessionStart sweep over the plan tree (silent when clean) |
 | 58 | ccy_supervisor_integrity | ADVISORY | Advisory: warn when the ccy supervisor is armed but its files are unsafe |
@@ -163,7 +167,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 15 | disclosure_reset_pre_compact | NON-TERMINAL | Reset DisclosureTracker state for the firing agent on PreCompact |
 | 20 | compaction_signal | NON-TERMINAL | Write a ``<session>.compacting`` signal on PreCompact for the supervisor |
 
-### UserPromptSubmit (10 handlers)
+### UserPromptSubmit (11 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -174,6 +178,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 38 | stop_failure_resolver | ADVISORY | Resolve this session's recorded StopFailure when it submits a prompt |
 | 39 | limit_rebrief | ADVISORY | Re-brief after a usage-limit resume; name a background or teammate agent a limit killed |
 | 41 | focus_mode_trigger | ADVISORY | Turn the session's focus mode on or off from the prompt; renew it on every human prompt |
+| 43 | evacuation_turn_marker | ADVISORY | Start a new main-thread turn at each prompt |
 | 55 | critical_thinking_advisory | ADVISORY | Periodically inject advisory context encouraging critical evaluation |
 | 56 | idle_housekeeping_advisory | ADVISORY | After N consecutive no-op recovery ticks, advise a report-first |
 | 58 | daemon_upgrade_detector | ADVISORY | Advise when the INSTALLED daemon version has changed underneath this process |
@@ -190,7 +195,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 |----------|---------|----------|-------------|
 | 50 | quota_resume_recorder | ADVISORY | Record each ``quota_auto_resume_*`` notification, silently |
 
-### Stop (7 handlers)
+### Stop (8 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -199,10 +204,11 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 6 | usage_pause_stop_gate | BLOCKING | Allow a paused session's stop only when its crons are exactly the resume cron |
 | 7 | cron_stop_enforcer | BLOCKING | Block a Stop while a declared persistent cron was never created |
 | 9 | background_task_recorder | NON-TERMINAL | Record a Stop's finished agent tasks for the live count; always allow |
+| 9 | branch_stop_guard | BLOCKING | Main-thread Stop: judge the branches this session touched |
 | 9 | teammate_reap_advisor | ADVISORY | Report the Stop payload's ``background_tasks`` count and name ``TaskStop`` |
 | 15 | auto_continue_stop | TERMINAL | Intercept Stop events and enforce explicit stop reasons or auto-continue |
 
-### SubagentStop (6 handlers)
+### SubagentStop (7 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -211,6 +217,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 9 | subagent_cache_aggregator | NON-TERMINAL | Record a stopping sub-agent's prompt-cache totals for the status line |
 | 10 | subagent_report_persistence | NON-TERMINAL | Persist every stopping sub-agent's final reply to a gitignored file |
 | 11 | subagent_handoff_gate | BLOCKING | Block an over-hard-budget subagent's stop until its handoff file exists |
+| 12 | branch_subagent_stop_guard | BLOCKING | SubagentStop: judge the branches this sub-agent touched |
 | 15 | subagent_report_size_blocker | TERMINAL | Block a SubagentStop whose ``last_assistant_message`` is oversized |
 
 ### Status (18 handlers)
@@ -246,7 +253,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
-| 50 | worktree_remove | TERMINAL | Prune stale worktree registrations (and remove a named worktree) |
+| 50 | worktree_remove | TERMINAL | Remove a worktree without loss, then delete its branch when proven merged |
 
 ### PostToolUseFailure (1 handler)
 

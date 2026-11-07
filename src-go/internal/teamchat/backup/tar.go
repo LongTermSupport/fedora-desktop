@@ -9,12 +9,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -26,6 +29,8 @@ const (
 	nameRoster   = "roster.json"
 	nameRooms    = "rooms.json"
 	nameToken    = "admin.token"
+	nameCACert   = "ca.crt"
+	nameCAKey    = "ca.key"
 
 	capSmall   = 4 << 10
 	capRoot    = 64 << 10
@@ -33,21 +38,34 @@ const (
 	maxArchive = 4 << 20
 )
 
+// members are every member a backup can hold, in order, with each one's cap and mode. Version 1
+// of the manifest is the first six; version 2 adds the team CA's certificate and key (Plan 00246
+// X13), with the modes the host keeps them at, which host.RestoreCA holds them to.
 var members = []struct {
 	name string
 	cap  int64
+	mode fs.FileMode
 }{
-	{nameManifest, capSmall},
-	{nameTeam, capRoot},
-	{nameConfig, capRoot},
-	{nameRoster, capCtl},
-	{nameRooms, capCtl},
-	{nameToken, capSmall},
+	{nameManifest, capSmall, memberMode},
+	{nameTeam, capRoot, memberMode},
+	{nameConfig, capRoot, memberMode},
+	{nameRoster, capCtl, memberMode},
+	{nameRooms, capCtl, memberMode},
+	{nameToken, capSmall, memberMode},
+	{nameCACert, capSmall, 0o644},
+	{nameCAKey, capSmall, memberMode},
 }
+
+// The manifest's versions, and how many members each holds.
+const (
+	manifestNoCA   = 1
+	manifestWithCA = 2
+	countNoCA      = 6
+	countWithCA    = 8
+)
 
 const (
 	block        = 512
-	manifestVer  = 1
 	memberMode   = 0o600
 	typeRegular  = '0'
 	ustarMagic   = "ustar\x00"
@@ -63,20 +81,23 @@ type Manifest struct {
 	ServerName string
 }
 
-func (m Manifest) encode() []byte {
+func (m Manifest) encode(version int64) []byte {
 	return proto.Obj(
-		proto.M("v", proto.Int(manifestVer)), proto.M("team", proto.Str(m.Team.String())),
+		proto.M("v", proto.Int(version)), proto.M("team", proto.Str(m.Team.String())),
 		proto.M("backup", proto.Int(m.Backup)), proto.M("time_ms", proto.Int(m.TimeMS)),
 		proto.M("server_name", proto.Str(m.ServerName)),
 	).Compact()
 }
 
-// Sources are the five files a tar pairs with the database backup, as read (BK4).
+// Sources are the five files a tar pairs with the database backup, as read (BK4), and the team
+// CA's files as host.CABackupFiles gives them: none for a team with no CA yet (Plan 00246 X13).
 type Sources struct {
 	TeamJSON, Config, Roster, Rooms, Token []byte
+	CA                                     []host.BackupFile
 }
 
-// Contents is a tar that validated (BK3): every member's bytes, and what they decode to.
+// Contents is a tar that validated (BK3): every member's bytes, and what they decode to. CA is
+// the team CA's certificate and key for host.RestoreCA, or none for a backup taken without one.
 type Contents struct {
 	Manifest                                Manifest
 	Team                                    declare.Team
@@ -84,21 +105,30 @@ type Contents struct {
 	Rooms                                   proto.RoomIDs
 	Token                                   string
 	TeamJSON, Config, RosterJSON, RoomsJSON []byte
+	CA                                      []host.BackupFile
 }
 
-// Encode is the tar of BK1: the manifest and the sources as six plain ustar members, each
-// 0600, uid and gid 0, with the manifest's time.
+// Encode is the tar of BK1: the manifest and the sources as plain ustar members, uid and gid 0,
+// with the manifest's time: six members of mode 0600 for a team with no CA (manifest version 1),
+// and eight with the CA's certificate and key at their own modes (version 2).
 func Encode(m Manifest, s Sources) ([]byte, error) {
 	if m.TimeMS <= 0 || m.TimeMS%1000 != 0 {
 		return nil, errors.New("a backup's time must be whole seconds after the epoch")
 	}
-	data := [][]byte{m.encode(), s.TeamJSON, s.Config, s.Roster, s.Rooms, s.Token}
+	version, err := caVersion(s.CA)
+	if err != nil {
+		return nil, err
+	}
+	data := [][]byte{m.encode(version), s.TeamJSON, s.Config, s.Roster, s.Rooms, s.Token}
+	for _, f := range s.CA {
+		data = append(data, f.Data)
+	}
 	var b bytes.Buffer
-	for i, mb := range members {
+	for i, mb := range members[:len(data)] {
 		if int64(len(data[i])) > mb.cap {
 			return nil, fmt.Errorf("%s is over its cap of %d bytes", mb.name, mb.cap)
 		}
-		b.Write(header(mb.name, int64(len(data[i])), m.TimeMS/1000))
+		b.Write(header(i, int64(len(data[i])), m.TimeMS/1000))
 		b.Write(data[i])
 		b.Write(make([]byte, padding(int64(len(data[i])))))
 	}
@@ -109,10 +139,29 @@ func Encode(m Manifest, s Sources) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func header(name string, size, mtime int64) []byte {
+// caVersion is the manifest version for the CA files: version 1 for none, version 2 for exactly
+// the CA's certificate and key, in order and at their modes; anything else is refused.
+func caVersion(ca []host.BackupFile) (int64, error) {
+	if len(ca) == 0 {
+		return manifestNoCA, nil
+	}
+	want := members[countNoCA:]
+	if len(ca) != len(want) {
+		return 0, fmt.Errorf("the team CA is %d files, not its certificate and key", len(ca))
+	}
+	for i, f := range ca {
+		if f.Name != want[i].name || f.Mode != want[i].mode {
+			return 0, fmt.Errorf("the team CA's file %d is %s mode %o, not %s mode %o", i+1, f.Name, f.Mode, want[i].name, want[i].mode)
+		}
+	}
+	return manifestWithCA, nil
+}
+
+// header is member i's header.
+func header(i int, size, mtime int64) []byte {
 	h := make([]byte, block)
-	copy(h[0:100], name)
-	copy(h[100:108], octal(memberMode, 7)+"\x00")
+	copy(h[0:100], members[i].name)
+	copy(h[100:108], octal(int64(members[i].mode), 7)+"\x00")
 	copy(h[108:116], octal(0, 7)+"\x00")
 	copy(h[116:124], octal(0, 7)+"\x00")
 	copy(h[124:136], octal(size, 11)+"\x00")
@@ -161,7 +210,7 @@ func Decode(raw []byte, team paths.TeamID, n int64) (Contents, error) {
 	if err != nil {
 		return Contents{}, fail("%w", err)
 	}
-	m, err := decodeManifest(data[0], team, n)
+	m, err := decodeManifest(data[0], team, n, len(data))
 	if err != nil {
 		return Contents{}, fail("%s: %w", nameManifest, err)
 	}
@@ -177,13 +226,18 @@ func Decode(raw []byte, team paths.TeamID, n int64) (Contents, error) {
 	return c, nil
 }
 
-// framing reads the six members' bytes and times, then exactly the two end blocks.
+// framing reads the members' bytes and times, six or eight of them, then exactly the two end
+// blocks. Which count the manifest's version wants is the caller's to hold.
 func framing(raw []byte) ([][]byte, []int64, error) {
-	data := make([][]byte, len(members))
-	mtimes := make([]int64, len(members))
+	data := make([][]byte, 0, len(members))
+	mtimes := make([]int64, 0, len(members))
 	off := 0
 	for i, mb := range members {
-		if off+block > len(raw) || allZero(raw[off:off+block]) {
+		ended := off+block > len(raw) || allZero(raw[off:off+block])
+		if ended && i == countNoCA {
+			break
+		}
+		if ended {
 			return nil, nil, fmt.Errorf("the tar ends before its member %d, %s", i+1, mb.name)
 		}
 		size, mtime, err := checkHeader(raw[off:off+block], i)
@@ -201,13 +255,13 @@ func framing(raw []byte) ([][]byte, []int64, error) {
 		if !allZero(raw[off+int(size) : end]) {
 			return nil, nil, fmt.Errorf("%s is padded with bytes that are not zero", mb.name)
 		}
-		data[i], mtimes[i] = raw[off:off+int(size)], mtime
+		data, mtimes = append(data, raw[off:off+int(size)]), append(mtimes, mtime)
 		off = end
 	}
 	rest := raw[off:]
 	switch {
 	case len(rest) >= block && !allZero(rest[:block]):
-		return nil, nil, errors.New("the tar holds a member beyond the six of a backup")
+		return nil, nil, fmt.Errorf("the tar holds a member beyond the %d of a backup", countWithCA)
 	case len(rest) < 2*block:
 		return nil, nil, errors.New("the tar has no end blocks")
 	case len(rest) > 2*block || !allZero(rest):
@@ -237,8 +291,8 @@ func checkHeader(h []byte, i int) (int64, int64, error) {
 		return 0, 0, fmt.Errorf("%s is not %s: %s", at, want, misplaced(name))
 	}
 	mode, err := number(h[100:108])
-	if err != nil || mode != memberMode {
-		return 0, 0, fmt.Errorf("%s does not have mode 0600 and no special bit", want)
+	if err != nil || mode != int64(members[i].mode) {
+		return 0, 0, fmt.Errorf("%s does not have mode %04o and no special bit", want, members[i].mode)
 	}
 	if err = checkFields(h, want); err != nil {
 		return 0, 0, err
@@ -320,7 +374,12 @@ func allZero(b []byte) bool {
 
 var manifestKeys = []string{"v", "team", "backup", "time_ms", "server_name"}
 
-func decodeManifest(raw []byte, team paths.TeamID, n int64) (Manifest, error) {
+// decodeManifest is the manifest of a tar of count members: version 1 for six, 2 for eight.
+func decodeManifest(raw []byte, team paths.TeamID, n int64, count int) (Manifest, error) {
+	version := int64(manifestNoCA)
+	if count == countWithCA {
+		version = manifestWithCA
+	}
 	v, err := proto.Parse(raw)
 	if err != nil {
 		return Manifest{}, errors.New("is not strict JSON")
@@ -335,8 +394,8 @@ func decodeManifest(raw []byte, team paths.TeamID, n int64) (Manifest, error) {
 	m := Manifest{Backup: got["backup"].Int(), TimeMS: got["time_ms"].Int(), ServerName: got["server_name"].Str()}
 	id, err := paths.ParseTeamID(got["team"].Str())
 	switch {
-	case got["v"].Int() != manifestVer:
-		return Manifest{}, errors.New("is not version 1")
+	case got["v"].Int() != version:
+		return Manifest{}, fmt.Errorf("is not version %d, the version of a tar of %d members", version, count)
 	case err != nil || id != team:
 		return Manifest{}, errors.New("names another team")
 	case m.Backup != n:
@@ -386,6 +445,14 @@ func decodeMembers(data [][]byte, m Manifest, team paths.TeamID) (Contents, erro
 	}
 	if !isToken(data[5]) {
 		return Contents{}, fmt.Errorf("%s is not 1 to 4096 bytes of printable ASCII without a space", nameToken)
+	}
+	if len(data) == countWithCA {
+		if _, err = pki.ParseCA(data[6], data[7]); err != nil {
+			return Contents{}, fmt.Errorf("%s and %s are not a CA certificate and its key", nameCACert, nameCAKey)
+		}
+		for i := countNoCA; i < countWithCA; i++ {
+			c.CA = append(c.CA, host.BackupFile{Name: members[i].name, Mode: members[i].mode, Data: data[i]})
+		}
 	}
 	return c, nil
 }

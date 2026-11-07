@@ -1,11 +1,13 @@
 package declare
 
 import (
+	"errors"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -38,6 +40,32 @@ func validPrefix(s string) bool {
 
 // validServerName is a lower-case DNS name of at least two labels.
 func validServerName(s string) bool { return len(s) <= maxDNSName && dnsNameRe.MatchString(s) }
+
+// URLProblem is what makes a team's url one no member may use to reach the team on port, or ""
+// when none does: matrix's rule for a member's base URL, the one rule for it (X12: plain http
+// only to a loopback IP literal), and the port the url reaches, its explicit port or its scheme's
+// default, the team's own. `declare check` and `team apply` both judge a url by it.
+func URLProblem(raw string, port int) string {
+	_, err := matrix.CanonicalMemberBase(raw)
+	if me, ok := errors.AsType[*matrix.Error](err); ok {
+		return me.Detail
+	}
+	if err != nil {
+		return err.Error()
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err.Error()
+	}
+	reaches := u.Port()
+	if reaches == "" {
+		reaches = map[string]string{"https": "443", "http": "80"}[u.Scheme]
+	}
+	if reaches != strconv.Itoa(port) {
+		return "reaches port " + reaches + ", not the team's port " + strconv.Itoa(port)
+	}
+	return ""
+}
 
 // validURL is DR3's url: http or https, an IP or DNS host, an optional port, nothing else, in its
 // canonical text.
