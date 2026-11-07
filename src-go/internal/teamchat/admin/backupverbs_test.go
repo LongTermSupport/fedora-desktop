@@ -278,7 +278,7 @@ func TestBackupAllGoesOnPastADownTeam(t *testing.T) {
 
 const betaTeamJSON = `{"v":2,"team":"beta","name":"Beta","server_name":"beta.teamchat.internal","port":8449,` +
 	`"description":"The other team.","networks":["192.0.2.0/24"],` +
-	`"url":"http://192.0.2.10:8449","humans":["alice"],"coordinator":"myrepo.1+desk.podman",` +
+	`"url":"https://192.0.2.10:8449","humans":["alice"],"coordinator":"myrepo.1+desk.podman",` +
 	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
 
 // BV2, n2g-D5: every stamped team in turn, one stderr line each, nothing on stdout, 1 when one

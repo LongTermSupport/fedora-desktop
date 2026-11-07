@@ -279,8 +279,9 @@ func TLSDir(t TeamID) string { return AdminState(t) + "/tls" }
 // is mode 0644 in the root-only TLSDir, so the admin issuing a bundle reads it as root.
 func CACertFile(t TeamID) string { return TLSDir(t) + "/ca.crt" }
 
-// CAKeyFile is the team's CA key, mode 0600: the one secret that signs the leaf. The team's backup
-// carries it with CACertFile.
+// CAKeyFile is the team's CA key, mode 0600: the one secret that signs the leaf. Every team
+// backup carries it with CACertFile (backup.Take, through host.CABackupFiles), and a restore puts
+// both back where the team has no CA (host.RestoreCA).
 func CAKeyFile(t TeamID) string { return TLSDir(t) + "/ca.key" }
 
 // LeafCertFile is the certificate the team's homeserver is reached by, signed by the CA. It is made

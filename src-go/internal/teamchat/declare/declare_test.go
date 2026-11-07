@@ -101,7 +101,7 @@ func checkDefaults(t *testing.T, d Declaration) {
 	t.Helper()
 	a := d.Teams[0]
 	if a.ID.String() != "alpha" || a.Name != "alpha" || a.ServerName != "alpha.teamchat.internal" ||
-		a.URL != "http://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" {
+		a.URL != "https://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" {
 		t.Fatalf("defaults not filled: %+v", a)
 	}
 	m := d.LXC[0]
@@ -298,11 +298,77 @@ func TestNetworksBoundsAndFamilies(t *testing.T) {
 // whether an IP literal is a derived listen address is judged where the listen set is known, in
 // `team apply`; here neither a name nor an address outside the networks is refused.
 func TestURLHostIsAnAddressOrANameHere(t *testing.T) {
-	for _, url := range []string{"https://chat.example.com", "http://203.0.113.9:8448", "https://[2001:db8::1]:8448"} {
+	for _, url := range []string{"https://chat.example.com:8448", "https://203.0.113.9:8448", "https://[2001:db8::1]:8448"} {
 		d := validDecl()
 		team0(d)["url"] = url
 		if _, err := Decode(encode(t, d)); err != nil {
 			t.Errorf("url %s refused: %v", url, err)
+		}
+	}
+}
+
+// PR #128 review S3: the port a team's url reaches, its explicit port or its scheme's default
+// (443, 80), is the team's own port, or `declare check` refuses it naming the field and both
+// ports.
+func TestURLPortIsTheTeamsPort(t *testing.T) {
+	for url, refused := range map[string]string{
+		"https://chat.example.com":      "reaches port 443, not the team's port 8448",
+		"https://192.0.2.10:8449":       "reaches port 8449, not the team's port 8448",
+		"http://127.0.0.1":              "reaches port 80, not the team's port 8448",
+		"https://chat.example.com:8448": "",
+		"http://[::1]:8448":             "",
+	} {
+		d := validDecl()
+		team0(d)["url"] = url
+		_, err := Decode(encode(t, d))
+		if refused == "" {
+			if err != nil {
+				t.Errorf("url %s refused: %v", url, err)
+			}
+			continue
+		}
+		wantField(t, err, "teamchat_teams[0].url", "")
+		if !strings.Contains(err.Error(), refused) {
+			t.Errorf("url %s: %v, want it to say %q", url, err, refused)
+		}
+	}
+}
+
+// X12 (PR #128 review S2): plain http is for a loopback IP literal alone, by matrix's one rule
+// (127.0.0.0/8 and ::1), so `declare check` refuses any other http url, naming the field; and the
+// url a team gets when it declares none is https.
+func TestPlainHTTPIsForALoopbackLiteralAlone(t *testing.T) {
+	for url, refused := range map[string]bool{
+		"http://192.0.2.10:8448":       true,
+		"http://chat.example.com:8448": true,
+		"http://[2001:db8::1]:8448":    true,
+		"http://127.0.0.1:8448":        false,
+		"http://127.0.0.2:8448":        false,
+		"http://[::1]:8448":            false,
+		"https://192.0.2.10:8448":      false,
+	} {
+		d := validDecl()
+		team0(d)["url"] = url
+		_, err := Decode(encode(t, d))
+		switch {
+		case refused:
+			wantField(t, err, "teamchat_teams[0].url", "")
+			if err != nil && !strings.Contains(err.Error(), "plain http is only for a loopback IP literal") {
+				t.Errorf("url %s: the refusal does not say why: %v", url, err)
+			}
+		case err != nil:
+			t.Errorf("url %s refused: %v", url, err)
+		}
+	}
+	for address, want := range map[string]string{"192.0.2.10": "https://192.0.2.10:8448", "2001:db8::1": "https://[2001:db8::1]:8448"} {
+		d := validDecl()
+		d["teamchat_address"] = address
+		got, err := Decode(encode(t, d))
+		if err != nil {
+			t.Fatalf("address %s: %v", address, err)
+		}
+		if got.Teams[0].URL != want {
+			t.Errorf("address %s: default url %s, want %s", address, got.Teams[0].URL, want)
 		}
 	}
 }
@@ -420,7 +486,7 @@ func TestDecodeInputRefuses(t *testing.T) {
 
 const canonicalAlpha = `{"v":2,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
 	`"description":"The team that builds the thing.","networks":["192.0.2.0/24"],` +
-	`"url":"http://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
+	`"url":"https://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
 	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
 
 func TestCanonicalTeamFile(t *testing.T) {

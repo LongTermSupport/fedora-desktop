@@ -529,7 +529,9 @@ to sudo by its installed path, and `/etc/sudoers.d/fedora-desktop-shutdown-with-
 (`play-basic-configs.yml`, every profile and audience) lets the desktop user, and only that
 user, through without a password for exactly the argument lists the script accepts (none,
 `--help`, `-h`, `--strict-sessions`, `--in 1` to `--in 9999`, and `--in N` with
-`--strict-sessions` in either order). Anything else is refused by sudo before the script
+`--strict-sessions` in either order). That is unless `host_vars` sets
+`shutdown_with_update_sudoers: false`: then the rule is removed and sudo asks for the
+password instead. Anything else is refused by sudo before the script
 runs, and the script, its link and the directories above them are root's alone (Plan
 00231). On a consumer install there is no ccy, so there are no sessions to warn: it says
 so in one line and still updates, counts down and goes down. Which install it is comes from

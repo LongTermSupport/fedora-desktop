@@ -61,7 +61,7 @@ func TestEffectiveNetworksWithoutBridgeOrAddress(t *testing.T) {
 	in := inputWith(t, func(d map[string]any) {
 		delete(d, "address")
 		delete(d, "lxc_members")
-		docTeam(d)["url"] = "https://chat.example.com"
+		docTeam(d)["url"] = "https://chat.example.com:8448"
 		docTeam(d)["networks"] = []any{"192.0.2.0/24"}
 	})
 	got, err := in.EffectiveNetworks(bridgeAt("203.0.113.0/24", &asked))

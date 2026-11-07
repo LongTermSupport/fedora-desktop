@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -128,16 +129,20 @@ func (a *applying) ensureLeaf(m pki.Maker, ca pki.CA, want pki.Names) error {
 	return nil
 }
 
-// CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle (X15). It is
-// read as root from root/<team>/tls/ and judged with the key beside it, so a bundle never carries
-// a certificate the host could not sign a leaf with. A team whose CA is not made yet is an error.
+// ErrCANotMade is a team with neither CA file: no apply has made its CA yet.
+var ErrCANotMade = errors.New("the team CA is not made yet")
+
+// CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle or an LXC reach
+// fact (X15); `teamchat-admin`'s production System serves it as its team CA. It is read as root
+// from root/<team>/tls/ and judged with the key beside it, so a bundle never carries a certificate
+// the host could not sign a leaf with. A team whose CA is not made yet is ErrCANotMade.
 func CAPEM(root string, team paths.TeamID) (string, error) {
 	ca, found, err := loadCA(root, team)
 	if err != nil {
 		return "", err
 	}
 	if !found {
-		return "", fmt.Errorf("the CA of team %s is not made yet: team apply makes it", team)
+		return "", fmt.Errorf("%w (team %s): team apply makes it", ErrCANotMade, team)
 	}
 	return string(ca.CertPEM()), nil
 }
@@ -164,32 +169,50 @@ func CABackupFiles(root string, team paths.TeamID) ([]BackupFile, error) {
 	}, nil
 }
 
-// RestoreCA puts the CA files of a backup back under root with their modes. The files are judged
-// first: exactly the certificate and the key, each once, with the modes CABackupFiles gives, a pair
-// pki accepts. A team that already has the same CA is left as it is; one that has another is
-// refused, and nothing is replaced. No file at all is a backup taken before the CA was made.
-func RestoreCA(root string, team paths.TeamID, files []BackupFile) error {
+// RestoreCA puts the CA files of a backup back under root with their modes, and says whether it
+// wrote them. The files are judged first: exactly the certificate and the key, each once, with the
+// modes CABackupFiles gives, a pair pki accepts. A team that already has the same CA is left as it
+// is; one that has another is refused, and nothing is replaced. No file at all is a backup taken
+// before the backup carried the CA, and leaves the team's CA, or its lack of one, as it is.
+func RestoreCA(root string, team paths.TeamID, files []BackupFile) (bool, error) {
+	ca, write, err := restorable(root, team, files)
+	if err != nil || !write {
+		return false, err
+	}
+	if err = mkdirOwned(root+paths.TLSDir(team), -1, -1); err != nil {
+		return false, err
+	}
+	return true, writeCA(root, team, ca)
+}
+
+// CheckRestoreCA is RestoreCA's judgement without its write, for a restore to refuse before it
+// changes anything.
+func CheckRestoreCA(root string, team paths.TeamID, files []BackupFile) error {
+	_, _, err := restorable(root, team, files)
+	return err
+}
+
+// restorable is the CA a backup's files hold and whether RestoreCA must write it.
+func restorable(root string, team paths.TeamID, files []BackupFile) (pki.CA, bool, error) {
 	if len(files) == 0 {
-		return nil
+		return pki.CA{}, false, nil
 	}
 	ca, err := backupCA(team, files)
 	if err != nil {
-		return err
+		return pki.CA{}, false, err
 	}
 	have, found, err := loadCA(root, team)
-	if err != nil {
-		return err
+	switch {
+	case err != nil:
+		return pki.CA{}, false, err
+	case !found:
+		return ca, true, nil
+	case !bytes.Equal(have.CertPEM(), ca.CertPEM()) || !bytes.Equal(have.KeyPEM(), ca.KeyPEM()):
+		return pki.CA{}, false, fmt.Errorf("the team already has another CA (%s) than the backup's, and a restore never replaces it: "+
+			"to take the backup's CA, remove both CA files and restore again (every bundle the team's CA issued must then be reissued)",
+			root+paths.CACertFile(team))
 	}
-	if found {
-		if !bytes.Equal(have.CertPEM(), ca.CertPEM()) || !bytes.Equal(have.KeyPEM(), ca.KeyPEM()) {
-			return fmt.Errorf("the team already has another CA (%s); a restore never replaces it", root+paths.CACertFile(team))
-		}
-		return nil
-	}
-	if err = mkdirOwned(root+paths.TLSDir(team), -1, -1); err != nil {
-		return err
-	}
-	return writeCA(root, team, ca)
+	return ca, false, nil
 }
 
 // backupCA is the CA a backup's files hold, when they are exactly the CA's two files.

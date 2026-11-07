@@ -142,7 +142,9 @@ const wantDropIn = `# Rendered by teamchat-admin team apply for team ops; do not
 [Service]
 ExecStart=/usr/local/lib/teamchat/server/tuwunel-1.9.4
 MemoryHigh=512M
+IPAddressDeny=any
 IPAddressAllow=127.0.0.1/32 ::1/128
+SocketBindDeny=any
 SocketBindAllow=tcp:8448
 `
 
@@ -195,6 +197,19 @@ func TestConfigKeysAreThePinnedTuwunels(t *testing.T) {
 	}
 	if want := []string{"[rate_limiting.login.failed]", "[rate_limiting.login.account]"}; !slices.Equal(headers, want) {
 		t.Errorf("tables %q, want %q", headers, want)
+	}
+}
+
+// DropIns, which the unit-text judges outside this package read, is render's two drop-ins.
+func TestDropInsAreRendersDropIns(t *testing.T) {
+	s := spec(t, input(t, teamDoc()))
+	r, err := render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, terminator := DropIns(s.team.ID, s.team.Port, s.pin, s.listen, s.networks, s.devices)
+	if string(server) != string(r.dropIn) || string(terminator) != string(r.tlsDropIn) {
+		t.Errorf("DropIns:\n%s\n%s\nrender:\n%s\n%s", server, terminator, r.dropIn, r.tlsDropIn)
 	}
 }
 

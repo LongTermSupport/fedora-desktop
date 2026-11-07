@@ -30,6 +30,10 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional: no NOPASSWD sudoers rule for shutdown-with-update (default true). For a managed
+# VM whose policy forbids permanent NOPASSWD rules; the script then asks for the sudo password.
+# shutdown_with_update_sudoers: false
+
 # Optional: the SSH key that signs every commit and tag (Plan 00139). Unset, it is
 # ~/.ssh/id, the login key run.bash generates. git signs through the ssh-agent that holds
 # it, so a passphrase is fine. See docs/configuration.md "Commit Signing".

@@ -1,182 +1,187 @@
 # Plan 00146: ccy token switch through the supervisor
 
-**Status**: Not Started (decision gate: the Phase 1 owner decisions, starting with whether
-to file the upstream request in Task 1.1)
+**Status**: Not Started (decision gate: the owner decisions below, then the Phase 0 spike)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
 
 ## Overview
 
-> **Prior-art verdict** ([RESEARCH-hot-swap-prior-art.md](RESEARCH-hot-swap-prior-art.md)): a
-> running Claude Code cannot take a new OAuth token (`apiKeyHelper` rejects `setup-token`
-> tokens). A local forwarding proxy behind `ANTHROPIC_BASE_URL`, which attaches the current
-> token from a file it re-reads, swaps with no restart and covers **both ccy and host `cc`**;
-> community tools use it. It is unverified here, so Phase 0 spikes it first. The supervisor
-> respawn below becomes the fallback. Scope widens to `cc` if the spike passes.
+The owner needs to hot-swap the Claude token a running session uses. Today the only way is
+to end the session and relaunch with another token: Claude Code reads
+`CLAUDE_CODE_OAUTH_TOKEN` once and keeps it for the whole session (now stated in the
+official env-vars reference), and a container's environment is fixed at `podman run`.
 
-When a ccy session's Claude account hits its rate limit, the only way to move it to another
-account today is to end the session and relaunch with a different token. Claude Code reads
-`CLAUDE_CODE_OAUTH_TOKEN` once and keeps it, and a container's environment is fixed at
-`podman run`, so neither the running `claude` nor the container can be given a new token.
+**Design: a local token forwarder.** `claude` is started with `ANTHROPIC_BASE_URL` pointing at
+a small Go forwarder and a per-session placeholder in `CLAUDE_CODE_OAUTH_TOKEN`. The forwarder
+replaces the `Authorization` header with the current real token and passes everything else,
+SSE streams and rate-limit headers included, unchanged to `api.anthropic.com`. The current
+token is named in a small file the forwarder re-checks on every request, so a switch is an
+atomic file write: no restart, no `--resume`, no lost turn, MCP server or sub-agent. The
+official gateway guide documents this exact configuration (a claude.ai credential with a
+custom base URL; the gateway must forward `anthropic-beta`, whose OAuth value it needs), and
+three MIT-licensed community proxies run it. Evidence, sources and the design detail:
+[RESEARCH-hot-swap-prior-art.md](RESEARCH-hot-swap-prior-art.md) (refresh section and section
+5).
 
-The ccy supervisor (`.claude/ccy/claude-supervise.py`, daemon-owned, from the upstream
-hooks-daemon project) starts `claude` itself with `pty.fork` + `os.execvp`, so it decides
-the environment of every `claude` it spawns. The preferred design: on a "switch to token X"
-request the supervisor waits until the session is idle, sends `/exit`, and respawns
-`claude --resume <session-id>` with the new `CLAUDE_CODE_OAUTH_TOKEN`. The container keeps
-running, and so do its ssh-agent and the tmux pane. That needs an upstream supervisor
-feature, a safe way to hand a token into a running container, and a ccy-side command to pick
-the token. If upstream declines, the fallback is the container relaunch the research
-recommended (`claude-yolo` relaunches itself with `--token X -- --resume <id>`).
+**Placement for ccy (recommended, decision 2):** the forwarder runs **on the host**, one per
+session, started by the launcher like ccy's one-key ssh agent (Plan 00163). It listens on a
+unix socket in a mode-0700 directory under `$XDG_RUNTIME_DIR`, which is bind-mounted into
+the container. The container network policy refuses the host's own addresses, so the
+container cannot reach a host TCP port. A unix socket is not covered by that policy. Claude
+Code takes only an HTTP URL, so a tiny in-container relay (`127.0.0.1` TCP to the mounted
+socket, no HTTP parsing, no token) sits in between. The real token then never enters the
+container. Host `cc` uses the same forwarder on loopback TCP (Phase 3).
 
-Research, evidence and the relaunch design:
-[RESEARCH-token-hot-swap.md](RESEARCH-token-hot-swap.md) (its verdict is superseded by the
-owner correction at its top). Upstream request text:
-[UPSTREAM-REQUEST-draft.md](UPSTREAM-REQUEST-draft.md).
+The supervisor respawn, the plan's earlier design, is now the fallback only:
+[FALLBACK-supervisor-respawn.md](FALLBACK-supervisor-respawn.md). The folder name is
+historical. Earlier evidence: [RESEARCH-token-hot-swap.md](RESEARCH-token-hot-swap.md).
 
 ## Goals
 
-- From inside a running ccy session, switch it to another token from the pool and carry on
-  the same conversation, with the container, its ssh-agent and the tmux pane still running.
-- The token never appears in argv, a log, the project tree, or any file that outlives the
-  switch.
-- After a switch, child claudes (`ccy-claude`), the session registry and the next launch all
-  use the new token.
-- If upstream declines the supervisor feature, the same command switches by relaunching the
-  container instead.
+- From a running ccy session, switch it to another token from the pool. The very next API
+  request uses that token. The session, its container, ssh-agent and tmux pane keep running.
+- No real token in argv, env, a log, the project tree, the container, or any new file. The
+  forwarder reads the existing 0600 pool file; the "current" file holds a token name only.
+- Child claudes (`ccy-claude`), the session registry, the next launch and podfreeze all
+  follow the switch.
+- Host `cc` gets the same switch with the same binary.
 
 ## Non-Goals
 
-- Changing the credential inside a running `claude` process (not possible; see the
-  research, section 2).
-- `/login` as a design. It stays a documented emergency escape hatch only.
-- Editing `.claude/ccy/claude-supervise.py` in this repo. It is daemon-owned and replaced
-  on upgrade; the supervisor side is an upstream change.
-- The tmux F12 menu entry that triggers the switch. That is Plan 00147.
+- Automatic rotation on a 429 or a usage threshold (see Risks: terms). Switching is a
+  manual command.
+- Changing the credential inside a running `claude` process. `/login` stays a documented
+  emergency escape hatch only.
+- The tmux F12 menu entry (Plan 00147); it will call the switch command.
+- Editing `.claude/ccy/claude-supervise.py` (daemon-owned).
+
+## Owner decisions (open)
+
+Each one can be answered in a line. My recommendation follows each.
+
+1. **Forwarder as the primary design, spike first?** Recommend yes. The respawn becomes the
+   fallback.
+2. **Where the ccy forwarder runs:** (a) on the host, per session, over a mounted unix socket
+   plus an in-container relay; (b) inside the container, with the token in container tmpfs,
+   delivered by `podman exec -i`. Recommend (a): the real token leaves the container
+   entirely, and a switch is a host-only write.
+3. **Terms:** do you accept, on your own reading of the Consumer Terms and the Claude Code
+   legal page, that manually switching between your own accounts through your own local
+   forwarder is ordinary use? (Quotes are in the research file.) Recommend: manual only, no
+   auto-rotation, and no other person's traffic.
+4. **Host `cc` in this plan** (Phase 3, after ccy) or in a follow-up? Recommend in this plan.
+   It is the same binary, and Plan 00048 already gave `cc` the named-token pool.
+5. **Live usage from the forwarder:** it records the last `anthropic-ratelimit-unified-*`
+   values per token name (no token) in its directory, and the switch menu shows them beside
+   the `u` probe (Plan 00101). Recommend yes.
+6. **Forwarder death mid-session:** fail loudly (the relay answers every request with a
+   named 503, and `ccy --switch-token` and `ccy-sessions` report it) without auto-restart, or
+   have the launcher restart it. Recommend fail loudly; relaunch with `--resume` to recover.
+7. **Stale `ccy-token` label:** the forwarder's `current` file becomes the source of truth.
+   The session registry is rewritten on a switch, and podfreeze and `ccy-sessions` read
+   `current` for a live session. The label is documented as "token at launch". Recommend yes.
+8. **Features that call `api.anthropic.com` directly** (fast-mode availability check,
+   WebFetch domain preflight) carry the placeholder. If the spike shows them failing, accept
+   the documented skip settings (`CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK`, `skipWebFetchPreflight`)
+   or treat it as a spike failure? Recommend accept, if nothing else breaks.
 
 ## Tasks
 
-### Phase 0: Spike the forwarder (decides the rest)
+### Phase 0: Forwarder core and spike (decides the rest)
 
-- [ ] ⬜ **Task 0.1**: In a throwaway container, run a minimal forwarder, start `claude` with
-  `ANTHROPIC_BASE_URL` at it and a placeholder `CLAUDE_CODE_OAUTH_TOKEN`, make a request, swap
-  the token file mid-session, and confirm the next request bills the other account (rate-limit
-  headers) and no token reaches argv, logs or env. Answer the four open questions in
-  section 3 of the research. Record the outcome in the JOURNAL.
-- [ ] ⬜ **Task 0.2**: Owner decision on the result: forwarder (then Phases 2 to 4 are replaced
-  by a forwarder plan for ccy and cc; tasks 1.2, 1.3, 2.x, 4.x and 5.1 are moot because no
-  real token is in any environment) or the supervisor respawn (Phases 1 to 4 stand).
+- [ ] ⬜ **Task 0.1**: TDD the forwarder in Go: `src-go/internal/tokenproxy` and
+  `src-go/cmd/ccy-token-proxy` (`serve`, `relay`). Unit tests against an `httptest`
+  upstream, per section 5.6 of the research: header swap, client `Authorization` and
+  `x-api-key` dropped, `anthropic-*` passed verbatim, SSE flushed event by event,
+  response headers and error bodies unchanged, placeholder checked in constant time, a
+  switch between requests honoured, an in-flight stream kept on its token, a bad `current`
+  answered with a named error and never another token, no token bytes in the log. Relay:
+  byte splice; a dead socket answered with a named 503.
+- [ ] ⬜ **Task 0.2**: Plan-local `spike.bash` (host run through `meta-deploy.list`, built on
+  `_planlib.inc.bash`): builds the binary, starts `serve` on two pool token **names** given
+  by the owner, runs a throwaway ccy container wired to it, and has `switch` and `report`
+  verbs for the interactive half. The steps are in research section 5.7.
+- [ ] 🚫 **Task 0.3**: **HOST**: the owner runs the spike. **Pass** means all of these hold:
+  (P1) `claude -p` through the forwarder succeeds on token A; (P2) in one interactive session
+  a turn on A, then `spike.bash switch B`, then the next turn succeeds and the forwarder log
+  names B for it; (P3) no token value in the forwarder log, any argv, or any
+  `/proc/*/environ` in the container; (P4) `/status` shows a subscription login, not an API
+  key. **Fail** means P1 or P2 fails: the plan switches to the fallback. The spike also lists
+  every path Claude Code called and how `/usage`, `/fast` and WebFetch behaved, which settles
+  decision 8. Blocked on decisions 1 to 3.
 
-### Phase 1: Owner decisions (apply only if the spike fails)
+### Phase 1: ccy wiring
 
-- [ ] 🔄 **Task 1.1**: Owner decision: file the upstream request. Decided by the owner, but
-  in a different shape: ask upstream for a **generic supervisor plugin API**, so the
-  token switch becomes a ccy plugin and the daemon knows nothing about this repo. Draft:
-  [UPSTREAM-REQUEST-supervisor-plugins-draft.md](UPSTREAM-REQUEST-supervisor-plugins-draft.md)
-  (supersedes [UPSTREAM-REQUEST-draft.md](UPSTREAM-REQUEST-draft.md)); research and the
-  supervisor's structure: [subagent-reports/261002-supervisor-plugin-research-opus.md](subagent-reports/261002-supervisor-plugin-research-opus.md).
-  The body is generated by `hooks-daemon issue-report`. Open: the owner's OK on the text
-  before it goes to the public tracker. **Status:** the API now exists. It is hooks-daemon
-  issue #71 and Plan 00487, merged to hooks-daemon main but not yet released, and the ccy
-  lifecycle plugin on `feature/ccy-hooks-daemon-plugin` uses it. Do not request it again. The
-  in-container `Restart` and host half this plan needs are hooks-daemon Plan 00487 Tasks 1.4
-  and 1.5; where they are built is an open owner decision in that plan.
-- [ ] 🚫 **Task 1.2**: Owner decision: where child claudes read the current token after a
-  switch. Options: (a) `ccy-claude` walks up its own process ancestry to the top-level
-  `claude` (the supervisor's child) and reads that process's `/proc/<pid>/environ`; (b) the
-  supervisor keeps a 0600 copy of the current token in container tmpfs; (c) leave
-  `ccy-claude` on `/proc/1/environ`, so children stay on the old account. Recommendation:
-  (a), because it keeps `ccy-claude`'s rule that the token is never written to a file, and
-  needs nothing upstream. Blocked on the owner.
-- [ ] 🚫 **Task 1.3**: Owner decision: the stale `ccy-token` container label (labels are
-  immutable). Options: (a) record the current token name in the session registry and a
-  container-local state file, and change the readers of the label (podfreeze, `ccy-sessions`)
-  to prefer it; (b) leave the label as "token at launch" and document it. Recommendation:
-  (a); a label that names the wrong account misleads exactly when accounts matter. Blocked
-  on the owner.
+- [ ] ⬜ **Task 1.1**: Launcher: start `serve` before `podman run`, in
+  `$XDG_RUNTIME_DIR/ccy-token-proxy/<container>/` (0700). Its arguments are paths and names
+  only, and it watches the launcher's pid. Wait for the socket and fail the launch if it does
+  not come up. Mount the directory read-only at `/run/ccy/token-proxy`. Export the
+  placeholder and `ANTHROPIC_BASE_URL` instead of the real token. Stop the forwarder in the
+  launcher's cleanup.
+- [ ] ⬜ **Task 1.2**: Image: the relay binary built static by `play-claude-yolo.yml` (like
+  `pingbus-status-line`). The entrypoint starts it before the supervisor and fails the start
+  if it cannot listen. Bump the container version and `REQUIRED_CONTAINER_VERSION`.
+- [ ] ⬜ **Task 1.3**: `ccy-claude`: confirm children get the placeholder and
+  `ANTHROPIC_BASE_URL` (it reads `/proc/1/environ` today), so they follow a switch.
 
-### Phase 2: Token delivery into a running container
+### Phase 2: The switch command
 
-- [ ] ⬜ **Task 2.1**: Choose the container-local directory for the one-shot token file. It
-  must be tmpfs inside the container and NOT under `/workspace` (the project bind mount,
-  which would put the token on the host disk). Confirm what the image mounts as tmpfs.
-- [ ] ⬜ **Task 2.2**: Host-side helper that writes the token into that directory as a
-  0600 file through `podman exec -i` on stdin (`umask 077`, write to a temporary name, then
-  rename), never in argv or the environment of `podman exec`. Fails loudly if the container
-  is not running or the write fails.
-- [ ] ⬜ **Task 2.3**: Tests for the helper's argument handling and failure paths in the
-  existing ccy test gates.
+- [ ] ⬜ **Task 2.1**: `ccy --switch-token [NAME] [--session <name>]`, answered by the Go
+  front (`src-go/internal/ccylaunch`). It resolves the session's forwarder directory, lists
+  the pool with the current token marked and usage (existing `listtokens`/`tokenusage`, plus
+  decision 5), validates the choice live, and writes `current` atomically (0600, temp then
+  rename). It refuses a dead forwarder by name. It follows `CLAUDE/InteractiveScripts.md`
+  (bounded re-prompt, clean exit on EOF).
+- [ ] ⬜ **Task 2.2**: After a confirmed switch, rewrite the session-registry record and
+  `.last-launch.conf` to the new name. podfreeze and `ccy-sessions` read `current` for live
+  sessions (decision 7).
+- [ ] ⬜ **Task 2.3**: `CCY_VERSION` bump, `docs/ccy-changelog.md`, `docs/ccy.md` Tokens
+  section ("switching account mid-session", the cold-cache cost, the `/login` hatch), help
+  text.
 
-### Phase 3: The ccy-side switch command
+### Phase 3: Host `cc` (decision 4)
 
-- [ ] ⬜ **Task 3.1**: Factor the "choose and validate a token by name" logic out of
-  `files/var/local/claude-yolo/claude-yolo` (the inline block around `:1134-1382`) into
-  `lib/token-management.bash`, so launch and switch share it (format, length,
-  `validate_token`, expiry).
-- [ ] ⬜ **Task 3.2**: Add the switch command (working name `ccy --switch-token [--session <name>]`): resolve the session's container with `ccy_session_containers`,
-  show the existing `select_token` menu with its usage view (`u`) and the current token
-  marked, validate the choice, refuse a token of the same account as the current one with
-  a clear message, deliver the token file (Phase 2), and drop the switch request for the
-  supervisor. It follows `CLAUDE/InteractiveScripts.md` (bounded re-prompt, clean exit on
-  EOF).
-- [ ] ⬜ **Task 3.3**: Rewrite the session-registry record and `.last-launch.conf` to the
-  new token name after a confirmed switch, so a reboot restore and the next quick launch
-  use it (`ccy_registry_set_token`, beside `ccy_registry_forget_network`).
-- [ ] ⬜ **Task 3.4**: Implement the Task 1.2 and 1.3 outcomes (`ccy-claude` token source;
-  current-token record). Container-side changes follow `CLAUDE/ContainerRules.md`,
-  including any container-version bump.
-- [ ] ⬜ **Task 3.5**: `CCY_VERSION` bump, `docs/ccy-changelog.md` entry, `docs/ccy.md`
-  Tokens section ("switching account mid-session", the `/login` escape hatch and its
-  caveats), help text.
+- [ ] ⬜ **Task 3.1**: `cc-claude` starts `serve` on `127.0.0.1:<random port>`. On loopback
+  the placeholder is a real capability: a random secret per session, checked by the
+  forwarder. Add a `cc` switch verb sharing Task 2.1's code. Update `docs/` for `cc`.
 
-### Phase 4: Supervisor integration (needs the upstream feature)
+### Phase 4: Verification
 
-- [ ] 🚫 **Task 4.1**: Wire the switch command to the upstream request format once the
-  supervisor feature ships, and point the supervisor at the Task 2.1 directory. Blocked on
-  Task 1.1 and on upstream.
-- [ ] ⬜ **Task 4.2**: Tests: request file written with the right shape and no token in it;
-  the switch refuses a session whose session id is ambiguous; nothing falls back to
-  `--continue`.
-
-### Phase 5: Fallback, only if upstream declines
-
-- [ ] ⏸️ **Task 5.1**: Implement the container relaunch from the research (section 5):
-  a host-side relaunch request holding only the token name and session id, which
-  `claude-yolo` consumes after `podman run` returns and re-execs with
-  `--token X -- --resume <id>`. On hold until Task 1.1 or upstream says no.
-
-### Phase 6: Verification
-
-- [ ] ⬜ **Task 6.1**: `deploy.bash` and `acceptance.bash` in this folder (host runs:
-  `play-claude-yolo.yml`, then a switch in a live session checked for the same session id,
-  the new account's usage moving, and no token file left behind).
-- [ ] ⬜ **Task 6.2**: `./scripts/qa-all.bash` green; `qa-reviewer` agent over the full diff.
-- [ ] 🚫 **Task 6.3**: **HOST**: run `deploy.bash` then `acceptance.bash`. Blocked on the
-  owner: Ansible never runs in the ccy container.
+- [ ] ⬜ **Task 4.1**: `deploy.bash` and `acceptance.bash` in this folder. The acceptance
+  run does a live switch in a real ccy session and checks: same session, the next request on
+  the new token (forwarder log), no token in argv, env or log, and the registry updated.
+- [ ] ⬜ **Task 4.2**: `./scripts/qa-all.bash` green; `qa-reviewer` agent over the full diff.
+- [ ] 🚫 **Task 4.3**: **HOST**: run `deploy.bash` then `acceptance.bash` through
+  `meta-deploy.bash`. Blocked: Ansible never runs in the ccy container.
 
 ## Risks
 
-- **A turn in progress is lost** if `claude` ends mid-turn. The switch waits for idle and
-  never kills a turn; a long turn delays the switch instead.
-- **The first turn on the new account re-reads the whole context** with a cold prompt
-  cache, a large one-off spend against that account's allowance.
-- **Tokens of the same account do not help** with a rate limit, which is per account. The
-  usage view exists to show which account has headroom.
-- Background Bash tasks, MCP servers and sub-agents of the old `claude` end with it.
-- The research's reading of Claude Code's credential handling comes from one release's
-  minified internals. The design depends only on the documented `--resume <id>` and
-  `CLAUDE_CODE_OAUTH_TOKEN`.
+- **Terms.** The Claude Code legal page reserves OAuth for "ordinary use of Claude Code" by
+  subscribers. It bars third-party developers from routing requests through Free, Pro, Max
+  or Ultra credentials on behalf of their users, and from collecting or intermediating
+  Claude.ai credentials. It says advertised limits "assume ordinary, individual usage".
+  Community proxy READMEs call multi-account rotation a grey area and report bans for
+  unusual OAuth patterns. This plan keeps the official binary unmodified, carries only the
+  owner's own traffic and tokens, and switches only by hand. Whether that is acceptable is
+  decision 3.
+- **The first turn on the new account re-reads the whole context** with a cold prompt cache.
+  No mechanism avoids it, and a rate limit is per account, so the target must be another
+  account.
+- **Upstream drift:** a release could stop honouring `ANTHROPIC_BASE_URL` for subscription
+  credentials, or add direct calls. The forwarder passes headers through as an open list
+  (the gateway guide's advice), and the acceptance run re-checks this after updates.
+- **Forwarder down = session down.** That is deliberate: fail loudly, never fall back to a
+  token in the environment.
 
 ## Success Criteria
 
-- [ ] A switch in a live session keeps the same session id and conversation, leaves the
-  container and its ssh-agent running, and the next request is billed to the new account.
-- [ ] No token value appears in argv, logs, the project tree, or a file left after the
-  switch.
-- [ ] `ccy-claude`, the session registry and the next launch use the new token.
-- [ ] Every failure (no container, ambiguous session id, invalid token, delivery failure)
-  stops with a named error and leaves the session on its old token.
+- [ ] A switch in a live ccy session takes effect on the next request with no restart, and
+  the conversation, container and ssh-agent carry on.
+- [ ] No real token in the container, argv, env, logs, the project tree or a new file.
+- [ ] `ccy-claude`, the registry, the next launch and podfreeze use the new token name.
+- [ ] Every failure (no forwarder, bad token name, expired token, dead socket) stops with a
+  named error and never sends another token.
 
 ## Delivery & Milestones
 
