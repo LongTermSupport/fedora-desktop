@@ -81,7 +81,7 @@ type Team struct {
 	// canonical masked form. The addresses the homeserver listens on are derived from them at
 	// apply time and are not declared.
 	Networks []string
-	// URL is the members' base URL: the declared one, or http://<address>:<port> (DR3).
+	// URL is the members' base URL: the declared one, or https://<address>:<port> (DR3, X12).
 	URL         string
 	Humans      []string
 	Coordinator string
@@ -318,6 +318,9 @@ func readValues(t *Team, f fields, address string) error {
 		}
 		t.URL = defaultURL(address, t.Port)
 	}
+	if problem := URLProblem(t.URL, t.Port); problem != "" {
+		return f.at(keyURL).fail(problem)
+	}
 	return nil
 }
 
@@ -326,13 +329,14 @@ func validDisplayName(s string) bool {
 	return err == nil
 }
 
-// defaultURL is http://<address>:<port>, brackets around an IPv6 address.
+// defaultURL is https://<address>:<port>, brackets around an IPv6 address (X12: every member URL
+// but a loopback one is https).
 func defaultURL(address string, port int) string {
 	host := address
 	if a, err := netip.ParseAddr(address); err == nil && a.Is6() {
 		host = "[" + address + "]"
 	}
-	return "http://" + host + ":" + strconv.Itoa(port)
+	return "https://" + host + ":" + strconv.Itoa(port)
 }
 
 func port(n node) (int, error) {

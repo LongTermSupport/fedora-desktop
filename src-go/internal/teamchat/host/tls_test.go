@@ -141,7 +141,7 @@ func TestTheLeafNamesTheListenAddressesAndTheURLHost(t *testing.T) {
 			},
 			func(d map[string]any) {
 				docTeam(d)["networks"] = []any{"192.0.2.0/24", "2001:db8::/32"}
-				docTeam(d)["url"] = "http://[2001:db8::10]:8448"
+				docTeam(d)["url"] = "https://[2001:db8::10]:8448"
 			},
 			[]string{"192.0.2.10", "2001:db8::10"},
 			"",

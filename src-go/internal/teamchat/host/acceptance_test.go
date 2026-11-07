@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,16 +21,38 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/tlsterm"
 )
 
-// filterAllows is whether the IPAddressAllow= line of a unit's drop-in lets addr in.
-func filterAllows(t *testing.T, dropIn string, addr netip.Addr) bool {
+// filterMatches is whether some entry of the unit's directive key (IPAddressAllow= or
+// IPAddressDeny=) covers addr: `any`, or a prefix. The drop-in is read alone, its base unit not
+// at all (a drop-in does not lean on a deny it cannot see).
+func filterMatches(t *testing.T, dropIn, key string, addr netip.Addr) bool {
 	t.Helper()
-	line := strings.TrimSuffix(strings.TrimPrefix(lineWith(t, dropIn, "IPAddressAllow="), "IPAddressAllow="), "\n")
-	for field := range strings.FieldsSeq(line) {
-		if netip.MustParsePrefix(field).Contains(addr) {
-			return true
+	for line := range strings.SplitSeq(dropIn, "\n") {
+		value, ok := strings.CutPrefix(line, key)
+		if !ok {
+			continue
+		}
+		for field := range strings.FieldsSeq(value) {
+			if field == "any" {
+				return true
+			}
+			p, err := netip.ParsePrefix(field)
+			if err != nil {
+				t.Fatalf("%s entry %q is neither any nor a prefix", key, field)
+			}
+			if p.Contains(addr) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// filterLetsIn is whether a unit's IP filter, as systemd applies it (systemd.resource-control(5)),
+// lets addr in: an address an allow entry covers is let in, else one a deny entry covers is kept
+// out, else it is let in. An allow-list with no deny lets everything in.
+func filterLetsIn(t *testing.T, dropIn string, addr netip.Addr) bool {
+	t.Helper()
+	return filterMatches(t, dropIn, "IPAddressAllow=", addr) || !filterMatches(t, dropIn, "IPAddressDeny=", addr)
 }
 
 // rulesAllow is whether some recorded firewall rule accepts addr on port.
@@ -118,7 +141,9 @@ func theTerminator(t *testing.T, w *world, up netip.AddrPort) *tlsterm.Server {
 }
 
 // letsIn is the addresses the unit's filter and the firewall rules, as the apply wrote them, let
-// in and keep out: the two must agree with each other and with the declared networks.
+// in and keep out: the two must agree with each other and with the declared networks. The filter
+// is read as systemd applies it, so the deny half is what keeps an outside address out; and the
+// unit's socket bind is its port alone, with all others denied.
 func letsIn(t *testing.T, w *world, port int) {
 	t.Helper()
 	team := ops(t)
@@ -141,12 +166,16 @@ func letsIn(t *testing.T, w *world, port int) {
 		"below the second network":          {"203.0.112.255", false},
 	} {
 		addr := netip.MustParseAddr(c.addr)
-		if got := filterAllows(t, dropIn, addr); got != c.in {
-			t.Errorf("%s (%s): the unit's filter allows it = %v, want %v", name, c.addr, got, c.in)
+		if got := filterLetsIn(t, dropIn, addr); got != c.in {
+			t.Errorf("%s (%s): the unit's filter lets it in = %v, want %v", name, c.addr, got, c.in)
 		}
 		if got := rulesAllow(rules, addr, port); got != c.in {
 			t.Errorf("%s (%s): the firewall rules accept it = %v, want %v", name, c.addr, got, c.in)
 		}
+	}
+	wantBind := "\nSocketBindDeny=any\nSocketBindAllow=tcp:" + strconv.Itoa(port) + "\n"
+	if !strings.Contains(dropIn, wantBind) || strings.Count(dropIn, "SocketBind") != 2 {
+		t.Errorf("the unit's socket bind is not%s alone:\n%s", strings.ReplaceAll(wantBind, "\n", " "), dropIn)
 	}
 }
 

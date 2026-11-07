@@ -479,7 +479,7 @@ func setTeamURL(t *testing.T, w *world, url string) {
 	t.Helper()
 	name := w.root + paths.TeamDeclaration(alpha(t))
 	raw := string(testfiles.Read(t, w.root, name))
-	changed := strings.Replace(raw, "http://192.0.2.10:8448", url, 1)
+	changed := strings.Replace(raw, "https://192.0.2.10:8448", url, 1)
 	if changed == raw {
 		t.Fatalf("team.json does not name the default URL: %s", raw)
 	}

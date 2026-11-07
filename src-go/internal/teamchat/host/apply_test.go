@@ -245,7 +245,7 @@ func TestRefusalsBeforeAnyChange(t *testing.T) {
 		}, "192.0.2.10 is on more than one interface"},
 		"a url on an address the host does not listen on": {func(w *world) declare.Input {
 			doc := teamDoc()
-			docTeam(doc)["url"] = "http://192.0.2.77:8448"
+			docTeam(doc)["url"] = "https://192.0.2.77:8448"
 			return approved(w, doc)
 		}, "url host 192.0.2.77 is not a listen address"},
 		"port another team records": {func(w *world) declare.Input {

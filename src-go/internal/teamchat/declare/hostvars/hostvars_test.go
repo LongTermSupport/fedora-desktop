@@ -72,7 +72,7 @@ func TestReadValid(t *testing.T) {
 		t.Fatalf("decoded %+v", d)
 	}
 	a := d.Teams[0]
-	if a.Port != 8448 || a.Humans[1] != "bob" || len(a.Networks) != 2 || a.Networks[1] != "198.51.100.7/32" || a.URL != "http://192.0.2.10:8448" ||
+	if a.Port != 8448 || a.Humans[1] != "bob" || len(a.Networks) != 2 || a.Networks[1] != "198.51.100.7/32" || a.URL != "https://192.0.2.10:8448" ||
 		a.Trust.Repos[0].Branches[0] != "main" {
 		t.Fatalf("team %+v", a)
 	}
