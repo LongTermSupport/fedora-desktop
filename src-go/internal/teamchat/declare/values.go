@@ -1,11 +1,13 @@
 package declare
 
 import (
+	"errors"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -38,6 +40,20 @@ func validPrefix(s string) bool {
 
 // validServerName is a lower-case DNS name of at least two labels.
 func validServerName(s string) bool { return len(s) <= maxDNSName && dnsNameRe.MatchString(s) }
+
+// URLProblem is what makes a team's url one no member may use, or "" when none does: matrix's
+// rule for a member's base URL, the one rule for it (X12: plain http only to a loopback IP
+// literal). `declare check` and `team apply` both judge a url by it.
+func URLProblem(raw string) string {
+	_, err := matrix.CanonicalMemberBase(raw)
+	if err == nil {
+		return ""
+	}
+	if me, ok := errors.AsType[*matrix.Error](err); ok {
+		return me.Detail
+	}
+	return err.Error()
+}
 
 // validURL is DR3's url: http or https, an IP or DNS host, an optional port, nothing else, in its
 // canonical text.

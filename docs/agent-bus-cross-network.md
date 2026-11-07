@@ -37,8 +37,10 @@ the list:
 
 ## Encryption: the team's own CA
 
-Plain HTTP is for the loopback address only. Every other member URL is `https`, local ccy and
-LXC members included.
+Plain HTTP is for a loopback address only (`127.0.0.0/8` or `::1`, written as an IP). Every
+other member URL is `https`, local ccy and LXC members included: a team without a `url` gets
+`https://<teamchat_address>:<port>`, and `declare check` and `team apply` refuse an `http` url to
+anything but loopback.
 
 - A team has one CA, made at its first apply (ECDSA P-256, valid ten years). Its key is readable
   by root only, under the team's root state, and the team's backup carries it, so a restore keeps

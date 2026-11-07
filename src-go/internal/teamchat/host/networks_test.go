@@ -292,14 +292,14 @@ func TestUrlHostIsAListenAddressOrAName(t *testing.T) {
 		doc    func(d map[string]any)
 		refuse string
 	}{
-		"a listen address":                {"http://192.0.2.10:8448", nil, nil, ""},
+		"a listen address":                {"https://192.0.2.10:8448", nil, nil, ""},
 		"a DNS name":                      {"https://chat.example.com:8448", nil, nil, ""},
-		"an address that is not listened": {"http://192.0.2.77:8448", nil, nil, "url host 192.0.2.77 is not a listen address"},
+		"an address that is not listened": {"https://192.0.2.77:8448", nil, nil, "url host 192.0.2.77 is not a listen address"},
 		"loopback is bound but not derived": {
 			"http://127.0.0.1:8448", nil, nil, "url host 127.0.0.1 is not a listen address",
 		},
 		"an IPv6 listen address": {
-			"http://[2001:db8::10]:8448",
+			"https://[2001:db8::10]:8448",
 			func(w *world) {
 				w.net.ifaces[1].Addrs = addrs("192.0.2.10", "2001:db8::10")
 				w.net.routes = append(w.net.routes, fakeRoute{netip.MustParsePrefix("2001:db8::/32"), "eth0"})
@@ -307,11 +307,11 @@ func TestUrlHostIsAListenAddressOrAName(t *testing.T) {
 			func(d map[string]any) { docTeam(d)["networks"] = []any{"192.0.2.0/24", "2001:db8::/32"} }, "",
 		},
 		"the second interface's address": {
-			"http://203.0.113.9:8448", withSecondNIC,
+			"https://203.0.113.9:8448", withSecondNIC,
 			func(d map[string]any) { docTeam(d)["networks"] = []any{"192.0.2.0/24", "203.0.113.0/24"} }, "",
 		},
 		"the second interface's address, its network undeclared": {
-			"http://203.0.113.9:8448", withSecondNIC, nil, "url host 203.0.113.9 is not a listen address",
+			"https://203.0.113.9:8448", withSecondNIC, nil, "url host 203.0.113.9 is not a listen address",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -336,6 +336,20 @@ func TestUrlHostIsAListenAddressOrAName(t *testing.T) {
 				t.Errorf("got %v (drift %v), %q; want a refusal saying %q", err, e.Drift, lines, c.refuse)
 			}
 		})
+	}
+}
+
+// X12 (PR #128 review S2): apply holds the url to the same rule as `declare check`, so an input
+// that reached it some other way with plain http off loopback is refused before anything starts.
+func TestApplyRefusesPlainHTTPOffLoopback(t *testing.T) {
+	w := newWorld(t)
+	in := input(t, teamDoc())
+	in.Team.URL = "http://192.0.2.10:8448"
+	w.approve(in)
+	lines, err := w.apply(in)
+	e := stepOf(t, err)
+	if e.Step != StepRefusals || !strings.Contains(err.Error(), "plain http is only for a loopback IP literal") || len(lines) != 0 || w.called("start") {
+		t.Errorf("got %v, %q; want a refusal of plain http", err, lines)
 	}
 }
 

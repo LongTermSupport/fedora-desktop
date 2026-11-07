@@ -64,7 +64,7 @@ func TestGatedIsSorted(t *testing.T) {
 		g.LXC[1].String() != box1 {
 		t.Fatalf("lxc %v", g.LXC)
 	}
-	if g.URL != "http://192.0.2.10:8448" || g.Coordinator != "myrepo.1+desk.podman" {
+	if g.URL != "https://192.0.2.10:8448" || g.Coordinator != "myrepo.1+desk.podman" {
 		t.Fatalf("scalars %+v", g)
 	}
 }
@@ -176,7 +176,7 @@ func compareCases() []compareCase {
 		},
 		{
 			"address moves the default url", func(d map[string]any) { d["address"] = "192.0.2.99" },
-			[]Difference{{"url", "http://192.0.2.10:8448", "http://192.0.2.99:8448"}},
+			[]Difference{{"url", "https://192.0.2.10:8448", "https://192.0.2.99:8448"}},
 		},
 		{
 			"trust changed", func(d map[string]any) { obj(docTeam(d)["trust"])["org"] = "other-org" },
@@ -205,11 +205,11 @@ func compareCases() []compareCase {
 			d["lxc_members"] = []any{}
 			docTeam(d)["humans"] = []any{"alice"}
 			docTeam(d)["networks"] = []any{}
-			docTeam(d)["url"] = "https://chat.example.com"
+			docTeam(d)["url"] = "https://chat.example.com:8448"
 		}, []Difference{
 			{"humans", "bob", "-"},
 			{"networks", "192.0.2.0/24", "-"},
-			{"url", "http://192.0.2.10:8448", "https://chat.example.com"},
+			{"url", "https://192.0.2.10:8448", "https://chat.example.com:8448"},
 			{"lxc_members", box1, "-"},
 		}},
 	}
@@ -437,7 +437,7 @@ func approveRefusals(whole string) []struct {
 		{"coordinator bad handle", true, Change{"coordinator", OpSet, "alice"}},
 		{"coordinator remove another", true, Change{"coordinator", OpRemove, "other.2+desk.podman"}},
 		{"url by add", true, Change{"url", OpAdd, "https://chat.example.com"}},
-		{"url unchanged", true, Change{"url", OpSet, "http://192.0.2.10:8448"}},
+		{"url unchanged", true, Change{"url", OpSet, "https://192.0.2.10:8448"}},
 		{"url bad", true, Change{"url", OpSet, "http://x/path"}},
 		{"trust unchanged", true, Change{"trust", OpSet, `{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}`}},
 		{"trust by remove", true, Change{"trust", OpRemove, "{}"}},
