@@ -615,6 +615,20 @@ class TestUntrackedTrees(FixtureCase):
         self.assertEqual(inputs.prefixes, {"files/conf/", "scratch/", "spool/requests/"})
         self.assertEqual(inputs.local, set())
 
+    def test_a_root_that_is_no_checkout_still_never_counts_the_scratch_tree(self) -> None:
+        # Without git there is nothing to judge content by, but untracked/ is the scratch tree by
+        # name, so even then it is never walked.
+        play = self.fx.play("playbooks/imports/play-a.yml", """
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.file:
+                    path: "{{ root_dir }}/untracked/plan-runs/"
+                    state: directory
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertEqual(inputs.prefixes, set())
+        self.assertEqual(inputs.local, {"untracked/plan-runs/"})
+
 
 class TestJoinedReferences(FixtureCase):
     """`root_dir ~ '/x'` and `root_dir + '/x'` are checkout references too (Plan 00192 3.6)."""
@@ -1111,6 +1125,13 @@ class TestDecide(FixtureCase):
                     src: "{ROOT}/files/other/tool"
         """)
         self.assertIn(nested, ap.decide(self.fx.root, ["files/other/tool"]).skipped)
+
+    def test_a_play_name_that_is_not_a_regular_file_is_refused_naming_it(self) -> None:
+        # A dangling link or a named pipe called play-x.yml would otherwise silently stop being
+        # a candidate play, so a change it depends on would never run it.
+        os.symlink("play-gone.yml", os.path.join(self.fx.root, "playbooks/imports/play-dangling.yml"))
+        with self.assertRaisesRegex(ValueError, "playbooks/imports/play-dangling.yml is not a regular file"):
+            ap.candidate_plays(self.fx.root)
 
 
 class TestCli(FixtureCase):

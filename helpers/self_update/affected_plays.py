@@ -977,13 +977,20 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     return walker.inputs
 
 
+SCRATCH_TREE = "untracked"
+
+
 def untracked_trees(repo_root: str, prefixes: set[str]) -> set[str]:
     """The prefixes that hold no checkout content: no file git tracks under them but a
     `.gitignore`. A prefix is matched as a string (a templated one can end inside a name), so
-    the whole tracked list is read once. A root that is no git checkout (a test fixture) has no tracked files to judge
-    by, so it keeps every prefix."""
-    if not prefixes or not os.path.exists(os.path.join(repo_root, ".git")):
+    the whole tracked list is read once. A root that is no git checkout (a test fixture) has no
+    tracked files to judge by, so only the scratch tree `untracked/`, known by its name, is held
+    out there; never a walk of it, whatever the root."""
+    if not prefixes:
         return set()
+    if not os.path.exists(os.path.join(repo_root, ".git")):
+        return {prefix for prefix in prefixes
+                if posixpath.normpath(prefix) == SCRATCH_TREE or posixpath.normpath(prefix).startswith(SCRATCH_TREE + "/")}
     env = {key: value for key, value in os.environ.items()
            if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
     env["GIT_CONFIG_GLOBAL"] = os.devnull
@@ -1004,13 +1011,19 @@ def untracked_trees(repo_root: str, prefixes: set[str]) -> set[str]:
 def candidate_plays(repo_root: str) -> list[str]:
     """Every play file under playbooks/imports/, nested optional plays included.
     playbook-main.yml is an aggregator of these, and playbooks/dev/ operates on the repo
-    rather than the host, so neither is a candidate."""
+    rather than the host, so neither is a candidate. A play name that is not a regular file (a
+    dangling link, a named pipe) is refused, never skipped: skipped, it would silently stop being
+    a candidate, and a change it depends on would never run it."""
     found = []
     for dirpath, _dirs, files in os.walk(os.path.join(repo_root, CANDIDATE_DIR)):
         for name in files:
+            if not name.endswith((".yml", ".yaml")):
+                continue
             path = os.path.join(dirpath, name)
-            if name.endswith((".yml", ".yaml")) and os.path.isfile(path):
-                found.append(os.path.relpath(path, repo_root))
+            rel = os.path.relpath(path, repo_root)
+            if not os.path.isfile(path):
+                raise ValueError(f"{rel} is not a regular file, so it cannot be read as a play")
+            found.append(rel)
     return sorted(found)
 
 

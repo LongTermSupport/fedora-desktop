@@ -82,6 +82,11 @@ def edid_byte_count(edid_path: str) -> int:
     service-restart into USB-reauth into module-reload against working monitors.
 
     A real connector here reads 256-384 bytes while reporting st_size 0.
+
+    Returns 0 when nothing is at the path, -1 when something is there but cannot
+    be read as a regular file: an OSError, a named pipe, socket or device, or a
+    dangling symlink (the name exists, its target does not). -1 is never taken
+    as the wedge signature.
     """
     if os.path.lexists(edid_path) and not os.path.isfile(edid_path):
         # Not a regular file (opening a named pipe would block): unreadable, not missing.

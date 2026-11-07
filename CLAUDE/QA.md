@@ -866,8 +866,13 @@ returns walked names to a caller that opens them), Python embedded in a shell st
 hand. A suffix filter (`name.endswith(".yml")`), `exists()` or `not is_symlink()` is not a
 check: a named pipe can be called anything, and it exists.
 
-**How to fix a finding.** Skip the entry when `os.path.isfile(path)` or `path.is_file()` is
-false, on the variable that is then opened, before opening it. Under `/proc` or `/sys` too: the
+**How to fix a finding.** Check `os.path.isfile(path)` or `path.is_file()` on the variable that
+is then opened, before opening it, and decide what a non-regular entry means there. **Skip** it
+where the walk lists whatever happens to be in the directory and a stray entry is not this code's
+business (a scratch tree, `/proc`, a cache). **Refuse** it, naming the path, where every entry
+should have been a file and its absence from the result would mislead: a play that silently
+stops being a candidate, a response that makes an answered run look unanswered, a stamp
+(`candidate_plays`, `helpers/vmtest/verify_response.py`, `helpers/agent_bus/declare.py`). Under `/proc` or `/sys` too: the
 check costs nothing there and the rule cannot tell those trees from any other. Never satisfy
 the rule by renaming a helper or moving the open out of sight.
 

@@ -188,9 +188,9 @@ def _go_findings(repo_root: str, inputs: ap.Inputs, name: str, where: str) -> li
                 continue
             rel = os.path.relpath(path, repo_root)
             for match in _GO_LITERAL.finditer(_read(repo_root, rel)):
-                path = _checkout_path(repo_root, match.group(1))
-                if path is not None and not _accounted(inputs, path):
-                    findings.append(f"{where} {name} reads {path} ({rel})")
+                target = _checkout_path(repo_root, match.group(1))
+                if target is not None and not _accounted(inputs, target):
+                    findings.append(f"{where} {name} reads {target} ({rel})")
     return findings
 
 
