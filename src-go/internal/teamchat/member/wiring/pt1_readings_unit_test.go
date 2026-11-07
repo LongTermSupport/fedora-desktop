@@ -35,10 +35,18 @@ func snap(seq int, item string, nonces ...string) pt1Snap {
 	return pt1Snap{seq: seq, read: true, item: item, awaiting: append([]string{}, nonces...), missed: []string{}}
 }
 
-// missedSnap is a store snapshot at seq with missed entries of nonces naming the item.
-func missedSnap(seq int, item string, nonces ...string) pt1Snap {
-	return pt1Snap{seq: seq, read: true, item: item, awaiting: []string{}, missed: append([]string{}, nonces...)}
+// missedSnap is a store snapshot at seq with the item pending, repeat (as declareMissing leaves
+// it), and missed entries of nonces naming it, each declared at atMS on the boot clock.
+func missedSnap(seq int, atMS int64, nonces ...string) pt1Snap {
+	at := map[string]int64{}
+	for _, n := range nonces {
+		at[n] = atMS
+	}
+	return pt1Snap{seq: seq, read: true, item: "pending repeat", awaiting: []string{}, missed: append([]string{}, nonces...), missedAt: at}
 }
+
+// pt1DueMS is a declaration time a missed entry of a run started at 0 can be due at.
+const pt1DueMS = pt1QuietMS + 20_000
 
 // pt1ReadingCase is a forced timeline and the reading the classifier must name for $a's copy 1.
 type pt1ReadingCase struct {
@@ -50,11 +58,30 @@ type pt1ReadingCase struct {
 
 func pt1ReadingCases() []pt1ReadingCase {
 	return []pt1ReadingCase{
-		{"the copy's delivery was declared missing before the recv ran", func() pt1Seen {
+		{"the copy's delivery was declared missing, once due, before the recv ran", func() pt1Seen {
 			o := returned("d1d1d1d1")
-			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: missedSnap(2, "pending repeat", "d1d1d1d1"), at: missedSnap(4, "pending repeat", "d1d1d1d1")}}
+			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: missedSnap(2, pt1DueMS, "d1d1d1d1"), at: missedSnap(4, pt1DueMS, "d1d1d1d1")}}
 			return o
 		}, pt1Harness, "began before the hand-out"},
+		{"the copy's delivery was declared missing before it could be due", func() pt1Seen {
+			o := returned("d1d1d1d1")
+			o.startMS = 5_000_000
+			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: missedSnap(2, o.startMS+pt1QuietMS-1, "d1d1d1d1"), at: missedSnap(4, o.startMS+pt1QuietMS-1, "d1d1d1d1")}}
+			return o
+		}, pt1Production, "declared missing before due"},
+		{"the copy's delivery was declared missing just as it could be due", func() pt1Seen {
+			o := returned("d1d1d1d1")
+			o.startMS = 5_000_000
+			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: missedSnap(2, o.startMS+pt1QuietMS, "d1d1d1d1"), at: missedSnap(4, o.startMS+pt1QuietMS, "d1d1d1d1")}}
+			return o
+		}, pt1Harness, "found late"},
+		{"the copy's delivery was both missed and awaiting before the recv ran", func() pt1Seen {
+			o := returned("d1d1d1d1")
+			both := missedSnap(2, pt1DueMS, "d1d1d1d1")
+			both.awaiting = []string{"d1d1d1d1"}
+			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: both, at: snap(4, "pending repeat")}}
+			return o
+		}, pt1Ambiguous, "both missed and awaiting"},
 		{"the copy's delivery was awaiting before the recv ran", func() pt1Seen {
 			o := returned("d1d1d1d1")
 			o.marks = map[string]pt1Mark{"$a": {copies: 0, before: snap(2, "pending, handed to d1d1d1d1", "d1d1d1d1"), at: snap(4, "pending repeat", "d1d1d1d1")}}
@@ -96,6 +123,17 @@ func pt1ReadingCases() []pt1ReadingCase {
 	}
 }
 
+// readingCase is the forced timeline of that name.
+func readingCase(t *testing.T, name string) pt1ReadingCase {
+	t.Helper()
+	cases := pt1ReadingCases()
+	i := slices.IndexFunc(cases, func(c pt1ReadingCase) bool { return c.name == name })
+	if i < 0 {
+		t.Fatalf("no forced timeline %q", name)
+	}
+	return cases[i]
+}
+
 // The classifier names each forced timeline's reading, and "neither" where the record cannot
 // tell.
 func TestPT1P2ClassifierNamesTheReading(t *testing.T) {
@@ -113,7 +151,7 @@ const pt1OldP2 = "P2: $a was returned to pending marked repeat and its copy 1 in
 
 // A P2 failure prints its reading and the record it was read from, after the finding's own line.
 func TestPT1P2FailurePrintsTheReadingAndTheRecord(t *testing.T) {
-	o := pt1ReadingCases()[0].seen()
+	o := readingCase(t, "the copy's delivery was declared missing, once due, before the recv ran").seen()
 	got := pt1Check(o)
 	if len(got) != 1 {
 		t.Fatalf("findings %v, want one", got)
@@ -121,19 +159,24 @@ func TestPT1P2FailurePrintsTheReadingAndTheRecord(t *testing.T) {
 	for _, want := range []string{
 		pt1OldP2 + "\n",
 		string(pt1Harness),
-		"before the recv (seq 2): store read, $a pending repeat, awaiting [], missed [d1d1d1d1]",
-		"at the mark (seq 4): 0 copies in the transcript, store read, $a pending repeat, awaiting [], missed [d1d1d1d1]",
+		"run started at 0 ms on the boot clock",
+		"before the recv (seq 2): store read, $a pending repeat, awaiting [], missed [d1d1d1d1 at 200000 ms]",
+		"at the mark (seq 4): 0 copies in the transcript, store read, $a pending repeat, awaiting [], missed [d1d1d1d1 at 200000 ms]",
 		"copy 1: delivery d1d1d1d1, no repeat line, first seen at seq 6",
 	} {
 		if !strings.Contains(got[0], want) {
 			t.Errorf("the finding\n%s\ndoes not hold %q", got[0], want)
 		}
 	}
-	o = pt1ReadingCases()[1].seen()
+	o = readingCase(t, "the copy's delivery was declared missing before it could be due").seen()
+	if got := pt1Check(o); len(got) != 1 || !strings.Contains(got[0], string(pt1Production)) || !strings.Contains(got[0], "run started at 5000000 ms on the boot clock") || !strings.Contains(got[0], "missed [d1d1d1d1 at 5179999 ms]") {
+		t.Errorf("the early missed entry's finding: %v", got)
+	}
+	o = readingCase(t, "the copy's delivery was awaiting before the recv ran").seen()
 	if got := pt1Check(o); len(got) != 1 || !strings.Contains(got[0], string(pt1Production)) || !strings.Contains(got[0], "before the recv (seq 2): store read, $a pending, handed to d1d1d1d1, awaiting [d1d1d1d1], missed []") {
 		t.Errorf("the awaiting entry's finding: %v", got)
 	}
-	o = pt1ReadingCases()[3].seen()
+	o = readingCase(t, "a delivery begun after the mark").seen()
 	if got := pt1Check(o); len(got) != 1 || !strings.Contains(got[0], string(pt1Production)) || !strings.Contains(got[0], "at the mark (seq 4): 0 copies in the transcript, store read, $a pending repeat, awaiting [], missed []") {
 		t.Errorf("the production reading's finding: %v", got)
 	}
@@ -189,13 +232,45 @@ func returnedStore() state.Store {
 func TestPT1P2ReadsAMissedEntryFoundLateAsTheHarness(t *testing.T) {
 	before := state.Store{
 		Pending: []state.Pending{{ID: "$a", Repeat: true, Held: true}},
-		Missed:  []state.Missed{{Nonce: "d4d4d4d4", IDs: []string{"$a"}}},
+		Missed:  []state.Missed{{Nonce: "d4d4d4d4", IDs: []string{"$a"}, AtMS: pt1DueMS}},
 	}
 	at := returnedStore()
 	at.Missed = slices.Clone(before.Missed)
 	got, why := pt1Classify(storeMark("d4d4d4d4", before, at), "$a", 0)
 	if got != pt1Harness || !strings.Contains(why, "declared missing") {
 		t.Fatalf("a missed entry found late: %q (%s), want %q", got, why, pt1Harness)
+	}
+}
+
+// A missed entry declared before it could be due is not reading (b): declareMissing needs 180 s
+// of quiet after the delivery's write (engine/proof.go), and no delivery of a run is written
+// before the run starts, so an entry declared less than 180 s after the start was declared early,
+// by production.
+func TestPT1P2ReadsAMissedEntryDeclaredBeforeDueAsProduction(t *testing.T) {
+	before := state.Store{
+		Pending: []state.Pending{{ID: "$a", Repeat: true, Held: true}},
+		Missed:  []state.Missed{{Nonce: "d6d6d6d6", IDs: []string{"$a"}, AtMS: 1_000}},
+	}
+	at := returnedStore()
+	at.Missed = slices.Clone(before.Missed)
+	got, why := pt1Classify(storeMark("d6d6d6d6", before, at), "$a", 0)
+	if got != pt1Production || !strings.Contains(why, "declared missing before due") {
+		t.Fatalf("a missed entry declared 1 s into the run: %q (%s), want %q, declared missing before due", got, why, pt1Production)
+	}
+}
+
+// A delivery both missed and awaiting before the recv is a store that contradicts itself
+// (declareMissing moves the entry, it never copies it): neither reading.
+func TestPT1P2ReadsADeliveryBothMissedAndAwaitingAsAmbiguous(t *testing.T) {
+	nonce := "d7d7d7d7"
+	before := state.Store{
+		Pending:  []state.Pending{{ID: "$a", Handed: &nonce}},
+		Awaiting: []state.Awaiting{{Nonce: nonce, IDs: []string{"$a"}, Written: state.WrittenYes}},
+		Missed:   []state.Missed{{Nonce: nonce, IDs: []string{"$a"}, AtMS: pt1DueMS}},
+	}
+	got, why := pt1Classify(storeMark(nonce, before, returnedStore()), "$a", 0)
+	if got != pt1Ambiguous || !strings.Contains(why, "both missed and awaiting") {
+		t.Fatalf("a delivery both missed and awaiting: %q (%s), want %q", got, why, pt1Ambiguous)
 	}
 }
 

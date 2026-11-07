@@ -98,7 +98,8 @@ func (r *pt1Runner) storeAt() (state.Store, int, error) {
 }
 
 // pt1SnapOf is the snapshot of st for id, read at seq (err when it was not read): the item's state
-// in pending and the ledger, and the deliveries in flight holding it, awaiting and missed apart.
+// in pending and the ledger, and the deliveries in flight holding it, awaiting and missed apart,
+// each missed one with its declaration time.
 func pt1SnapOf(seq int, st state.Store, err error, id string) pt1Snap {
 	if err != nil {
 		return pt1Snap{seq: seq, err: err.Error()}
@@ -119,7 +120,7 @@ func pt1SnapOf(seq int, st state.Store, err error, id string) pt1Snap {
 	if slices.ContainsFunc(st.Ledger, func(l state.Ledger) bool { return l.ID == id }) {
 		item += ", in the ledger"
 	}
-	awaiting, missed := []string{}, []string{}
+	awaiting, missed, missedAt := []string{}, []string{}, map[string]int64{}
 	for _, a := range st.Awaiting {
 		if slices.Contains(a.IDs, id) {
 			awaiting = append(awaiting, a.Nonce)
@@ -128,9 +129,10 @@ func pt1SnapOf(seq int, st state.Store, err error, id string) pt1Snap {
 	for _, m := range st.Missed {
 		if slices.Contains(m.IDs, id) {
 			missed = append(missed, m.Nonce)
+			missedAt[m.Nonce] = m.AtMS
 		}
 	}
-	return pt1Snap{seq: seq, read: true, item: item, awaiting: awaiting, missed: missed}
+	return pt1Snap{seq: seq, read: true, item: item, awaiting: awaiting, missed: missed, missedAt: missedAt}
 }
 
 // copiesByID is how many copies of each item the transcript holds.

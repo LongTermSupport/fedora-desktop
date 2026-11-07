@@ -332,12 +332,17 @@ type pt1Seen struct {
 	// They decide only what a P2 failure prints (its reading), never whether it fails.
 	marks     map[string]pt1Mark
 	firstSeen []int
+	// startMS is the boot clock (the clock a store's awaiting and missed entries are stamped on)
+	// when the run started, before any delivery of it was written: no missed entry of the run is
+	// due before startMS plus pt1QuietMS.
+	startMS int64
 }
 
 // pt1Snap is the store as the harness read it at one moment, for one item: the harness's sequence
 // number then, whether the store was read (err why not), the item's state there, and the nonces of
 // the deliveries of it in flight, kept apart: awaiting entries holding it, and missed entries
-// (declared missing, watched for a late find) naming it.
+// (declared missing, watched for a late find) naming it, with missedAt, each missed entry's
+// declaration time on the boot clock (state.Missed.AtMS).
 type pt1Snap struct {
 	seq      int
 	read     bool
@@ -345,6 +350,7 @@ type pt1Snap struct {
 	item     string
 	awaiting []string
 	missed   []string
+	missedAt map[string]int64
 }
 
 // pt1Mark is one mark's record: the transcript's copies of the item when it was sampled (the
@@ -354,6 +360,10 @@ type pt1Mark struct {
 	copies     int
 	before, at pt1Snap
 }
+
+// pt1QuietMS is the engine's quietAfter (engine/proof.go) in milliseconds: the least time from a
+// delivery's write to its entry falling due as missing.
+const pt1QuietMS int64 = 180_000
 
 // pt1Reading is which of issue 156's readings a P2 failure's record supports.
 type pt1Reading string
@@ -368,7 +378,10 @@ const (
 // mark, and why. A recv hands out only an item handed to nobody (engine/recv.go), and an awaiting
 // entry's items are handed to it, so the one delivery begun before the hand-out whose copy may
 // land after the mark is a missed entry (declareMissing gives its items back), found late: that
-// alone is reading (b). A copy of a delivery awaiting before the recv means production released
+// alone is reading (b), and only for an entry declared once it could be due, pt1QuietMS after the
+// run's start at the earliest; one declared sooner was declared before due, by production. A
+// delivery both missed and awaiting is a store at odds with itself (declareMissing moves the
+// entry). A copy of a delivery awaiting before the recv means production released
 // an item a delivery held (P11's question). A delivery begun before the recv is in the "before"
 // snapshot unless it was proven (its copy is counted at the mark, never judged), taken back as
 // unwritten, its watch expired, or dropped by a link's restart.
@@ -385,6 +398,10 @@ func pt1Classify(o pt1Seen, id string, i int) (pt1Reading, string) {
 		return pt1Ambiguous, "the copy has no delivery nonce"
 	case k < len(o.firstSeen) && o.firstSeen[k] <= m.at.seq:
 		return pt1Ambiguous, fmt.Sprintf("the copy was first seen at seq %d, not after the mark (seq %d): the record contradicts itself", o.firstSeen[k], m.at.seq)
+	case slices.Contains(m.before.missed, c.nonce) && slices.Contains(m.before.awaiting, c.nonce):
+		return pt1Ambiguous, fmt.Sprintf("delivery %s was both missed and awaiting before the recv ran, which declareMissing never leaves (it moves the entry): the store contradicts itself", c.nonce)
+	case slices.Contains(m.before.missed, c.nonce) && m.before.missedAt[c.nonce] < o.startMS+pt1QuietMS:
+		return pt1Production, fmt.Sprintf("delivery %s was declared missing before due: at %d ms on the boot clock, less than 180 s of quiet after the run started (%d ms), so before any delivery of the run could be due; production declared it missing early and gave its item back to the recv", c.nonce, m.before.missedAt[c.nonce], o.startMS)
 	case slices.Contains(m.before.missed, c.nonce):
 		return pt1Harness, fmt.Sprintf("delivery %s was declared missing before the recv ran, so it began before the hand-out, its copy rightly carries no repeat line, and it was found late, after the mark (seq %d)", c.nonce, m.at.seq)
 	case slices.Contains(m.before.awaiting, c.nonce):
@@ -421,6 +438,7 @@ func pt1Record(o pt1Seen, id string) string {
 	}
 	lines := []string{
 		"record of " + id + ":",
+		"  run started at " + strconv.FormatInt(o.startMS, 10) + " ms on the boot clock",
 		"  before the recv (seq " + strconv.Itoa(m.before.seq) + "): " + m.before.describe(id),
 		"  at the mark (seq " + strconv.Itoa(m.at.seq) + "): " + strconv.Itoa(m.copies) + " copies in the transcript, " + m.at.describe(id),
 	}
@@ -447,7 +465,11 @@ func (s pt1Snap) describe(id string) string {
 	if !s.read {
 		return "store not read (" + s.err + ")"
 	}
-	return fmt.Sprintf("store read, %s %s, awaiting %v, missed %v", id, s.item, s.awaiting, s.missed)
+	missed := make([]string, 0, len(s.missed))
+	for _, n := range s.missed {
+		missed = append(missed, fmt.Sprintf("%s at %d ms", n, s.missedAt[n]))
+	}
+	return fmt.Sprintf("store read, %s %s, awaiting %v, missed %v", id, s.item, s.awaiting, missed)
 }
 
 // pt1Check is the properties B 2.15 names, as far as a run's observations reach them; each

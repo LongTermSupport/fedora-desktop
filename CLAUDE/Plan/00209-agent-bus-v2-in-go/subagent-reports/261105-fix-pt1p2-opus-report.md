@@ -1,5 +1,7 @@
 # PT1, P2's two readings (issue 156): the record that tells them apart, and what a failure prints
 
+> Superseded: its design was rejected in review; read `261106-pr165-readings-opus.md` and `261107-pr165-r3-opus.md` instead.
+
 Branch `fix/pt1-p2-readings-156`, from `origin/feat/bus-v2-n3e-wire`. Test files only; no
 production file changed (two plants were put in and reverted, below). Seed 57 stays in `pt1Fixed`,
 and that list was not touched.

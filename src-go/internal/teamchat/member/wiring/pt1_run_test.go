@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
@@ -129,11 +130,12 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 // point armed in its first link, "" for none.
 func newPT1Runner(t *testing.T, seed uint64, point failpoint.Name) *pt1Runner {
 	t.Helper()
+	start := clock.System().Boot().Milliseconds()
 	w := newWorld(t, fakeServer(t))
 	if point != "" {
 		w.arm = arm("link", point)
 	}
-	return &pt1Runner{t: t, seed: seed, w: w, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}, marks: map[string]pt1Mark{}}
+	return &pt1Runner{t: t, seed: seed, w: w, startMS: start, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}, marks: map[string]pt1Mark{}}
 }
 
 // judge drains the run and fails the test with every check ops broke.
@@ -240,6 +242,9 @@ type pt1Runner struct {
 	seq       int
 	firstSeen []int
 	marks     map[string]pt1Mark
+	// startMS is the boot clock, the link's clock for its store's entries (CLOCK_BOOTTIME, one
+	// per kernel), read before the run's world started (pt1Seen.startMS).
+	startMS int64
 }
 
 // pt1PeerShort is the peer's short name, which a send names it by (P69).
@@ -468,6 +473,6 @@ func (r *pt1Runner) seen() pt1Seen {
 		posted: r.posted, recv: r.recv, transcript: transcript, awaiting: awaiting, crashes: max(len(links)-1, 0), linksAlive: alive,
 		notices: notices, want: r.want, sends: r.sends, inMain: inMain,
 		removed: r.removed, atRemoval: r.atRemoval, afterRemoval: r.afterRemoval, storeBack: r.storeBack, marked: r.marked,
-		marks: r.marks, firstSeen: r.firstSeen,
+		marks: r.marks, firstSeen: r.firstSeen, startMS: r.startMS,
 	}
 }
