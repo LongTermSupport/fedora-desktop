@@ -291,6 +291,10 @@ the builder takes where this text is silent goes in its report.
    Element trusts the CA through the play (X34). Then X30, the second-machine run. S12 and S13
    both extend the health tick and S12 reuses apply's leaf step, so they are built together; S14
    follows them (it makes a leaf the way S12 does); S15 is independent of the Go slices.
+   **S16** (review blocker B2 of pull request 128, built there): `admin/wire` serves `host.CAPEM`
+   as the production `System.TeamCA` and as the seat bundles' CA, so an `https` bundle and an
+   LXC reach fact carry the team's CA; a team with none is `ErrTeamCANotMade`
+   (`host.ErrCANotMade`). S14's reissue depends on it.
 
 ## Owner answers
 

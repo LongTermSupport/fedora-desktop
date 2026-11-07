@@ -681,7 +681,7 @@ func TestRestoreOfABackupWithoutTheCA(t *testing.T) {
 func TestCAPEM(t *testing.T) {
 	team := ops(t)
 	w := newWorld(t)
-	if _, err := CAPEM(w.root, team); err == nil || !strings.Contains(err.Error(), "not made yet") {
+	if _, err := CAPEM(w.root, team); !errors.Is(err, ErrCANotMade) || !strings.Contains(err.Error(), "not made yet") {
 		t.Errorf("before any apply: %v, want a refusal saying the CA is not made yet", err)
 	}
 	w = applied(t)

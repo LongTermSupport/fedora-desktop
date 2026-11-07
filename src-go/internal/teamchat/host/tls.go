@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/netip"
@@ -181,16 +182,20 @@ func (a *applying) leafVerdict(ca pki.CA, want pki.Names) (string, error) {
 	return "leaf made again: " + renewal.String(), nil
 }
 
-// CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle (X15). It is
-// read as root from root/<team>/tls/ and judged with the key beside it, so a bundle never carries
-// a certificate the host could not sign a leaf with. A team whose CA is not made yet is an error.
+// ErrCANotMade is a team with neither CA file: no apply has made its CA yet.
+var ErrCANotMade = errors.New("the team CA is not made yet")
+
+// CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle or an LXC reach
+// fact (X15); `teamchat-admin`'s production System serves it as its team CA. It is read as root
+// from root/<team>/tls/ and judged with the key beside it, so a bundle never carries a certificate
+// the host could not sign a leaf with. A team whose CA is not made yet is ErrCANotMade.
 func CAPEM(root string, team paths.TeamID) (string, error) {
 	ca, found, err := loadCA(root, team)
 	if err != nil {
 		return "", err
 	}
 	if !found {
-		return "", fmt.Errorf("the CA of team %s is not made yet: team apply makes it", team)
+		return "", fmt.Errorf("%w (team %s): team apply makes it", ErrCANotMade, team)
 	}
 	return string(ca.CertPEM()), nil
 }
