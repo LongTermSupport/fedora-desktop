@@ -307,6 +307,33 @@ func TestURLHostIsAnAddressOrANameHere(t *testing.T) {
 	}
 }
 
+// PR #128 review S3: the port a team's url reaches, its explicit port or its scheme's default
+// (443, 80), is the team's own port, or `declare check` refuses it naming the field and both
+// ports.
+func TestURLPortIsTheTeamsPort(t *testing.T) {
+	for url, refused := range map[string]string{
+		"https://chat.example.com":      "reaches port 443, not the team's port 8448",
+		"https://192.0.2.10:8449":       "reaches port 8449, not the team's port 8448",
+		"http://127.0.0.1":              "reaches port 80, not the team's port 8448",
+		"https://chat.example.com:8448": "",
+		"http://[::1]:8448":             "",
+	} {
+		d := validDecl()
+		team0(d)["url"] = url
+		_, err := Decode(encode(t, d))
+		if refused == "" {
+			if err != nil {
+				t.Errorf("url %s refused: %v", url, err)
+			}
+			continue
+		}
+		wantField(t, err, "teamchat_teams[0].url", "")
+		if !strings.Contains(err.Error(), refused) {
+			t.Errorf("url %s: %v, want it to say %q", url, err, refused)
+		}
+	}
+}
+
 // X12 (PR #128 review S2): plain http is for a loopback IP literal alone, by matrix's one rule
 // (127.0.0.0/8 and ::1), so `declare check` refuses any other http url, naming the field; and the
 // url a team gets when it declares none is https.

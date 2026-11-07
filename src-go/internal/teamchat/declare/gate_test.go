@@ -323,8 +323,8 @@ func approveCases() []approveCase {
 			Change{"coordinator", OpRemove, "myrepo.1+desk.podman"},
 		},
 		{
-			"set the url", func(d map[string]any) { docTeam(d)["url"] = "https://chat.example.com" },
-			Change{"url", OpSet, "https://chat.example.com"},
+			"set the url", func(d map[string]any) { docTeam(d)["url"] = "https://chat.example.com:8448" },
+			Change{"url", OpSet, "https://chat.example.com:8448"},
 		},
 		{
 			"set the trust", func(d map[string]any) { obj(docTeam(d)["trust"])["org"] = "other-org" },

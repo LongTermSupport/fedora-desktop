@@ -33,7 +33,8 @@ the list:
   needs the owner's approval (`team approve`), and `--add` and `--remove` work on it. Removing a
   network and running `team apply` cuts that network's reach, in the filter and in the firewall.
 - The team's `url` host must be one of the listen addresses when it is an IP literal, and may be
-  a DNS name otherwise; `declare check` refuses anything else.
+  a DNS name otherwise, and the port it reaches (written, or 443 for `https`) must be the team's
+  `port`; `declare check` refuses anything else.
 
 ## Encryption: the team's own CA
 

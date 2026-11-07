@@ -318,7 +318,7 @@ func readValues(t *Team, f fields, address string) error {
 		}
 		t.URL = defaultURL(address, t.Port)
 	}
-	if problem := URLProblem(t.URL); problem != "" {
+	if problem := URLProblem(t.URL, t.Port); problem != "" {
 		return f.at(keyURL).fail(problem)
 	}
 	return nil

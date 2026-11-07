@@ -42,7 +42,10 @@ install are listed last, under "Owner questions".
   networks, the same set the filter and the firewall use. (The code map found it reading the
   declared list only; a failing test comes first.)
 - **X6** The team's `url` host must be one of the derived listen addresses when it is an IP
-  literal, and may be a DNS name otherwise; anything else is refused at `declare check`.
+  literal, and may be a DNS name otherwise; anything else is refused at `declare check`. The
+  port the `url` reaches, its explicit port or its scheme's default (443, 80), is the team's
+  `port`, or `declare check` and `team apply` refuse it naming both ports
+  (`declare.URLProblem`, X12's one function).
 
 ## 2. A seat is keyed on the homeserver URL
 

@@ -353,6 +353,20 @@ func TestApplyRefusesPlainHTTPOffLoopback(t *testing.T) {
 	}
 }
 
+// PR #128 review S3: apply holds the url's port to the team's by the same rule as `declare
+// check`, so an input that reached it with a url on another port is refused before anything starts.
+func TestApplyRefusesAURLOnAnotherPort(t *testing.T) {
+	w := newWorld(t)
+	in := input(t, teamDoc())
+	in.Team.URL = "https://192.0.2.10:8449"
+	w.approve(in)
+	lines, err := w.apply(in)
+	e := stepOf(t, err)
+	if e.Step != StepRefusals || !strings.Contains(err.Error(), "reaches port 8449, not the team's port 8448") || len(lines) != 0 || w.called("start") {
+		t.Errorf("got %v, %q; want a refusal of the url's port", err, lines)
+	}
+}
+
 // X3: an own network (the bridge) may be routed by the default route, a declared one may not.
 func TestOwnNetworkOnTheDefaultRouteIsAccepted(t *testing.T) {
 	w := newWorld(t)
