@@ -30,6 +30,10 @@ full picture on demand:
   - Max Output Tokens (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`)
   - Auto Memory (`CLAUDE_CODE_DISABLE_AUTO_MEMORY`)
   - Bash Working Directory (`CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`)
+  - Idle Compaction (`idleCompaction`; fails on `idleCompaction: false`,
+    `autoCompactEnabled: false`, or `DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT`,
+    `FORCE_PROMPT_CACHING_5M`; interactive sessions on the one-hour cache,
+    Claude Code 2.1.290 or later)
 - **Container runtime** — docker / podman / lxc / generic, or desktop/host.
   (Also shown continuously by the status-line environment icon.)
 - **Git `core.fileMode`** — warns when `false` (hooks can lose their exec bit).

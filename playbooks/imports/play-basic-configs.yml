@@ -407,8 +407,10 @@
 
     # Plan 00231: run bare, the script hands itself to sudo by its installed path. This lets
     # the desktop user, and only that user, through without a password, for the argument
-    # lists its parser accepts and nothing else. Every profile and audience: on a consumer
-    # install it is the one way that account reaches the update and the power action.
+    # lists its parser accepts and nothing else. Every profile and audience by default: on a
+    # consumer install it is the one way that account reaches the update and the power action.
+    # shutdown_with_update_sudoers: false is for managed VMs whose policy forbids any permanent
+    # NOPASSWD rule; the rule is then removed and the script asks for the sudo password.
     - name: Let the desktop user run shutdown-with-update without a password (a scoped sudoers rule)
       ansible.builtin.template:
         src: "{{ root_dir }}/files/etc/sudoers.d/fedora-desktop-shutdown-with-update.j2"
@@ -417,6 +419,13 @@
         group: root
         mode: "0440"
         validate: "visudo -cf %s"
+      when: shutdown_with_update_sudoers | bool
+
+    - name: Remove the shutdown-with-update sudoers rule where host_vars turn it off
+      ansible.builtin.file:
+        path: /etc/sudoers.d/fedora-desktop-shutdown-with-update
+        state: absent
+      when: not (shutdown_with_update_sudoers | bool)
 
     # The old `sudo` aliases only worked in a shell opened after the play, and not at all from
     # a script or over `ssh host cmd`; the script elevates itself now, so they go.

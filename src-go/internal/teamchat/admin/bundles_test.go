@@ -16,7 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 )
 
-// teamCA stands in for the files the host keeps the team CA in (slice S7a): it answers one CA
+// teamCA stands in for the files the host keeps the team CA in (host.CAPEM in production): it answers one CA
 // certificate, or err, and counts the teams it was asked for.
 type teamCA struct {
 	pem   string

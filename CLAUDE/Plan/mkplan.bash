@@ -77,6 +77,19 @@ readonly LOCK_BASENAME=".mkplan.lock"
 readonly COMMON_DIR_LOCK_BASENAME="hooksdaemon-mkplan.lock"
 readonly LOCK_MAX_ATTEMPTS=100
 readonly LOCK_RETRY_SECONDS=0.1
+readonly CONFIG_LOCK_MAX_ATTEMPTS=30
+readonly CONFIG_LOCK_RETRY_SECONDS=0.1
+# Remote plan-number scan (GitHub #154). The fetch budget equals the daemon's
+# Timeout.GIT_FETCH_SESSION; a test pins the two together.
+readonly REMOTE_FETCH_TIMEOUT_DEFAULT_SECONDS=30
+# MKPLAN_REMOTE_FETCH_TIMEOUT_SECONDS lowers (or raises) it, mainly for tests.
+REMOTE_FETCH_TIMEOUT_SECONDS="${MKPLAN_REMOTE_FETCH_TIMEOUT_SECONDS:-$REMOTE_FETCH_TIMEOUT_DEFAULT_SECONDS}"
+readonly REMOTE_FETCH_TIMEOUT_SECONDS
+readonly REMOTE_ARCHIVE_FOLDERS=(Completed Cancelled)
+# Overall deadline for listing the remote's plan folders (the fetch has its own).
+# MKPLAN_REMOTE_SCAN_BUDGET_SECONDS overrides it, mainly for tests.
+REMOTE_SCAN_BUDGET_SECONDS="${MKPLAN_REMOTE_SCAN_BUDGET_SECONDS:-20}"
+readonly REMOTE_SCAN_BUDGET_SECONDS
 
 # Journal assets (Plan 00163), also used by --journal (Plan 00427).
 readonly JOURNAL_DIR_BASENAME="JOURNAL"
@@ -95,9 +108,10 @@ readonly JOURNAL_CATEGORIES=(action finding decision thought blocker handoff cor
 readonly JOURNAL_CORRECTION_CATEGORY="correction"
 readonly JOURNAL_CORRECTION_REF_PATTERN='^(([0-9]{2}-[0-9]{2}-[0-9]{2})/)?([0-9]{2}:[0-9]{2})$'
 
-# Populated once the lock is held, so the EXIT trap only ever removes a lock
+# Populated once the lock file is held, so the EXIT trap only ever removes a lock
 # this process actually owns (never another runner's lock on a timeout-die).
 lock_held=""
+lock_owner_pid=""
 
 # --- helpers ---------------------------------------------------------------
 
@@ -134,10 +148,15 @@ USAGE
 }
 
 # Release the scaffold lock. Only removes the lock if THIS process took it
-# (lock_held set) and the dir is still present — never another runner's lock.
+# (lock_held set) and the file is still present — never another runner's lock.
 release_lock() {
-    if [[ -n "$lock_held" && -d "$lock_held" ]]; then
-        rmdir "$lock_held"
+    # The EXIT trap can fire in a command-substitution subshell on some bash
+    # builds; that subshell shares lock_held but is not the owner, and removing
+    # the lock there would let a second runner in while the first still works.
+    # BASHPID is the current process (bash 4+); $$ is the fallback where it is
+    # unset, which keeps the old behaviour on bash 3.2.
+    if [[ -n "$lock_held" && "${BASHPID:-$$}" == "$lock_owner_pid" && -f "$lock_held" ]]; then
+        rm -f -- "$lock_held"
     fi
 }
 
@@ -150,7 +169,7 @@ is_usable_git_dir() {
     [[ -d "$candidate" ]]
 }
 
-# Print the directory the scaffold lock lives in: the repository's common git
+# Print the scaffold lock file's path. It lives in the repository's common git
 # dir when git answers with exactly one absolute path naming an existing
 # directory, else the plan dir. Old git does not know the path-format option,
 # echoes it back and exits 0, so the exit status alone proves nothing about
@@ -165,22 +184,58 @@ scaffold_lock_dir() {
     fi
 }
 
-# Acquire an exclusive lock via atomic `mkdir`. Portable
-# (Linux + macOS/BSD, no `flock` dependency) and silent: mkdir's stderr is
-# captured (2>&1 into a var, NOT discarded) and only surfaced if we time out.
+# Create the lock file exclusively, holding $2 (the owner pid). Bash's
+# noclobber redirect opens a missing file with O_CREAT|O_EXCL, so exactly one
+# caller can succeed; set -C is scoped to the subshell. The external `mkdir`
+# is NOT used: the uutils mkdir on Ubuntu 25.10+ let two runners both
+# "create" one lock directory (Plan 00474 N568). A lock DIRECTORY left at the
+# path by an older mkplan makes the open fail too, so it is honoured as held.
+create_lock_file() {
+    (set -C && printf '%s\n' "$2" > "$1")
+}
+
+# Acquire an exclusive lock via an exclusive file create. Portable
+# (Linux + macOS/BSD, no `flock` dependency) and silent: the create's stderr
+# is captured (2>&1 into a var, NOT discarded) and only surfaced on timeout.
 acquire_lock() {
-    local lock_dir="$1"
-    local attempts=0 err
-    while ! err="$(mkdir "$lock_dir" 2>&1)"; do
+    local lock_file="$1"
+    local attempts=0 err owner="${BASHPID:-$$}"
+    while ! err="$(create_lock_file "$lock_file" "$owner" 2>&1)"; do
         attempts=$((attempts + 1))
         if (( attempts >= LOCK_MAX_ATTEMPTS )); then
-            die "timed out acquiring plan lock '$lock_dir' (concurrent run, or a stale lock — remove the directory if no other mkplan is running). Last error: $err"
+            die "timed out acquiring plan lock '$lock_file' (concurrent run, or a stale lock — remove it if no other mkplan is running). Last error: $err"
         fi
         sleep "$LOCK_RETRY_SECONDS"
     done
-    lock_held="$lock_dir"
-    # Release on any exit path once we hold it.
-    trap release_lock EXIT INT TERM
+    lock_held="$lock_file"
+    lock_owner_pid="$owner"
+    # Release on any exit path once we hold it. INT/TERM must EXIT (which runs
+    # the EXIT trap). A trap that only released the lock would return into the
+    # critical section, unlocked, and let a second runner allocate the same
+    # number (Plan 00474).
+    trap release_lock EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+# Write the counter to the local git config. Git does not retry its own
+# .git/config.lock, so any concurrent git process (another tool, an IDE, a
+# parallel runner's git call) can make a single write fail. Retry ONLY that
+# failure, briefly; any other git error is fatal at once. stderr is captured
+# into a variable, never discarded.
+write_counter() {
+    local repo="$1" value="$2"
+    local attempts=0 err
+    while ! err="$(git -C "$repo" config --local "$COUNTER_KEY" "$value" 2>&1)"; do
+        if [[ "$err" != *"could not lock config file"* ]]; then
+            die "failed to write git counter $COUNTER_KEY: $err"
+        fi
+        attempts=$((attempts + 1))
+        if (( attempts >= CONFIG_LOCK_MAX_ATTEMPTS )); then
+            die "timed out waiting for the git config lock while writing $COUNTER_KEY (another git process holds config.lock, or it is stale -- remove it if no git is running). Last error: $err"
+        fi
+        sleep "$CONFIG_LOCK_RETRY_SECONDS"
+    done
 }
 
 # Walk one directory for filesystem_highest, recursing into every folder that is not
@@ -218,6 +273,92 @@ filesystem_highest() {
     scan_plan_tree "$plan_dir"
     shopt -u nullglob dotglob
     printf '%d' "$scan_highest_result"
+}
+
+# Remote scan (GitHub #154): the counter and the disk are both local, so two
+# clones can take the same number. Mirrors remote_highest_plan_number
+# (handlers/utils/plan_numbering.py); the fetch budget is Timeout.GIT_FETCH_SESSION,
+# pinned by tests/unit/scripts/test_mkplan_remote_scan.py. READ-ONLY: it fetches
+# and lists tree names, and never pushes. mkplan is the only caller that fetches;
+# the daemon's hook path reads the already-fetched refs. A ref that is not a
+# commit, a failed ls-tree, or an exceeded scan deadline leaves the remote
+# unchecked, as in the daemon. Unlike the daemon (one cat-file --batch) this
+# runs one ls-tree per DISTINCT plan folder tree: bash cannot parse the raw
+# tree bytes, so the deadline is what bounds it.
+default_remote() {
+    local root="$1" remotes
+    remotes="$(git -C "$root" remote)" || return 1
+    [[ -n "$remotes" ]] || return 1
+    if grep -qx 'origin' <<<"$remotes"; then
+        printf 'origin'
+    else
+        printf '%s' "${remotes%%$'\n'*}"
+    fi
+}
+
+# Sets the global `remote_highest_result` (0 when no plan is on the remote) and
+# returns 0, or returns 1 when the remote could not be checked.
+remote_highest() {
+    local root="$1" rel="$2" remote ref name
+    remote_highest_result=0
+    remote="$(default_remote "$root")" || return 1
+    local refs listing
+    # Stock macOS ships no `timeout` (coreutils installs it as `gtimeout`).
+    # With neither present the fetch runs WITHOUT a time limit rather than
+    # always failing, so a hung remote can stall here on such a host.
+    local -a limiter=()
+    if command -v timeout >/dev/null; then
+        limiter=(timeout "$REMOTE_FETCH_TIMEOUT_SECONDS")
+    elif command -v gtimeout >/dev/null; then
+        limiter=(gtimeout "$REMOTE_FETCH_TIMEOUT_SECONDS")
+    fi
+    # The ${arr[@]+...} form keeps an empty array safe under `set -u` on bash 3.2.
+    if ! GIT_TERMINAL_PROMPT=0 ${limiter[@]+"${limiter[@]}"} \
+        git -C "$root" fetch --quiet --no-tags "$remote" >/dev/null; then
+        return 1
+    fi
+    # One overall deadline for the listing, however many branches exist. Branch
+    # trees are deduplicated (and so are the plan folders inside them) before any
+    # ls-tree runs, so a branch that changed no plan costs no process.
+    local deadline=$((SECONDS + REMOTE_SCAN_BUDGET_SECONDS)) line otype tree spec
+    local -a trees=() specs=()
+    refs="$(git -C "$root" for-each-ref --format='%(objecttype) %(tree) %(refname)' \
+        "refs/remotes/$remote/")" || return 1
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        otype="${line%% *}"
+        tree="${line#* }"
+        tree="${tree%% *}"
+        [[ "$otype" == commit && -n "$tree" ]] || return 1
+        trees+=("$tree")
+    done <<<"$refs"
+    (( ${#trees[@]} > 0 )) || return 0
+    while IFS= read -r tree; do
+        for spec in "$rel" "${REMOTE_ARCHIVE_FOLDERS[@]/#/$rel/}"; do
+            specs+=("$tree:$spec")
+        done
+    done < <(printf '%s\n' "${trees[@]}" | sort -u)
+    # `missing` lines are plan folders a branch does not have; real ones are shas.
+    listing="$(printf '%s\n' "${specs[@]}" | git -C "$root" cat-file --batch-check)" || return 1
+    local -a folder_ids=()
+    while IFS= read -r line; do
+        [[ "$line" == *" tree "* ]] && folder_ids+=("${line%% *}")
+    done <<<"$listing"
+    (( ${#folder_ids[@]} > 0 )) || return 0
+    refs="$(printf '%s\n' "${folder_ids[@]}" | sort -u)"
+    while IFS= read -r ref; do
+        (( SECONDS < deadline )) || return 1
+        listing="$(git -C "$root" ls-tree --name-only "$ref")" || return 1
+        while IFS= read -r name; do
+            name="${name##*/}"
+            if [[ "$name" =~ ^([0-9]{1,5})-[a-zA-Z] ]]; then
+                if (( 10#${BASH_REMATCH[1]} > remote_highest_result )); then
+                    remote_highest_result=$((10#${BASH_REMATCH[1]}))
+                fi
+            fi
+        done <<<"$listing"
+    done <<<"$refs"
+    return 0
 }
 
 # Plan folders in the plan ROOT only -- the same set the dedupe scout is told
@@ -756,7 +897,17 @@ plan_rel="${plan_dir#"$repo_root"/}"
 # --- take the lock, then resolve + sanity-check the next number ------------
 
 # Everything from here to the counter write is the critical section: a single
-# atomic-mkdir lock serialises concurrent runners so no two assign the same N.
+# exclusively-created lock file serialises concurrent runners so no two assign
+# the same N.
+# The remote scan runs BEFORE the lock: a fetch can take up to its whole budget
+# and a waiting runner gives up on the lock sooner than that.
+if remote_highest "$repo_root" "$plan_rel"; then
+    remote_highest_value="$remote_highest_result"
+else
+    remote_highest_value=0
+    printf 'mkplan: remote could not be checked; using local plan numbers only\n' >&2
+fi
+
 acquire_lock "$(scaffold_lock_dir "$plan_dir")"
 
 fs_highest="$(filesystem_highest "$plan_dir")"
@@ -784,6 +935,13 @@ if (( fs_highest > counter )); then
     printf 'mkplan: counter (%s) is behind the highest plan on disk (%s); advancing it\n' \
         "$counter" "$fs_highest" >&2
     counter="$fs_highest"
+fi
+
+# Other clones' pushed plans take numbers too (GitHub #154).
+if (( remote_highest_value > counter )); then
+    printf 'mkplan: highest plan on the remote (%s) is ahead of the counter (%s); advancing it\n' \
+        "$remote_highest_value" "$counter" >&2
+    counter="$remote_highest_value"
 fi
 
 next=$((counter + 1))
@@ -921,7 +1079,7 @@ new_counter="$next"
 if (( counter > new_counter )); then
     new_counter="$counter"
 fi
-git -C "$repo_root" config --local "$COUNTER_KEY" "$new_counter"
+write_counter "$repo_root" "$new_counter"
 
 # Lock is released by the EXIT trap (release_lock).
 

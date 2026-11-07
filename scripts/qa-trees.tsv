@@ -21,6 +21,11 @@
 #   start with its shebang), because claude-supervise.py is tracked. It is daemon-owned and
 #   rewritten on every upgrade; upstream guarantees it clean under ruff's default rules, and a
 #   finding from a rule this repo selected is excluded here, not patched (CLAUDE/QA.md).
+# .claude/hooks: for shell only, the hook scripts the daemon generates (one per event, plus
+#   status-line), rewritten on every upgrade, so a finding there is upstream's to fix, not
+#   patched here (owner's decision, 2026-11-06, after v3.72.1 shipped SC2034 and a 119-line
+#   status-line). The project handlers under .claude/hooks/handlers/ are Python, and the python
+#   list does not exclude them, so they stay gated.
 # .claude/skills: installed skill payloads.
 # .claude/worktrees: checkouts of other branches, gated on their own branch.
 # roles/vendor: vendored Ansible roles.
@@ -34,6 +39,7 @@ shell	.ansible
 shell	.claude/hooks-daemon
 shell	.claude/hooks-daemon-backups
 shell	.claude/ccy
+shell	.claude/hooks
 shell	.claude/skills
 shell	.claude/worktrees
 shell	roles/vendor

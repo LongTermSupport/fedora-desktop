@@ -57,6 +57,7 @@ var Exemptions = []Exemption{
 	{"src-go/vendor/", "third-party Go modules as go mod vendor writes them (Plan 00204); never edited here, and qa-go-deps fails any byte that differs", false, true},
 	{".claude/init.sh", "daemon-owned file, replaced on every hooks-daemon upgrade", false, true},
 	{".claude/provision.sh", "daemon-owned file, replaced on every hooks-daemon upgrade", false, true},
+	{".claude/hooks/*", "daemon-generated hook scripts (one per event, and status-line), replaced on every hooks-daemon upgrade; the project handlers under .claude/hooks/handlers/ are Python and not matched", false, true},
 	{".claude/skills/hooks-daemon/", "daemon-owned skill scripts, replaced on every hooks-daemon upgrade", false, true},
 	{".claude/skills/docs-qa/", "daemon-owned skill scripts, replaced on every hooks-daemon upgrade", false, true},
 }
