@@ -28,6 +28,8 @@ from helpers.vmtest import spool, verdict
 def find_response(responses_dir: pathlib.Path, run_id: str) -> tuple[str, str] | None:
     """The (request name, response text) whose document names this run id, if any."""
     for path in sorted(responses_dir.glob("*.response.json")):
+        if not path.is_file():
+            continue
         text = path.read_text(encoding="utf-8")
         try:
             document = json.loads(text)

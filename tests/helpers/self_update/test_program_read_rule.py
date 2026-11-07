@@ -127,8 +127,9 @@ def _helper_modules(repo_root: str, inputs: ap.Inputs) -> list[str]:
     found = []
     for dirpath, _dirs, files in os.walk(os.path.join(repo_root, "helpers")):
         for name in files:
-            rel = os.path.relpath(os.path.join(dirpath, name), repo_root)
-            if name.endswith(".py") and ap.affects(inputs, rel):
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, repo_root)
+            if name.endswith(".py") and os.path.isfile(path) and ap.affects(inputs, rel):
                 found.append(rel)
     return sorted(found)
 
@@ -180,7 +181,10 @@ def _go_findings(repo_root: str, inputs: ap.Inputs, name: str, where: str) -> li
         for file_name in sorted(os.listdir(directory)):
             if not file_name.endswith(".go") or file_name.endswith("_test.go"):
                 continue
-            rel = posixpath.join(package, file_name)
+            path = os.path.join(directory, file_name)
+            if not os.path.isfile(path):
+                continue
+            rel = os.path.relpath(path, repo_root)
             for match in _GO_LITERAL.finditer(_read(repo_root, rel)):
                 path = _checkout_path(repo_root, match.group(1))
                 if path is not None and not _accounted(inputs, path):

@@ -497,9 +497,10 @@ class _Walker:
                 continue
             directory = os.path.join(self.root, package)
             for file_name in sorted(os.listdir(directory)):
-                if not file_name.endswith(".go") or file_name.endswith("_test.go"):
+                path = os.path.join(directory, file_name)
+                if not file_name.endswith(".go") or file_name.endswith("_test.go") or not os.path.isfile(path):
                     continue
-                with open(os.path.join(directory, file_name), encoding="utf-8") as handle:
+                with open(path, encoding="utf-8") as handle:
                     source = handle.read()
                 for literal in _GO_STRING.findall(source):
                     rel = self._checkout_literal(literal)
@@ -572,8 +573,9 @@ class _Walker:
         self.inputs.prefixes.add(rel_dir.rstrip("/") + "/")
         for dirpath, _dirs, files in os.walk(os.path.join(self.root, rel_dir)):
             for name in sorted(files):
-                if name.endswith(".py"):
-                    self._add_module(os.path.relpath(os.path.join(dirpath, name), self.root))
+                path = os.path.join(dirpath, name)
+                if name.endswith(".py") and os.path.isfile(path):
+                    self._add_module(os.path.relpath(path, self.root))
 
     def _add_module(self, rel: str) -> None:
         """A helper module the play runs: itself, what it reads, and every helper module it
@@ -974,8 +976,9 @@ def candidate_plays(repo_root: str) -> list[str]:
     found = []
     for dirpath, _dirs, files in os.walk(os.path.join(repo_root, CANDIDATE_DIR)):
         for name in files:
-            if name.endswith((".yml", ".yaml")):
-                found.append(os.path.relpath(os.path.join(dirpath, name), repo_root))
+            path = os.path.join(dirpath, name)
+            if name.endswith((".yml", ".yaml")) and os.path.isfile(path):
+                found.append(os.path.relpath(path, repo_root))
     return sorted(found)
 
 

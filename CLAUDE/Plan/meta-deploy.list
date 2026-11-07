@@ -44,3 +44,12 @@
 # state tars, media, disk headroom), the measurement the 14-day retention cap is judged against.
 # It changes nothing; this is its first run on the host (it was tried only on a fake tree).
 00249-agent-bus-retention
+
+# Issue #191: clip-scan's directory walk now skips any entry that is not a regular file (a named
+# pipe would block it); this play deploys the fixed clip-scan to ~/.local/bin.
+playbooks/imports/optional/common/play-photography.yml
+
+# Issue #191: ccy 3.112.3 / container 2.79.27 (the agent-bus declare helper baked into the image
+# refuses a stamp that is not a regular file); this play installs the launcher, and the next ccy
+# start rebuilds the image once.
+playbooks/imports/play-claude-yolo.yml

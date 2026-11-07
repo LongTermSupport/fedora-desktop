@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.3 — container 2.79.27
+
+The image is rebuilt for an agent-bus fix (issue 191): the declare helper refuses an
+applied-team stamp that is not a regular file, naming it, instead of opening it (a named pipe
+would block it for ever).
+
 ## 3.112.2 — container 2.79.26
 
 The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix
