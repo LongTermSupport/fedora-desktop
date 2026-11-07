@@ -205,6 +205,7 @@ import importlib.util
 import io
 import json
 import os
+import platform
 import pty
 import re
 import select
@@ -232,7 +233,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.72.1"
+__version__ = "3.73.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -1179,7 +1180,37 @@ _SCREEN_MIN_INTERVAL_SECONDS = 1.0
 _SCREEN_CAPTURE_KEEP = 20
 _SCREEN_CAPTURE_ENV_VAR = "CCY_SCREEN_CAPTURE"
 _SCREEN_BINARY_ENV_VAR = "CCY_HOOKS_SCREEN"
-_SCREEN_BUILT_NAME = "hooks-screen-x86_64-unknown-linux-musl"
+_SCREEN_BUILT_PREFIX = "hooks-screen-"
+_SCREEN_MISSING_NOTE = "no hooks-screen binary found"
+#: platform.machine() spellings -> the musl triple screen/build.sh builds for.
+_SCREEN_TARGETS = {
+    "x86_64": "x86_64-unknown-linux-musl",
+    "amd64": "x86_64-unknown-linux-musl",
+    "aarch64": "aarch64-unknown-linux-musl",
+    "arm64": "aarch64-unknown-linux-musl",
+}
+
+
+def screen_target_triple(machine: str | None = None) -> str | None:
+    """The hooks-screen musl target triple for a machine, or None if unsupported.
+
+    ``machine`` defaults to ``platform.machine()``; pass one to test either
+    architecture. Mirrors the default mapping in ``screen/build.sh``.
+    """
+    host = platform.machine() if machine is None else machine
+    return _SCREEN_TARGETS.get(host.lower())
+
+
+def screen_binary_missing_note(machine: str | None = None) -> str:
+    """Why no hooks-screen binary resolved, naming the architecture."""
+    host = platform.machine() if machine is None else machine
+    triple = screen_target_triple(host)
+    if triple is None:
+        return f"{_SCREEN_MISSING_NOTE}: architecture {host!r} has no hooks-screen build"
+    return (
+        f"{_SCREEN_MISSING_NOTE}: architecture {host!r}, "
+        f"searched {_SCREEN_BUILT_PREFIX}{triple}"
+    )
 
 
 def _screen_capture_enabled_from_env() -> bool:
@@ -1193,19 +1224,26 @@ def _winsize_cells(winsize: bytes) -> tuple[int, int]:
     return cols, rows
 
 
-def resolve_screen_binary(project_dir: Path, env: Mapping[str, str]) -> Path | None:
+def resolve_screen_binary(
+    project_dir: Path, env: Mapping[str, str], machine: str | None = None
+) -> Path | None:
     """Where the hooks-screen binary is, or None. First executable match wins.
 
     ``CCY_HOOKS_SCREEN`` overrides; then the deployed path
     (``untracked/bin/hooks-screen``, where client installs put it); then the
-    path ``screen/build.sh`` builds to.
+    path ``screen/build.sh`` builds to for the host architecture (skipped on
+    an architecture with no hooks-screen build).
     """
     candidates: list[Path] = []
     override = env.get(_SCREEN_BINARY_ENV_VAR)
     if override:
         candidates.append(Path(override))
     candidates.append(project_dir / "untracked" / "bin" / "hooks-screen")
-    candidates.append(project_dir / "untracked" / "screen-build" / _SCREEN_BUILT_NAME)
+    triple = screen_target_triple(machine)
+    if triple is not None:
+        candidates.append(
+            project_dir / "untracked" / "screen-build" / f"{_SCREEN_BUILT_PREFIX}{triple}"
+        )
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
@@ -1270,9 +1308,11 @@ class ScreenFocusCheck:
         capture_keep: int = _SCREEN_CAPTURE_KEEP,
         clock: Callable[[], float] = time.monotonic,
         log: Callable[[str], object] | None = None,
+        missing_note: str = _SCREEN_MISSING_NOTE,
     ) -> None:
         self._buffer = buffer
         self._binary = binary
+        self._missing_note = missing_note
         self._size_fn = size_fn
         self._timeout = timeout
         self._min_interval = min_interval
@@ -1313,7 +1353,7 @@ class ScreenFocusCheck:
     def _spawn(self, snapshot: bytes, extra: str) -> str | None:
         """Raw stdout text of one hooks-screen run, or None (reason noted)."""
         if self._binary is None:
-            self._failed("no hooks-screen binary found")
+            self._failed(self._missing_note)
             return None
         cols, rows = self._size_fn()
         argv = [str(self._binary), "--cols", str(cols), "--rows", str(rows)]
@@ -1385,6 +1425,7 @@ def _build_screen_check(
         size_fn=lambda: _winsize_cells(_get_winsize(stdin_fd)),
         capture_dir=capture_dir,
         log=log.write if log is not None else None,
+        missing_note=screen_binary_missing_note(),
     )
 
 
