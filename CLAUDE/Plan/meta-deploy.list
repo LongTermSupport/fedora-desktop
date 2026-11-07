@@ -45,11 +45,13 @@
 # It changes nothing; this is its first run on the host (it was tried only on a fake tree).
 00249-agent-bus-retention
 
-# Issue #191: clip-scan's directory walk now skips any entry that is not a regular file (a named
-# pipe would block it); this play deploys the fixed clip-scan to ~/.local/bin.
-playbooks/imports/optional/common/play-photography.yml
-
-# Issue #191: ccy 3.112.3 / container 2.79.27 (the agent-bus declare helper baked into the image
-# refuses a stamp that is not a regular file); this play installs the launcher, and the next ccy
-# start rebuilds the image once.
-playbooks/imports/play-claude-yolo.yml
+# Issue #191: every play whose deployed files changed when directory walks stopped opening
+# entries that are not regular files (a named pipe blocks the open). Expected to pick up:
+# play-photography (clip-scan in ~/.local/bin), play-claude-yolo (ccy 3.112.3 / container
+# 2.79.27: the declare helper baked into the image; the next ccy start rebuilds the image once),
+# play-container-watch (the containerwatch cli/core copies), play-vm-test-lab (the vmtest
+# verify_response copy), play-displaylink (the run_recovery copy) and play-agent-bus (declare.py
+# changes the agent-bus software digest, so applied teams read as needing re-apply until it runs),
+# and, where they have run here, play-claude-code-consumer and play-suspend-and-lid-policy,
+# whose helper inputs changed too (affected_plays maps the #191 commits to these eight plays).
+changed-plays
