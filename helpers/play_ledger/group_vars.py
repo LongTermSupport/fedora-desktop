@@ -99,13 +99,15 @@ def _read(path: str) -> str | None:
 
 
 def play_text(repo_root: str, inputs: Inputs) -> str:
-    """The text of every input file of a play that exists and decodes."""
-    paths = {path for path in inputs.exact if os.path.isfile(os.path.join(repo_root, path))}
+    """The text of every input file of a play that exists, is a regular file and decodes. A walked
+    named pipe, socket or device is skipped: opening a named pipe blocks until a writer comes."""
+    full_paths = {os.path.join(repo_root, path) for path in inputs.exact}
     for prefix in inputs.prefixes:
         top = os.path.join(repo_root, prefix)
         for dirpath, _dirs, files in os.walk(top):
-            paths.update(os.path.relpath(os.path.join(dirpath, name), repo_root) for name in files)
-    texts = (_read(os.path.join(repo_root, path)) for path in sorted(paths))
+            full_paths.update(os.path.join(dirpath, name) for name in files)
+    regular = sorted(path for path in full_paths if os.path.isfile(path))
+    texts = (_read(path) for path in regular)
     return "\n".join(text for text in texts if text is not None)
 
 

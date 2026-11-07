@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from helpers.play_ledger import group_vars
 from helpers.self_update.affected_plays import Inputs
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
 BASE = (
     "---\n"
     "# The profile.\n"
@@ -122,6 +124,28 @@ class TestPlayText(unittest.TestCase):
             self.assertIn("audience", text)
             self.assertIn("profile", text)
             self.assertNotIn("packages", text)
+
+    def test_a_named_pipe_under_a_directory_is_skipped_not_opened(self) -> None:
+        """Issue #191: opening a named pipe for reading blocks until a writer comes, so a walk
+        that opened one never returned. The call runs in a child with a time limit, so a
+        regression fails here instead of hanging the suite."""
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, "files/etc/a.conf.j2", "{{ profile }}\n")
+            os.mkfifo(os.path.join(root, "files", "etc", "evidence.fifo"))
+            child = (
+                "import sys\n"
+                f"sys.path.insert(0, {REPO_ROOT!r})\n"
+                "from helpers.play_ledger import group_vars\n"
+                "from helpers.self_update.affected_plays import Inputs\n"
+                "sys.stdout.write(group_vars.play_text(sys.argv[1], Inputs(prefixes={'files/'})))\n"
+            )
+            try:
+                done = subprocess.run([sys.executable, "-I", "-c", child, root], capture_output=True,
+                                      text=True, timeout=60, check=False)
+            except subprocess.TimeoutExpired:
+                self.fail("play_text opened the named pipe and blocked")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("profile", done.stdout)
 
 
 class TestTextAt(unittest.TestCase):
