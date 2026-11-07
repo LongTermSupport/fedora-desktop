@@ -1,0 +1,5 @@
+## 12:04 · action · —   — Two merged branches deleted; the archive refs kept
+
+The owner deleted two merged branches from origin: `docs/finished-reports-261105` and `worker/433-unowned-decisions`. The delete lines came from `scripts/branch-delete-list.bash`, whose checks passed: neither branch is exempt, parked, a release line or the default branch, and each is archived at its tip. BRANCH-OUTCOMES-261105.md records the content of both as byte for byte on F44 at 6d1b25e6d. The `refs/archive/<name>` copies stay, as the plan intended.
+
+The other archive refs are unchanged. The owner-delegated review of 2026-11-06 (Fable) found 27 that can go without loss: JUNK rescues, content byte-identical or empty under `git cherry`, or reachable from a branch. It found 32 SUPERSEDED refs with unique commits, which stay, and 4 that protect live branches. None of the 27 has been deleted: remote deletes cannot be undone, and keeping them costs nothing (`qa-branch-hygiene` reads `refs/heads/` only), so they wait for the owner to say "delete the 27 archives".

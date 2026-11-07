@@ -18,7 +18,7 @@ daemon:
   log_level: INFO
   enable_hello_world_handlers: false
   enforce_single_daemon_process: true  # Auto-enabled (container detected)
-  expected_version: "3.71.0"  # daemon version this project expects; `provision.sh` installs exactly this
+  expected_version: "3.72.1"  # daemon version this project expects; `provision.sh` installs exactly this
 
 # Where the work-DRIVING machinery may run (daemon Plan 00498): declared persistent
 # crons, the failsafe-recovery cron and its advice, goal injection, the goal-ledger
@@ -36,6 +36,23 @@ autonomy:
 # points CCY_CLAUDE_WRAPPER at it (currently in --dry-run).
 ccy:
   deploy_supervisor: true
+
+# Branch policy (daemon v3.72.0). The repository's own policy is scripts/branch-policy.toml
+# (cap 10, the release and architecture lines exempt), judged daily by qa-branch-hygiene.
+# F<nn> release lines and F44-arm are never counted, judged or deleted by an agent.
+# wip.mode is block, at the owner's request: while open work is over the cap, no new branch or
+# isolated agent is created, so existing branches are finished, parked or deleted first.
+branches:
+  exempt: ["F[0-9][0-9]", "F[0-9][0-9]-arm"]
+  wip:
+    cap: 10
+    mode: block
+  sweep:
+    behind_threshold: 50
+  # A merge into F44 deletes the merged local branch itself, so done work does not pile up as
+  # branches; advise only printed the delete, and nothing ran it (Plan 00250 TRIAGE cause 2).
+  cleanup_after_merge:
+    mode: act
 
 # Plan workflow + QA policy.
 # Made explicit in Plan 00059 (the daemon otherwise synthesises this block from
@@ -204,6 +221,9 @@ handlers:
       options:
         exclude_paths:
           - ".semgrep/bash-conventions.bash"
+        command_overrides:
+          Ansible:
+            extended: null   # syntax-check only: no QA gate runs ansible-lint (.qa-versions), so the edit hook must not either (#153)
     goal_injection: {enabled: true}          # Goal-intent signal when a plan becomes In Progress
     plan_fact_check_feed: {enabled: true}    # Feed plan edits to the fact-check debouncer
 
@@ -264,12 +284,7 @@ handlers:
     gitignore_safety_checker: {enabled: true, priority: 54}       # Warn when .claude/ paths not gitignored
     suggest_status_line: {enabled: true, priority: 55}            # Suggest status line setup
     version_check: {enabled: true, priority: 55}                  # Check for daemon updates
-    branch_count_advisor:                                         # The owner's WIP cap: 10 open work branches
-      enabled: true
-      priority: 56
-      options:
-        max_open_branches: 10
-        behind_main_threshold: 50
+    branch_sweep: {enabled: true, priority: 56}                   # Branch inventory; its cap and thresholds are under top-level branches:
     git_upstream_checker:                                         # Keep the branch in sync with upstream
       enabled: true
       priority: 56
@@ -384,4 +399,10 @@ plugins:
     - path: ".claude/hooks/handlers/pre_tool_use/ansible_enforcement.py"
       event_type: "pre_tool_use"
       handlers: ["AnsibleEnforcementHandler"]
+      enabled: true
+
+    # Git mutations hidden in an untracked script, out of sight of the command guards (Plan 00250)
+    - path: ".claude/hooks/handlers/pre_tool_use/hidden_git_mutation.py"
+      event_type: "pre_tool_use"
+      handlers: ["HiddenGitMutationHandler"]
       enabled: true

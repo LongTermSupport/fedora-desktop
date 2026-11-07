@@ -165,6 +165,10 @@ diff and it is right. Left for you: merge it and tag a release (agents never tag
 the pin here. Its "Public safety" check fails on main too, not because of the PR: the
 go-qa-ci repository secret `GQACI_DENYLIST` is not set.
 
+**State 2026-11-06:** PR #1 is merged (2026-11-02). go-qa-ci has no tags yet, so the pin bump
+here still waits on you: tag a release of main and set `GQACI_DENYLIST`. A16: the deploy queue
+has been empty since 2026-11-05 (`meta-deploy.list`), so there is nothing queued for you to run.
+
 ## Your answers, 2026-11-02
 
 - **v2: push it and get it done (option 2, the minimum v2 with cross-network teams).** v1 takes
