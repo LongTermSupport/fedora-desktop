@@ -93,6 +93,10 @@ linters:
       # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
       - path: internal/pingbus/statusline/golden/golden_test\.go
         linters: [tagliatelle]
+      # The protocol's corpus (proto/testdata) is a fixture whose keys are camelCase; the rest of
+      # proto, which now holds the question index's stored state, is snake_case (see the overrides).
+      - path: internal/teamchat/proto/corpus_test\.go
+        linters: [tagliatelle]
       # The status line refuses files others can read; its tests build such files, and edit
       # the cache file of their own temporary world.
       - path: internal/pingbus/statusline/.*_test\.go
@@ -371,6 +375,9 @@ linters:
             rules:
               json: snake
           - pkg: internal/teamchat/member/forge
+            rules:
+              json: snake
+          - pkg: internal/teamchat/proto
             rules:
               json: snake
     cyclop:

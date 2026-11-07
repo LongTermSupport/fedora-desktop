@@ -309,7 +309,7 @@ func TestSD4_9bAPendingTimeoutKeepsItsPing(t *testing.T) {
 	if len(out.recs) != 1 {
 		t.Fatalf("recv = %+v", out.recs)
 	}
-	if r, ok := out.recs[0].(records.Timeout); !ok || r.Verb != "review" || r.Ref == nil || *r.Ref != reviewRef {
+	if r, ok := out.recs[0].(records.Timeout); !ok || r.Verb == nil || *r.Verb != "review" || r.Ref == nil || *r.Ref != reviewRef {
 		t.Fatalf("the TIMEOUT record = %+v", out.recs[0])
 	}
 	w.persistBatch(team.Batch{Team: ops})
