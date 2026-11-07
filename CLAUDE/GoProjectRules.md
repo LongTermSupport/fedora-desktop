@@ -62,6 +62,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
+| `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1488,6 +1489,63 @@ requests are answered.
   interface, a fake named otherwise, and a literal stored and later called on the test's own
   goroutine (flagged, a false positive the same fix removes).
 
+### project_walk_open
+
+**What it is about.** A directory lists named pipes, sockets and devices as well as files, and
+opening a named pipe for reading blocks until something writes to it. Code that opens whatever a
+walk found hangs, with no error, the first time a pipe is among the entries.
+
+**Why it exists.** The Python `play_text()` read every name `os.walk()` listed under a play's
+inputs, reached the pipes old plan runs left under `untracked/`, and `run.bash --changed` never
+returned (fedora-desktop#191, held by the semgrep rule `walk-opens-non-regular-file`,
+[QA.md](QA.md#walk-opens-non-regular-file)). The Go sweep of the same class found 56 sites in 39
+files (fedora-desktop#195).
+
+**What it flags**: a call of `os.Open`, `os.OpenFile`, `os.ReadFile`, `ioutil.ReadFile`,
+`fs.ReadFile`, an `fs.FS`'s `Open` or `parser.ParseFile` with no source, or of a function of the
+package that opens its parameter or its receiver, whose name argument is built from a walk:
+`os.ReadDir`, `fs.ReadDir`, `filepath.Glob`, `fs.Glob`, the `Readdir` methods, the parameters of
+a `WalkDir`/`Walk` callback, a package function that returns walked names, and any value, field,
+slice or closure built from those. A check is `X.IsRegular()` on the type or mode of a walked
+value (`d.Type()`, `info.Mode()` from `Lstat`/`Stat`/`Info()`). It guards an open in the branch it
+holds (also in an `&&`), in the clause of a tagless `switch` that lists only checks, and after an
+`if` whose failed check leaves the block (`return`, `continue`, `break`, a fatal call; also in an
+`||`). A name assigned where a check guards it carries the check with it, so a lister that keeps
+only regular files returns clean names; a listing taken there is still unchecked. In a summary of
+a function, a check of any of its parameters counts (a helper handed an entry and its path), and a
+parameter opens only what seeding it adds to the body's own opens. An `os.OpenFile` whose flags
+name `O_NONBLOCK` or `O_DIRECTORY` cannot wait on a pipe and is not an open.
+
+**How to fix a violation.** Check the entry before the open and decide what a non-regular entry
+means there, as [QA.md](QA.md#walk-opens-non-regular-file) says: skip it where a stray entry is
+not this code's business, refuse it naming the path where every entry should have been a file.
+Under `/proc` too: the check costs nothing and the rule cannot tell `/proc` from any other tree.
+A test plants a pipe with `internal/fifotest` (`qa/internal/fifotest` in the `qa` module), whose
+writer releases a reader at once, so a regression fails the test instead of hanging it.
+
+- Red, fixture: `testdata/src/fix/internal/badwalk` (`TestWalkOpen`): each walk source and
+  opener, a helper, a lister, a closure, a record's method, skip-and-warn, a check of another
+  name, a check joined by `||`, a case listed beside another condition, a tagged switch, a
+  listing taken under another check, a flag that can wait; clean: each guarding position, a
+  checking lister, names kept where a check holds, a tagless switch case, a helper that checks
+  its entry, a parameter that is only a label, `O_NONBLOCK` and `O_DIRECTORY`. Mutation checked:
+  the leaving guard off makes 6 clean cases red, the positive guard off 1, the callee summary off
+  leaves 1 `want` unmet, the switch-case guard off 1 clean case red, the check carried by a
+  guarded assignment off 2 clean cases red, the listing distinction off
+  leaves 1 `want` unmet, the parameter attribution off and the parameter checks off 1 clean case
+  red each.
+- Red, real tree: 56 findings in 39 files at the defence commit, over `./...` untagged, with
+  `busfailpoints`, `tuwunel`, `ccyteamstest`, `difftest` and the nested `qa` module. Four shapes
+  among them were false positives, each fixed in the rule with a fixture case before the sweep
+  went on: a tagless switch case (`planscriptlogging`), a lister that checks before it keeps a
+  name (`ccylaunch` `IntegrityHash`), a helper that checks one parameter and opens another
+  (`difftest` `describe`), and the `O_NONBLOCK`/`O_DIRECTORY` opens of `bus/seat`; a parameter
+  was also marked an opener when only the body's own walk opened.
+- Not caught: a check in a callee (`readable(p)` returning a bool is not a check), a name read
+  out of a walked file's content (followed as if it were a walked name, so it is over-reported
+  rather than missed), an open through an interface method or another package's function, and
+  a time-of-check gap between the check and the open.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -1919,6 +1977,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
   reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
   lists its ops by hand.
+
 - **A refusal state set from the answer to a request, without checking that the answer belongs
   to the credential held now** (fedora-desktop#159: `engine`'s sender set the team's send stop
   from a PUT's 401 or 403; a PUT made under the old token and answered after the team's
