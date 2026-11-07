@@ -842,9 +842,13 @@ the entry is a regular file. The rule (`.semgrep/walk-open.yml`, taint mode) fol
 `Path.rglob`/`glob`/`iterdir`/`walk` return, through any value built from it and into a set or
 list it is added to (`update`, `add`, `append`, `extend`), to `open`, `io.open`, `os.open`,
 `.open()`, `.read_text()`, `.read_bytes()`, `.imread()`, or a bare-named function whose name
-says it opens (`_read`, `read_text`, `load_json`, `open_spool`). `os.path.isfile(x)`,
-`x.is_file()` and `stat.S_ISREG(os.stat(x).st_mode)` (or `lstat`, `x.stat()`) clear `x`, also
-inside a compound condition. Run by `qa-walk-open.bash` over every tracked Python file, and by
+says it opens (`_read`, `read_text`, `load_json`, `open_spool`), or `zipfile.ZipFile`.
+`os.path.isfile(x)`, `x.is_file()` and `stat.S_ISREG(os.stat(x).st_mode)` (or `lstat`,
+`x.stat()`) clear `x` only where they guard the open: in the branch the check holds (also with
+`and`), in a comprehension's filter, after the check by short circuit (`isfile(x) and read(x)`),
+after an `if` whose failed check leaves the block (`continue`, `break`, `return`, `raise`; also
+with `or`), or after an `assert` of it. A check that only warns and falls through to the open, a
+bare check statement or a check joined by `or` to the branch guards nothing. Run by `qa-walk-open.bash` over every tracked Python file, and by
 `qa-changed` over each changed one. A daemon-owned file
 that trips it is fixed upstream in hooks-daemon, never skipped.
 

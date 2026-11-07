@@ -74,9 +74,10 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
             states[device.name] = None
             continue
         wakeup = device / "power" / "wakeup"
-        if wakeup.exists() and not wakeup.is_file():
-            states[device.name] = None  # present but not a regular file: cannot be vouched for
-            continue
+        if not wakeup.is_file():
+            if wakeup.exists():
+                states[device.name] = None  # present but not a regular file: cannot be vouched for
+            continue  # absent (or a dangling link): not wakeup-capable, nothing to disarm
         try:
             states[device.name] = wakeup.read_text()
         except FileNotFoundError:
