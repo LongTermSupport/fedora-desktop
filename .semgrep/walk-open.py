@@ -5,6 +5,7 @@ import glob
 import io
 import os
 import stat
+import zipfile
 from pathlib import Path
 
 
@@ -180,3 +181,148 @@ def listed_only(top):
 def not_walked(path):
     # ok: walk-opens-non-regular-file
     return _read(path)
+
+
+def a_check_that_guards_nothing(top):
+    # The check runs, but the open is not in its branch.
+    for name in os.listdir(top):
+        path = os.path.join(top, name)
+        if os.path.isfile(path):
+            print("regular")
+        # ruleid: walk-opens-non-regular-file
+        yield _read(path)
+
+
+def a_bare_check_statement(top):
+    for name in os.listdir(top):
+        path = os.path.join(top, name)
+        os.path.isfile(path)
+        # ruleid: walk-opens-non-regular-file
+        with open(path, encoding="utf-8") as handle:
+            yield handle.read()
+
+
+def a_check_joined_by_or(top):
+    for path in sorted(Path(top).iterdir()):
+        if path.is_file() or True:
+            # ruleid: walk-opens-non-regular-file
+            yield path.read_text(encoding="utf-8")
+
+
+def skip_and_warn(top):
+    # The failed check only warns, then falls through to the open.
+    for path in sorted(Path(top).iterdir()):
+        if not path.is_file():
+            print(f"not a regular file: {path}")
+        # ruleid: walk-opens-non-regular-file
+        yield path.read_text(encoding="utf-8")
+
+
+def a_negated_check_joined_by_and(top):
+    for path in sorted(Path(top).iterdir()):
+        if not path.is_file() and path.suffix == ".yml":
+            continue
+        # ruleid: walk-opens-non-regular-file
+        yield path.read_text(encoding="utf-8")
+
+
+def a_check_on_another_name(top, other):
+    for path in sorted(Path(top).iterdir()):
+        if Path(other).is_file():
+            # ruleid: walk-opens-non-regular-file
+            yield path.read_text(encoding="utf-8")
+
+
+def the_else_branch_is_not_guarded(top):
+    for path in sorted(Path(top).iterdir()):
+        if path.is_file():
+            pass
+        else:
+            # ruleid: walk-opens-non-regular-file
+            yield path.read_text(encoding="utf-8")
+
+
+def guarded_branch_with_more_terms(top):
+    for path in sorted(Path(top).iterdir()):
+        if path.suffix == ".yml" and path.is_file():
+            # ok: walk-opens-non-regular-file
+            yield path.read_text(encoding="utf-8")
+
+
+def refused_with_raise(top):
+    for path in sorted(Path(top).iterdir()):
+        if not path.is_file():
+            raise ValueError(f"{path} is not a regular file")
+        # ok: walk-opens-non-regular-file
+        yield path.read_text(encoding="utf-8")
+
+
+def left_with_return(top):
+    for path in sorted(Path(top).iterdir()):
+        if not path.is_file():
+            return
+        # ok: walk-opens-non-regular-file
+        yield path.read_text(encoding="utf-8")
+
+
+def guarded_in_an_elif(top):
+    for path in sorted(Path(top).iterdir()):
+        if path.suffix == ".skip":
+            continue
+        elif path.is_file():
+            # ok: walk-opens-non-regular-file
+            yield path.read_text(encoding="utf-8")
+
+
+def zipped(top):
+    for path in sorted(Path(top).glob("*.zip")):
+        # ruleid: walk-opens-non-regular-file
+        with zipfile.ZipFile(path) as archive:
+            yield archive.namelist()
+
+
+def guarded_by_short_circuit(top):
+    for name in glob.glob(os.path.join(top, "*/idVendor")):
+        # ok: walk-opens-non-regular-file
+        if not os.path.isfile(name) or _read(name).strip() != "17e9":
+            continue
+        product = os.path.join(os.path.dirname(name), "idProduct")
+        # ok: walk-opens-non-regular-file
+        if os.path.isfile(product) and _read(product).strip() == "4307":
+            yield product
+
+
+def a_short_circuit_the_wrong_way(top):
+    for name in os.listdir(top):
+        # ruleid: walk-opens-non-regular-file
+        if os.path.isfile(name) or _read(name):
+            yield name
+
+
+def guarded_by_a_negated_conjunction(top):
+    for name in os.listdir(top):
+        status = os.path.join(top, name, "status")
+        modes = os.path.join(top, name, "modes")
+        if not (os.path.isfile(status) and os.path.isfile(modes)):
+            continue
+        # ok: walk-opens-non-regular-file
+        yield _read(status), _read(modes)
+
+
+def refused_by_assert(top):
+    for path in sorted(Path(top).glob("*.js")):
+        assert path.is_file(), f"{path} is not a regular file"
+        # ok: walk-opens-non-regular-file
+        yield path.read_text()
+
+
+class Refused:
+    def assertTrue(self, condition, message=None):
+        if not condition:
+            raise AssertionError(message)
+
+    def refused_by_assert_true(self, top):
+        for path in sorted(Path(top).glob("*.js")):
+            self.assertTrue(path.is_file(), f"{path.name} is not a regular file")
+            # ok: walk-opens-non-regular-file
+            yield path.read_text()

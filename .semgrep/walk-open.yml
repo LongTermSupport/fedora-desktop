@@ -25,9 +25,13 @@ rules:
   # Taint from what os.walk, os.scandir, os.listdir, glob.glob/iglob and Path.rglob/glob/iterdir
   # return, through anything built from it and into a set or list it is added to, reaching
   # open/io.open/os.open, Path.open/read_text/read_bytes, or a bare-named function of the module's
-  # own whose name says it reads (_read, read_text, load_json ...). os.path.isfile(x),
-  # x.is_file() and stat.S_ISREG(os.stat(x).st_mode) (lstat, or x.stat()) clear x from that call on; an existence test does not,
-  # because a named pipe exists. A check must name the variable that is opened.
+  # own whose name says it reads (_read, read_text, load_json ...), or zipfile.ZipFile.
+  # os.path.isfile(x), x.is_file() and stat.S_ISREG(os.stat(x).st_mode) (lstat, or x.stat())
+  # clear x only where they guard the open: in the branch the check holds (also with `and`), in a
+  # comprehension's filter, after the check by short circuit, after an `if` whose failed check
+  # leaves the block (continue, break, return, raise; also with `or`), or after an assert of it.
+  # A check that only warns and falls through, a bare check statement, a check joined by `or` to
+  # the branch, or an existence test guards nothing. A check must name the variable opened.
   - id: walk-opens-non-regular-file
     languages: [python]
     mode: taint
@@ -56,27 +60,125 @@ rules:
         from: $X
         to: $S
     pattern-sanitizers:
+      # The open sits in the branch the check guards: `if p.is_file(): open(p)`, also with more
+      # terms joined by `and`. An `or` means the branch is not guarded, so it does not count.
+      - patterns:
+          - pattern-inside: |
+              if $COND:
+                $...BODY
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: &regular-file-check
+                    - pattern: os.path.isfile($X)
+                    - pattern: $X.is_file(...)
+                    - pattern: stat.S_ISREG(os.stat($X).st_mode)
+                    - pattern: stat.S_ISREG(os.lstat($X).st_mode)
+                    - pattern: stat.S_ISREG($X.stat().st_mode)
+                    - pattern: stat.S_ISREG($X.lstat().st_mode)
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $...BODY
+          - pattern: $X
+      # The same in a comprehension's filter: `[p.read_text() for p in d.iterdir() if p.is_file()]`.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: '[$E for $V in $I if $COND]'
+              - pattern-inside: '($E for $V in $I if $COND)'
+              - pattern-inside: '{$E for $V in $I if $COND}'
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $E
+          - pattern: $X
+      # Within one condition, after the check by short circuit: `p.is_file() and read(p)`,
+      # `not p.is_file() or read(p)`.
+      - patterns:
+          - pattern-inside: $GUARD and $REST
+          - metavariable-regex:
+              metavariable: $GUARD
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $GUARD
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $REST
+          - pattern: $X
+      - patterns:
+          - pattern-inside: $GUARD or $REST
+          - metavariable-regex:
+              metavariable: $GUARD
+              regex: '^(?:not\s*\([\s\S]*\)$|(?![\s\S]*\band\b))'
+          - metavariable-pattern:
+              metavariable: $GUARD
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-inside: not $NEGATED
+          - focus-metavariable: $REST
+          - pattern: $X
+      # A check asserted, which raises when it fails: `assert p.is_file()`,
+      # `self.assertTrue(p.is_file(), ...)`.
       - by-side-effect: true
         patterns:
           - pattern-either:
-              - pattern: os.path.isfile($X)
-              - pattern: $X.is_file(...)
-              - pattern: stat.S_ISREG(os.stat($X).st_mode)
-              - pattern: stat.S_ISREG(os.lstat($X).st_mode)
-              - pattern: stat.S_ISREG($X.stat().st_mode)
-              - pattern: stat.S_ISREG($X.lstat().st_mode)
+              - pattern: assert $COND
+              - pattern: assert $COND, $MESSAGE
+              - pattern: $TEST.assertTrue($COND, ...)
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
           - focus-metavariable: $X
-      # The same check inside a compound condition (`if skip or not p.is_file(): continue`).
+      # A failed check leaves the block before the open: `if not p.is_file(): continue` (or
+      # break, return, raise), also with more terms joined by `or`. A branch that only warns and
+      # falls through to the open does not count, and an `and` means it may not leave.
       - patterns:
           - pattern-either:
               - pattern-inside: |
-                  if <... os.path.isfile($X) ...>:
+                  if $COND:
                     ...
+                    continue
                   ...
               - pattern-inside: |
-                  if <... $X.is_file(...) ...>:
+                  if $COND:
                     ...
+                    break
                   ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    return
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    return $RESULT
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    raise $ERROR
+                  ...
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?:not\s*\([\s\S]*\)$|(?![\s\S]*\band\b))'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-inside: not $NEGATED
           - pattern: $X
     pattern-sinks:
       - pattern: open(...)
@@ -86,6 +188,7 @@ rules:
       - pattern: $X.read_text(...)
       - pattern: $X.read_bytes(...)
       - pattern: $M.imread(...)
+      - pattern: zipfile.ZipFile(...)
       # A function of the module's own whose name says it opens what it is given.
       - patterns:
           - pattern: $FN(...)
