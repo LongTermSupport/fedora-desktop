@@ -341,6 +341,16 @@ type procInfo struct {
 
 func (f Front) procStat(pid int) (procInfo, bool, error) {
 	path := filepath.Join(f.procRoot(), strconv.Itoa(pid), "stat")
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return procInfo{}, false, nil
+	}
+	if err != nil {
+		return procInfo{}, false, fmt.Errorf("could not read process %d: %w", pid, err)
+	}
+	if !info.Mode().IsRegular() {
+		return procInfo{}, false, fmt.Errorf("process %d: %s is not a regular file", pid, path)
+	}
 	raw, err := os.ReadFile(filepath.Clean(path))
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 		return procInfo{}, false, nil

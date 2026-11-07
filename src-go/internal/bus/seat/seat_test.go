@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 func uid() int { return os.Getuid() }
@@ -200,6 +201,15 @@ var treeCases = []treeCase{
 	{"a team symlink", func(f fx, root string) {
 		f.mkdirs(filepath.Join(root, "real"))
 		f.symlink("real", filepath.Join(root, "alpha"))
+	}, "%s/alpha is not a directory (a symlink is refused)"},
+	{"a team pipe, never opened", func(f fx, root string) {
+		f.mkdirs(root)
+		opened := fifotest.Plant(f.t, filepath.Join(root, "alpha"))
+		f.t.Cleanup(func() {
+			if opened() {
+				f.t.Error("the pipe was opened")
+			}
+		})
 	}, "%s/alpha is not a directory (a symlink is refused)"},
 	{"a team file", func(f fx, root string) {
 		f.mkdirs(root)

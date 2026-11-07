@@ -12,6 +12,23 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
+// readGolden is a golden's text; a golden that is not a regular file is refused, never opened.
+func readGolden(t *testing.T, file string) string {
+	t.Helper()
+	info, err := os.Lstat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("%s is not a regular file", file)
+	}
+	raw, err := os.ReadFile(filepath.Clean(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 // TestSessionsFindEveryRecordedLaunch holds ccy-sessions to the launcher's real command lines:
 // every container launch a golden records (the call that labels a container ccy=true), placed
 // in a pane's process tree as ps prints it, must be found as that session's container. A
@@ -23,11 +40,7 @@ func TestSessionsFindEveryRecordedLaunch(t *testing.T) {
 	}
 	launches := 0
 	for _, file := range files {
-		raw, readErr := os.ReadFile(filepath.Clean(file))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		for _, argv := range recordedCalls(t, file, string(raw)) {
+		for _, argv := range recordedCalls(t, file, readGolden(t, file)) {
 			if !labelsCCYContainer(argv) {
 				continue
 			}

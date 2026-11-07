@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -402,6 +403,23 @@ func TestBuildLockRefusesWhatIsNotALockFile(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q", code, out)
 	}
 	mustContain(t, "stderr", r.stderr(), "claude-yolo_latest.lock")
+}
+
+// A process whose stat is not a regular file is refused by name, never read: a named pipe
+// would block the read for ever (#195).
+func TestBuildLockRefusesAProcessStatThatIsNotARegularFile(t *testing.T) {
+	r := liveBuild(t, "y\n")
+	if err := os.MkdirAll(filepath.Join(r.proc, "6000"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := fifotest.Plant(t, filepath.Join(r.proc, "6000", "stat"))
+	if code, out := r.start(t); code != term.ExitFailure {
+		t.Fatalf("exit %d, stdout %q", code, out)
+	}
+	mustContain(t, "stderr", r.stderr(), filepath.Join(r.proc, "6000", "stat")+" is not a regular file")
+	if opened() {
+		t.Fatal("the pipe was opened")
+	}
 }
 
 func TestParseBuildRecord(t *testing.T) {

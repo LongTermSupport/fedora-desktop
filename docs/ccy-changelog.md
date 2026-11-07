@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.4 — container 2.79.27
+
+The Go front never opens an entry a directory listing found unless it is a regular file
+(issue 195): `--build-lock` refuses a process `stat` that is not one, `--export-token` refuses
+such a token file, the session registry counts such a record unreadable, the team seats are
+listed with a directory-only open, and the status key enters such a stamp as its error. A
+named pipe in any of those places would have blocked the launcher for ever. The image is
+unchanged.
+
 ## 3.112.3 — container 2.79.27
 
 The image is rebuilt for an agent-bus fix (issue 191): the declare helper refuses an

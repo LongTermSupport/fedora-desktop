@@ -339,6 +339,13 @@ func unreadable(path, why string) error {
 // ReadFile parses one record. It is strict: a wrong header, an unknown key, an unknown
 // compose outcome, a bad restore value or a missing field is a rejection, never a guess.
 func ReadFile(path string) (Record, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return Record{}, fmt.Errorf("session record %s cannot be read: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return Record{}, unreadable(path, "is not a regular file")
+	}
 	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return Record{}, fmt.Errorf("session record %s cannot be read: %w", path, err)
