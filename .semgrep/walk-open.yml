@@ -1,0 +1,103 @@
+# Semgrep rule for Python that opens what a directory walk found. Run by
+# scripts/qa-walk-open.bash over every Python file git would publish, after the rule is proven
+# against .semgrep/walk-open.py. The reasoning, and how to fix a finding, is in CLAUDE/QA.md
+# under "walk-opens-non-regular-file".
+rules:
+  # Rule: an entry a directory walk yields is opened only after it is known to be a regular file
+  # (Defence Before Fix; CLAUDE/QA.md "walk-opens-non-regular-file"; issue #191).
+  #
+  # A walk lists every kind of entry: named pipes, sockets and devices as well as files. Opening
+  # a named pipe for reading blocks until something writes to it, so a walk that reaches one
+  # hangs for ever. play_text() in helpers/play_ledger/group_vars.py read every name os.walk()
+  # listed under a play's input directories, reached the named pipes old plan runs left under
+  # untracked/, and changed_plays never returned.
+  #
+  # WRONG: for dirpath, _dirs, files in os.walk(top):
+  #            for name in files:
+  #                with open(os.path.join(dirpath, name)) as handle: ...
+  # RIGHT: for dirpath, _dirs, files in os.walk(top):
+  #            for name in files:
+  #                path = os.path.join(dirpath, name)
+  #                if not os.path.isfile(path):
+  #                    continue
+  #                with open(path) as handle: ...
+  #
+  # Taint from what os.walk, os.scandir, os.listdir, glob.glob/iglob and Path.rglob/glob/iterdir
+  # return, through anything built from it and into a set or list it is added to, reaching
+  # open/io.open/os.open, Path.open/read_text/read_bytes, or a bare-named function of the module's
+  # own whose name says it reads (_read, read_text, load_json ...). os.path.isfile(x),
+  # x.is_file() and stat.S_ISREG(os.stat(x).st_mode) (lstat, or x.stat()) clear x from that call on; an existence test does not,
+  # because a named pipe exists. A check must name the variable that is opened. The gate leaves
+  # out the daemon-owned .claude/ccy/claude-supervise.py (sttrules.WalkOpen's skip list).
+  - id: walk-opens-non-regular-file
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: os.walk(...)
+      - pattern: os.fwalk(...)
+      - pattern: os.scandir(...)
+      - pattern: os.listdir(...)
+      - pattern: glob.glob(...)
+      - pattern: glob.iglob(...)
+      - pattern: $P.rglob(...)
+      - pattern: $P.glob(...)
+      - pattern: $P.iterdir()
+      - pattern: $P.walk(...)
+    pattern-propagators:
+      - pattern: $S.update($X)
+        from: $X
+        to: $S
+      - pattern: $S.add($X)
+        from: $X
+        to: $S
+      - pattern: $S.append($X)
+        from: $X
+        to: $S
+      - pattern: $S.extend($X)
+        from: $X
+        to: $S
+    pattern-sanitizers:
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: os.path.isfile($X)
+              - pattern: $X.is_file(...)
+              - pattern: stat.S_ISREG(os.stat($X).st_mode)
+              - pattern: stat.S_ISREG(os.lstat($X).st_mode)
+              - pattern: stat.S_ISREG($X.stat().st_mode)
+              - pattern: stat.S_ISREG($X.lstat().st_mode)
+          - focus-metavariable: $X
+      # The same check inside a compound condition (`if skip or not p.is_file(): continue`).
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  if <... os.path.isfile($X) ...>:
+                    ...
+                  ...
+              - pattern-inside: |
+                  if <... $X.is_file(...) ...>:
+                    ...
+                  ...
+          - pattern: $X
+    pattern-sinks:
+      - pattern: open(...)
+      - pattern: io.open(...)
+      - pattern: os.open(...)
+      - pattern: $X.open(...)
+      - pattern: $X.read_text(...)
+      - pattern: $X.read_bytes(...)
+      - pattern: $M.imread(...)
+      # A function of the module's own whose name says it opens what it is given.
+      - patterns:
+          - pattern: $FN(...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: '^_?(read|load|slurp|open)(_\w*)?$'
+    message: >
+      walk-opens-non-regular-file: this opens an entry a directory walk found without checking
+      it is a regular file, and opening a named pipe blocks for ever. Skip any entry that
+      os.path.isfile() or Path.is_file() rejects before opening it. See CLAUDE/QA.md
+      "walk-opens-non-regular-file".
+    severity: ERROR
+    metadata:
+      dbf-class: a walked directory entry opened without a regular-file check
