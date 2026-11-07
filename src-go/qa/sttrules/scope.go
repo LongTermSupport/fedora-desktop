@@ -23,10 +23,10 @@ type fileSets map[language][]string
 var discoveryList = map[language]string{langJS: "js", langPy: "python"}
 
 // excluded is a file the default scope leaves out beyond what the trees table already drops from
-// the discovery lists: the rules' own fixtures, which hold the patterns on purpose, and the files
-// the spec skips. Vendored trees are the table's business alone.
-func (s Spec) excluded(rel string) bool {
-	return strings.HasPrefix(rel, ".semgrep/") || slices.Contains(s.skip, rel)
+// the discovery lists: the rules' own fixtures, which hold the patterns on purpose. Vendored
+// trees are the table's business alone.
+func excluded(rel string) bool {
+	return strings.HasPrefix(rel, ".semgrep/")
 }
 
 // files is the files to judge: those named, else every file of the spec's languages git would
@@ -41,7 +41,7 @@ func (g *gate) files(paths []string) (fileSets, error) {
 		if err != nil {
 			return nil, err
 		}
-		sets[lang] = slices.DeleteFunc(all, g.spec.excluded)
+		sets[lang] = slices.DeleteFunc(all, excluded)
 		if len(sets[lang]) == 0 {
 			return nil, fmt.Errorf("no %s files were found; nothing was checked", nounOf[lang])
 		}

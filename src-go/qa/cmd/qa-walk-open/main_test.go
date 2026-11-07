@@ -117,14 +117,6 @@ func TestRealSemgrepReportsAWalkedEntryOpenedUnchecked(t *testing.T) {
 	}
 }
 
-// The daemon-owned supervisor is left out of the default scope, so its findings are upstream's.
-func TestTheDaemonOwnedSupervisorIsNotJudged(t *testing.T) {
-	got := realRun(t, map[string]string{".claude/ccy/claude-supervise.py": walkedAndRead})
-	if got.code != sttrules.ExitOK || got.stdout != "passed: 1 failed: 0\n" {
-		t.Fatalf("exit %d\n%s%s", got.code, got.stdout, got.stderr)
-	}
-}
-
 // The rule edited into one its fixture disproves (a directory test taken for a regular-file check)
 // fails its fixture, rather than reporting a clean tree.
 func TestRealSemgrepFailsARuleItsFixtureDisproves(t *testing.T) {

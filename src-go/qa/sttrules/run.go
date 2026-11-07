@@ -63,9 +63,6 @@ type Spec struct {
 	languages []language
 	fixtures  map[language]string
 	usage     string
-	// skip is the files the default scope leaves out for this rule file alone, by
-	// repository-relative path.
-	skip []string
 }
 
 // SpeechToText is the gate for the rules in .semgrep/speech-to-text.yml.
@@ -98,10 +95,6 @@ var WalkOpen = Spec{
 	languages: []language{langPy},
 	fixtures:  map[language]string{langPy: walkPyFixtureFile},
 	usage:     walkUsageText,
-	// Daemon-owned: the hooks daemon rewrites it on every upgrade, so a finding under a rule this
-	// repository chose is excluded, never patched, and reported upstream (CLAUDE/QA.md "Tracked
-	// is not the same as ours").
-	skip: []string{".claude/ccy/claude-supervise.py"},
 }
 
 // The options that take a value.

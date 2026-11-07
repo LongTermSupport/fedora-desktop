@@ -27,8 +27,7 @@ rules:
   # open/io.open/os.open, Path.open/read_text/read_bytes, or a bare-named function of the module's
   # own whose name says it reads (_read, read_text, load_json ...). os.path.isfile(x),
   # x.is_file() and stat.S_ISREG(os.stat(x).st_mode) (lstat, or x.stat()) clear x from that call on; an existence test does not,
-  # because a named pipe exists. A check must name the variable that is opened. The gate leaves
-  # out the daemon-owned .claude/ccy/claude-supervise.py (sttrules.WalkOpen's skip list).
+  # because a named pipe exists. A check must name the variable that is opened.
   - id: walk-opens-non-regular-file
     languages: [python]
     mode: taint
