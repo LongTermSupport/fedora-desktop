@@ -199,7 +199,15 @@ func (c *Client) mountProcesses() ([][]string, error) {
 	slices.Sort(pids)
 	var mounts [][]string
 	for _, pid := range pids {
-		data, err := fs.ReadFile(c.Proc, strconv.Itoa(pid)+"/cmdline")
+		name := strconv.Itoa(pid) + "/cmdline"
+		info, err := fs.Stat(c.Proc, name)
+		if err != nil {
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("read /proc: %s is not a regular file", name)
+		}
+		data, err := fs.ReadFile(c.Proc, name)
 		if err != nil {
 			continue
 		}

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 const (
@@ -76,6 +78,20 @@ func TestOptionalPlaysRefusesAFileThatIsNotYAML(t *testing.T) {
 	writeFile(t, filepath.Join(root, commonDir, "play-x.yml"), "- hosts: [\n")
 	if _, err := optionalPlays(root); err == nil || !strings.Contains(err.Error(), "play-x.yml") {
 		t.Fatalf("err = %v, want the file named", err)
+	}
+}
+
+// A play that is not a regular file is refused by name, never opened: a named pipe would block
+// the read for ever (#195).
+func TestOptionalPlaysRefusesAPlayThatIsNotARegularFile(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, commonDir, "play-a.yml"), allPlay)
+	opened := fifotest.Plant(t, filepath.Join(root, commonDir, "play-pipe.yml"))
+	if _, err := optionalPlays(root); err == nil || !strings.Contains(err.Error(), "play-pipe.yml is not a regular file") {
+		t.Fatalf("err = %v, want the pipe refused by name", err)
+	}
+	if opened() {
+		t.Fatal("the pipe was opened")
 	}
 }
 
