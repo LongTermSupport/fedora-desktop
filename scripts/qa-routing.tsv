@@ -169,7 +169,8 @@ also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-
 # change; the .semgrep files are its own data and count as covered.
 also	.semgrep/hook-handlers.yml,.semgrep/hook-handlers.py	hook-handler-rules	covered
 also	scripts/qa-hook-handler-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-hook-handler-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	hook-handler-rules	-
-# The walk-open gate runs whole when its rule, the rule's fixture, its wrapper, the Go package it
+# The walk-open gate runs over each changed Python file by name (the @py row below), and runs
+# whole when its rule, the rule's fixture, its wrapper, the Go package it
 # shares with the speech-to-text gate, its command, the shared discovery or the trees table change;
 # the .semgrep files are its own data and count as covered.
 also	.semgrep/walk-open.yml,.semgrep/walk-open.py	walk-open	covered
@@ -227,7 +228,7 @@ first	src-go/*	go	covered,closure
 first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
-first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files,hook-handler-rules-files	covered,tree:python
+first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files,hook-handler-rules-files,walk-open-files	covered,tree:python
 first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-

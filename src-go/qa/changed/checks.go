@@ -67,6 +67,7 @@ var checkDefs = []checkDef{
 	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
 	{id: "stt-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRulesFiles},
 	{id: "hook-handler-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRulesFiles},
+	{id: "walk-open-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runWalkOpenFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -218,6 +219,11 @@ func runHookHandlerRulesFiles(ctx context.Context, s *session, cp *checkPlan) (c
 
 func runHookHandlerRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-hook-handler-rules.bash")
+}
+
+// runWalkOpenFiles runs the walk-open gate over the changed Python files only.
+func runWalkOpenFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.scriptOver(ctx, "qa-walk-open.bash", cp.items)
 }
 
 func runWalkOpen(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

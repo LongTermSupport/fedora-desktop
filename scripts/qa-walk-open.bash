@@ -6,8 +6,9 @@
 # opens an entry a walk found without checking it is a regular file. The rule's reasoning, and
 # how to fix a finding, are in CLAUDE/QA.md under "walk-opens-non-regular-file".
 #
-# The rule is proven against .semgrep/walk-open.py on every run. qa-changed runs this gate whole
-# (check walk-open) when the rule, the fixture, this wrapper or the tool change;
+# The rule is proven against .semgrep/walk-open.py on every run. qa-changed runs this gate over
+# each changed Python file (check walk-open-files), and whole (check walk-open) when the rule, the
+# fixture, this wrapper or the tool change;
 # scripts/qa-routing.tsv has the rows.
 #
 # The tool is Go (src-go/qa/sttrules run with its WalkOpen spec, command src-go/qa/cmd/qa-walk-open);

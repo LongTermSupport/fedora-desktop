@@ -85,7 +85,7 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "ruff", "unit-tests", "ansible-syntax",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "walk-open-files", "ruff", "unit-tests", "ansible-syntax",
 		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "walk-open", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
@@ -112,6 +112,7 @@ func TestSummaries(t *testing.T) {
 		"ready-wait-files":         "2 file(s)",
 		"stt-rules-files":          "2 file(s)",
 		"hook-handler-rules-files": "2 file(s)",
+		"walk-open-files":          "2 file(s)",
 		"unit-tests":               "2 module(s)",
 		"ansible-syntax":           "2 playbook(s)",
 		"ansible-patterns":         "fail-fast patterns, whole gate",
@@ -263,6 +264,19 @@ func TestHookHandlerRulesFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"bash " + filepath.Join(s.scripts, "qa-hook-handler-rules.bash") + " a.py b.py"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file walk-open check runs its gate over the changed Python files by name.
+func TestWalkOpenFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("walk-open-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.py"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-walk-open.bash") + " a.py b.py"}
 	if got := runner.argv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
