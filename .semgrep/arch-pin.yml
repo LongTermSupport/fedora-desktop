@@ -54,7 +54,9 @@ rules:
         - 'src-go/vendor/**'
         - '.claude/hooks-daemon/**'
         # Daemon-owned: the hooks-daemon installer replaces it on every upgrade, so a fix
-        # belongs upstream, never in this copy.
+        # belongs upstream, never in this copy. This exclude hides one known instance (its
+        # x86_64-only hooks-screen name); leaving it until upstream fixes it is the owner's decision:
+        # https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/174
         - '/.claude/ccy/claude-supervise.py'
         - '.claude/skills/**'
         - 'untracked/**'

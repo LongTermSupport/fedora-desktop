@@ -8,13 +8,15 @@ name: arm64 install
 # A container has no kernel modules, no boot loader of its own, no GDM and no real hardware,
 # so a play that fails only for that is a limit of this lane, not of the play: the plays are
 # never taught to skip inside a container. The run is long, so it runs for a pull request
-# into F44 and for pushes to the arm branches, not for every branch push.
+# into F44, for pushes to F44-arm, and on demand, not for every branch push. An arm/** branch
+# is covered by its pull request; a push trigger on it too would run the lane twice per commit,
+# because the push and pull_request runs have different refs and so different concurrency groups.
 
 on:
   pull_request:
     branches: ["F44"]
   push:
-    branches: ["F44-arm", "arm/**"]
+    branches: ["F44-arm"]
   workflow_dispatch:
 
 permissions:
