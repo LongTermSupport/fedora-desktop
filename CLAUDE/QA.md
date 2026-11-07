@@ -1915,6 +1915,26 @@ directory, or read again by the program on every run, so no rerun is owed) goes 
 `NOT_PLAY_INPUTS` under its module, with the reason. The table is in the mapper rather than the
 modules because some modules are baked into the ccy image, where an edit costs a version bump.
 
+### play-input-tree-untracked
+
+**What it is.** A host play whose input prefixes (the directories every file of which counts as
+an input) include the checkout root, a path outside it, or a directory git tracks no file in
+other than a `.gitignore`. The rule asks git itself (`git ls-files`), not the mapper. Run by
+`tests/helpers/self_update/test_input_tree_rule.py` (in `qa-helper-tests.bash`), which proves the
+rule against a fixture repository first.
+
+**Why it exists.** `play_ledger.group_vars.play_text` walks every prefix and reads every file in
+it. `tasks/podman-store-old-range.yml` names `root_dir ~ '/untracked/'`, so play-podman and
+play-claude-code-consumer counted the whole scratch tree as an input; `changed_plays` walked
+it, opened a named pipe a plan run had left there, and never returned (issue #191). A runtime
+directory a helper names (`.claude/ccy/pingbus/seats/`) and a spool under `untracked/` were the
+same shape. Git never reports a change in such a tree, so it made no play stale either. Found
+and defended under Defence Before Fix.
+
+**How to fix a finding.** Teach the mapper (`helpers/self_update/affected_plays`): a directory
+reference that holds no tracked content goes in `Inputs.local`, which no change matches and
+nothing walks. Never reword the play to hide the reference.
+
 ### play-helper-input-unreachable
 
 **What it is.** A host play whose helper Python inputs are not exactly the helper modules it
