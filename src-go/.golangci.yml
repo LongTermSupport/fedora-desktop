@@ -112,6 +112,10 @@ linters:
       - path: internal/ccylaunch/[^/]+\.go
         linters: [gosec]
         text: "G304|G401|G501|G703"
+      # The planted-pipe helpers open the named pipe a test made in its own temporary directory.
+      - path: (qa/)?internal/fifotest/
+        linters: [gosec]
+        text: "G304"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go
