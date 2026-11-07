@@ -55,7 +55,11 @@ also	scripts/qa-gh-scopes.bash,scripts/lib/go-tool.bash	gh-scopes	-
 also	.semgrep/find-race.yml,.semgrep/find-race.fixture	find-race	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-find-race/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	find-race	-
 also	scripts/qa-find-race.bash,scripts/lib/go-tool.bash	find-race	-
-# The arch-pin gate runs whole when its rule, the rule's fixture, its wrapper or its tool change.
+# The arch-pin gate runs whole (one semgrep pass, seconds) for a change to any file kind it guards
+# (a Dockerfile, a play, task or vars file, a files/ tool, a CI workflow, an installer, a helper
+# or Go command), and when its rule, fixture, wrapper or tool change; the rule and fixture are
+# its own data and count as covered.
+also	*Dockerfile*,playbooks/*,tasks/*,vars/*,files/*,.github/workflows/*,fedora-install/*,helpers/*,src-go/internal/*,src-go/cmd/*	arch-pin	-
 also	.semgrep/arch-pin.yml,.semgrep/arch-pin.fixture	arch-pin	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-arch-pin/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	arch-pin	-
 also	scripts/qa-arch-pin.bash,scripts/lib/go-tool.bash	arch-pin	-

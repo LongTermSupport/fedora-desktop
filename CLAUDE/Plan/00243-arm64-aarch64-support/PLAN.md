@@ -75,12 +75,15 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   `F44-arm` onto `F44` as x86_64-neutral changes, so an aarch64 host following the `F44` tip
   gets them. Pins `F44-arm` added that change x86_64 (yq 4.54.1, hifi-rs 0.3.8, pinned
   shellcheck and golangci-lint digests) stay on `F44-arm`.
-- [x] ✅ **Task 2.4**: The `arch-pinned-artefact` gate on `F44`, in the same pull request as
+- [ ] 🔄 **Task 2.4**: The `arch-pinned-artefact` gate on `F44`, in the same pull request as
   the fixes: the rule and fixture as `F44-arm` has them, run by `scripts/qa-arch-pin.bash`
-  (the ghscopes engine's `ArchPin` spec), blocking with no allowlist. Red on 19 lines in 5
-  files of the `F44` tree, green once each was fixed; the daemon-owned
-  `.claude/ccy/claude-supervise.py` is excluded with its reason. The aarch64 install lane
-  runs for every pull request into `F44`.
+  (the ghscopes engine's `ArchPin` spec), blocking with no allowlist. `qa-changed` routes
+  every file kind the gate guards to it (`scripts/qa-routing.tsv`), as `F44-arm` does. Red on
+  19 lines in 5 files of the `F44` tree, green once each was fixed. The daemon-owned
+  `.claude/ccy/claude-supervise.py` keeps one known instance behind an exclude until upstream
+  fixes it (hooks-daemon issue 174); leaving it is the owner's decision. The aarch64 install
+  lane runs once per commit, for every pull request into `F44`. Done when the pull request is
+  green on `F44`, aarch64 included, and merged.
 
 ### Phase 3: the test loop with example-team
 
