@@ -150,53 +150,20 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 - [x] ✅ **Task 0.4**: The N0 review, three rounds and a narrow check, verdict MERGE; its third
   minor is carried to N1 (Task 1.7).
 
-- [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
-  the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
-  Decisions, above:
+- [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions (2026-10-21), in the
+  State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and Decisions,
+  above: the accepted ones, the irreversible ones built on behind **gate A**, and INT6 behind
+  **gate B**; in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
-  - **Accepted:** OD-A10, BD9, BD15, BD16, DC4, DC16, DC17 (`godbus/dbus/v5` and
-    `go.yaml.in/yaml/v3`, with go-deps allowlist rows; govulncheck must stay clean), DC18, DC19,
-    DC21, OD-D6, INT4, INT5, INT7, and DC8 (if H-C5 or H-C15 fails, it comes back to the
-    coordinator).
-  - **Irreversible, built on as defaulted:** OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5 and
-    TID. N1-N4 build on them; they are inert beside v1 and cheap to change until something is
-    installed. **Gate A:** none of them goes past the point of no return without the owner's own
-    word: no host install that writes a name or path an owner would see (the `teamchat` name in
-    units or paths; Tasks 1.4, 2.5, 3.3, 4.1) and no migration of any team (Task 6.2; the coordinator's
-    "N5 migration" is this plan's Phase 6, N6) until the owner has confirmed them. A merge to
-    F44 reaches the host at the next play run or ccy rebuild, so the gate binds at the merge: Go
-    packages and binaries may merge, but the play tasks, units and ccy image change that would
-    install a `teamchat` name merge only after the owner confirms. The coordinator puts them to
-    the owner as one digest.
-  - **Owner only:** INT6 (owner-uid processes holding a pool seat's password have power over that
-    account), built as defaulted. **Gate B:** the first deploy that gives any process a pool
-    seat's password waits for the owner's confirmation. That is the first pool seat added on the
-    host: Task 2.5's H-C13 to H-C15 (H-C15 without its held-ccy-session clause) if they run on
-    the host, otherwise Task 4.4 (H-C8, that clause, and the pilot's ccy seat); Task 5.1's host
-    `cc` members carry the gate too. The narrower alternative the
-    owner may choose instead, a pool that keeps no password, is
-    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
-
-- [ ] 🔄 **Task 0.6**: The owner's gate A and gate B answers (2026-10-30): A2 default (INT6
-  as built), A3 confirmed, on direction 6's condition. Check the design against direction 6
-  before N1 builds on it: a team's homeserver on this host, on another machine or in the cloud,
-  reached over a private network (VPN or mesh), with members on several machines and networks.
-  List each choice in DESIGN-v2.md (the IRREVERSIBLE ones first, then R3's loopback-plus-listen
-  and no-TLS, the host-held pool bundle and seat store, `site`, the migration's remote members)
-  that assumes the server and its members share one host, say whether it blocks direction 6 or
-  only limits the first build, and change the design where it blocks.
+- [ ] 🔄 **Task 0.6**: The owner's gate A and gate B answers (2026-10-30): A2 default, A3
+  confirmed, on direction 6's condition; the design checked against direction 6 (a remote
+  homeserver, members on several machines). In full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
   - [x] ✅ The check (`subagent-reports/261030-task-0.6-remote-homeserver.md`): **none of the
-    irreversible choices blocks direction 6.** The team id, `server_name` (settable per team,
-    never resolved through DNS with federation off), handles and roster carry no machine.
-    `<site>` is an owner-chosen label. What assumes one host (R3's no-TLS loopback, firewalld
-    `allow_from`, bundle issue by local sudo, the board's local status files, liveness from
-    local seat locks) only limits the first build.
-  - [ ] ⬜ Its four cheap design changes, into DESIGN-v2.md before N1. Team ids unique across
-    every homeserver host the owner runs, not one `host_vars` file. Where a member's `site`
-    comes from, one per machine. Plain HTTP only inside a mesh tunnel, with an optional TLS
-    field reserved in bundle v1, so a cloud host needs no second bundle version. SSH named as
-    the later channel for issuing a seat to a remote machine.
+    irreversible choices blocks direction 6**; what assumes one host only limits the first build.
+  - [ ] ⬜ Its four cheap design changes, into DESIGN-v2.md before N1: team ids unique across
+    homeserver hosts; a member's `site`, one per machine; an optional TLS field reserved in
+    bundle v1; SSH as the later channel for issuing a seat to a remote machine.
 
 ### Phase 1: N1, foundations
 
@@ -250,22 +217,8 @@ Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   (ccy-teams', Task 4.3), the units and timers (gate A), and `restore` in production, which stays
   refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15). The verbs no slice
   specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
-
-  **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
-  `go list -deps ./cmd/teamchat-admin`). PR 124 then took the whole stack to F44, the last
-  two still without a caller.
-
-  - `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
-    `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
-  - `health/view`: called, by the child's `team.view` op (`admin/serveview.go`).
-  - `notice`: called, by the child's `member.disconnected` op (`admin/serveview.go`). ccy-teams'
-    `seats sweep` is its second caller, still to come.
-  - `element`: called. `teamchat-admin element check|apply` (`admin/wiring.go`); the optional
-    Element play that runs it is gate A.
-  - `declare/hostvars`: still waits, on ccy-teams, its only importer, when its flows read and
-    write the v2 declarations in host_vars (HV4's writer; Task 4.3).
-  - `sweep`: still waits, on ccy-teams' `seats sweep` (Task 4.3), run by the owner's
-    `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).
+  Of six N2 packages with no caller, n2f gave four one; `declare/hostvars` and `sweep` wait on
+  ccy-teams (Task 4.3): [BUILT-n2.md](BUILT-n2.md#the-six-n2-packages-and-their-callers).
 
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario

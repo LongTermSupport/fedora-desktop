@@ -127,3 +127,21 @@ FIX-FIRST, then MERGE in round 2 (`261022-n2g-review.md`, `-review-2.md`). `back
 goes on past a team that is down. Not done: `restore` stays refused in production
 (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15); the units, timers and install (gate A,
 Task 2.5); the review's nits 5-11.
+
+### The six N2 packages and their callers
+
+**Six N2 packages had no caller; slice n2f gives four of them one** (by import:
+`go list -deps ./cmd/teamchat-admin`). PR 124 then took the whole stack to F44, the last
+two still without a caller.
+
+- `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
+  `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
+- `health/view`: called, by the child's `team.view` op (`admin/serveview.go`).
+- `notice`: called, by the child's `member.disconnected` op (`admin/serveview.go`). ccy-teams'
+  `seats sweep` is its second caller, still to come.
+- `element`: called. `teamchat-admin element check|apply` (`admin/wiring.go`); the optional
+  Element play that runs it is gate A.
+- `declare/hostvars`: still waits, on ccy-teams, its only importer, when its flows read and
+  write the v2 declarations in host_vars (HV4's writer; Task 4.3).
+- `sweep`: still waits, on ccy-teams' `seats sweep` (Task 4.3), run by the owner's
+  `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).

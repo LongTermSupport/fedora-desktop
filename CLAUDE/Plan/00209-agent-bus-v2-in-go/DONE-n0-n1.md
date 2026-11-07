@@ -1,7 +1,8 @@
 # N0 and N1: the finished tasks, in full
 
-Moved out of `PLAN.md` (Tasks 0.1 to 0.4 and 1.1 to 1.4a) so the plan stays within its size limit;
-the text is unchanged. `PLAN.md` keeps each task's tick and a line saying what it was.
+Moved out of `PLAN.md` (Tasks 0.1 to 0.6 and 1.1 to 1.4a) so the plan stays within its size limit;
+the text is unchanged. `PLAN.md` keeps each task's tick and a line saying what it was. Task 0.6
+is not finished: `PLAN.md` keeps its open sub-item, and the full text here is its record.
 
 ## Phase 0: N0, the design
 
@@ -22,6 +23,55 @@ the text is unchanged. `PLAN.md` keeps each task's tick and a line saying what i
   (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
   (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
   (Task 1.7).
+
+- **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
+  the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
+  Decisions, in `PLAN.md`:
+
+  - **Accepted:** OD-A10, BD9, BD15, BD16, DC4, DC16, DC17 (`godbus/dbus/v5` and
+    `go.yaml.in/yaml/v3`, with go-deps allowlist rows; govulncheck must stay clean), DC18, DC19,
+    DC21, OD-D6, INT4, INT5, INT7, and DC8 (if H-C5 or H-C15 fails, it comes back to the
+    coordinator).
+  - **Irreversible, built on as defaulted:** OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5 and
+    TID. N1-N4 build on them; they are inert beside v1 and cheap to change until something is
+    installed. **Gate A:** none of them goes past the point of no return without the owner's own
+    word: no host install that writes a name or path an owner would see (the `teamchat` name in
+    units or paths; Tasks 1.4, 2.5, 3.3, 4.1) and no migration of any team (Task 6.2; the coordinator's
+    "N5 migration" is this plan's Phase 6, N6) until the owner has confirmed them. A merge to
+    F44 reaches the host at the next play run or ccy rebuild, so the gate binds at the merge: Go
+    packages and binaries may merge, but the play tasks, units and ccy image change that would
+    install a `teamchat` name merge only after the owner confirms. The coordinator puts them to
+    the owner as one digest.
+  - **Owner only:** INT6 (owner-uid processes holding a pool seat's password have power over that
+    account), built as defaulted. **Gate B:** the first deploy that gives any process a pool
+    seat's password waits for the owner's confirmation. That is the first pool seat added on the
+    host: Task 2.5's H-C13 to H-C15 (H-C15 without its held-ccy-session clause) if they run on
+    the host, otherwise Task 4.4 (H-C8, that clause, and the pilot's ccy seat); Task 5.1's host
+    `cc` members carry the gate too. The narrower alternative the
+    owner may choose instead, a pool that keeps no password, is
+    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
+
+- **Task 0.6** (still open in `PLAN.md`: its four design changes): The owner's gate A and gate B
+  answers (2026-10-30): A2 default (INT6
+  as built), A3 confirmed, on direction 6's condition. Check the design against direction 6
+  before N1 builds on it: a team's homeserver on this host, on another machine or in the cloud,
+  reached over a private network (VPN or mesh), with members on several machines and networks.
+  List each choice in DESIGN-v2.md (the IRREVERSIBLE ones first, then R3's loopback-plus-listen
+  and no-TLS, the host-held pool bundle and seat store, `site`, the migration's remote members)
+  that assumes the server and its members share one host, say whether it blocks direction 6 or
+  only limits the first build, and change the design where it blocks.
+
+  - The check (`subagent-reports/261030-task-0.6-remote-homeserver.md`): **none of the
+    irreversible choices blocks direction 6.** The team id, `server_name` (settable per team,
+    never resolved through DNS with federation off), handles and roster carry no machine.
+    `<site>` is an owner-chosen label. What assumes one host (R3's no-TLS loopback, firewalld
+    `allow_from`, bundle issue by local sudo, the board's local status files, liveness from
+    local seat locks) only limits the first build.
+  - Its four cheap design changes, into DESIGN-v2.md before N1. Team ids unique across
+    every homeserver host the owner runs, not one `host_vars` file. Where a member's `site`
+    comes from, one per machine. Plain HTTP only inside a mesh tunnel, with an optional TLS
+    field reserved in bundle v1, so a cloud host needs no second bundle version. SSH named as
+    the later channel for issuing a seat to a remote machine.
 
 ## Phase 1: N1, foundations
 
