@@ -1926,7 +1926,10 @@ modules because some modules are baked into the ccy image, where an edit costs a
 an input) include the checkout root, a path outside it, or a directory git tracks no file in
 other than a `.gitignore`. The rule asks git itself (`git ls-files`), not the mapper. Run by
 `tests/helpers/self_update/test_input_tree_rule.py` (in `qa-helper-tests.bash`), which proves the
-rule against a fixture repository first.
+rule against a fixture repository first. The same file judges the hazard itself, apart from the
+mapper's predicate: for every host play it records what `play_text` would read and fails on any
+path under `untracked/` or outside the checkout, and it proves that check red on a fixture with
+the mapper's fix reverted inside the test.
 
 **Why it exists.** `play_ledger.group_vars.play_text` walks every prefix and reads every file in
 it. `tasks/podman-store-old-range.yml` names `root_dir ~ '/untracked/'`, so play-podman and
