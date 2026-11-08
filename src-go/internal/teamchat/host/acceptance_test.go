@@ -303,7 +303,7 @@ func TestX29TwoDeclaredNetworksAreServedAndAnOutsideAddressIsRefused(t *testing.
 	case code := <-done:
 		t.Fatalf("the verb ended before serving, exit %d: %s", code, stderr.String())
 	}
-	caPEM, err := CAPEM(w.root, team)
+	caPEM, err := CAPEM(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}

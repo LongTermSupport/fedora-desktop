@@ -88,6 +88,14 @@ install are listed last, under "Owner questions".
   refusal says to remove both CA files to take the backup's), writes the backup's CA at its
   clean-up step when the team has none and says to run `team apply` for the leaf, and keeps the
   team's CA for a backup without one, saying so in its notes.
+  `ca.key` must be root's alone, mode 0600 exactly (review S8 of pull request 128): a key of
+  another mode or another owner is refused by every reader of the CA (the apply's tls step, the
+  issuing of a bundle or LXC reach fact, the backup, a restore's validation and its write), each
+  refusal naming the file, the mode or owner found, and the fix (`chmod 600`, `chown root`); the
+  host never repairs the key itself. The owner and the mode are judged on the opened file
+  (`state.ReadPrivateFile`). The certificate, 0644, is not held to it. The leaf key is held to
+  the same rule, but the leaf is derived (X14): a leaf key of another mode or owner is not
+  refused, the apply makes the leaf again with a new key and says why.
 - **X14** The homeserver's leaf certificate is signed by the CA and has as subject alternative
   names every derived listen address (IP SANs) and the `url` host (a DNS SAN when it is a name).
   It is valid for one year and is made again at apply when the SAN set changes or fewer than 30

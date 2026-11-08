@@ -218,11 +218,11 @@ func TestTakeCarriesTheTeamCA(t *testing.T) {
 	if err = os.MkdirAll(clean+paths.AdminState(w.team), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	written, err := host.RestoreCA(clean, w.team, c.CA)
+	written, err := host.RestoreCA(clean, w.team, selfUID(t), c.CA)
 	if err != nil || !written {
 		t.Fatalf("the restore into a clean root: %v, %v", written, err)
 	}
-	pem, err := host.CAPEM(clean, w.team)
+	pem, err := host.CAPEM(clean, w.team, selfUID(t))
 	if err != nil {
 		t.Fatal(err)
 	}

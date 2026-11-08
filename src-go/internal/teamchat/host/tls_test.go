@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/netip"
@@ -10,12 +11,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
 // The tests are Plan 00246 SPEC-cross-network X13 and X14 at the host: the team's CA and the
@@ -446,7 +449,7 @@ func TestTheKeysAreTheInjectedReaders(t *testing.T) {
 func TestTheBackupCarriesTheCAAndNotTheLeaf(t *testing.T) {
 	w := applied(t)
 	team := ops(t)
-	files, err := CABackupFiles(w.root, team)
+	files, err := CABackupFiles(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,12 +482,12 @@ func TestTheBackupCarriesTheCAAndNotTheLeaf(t *testing.T) {
 func TestTheBackupOfNoCAOrABadCA(t *testing.T) {
 	w := newWorld(t)
 	team := ops(t)
-	if files, err := CABackupFiles(w.root, team); err != nil || len(files) != 0 {
+	if files, err := CABackupFiles(w.root, team, self(t)); err != nil || len(files) != 0 {
 		t.Errorf("a team with no CA: %+v, %v", files, err)
 	}
 	w = applied(t)
 	w.write(paths.CAKeyFile(team), "junk")
-	if _, err := CABackupFiles(w.root, team); err == nil || !strings.Contains(err.Error(), "ca.key") {
+	if _, err := CABackupFiles(w.root, team, self(t)); err == nil || !strings.Contains(err.Error(), "ca.key") {
 		t.Errorf("a bad CA key: %v, want a refusal naming ca.key", err)
 	}
 }
@@ -495,10 +498,10 @@ func restored(t *testing.T, w *world, files []BackupFile) {
 	if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckRestoreCA(w.root, ops(t), files); err != nil {
+	if err := CheckRestoreCA(w.root, ops(t), self(t), files); err != nil {
 		t.Fatalf("the check before the restore: %v", err)
 	}
-	written, err := RestoreCA(w.root, ops(t), files)
+	written, err := RestoreCA(w.root, ops(t), self(t), files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,12 +515,12 @@ func restored(t *testing.T, w *world, files []BackupFile) {
 func TestRestoreRoundTrip(t *testing.T) {
 	w := applied(t)
 	team := ops(t)
-	files, err := CABackupFiles(w.root, team)
+	files, err := CABackupFiles(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := certificateFiles(t, w)
-	pem, err := CAPEM(w.root, team)
+	pem, err := CAPEM(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +549,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if !slices.Contains(lines, "leaf made") || slices.Contains(lines, "ca made") {
 		t.Errorf("the apply after the restore: lines %q", lines)
 	}
-	if got, err := CAPEM(w.root, team); err != nil || got != pem {
+	if got, err := CAPEM(w.root, team, self(t)); err != nil || got != pem {
 		t.Errorf("the CA a bundle carries changed over the restore: %v", err)
 	}
 	theLeaf(t, w)
@@ -557,15 +560,15 @@ func TestRestoreRoundTrip(t *testing.T) {
 func TestRestoreNeverReplacesACA(t *testing.T) {
 	w := applied(t)
 	team := ops(t)
-	files, err := CABackupFiles(w.root, team)
+	files, err := CABackupFiles(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	was := certificateFiles(t, w)
-	if err = CheckRestoreCA(w.root, team, files); err != nil {
+	if err = CheckRestoreCA(w.root, team, self(t), files); err != nil {
 		t.Fatalf("the check of the same CA over itself: %v", err)
 	}
-	written, err := RestoreCA(w.root, team, files)
+	written, err := RestoreCA(w.root, team, self(t), files)
 	if err != nil {
 		t.Fatalf("the same CA over itself: %v", err)
 	}
@@ -590,8 +593,8 @@ func TestRestoreNeverReplacesACA(t *testing.T) {
 			}
 		}
 	}
-	refusal("the check", CheckRestoreCA(w.root, team, others))
-	written, err = RestoreCA(w.root, team, others)
+	refusal("the check", CheckRestoreCA(w.root, team, self(t), others))
+	written, err = RestoreCA(w.root, team, self(t), others)
 	refusal("the restore", err)
 	if written {
 		t.Error("a refused restore says it wrote the CA")
@@ -605,7 +608,7 @@ func TestRestoreNeverReplacesACA(t *testing.T) {
 func TestRestoreRefusesABadBackup(t *testing.T) {
 	good := func(t *testing.T, w *world) []BackupFile {
 		t.Helper()
-		files, err := CABackupFiles(w.root, ops(t))
+		files, err := CABackupFiles(w.root, ops(t), self(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -647,10 +650,10 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 			if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
 				t.Fatal(err)
 			}
-			if err := CheckRestoreCA(w.root, ops(t), files); err == nil || !strings.Contains(err.Error(), c.text) {
+			if err := CheckRestoreCA(w.root, ops(t), self(t), files); err == nil || !strings.Contains(err.Error(), c.text) {
 				t.Fatalf("the check: got %v, want a refusal saying %q", err, c.text)
 			}
-			_, err := RestoreCA(w.root, ops(t), files)
+			_, err := RestoreCA(w.root, ops(t), self(t), files)
 			if err == nil || !strings.Contains(err.Error(), c.text) {
 				t.Fatalf("got %v, want a refusal saying %q", err, c.text)
 			}
@@ -664,11 +667,11 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 // X13: no members is a backup taken before the backup carried the CA; the team's CA stays.
 func TestRestoreOfABackupWithoutTheCA(t *testing.T) {
 	w := applied(t)
-	if err := CheckRestoreCA(w.root, ops(t), nil); err != nil {
+	if err := CheckRestoreCA(w.root, ops(t), self(t), nil); err != nil {
 		t.Fatal(err)
 	}
 	was := certificateFiles(t, w)
-	written, err := RestoreCA(w.root, ops(t), nil)
+	written, err := RestoreCA(w.root, ops(t), self(t), nil)
 	if err != nil || written {
 		t.Fatalf("RestoreCA of no members = %v, %v; want nothing written and no error", written, err)
 	}
@@ -677,15 +680,156 @@ func TestRestoreOfABackupWithoutTheCA(t *testing.T) {
 	}
 }
 
+// self is the uid the test runs as, which owns every file a test world makes: the stand-in for
+// root, which owns them on a host.
+func self(t *testing.T) uint32 {
+	t.Helper()
+	info, err := os.Stat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("no owner in a stat")
+	}
+	return st.Uid
+}
+
+// caKeyRefusal holds that err refuses the team's ca.key, naming the file, what was found and the
+// fix, never an automatic repair.
+func caKeyRefusal(t *testing.T, what string, err error, found, fix string) {
+	t.Helper()
+	for _, s := range []string{"ca.key", found, fix} {
+		if err == nil || !strings.Contains(err.Error(), s) {
+			t.Errorf("%s: %v, want a refusal saying %q", what, err, s)
+		}
+	}
+}
+
+// X13 (review S8): the CA key is root's alone, mode 0600 exactly: a key readable or writable by
+// its group or by others, or owned by another uid, is refused by every reader of the CA (the
+// apply's tls step, the issuing side, the backup, a restore's check and the restore), naming the
+// file, the mode or the owner found and the fix. The certificate's mode 0644 is not judged.
+func TestTheCAKeyMustBeRootsAlone(t *testing.T) {
+	team := ops(t)
+	for _, m := range []os.FileMode{0o644, 0o640, 0o620} {
+		t.Run(m.String(), func(t *testing.T) { caKeyModeRefused(t, m) })
+	}
+	t.Run("another owner", func(t *testing.T) {
+		w := applied(t)
+		other := self(t) + 1
+		found, fix := "owned by uid", fmt.Sprintf("chown %d %s", other, w.at(paths.CAKeyFile(team)))
+		_, err := CAPEM(w.root, team, other)
+		caKeyRefusal(t, "the issuing side", err, found, fix)
+		_, err = CABackupFiles(w.root, team, other)
+		caKeyRefusal(t, "the backup", err, found, fix)
+	})
+	t.Run("root's alone", func(t *testing.T) {
+		w := applied(t)
+		if _, err := CAPEM(w.root, team, self(t)); err != nil {
+			t.Fatalf("a 0600 key of the owner's: %v", err)
+		}
+		if got := mode(t, w.at(paths.CACertFile(team))); got != 0o644 {
+			t.Fatalf("the certificate is %v, want 0644 and served", got)
+		}
+	})
+}
+
+// caKeyModeRefused is TestTheCAKeyMustBeRootsAlone for a CA key of mode m: every reader refuses
+// it, and nothing is repaired or changed.
+func caKeyModeRefused(t *testing.T, m os.FileMode) {
+	t.Helper()
+	team := ops(t)
+	w := applied(t)
+	files, err := CABackupFiles(w.root, team, self(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(w.at(paths.CAKeyFile(team)), m); err != nil {
+		t.Fatal(err)
+	}
+	was := certificateFiles(t, w)
+	found, fix := "mode "+octal(m), "chmod 600 "+w.at(paths.CAKeyFile(team))
+	_, err = w.apply(w.cur)
+	var e *Error
+	if !errors.As(err, &e) || e.Step != StepTLS || !e.Drift {
+		t.Errorf("the apply: %v, want a drift refusal at %s", err, StepTLS)
+	}
+	caKeyRefusal(t, "the apply", err, found, fix)
+	_, err = CAPEM(w.root, team, self(t))
+	caKeyRefusal(t, "the issuing side", err, found, fix)
+	_, err = CABackupFiles(w.root, team, self(t))
+	caKeyRefusal(t, "the backup", err, found, fix)
+	caKeyRefusal(t, "the restore's check", CheckRestoreCA(w.root, team, self(t), files), found, fix)
+	_, err = RestoreCA(w.root, team, self(t), files)
+	caKeyRefusal(t, "the restore", err, found, fix)
+	if mode(t, w.at(paths.CAKeyFile(team))) != m {
+		t.Error("a refusal repaired the key's mode")
+	}
+	if !sameFiles(certificateFiles(t, w), was) {
+		t.Error("a refusal changed a file")
+	}
+}
+
+// X14 (review S8's class): the leaf key is root's alone too, but the leaf is derived, so a leaf
+// key of another mode is not refused: the apply makes the leaf again, its key 0600, and says why.
+func TestALooseLeafKeyIsMadeAgain(t *testing.T) {
+	for _, m := range []os.FileMode{0o640, 0o644} {
+		t.Run(m.String(), func(t *testing.T) { looseLeafKeyMadeAgain(t, m) })
+	}
+}
+
+func looseLeafKeyMadeAgain(t *testing.T, m os.FileMode) {
+	t.Helper()
+	team := ops(t)
+	w := applied(t)
+	keyFile := w.at(paths.LeafKeyFile(team))
+	was := bytesOf(t, w, paths.LeafKeyFile(team))
+	if err := os.Chmod(keyFile, m); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := w.apply(w.cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := func(l string) bool {
+		return strings.HasPrefix(l, "leaf made again: ") && strings.Contains(l, "mode "+octal(m))
+	}
+	if !slices.ContainsFunc(lines, said) {
+		t.Errorf("the apply over a loose leaf key: lines %q, want the leaf made again naming the mode", lines)
+	}
+	if got := mode(t, keyFile); got != 0o600 {
+		t.Errorf("the leaf key is %v after the apply, want 0600", got)
+	}
+	if bytes.Equal(bytesOf(t, w, paths.LeafKeyFile(team)), was) {
+		t.Error("the loose key was kept: a key others could read is replaced, not chmodded")
+	}
+}
+
+// X13 (review S8): on a host the CA key's owner is root (uid 0), and the fix says so by name.
+func TestTheCAKeyFixNamesRoot(t *testing.T) {
+	err := caKeyFix(&state.OwnerError{Path: "/k", UID: 1000, Want: 0}, "/k", 0)
+	if err == nil || !strings.Contains(err.Error(), "chown root /k") || !strings.Contains(err.Error(), "owned by uid 1000, not 0") {
+		t.Errorf("the owner fix on a host: %v", err)
+	}
+	other := errors.New("cannot open /k")
+	if got := caKeyFix(other, "/k", 0); !errors.Is(got, other) || got.Error() != other.Error() {
+		t.Errorf("a refusal for neither owner nor mode was changed: %v", got)
+	}
+}
+
+// octal is a mode's permission bits as chmod takes them, four digits.
+func octal(m os.FileMode) string { return fmt.Sprintf("%04o", uint32(m.Perm())) }
+
 // X13: the issuing side reads the team's CA certificate for a bundle; it is the file's, checked.
 func TestCAPEM(t *testing.T) {
 	team := ops(t)
 	w := newWorld(t)
-	if _, err := CAPEM(w.root, team); !errors.Is(err, ErrCANotMade) || !strings.Contains(err.Error(), "not made yet") {
+	if _, err := CAPEM(w.root, team, self(t)); !errors.Is(err, ErrCANotMade) || !strings.Contains(err.Error(), "not made yet") {
 		t.Errorf("before any apply: %v, want a refusal saying the CA is not made yet", err)
 	}
 	w = applied(t)
-	got, err := CAPEM(w.root, team)
+	got, err := CAPEM(w.root, team, self(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,7 +843,7 @@ func TestCAPEM(t *testing.T) {
 		t.Error("CAPEM carries a key")
 	}
 	w.write(paths.CAKeyFile(team), "junk")
-	if _, err := CAPEM(w.root, team); err == nil || !strings.Contains(err.Error(), "ca.key") {
+	if _, err := CAPEM(w.root, team, self(t)); err == nil || !strings.Contains(err.Error(), "ca.key") {
 		t.Errorf("a CA whose key is bad: %v, want a refusal naming ca.key", err)
 	}
 }
