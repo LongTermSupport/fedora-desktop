@@ -139,6 +139,9 @@ func guardedTakers(t *testing.T) []string {
 		if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
+		if !e.Type().IsRegular() {
+			t.Fatalf("%s is not a regular file", e.Name())
+		}
 		file, err := parser.ParseFile(fset, e.Name(), nil, 0)
 		if err != nil {
 			t.Fatal(err)

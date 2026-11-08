@@ -61,9 +61,14 @@ func corpusFiles(t *testing.T, dir, ext string) []string {
 	}
 	var names []string
 	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ext); ok {
-			names = append(names, name)
+		name, ok := strings.CutSuffix(e.Name(), ext)
+		if !ok {
+			continue
 		}
+		if !e.Type().IsRegular() {
+			t.Fatalf("testdata/%s/%s is not a regular file", dir, e.Name())
+		}
+		names = append(names, name)
 	}
 	return names
 }
