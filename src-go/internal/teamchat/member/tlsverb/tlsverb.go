@@ -7,6 +7,8 @@ package tlsverb
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/netip"
 	"os/signal"
 	"path/filepath"
@@ -33,6 +35,7 @@ const (
 const (
 	msgNoDirectory exits.Template = "the unit has no directory for its files: {} is not set; tell a human"
 	msgNoFile      exits.Template = "the unit's file {} for team {} is missing or empty; tell a human"
+	msgUnreadable  exits.Template = "the unit's file {} for team {} cannot be read; tell a human"
 	msgFlag        exits.Template = "--{} is not a value the terminator can serve; tell a human"
 )
 
@@ -78,11 +81,11 @@ func config(e cli.Env, inv cli.Invocation, clk tlsterm.Clock) (tlsterm.Config, e
 	if dir == "" {
 		return tlsterm.Config{}, exits.New(exits.CodeRuntime, &team, msgNoDirectory, exits.Name(paths.EnvCredentials))
 	}
-	cert, err := credential(dir, paths.LeafCertCredential, team)
+	cert, err := credential(e.Stderr, dir, paths.LeafCertCredential, team)
 	if err != nil {
 		return tlsterm.Config{}, err
 	}
-	key, err := credential(dir, paths.LeafKeyCredential, team)
+	key, err := credential(e.Stderr, dir, paths.LeafKeyCredential, team)
 	if err != nil {
 		return tlsterm.Config{}, err
 	}
@@ -100,10 +103,19 @@ func config(e cli.Env, inv cli.Invocation, clk tlsterm.Clock) (tlsterm.Config, e
 	}, nil
 }
 
-// credential is one of the unit's credential files, which must hold something.
-func credential(dir, name string, team paths.TeamID) ([]byte, error) {
+// credential is one of the unit's credential files, which must hold something. A file that is
+// there but cannot be read is refused with the read's reason as a diagnostic line on stderr
+// (the path and the system's error, never the file's bytes), so the journal says why.
+func credential(stderr io.Writer, dir, name string, team paths.TeamID) ([]byte, error) {
 	b, found, err := state.ReadFile(filepath.Join(dir, name), credentialLimit)
-	if err != nil || !found || len(b) == 0 {
+	if err != nil {
+		refusal := exits.New(exits.CodeRuntime, &team, msgUnreadable, exits.Name(name), exits.Team(team))
+		if _, werr := io.WriteString(stderr, "teamchat: "+err.Error()+"\n"); werr != nil {
+			return nil, errors.Join(refusal, werr)
+		}
+		return nil, refusal
+	}
+	if !found || len(b) == 0 {
 		return nil, exits.New(exits.CodeRuntime, &team, msgNoFile, exits.Name(name), exits.Team(team))
 	}
 	return b, nil
