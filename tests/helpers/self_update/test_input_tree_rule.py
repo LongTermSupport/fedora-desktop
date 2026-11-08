@@ -133,8 +133,17 @@ class TestNoPlayWalksAnUntrackedTree(unittest.TestCase):
 
 class TestPlayTextReadsNothingUnderTheScratchTree(unittest.TestCase):
     """The hazard itself, judged apart from the fix: `play_text` reads no file under `untracked/`
-    (where the named pipes of old plan runs live) and none outside the checkout. The fix (the mapper moving such trees into `Inputs.local`) is reverted here, in the
-    test, to prove the check goes red without it."""
+    (where the named pipes of old plan runs live) and none outside the checkout. The fixes are
+    reverted here, in the test, to prove the check goes red without them: the mapper moving such
+    trees into `Inputs.local`, and `play_text` listing a directory through git, which never
+    lists an ignored file (issue #198), in place of a walk."""
+
+    @staticmethod
+    def _walk(repo_root: str) -> list[str]:
+        """Every file under `repo_root`, ignored or not: the walk `play_text` did before #198."""
+        return sorted(os.path.relpath(os.path.join(dirpath, name), repo_root)
+                      for dirpath, _dirs, files in os.walk(repo_root) if ".git" not in dirpath.split(os.sep)
+                      for name in files)
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -162,16 +171,17 @@ class TestPlayTextReadsNothingUnderTheScratchTree(unittest.TestCase):
         with mock.patch.object(ap, "untracked_trees", return_value=set()):
             inputs = ap.play_inputs(self.root, "playbooks/imports/play-a.yml")
         self.assertIn("untracked/", inputs.prefixes)
-        self.assertEqual(scratch_reads(self.root, inputs), ["untracked/.gitignore", "untracked/run.log"])
+        with mock.patch.object(gv, "checkout_files", side_effect=self._walk):
+            self.assertEqual(scratch_reads(self.root, inputs), ["untracked/.gitignore", "untracked/run.log"])
 
     def test_with_the_fix_nothing_under_the_scratch_tree_is_read(self) -> None:
         inputs = ap.play_inputs(self.root, "playbooks/imports/play-a.yml")
         self.assertEqual(scratch_reads(self.root, inputs), [])
 
     def test_a_walk_that_climbs_out_of_the_checkout_is_found(self) -> None:
-        inner = os.path.join(self.root, "inner")
-        os.makedirs(inner)
-        self.assertIn("../files/conf/a.conf", scratch_reads(inner, ap.Inputs(prefixes={"../files/"})))
+        with mock.patch.object(gv, "checkout_files", return_value=["../files/conf/a.conf"]):
+            found = scratch_reads(os.path.join(self.root, "playbooks"), ap.Inputs(prefixes={"../files/"}))
+        self.assertIn("../files/conf/a.conf", found)
 
     def test_no_host_play_reads_under_the_scratch_tree(self) -> None:
         for play in ap.candidate_plays(REPO_ROOT):

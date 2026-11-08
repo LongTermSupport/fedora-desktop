@@ -113,8 +113,12 @@ class TestNamesRead(unittest.TestCase):
 
 
 class TestPlayText(unittest.TestCase):
+    """`play_text` lists a play's input directories through git (issue #198), so each test root
+    is a git checkout; a file not yet committed and not ignored is still an input."""
+
     def test_reads_its_exact_files_and_the_files_under_its_directories(self) -> None:
         with tempfile.TemporaryDirectory() as root:
+            _git(root, "init", "-q")
             _write(root, "playbooks/imports/play-a.yml", "when: audience\n")
             _write(root, "files/etc/a.conf.j2", "{{ profile }}\n")
             _write(root, "files/blob.bin", b"\xff\xfe\x00 packages")
@@ -130,6 +134,7 @@ class TestPlayText(unittest.TestCase):
         that opened one never returned. The call runs in a child with a time limit, so a
         regression fails here instead of hanging the suite."""
         with tempfile.TemporaryDirectory() as root:
+            _git(root, "init", "-q")
             _write(root, "files/etc/a.conf.j2", "{{ profile }}\n")
             os.mkfifo(os.path.join(root, "files", "etc", "evidence.fifo"))
             child = (
@@ -146,6 +151,27 @@ class TestPlayText(unittest.TestCase):
                 self.fail("play_text opened the named pipe and blocked")
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertIn("profile", done.stdout)
+
+    def test_bytecode_git_ignores_under_a_directory_is_not_read(self) -> None:
+        """Issue #198: the `__pycache__/*.pyc` beside a play's helper modules changes with the
+        interpreter that last ran them and is no input; nor is any other ignored file."""
+        with tempfile.TemporaryDirectory() as root:
+            _git(root, "init", "-q")
+            _write(root, ".gitignore", "__pycache__/\n*.local\n")
+            _write(root, "helpers/tool/main.py", "audience = 1\n")
+            _write(root, "helpers/tool/__pycache__/main.cpython-313.pyc", "profile packages\n")
+            _write(root, "helpers/tool/notes.local", "packages\n")
+            _git(root, "add", "helpers/tool/main.py")
+            _write(root, "helpers/tool/new_module.py", "_target = 2\n")
+            text = group_vars.play_text(root, Inputs(prefixes={"helpers/tool/"}))
+            self.assertEqual(group_vars.names_read({"audience", "profile", "packages", "_target"}, text),
+                             ["_target", "audience"])
+
+    def test_a_root_git_cannot_list_is_refused_never_walked(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, "files/etc/a.conf.j2", "{{ profile }}\n")
+            with self.assertRaisesRegex(ValueError, "git rev-parse"):
+                group_vars.play_text(root, Inputs(prefixes={"files/"}))
 
 
 class TestTextAt(unittest.TestCase):

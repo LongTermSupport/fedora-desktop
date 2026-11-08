@@ -16,7 +16,8 @@ the reader cannot see would be a change it silently drops.
 
 **Which a play reads.** A changed name read as a whole word (not inside a longer name) in the
 text of the play's inputs, as `affected_plays.play_inputs` gives them: its own file, every task,
-vars, template and other file it names, and every file under a directory it names. A Go package
+vars, template and other file it names, and every file git would publish under a directory it
+names (an ignored one, such as `__pycache__/*.pyc`, is no input). A Go package
 it builds is not read: Go code never sees an Ansible variable. Undecodable (binary) files are
 left out. A file that names the variable but does not template it (a copied file, a comment)
 reruns the play anyway: the rule errs towards a rerun, never a miss.
@@ -31,7 +32,7 @@ import re
 import subprocess
 from collections.abc import Iterable, Mapping
 
-from helpers.self_update.affected_plays import INVENTORY_GROUP_VARS, Inputs
+from helpers.self_update.affected_plays import INVENTORY_GROUP_VARS, Inputs, checkout_files
 
 GROUP_VARS = INVENTORY_GROUP_VARS
 
@@ -99,13 +100,15 @@ def _read(path: str) -> str | None:
 
 
 def play_text(repo_root: str, inputs: Inputs) -> str:
-    """The text of every input file of a play that exists, is a regular file and decodes. A walked
-    named pipe, socket or device is skipped: opening a named pipe blocks until a writer comes."""
+    """The text of every input file of a play that exists, is a regular file and decodes. The
+    files under an input directory are the ones git would publish (`checkout_files`), never an
+    ignored one such as `__pycache__/*.pyc` (rule play-input-listed-past-git); raises when git
+    cannot list them. A named pipe, socket or device is skipped: opening a named pipe blocks
+    until a writer comes."""
     full_paths = {os.path.join(repo_root, path) for path in inputs.exact}
-    for prefix in inputs.prefixes:
-        top = os.path.join(repo_root, prefix)
-        for dirpath, _dirs, files in os.walk(top):
-            full_paths.update(os.path.join(dirpath, name) for name in files)
+    if inputs.prefixes:
+        full_paths.update(os.path.join(repo_root, path) for path in checkout_files(repo_root)
+                          if any(path.startswith(prefix) for prefix in inputs.prefixes))
     regular = sorted(path for path in full_paths if os.path.isfile(path))
     texts = (_read(path) for path in regular)
     return "\n".join(text for text in texts if text is not None)
