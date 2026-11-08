@@ -63,6 +63,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
+| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1572,6 +1573,50 @@ writer releases a reader at once, so a regression fails the test instead of hang
   (`[]byte(filepath.Join(dir, e.Name()))`, followed as content), and a time-of-check gap between
   the check and the open.
 
+
+### project_zombie_exit
+
+**What it is about.** `/proc/<pid>/stat` is the thread-group leader's own entry, and its state
+letter turns `Z` as soon as the leader thread has exited. Every Go program is multi-threaded, and
+a killed one ends thread by thread: the leader can read `Z` while the other threads are still
+exiting and still hold the process's files (a flock, a socket, a pipe end), which are let go only
+when the last of them drops the file table. A test that waits for `Z` and then reads anything
+that depends on the release races those threads.
+
+**Why it exists.** teamchat `wiring` `TestClaudeStatusLine` froze the keeper, killed the link,
+waited for `gone(link)` (true at `Z`) and read the status line once: CI drew the team's normal
+segment, because `link.lock` was still held (fedora-desktop#182). An experiment (a child holding
+a flock with 8 or 32 busy threads, killed and not reaped, polled as `gone` polls) found the lock
+still held at the first `Z` reading in 65 of 300 and 155 of 300 rounds, and never once
+`/proc/<pid>/status` read `State: Z` with `Threads: 1` (0 of 600). The Python side of the class is
+the semgrep rule [`proc-zombie-taken-as-exit`](QA.md#proc-zombie-taken-as-exit).
+
+**What it flags**, in tests and production alike: a string or character literal whose text is
+`Z` (`" Z"`, `"Z"`, `'Z'`) in a function, its function literals included, that also holds a
+string literal naming a `/proc` stat file (`"stat"`, or one ending in `/stat`) and none starting
+with `Threads` (the thread count of `/proc/<pid>/status`, which makes the reading sound).
+
+**How to fix a violation.** Read `/proc/<pid>/status` and require both `State:` `Z` (or `X`) and
+`Threads:` `1`: a non-leader thread is counted until it is released, after it dropped the file
+table, so the pair holds only once the whole group has ended. Better still, wait for the effect
+the test asserts (the lock free, the line drawn) with a bounded wait, as `TestClaudeStatusLine`
+now does.
+
+- Red, fixture: `testdata/src/fix/internal/badzombie` (`TestZombieExit`): the originating
+  `gone`, a `Sprintf` path with a trimmed prefix, a joined path with the first field compared, a
+  byte compared in a function literal, a production function; clean: another state letter from
+  stat, the `status` check, a stat state believed only beside the thread count, a letter range in
+  a function that reads no stat, a stat fixture holding `Z` as data.
+- Red, real tree: 5 findings at the defence commit, over `./...` untagged, with `busfailpoints`,
+  `tuwunel`, `ccyteamstest`, `difftest`, `teamchatrelease` and the nested `qa` module: wiring's
+  `gone`, `execx`'s `living`, the status-line golden's `alive`, `qa/internal/proc`'s `gone` and
+  the ccy launcher's build lock (`ccylaunch/buildlock.go` `procStat`). The first cut judged tests
+  only; the independent search found the build lock, whose "build done" verdict rested on the
+  same reading, so the rule was widened before the sweep.
+- Green: 0 findings over the same builds.
+- Not caught: a stat path built entirely at run time, a state compared through a parameter (a
+  helper `procIs(pid, 'Z')` that takes the letter), and a `Threads` literal read but not
+  required.
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without

@@ -153,6 +153,10 @@ func TestWalkOpen(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WalkOpen, "fix/internal/badwalk")
 }
 
+func TestZombieExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ZombieExit, "fix/internal/badzombie")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
