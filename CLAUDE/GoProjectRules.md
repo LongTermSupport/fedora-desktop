@@ -1632,7 +1632,12 @@ guessing; the catalogue claims no more than the code does.
   is 0, which only root can look into, so the test's own `t.TempDir()` could not be read, and
   `homefs.Mkdir` opened a directory it had just made for reading before it set its mode, which
   failed for a user with a umask that takes the owner's read bit off (it now holds it by
-  `O_PATH`). A chown to another user is `project_test_chown`'s, not this one's. The assumption
+  `O_PATH`). An owner fixed at root in the production wiring (`admin/wire`'s `machine.stateOwnerUID`,
+  review S8 of pull request 128), which a test whose `ca.key` is its user's reached: the CA read
+  refused it, `owned by uid 1001, not 0`, in CI's run and never in a container. A run as another
+  uid shows one such failure: `go test -exec 'setpriv --reuid=1001 --regid=1001 --clear-groups' ./internal/teamchat/<package>/`; over the whole tree that run fails for the setup's own reasons
+  (a uid with no account, files it cannot read), so it reproduces a failure and is not a gate.
+  A chown to another user is `project_test_chown`'s, not this one's. The assumption
   is in what the fixture or the call does not say, so no syntax tree shows it. What holds it:
   the code takes the owner it expects as a value (the guest root's host uid and gid, 0 and 0 in
   production and the fixture directory's owner in a fixture; `homefs.Owner`, the caller's
