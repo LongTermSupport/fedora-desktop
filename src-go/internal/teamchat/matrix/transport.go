@@ -1,6 +1,7 @@
 package matrix
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -148,11 +149,16 @@ func handshakeClass(err error) string {
 }
 
 // newHTTPClient is a member or admin client's HTTP client: no proxy, no redirect followed, the dial
-// and the TLS handshake bounded, and, for an https URL, the pin's TLS configuration.
-func newHTTPClient(p *pin) *http.Client {
+// and the TLS handshake bounded, and, for an https URL, the pin's TLS configuration. dial, when
+// set, is the route to the URL's host and port (Config.Dial), bounded by the request's context and
+// the handshake bound; unset, the dial is a direct one bounded by dialLimit.
+func newHTTPClient(p *pin, dial func(context.Context, string, string) (net.Conn, error)) *http.Client {
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: dialLimit}).DialContext
+	}
 	tr := &http.Transport{
 		Proxy:                  nil,
-		DialContext:            (&net.Dialer{Timeout: dialLimit}).DialContext,
+		DialContext:            dial,
 		MaxResponseHeaderBytes: maxHeaderBytes,
 		DisableCompression:     true,
 		TLSHandshakeTimeout:    dialLimit,

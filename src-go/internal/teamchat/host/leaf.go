@@ -20,11 +20,13 @@ import (
 // leafStep is the one step that makes the homeserver's leaf again (SPEC-cross-network X14, X31):
 // `team apply` runs it under its lock, and the health tick runs it with no apply, so a team that
 // is not applied for a year keeps a valid leaf. A leaf is derived, so one that is missing, torn,
-// or signed by another CA is made again rather than refused, and the step says why.
+// signed by another CA, or whose key is not owner's alone with mode 0600 (S8), is made again
+// rather than refused, and the step says why.
 type leafStep struct {
 	root  string
 	team  paths.TeamID
 	maker pki.Maker
+	owner uint32
 }
 
 // leafOutcome is what the step found and did: the CHANGED line ("" for a leaf kept), and when
@@ -91,7 +93,14 @@ func (s leafStep) verdict(caPEM []byte, want pki.Names) (leafOutcome, error) {
 	if err != nil {
 		return leafOutcome{}, leafFailed(unread, err)
 	}
-	key, haveKey, err := state.ReadFile(s.root+paths.LeafKeyFile(s.team), fileMax)
+	// The leaf key is the owner's alone, 0600, as the CA key is; but the leaf is derived, so one
+	// that is not is made again with a new key, never chmodded: others may have read the old one.
+	key, haveKey, err := state.ReadPrivateFile(s.root+paths.LeafKeyFile(s.team), fileMax, s.owner)
+	var oe *state.OwnerError
+	var me *state.ModeError
+	if errors.As(err, &oe) || errors.As(err, &me) {
+		return leafOutcome{line: "leaf made again: " + err.Error()}, nil
+	}
 	if err != nil {
 		return leafOutcome{}, leafFailed(unread, err)
 	}
@@ -198,6 +207,8 @@ type LeafRenewer struct {
 	Rand  io.Reader
 	Units Restarter
 	Names func(paths.TeamID) (pki.Names, error)
+	// StateOwnerUID owns the CA key and the leaf key (root, 0, on a host): S8.
+	StateOwnerUID uint32
 }
 
 // Renew makes the team's leaf again by apply's step when X14's rule says so, and restarts the
@@ -217,9 +228,9 @@ func (r LeafRenewer) Renew(ctx context.Context, team paths.TeamID, run Terminato
 	if err != nil {
 		return LeafRenewal{}, leafFailed("the names the leaf is for cannot be read from units.json and team.json", err)
 	}
-	step := leafStep{root: r.Root, team: team, maker: pki.Maker{Clock: wallClock{r.Clock}, Rand: r.Rand}}
+	step := leafStep{root: r.Root, team: team, maker: pki.Maker{Clock: wallClock{r.Clock}, Rand: r.Rand}, owner: r.StateOwnerUID}
 	sign := func() (pki.CA, error) {
-		ca, made, loadErr := loadCA(r.Root, team)
+		ca, made, loadErr := loadCA(r.Root, team, r.StateOwnerUID)
 		if loadErr == nil && !made {
 			loadErr = fmt.Errorf("the CA of team %s is not there: team apply makes it", team)
 		}

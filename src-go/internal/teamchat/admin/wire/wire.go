@@ -81,7 +81,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 	clock := systemClock{}
 	root, run := m.root, m.root+paths.AdminRunDir
 	// The team CA is read from the host's files at each issue (Plan 00246 X15, S16).
-	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team) }
+	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team, stateOwnerUID) }
 	ownerGroup := sync.OnceValues(m.ownerGroup)
 	systemd := units.NewManager(m.dial, m.runner)
 	child := admin.ExecChild{Runner: m.runner, Self: self, Lookup: m.lookupUser}
@@ -109,7 +109,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 	})
 	sys := &admin.System{
 		Host: host.Deps{
-			Root: root, LockDir: run, Clock: clock, Rand: rand.Reader, Software: digest,
+			Root: root, LockDir: run, Clock: clock, Rand: rand.Reader, Software: digest, StateOwnerUID: stateOwnerUID,
 			// Load only: team approve writes approved.json with the owner group's gid.
 			Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
 			Systemd:   systemd.Host(), Firewall: hostnet.Firewall{Runner: m.runner, Proc: m.proc},

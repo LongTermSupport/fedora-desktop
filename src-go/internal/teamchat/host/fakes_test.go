@@ -213,7 +213,7 @@ func (w *world) deps() Deps {
 	return Deps{
 		Root: w.root, LockDir: w.at(paths.AdminRunDir), LockWait: PlayWait, Clock: w.clock,
 		Rand: w.rand, Pin: p, Software: "d1g3st",
-		CtlUID: os.Getuid(), CtlGID: os.Getgid(), Approvals: w, Systemd: w.sd, Firewall: w.fw,
+		CtlUID: os.Getuid(), CtlGID: os.Getgid(), StateOwnerUID: self(w.t), Approvals: w, Systemd: w.sd, Firewall: w.fw,
 		Network: w.net, Ready: w.ready, Status: w.status,
 		Guard: func(team paths.TeamID) error {
 			w.guarded = append(w.guarded, team)
