@@ -11,8 +11,9 @@ import (
 
 // Plant makes a named pipe at path and returns a probe that says whether anything opened it
 // for reading during the test. A goroutine waits in the open of the write end and closes it as
-// soon as a reader arrives, so code that opens the pipe reads end of file at once: a regression
-// fails the test's assertions instead of blocking for ever. The cleanup releases the goroutine.
+// soon as a reader arrives, then waits for the next, so code that opens the pipe, however many
+// times, reads end of file at once: a regression fails the test's assertions instead of blocking
+// for ever. The cleanup releases the goroutine.
 func Plant(tb testing.TB, path string) func() bool {
 	tb.Helper()
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
@@ -22,17 +23,24 @@ func Plant(tb testing.TB, path string) func() bool {
 	release := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		w, err := os.OpenFile(path, os.O_WRONLY, 0)
-		if err != nil {
-			done <- err
-			return
+		for {
+			w, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				done <- err
+				return
+			}
+			select {
+			case <-release:
+				done <- w.Close()
+				return
+			default:
+				hit.Store(true)
+			}
+			if err := w.Close(); err != nil {
+				done <- err
+				return
+			}
 		}
-		select {
-		case <-release:
-		default:
-			hit.Store(true)
-		}
-		done <- w.Close()
 	}()
 	tb.Cleanup(func() {
 		close(release)
