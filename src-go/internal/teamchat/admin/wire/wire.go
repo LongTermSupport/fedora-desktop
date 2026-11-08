@@ -55,6 +55,9 @@ type machine struct {
 	dial       func(context.Context) (units.Conn, error)
 	kernel     guestroot.Kernel
 	kitOwner   int // the uid the host kit's current link must have: root
+	// stateOwnerUID owns the state root and root's own files (the CA key among them): root on a
+	// host, and the test's own uid in a test, whose fixtures are its user's.
+	stateOwnerUID uint32
 	// restoreProven is set only once host checks H-C5 and H-C15 have passed (DC8, n2g-D8); a
 	// test sets it to run the engine over these adapters. Until then System.Restore refuses.
 	restoreProven bool
@@ -66,8 +69,12 @@ func production() machine {
 		ownerGroup: admin.OwnerGroupFile("", admin.LookupGroup),
 		readPin:    func() (host.Pin, error) { return admin.ReadPin("") },
 		runner:     execx.OS{}, dial: units.SystemBus, kernel: guestroot.LinuxKernel{},
+		stateOwnerUID: rootUID,
 	}
 }
+
+// rootUID is root's, the owner of the state root and of root's own files on a host.
+const rootUID = 0
 
 func (m machine) system(digest string) (*admin.System, error) {
 	d, err := paths.ParseDigest(digest)
@@ -79,7 +86,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		return nil, fmt.Errorf("the running binary: %w", err)
 	}
 	clock := systemClock{}
-	root, run := m.root, m.root+paths.AdminRunDir
+	root, run, stateOwnerUID := m.root, m.root+paths.AdminRunDir, m.stateOwnerUID
 	// The team CA is read from the host's files at each issue (Plan 00246 X15, S16).
 	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team, stateOwnerUID) }
 	ownerGroup := sync.OnceValues(m.ownerGroup)
@@ -143,9 +150,6 @@ func (m machine) system(digest string) (*admin.System, error) {
 	return sys, nil
 }
 
-// stateOwnerUID owns the state root and root's own files on a host.
-const stateOwnerUID = 0
-
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
 // team lock it holds.
 func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (admin.Restorer, error) {
@@ -153,7 +157,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 	if err != nil {
 		return nil, err
 	}
-	root := m.root
+	root, stateOwnerUID := m.root, m.stateOwnerUID
 	return admin.Engine{Deps: restore.Deps{
 		Root: root, CtlUID: b.CtlUID, StateOwnerUID: stateOwnerUID,
 		Units: restoreUnits{systemd}, Ready: b.Ready, Run: m.runner,
