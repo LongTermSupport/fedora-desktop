@@ -44,7 +44,9 @@ other member URL is `https`, local ccy and LXC members included: a team without 
 anything but loopback.
 
 - A team has one CA, made at its first apply (ECDSA P-256, valid ten years). Its key is readable
-  by root only, under the team's root state. The CA certificate is not secret; the key is.
+  by root only, under the team's root state. The CA certificate is not secret; the key is. A key
+  that is not root's with mode 0600 is refused by apply, issuing, backup and restore, each naming
+  the fix (`chmod 600` or `chown root` on the file); nothing repairs it for you.
 - Every backup of a team that has a CA carries the CA certificate and key (`ca.crt`, `ca.key`,
   version 2 of the backup's `backup.json`), so a restore keeps every issued bundle valid. The
   backup stays readable by root only; a copy taken off the host must be encrypted, because it
@@ -86,7 +88,8 @@ sudo teamchat-admin member add ... --credential token | ssh <alias> teamchat sea
 declaration, a file of this repository or a handle. `seat place-issued` reads one issued
 document on stdin, checks it, and places the seat in that machine's pool for the checkout: the
 password or token only in the pool, mode 0600. Nothing secret is in its arguments or its
-output. `--credential password` works as for any seat.
+output. `--credential password` works as for any seat. If the ssh step fails, the seat was not
+placed on that machine: reissue it by running the command again.
 
 A seat is keyed on the homeserver's URL. The first bundle a checkout takes for a team records the
 team's server name and its canonical URL (`https`, lower-case host, explicit port); a later bundle

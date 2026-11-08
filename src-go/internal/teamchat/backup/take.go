@@ -163,7 +163,7 @@ func readSources(d Deps, team paths.TeamID) (Sources, declare.Team, error) {
 		}
 		*f.into = data
 	}
-	if s.CA, err = host.CABackupFiles(d.Root, team); err != nil {
+	if s.CA, err = host.CABackupFiles(d.Root, team, d.StateOwnerUID); err != nil {
 		return Sources{}, declare.Team{}, fmt.Errorf("the team CA: %w", err)
 	}
 	decl, err := declare.DecodeTeamFile(s.TeamJSON)

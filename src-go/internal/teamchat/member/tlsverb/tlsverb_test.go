@@ -89,11 +89,11 @@ func env(dir string) (cli.Env, *bytes.Buffer) {
 }
 
 // deps is the verb's seams with f as its terminator and a context nothing cancels.
-func deps(f *terminator) runDeps {
-	return runDeps{
-		run:   f.run,
-		clock: clock.NewFake(0, 0),
-		notify: func() (context.Context, context.CancelFunc) {
+func deps(f *terminator) Deps {
+	return Deps{
+		Run:   f.run,
+		Clock: clock.NewFake(0, 0),
+		Notify: func() (context.Context, context.CancelFunc) {
 			return context.WithCancel(context.Background())
 		},
 	}
@@ -106,7 +106,7 @@ var listenArgs = []string{"--team", "ops", "--port", "8448", "--listen", "192.0.
 func TestV1ItServesTheLeafOnEveryListenAddressToTheLoopbackHomeserver(t *testing.T) {
 	f := newTerminator()
 	e, stderr := env(good(t))
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitOK {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	if f.calls != 1 {
@@ -138,7 +138,7 @@ func TestV1ItServesTheLeafOnEveryListenAddressToTheLoopbackHomeserver(t *testing
 func TestV2NoCredentialsDirectoryIsRefused(t *testing.T) {
 	f := newTerminator()
 	e, stderr := env("")
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
 		t.Fatalf("exit %d, want 78: %s", code, stderr)
 	}
 	if f.calls != 0 {
@@ -166,7 +166,7 @@ func TestV3AMissingOrEmptyCredentialIsRefusedByName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newTerminator()
 			e, stderr := env(credentials(t, c.files))
-			if code := run(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+			if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
 				t.Fatalf("exit %d, want 78: %s", code, stderr)
 			}
 			if f.calls != 0 {
@@ -182,13 +182,91 @@ func TestV3AMissingOrEmptyCredentialIsRefusedByName(t *testing.T) {
 	}
 }
 
+// V3a: a credential that is there but cannot be read (a directory in its place, a file over
+// the limit) is refused naming it, with the read's own reason on stderr, not as a missing file.
+func TestV3aAnUnreadableCredentialIsRefusedWithItsReason(t *testing.T) {
+	cases := map[string]struct {
+		place  func(t *testing.T, path string)
+		reason string
+	}{
+		"a directory": {func(t *testing.T, path string) {
+			t.Helper()
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, "not a regular file"},
+		"over the limit": {func(t *testing.T, path string) {
+			t.Helper()
+			if err := os.WriteFile(path, bytes.Repeat([]byte("k"), credentialLimit+1), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "is over"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := credentials(t, map[string]string{paths.LeafCertCredential: certText})
+			c.place(t, filepath.Join(dir, paths.LeafKeyCredential))
+			f := newTerminator()
+			e, stderr := env(dir)
+			if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+				t.Fatalf("exit %d, want 78: %s", code, stderr)
+			}
+			if f.calls != 0 {
+				t.Error("the terminator ran without a readable key")
+			}
+			out := stderr.String()
+			if !strings.Contains(out, c.reason) || !strings.Contains(out, paths.LeafKeyCredential) {
+				t.Errorf("the refusal does not carry the read's reason %q for %s: %s", c.reason, paths.LeafKeyCredential, out)
+			}
+			if strings.Contains(out, "missing or empty") {
+				t.Errorf("an unreadable credential was reported as missing: %s", out)
+			}
+		})
+	}
+}
+
+// failingWriter is a stderr that refuses every write.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stderr is closed") }
+
+// V3b: when the read's reason cannot be written, the refusal still stands: the run ends with
+// the unreadable-file exit and the terminator never runs.
+func TestV3bAnUnwritableReasonKeepsTheRefusal(t *testing.T) {
+	dir := credentials(t, map[string]string{paths.LeafCertCredential: certText})
+	if err := os.Mkdir(filepath.Join(dir, paths.LeafKeyCredential), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f := newTerminator()
+	e, unused := env(dir)
+	e.Stderr = failingWriter{}
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code != term.ExitCode(78) {
+		t.Fatalf("exit %d, want 78", code)
+	}
+	if f.calls != 0 {
+		t.Error("the terminator ran without a readable key")
+	}
+	if unused.Len() != 0 {
+		t.Errorf("wrote past the replaced stderr: %s", unused)
+	}
+}
+
+// V2a: Main is Serve over the production seams; with no credentials directory it refuses
+// before any of them is used.
+func TestV2aMainRefusesWithoutCredentials(t *testing.T) {
+	e, stderr := env("")
+	if code := Main(e, parsed(t, listenArgs...)); code != term.ExitCode(78) {
+		t.Fatalf("exit %d, want 78: %s", code, stderr)
+	}
+}
+
 // V4: a terminator that fails is the verb's failure, with its reason on stderr, so the unit
 // fails and its journal says why.
 func TestV4AFailedTerminatorIsTheVerbsFailure(t *testing.T) {
 	f := newTerminator()
 	f.err = errors.New("tlsterm: listening on 192.0.2.10:8448: address in use")
 	e, stderr := env(good(t))
-	if code := run(e, parsed(t, listenArgs...), deps(f)); code == term.ExitOK {
+	if code := Serve(e, parsed(t, listenArgs...), deps(f)); code == term.ExitOK {
 		t.Fatal("a failed terminator exited 0")
 	}
 	if !strings.Contains(stderr.String(), "address in use") {
@@ -204,9 +282,9 @@ func TestV5TheStopSignalEndsTheRun(t *testing.T) {
 	f.block = true
 	e, stderr := env(good(t))
 	d := deps(f)
-	d.notify = stopOnSignal
+	d.Notify = stopOnSignal
 	done := make(chan term.ExitCode, 1)
-	go func() { done <- run(e, parsed(t, listenArgs...), d) }()
+	go func() { done <- Serve(e, parsed(t, listenArgs...), d) }()
 	<-f.started
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)

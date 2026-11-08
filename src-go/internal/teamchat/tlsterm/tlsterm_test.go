@@ -2,6 +2,7 @@ package tlsterm
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -344,6 +345,157 @@ func TestT6CloseEndsEverything(t *testing.T) {
 	}
 	if err := srv.Close(); err != nil {
 		t.Errorf("a second Close: %v", err)
+	}
+}
+
+// T8: a relay that moves no byte either way for IdleLimit is closed, and its slot is free again:
+// with MaxConns 1, the next client is served once the idle one is closed.
+func TestT8AnIdleRelayIsClosedAndItsSlotFreed(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	srv := serve(t, k, up.addr, clk, func(c *Config) { c.MaxConns = 1 })
+	idle, err := client(t, srv.Addrs()[0], k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, idle.Close()) })
+	echo(t, idle, "once")
+	<-up.accepted
+	check(t, clk.AwaitDue(t.Context(), IdleLimit))
+	clk.Advance(IdleLimit)
+	if !closed(idle) {
+		t.Fatal("a relay idle for IdleLimit was left open")
+	}
+	leakcheck.Poll(t, func() bool { return len(srv.slots) == 0 })
+	next, err := client(t, srv.Addrs()[0], k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, next.Close()) })
+	echo(t, next, "served")
+}
+
+// T8: a relay that moves bytes both ways within each IdleLimit is never closed: every read and
+// write puts the deadline IdleLimit ahead again, here for four times IdleLimit in all.
+func TestT8AnActiveRelayIsKeptOpen(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	srv := serve(t, k, up.addr, clk, nil)
+	c, err := client(t, srv.Addrs()[0], k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, c.Close()) })
+	for range 5 {
+		echo(t, c, "tick")
+		check(t, clk.AwaitDue(t.Context(), IdleLimit))
+		clk.Advance(IdleLimit - time.Second)
+	}
+	echo(t, c, "still here")
+}
+
+// T8: IdleLimit is above the member's matrix client's own waits, so a healthy connection is
+// never cut by it: a sync long-poll answers within 30 s and the client drops a pooled
+// connection idle for a minute itself.
+func TestT8IdleLimitIsAboveTheClientsOwnWaits(t *testing.T) {
+	const clientSyncWait, clientPoolIdle = 30 * time.Second, time.Minute
+	if IdleLimit <= clientSyncWait || IdleLimit <= clientPoolIdle {
+		t.Fatalf("IdleLimit %v would cut a healthy connection (sync %v, pool idle %v)", IdleLimit, clientSyncWait, clientPoolIdle)
+	}
+}
+
+// T8: the idle timer's own rules: a touch after the end arms nothing, a firing the next touch
+// overtook does nothing, and the end disarms what is armed.
+func TestT8TheIdleTimerHonoursItsEndAndItsGenerations(t *testing.T) {
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	expired := 0
+	idle := &idleTimer{clock: clk, expire: func() { expired++ }}
+	idle.touch()
+	staleGen := idle.gen
+	idle.touch()
+	idle.fire(staleGen)
+	if expired != 0 {
+		t.Fatal("a firing of an overtaken timer closed the relay")
+	}
+	idle.end()
+	if armed, err := clk.Armed(IdleLimit); err != nil || armed {
+		t.Fatalf("the end left the timer armed (%v, %v)", armed, err)
+	}
+	idle.touch()
+	clk.Advance(IdleLimit)
+	idle.fire(idle.gen)
+	if expired != 0 {
+		t.Fatal("a relay that had ended was closed by its idle timer")
+	}
+}
+
+// T6: Run serves until its context ends and then answers nil, holding nothing.
+func TestT6RunEndsWithItsContext(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{
+			Listen:   []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:0")},
+			Upstream: up.addr, CertPEM: k.cert, KeyPEM: k.key, Clock: clock.NewFake(0, fixedNow.UnixMilli()),
+		})
+	}()
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run answered %v for the end of its context", err)
+	}
+}
+
+// T6: a terminator that stops on its own (a listener's failure) says why in Err, ends, and Run
+// answers that failure.
+func TestT6AStopOnItsOwnIsTheFailure(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
+	if err := srv.Err(); err != nil {
+		t.Fatalf("a serving terminator has the failure %v", err)
+	}
+	why := errors.New("tlsterm: accepting: the listener failed")
+	srv.stop(why)
+	srv.stop(errors.New("a later failure"))
+	<-srv.done
+	if err := srv.Err(); !errors.Is(err, why) {
+		t.Fatalf("Err is %v, want the first failure", err)
+	}
+}
+
+// refusingLog is a log whose every write fails, after counting it.
+type refusingLog struct {
+	mu     sync.Mutex
+	writes int
+}
+
+func (l *refusingLog) Write([]byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writes++
+	return 0, errors.New("the journal is gone")
+}
+
+// T4: the log is shared by every connection's goroutine; a log that fails is dropped by one of
+// them while the others are still writing, and that is no data race (run under -race), and the
+// log is not written again once it has failed.
+func TestT4AFailingLogIsDroppedWithoutARace(t *testing.T) {
+	log := &refusingLog{}
+	s := &Server{cfg: Config{Log: log}}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			<-start
+			for range 50 {
+				s.logf("upstream %s: %v", "127.0.0.1:8448", "refused")
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if log.writes != 1 {
+		t.Errorf("the failed log was written %d times, want once", log.writes)
 	}
 }
 

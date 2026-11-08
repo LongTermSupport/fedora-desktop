@@ -182,15 +182,17 @@ type Deps struct {
 	Pin            Pin
 	Software       string
 	CtlUID, CtlGID int
-	Approvals      declare.Approvals
-	Systemd        Systemd
-	Firewall       Firewall
-	Network        Network
-	Ready          Readiness
-	Status         Status
-	Guard          teamlock.Guard
-	Backup         func(ctx context.Context, held *teamlock.Lock) error
-	Bootstrap      func(ctx context.Context, b Bootstrap) ([]string, error)
+	// StateOwnerUID owns root's own files, the team CA key among them: 0 on a host.
+	StateOwnerUID uint32
+	Approvals     declare.Approvals
+	Systemd       Systemd
+	Firewall      Firewall
+	Network       Network
+	Ready         Readiness
+	Status        Status
+	Guard         teamlock.Guard
+	Backup        func(ctx context.Context, held *teamlock.Lock) error
+	Bootstrap     func(ctx context.Context, b Bootstrap) ([]string, error)
 }
 
 // Error is a failed verb: the step, and whether it is drift a rule refused (exit 70); anything

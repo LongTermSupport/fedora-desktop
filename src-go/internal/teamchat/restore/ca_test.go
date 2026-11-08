@@ -41,7 +41,7 @@ func (w *world) teamCA() string {
 	if !w.has(paths.CACertFile(w.team)) {
 		return ""
 	}
-	pem, err := host.CAPEM(w.os.Root, w.team)
+	pem, err := host.CAPEM(w.os.Root, w.team, w.os.StateOwnerUID)
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func (w *world) teamCA() string {
 // plantCA gives the world's host a CA, as an apply would have made it.
 func (w *world) plantCA(files []host.BackupFile) {
 	w.t.Helper()
-	if written, err := host.RestoreCA(w.os.Root, w.team, files); err != nil || !written {
+	if written, err := host.RestoreCA(w.os.Root, w.team, w.os.StateOwnerUID, files); err != nil || !written {
 		w.t.Fatalf("planting the CA: %v, %v", written, err)
 	}
 }

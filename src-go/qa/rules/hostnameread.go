@@ -2,6 +2,7 @@ package rules
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/types"
 	"path/filepath"
 	"slices"
@@ -25,6 +26,18 @@ var hostnameReads = []struct{ pkg, recv, name string }{
 	{"os", "", "Hostname"},
 	{"net", "", "LookupAddr"},
 	{"net", "Resolver", "LookupAddr"},
+	{"syscall", "", "Uname"},
+	{"golang.org/x/sys/unix", "", "Uname"},
+}
+
+// hostnameNames are the constant strings that name a place the machine's hostname is read from:
+// the environment variables that carry it (ccy's, which an LXC member's site was once read from,
+// and the shell's), each also as the `NAME=` prefix an environment-file parser cuts, and the two
+// files the kernel and the system keep it in. A constant string expression is judged whole, so a
+// name spelt in pieces is the name.
+var hostnameNames = []string{
+	"HOOKS_DAEMON_HOSTNAME", "HOOKS_DAEMON_HOSTNAME=", "HOSTNAME", "HOSTNAME=",
+	"/etc/hostname", "/proc/sys/kernel/hostname",
 }
 
 const hostnameFix = " (project_hostname_read): a handle's site is declared per machine (teamchat_site) and never read from the machine; use the hostname seam of declare, whose one file reads it for the refusal of a site that spells it"
@@ -34,13 +47,19 @@ const hostnameFix = " (project_hostname_read): a handle's site is declared per m
 var HostnameRead = &analysis.Analyzer{
 	Name: "project_hostname_read",
 	Doc: `project_hostname_read flags, in internal/teamchat, cmd/teamchat and cmd/teamchat-admin and
-below, every use of os.Hostname, net.LookupAddr and (*net.Resolver).LookupAddr, except in the one
-file internal/teamchat/declare/machinehost.go:
+below, every use of os.Hostname, syscall.Uname, unix.Uname, net.LookupAddr and
+(*net.Resolver).LookupAddr, and every constant string that names where the hostname is kept,
+except in the one file internal/teamchat/declare/machinehost.go:
 
 - a call, and a reference that is not called (a function value, a package-level seam), through
   any import name;
 - the three spellings of the reverse lookup: net.LookupAddr, net.DefaultResolver.LookupAddr and a
-  resolver's own LookupAddr.
+  resolver's own LookupAddr;
+- a constant string expression, judged whole, whose value is HOOKS_DAEMON_HOSTNAME or HOSTNAME
+  (each also with its "=", the prefix an environment-file parser cuts), /etc/hostname or
+  /proc/sys/kernel/hostname: an environment variable read, a key compared, a file opened. The
+  defect the rule exists for was such a comparison (an environment file's key equal to
+  "HOOKS_DAEMON_HOSTNAME"). A constant is reported where it is declared, not at each use.
 
 Test files are judged as the code is: the hostname arrives in a test through the seam, as a fake.
 The exemption is the whole path, so another file of the same package, and a file of the same
@@ -53,8 +72,9 @@ one read of the hostname refuses a declared site that spells it (X26); it is bes
 rule keeps the other places from reading it at all.
 
 Not caught: net.LookupHost and net.LookupIP of a name that came from a handle; a hostname read
-through exec (the hostname program) or from /etc/hostname, /proc or the environment; and a name
-built by reflection.
+through exec (the hostname program); one of the names inside a longer constant (a regular
+expression naming the variable, a line of a file's content such as a test writes to show the
+variable is ignored) or built at run time; and a name built by reflection.
 
 How to fix: declare the site (teamchat_site), or take the hostname through declare's seam
 (declare.MachineHostname handed to the function that needs it); never read it where the handle
@@ -72,6 +92,10 @@ func runHostnameRead(pass *analysis.Pass) {
 			continue
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
+			if name, ok := hostnameName(pass, n); ok {
+				pass.Reportf(n.Pos(), "%q, a place the machine's hostname is read from, named outside teamchat/declare/machinehost.go%s", name, hostnameFix)
+				return false
+			}
 			id, ok := n.(*ast.Ident)
 			if !ok {
 				return true
@@ -88,6 +112,25 @@ func runHostnameRead(pass *analysis.Pass) {
 func hostnameExempt(pass *analysis.Pass, f *ast.File) bool {
 	name := filepath.ToSlash(pass.Fset.Position(f.Pos()).Filename)
 	return name == hostnameFile || strings.HasSuffix(name, "/"+hostnameFile)
+}
+
+// hostnameName is the hostname source n names, when n is an expression whose constant value is
+// one of hostnameNames. A constant's declaration is where it is reported; its uses are not
+// constant expressions of their own text and are not reported again.
+func hostnameName(pass *analysis.Pass, n ast.Node) (string, bool) {
+	e, ok := n.(ast.Expr)
+	if !ok {
+		return "", false
+	}
+	if _, ident := e.(*ast.Ident); ident {
+		return "", false
+	}
+	tv, ok := pass.TypesInfo.Types[e]
+	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
+		return "", false
+	}
+	value := constant.StringVal(tv.Value)
+	return value, slices.Contains(hostnameNames, value)
 }
 
 // hostnameRead is whether fn is one of hostnameReads.

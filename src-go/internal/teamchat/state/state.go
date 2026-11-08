@@ -3,7 +3,8 @@
 // target, created exclusively without following a link, given its mode and group, written,
 // synced and renamed over the target, then the directory synced; a read refuses a link, a file
 // that is not regular, and a file over its cap, and a read of a file root decides from (ST3,
-// SPEC-n2f's trust rule) also one of another owner or writable by its group or others.
+// SPEC-n2f's trust rule) also one of another owner or writable by its group or others, and a read
+// of a private key's file (ST4, Plan 00246 X13) also one whose mode is not exactly 0600.
 package state
 
 import (
@@ -81,19 +82,59 @@ const readFlags = os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
 // ReadFile is path's content; found is false when there is no file. A link, a file that is not
 // regular, and a file over limit bytes are refused (ST2).
 func ReadFile(path string, limit int64) ([]byte, bool, error) {
-	return read(path, limit, readFlags, nil)
+	return read(path, limit, readFlags, trust{})
 }
 
 // ReadOwnedFile is ReadFile of a file root decides from (ST3): it must also be owned by uid and
 // writable by neither its group nor others.
 func ReadOwnedFile(path string, limit int64, uid uint32) ([]byte, bool, error) {
-	return read(path, limit, readFlags, &uid)
+	return read(path, limit, readFlags, trust{owner: &uid})
 }
 
 // ReadOwnedTarget is ReadOwnedFile for a name the distribution ships as a link (os-release):
 // the link is followed, and the file it names is held to the same rules.
 func ReadOwnedTarget(path string, limit int64, uid uint32) ([]byte, bool, error) {
-	return read(path, limit, readFlags&^unix.O_NOFOLLOW, &uid)
+	return read(path, limit, readFlags&^unix.O_NOFOLLOW, trust{owner: &uid})
+}
+
+// privateMode is the one mode a private key's file may have: its owner's alone.
+const privateMode fs.FileMode = 0o600
+
+// modeBits are the bits of a file's mode a private mode is compared on: the permissions and
+// the setuid, setgid and sticky bits.
+const modeBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+
+// ReadPrivateFile is ReadOwnedFile of a private key's file (ST4): its mode must also be 0600
+// exactly. The owner and the mode are judged on the file opened, never on a name checked first.
+// A refusal for the owner is an *OwnerError, one for the mode a *ModeError.
+func ReadPrivateFile(path string, limit int64, uid uint32) ([]byte, bool, error) {
+	return read(path, limit, readFlags, trust{owner: &uid, private: true})
+}
+
+// OwnerError is a file refused because uid UID owns it, not Want.
+type OwnerError struct {
+	Path      string
+	UID, Want uint32
+}
+
+func (e *OwnerError) Error() string {
+	return fmt.Sprintf("%s is owned by uid %d, not %d", e.Path, e.UID, e.Want)
+}
+
+// ModeError is a private file refused because its mode is Mode, not 0600.
+type ModeError struct {
+	Path string
+	Mode fs.FileMode
+}
+
+func (e *ModeError) Error() string {
+	return fmt.Sprintf("%s has mode %04o, not %04o", e.Path, uint32(e.Mode), uint32(privateMode))
+}
+
+// trust is what a read requires of the file beyond ST2: an owner (ST3), and a private mode (ST4).
+type trust struct {
+	owner   *uint32
+	private bool
 }
 
 // openIn opens the last element of path, relative to a handle on its directory: the element is
@@ -122,7 +163,7 @@ func openIn(path string, flags int) (*os.File, error) {
 	return os.NewFile(uintptr(fd), path), nil
 }
 
-func read(path string, limit int64, flags int, owner *uint32) ([]byte, bool, error) {
+func read(path string, limit int64, flags int, want trust) ([]byte, bool, error) {
 	f, err := openIn(path, flags)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
@@ -130,24 +171,27 @@ func read(path string, limit int64, flags int, owner *uint32) ([]byte, bool, err
 	if err != nil {
 		return nil, false, fmt.Errorf("cannot open %s: %w", path, err)
 	}
-	data, err := readOpen(f, path, limit, owner)
+	data, err := readOpen(f, path, limit, want)
 	if closeErr := f.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("cannot close %s: %w", path, closeErr)
 	}
 	return data, err == nil, err
 }
 
-func readOpen(f *os.File, path string, limit int64, owner *uint32) ([]byte, error) {
+func readOpen(f *os.File, path string, limit int64, want trust) ([]byte, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat %s: %w", path, err)
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
+	owner := want.owner
 	switch {
 	case !info.Mode().IsRegular() || !ok:
 		return nil, fmt.Errorf("%s is not a regular file", path)
 	case owner != nil && st.Uid != *owner:
-		return nil, fmt.Errorf("%s is owned by uid %d, not %d", path, st.Uid, *owner)
+		return nil, &OwnerError{Path: path, UID: st.Uid, Want: *owner}
+	case want.private && info.Mode()&modeBits != privateMode:
+		return nil, &ModeError{Path: path, Mode: info.Mode() & modeBits}
 	case owner != nil && info.Mode().Perm()&0o022 != 0:
 		return nil, fmt.Errorf("%s is writable by its group or by others", path)
 	}

@@ -7,6 +7,8 @@ package tlsverb
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/netip"
 	"os/signal"
 	"path/filepath"
@@ -33,6 +35,7 @@ const (
 const (
 	msgNoDirectory exits.Template = "the unit has no directory for its files: {} is not set; tell a human"
 	msgNoFile      exits.Template = "the unit's file {} for team {} is missing or empty; tell a human"
+	msgUnreadable  exits.Template = "the unit's file {} for team {} cannot be read; tell a human"
 	msgFlag        exits.Template = "--{} is not a value the terminator can serve; tell a human"
 )
 
@@ -41,15 +44,16 @@ var loopbackHomeserver = netip.MustParseAddr("127.0.0.1")
 
 // Main is `teamchat tls`.
 func Main(e cli.Env, inv cli.Invocation) term.ExitCode {
-	return run(e, inv, runDeps{run: tlsterm.Run, clock: clock.System(), notify: stopOnSignal})
+	return Serve(e, inv, Deps{Run: tlsterm.Run, Clock: clock.System(), Notify: stopOnSignal})
 }
 
-// runDeps are the verb's seams: the terminator, the clock its bounds are armed on, and the
-// context that ends when the unit is stopped.
-type runDeps struct {
-	run    func(context.Context, tlsterm.Config) error
-	clock  tlsterm.Clock
-	notify func() (context.Context, context.CancelFunc)
+// Deps are the verb's seams: the terminator, the clock its bounds are armed on, and the context
+// that ends when the unit is stopped. Main gives the real ones; a test that runs the verb as the
+// unit would (X29) gives its own.
+type Deps struct {
+	Run    func(context.Context, tlsterm.Config) error
+	Clock  tlsterm.Clock
+	Notify func() (context.Context, context.CancelFunc)
 }
 
 // stopOnSignal is a context that ends at the unit's stop (SIGTERM) or an interrupt.
@@ -57,14 +61,16 @@ func stopOnSignal() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 }
 
-func run(e cli.Env, inv cli.Invocation, d runDeps) term.ExitCode {
-	cfg, err := config(e, inv, d.clock)
+// Serve is the verb over d: the configuration read from inv and the unit's credentials, then the
+// terminator until the context d gives ends.
+func Serve(e cli.Env, inv cli.Invocation, d Deps) term.ExitCode {
+	cfg, err := config(e, inv, d.Clock)
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
-	ctx, stop := d.notify()
+	ctx, stop := d.Notify()
 	defer stop()
-	return exits.Write(e.Stderr, d.run(ctx, cfg))
+	return exits.Write(e.Stderr, d.Run(ctx, cfg))
 }
 
 // config is what the terminator serves: the credentials, every listen address at the port, and
@@ -75,11 +81,11 @@ func config(e cli.Env, inv cli.Invocation, clk tlsterm.Clock) (tlsterm.Config, e
 	if dir == "" {
 		return tlsterm.Config{}, exits.New(exits.CodeRuntime, &team, msgNoDirectory, exits.Name(paths.EnvCredentials))
 	}
-	cert, err := credential(dir, paths.LeafCertCredential, team)
+	cert, err := credential(e.Stderr, dir, paths.LeafCertCredential, team)
 	if err != nil {
 		return tlsterm.Config{}, err
 	}
-	key, err := credential(dir, paths.LeafKeyCredential, team)
+	key, err := credential(e.Stderr, dir, paths.LeafKeyCredential, team)
 	if err != nil {
 		return tlsterm.Config{}, err
 	}
@@ -97,10 +103,19 @@ func config(e cli.Env, inv cli.Invocation, clk tlsterm.Clock) (tlsterm.Config, e
 	}, nil
 }
 
-// credential is one of the unit's credential files, which must hold something.
-func credential(dir, name string, team paths.TeamID) ([]byte, error) {
+// credential is one of the unit's credential files, which must hold something. A file that is
+// there but cannot be read is refused with the read's reason as a diagnostic line on stderr
+// (the path and the system's error, never the file's bytes), so the journal says why.
+func credential(stderr io.Writer, dir, name string, team paths.TeamID) ([]byte, error) {
 	b, found, err := state.ReadFile(filepath.Join(dir, name), credentialLimit)
-	if err != nil || !found || len(b) == 0 {
+	if err != nil {
+		refusal := exits.New(exits.CodeRuntime, &team, msgUnreadable, exits.Name(name), exits.Team(team))
+		if _, werr := io.WriteString(stderr, "teamchat: "+err.Error()+"\n"); werr != nil {
+			return nil, errors.Join(refusal, werr)
+		}
+		return nil, refusal
+	}
+	if !found || len(b) == 0 {
 		return nil, exits.New(exits.CodeRuntime, &team, msgNoFile, exits.Name(name), exits.Team(team))
 	}
 	return b, nil
