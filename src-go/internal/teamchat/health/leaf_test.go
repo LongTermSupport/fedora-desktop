@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -92,10 +93,25 @@ func withLeafLeft(t *testing.T, left time.Duration) (*world, *tlsTree) {
 	w := newWorld(t, "alpha")
 	tr := newTLSTree(t, t0.Add(left).AddDate(-1, 0, 0))
 	w.leaves = host.LeafRenewer{
-		Root: tr.root, Clock: w.clock, Units: w.units,
+		Root: tr.root, Clock: w.clock, Units: w.units, StateOwnerUID: ownerOf(t, tr.root),
 		Names: func(paths.TeamID) (pki.Names, error) { return tr.names, nil },
 	}
 	return w, tr
+}
+
+// ownerOf is the uid that owns dir: the tree's CA key is its test user's, where root's own files
+// on a host are root's.
+func ownerOf(t *testing.T, dir string) uint32 {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("no owner in a stat")
+	}
+	return st.Uid
 }
 
 // leafProblems are the record's problems about the leaf.

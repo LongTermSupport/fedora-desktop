@@ -19,7 +19,7 @@ const day = 24 * time.Hour
 
 // renewer is the world's LeafRenewer, the names it wants those the applied files give.
 func renewer(w *world) LeafRenewer {
-	return LeafRenewer{Root: w.root, Clock: w.clock, Rand: w.rand, Units: w.sd, Names: AppliedLeafNames(w.root)}
+	return LeafRenewer{Root: w.root, Clock: w.clock, Rand: w.rand, Units: w.sd, Names: AppliedLeafNames(w.root), StateOwnerUID: self(w.t)}
 }
 
 // restartsOf are the restarts of the team's terminator since the log was last cleared.
