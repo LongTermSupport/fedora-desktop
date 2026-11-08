@@ -86,7 +86,8 @@ sudo teamchat-admin member add ... --credential token | ssh <alias> teamchat sea
 declaration, a file of this repository or a handle. `seat place-issued` reads one issued
 document on stdin, checks it, and places the seat in that machine's pool for the checkout: the
 password or token only in the pool, mode 0600. Nothing secret is in its arguments or its
-output. `--credential password` works as for any seat.
+output. `--credential password` works as for any seat. If the ssh step fails, the seat was not
+placed on that machine: reissue it by running the command again.
 
 A seat is keyed on the homeserver's URL. The first bundle a checkout takes for a team records the
 team's server name and its canonical URL (`https`, lower-case host, explicit port); a later bundle
