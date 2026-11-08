@@ -276,8 +276,8 @@ class Inputs:
     for each package, the commands built from it, which is how a reason names a change.
     `filled` names, for each `<file>:<line>` holding a templated rooted reference the play
     text fills in, the paths it was filled in with (rule play-input-dropped reads it).
-    `local` names the directories the play references that hold no checkout content (no tracked
-    file but a `.gitignore`: the scratch tree `untracked/`, a runtime directory): git never
+    `local` names the directories the play references that hold no checkout content (no file git
+    would publish but a `.gitignore`: the scratch tree `untracked/`, a runtime directory): git never
     reports a change there, so they are no input, and nothing walks them (rule
     play-input-tree-untracked).
     """
@@ -410,6 +410,17 @@ class _Walker:
         self._headed: list[tuple[str, str, str]] = []
         #: Whether the YAML line being walked is a `src:` line (a file the play copies).
         self._copying = True
+        self._listed: list[str] | None = None
+
+    def _checkout(self) -> list[str]:
+        """The files git would publish (`checkout_files`), listed once per walk."""
+        if self._listed is None:
+            self._listed = checkout_files(self.root)
+        return self._listed
+
+    def _files_in(self, directory: str) -> list[str]:
+        """The files git would publish directly in `directory`, that are there."""
+        return [rel for rel in self._checkout() if posixpath.dirname(rel) == directory and self._is_file(rel)]
 
     def _is_dir(self, rel: str) -> bool:
         return os.path.isdir(os.path.join(self.root, rel))
@@ -500,12 +511,10 @@ class _Walker:
         for package, builders in sorted(self.inputs.go_builders.items()):
             if name not in builders:
                 continue
-            directory = os.path.join(self.root, package)
-            for file_name in sorted(os.listdir(directory)):
-                path = os.path.join(directory, file_name)
-                if not file_name.endswith(".go") or file_name.endswith("_test.go") or not os.path.isfile(path):
+            for rel_go in self._files_in(package):
+                if not rel_go.endswith(".go") or rel_go.endswith("_test.go"):
                     continue
-                with open(path, encoding="utf-8") as handle:
+                with open(os.path.join(self.root, rel_go), encoding="utf-8") as handle:
                     source = handle.read()
                 for literal in _GO_STRING.findall(source):
                     rel = self._checkout_literal(literal)
@@ -575,12 +584,11 @@ class _Walker:
                 return
 
     def _add_tree(self, rel_dir: str) -> None:
-        self.inputs.prefixes.add(rel_dir.rstrip("/") + "/")
-        for dirpath, _dirs, files in os.walk(os.path.join(self.root, rel_dir)):
-            for name in sorted(files):
-                path = os.path.join(dirpath, name)
-                if name.endswith(".py") and os.path.isfile(path):
-                    self._add_module(os.path.relpath(path, self.root))
+        tree = rel_dir.rstrip("/") + "/"
+        self.inputs.prefixes.add(tree)
+        for rel in self._checkout():
+            if rel.startswith(tree) and rel.endswith(".py") and self._is_file(rel):
+                self._add_module(rel)
 
     def _add_module(self, rel: str) -> None:
         """A helper module the play runs: itself, what it reads, and every helper module it
@@ -869,12 +877,10 @@ class _Walker:
         """The import paths of a package's non-test files. The directories they embed become
         prefixes as they are read."""
         imports: set[str] = set()
-        directory = os.path.join(self.root, package)
-        for name in sorted(os.listdir(directory)):
-            path = os.path.join(directory, name)
-            if not name.endswith(".go") or name.endswith("_test.go") or not os.path.isfile(path):
+        for rel_go in self._files_in(package):
+            if not rel_go.endswith(".go") or rel_go.endswith("_test.go"):
                 continue
-            with open(path, encoding="utf-8") as handle:
+            with open(os.path.join(self.root, rel_go), encoding="utf-8") as handle:
                 source = handle.read()
             for block in _GO_IMPORT_BLOCK.findall(source):
                 for line in block.splitlines():
@@ -977,54 +983,66 @@ def play_inputs(repo_root: str, play: str) -> Inputs:
     return walker.inputs
 
 
-SCRATCH_TREE = "untracked"
-
-
-def untracked_trees(repo_root: str, prefixes: set[str]) -> set[str]:
-    """The prefixes that hold no checkout content: no file git tracks under them but a
-    `.gitignore`. A prefix is matched as a string (a templated one can end inside a name), so
-    the whole tracked list is read once. A root that is no git checkout (a test fixture) has no
-    tracked files to judge by, so only the scratch tree `untracked/`, known by its name, is held
-    out there; never a walk of it, whatever the root."""
-    if not prefixes:
-        return set()
-    if not os.path.exists(os.path.join(repo_root, ".git")):
-        return {prefix for prefix in prefixes
-                if posixpath.normpath(prefix) == SCRATCH_TREE or posixpath.normpath(prefix).startswith(SCRATCH_TREE + "/")}
+def _git_env() -> dict[str, str]:
+    """The environment git runs in: no global or system config, which could sign, page or
+    redirect it (helpers/CLAUDE.md)."""
     env = {key: value for key, value in os.environ.items()
            if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_NOSYSTEM"] = "1"
-    listed = subprocess.run(
-        ["git", "-C", repo_root, "ls-files", "-z"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    if listed.returncode != 0:
-        raise ValueError(f"git ls-files failed: {listed.stderr.strip()}")
-    content = [path for path in listed.stdout.split("\0") if path and posixpath.basename(path) != ".gitignore"]
+    return env
+
+
+def _git(repo_root: str, *args: str) -> str:
+    done = subprocess.run(["git", "-C", repo_root, *args], capture_output=True, text=True, check=False, env=_git_env())
+    if done.returncode != 0:
+        raise ValueError(f"git {args[0]} in {repo_root!r} failed: {done.stderr.strip()}")
+    return done.stdout
+
+
+def checkout_files(repo_root: str) -> list[str]:
+    """Every file git would publish from the checkout at `repo_root`, sorted: tracked, and
+    untracked but not ignored (a new task file not yet committed counts). These are the only
+    files a play's input directory holds; an ignored one (`__pycache__/*.pyc`, build output) is a
+    local artefact git never reports a change to (rule play-input-listed-past-git). A tracked
+    file deleted from the working tree is still listed; a reader checks the file is there.
+
+    Raises when git cannot answer or `repo_root` is not the top of a checkout: a walk instead
+    would count every ignored file."""
+    if _git(repo_root, "rev-parse", "--show-prefix").strip():
+        raise ValueError(f"{repo_root!r} is inside a git checkout, not the top of one")
+    return sorted(path for path in _git(repo_root, "ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")
+                  if path)
+
+
+def untracked_trees(repo_root: str, prefixes: set[str]) -> set[str]:
+    """The prefixes that hold no checkout content: no file git would publish under them but a
+    `.gitignore` (`checkout_files`). A prefix is matched as a string (a templated one can end
+    inside a name), so the whole list is read once."""
+    if not prefixes:
+        return set()
+    content = [path for path in checkout_files(repo_root) if posixpath.basename(path) != ".gitignore"]
     return {prefix for prefix in prefixes if not any(path.startswith(prefix) for path in content)}
 
 
 def candidate_plays(repo_root: str) -> list[str]:
-    """Every play file under playbooks/imports/, nested optional plays included.
-    playbook-main.yml is an aggregator of these, and playbooks/dev/ operates on the repo
-    rather than the host, so neither is a candidate. A play name that is not a regular file (a
-    dangling link, a named pipe) is refused, never skipped: skipped, it would silently stop being
-    a candidate, and a change it depends on would never run it."""
+    """Every play file under playbooks/imports/ git would publish, nested optional plays
+    included; an ignored one is a local file, no play of the checkout. playbook-main.yml is an
+    aggregator of these, and playbooks/dev/ operates on the repo rather than the host, so neither
+    is a candidate. A tracked play deleted from the working tree is gone, so no candidate. A play
+    name that is not a regular file (a dangling link) is refused, never skipped: skipped, it
+    would silently stop being a candidate, and a change it depends on would never run it."""
     found = []
-    for dirpath, _dirs, files in os.walk(os.path.join(repo_root, CANDIDATE_DIR)):
-        for name in files:
-            if not name.endswith((".yml", ".yaml")):
-                continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, repo_root)
-            if not os.path.isfile(path):
-                raise ValueError(f"{rel} is not a regular file, so it cannot be read as a play")
-            found.append(rel)
-    return sorted(found)
+    for rel in checkout_files(repo_root):
+        if not rel.startswith(CANDIDATE_DIR + "/") or not rel.endswith((".yml", ".yaml")):
+            continue
+        path = os.path.join(repo_root, rel)
+        if not os.path.lexists(path):
+            continue
+        if not os.path.isfile(path):
+            raise ValueError(f"{rel} is not a regular file, so it cannot be read as a play")
+        found.append(rel)
+    return found
 
 
 def load_allowlist(repo_root: str) -> list[str]:
