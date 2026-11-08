@@ -23,8 +23,8 @@ entry parameters). What a walk returns is followed through every value built fro
 joined to a directory, a slice appended to, the value of a range over it, a closure that captures
 it). What a walked file says is not followed: a byte slice, and the result of a ReadFile,
 parser.ParseFile, io.ReadAll or a function of the package that returns one, names no entry the
-walk found. An open
-is os.Open, os.OpenFile, os.ReadFile, ioutil.ReadFile, fs.ReadFile, an fs.FS's Open,
+walk found; but a function of the package that returns a parameter as well as content (a value
+built from it on any return) hands a walked name given there back walked. An open is os.Open, os.OpenFile, os.ReadFile, ioutil.ReadFile, fs.ReadFile, an fs.FS's Open,
 parser.ParseFile given no source, and a call of a function of the same package that opens the
 parameter it is given unguarded. os.OpenFile with O_DIRECTORY is no open. With O_NONBLOCK the
 open cannot wait but a read can (a named pipe with no writer reads as empty, one with a silent
@@ -46,8 +46,10 @@ opened every name os.walk listed and changed_plays hung on a named pipe an old p
 
 Not caught: a walk callback that is a named function rather than a literal, an open through a
 function of another package, an interface method or a function value, an open inside the
-condition that checks (check && open), a check through a helper, and a file opened O_NONBLOCK
-that is returned or stored before it is read.
+condition that checks (check && open), a check through a helper, a file opened O_NONBLOCK
+that is returned or stored before it is read, or read through a copy of it (r := f; r.Read), its
+Fd() or its SyscallConn(), and a name converted to bytes ([]byte(filepath.Join(dir, e.Name()))),
+which is followed as content.
 
 How to fix: skip the entry unless its mode is regular (if !d.Type().IsRegular() { continue }),
 or refuse it where a non-regular entry means something is wrong; never by moving the open out
@@ -120,6 +122,9 @@ type walkSummary struct {
 	reads map[*types.Func][]bool
 	// content are the functions that return what a file says (a call of one is a content read).
 	content map[*types.Func]bool
+	// through are the parameters each function returns, or returns a value built from: a walked
+	// name handed to one comes back, whatever content the function returns beside it.
+	through map[*types.Func][]bool
 }
 
 // summarise finds the package's openers, readers, listers and content readers to a fixed point,
@@ -128,7 +133,7 @@ type walkSummary struct {
 func summarise(pass *analysis.Pass) walkSummary {
 	sum := walkSummary{
 		opens: map[*types.Func][]bool{}, recvOpens: map[*types.Func]bool{}, lists: map[*types.Func]bool{},
-		reads: map[*types.Func][]bool{}, content: map[*types.Func]bool{},
+		reads: map[*types.Func][]bool{}, content: map[*types.Func]bool{}, through: map[*types.Func][]bool{},
 	}
 	decls := funcDecls(pass)
 	for changed := true; changed; {
@@ -139,6 +144,7 @@ func summarise(pass *analysis.Pass) walkSummary {
 				continue
 			}
 			changed = sum.markContent(pass, fd, fn) || changed
+			changed = sum.markThrough(pass, fd, fn) || changed
 			changed = sum.markLister(pass, fd, fn) || changed
 			changed = sum.markOpeners(pass, fd, fn) || changed
 			changed = sum.markReaders(pass, fd, fn) || changed
@@ -160,6 +166,33 @@ func (sum walkSummary) markContent(pass *analysis.Pass, fd *ast.FuncDecl, fn *ty
 		sum.content[fn] = true
 	}
 	return c.returns
+}
+
+// markThrough marks each parameter of fn that a value it returns is built from, and says whether
+// any was new. A function that returns its own listing is a lister, so it needs none.
+func (sum walkSummary) markThrough(pass *analysis.Pass, fd *ast.FuncDecl, fn *types.Func) bool {
+	params := paramObjects(pass, fd)
+	if sum.through[fn] == nil {
+		sum.through[fn] = make([]bool, len(params))
+	}
+	base := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{}}
+	base.block(fd.Body.List, false)
+	if base.returns {
+		return false
+	}
+	changed := false
+	for i, param := range params {
+		if sum.through[fn][i] || param == nil {
+			continue
+		}
+		s := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{param: true}}
+		s.block(fd.Body.List, false)
+		if s.returns {
+			sum.through[fn][i] = true
+			changed = true
+		}
+	}
+	return changed
 }
 
 // contentScan follows what a function read out of a file to its returns.
@@ -780,13 +813,27 @@ func (s *walkScan) walked(e ast.Expr) bool {
 			if s.isWalkSource(node) {
 				found = true
 			} else if isContentCall(s.pass, s.sum, node) {
-				// What a walked file says is content: the names in it are not the walk's.
+				// What a walked file says is content: the names in it are not the walk's. Only an
+				// argument the function returns as well comes back walked.
+				found = s.passedThrough(node)
 				return false
 			}
 		}
 		return !found
 	})
 	return found
+}
+
+// passedThrough is whether a walked argument of a call reaches what it returns: a parameter of
+// a package function that returns it.
+func (s *walkScan) passedThrough(call *ast.CallExpr) bool {
+	through := s.sum.through[calledFunc(s.pass, call)]
+	for i, arg := range call.Args {
+		if i < len(through) && through[i] && s.walked(arg) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *walkScan) anyWalked(list []ast.Expr) bool {

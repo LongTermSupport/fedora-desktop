@@ -782,6 +782,33 @@ func contentJoinedToAWalkedDirectory(pattern string) error {
 	return nil
 }
 
+// prefixed returns what a file says, or the name it is handed, or both: the name passes through.
+func prefixed(dir, name string) string {
+	b, err := os.ReadFile(filepath.Join(dir, ".prefix"))
+	if err != nil {
+		return name
+	}
+	return string(b) + name
+}
+
+// A helper that returns content does not launder a walked name it also returns.
+func nameThroughAContentHelper(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.Open(prefixed(dir, e.Name())) // want `os.Open opens an entry a directory walk found`
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // O_NONBLOCK does not make a read safe: a named pipe with no writer reads as empty, one whose
 // writer is silent still blocks, and a device reads without end.
 func readWithoutWaitingUnchecked(dir string) error {

@@ -1516,7 +1516,8 @@ a function, a check of any of its parameters counts (a helper handed an entry an
 parameter opens only what seeding it adds to the body's own opens. What a walked file says is
 not followed: a byte slice (whichever reader returned it, one in another package too), and the
 result of a `ReadFile`, `parser.ParseFile`, `io.ReadAll` or a package function that returns one,
-names no entry the walk found. An `os.OpenFile` whose flags name `O_DIRECTORY`
+names no entry the walk found; but a package function that returns a parameter beside content
+(a value built from it on any return) hands a walked name given there back walked. An `os.OpenFile` whose flags name `O_DIRECTORY`
 is not an open. One whose flags name `O_NONBLOCK` cannot wait, but a read of what it opened can:
 a named pipe with no writer reads as empty, one with a silent writer still blocks Go's poller, and
 a device reads without end. So the open file's first use other than `Stat`, `Close`, `Fd`, `Name`
@@ -1540,14 +1541,14 @@ writer releases a reader at once, so a regression fails the test instead of hang
   read after its own `Stat()` check or handed to a helper that checks it (declared before or after
   its caller), names read out of a walked file (through a checking helper, an unguarded read, a
   reader out of sight). Red too: an `O_NONBLOCK` file read with
-  `io.ReadAll`, by its `Read` method, or by a helper that does not check it, and content joined to
-  a walked directory. Mutation checked:
+  `io.ReadAll`, by its `Read` method, or by a helper that does not check it, content joined to
+  a walked directory, and a walked name passed through a helper that returns content beside it. Mutation checked:
   the leaving guard off makes 6 clean cases red, the positive guard off 1, the callee summary off
   leaves 1 `want` unmet, the switch-case guard off 1 clean case red, the check carried by a
   guarded assignment off 2 clean cases red, the listing distinction off
   leaves 1 `want` unmet, the parameter attribution off and the parameter checks off 1 clean case
   red each; the content-read rule off makes 1 clean case red (also with only its package
-  summary off), the byte-slice rule off 1, the `O_NONBLOCK` read off leaves 3 `want`s unmet, every package helper taken as a reader 1
+  summary off), the pass-through summary off leaves 1 `want` unmet, the byte-slice rule off 1, the `O_NONBLOCK` read off leaves 3 `want`s unmet, every package helper taken as a reader 1
   clean case red, and a helper's summary not yet computed taken as a reader 1.
 - Red, real tree: 56 findings in 39 files at the defence commit, over `./...` untagged, with
   `busfailpoints`, `tuwunel`, `ccyteamstest`, `difftest` and the nested `qa` module. Four shapes
@@ -1566,7 +1567,10 @@ writer releases a reader at once, so a regression fails the test instead of hang
   `ccyteamstest`, `difftest`, and over the nested `qa` module.
 - Not caught: a check in a callee (`readable(p)` returning a bool is not a check), an open
   through an interface method or another package's function, an `O_NONBLOCK` file returned or
-  stored before it is read, and a time-of-check gap between the check and the open.
+  stored before it is read, or read through a copy of it (`r := f; r.Read`: only the variable the
+  open assigns is followed), its `Fd()` or its `SyscallConn()`, a name converted to bytes
+  (`[]byte(filepath.Join(dir, e.Name()))`, followed as content), and a time-of-check gap between
+  the check and the open.
 
 ## Defect classes that cannot be a rule
 
