@@ -97,7 +97,7 @@ func newRestoreWorld(t *testing.T) *restoreWorld {
 		}
 	}
 	w.sys = &System{
-		Host:   host.Deps{Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: &stepClock{now: time.UnixMilli(t0ms)}},
+		Host:   host.Deps{Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: &stepClock{now: time.UnixMilli(t0ms)}, StateOwnerUID: selfUID(t)},
 		CtlIDs: func() (User, error) { return User{UID: os.Getuid(), GID: os.Getgid()}, nil },
 	}
 	w.engine = &fakeRestorer{t: t, sys: w.sys, out: []byte(`{"v":1,"team":"alpha"}`)}

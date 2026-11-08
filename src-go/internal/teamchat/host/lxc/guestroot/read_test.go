@@ -519,9 +519,9 @@ func TestReadsOnADeadRootAreGone(t *testing.T) {
 	}()
 	p.Kill()
 	checks := map[string]error{}
-	checks["ReadFile"] = readFile(r, "/etc/hostname", 10).err
+	checks["ReadFile"] = readFile(r, "/etc/os-release", 10).err
 	_, _, checks["ReadDir"] = r.ReadDir("/etc", func(string) bool { return true }, 10)
-	_, _, checks["ProbeLock"] = r.ProbeLock("/etc/hostname")
+	_, _, checks["ProbeLock"] = r.ProbeLock("/etc/os-release")
 	_, _, checks["ReadProcStat"] = r.ReadProcStat(1)
 	_, checks["DialSocket"] = r.DialSocket(t.Context(), "/run/systemd/private")
 	_, checks["MkdirAll"] = r.Writer().MkdirAll("/tmp")

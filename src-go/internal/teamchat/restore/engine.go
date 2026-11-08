@@ -581,7 +581,7 @@ func (e *engine) cleaned(ctx context.Context) error {
 
 // restoreCA puts the backup's CA back where the team has none, and says so.
 func (e *engine) restoreCA() error {
-	written, err := host.RestoreCA(e.d.Root, e.team(), e.tar.CA)
+	written, err := host.RestoreCA(e.d.Root, e.team(), e.d.StateOwnerUID, e.tar.CA)
 	if err != nil {
 		return fmt.Errorf("the team CA of backup %d: %w", e.rec.Backup, err)
 	}
