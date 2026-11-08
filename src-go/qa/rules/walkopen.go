@@ -21,9 +21,16 @@ A walk is os.ReadDir, fs.ReadDir, filepath.Glob, fs.Glob, (*os.File).ReadDir, Re
 Readdirnames, and the callback of filepath.WalkDir, fs.WalkDir and filepath.Walk (its path and
 entry parameters). What a walk returns is followed through every value built from it (a name
 joined to a directory, a slice appended to, the value of a range over it, a closure that captures
-it). An open is os.Open, os.OpenFile, os.ReadFile, ioutil.ReadFile, fs.ReadFile, an fs.FS's Open,
+it). What a walked file says is not followed: a byte slice, and the result of a ReadFile,
+parser.ParseFile, io.ReadAll or a function of the package that returns one, names no entry the
+walk found. An open
+is os.Open, os.OpenFile, os.ReadFile, ioutil.ReadFile, fs.ReadFile, an fs.FS's Open,
 parser.ParseFile given no source, and a call of a function of the same package that opens the
-parameter it is given unguarded.
+parameter it is given unguarded. os.OpenFile with O_DIRECTORY is no open. With O_NONBLOCK the
+open cannot wait but a read can (a named pipe with no writer reads as empty, one with a silent
+writer still blocks, a device reads without end), so the open file's first use other than Stat,
+Close, Fd, Name or SyscallConn is judged as the open: a method of it, or a call it is handed to
+(a function of the package only if that reads the file unchecked).
 
 A check is IsRegular() of the entry's mode (d.Type().IsRegular(), info.Mode().IsRegular(), on
 a value built from the walked name, such as the FileInfo of os.Stat of it). It guards an open in
@@ -39,7 +46,8 @@ opened every name os.walk listed and changed_plays hung on a named pipe an old p
 
 Not caught: a walk callback that is a named function rather than a literal, an open through a
 function of another package, an interface method or a function value, an open inside the
-condition that checks (check && open), and a check through a helper.
+condition that checks (check && open), a check through a helper, and a file opened O_NONBLOCK
+that is returned or stored before it is read.
 
 How to fix: skip the entry unless its mode is regular (if !d.Type().IsRegular() { continue }),
 or refuse it where a non-regular entry means something is wrong; never by moving the open out
@@ -50,6 +58,10 @@ of sight.`,
 
 const walkOpenMsg = "%s opens an entry a directory walk found without a regular-file check guarding it, and opening a " +
 	"named pipe blocks for ever (project_walk_open): skip the entry, or refuse it, unless its Type() or Mode() IsRegular()"
+
+const walkReadMsg = "%s reads an entry a directory walk found, opened O_NONBLOCK, with no regular-file check of the open " +
+	"file: a named pipe with no writer reads as empty, one with a silent writer still blocks, and a device reads without " +
+	"end (project_walk_open): refuse it unless its Stat().Mode().IsRegular()"
 
 // The import paths and names the walk and open tables share.
 const (
@@ -104,12 +116,20 @@ type walkSummary struct {
 	opens     map[*types.Func][]bool
 	recvOpens map[*types.Func]bool
 	lists     map[*types.Func]bool
+	// reads are the *os.File parameters each function reads with no regular-file check of it.
+	reads map[*types.Func][]bool
+	// content are the functions that return what a file says (a call of one is a content read).
+	content map[*types.Func]bool
 }
 
-// summarise finds the package's openers and listers to a fixed point, so a function that hands
-// its parameter to another opener, or returns what another lister returned, is one too.
+// summarise finds the package's openers, readers, listers and content readers to a fixed point,
+// so a function that hands its parameter to another opener, or returns what another lister
+// returned, is one too.
 func summarise(pass *analysis.Pass) walkSummary {
-	sum := walkSummary{opens: map[*types.Func][]bool{}, recvOpens: map[*types.Func]bool{}, lists: map[*types.Func]bool{}}
+	sum := walkSummary{
+		opens: map[*types.Func][]bool{}, recvOpens: map[*types.Func]bool{}, lists: map[*types.Func]bool{},
+		reads: map[*types.Func][]bool{}, content: map[*types.Func]bool{},
+	}
 	decls := funcDecls(pass)
 	for changed := true; changed; {
 		changed = false
@@ -118,12 +138,107 @@ func summarise(pass *analysis.Pass) walkSummary {
 			if !ok {
 				continue
 			}
+			changed = sum.markContent(pass, fd, fn) || changed
 			changed = sum.markLister(pass, fd, fn) || changed
 			changed = sum.markOpeners(pass, fd, fn) || changed
+			changed = sum.markReaders(pass, fd, fn) || changed
 			changed = sum.markReceiver(pass, fd, fn) || changed
 		}
 	}
 	return sum
+}
+
+// markContent marks a function that returns, as a value that is not an error, what a file it
+// read says, and says whether that was new.
+func (sum walkSummary) markContent(pass *analysis.Pass, fd *ast.FuncDecl, fn *types.Func) bool {
+	if sum.content[fn] {
+		return false
+	}
+	c := contentScan{pass: pass, sum: sum, held: map[types.Object]bool{}}
+	ast.Inspect(fd.Body, c.node)
+	if c.returns {
+		sum.content[fn] = true
+	}
+	return c.returns
+}
+
+// contentScan follows what a function read out of a file to its returns.
+type contentScan struct {
+	pass    *analysis.Pass
+	sum     walkSummary
+	held    map[types.Object]bool
+	returns bool
+}
+
+func (c *contentScan) node(n ast.Node) bool {
+	switch node := n.(type) {
+	case *ast.FuncLit:
+		return false
+	case *ast.AssignStmt:
+		if slices.ContainsFunc(node.Rhs, c.carries) {
+			for _, lhs := range node.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && c.pass.TypesInfo.ObjectOf(id) != nil {
+					c.held[c.pass.TypesInfo.ObjectOf(id)] = true
+				}
+			}
+		}
+	case *ast.ReturnStmt:
+		for _, r := range node.Results {
+			tv, ok := c.pass.TypesInfo.Types[r]
+			c.returns = c.returns || ok && tv.Type != nil && !isErrorType(tv.Type) && c.carries(r)
+		}
+	}
+	return true
+}
+
+// carries is whether e holds what a file says: a content read, or a variable assigned one.
+func (c *contentScan) carries(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			found = found || isContentCall(c.pass, c.sum, node)
+		case *ast.Ident:
+			found = found || c.held[c.pass.TypesInfo.ObjectOf(node)]
+		}
+		return !found
+	})
+	return found
+}
+
+// markReaders marks each *os.File parameter of fn that its body reads with no regular-file check
+// of it, and says whether any was new.
+func (sum walkSummary) markReaders(pass *analysis.Pass, fd *ast.FuncDecl, fn *types.Func) bool {
+	params := paramObjects(pass, fd)
+	if sum.reads[fn] == nil {
+		sum.reads[fn] = make([]bool, len(params))
+	}
+	changed := false
+	checkable := entryParams(pass, fd)
+	base := &walkScan{pass: pass, sum: sum, taint: map[types.Object]bool{}, checkable: checkable}
+	base.block(fd.Body.List, false)
+	for i, param := range params {
+		if sum.reads[fn][i] || param == nil || !isOSFile(param.Type()) {
+			continue
+		}
+		s := &walkScan{
+			pass: pass, sum: sum, taint: map[types.Object]bool{param: true},
+			pending: map[types.Object]bool{param: true}, checkable: checkable,
+		}
+		s.block(fd.Body.List, false)
+		if s.addsTo(base) {
+			sum.reads[fn][i] = true
+			changed = true
+		}
+	}
+	return changed
+}
+
+// isOSFile is whether t is *os.File.
+func isOSFile(t types.Type) bool {
+	return types.TypeString(t, nil) == "*os.File"
 }
 
 // funcDecls is every function declaration of the package that has a body.
@@ -253,6 +368,8 @@ type walkScan struct {
 	report   bool
 	// checkable are the parameters whose check a summary counts (entryParams).
 	checkable map[types.Object]bool
+	// pending are the files opened O_NONBLOCK from a walked name: a read of one is the open.
+	pending map[types.Object]bool
 	// opened is where each unguarded open was found.
 	opened  map[token.Pos]bool
 	returns bool
@@ -279,6 +396,7 @@ func (s *walkScan) stmt(stmt ast.Stmt, guarded bool) {
 				s.markListing(lhs, listing)
 			}
 		}
+		s.markPending(st.Lhs, st.Rhs, guarded)
 	case *ast.DeclStmt:
 		s.declStmt(st, guarded)
 	case *ast.RangeStmt:
@@ -389,7 +507,75 @@ func (s *walkScan) declStmt(st *ast.DeclStmt, guarded bool) {
 				s.markListing(name, listing)
 			}
 		}
+		lhs := make([]ast.Expr, len(vs.Names))
+		for i, name := range vs.Names {
+			lhs[i] = name
+		}
+		s.markPending(lhs, vs.Values, guarded)
 	}
+}
+
+// markPending records the file an unguarded O_NONBLOCK open of a walked name assigns: the open
+// itself cannot wait, but a read of what it opened can, so the read is judged as the open.
+func (s *walkScan) markPending(lhs, rhs []ast.Expr, guarded bool) {
+	if guarded || len(rhs) != 1 || len(lhs) == 0 {
+		return
+	}
+	call, ok := ast.Unparen(rhs[0]).(*ast.CallExpr)
+	if !ok || !isPkgFunc(calledFunc(s.pass, call), "os", "OpenFile") || len(call.Args) < 2 {
+		return
+	}
+	if !hasFlag(s.pass, call.Args[1], "O_NONBLOCK") || hasFlag(s.pass, call.Args[1], "O_DIRECTORY") || !s.walked(call.Args[0]) {
+		return
+	}
+	obj := s.rootObject(lhs[0])
+	if obj == nil {
+		return
+	}
+	if s.pending == nil {
+		s.pending = map[types.Object]bool{}
+	}
+	s.pending[obj] = true
+}
+
+// fileOnlyMethods are the methods of *os.File that do not read or write what it opened.
+var fileOnlyMethods = []string{"Stat", "Close", "Fd", "Name", "SyscallConn"}
+
+// pendingRead is the name of a call that reads a pending file (a method of it, or a call it is
+// handed to), or "".
+func (s *walkScan) pendingRead(call *ast.CallExpr) string {
+	if len(s.pending) == 0 {
+		return ""
+	}
+	fn := calledFunc(s.pass, call)
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok && s.isPending(sel.X) && !slices.Contains(fileOnlyMethods, sel.Sel.Name) {
+		return sel.Sel.Name
+	}
+	for i, arg := range call.Args {
+		if !s.isPending(arg) {
+			continue
+		}
+		if fn == nil {
+			return calleeName(call)
+		}
+		if fn.Pkg() == s.pass.Pkg {
+			// The package's own functions start as readers of nothing; the fixed point marks them.
+			if reads := s.sum.reads[fn]; i < len(reads) && reads[i] {
+				return fn.Name()
+			}
+			continue
+		}
+		if fn.Pkg() != nil {
+			return fn.Pkg().Name() + "." + fn.Name()
+		}
+		return fn.Name()
+	}
+	return ""
+}
+
+func (s *walkScan) isPending(e ast.Expr) bool {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	return ok && s.pending[s.pass.TypesInfo.ObjectOf(id)]
 }
 
 func (s *walkScan) exprs(list []ast.Expr, guarded bool) {
@@ -440,16 +626,28 @@ func (s *walkScan) callbackParams(call *ast.CallExpr) {
 
 // call reports an open of a walked name that no check guards.
 func (s *walkScan) call(call *ast.CallExpr, guarded bool) {
-	name, arg := s.openedArg(call)
-	if arg == nil || guarded || !s.walked(arg) {
+	if guarded {
 		return
 	}
+	if name := s.pendingRead(call); name != "" {
+		s.found(call, walkReadMsg, name)
+		return
+	}
+	name, arg := s.openedArg(call)
+	if arg == nil || !s.walked(arg) {
+		return
+	}
+	s.found(call, walkOpenMsg, name)
+}
+
+// found records an unguarded open (or read) at call, and reports it when this scan reports.
+func (s *walkScan) found(call *ast.CallExpr, msg, name string) {
 	if s.opened == nil {
 		s.opened = map[token.Pos]bool{}
 	}
 	s.opened[call.Pos()] = true
 	if s.report {
-		s.pass.Reportf(call.Pos(), walkOpenMsg, name)
+		s.pass.Reportf(call.Pos(), msg, name)
 	}
 }
 
@@ -492,9 +690,16 @@ func stdOpenedArg(pass *analysis.Pass, fn *types.Func, call *ast.CallExpr) (stri
 	return "", nil
 }
 
-// cannotWait is whether an open's flags keep it from waiting on a named pipe: O_NONBLOCK returns
-// at once from a pipe with no writer, and O_DIRECTORY refuses what is not a directory first.
+// cannotWait is whether an open's flags keep the open itself from waiting on a named pipe:
+// O_DIRECTORY refuses what is not a directory first, and O_NONBLOCK returns at once from a pipe
+// with no writer. A read of what O_NONBLOCK opened can still wait or lie, so markPending judges
+// that read as the open.
 func cannotWait(pass *analysis.Pass, flags ast.Expr) bool {
+	return hasFlag(pass, flags, "O_NONBLOCK") || hasFlag(pass, flags, "O_DIRECTORY")
+}
+
+// hasFlag is whether an open's flags name the syscall or unix flag name.
+func hasFlag(pass *analysis.Pass, flags ast.Expr, name string) bool {
 	found := false
 	ast.Inspect(flags, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
@@ -503,11 +708,29 @@ func cannotWait(pass *analysis.Pass, flags ast.Expr) bool {
 		}
 		obj := pass.TypesInfo.Uses[sel.Sel]
 		if obj != nil && obj.Pkg() != nil && (obj.Pkg().Path() == "syscall" || obj.Pkg().Path() == "golang.org/x/sys/unix") {
-			found = obj.Name() == "O_NONBLOCK" || obj.Name() == "O_DIRECTORY"
+			found = obj.Name() == name
 		}
 		return !found
 	})
 	return found
+}
+
+// isContentCall is whether a call returns what a file says, which names no entry a walk found:
+// a ReadFile, a parsed source file, io.ReadAll, or a function of the package that returns one.
+func isContentCall(pass *analysis.Pass, sum walkSummary, call *ast.CallExpr) bool {
+	fn := calledFunc(pass, call)
+	if fn == nil {
+		return false
+	}
+	if sum.content[fn] {
+		return true
+	}
+	for _, o := range openers {
+		if o.name == readFileName && isPkgFunc(fn, o.pkg, o.name) {
+			return true
+		}
+	}
+	return isPkgFunc(fn, "go/parser", "ParseFile") || isPkgFunc(fn, "io", "ReadAll")
 }
 
 // isFSOpen is whether f is an Open method returning an fs.File (an fs.FS's).
@@ -556,6 +779,9 @@ func (s *walkScan) walked(e ast.Expr) bool {
 		case *ast.CallExpr:
 			if s.isWalkSource(node) {
 				found = true
+			} else if isContentCall(s.pass, s.sum, node) {
+				// What a walked file says is content: the names in it are not the walk's.
+				return false
 			}
 		}
 		return !found
@@ -640,9 +866,20 @@ func (s *walkScan) isWalkSource(call *ast.CallExpr) bool {
 
 // taintRoot marks the variable (or the field) an assignment target or range variable names.
 func (s *walkScan) taintRoot(e ast.Expr) {
-	if obj := s.rootObject(e); obj != nil {
+	if obj := s.rootObject(e); obj != nil && !isBytes(obj.Type()) {
 		s.taint[obj] = true
 	}
+}
+
+// isBytes is whether t is a byte slice: what a file says, never a name, whichever reader (one the
+// rule cannot see into too) returned it.
+func isBytes(t types.Type) bool {
+	sl, ok := t.Underlying().(*types.Slice)
+	if !ok {
+		return false
+	}
+	b, ok := sl.Elem().Underlying().(*types.Basic)
+	return ok && b.Kind() == types.Byte
 }
 
 // rootObject is the variable (or the field) an assignment target or range variable names, nil

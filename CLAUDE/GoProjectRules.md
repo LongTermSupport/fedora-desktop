@@ -1513,8 +1513,16 @@ holds (also in an `&&`), in the clause of a tagless `switch` that lists only che
 `||`). A name assigned where a check guards it carries the check with it, so a lister that keeps
 only regular files returns clean names; a listing taken there is still unchecked. In a summary of
 a function, a check of any of its parameters counts (a helper handed an entry and its path), and a
-parameter opens only what seeding it adds to the body's own opens. An `os.OpenFile` whose flags
-name `O_NONBLOCK` or `O_DIRECTORY` cannot wait on a pipe and is not an open.
+parameter opens only what seeding it adds to the body's own opens. What a walked file says is
+not followed: a byte slice (whichever reader returned it, one in another package too), and the
+result of a `ReadFile`, `parser.ParseFile`, `io.ReadAll` or a package function that returns one,
+names no entry the walk found. An `os.OpenFile` whose flags name `O_DIRECTORY`
+is not an open. One whose flags name `O_NONBLOCK` cannot wait, but a read of what it opened can:
+a named pipe with no writer reads as empty, one with a silent writer still blocks Go's poller, and
+a device reads without end. So the open file's first use other than `Stat`, `Close`, `Fd`, `Name`
+or `SyscallConn` (a method of it, or a call it is handed to; a package function only if it reads
+the file unchecked) is judged as the open, and the check that guards it is `IsRegular()` on the
+open file's own `Stat()`.
 
 **How to fix a violation.** Check the entry before the open and decide what a non-regular entry
 means there, as [QA.md](QA.md#walk-opens-non-regular-file) says: skip it where a stray entry is
@@ -1528,23 +1536,37 @@ writer releases a reader at once, so a regression fails the test instead of hang
   name, a check joined by `||`, a case listed beside another condition, a tagged switch, a
   listing taken under another check, a flag that can wait; clean: each guarding position, a
   checking lister, names kept where a check holds, a tagless switch case, a helper that checks
-  its entry, a parameter that is only a label, `O_NONBLOCK` and `O_DIRECTORY`. Mutation checked:
+  its entry, a parameter that is only a label, `O_DIRECTORY`, an `O_NONBLOCK` file only closed,
+  read after its own `Stat()` check or handed to a helper that checks it (declared before or after
+  its caller), names read out of a walked file (through a checking helper, an unguarded read, a
+  reader out of sight). Red too: an `O_NONBLOCK` file read with
+  `io.ReadAll`, by its `Read` method, or by a helper that does not check it, and content joined to
+  a walked directory. Mutation checked:
   the leaving guard off makes 6 clean cases red, the positive guard off 1, the callee summary off
   leaves 1 `want` unmet, the switch-case guard off 1 clean case red, the check carried by a
   guarded assignment off 2 clean cases red, the listing distinction off
   leaves 1 `want` unmet, the parameter attribution off and the parameter checks off 1 clean case
-  red each.
+  red each; the content-read rule off makes 1 clean case red (also with only its package
+  summary off), the byte-slice rule off 1, the `O_NONBLOCK` read off leaves 3 `want`s unmet, every package helper taken as a reader 1
+  clean case red, and a helper's summary not yet computed taken as a reader 1.
 - Red, real tree: 56 findings in 39 files at the defence commit, over `./...` untagged, with
   `busfailpoints`, `tuwunel`, `ccyteamstest`, `difftest` and the nested `qa` module. Four shapes
   among them were false positives, each fixed in the rule with a fixture case before the sweep
   went on: a tagless switch case (`planscriptlogging`), a lister that checks before it keeps a
   name (`ccylaunch` `IntegrityHash`), a helper that checks one parameter and opens another
   (`difftest` `describe`), and the `O_NONBLOCK`/`O_DIRECTORY` opens of `bus/seat`; a parameter
-  was also marked an opener when only the body's own walk opened.
-- Not caught: a check in a callee (`readable(p)` returning a bool is not a check), a name read
-  out of a walked file's content (followed as if it were a walked name, so it is over-reported
-  rather than missed), an open through an interface method or another package's function, and
-  a time-of-check gap between the check and the open.
+  was also marked an opener when only the body's own walk opened. A first cut let every
+  `O_NONBLOCK` open pass whatever followed it; narrowed to the read, it found no site it had hidden
+  (`bus/seat`'s `readCapped` checks the open file's `Stat()` before it reads). Seven more were
+  content followed as names: wiring's `gone(pid)` read `/proc/<pid>/stat` for pids parsed out of
+  `keeper.log`, which `session.log` read from a globbed run directory through `testfiles.Try`.
+  That read was the real instance, hidden from the rule in another package, so `testfiles`'
+  `Read`, `Find` and `Try` now refuse what is not a regular file.
+- Green: 0 findings over `./...` untagged, with `busfailpoints`, `tuwunel`, `teamchatrelease`,
+  `ccyteamstest`, `difftest`, and over the nested `qa` module.
+- Not caught: a check in a callee (`readable(p)` returning a bool is not a check), an open
+  through an interface method or another package's function, an `O_NONBLOCK` file returned or
+  stored before it is read, and a time-of-check gap between the check and the open.
 
 ## Defect classes that cannot be a rule
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -706,6 +707,233 @@ func (f *fake) load(dir string) error {
 	}
 	for _, p := range f.files {
 		if _, err := os.ReadFile(p); err != nil { // want `os.ReadFile opens an entry a directory walk found`
+			return err
+		}
+	}
+	return nil
+}
+
+// textChecked checks what it is given, then returns its text: what a file says is content.
+func textChecked(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s: %w", path, errNotRegular)
+	}
+	data, err := os.ReadFile(path)
+	return string(data), err
+}
+
+// A name read out of a walked file is not a name the walk found.
+func namesReadFromAListedFile(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		text, err := textChecked(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		for _, name := range strings.Fields(text) {
+			if _, err := os.ReadFile(name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// The unguarded read is reported once; the name it read is not reported again.
+func nameReadFromAnUncheckedEntry(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(dir, e.Name())) // want `os.ReadFile opens an entry a directory walk found`
+		if err != nil {
+			return err
+		}
+		if _, err := os.ReadFile(strings.TrimSpace(string(data))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Content joined to a walked directory does not launder it: the walked part still counts.
+func contentJoinedToAWalkedDirectory(pattern string) error {
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return err
+	}
+	for _, m := range matches {
+		text, err := textChecked(m)
+		if err != nil {
+			return err
+		}
+		if _, err := os.ReadFile(filepath.Join(filepath.Dir(m), text)); err != nil { // want `os.ReadFile opens an entry a directory walk found`
+			return err
+		}
+	}
+	return nil
+}
+
+// O_NONBLOCK does not make a read safe: a named pipe with no writer reads as empty, one whose
+// writer is silent still blocks, and a device reads without end.
+func readWithoutWaitingUnchecked(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		_, readErr := io.ReadAll(f) // want `io.ReadAll reads an entry a directory walk found`
+		if err := errors.Join(readErr, f.Close()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// A read through a method of the handle is a read too.
+func readMethodWithoutWaitingUnchecked(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 16)
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if _, err := f.Read(buf); err != nil { // want `Read reads an entry a directory walk found`
+			return err
+		}
+	}
+	return nil
+}
+
+// The open file's own mode, checked before the read, guards it.
+func readWithoutWaitingChecked(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		info, err := f.Stat()
+		if err != nil {
+			return errors.Join(err, f.Close())
+		}
+		if !info.Mode().IsRegular() {
+			return errors.Join(errNotRegular, f.Close())
+		}
+		_, readErr := io.ReadAll(f)
+		if err := errors.Join(readErr, f.Close()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readOpen checks the open file it is handed before it reads it.
+func readOpen(f *os.File) ([]byte, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	return io.ReadAll(f)
+}
+
+// drain reads the open file it is handed, unchecked.
+func drain(f *os.File) ([]byte, error) {
+	return io.ReadAll(f)
+}
+
+func readWithoutWaitingByHelpers(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, err := os.OpenFile(filepath.Join(dir, e.Name()), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if _, err := readOpen(f); err != nil {
+			return err
+		}
+		if _, err := drain(f); err != nil { // want `drain reads an entry a directory walk found`
+			return err
+		}
+	}
+	return nil
+}
+
+// readNamed opens the name O_NONBLOCK and hands the file to a helper declared after it, which
+// checks it: so a walked name handed to readNamed is safe.
+func readNamed(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	data, err := readOpenDeclaredLater(f)
+	return data, errors.Join(err, f.Close())
+}
+
+func readNamedFromAListing(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if _, err := readNamed(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readOpenDeclaredLater(f *os.File) ([]byte, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	return io.ReadAll(f)
+}
+
+// Bytes are content wherever they came from: a reader the rule cannot see into (a function value
+// here, another package's reader in the tree) still returns no names.
+func namesFromAReaderOutOfSight(dir string, read func(string) ([]byte, error)) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		data, err := read(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		if _, err := os.ReadFile(strings.TrimSpace(string(data))); err != nil {
 			return err
 		}
 	}
