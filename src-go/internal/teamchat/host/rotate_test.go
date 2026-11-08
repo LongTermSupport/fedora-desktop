@@ -3,11 +3,14 @@ package host
 import (
 	"bytes"
 	"errors"
+	"io"
 	"io/fs"
+	"net"
 	"net/netip"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -46,7 +49,7 @@ func (f *faulty) write(path string, data []byte, mode fs.FileMode, gid int) erro
 
 // rotator is the world's CARotation over the writer w gives.
 func rotator(w *world, write FileWriter) CARotation {
-	return CARotation{Root: w.root, Clock: w.clock, Rand: w.rand, Units: w.sd, Write: write}
+	return CARotation{Root: w.root, Clock: w.clock, Rand: w.rand, Units: w.sd, Write: write, StateOwnerUID: self(w.t)}
 }
 
 // appliedNames are the names the world's apply made its leaf for.
@@ -108,7 +111,7 @@ func TestX33ARotationMakesANewCAAndALeafOnlyItSigns(t *testing.T) {
 		t.Fatalf("the leaf's names %+v", leaf.Names())
 	}
 	tlsModes(t, w)
-	issued, err := CAPEM(w.root, team)
+	issued, err := CAPEM(w.root, team, self(w.t))
 	if err != nil || issued != string(now.CertPEM()) {
 		t.Fatalf("the CA a bundle is issued with: %v", err)
 	}
@@ -274,6 +277,39 @@ func TestX33TheTerminatorIsRestartedOnlyWhenActiveAndAFailedRestartLeavesTheRota
 	if bytes.Equal(theCA(t, w).CertPEM(), old.CertPEM()) || got.New != fingerprintOf(t, theCA(t, w).CertPEM()) {
 		t.Fatal("a failed restart undid the rotation")
 	}
+}
+
+// echoServer is a loopback server standing for the homeserver: it echoes each connection.
+func echoServer(t *testing.T) netip.AddrPort {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			wg.Go(func() {
+				if _, cerr := io.Copy(c, c); cerr != nil {
+					t.Logf("the echo ended: %v", cerr)
+				}
+				if cerr := c.Close(); cerr != nil {
+					t.Logf("closing the echo: %v", cerr)
+				}
+			})
+		}
+	})
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Error(err)
+		}
+		wg.Wait()
+	})
+	return netip.MustParseAddrPort(ln.Addr().String())
 }
 
 // X33, X16: a member holding a bundle with the old CA refuses the terminator serving the new

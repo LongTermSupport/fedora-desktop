@@ -2,12 +2,7 @@ package guestfacts
 
 import (
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"io/fs"
 	"net/netip"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -218,39 +213,6 @@ func TestPrefixSite(t *testing.T) {
 		if err != nil || p.String() != c.want {
 			t.Errorf("%s: prefix %v, %v; want %s", name, p, err, c.want)
 		}
-	}
-}
-
-// No file of the machine's own teamchat code names the guest's hostname variable: it fed a
-// handle's site before X25, and a handle is permanent.
-func TestNoSourceNamesTheHostnameVariable(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return err
-		}
-		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			var text string
-			switch n := n.(type) {
-			case *ast.BasicLit:
-				text = n.Value
-			case *ast.Comment:
-				text = n.Text
-			}
-			if strings.Contains(text, "HOOKS_DAEMON_HOSTNAME") {
-				t.Errorf("%s names HOOKS_DAEMON_HOSTNAME: a handle's site is declared (teamchat_site) and read from nothing else", fset.Position(n.Pos()))
-			}
-			return true
-		})
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -111,7 +111,7 @@ func rotateCA(ctx context.Context, sys *System, team paths.TeamID) (rotation, er
 	if also, r.lxcReissue, err = lxcMarks(sys, team); err != nil {
 		return rotation{}, err
 	}
-	rot := host.CARotation{Root: sys.Host.Root, Clock: sys.Host.Clock, Rand: sys.Host.Rand, Units: sys.Host.Systemd, Write: sys.RotateWrite}
+	rot := host.CARotation{Root: sys.Host.Root, Clock: sys.Host.Clock, Rand: sys.Host.Rand, Units: sys.Host.Systemd, Write: sys.RotateWrite, StateOwnerUID: sys.Host.StateOwnerUID}
 	r.ca, err = rot.Rotate(ctx, team, names, also)
 	if r.ca.New == "" {
 		return rotation{}, err

@@ -117,7 +117,7 @@ func TestX33TheVerbRotatesAndListsOnlyTheSeatsTheHostDoesNotPlace(t *testing.T) 
 	if e, ok := rec.ByHandle(lxcSeat); !ok || e.Status != lxcstate.StatusDeferred || e.Why != lxc.WhyCARotated {
 		t.Fatalf("the LXC seat's entry %+v", e)
 	}
-	issued, err := host.CAPEM(w.root, alpha(t))
+	issued, err := host.CAPEM(w.root, alpha(t), selfUID(t))
 	if err != nil {
 		t.Fatal(err)
 	}

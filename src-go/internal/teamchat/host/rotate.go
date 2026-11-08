@@ -41,6 +41,9 @@ type CARotation struct {
 	Rand  io.Reader
 	Units TerminatorUnits
 	Write FileWriter
+	// StateOwnerUID owns the old CA key (root, 0, on a host): the key is read as every CA read is
+	// (review S8), so a key that is not the owner's alone with mode 0600 refuses the rotation.
+	StateOwnerUID uint32
 }
 
 // RotatedCA is a rotation done: the old and the new CA's fingerprints (never a key), and whether
@@ -80,7 +83,7 @@ func (r CARotation) Rotate(ctx context.Context, team paths.TeamID, names pki.Nam
 // prepare is every file the rotation replaces, its new bytes made and checked, and the two
 // fingerprints. Nothing is written.
 func (r CARotation) prepare(team paths.TeamID, names pki.Names, also []Replacement) ([]Replacement, RotatedCA, error) {
-	old, found, err := loadCA(r.Root, team)
+	old, found, err := loadCA(r.Root, team, r.StateOwnerUID)
 	if err == nil && !found {
 		err = errors.New("the team has no CA: team apply makes it")
 	}
@@ -92,7 +95,7 @@ func (r CARotation) prepare(team paths.TeamID, names pki.Names, also []Replaceme
 	if err != nil {
 		return nil, RotatedCA{}, err
 	}
-	step := leafStep{root: r.Root, team: team, maker: maker}
+	step := leafStep{root: r.Root, team: team, maker: maker, owner: r.StateOwnerUID}
 	leaf, err := step.make(ca, names)
 	if err != nil {
 		return nil, RotatedCA{}, err
