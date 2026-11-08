@@ -83,7 +83,9 @@ type Server struct {
 	mu    sync.Mutex
 	live  map[net.Conn]struct{}
 	fatal error
-	logMu sync.Mutex
+
+	logMu     sync.Mutex
+	logFailed bool
 }
 
 // Start binds every listen address and begins serving until ctx ends or Close, or refuses the
@@ -331,14 +333,16 @@ func (s *Server) closeListener(ln net.Listener) {
 	}
 }
 
-// logf writes one line of the log, when there is one.
+// logf writes one line of the log, when there is one that has not failed. Every connection's
+// goroutine logs, so whether the log failed is read and written under logMu only; the
+// configuration itself is never written after Start.
 func (s *Server) logf(format string, args ...any) {
-	if s.cfg.Log == nil {
-		return
-	}
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
+	if s.cfg.Log == nil || s.logFailed {
+		return
+	}
 	if _, err := fmt.Fprintf(s.cfg.Log, "tlsterm: "+format+"\n", args...); err != nil {
-		s.cfg.Log = nil
+		s.logFailed = true
 	}
 }

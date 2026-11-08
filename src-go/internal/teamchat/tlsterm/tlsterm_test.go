@@ -2,6 +2,7 @@ package tlsterm
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -344,6 +345,80 @@ func TestT6CloseEndsEverything(t *testing.T) {
 	}
 	if err := srv.Close(); err != nil {
 		t.Errorf("a second Close: %v", err)
+	}
+}
+
+// T6: Run serves until its context ends and then answers nil, holding nothing.
+func TestT6RunEndsWithItsContext(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{
+			Listen:   []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:0")},
+			Upstream: up.addr, CertPEM: k.cert, KeyPEM: k.key, Clock: clock.NewFake(0, fixedNow.UnixMilli()),
+		})
+	}()
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run answered %v for the end of its context", err)
+	}
+}
+
+// T6: a terminator that stops on its own (a listener's failure) says why in Err, ends, and Run
+// answers that failure.
+func TestT6AStopOnItsOwnIsTheFailure(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
+	if err := srv.Err(); err != nil {
+		t.Fatalf("a serving terminator has the failure %v", err)
+	}
+	why := errors.New("tlsterm: accepting: the listener failed")
+	srv.stop(why)
+	srv.stop(errors.New("a later failure"))
+	<-srv.done
+	if err := srv.Err(); !errors.Is(err, why) {
+		t.Fatalf("Err is %v, want the first failure", err)
+	}
+}
+
+// refusingLog is a log whose every write fails, after counting it.
+type refusingLog struct {
+	mu     sync.Mutex
+	writes int
+}
+
+func (l *refusingLog) Write([]byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.writes++
+	return 0, errors.New("the journal is gone")
+}
+
+// T4: the log is shared by every connection's goroutine; a log that fails is dropped by one of
+// them while the others are still writing, and that is no data race (run under -race), and the
+// log is not written again once it has failed.
+func TestT4AFailingLogIsDroppedWithoutARace(t *testing.T) {
+	log := &refusingLog{}
+	s := &Server{cfg: Config{Log: log}}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			<-start
+			for range 50 {
+				s.logf("upstream %s: %v", "127.0.0.1:8448", "refused")
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if log.writes != 1 {
+		t.Errorf("the failed log was written %d times, want once", log.writes)
 	}
 }
 
