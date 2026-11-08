@@ -110,6 +110,12 @@ install are listed last, under "Owner questions".
   terminator unit has the IP filter and the socket bind of X4; the leaf and its key reach it as
   credentials; it holds no CA key. (Chosen because the repo does not say what Tuwunel's TLS
   keys accept; see the owner questions.)
+  The terminator holds at most `tlsterm.DefaultMaxConns` (256) connections at once, and a
+  relayed connection that moves no byte either way for `tlsterm.IdleLimit` (2 minutes) is
+  closed, both ends, which frees its slot, so an idle host cannot hold every slot (review S6).
+  Every byte read or written puts the deadline 2 minutes ahead again. The limit is above the
+  member's matrix client's own waits, a sync long-poll of at most 30 s and a pooled connection
+  dropped by the client after a minute idle, so a healthy member is never cut by it.
   Every remote member reaches Tuwunel from `127.0.0.1`, the terminator's side of the relay
   (review S5 of pull request 128, read from the source at the pinned v1.9.4,
   `files/usr/local/share/agent-bus/tuwunel.pin`). The login limits do not merge members: they

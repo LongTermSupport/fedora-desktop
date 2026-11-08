@@ -21,6 +21,10 @@
 //	   unserved.
 //	T6 Close ends every listener, relay and goroutine, and is safe to call twice.
 //	T7 A configuration that cannot serve is refused naming why, and holds nothing.
+//	T8 A relay that moves no byte either way for IdleLimit is closed, both ends, and its slot is
+//	   free; every read and write puts the deadline IdleLimit ahead again. IdleLimit is above the
+//	   member's matrix client's own waits (a 30 s sync long-poll, a minute's idle pool), so a
+//	   healthy connection is never cut by it.
 package tlsterm
 
 import (
@@ -40,6 +44,8 @@ const (
 	HandshakeLimit = 10 * time.Second
 	// UpstreamLimit is how long the dial of the homeserver may take: it is on loopback.
 	UpstreamLimit = 5 * time.Second
+	// IdleLimit is how long a relay may move no byte either way before it is closed.
+	IdleLimit = 2 * time.Minute
 	// DefaultMaxConns is the number of connections held at once when none is configured.
 	DefaultMaxConns = 256
 	// maxConnsLimit is the most a configuration may ask for, well inside a unit's descriptors.
@@ -59,7 +65,7 @@ type Config struct {
 	Upstream netip.AddrPort
 	// CertPEM and KeyPEM are the leaf certificate and its key.
 	CertPEM, KeyPEM []byte
-	// Clock arms HandshakeLimit and UpstreamLimit.
+	// Clock arms HandshakeLimit, UpstreamLimit and IdleLimit.
 	Clock Clock
 	// MaxConns is the most connections held at once; 0 is DefaultMaxConns.
 	MaxConns int
@@ -276,21 +282,30 @@ func (s *Server) dial(ctx context.Context) (net.Conn, error) {
 }
 
 // relay copies each way until both have ended, a half-close passed on, and closes both. A failed
-// copy ends the relay at once.
+// copy ends the relay at once, and so does IdleLimit with no byte moved either way: closing
+// both ends makes each copy fail, so the relay ends and its slot is free.
 func (s *Server) relay(client, upstream net.Conn) {
+	idle := &idleTimer{clock: s.cfg.Clock, expire: func() {
+		s.closeConn(client)
+		s.closeConn(upstream)
+	}}
+	idle.touch()
+	defer idle.end()
 	var wg sync.WaitGroup
-	wg.Go(func() { s.pipe(upstream, client) })
-	s.pipe(client, upstream)
+	wg.Go(func() { s.pipe(upstream, client, idle) })
+	s.pipe(client, upstream, idle)
 	wg.Wait()
 	s.closeConn(client)
 	s.closeConn(upstream)
 }
 
-// pipe copies src to dst; at its end it half-closes dst, or closes both after a failure so the
-// other direction ends too. A reset or a close from the other side is the end of a relay, not
-// a fault of the terminator's.
-func (s *Server) pipe(dst, src net.Conn) {
-	if _, err := io.Copy(dst, src); err != nil {
+// pipe copies src to dst, each byte read or written putting idle's deadline ahead; at its end
+// it half-closes dst, or closes both after a failure so the other direction ends too. A reset
+// or a close from the other side is the end of a relay, not a fault of the terminator's. The
+// copy goes through a reader and a writer that touch idle, not through wrapped connections, so
+// dst is still the connection whose CloseWrite passes the half-close on.
+func (s *Server) pipe(dst, src net.Conn, idle *idleTimer) {
+	if _, err := io.Copy(touchWriter{dst, idle}, touchReader{src, idle}); err != nil {
 		s.closeConn(dst)
 		s.closeConn(src)
 		return
@@ -300,6 +315,90 @@ func (s *Server) pipe(dst, src net.Conn) {
 		s.closeConn(dst)
 		s.closeConn(src)
 	}
+}
+
+// idleTimer calls expire once IdleLimit has passed since the last touch, unless it has ended.
+// The Clock has timers only, so each touch disarms the timer armed by the one before and arms
+// a new one; a firing already on its way when a touch disarmed it carries an old generation and
+// does nothing.
+type idleTimer struct {
+	clock  Clock
+	expire func()
+
+	mu    sync.Mutex
+	gen   uint64
+	stop  func() bool
+	ended bool
+}
+
+// touch puts the deadline IdleLimit from now.
+func (t *idleTimer) touch() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ended {
+		return
+	}
+	t.disarm()
+	t.gen++
+	gen := t.gen
+	t.stop = t.clock.AfterFunc(IdleLimit, func() { t.fire(gen) })
+}
+
+// fire is the timer armed at generation gen falling due.
+func (t *idleTimer) fire(gen uint64) {
+	t.mu.Lock()
+	if t.ended || gen != t.gen {
+		t.mu.Unlock()
+		return
+	}
+	t.ended = true
+	t.mu.Unlock()
+	t.expire()
+}
+
+// end disarms the timer for good: the relay is over.
+func (t *idleTimer) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ended = true
+	t.disarm()
+}
+
+// disarm stops the armed timer; whether it had already fired does not matter, because a firing
+// is judged by its generation. The caller holds mu.
+func (t *idleTimer) disarm() {
+	if t.stop != nil {
+		t.stop()
+		t.stop = nil
+	}
+}
+
+// touchReader and touchWriter are a relay's two ends as io.Copy sees them: each read or write
+// that moved a byte touches the relay's idle timer.
+type touchReader struct {
+	r    io.Reader
+	idle *idleTimer
+}
+
+func (r touchReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.idle.touch()
+	}
+	return n, err
+}
+
+type touchWriter struct {
+	w    io.Writer
+	idle *idleTimer
+}
+
+func (w touchWriter) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	if n > 0 {
+		w.idle.touch()
+	}
+	return n, err
 }
 
 func (s *Server) track(c net.Conn) bool {
