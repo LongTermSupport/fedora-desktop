@@ -2,7 +2,6 @@ package wiring
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/procend"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
@@ -656,11 +656,11 @@ func (s *session) cleanup() {
 		s.w.t.Error(err)
 	}
 	for _, pid := range s.links() {
-		eventually(s.w.t, func() bool { return gone(pid) }, s.describe)
+		eventually(s.w.t, func() bool { return gone(s.w.t, pid) }, s.describe)
 	}
 	// The agent shares the keeper's stdout, so the readers reach its end once it is gone too.
 	if s.agent > 0 {
-		eventually(s.w.t, func() bool { return gone(s.agent) }, s.describe)
+		eventually(s.w.t, func() bool { return gone(s.w.t, s.agent) }, s.describe)
 	}
 	eventually(s.w.t, s.outputsRead, s.describe)
 }
@@ -691,14 +691,15 @@ func (s *session) endOutputs() {
 	}
 }
 
-// gone is whether pid has exited: no such process, or a zombie its new parent has not reaped.
-func gone(pid int) bool {
-	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+// gone is whether pid has ended as a whole: no such process, or a zombie its new parent has not
+// reaped whose other threads are gone too, so it holds no file any more (procend; issue #182).
+func gone(tb testing.TB, pid int) bool {
+	tb.Helper()
+	ended, err := procend.Ended(pid)
 	if err != nil {
-		return true
+		tb.Fatal(err)
 	}
-	i := bytes.LastIndexByte(stat, ')')
-	return i < 0 || bytes.HasPrefix(stat[i+1:], []byte(" Z"))
+	return ended
 }
 
 // links are the pids of the links keeper.log says were started.

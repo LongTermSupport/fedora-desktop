@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/procend"
 )
 
 // sessionOutcome is what a NewSession run started by startSession returned.
@@ -48,39 +50,15 @@ func pidFrom(t *testing.T, path string) int {
 	return 0
 }
 
-// processGone is a read of /proc/<pid> that failed because the process has been reaped: the
-// directory is gone (ENOENT), or it went between the open and the read (ESRCH).
-func processGone(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
-}
-
-// A process reaped while its stat file was being read ends the wait; it is not an error.
-func TestProcessGoneCountsAProcessReapedMidRead(t *testing.T) {
-	for _, err := range []error{
-		&fs.PathError{Op: "open", Path: "1/stat", Err: syscall.ENOENT},
-		&fs.PathError{Op: "read", Path: "1/stat", Err: syscall.ESRCH},
-	} {
-		if !processGone(err) {
-			t.Errorf("processGone(%v) = false", err)
-		}
-	}
-	if processGone(&fs.PathError{Op: "read", Path: "1/stat", Err: syscall.EACCES}) {
-		t.Error("a refused read was taken for a process that ended")
-	}
-}
-
-// living is whether pid is a process that has not ended (a zombie has ended).
+// living is whether pid is a process that has not ended as a whole (a zombie whose threads are
+// all gone has ended; procend says why the leader's Z alone does not, issue #182).
 func living(t *testing.T, pid int) bool {
 	t.Helper()
-	raw, err := fs.ReadFile(os.DirFS("/proc"), strconv.Itoa(pid)+"/stat")
-	if processGone(err) {
-		return false
-	}
+	ended, err := procend.Ended(pid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields := strings.Fields(string(raw[bytes.LastIndexByte(raw, ')')+1:]))
-	return len(fields) > 0 && fields[0] != "Z"
+	return !ended
 }
 
 // dies waits up to five seconds for pid to end (SIGKILL is delivered, then the process is reaped).

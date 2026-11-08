@@ -312,7 +312,7 @@ func TestClaudeStatusLine(t *testing.T) {
 	freeze(t, s.keeper.Pid())
 	link := s.lastLink()
 	kill(t, link, syscall.SIGKILL)
-	eventually(t, func() bool { return gone(link) }, s.describe)
+	eventually(t, func() bool { return gone(t, link) }, s.describe)
 	down := sgrRed + "👥 teamchat starting" + colour.Reset + "\n"
 	got = s.statusLine()
 	if got.Exit != 0 || got.Stderr != "" || got.Stdout != down {

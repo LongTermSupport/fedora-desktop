@@ -440,7 +440,7 @@ func (r *pt1Runner) seen() pt1Seen {
 	}
 	alive := 0
 	for _, pid := range links {
-		if !gone(pid) {
+		if !gone(r.t, pid) {
 			alive++
 		}
 	}

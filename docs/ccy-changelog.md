@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.5 — container 2.79.27
+
+`--build-lock` no longer takes a process whose leader thread is a zombie for gone while its
+other threads are still exiting (issue 182): such a process may still hold its files, so it
+counts as exited only once `/proc/<pid>/status` lists no thread but the leader. A zombie status
+with no thread count is refused, named.
+
 ## 3.112.4 — container 2.79.27
 
 The Go front never opens an entry a directory listing found unless it is a regular file

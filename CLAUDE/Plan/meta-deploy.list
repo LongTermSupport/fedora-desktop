@@ -54,4 +54,6 @@
 # changes the agent-bus software digest, so applied teams read as needing re-apply until it runs),
 # and, where they have run here, play-claude-code-consumer and play-suspend-and-lid-policy,
 # whose helper inputs changed too (affected_plays maps the #191 commits to these eight plays).
+# Issue #182 adds to it: play-claude-yolo also rebuilds the ccy Go front (ccy 3.112.5), whose
+# --build-lock counts a zombie leader with threads left as still running.
 changed-plays
