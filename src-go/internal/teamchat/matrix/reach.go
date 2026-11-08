@@ -61,7 +61,7 @@ func Reach(ctx context.Context, cfg ReachConfig) error {
 	if err != nil {
 		return err
 	}
-	hc := newHTTPClient(trust)
+	hc := newHTTPClient(trust, nil)
 	defer hc.CloseIdleConnections()
 	tryCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

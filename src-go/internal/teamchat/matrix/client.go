@@ -106,6 +106,11 @@ type Config struct {
 	Timers Timers
 	// UserAgent replaces the side's default User-Agent.
 	UserAgent string
+	// Dial is the route to the URL's host and port; nil is a direct TCP dial. It changes where
+	// the bytes go and nothing they are judged by: the name the certificate must carry is still
+	// the URL's host and the pinned CA the only root. A test whose server cannot bind the address
+	// the URL names gives one.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Client is a Matrix client-server API client. It is safe for concurrent use.
@@ -156,7 +161,7 @@ func newClient(cfg Config, base, agent string, limit time.Duration, trust *pin) 
 	if timers == nil {
 		timers = SystemTimers()
 	}
-	c := &Client{base: base, http: newHTTPClient(trust), pin: trust, clock: clk, timers: timers, agent: agent, limit: limit}
+	c := &Client{base: base, http: newHTTPClient(trust, cfg.Dial), pin: trust, clock: clk, timers: timers, agent: agent, limit: limit}
 	if cfg.Token == "" {
 		return c, nil
 	}

@@ -58,7 +58,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_liveness_word`           | a status word read as running ("active", "online", "listening", "alive") spelled where no live source decides it                                               | `teams` board: every member not parked shown green "active" (Plan 00177)                                                                                                  |
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter             | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
 | `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies            | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00246 Task 8.8)                                                                                  |
-| `project_hostname_read`           | a teamchat read of the machine's hostname or of an address's name, so a hostname can reach a handle's site, which is permanent once issued                     | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)                                                                    |
+| `project_hostname_read`           | a teamchat read of the machine's hostname (a call, or a constant naming its variable or file) or of an address's name, so a hostname can reach a handle's site | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)                                                                    |
 | `project_problem_error_text`      | an error's own text in a teamchat status problem, which the record refuses past 512 bytes or with a control character, losing the team's whole record          | teamchat `health`: the leaf renewal's first draft put the CA's long refusal in a problem, and the record was not written (Plan 00246 Task 8.8, X31)                       |
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                               | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
@@ -1306,11 +1306,15 @@ handle, however sound its first caller is.
 **What it flags**, in `internal/teamchat`, `cmd/teamchat` and `cmd/teamchat-admin` and below,
 tests included, every use of:
 
-- `os.Hostname`;
+- `os.Hostname`, `syscall.Uname` and `unix.Uname` (`golang.org/x/sys/unix`);
 - `net.LookupAddr`, and a resolver's `LookupAddr` (`net.DefaultResolver.LookupAddr`, a
   `*net.Resolver` of its own);
 
-as a call or as a value (a function value, a package-level seam), through any import name.
+as a call or as a value (a function value, a package-level seam), through any import name; and
+every constant string expression, judged whole (so a name spelt in pieces is the name), whose
+value is `HOOKS_DAEMON_HOSTNAME` or `HOSTNAME`, each also with its `=` (the prefix an
+environment-file parser cuts), `/etc/hostname` or `/proc/sys/kernel/hostname`. A constant is
+reported where it is declared, not at each use.
 
 **The one exemption**, part of this rule's own definition and not a row of any allowance table:
 the file `internal/teamchat/declare/machinehost.go`, which reads the hostname once so the
@@ -1332,14 +1336,30 @@ reads it where a handle is made.
   a file path. With the analyzer reporting nothing the test failed on every flagged line (19
   missed diagnostics, the package with a test file being judged twice) and passed once the rule
   was written.
-- Red, real tree: no instance. The rule found nothing to fix, untagged, with `busfailpoints` and
-  with `tuwunel`, over `./internal/teamchat/...` (and the two commands untagged); the defect it
-  stands for, the environment-file read, is not an `os.Hostname` call and is fixed in the same
-  slice, with a test that no non-test file of teamchat names `HOOKS_DAEMON_HOSTNAME`.
-- Green: the tree after the slice, with no finding, untagged and with each tag.
+- Red, fixture, the named reads (review S4 of pull request 128): `badhost/reads.go` (the
+  defect's own form, an environment file's key compared with `"HOOKS_DAEMON_HOSTNAME"`; the
+  `NAME=` prefix cut from a line; the name spelt in two pieces; `os.Getenv` of both variables;
+  the two files, one under a root; `syscall.Uname` called and `unix.Uname` as a value, against a
+  stub of `golang.org/x/sys/unix` in the root), with `good.go` clean (`HOSTNAMES`, a line of
+  file content naming the variable, `/etc/hosts`, prose). With the rule as it was, the test
+  missed all ten diagnostics of `reads.go`.
+- Red, the defect: the rule as extended, run as go vet's tool over the tree at `503e456b5^`
+  (the commit before the defect's fix), reports
+  `internal/teamchat/host/lxc/guestfacts/guestfacts.go:526:14: "HOOKS_DAEMON_HOSTNAME"`, the
+  `if m[1] == "HOOKS_DAEMON_HOSTNAME"` that read the guest's hostname into a site; the rule as
+  first written reported nothing over that tree.
+- Red, real tree, and fixed: four test lines. Two tests used `/etc/hostname` as any file outside
+  a root (`guestroot` `TestReadsOnADeadRootAreGone`, `testfiles`
+  `TestWhatLeavesTheDirectoryIsRefused`) and now use `/etc/os-release`; `guestfacts`'
+  `TestNoSourceNamesTheHostnameVariable`, which named the variable to scan the non-test files
+  for it, is removed, the rule judging every file of teamchat, tests included, for the read
+  (a comment that names the variable is no longer checked by anything).
+- Green: the tree, with no finding, untagged and with `busfailpoints` and `tuwunel`, over
+  `./internal/teamchat/...` and the two commands.
 - Not caught: `net.LookupHost` and `net.LookupIP` of a name that came from a handle; a hostname
-  read through the `hostname` program, `/etc/hostname`, `/proc/sys/kernel/hostname` or the
-  environment; reflection.
+  read through the `hostname` program; one of the names inside a longer constant (a regular
+  expression naming the variable, a line of file content as a test writes) or built at run
+  time; reflection.
 
 ### project_problem_error_text
 
@@ -2066,6 +2086,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
   reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
   lists its ops by hand.
+
 - **A refusal state set from the answer to a request, without checking that the answer belongs
   to the credential held now** (fedora-desktop#159: `engine`'s sender set the team's send stop
   from a PUT's 401 or 403; a PUT made under the old token and answered after the team's
