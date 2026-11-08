@@ -66,7 +66,11 @@ func (e *Engine) reply(ctx context.Context, a wire.ReplyArgs, stdin *string, out
 	to := []string{it.from}
 	if a.ToCoordinator {
 		c, ok := st.roster.Coordinator()
-		if !ok {
+		switch {
+		case !ok && st.cachedOnly:
+			// The cache is not known to be current: no absence is claimed from it (issue 192).
+			return doneOf(exits.New(exits.CodeUnreachable, &t, msgNoRoster, exits.Team(t)))
+		case !ok:
 			return doneOf(exits.New(exits.CodeUnknownMember, &t, msgNoCoordinator, exits.Team(t)))
 		}
 		if c != st.self && !slices.Contains(to, c) {
@@ -128,11 +132,11 @@ func (e *Engine) replyTeam(ctx context.Context, t paths.TeamID) (sendTeam, error
 		return sendTeam{}, stopped
 	}
 	c := cands[0]
-	r, ok := c.roster()
+	r, ok, verified := c.roster()
 	if !ok {
 		return sendTeam{}, exits.New(exits.CodeUnreachable, &t, msgNoRoster, exits.Team(t))
 	}
-	return sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, nil
+	return sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors, cachedOnly: !verified}, nil
 }
 
 // repliedTo is the item id as the store holds it, or fetched: an id in no ledger, and a notice

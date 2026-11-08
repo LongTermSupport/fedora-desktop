@@ -94,8 +94,9 @@ func (s *sess) verify(ctx context.Context) error {
 		return err
 	}
 	s.roster = r
-	s.t.setRoster(r, s.a.Self)
-	s.t.setFacts(readFacts(st, r, s.a))
+	s.t.setRoster(r)
+	f, note := readFacts(st, r, s.a)
+	s.t.setFacts(r.Members[s.a.Self].Role, f, note)
 	s.t.saveRoster(ctx, r.Rev, content)
 	return nil
 }

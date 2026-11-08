@@ -8,8 +8,9 @@ import (
 )
 
 // MaxSession bounds session.json as it is written: the longest paths, written with `<`, `>` or
-// `&` escaped at six bytes each, and every team's role fit in it (TestTheLargestSessionIsWritten).
-const MaxSession = 16 << 10
+// `&` escaped at six bytes each, and every team's role and longest told coordinator fit in it
+// (TestTheLargestSessionIsWritten).
+const MaxSession = 20 << 10
 
 const sessionFile = "session.json"
 
@@ -42,10 +43,13 @@ type StopGuard struct {
 }
 
 // Told is what the session has been told: the desired generation whose membership NOTICE
-// reached it, and each team's role last announced (B 2.10).
+// reached it, each team's role last announced (B 2.10), and for each team where it is a
+// worker the coordinator last announced, "" for none (issue 192). A worker's team with no
+// coordinator entry has had no coordinator told, so the next verified one is.
 type Told struct {
-	Generation int64                   `json:"generation"`
-	Roles      map[paths.TeamID]string `json:"roles"`
+	Generation   int64                   `json:"generation"`
+	Roles        map[paths.TeamID]string `json:"roles"`
+	Coordinators map[paths.TeamID]string `json:"coordinators"`
 }
 
 // Unusable counts the inputs the link could not use (B 2.7.2, 2.8).
@@ -91,6 +95,12 @@ func (s Session) check(c *rules) {
 	c.need(s.Told.Roles != nil && len(s.Told.Roles) <= maxTeams, "told.roles is not a map of at most 64 teams")
 	for _, role := range s.Told.Roles {
 		c.need(slices.Contains(roles, role), "a told role is not coordinator, worker or probe")
+	}
+	c.need(s.Told.Coordinators != nil, "told.coordinators is not a map")
+	for team, coordinator := range s.Told.Coordinators {
+		_, isHandle := proto.ParseHandle(coordinator)
+		c.need(s.Told.Roles[team] == proto.RoleWorker, "a told coordinator is not for a team told as a worker")
+		c.need(coordinator == "" || isHandle, "a told coordinator is not a handle or empty")
 	}
 	c.need(s.Unusable.HookStdin >= 0 && s.Unusable.Render >= 0, "an unusable count is negative")
 }

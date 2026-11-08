@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/fakeinbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -43,10 +44,10 @@ func (w *linkWorld) notice(in *fakeinbox.Inbox) string {
 // worker and coordinator are the healths that give a team its role.
 func worker() team.Health {
 	coord := "repo.2+host.podman"
-	return team.Health{Role: proto.RoleWorker, Coordinator: &coord}
+	return team.Health{Role: proto.RoleWorker, Coordinator: &coord, Verified: true}
 }
 
-func coordinator() team.Health { return team.Health{Role: proto.RoleCoordinator} }
+func coordinator() team.Health { return team.Health{Role: proto.RoleCoordinator, Verified: true} }
 
 // toldWorld is a hook world whose session was framed with ids, each a worker, and is now live
 // on the inbox the test serves.
@@ -133,6 +134,171 @@ func TestARoleChangeIsAnnounced(t *testing.T) {
 	until(t, func() bool { return toldRoles(w)[a] == proto.RoleCoordinator })
 }
 
+const (
+	coordA = "repo.2+host.podman"
+	coordB = "repo.3+host.podman"
+)
+
+// workerUnder is a worker's health in a team whose verified roster names coordinator, "" for
+// none.
+func workerUnder(coordinator string) team.Health {
+	h := team.Health{Role: proto.RoleWorker, Verified: true}
+	if coordinator != "" {
+		h.Coordinator = &coordinator
+	}
+	return h
+}
+
+func toldCoordinators(w *linkWorld) map[paths.TeamID]string {
+	return w.link().session.File().Told.Coordinators
+}
+
+// heldTeams is the teams the engine last told the link.
+func heldTeams(l *link) []engine.TeamRole {
+	l.mem.mu.Lock()
+	defer l.mem.mu.Unlock()
+	return slices.Clone(l.mem.teams)
+}
+
+// quiet is whether an announce now tells nothing: it runs under the send lock, so a wake's
+// announce in flight is done, and it sends only what diffMembership finds.
+func quiet(t *testing.T, w *linkWorld, in *fakeinbox.Inbox) bool {
+	t.Helper()
+	w.link().announce(t.Context())
+	return len(in.Frames()) == 0
+}
+
+// Issue 192 (a): a session started while the record is mid-change is framed from the copy the
+// link holds, verified with no coordinator, and the change that lands after is told, though
+// the session's role is unchanged.
+func TestMidChangeStartIsTold(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	l := w.link()
+	l.eng.SetHealth(a, workerUnder(""))
+	in := w.inbox()
+	frame := contextOf(t, w.hook(wire.OpHookSessionStart))
+	if !strings.Contains(frame, "the worker; the team has no coordinator now.") {
+		t.Fatalf("frame %q", frame)
+	}
+	until(t, l.eng.Live)
+	l.eng.SetHealth(a, workerUnder(coordA))
+	text := w.notice(in)
+	if !strings.Contains(text, "teamchat: in team alpha the coordinator is now "+coordA+".") || strings.Contains(text, "joined") || strings.Contains(text, "you are") {
+		t.Fatalf("notice %q", text)
+	}
+	until(t, func() bool { return toldCoordinators(w)[a] == coordA })
+}
+
+// Issue 192 (b), (g): a session started before its team was verified is told its role is not
+// known yet, never an absence; the coordinator, once verified, is told with the role.
+func TestStaleStartCoordinator(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	l := w.link()
+	in := w.inbox()
+	frame := contextOf(t, w.hook(wire.OpHookSessionStart))
+	if !strings.Contains(frame, "your role and the team's coordinator are not known yet: run teamchat status --team alpha.") || strings.Contains(frame, "no coordinator") {
+		t.Fatalf("frame %q", frame)
+	}
+	until(t, l.eng.Live)
+	l.eng.SetHealth(a, workerUnder(coordA))
+	if text := w.notice(in); !strings.Contains(text, "in team alpha you are a worker; the coordinator is "+coordA+".") {
+		t.Fatalf("notice %q", text)
+	}
+	until(t, func() bool { return toldCoordinators(w)[a] == coordA })
+}
+
+// Issue 192 (g): an untrusted record, though Health still holds its role and coordinator, is
+// framed as not known yet.
+func TestAnUntrustedRecordIsNotKnown(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	untrusted := workerUnder("")
+	untrusted.Stopped = exits.CodeUntrusted
+	w.link().eng.SetHealth(a, untrusted)
+	if frame := contextOf(t, w.hook(wire.OpHookSessionStart)); !strings.Contains(frame, "not known yet") || strings.Contains(frame, "no coordinator") {
+		t.Fatalf("frame %q", frame)
+	}
+}
+
+// Issue 192 (g): a stop after the session was told announces nothing, and the coordinator found
+// at the recovery is told when it differs.
+func TestAStopIsQuiet(t *testing.T) {
+	a := tid(t, "alpha")
+	w2, in := toldWorld(t, a)
+	l2 := w2.link()
+	stopped := workerUnder(coordA)
+	stopped.Stopped = exits.CodeUntrusted
+	l2.eng.SetHealth(a, stopped)
+	until(t, func() bool {
+		teams := heldTeams(l2)
+		return len(teams) == 1 && !teams[0].Current
+	})
+	if !quiet(t, w2, in) || toldCoordinators(w2)[a] != coordA {
+		t.Fatalf("a stop was announced: frames %+v told %v", in.Frames(), toldCoordinators(w2))
+	}
+	l2.eng.SetHealth(a, workerUnder(coordB))
+	if text := w2.notice(in); !strings.Contains(text, "the coordinator is now "+coordB+".") {
+		t.Fatalf("notice %q", text)
+	}
+}
+
+// Issue 192 (c): a coordinator handed over is told to a worker whose role is unchanged.
+func TestCoordinatorHandover(t *testing.T) {
+	a := tid(t, "alpha")
+	w, in := toldWorld(t, a)
+	w.link().eng.SetHealth(a, workerUnder(coordB))
+	if text := w.notice(in); !strings.Contains(text, "teamchat: in team alpha the coordinator is now "+coordB+".") {
+		t.Fatalf("handed over: %q", text)
+	}
+	until(t, func() bool { return toldCoordinators(w)[a] == coordB })
+}
+
+// Issue 192 (d): a coordinator removed is told to a worker whose role is unchanged.
+func TestCoordinatorRemoved(t *testing.T) {
+	a := tid(t, "alpha")
+	w, in := toldWorld(t, a)
+	w.link().eng.SetHealth(a, workerUnder(""))
+	if text := w.notice(in); !strings.Contains(text, "teamchat: in team alpha there is no coordinator now.") {
+		t.Fatalf("removed: %q", text)
+	}
+	until(t, func() bool {
+		c, ok := toldCoordinators(w)[a]
+		return ok && c == ""
+	})
+}
+
+// Issue 192 (e): a change that leaves the coordinator as told (another fact of main changed)
+// tells nothing.
+func TestSameCoordinatorQuiet(t *testing.T) {
+	a := tid(t, "alpha")
+	w, in := toldWorld(t, a)
+	l := w.link()
+	h := worker()
+	about := "Ships the widgets"
+	h.Description = &about
+	l.eng.SetHealth(a, h)
+	until(t, func() bool {
+		teams := heldTeams(l)
+		return len(teams) == 1 && teams[0].Description == about
+	})
+	if !quiet(t, w, in) {
+		t.Fatalf("frames %+v", in.Frames())
+	}
+}
+
+// Issue 192 (f): this session's own role change is told as before, with no coordinator line.
+func TestOwnRoleChangeAsBefore(t *testing.T) {
+	a := tid(t, "alpha")
+	w, in := toldWorld(t, a)
+	w.link().eng.SetHealth(a, coordinator())
+	text := w.notice(in)
+	if !strings.Contains(text, "in team alpha you are the coordinator.") || strings.Contains(text, "coordinator is now") {
+		t.Fatalf("notice %q", text)
+	}
+}
+
 // DV6: a notice the socket did not take is the next prompt's lines, told then, and only once.
 func TestAnUnwrittenNoticeIsThePrompts(t *testing.T) {
 	a, b := tid(t, "alpha"), tid(t, "bravo")
@@ -164,7 +330,10 @@ func TestARestartedLinkTellsNothingTwice(t *testing.T) {
 	s := w.startedSession(state.Unusable{})
 	s.Socket = new(w.inboxSocket())
 	s.FrameTold = true
-	s.Told = state.Told{Generation: 1, Roles: map[paths.TeamID]string{a: proto.RoleWorker, c: proto.RoleWorker}}
+	s.Told = state.Told{
+		Generation: 1, Roles: map[paths.TeamID]string{a: proto.RoleWorker, c: proto.RoleWorker},
+		Coordinators: map[paths.TeamID]string{a: coordA, c: coordA},
+	}
 	data, err := s.Encode()
 	check(t, err)
 	check(t, w.root.Replace(w.layout.Run(w.run).Session(), data, 0o600))
@@ -240,30 +409,41 @@ func mapsEqual(a, b map[paths.TeamID]string) bool {
 	return true
 }
 
-// diffMembership: an unknown role keeps the told one; a probe is told quietly; Coordinator is
-// a worker's only; a team left needs a remove seen.
+// toldOf is a told with roles and coordinators given as pairs.
+func toldOf(t *testing.T, r, c map[paths.TeamID]string) state.Told {
+	t.Helper()
+	return state.Told{Roles: r, Coordinators: c}
+}
+
+// diffMembership: an unknown role, and a role from a record not current, keep the told one; a
+// probe is told quietly; Coordinator is a worker's only; a team left needs a remove seen.
 func TestDiffMembership(t *testing.T) {
-	a, b, c, d := tid(t, "alpha"), tid(t, "bravo"), tid(t, "charlie"), tid(t, "delta")
+	a, b, c, d, f := tid(t, "alpha"), tid(t, "bravo"), tid(t, "charlie"), tid(t, "delta"), tid(t, "foxtrot")
 	teams := []engine.TeamRole{
 		{Team: a},
-		{Team: b, Role: proto.RoleProbe, Handle: "repo.1+site.podman"},
-		{Team: c, Role: proto.RoleCoordinator, Handle: "repo.1+site.podman", Coordinator: "repo.2+host.podman"},
+		{Team: b, Role: proto.RoleProbe, Handle: "repo.1+site.podman", Current: true},
+		{Team: c, Role: proto.RoleCoordinator, Handle: "repo.1+site.podman", Coordinator: "repo.2+host.podman", Current: true},
+		{Team: f, Role: proto.RoleCoordinator, Handle: "repo.1+site.podman"},
 	}
-	told := roles(t, "alpha", proto.RoleWorker, "delta", proto.RoleWorker, "echo", proto.RoleWorker)
+	told := toldOf(t, roles(t, "alpha", proto.RoleWorker, "delta", proto.RoleWorker, "echo", proto.RoleWorker, "foxtrot", proto.RoleWorker),
+		roles(t, "alpha", coordA, "foxtrot", ""))
 	m, got, notice := diffMembership(told, teams, map[paths.TeamID]string{d: proto.FarewellParked})
 	if !notice {
 		t.Fatal("no notice")
 	}
-	if want := roles(t, "alpha", proto.RoleWorker, "bravo", proto.RoleProbe, "charlie", proto.RoleCoordinator, "echo", proto.RoleWorker); !mapsEqual(got, want) {
-		t.Fatalf("roles %v", got)
+	if want := roles(t, "alpha", proto.RoleWorker, "bravo", proto.RoleProbe, "charlie", proto.RoleCoordinator, "echo", proto.RoleWorker, "foxtrot", proto.RoleWorker); !mapsEqual(got.Roles, want) {
+		t.Fatalf("roles %v", got.Roles)
+	}
+	if want := roles(t, "alpha", coordA, "foxtrot", ""); !mapsEqual(got.Coordinators, want) {
+		t.Fatalf("coordinators %v", got.Coordinators)
 	}
 	if len(m.Left) != 1 || m.Left[0] != (proto.MembershipLeft{Team: d.String(), Reason: proto.FarewellParked}) {
 		t.Fatalf("left %+v", m.Left)
 	}
-	if len(m.Joined) != 1 || m.Joined[0].Team != c.String() || m.Joined[0].Coordinator != "" || len(m.Roles) != 0 {
-		t.Fatalf("joined %+v roles %+v", m.Joined, m.Roles)
+	if len(m.Joined) != 1 || m.Joined[0].Team != c.String() || m.Joined[0].Coordinator != "" || len(m.Roles)+len(m.Coordinators) != 0 {
+		t.Fatalf("joined %+v roles %+v coordinators %+v", m.Joined, m.Roles, m.Coordinators)
 	}
-	if !slices.Equal(m.Teams, []string{"alpha", "bravo", "charlie"}) {
+	if !slices.Equal(m.Teams, []string{"alpha", "bravo", "charlie", "foxtrot"}) {
 		t.Fatalf("teams %v", m.Teams)
 	}
 	text, err := m.Render("0123abcd")
@@ -276,13 +456,14 @@ func TestDiffMembership(t *testing.T) {
 // diffMembership: nothing changed is no notice; a probe joining is recorded with none.
 func TestDiffMembershipQuiet(t *testing.T) {
 	a, b := tid(t, "alpha"), tid(t, "bravo")
-	same, kept, notice := diffMembership(roles(t, "alpha", proto.RoleWorker), []engine.TeamRole{{Team: a, Role: proto.RoleWorker}}, nil)
-	if notice || len(same.Joined)+len(same.Roles)+len(same.Left) != 0 || kept[a] != proto.RoleWorker {
+	told := toldOf(t, roles(t, "alpha", proto.RoleWorker), roles(t, "alpha", coordA))
+	same, kept, notice := diffMembership(told, []engine.TeamRole{{Team: a, Role: proto.RoleWorker, Coordinator: coordA, Current: true}}, nil)
+	if notice || len(same.Joined)+len(same.Roles)+len(same.Left)+len(same.Coordinators) != 0 || kept.Roles[a] != proto.RoleWorker || kept.Coordinators[a] != coordA {
 		t.Fatalf("nothing changed: notice %t, %+v, %v", notice, same, kept)
 	}
-	probe, quiet, notice := diffMembership(roles(t), []engine.TeamRole{{Team: b, Role: proto.RoleProbe}}, nil)
-	if notice || len(probe.Joined) != 0 || quiet[b] != proto.RoleProbe {
-		t.Fatalf("probe: notice %t, %+v, %v", notice, probe, quiet)
+	probe, recorded, notice := diffMembership(toldOf(t, roles(t), roles(t)), []engine.TeamRole{{Team: b, Role: proto.RoleProbe, Current: true}}, nil)
+	if notice || len(probe.Joined) != 0 || recorded.Roles[b] != proto.RoleProbe {
+		t.Fatalf("probe: notice %t, %+v, %v", notice, probe, recorded)
 	}
 }
 
@@ -292,7 +473,7 @@ func TestAnUnrenderableNoticeIsToldAnyway(t *testing.T) {
 	w, in := toldWorld(t, a)
 	l := w.link()
 	l.mem.mu.Lock()
-	l.mem.teams = []engine.TeamRole{{Team: a, Role: proto.RoleWorker}, {Team: b, Role: proto.RoleWorker, Handle: "not a handle"}}
+	l.mem.teams = []engine.TeamRole{{Team: a, Role: proto.RoleWorker, Coordinator: coordA, Current: true}, {Team: b, Role: proto.RoleWorker, Handle: "not a handle", Current: true}}
 	l.mem.known = true
 	l.mem.mu.Unlock()
 	l.announce(t.Context())

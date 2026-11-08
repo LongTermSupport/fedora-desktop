@@ -24,9 +24,9 @@ type HookView struct {
 }
 
 // HookTeam is one held team for the hooks: the session's handle and role in it, the
-// coordinator's handle and the description ("" for none), the pending items the socket will
-// not push (NotPushed, by event id, and their Counts by kind), how many of them are held as
-// missing, and the team's health.
+// coordinator's handle and the description ("" for none), whether those are current (as
+// TeamRole's), the pending items the socket will not push (NotPushed, by event id, and their
+// Counts by kind), how many of them are held as missing, and the team's health.
 type HookTeam struct {
 	Team                                   paths.TeamID
 	Handle, Role, Coordinator, Description string
@@ -35,13 +35,19 @@ type HookTeam struct {
 	Missing                                int64
 	Down                                   bool
 	Failed                                 *string
+	Current                                bool
 }
 
 // TeamRole is one held team as the membership notice names it (DV6); Role is "" until the
-// team's verification has told it.
+// team's verification has told it. Current is whether Role and Coordinator come from a team
+// record verified current (issue 192): Health.Verified, a verification of a team not stopped
+// since. A team that cannot reach its server keeps its last verification current; a stopped
+// one (untrusted, its token refused), and one restarted after a stop and not verified again,
+// does not, whatever Health still holds.
 type TeamRole struct {
 	Team                                   paths.TeamID
 	Role, Handle, Coordinator, Description string
+	Current                                bool
 }
 
 // hookState is what the engine keeps for the hooks: the desired membership's last read, the
@@ -81,7 +87,10 @@ func (e *Engine) hookViewLocked() HookView {
 // hookTeam is h for the hooks; live is whether the socket pushes what is not held.
 func hookTeam(h *held, live bool) HookTeam {
 	r := teamRole(h)
-	ht := HookTeam{Team: h.id, Handle: r.Handle, Role: r.Role, Coordinator: r.Coordinator, Description: r.Description, Down: h.health.Down}
+	ht := HookTeam{
+		Team: h.id, Handle: r.Handle, Role: r.Role, Coordinator: r.Coordinator, Description: r.Description, Current: r.Current,
+		Down: h.health.Down,
+	}
 	if f, ok := failures[h.health.Stopped]; ok {
 		ht.Failed = &f
 	}
@@ -119,7 +128,7 @@ func count(c *hooktext.Counts, kind string) {
 }
 
 func teamRole(h *held) TeamRole {
-	r := TeamRole{Team: h.id, Role: h.health.Role, Handle: h.handle()}
+	r := TeamRole{Team: h.id, Role: h.health.Role, Handle: h.handle(), Current: h.health.Verified && h.health.Role != "" && h.health.Stopped == ""}
 	if h.health.Coordinator != nil {
 		r.Coordinator = *h.health.Coordinator
 	}

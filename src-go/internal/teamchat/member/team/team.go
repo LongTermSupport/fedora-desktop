@@ -132,6 +132,11 @@ type Health struct {
 	Colour      *string
 	Description *string
 	Coordinator *string
+	// Verified is whether Role and the facts above come from a verification of main this team
+	// goroutine made since it last stopped: written with them in one SetHealth, false from a
+	// stop until the next verification (issue 192). A reader states the role or the
+	// coordinator only while it holds; a server that cannot be reached does not clear it.
+	Verified bool
 }
 
 // ErrRemoved is a write for a team the engine has removed.

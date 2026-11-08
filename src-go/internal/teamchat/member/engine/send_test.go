@@ -808,6 +808,28 @@ func TestN3dD3ACachedRosterComposes(t *testing.T) {
 	refusedCode(t, "no roster anywhere", firstOf(w.say(nil, "x", "alice")), exits.CodeUnreachable)
 }
 
+// Issue 192, class 1: the roster cache is a copy from an earlier verification, not known to be
+// current, so a send it cannot address is not told the team has no coordinator, or no such
+// member: it is 20, the team not verified yet, as a team with no roster at all is.
+func TestACachedRosterNeverClaimsAnAbsence(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	check(t, w.root.MkdirAll(w.layout.Seat(ops).Dir()))
+	check(t, state.Write(w.root, w.layout.Seat(ops).RosterCache(), state.RosterCache{Rev: 4, Content: rosterContent(ops, 4)}))
+	<-w.add(ops, encodeStore(t, w.newStore(ops))).running
+	w.e.SetHealth(ops, team.Health{Down: true})
+	for name, d := range map[string]wire.Done{
+		"--to-coordinator": firstOf(w.request(t.Context(), wire.OpSay, wire.SayArgs{Team: &ops, ToCoordinator: true}, new("x"))),
+		"--to a stranger":  firstOf(w.say(&ops, "x", "repo.9")),
+		"no --team":        firstOf(w.say(nil, "x", "repo.9")),
+	} {
+		refusedCode(t, name, d, exits.CodeUnreachable)
+		if d.Error != nil && (strings.Contains(d.Error.Message, "has no coordinator") || strings.Contains(d.Error.Message, "has a member")) {
+			t.Errorf("%s: an absence from the cache: %q", name, d.Error.Message)
+		}
+	}
+}
+
 // SD4-n3d: a posted answer-expecting ping enters the outbox with its due_ms; a say and a done
 // do not.
 func TestSD4n3dASentPingEntersTheOutbox(t *testing.T) {

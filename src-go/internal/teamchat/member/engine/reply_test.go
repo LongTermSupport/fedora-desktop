@@ -70,6 +70,22 @@ func carriedVerdict(id paths.TeamID, n int, kind, from string) proto.Verdict {
 	}
 }
 
+// Issue 192, class 1: a reply --to-coordinator composed from the roster cache alone, which
+// names no coordinator, is 20 (the team not verified yet), never "has no coordinator".
+func TestACachedRosterReplyNeverClaimsNoCoordinator(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	check(t, w.root.MkdirAll(w.layout.Seat(ops).Dir()))
+	check(t, state.Write(w.root, w.layout.Seat(ops).RosterCache(), state.RosterCache{Rev: 4, Content: rosterContent(ops, 4)}))
+	<-w.add(ops, encodeStore(t, w.replyStore(ops))).running
+	w.e.SetHealth(ops, team.Health{Down: true})
+	d := firstOf(w.reply(wire.ReplyArgs{ID: evID(peerEv), ToCoordinator: true}, new("x")))
+	refusedCode(t, "--to-coordinator from the cache", d, exits.CodeUnreachable)
+	if strings.Contains(d.Error.Message, "has no coordinator") {
+		t.Errorf("an absence from the cache: %q", d.Error.Message)
+	}
+}
+
 // SD1-1: a reply to a human item is a reply in main to the human, which a worker copies to
 // the coordinator (P21); --to-coordinator adds the coordinator to a reply to a peer.
 func TestSD1_1AReplyToAHumanItem(t *testing.T) {

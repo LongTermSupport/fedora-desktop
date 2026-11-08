@@ -1947,7 +1947,10 @@ B's farewell reasons are `released`, `removed` and `parked` (B 2.10); proto rend
 (`FarewellRemoved`, v1's one reason) and refuses any other (`reason`), so the left-line texts for
 `released` and `parked` are owed to N3 with B. The role lines are the first clause of H12's `role_*`
 templates (`in team <t> you are the coordinator.`, `... you are a worker; the coordinator is <h>.`,
-`... you are a worker; the team has no coordinator now.`), and the coordinator's line has one more
+`... you are a worker; the team has no coordinator now.`, the absence only from a record verified
+current, else `... you are a worker; the coordinator is not known yet: run teamchat status --team <t>.`),
+a worker whose role is unchanged is told a coordinator change (`in team <t> the coordinator is now <h>.`
+or `in team <t> there is no coordinator now.`, `Membership.Coordinators`), and the coordinator's line has one more
 sentence: `in team <t> you are the coordinator. Human posts made in the questions room while the coordinator changed are not delivered to you; to see them, run teamchat questions --team <t>.` That
 sentence is in the notice because a promotion's notice is where a new coordinator learns it must
 look, and nothing else delivers those posts (B's questions room, SPEC-n3f OW4); it names only the

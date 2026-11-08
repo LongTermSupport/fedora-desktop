@@ -741,7 +741,7 @@ being the one on the seat's play line and board row (C 3.9.4). The next start th
 {"v": 1, "run": "<16 hex>", "session_id": "<claude session id>", "source": "startup", "transcript": "/<abs>/<id>.jsonl",
  "socket": "/<abs>/cc-socks/<pid>.sock", "claude": {"pid": 0, "start_ticks": 0}, "end_reason": null,
  "stop_guard": {"pending_digest": "<64 hex>|null", "failure_ms": null, "no_waker_ms": null},
- "told": {"generation": 3, "roles": {"<team>": "worker"}}, "frame_told": true,
+ "told": {"generation": 3, "roles": {"<team>": "worker"}, "coordinators": {"<team>": "<handle>|"}}, "frame_told": true,
  "unusable": {"hook_stdin": 0, "render": 0}}
 ```
 
@@ -749,8 +749,9 @@ It is the one home of the session's facts (2.4.4): the session id, its source, t
 the inbox socket's path (its token is never on disk, B11) and the SessionEnd reason (`exit`,
 `logout`, `other`, or `null`). It lives in `<v2-run>`, which outlives a link, so a restarted link
 reads it back and needs nothing handed over but the token. `told` is the one home of what the
-session has been told: the desired generation whose membership NOTICE reached it and each team's
-role last announced (2.10). The store holds none of it, because what was told belongs to the
+session has been told: the desired generation whose membership NOTICE reached it, each team's
+role last announced (2.10), and for each team where it is a worker the coordinator last announced
+(`""` for none; no entry, none told yet, so the next verified one is told). The store holds none of it, because what was told belongs to the
 session, and a new session is told afresh by its SessionStart frame. `unusable` counts the inputs
 the link could not use (2.8, 2.7.2), which `status` reports. Until the first SessionStart,
 `session_id`, `source`, `transcript`, `socket` and `claude` are all `null`; afterwards all are set.

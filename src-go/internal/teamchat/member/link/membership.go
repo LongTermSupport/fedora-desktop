@@ -103,8 +103,10 @@ func (l *link) changeNow() change {
 	if !f.FrameTold || !known {
 		return change{}
 	}
-	m, roles, tell := diffMembership(f.Told.Roles, teams, farewells)
-	return change{notice: m, told: state.Told{Generation: gen, Roles: roles}, tell: tell, quiet: !tell && !maps.Equal(roles, f.Told.Roles)}
+	m, told, tell := diffMembership(f.Told, teams, farewells)
+	told.Generation = gen
+	same := maps.Equal(told.Roles, f.Told.Roles) && maps.Equal(told.Coordinators, f.Told.Coordinators)
+	return change{notice: m, told: told, tell: tell, quiet: !tell && !same}
 }
 
 // announce is one DV6 send: the change told on the socket and recorded once written; a notice
@@ -182,21 +184,25 @@ func (l *link) recordTold(c change) {
 	l.mem.mu.Unlock()
 }
 
-// tellFrame records SessionStart's frame: frame_told, and told as the teams the frame named;
-// nothing is owed after it.
+// tellFrame records SessionStart's frame: frame_told, and told as the roles and a worker's
+// coordinator the frame stated, from teams whose record is current; a team the frame said is
+// not known yet is not told, so its role and coordinator are announced once verified. Nothing
+// is owed after it.
 func (l *link) tellFrame(v engine.HookView) error {
-	roles := map[paths.TeamID]string{}
+	l.mem.mu.Lock()
+	told := newTold(l.mem.generation)
+	l.mem.mu.Unlock()
 	for _, t := range v.Teams {
-		if t.Role != "" {
-			roles[t.Team] = t.Role
+		if t.Current && t.Role != "" {
+			told.Roles[t.Team] = t.Role
+			if t.Role == proto.RoleWorker {
+				told.Coordinators[t.Team] = t.Coordinator
+			}
 		}
 	}
-	l.mem.mu.Lock()
-	gen := l.mem.generation
-	l.mem.mu.Unlock()
 	err := l.session.Update(func(n *state.Session) bool {
 		n.FrameTold = n.Started()
-		n.Told = state.Told{Generation: gen, Roles: roles}
+		n.Told = told
 		return true
 	})
 	if err == nil {
@@ -205,54 +211,82 @@ func (l *link) tellFrame(v engine.HookView) error {
 	return err
 }
 
-// diffMembership is the notice from told to the held teams, the roles to record, and whether
-// there is a notice. A held team's role is its known one, else its told one. A team told and
-// no longer held has left when a remove was seen for it (with farewells' reason); else it
-// stays told, as an add that has not come back yet. A probe's role is recorded quietly: the
-// notice has no probe line.
-func diffMembership(told map[paths.TeamID]string, teams []engine.TeamRole, farewells map[paths.TeamID]string) (proto.Membership, map[paths.TeamID]string, bool) {
+// newTold is an empty told at generation gen.
+func newTold(gen int64) state.Told {
+	return state.Told{Generation: gen, Roles: map[paths.TeamID]string{}, Coordinators: map[paths.TeamID]string{}}
+}
+
+// keepTold copies team t's told role and coordinator from told into next.
+func keepTold(next, told state.Told, t paths.TeamID) {
+	next.Roles[t] = told.Roles[t]
+	if c, ok := told.Coordinators[t]; ok {
+		next.Coordinators[t] = c
+	}
+}
+
+// diffMembership is the notice from told to the held teams, the told to record (its
+// generation the caller's), and whether there is a notice. A held team whose record is current
+// gives its role, and a worker's its coordinator; any other held team keeps what was told, so
+// nothing is announced from a record not verified current (issue 192). A worker whose role is
+// unchanged is told its coordinator when it differs from the one told, or none was told. A
+// team told and no longer held has left when a remove was seen for it (with farewells'
+// reason); else it stays told, as an add that has not come back yet. A probe's role is
+// recorded quietly: the notice has no probe line.
+func diffMembership(told state.Told, teams []engine.TeamRole, farewells map[paths.TeamID]string) (proto.Membership, state.Told, bool) {
 	var m proto.Membership
-	roles := map[paths.TeamID]string{}
+	next := newTold(0)
 	held := map[paths.TeamID]bool{}
 	for _, t := range teams {
 		held[t.Team] = true
-		was, wasTold := told[t.Team]
-		role := t.Role
-		if role == "" {
+		was, wasTold := told.Roles[t.Team]
+		if !t.Current || t.Role == "" {
 			if wasTold {
-				roles[t.Team] = was
+				keepTold(next, told, t.Team)
 				m.Teams = append(m.Teams, t.Team.String())
 			}
 			continue
 		}
-		roles[t.Team] = role
+		role := t.Role
+		next.Roles[t.Team] = role
 		m.Teams = append(m.Teams, t.Team.String())
-		if role == proto.RoleProbe || wasTold && was == role {
-			continue
-		}
-		mt := proto.MembershipTeam{Team: t.Team.String(), Handle: t.Handle, Role: role, Description: t.Description}
+		mt := proto.MembershipTeam{Team: t.Team.String(), Handle: t.Handle, Role: role, Description: t.Description, Current: true}
 		if role == proto.RoleWorker {
 			mt.Coordinator = t.Coordinator
+			next.Coordinators[t.Team] = t.Coordinator
 		}
-		if wasTold {
+		switch {
+		case role == proto.RoleProbe:
+		case wasTold && was == role:
+			if c, ok := told.Coordinators[t.Team]; role == proto.RoleWorker && (!ok || c != t.Coordinator) {
+				m.Coordinators = append(m.Coordinators, mt)
+			}
+		case wasTold:
 			m.Roles = append(m.Roles, mt)
-		} else {
+		default:
 			m.Joined = append(m.Joined, mt)
 		}
 	}
-	gone := slices.SortedFunc(maps.Keys(told), func(a, b paths.TeamID) int { return strings.Compare(a.String(), b.String()) })
+	m.Left = diffGone(next, told, held, farewells)
+	return m, next, len(m.Left)+len(m.Joined)+len(m.Roles)+len(m.Coordinators) > 0
+}
+
+// diffGone is the told teams not held now that left (a remove seen, with its reason); every
+// other told team not held stays told in next.
+func diffGone(next, told state.Told, held map[paths.TeamID]bool, farewells map[paths.TeamID]string) []proto.MembershipLeft {
+	var left []proto.MembershipLeft
+	gone := slices.SortedFunc(maps.Keys(told.Roles), func(a, b paths.TeamID) int { return strings.Compare(a.String(), b.String()) })
 	for _, t := range gone {
 		if held[t] {
 			continue
 		}
 		reason, removed := farewells[t]
 		if !removed {
-			roles[t] = told[t]
+			keepTold(next, told, t)
 			continue
 		}
-		m.Left = append(m.Left, proto.MembershipLeft{Team: t.String(), Reason: reason})
+		left = append(left, proto.MembershipLeft{Team: t.String(), Reason: reason})
 	}
-	return m, roles, len(m.Left)+len(m.Joined)+len(m.Roles) > 0
+	return left
 }
 
 // newNonce is a delivery nonce, 8 hex digits from crypto/rand.

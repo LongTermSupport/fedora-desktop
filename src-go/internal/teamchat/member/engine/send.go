@@ -64,6 +64,8 @@ type sendTeam struct {
 	roster  proto.Roster
 	self    string
 	anchors proto.Anchors
+	// cachedOnly is whether roster is the roster cache alone, not verified this run.
+	cachedOnly bool
 }
 
 func (st sendTeam) namer() namer {
@@ -159,17 +161,20 @@ type sendCandidate struct {
 	anchors proto.Anchors
 }
 
-// roster is the team's verified roster, else its cached one (n3d-D3); off the state goroutine.
-func (c sendCandidate) roster() (proto.Roster, bool) {
+// roster is the team's verified roster, else its cached one (n3d-D3): the roster, whether
+// there is one, and whether it is the verified one; off the state goroutine. The cache
+// composes a send, but it is a copy not known to be current, so no absence is claimed from it
+// (issue 192).
+func (c sendCandidate) roster() (proto.Roster, bool, bool) {
 	if c.tm != nil {
 		if r, ok := c.tm.Notices().Roster(); ok {
-			return r, true
+			return r, true, true
 		}
 	}
 	if c.cached != nil {
-		return *c.cached, true
+		return *c.cached, true, false
 	}
-	return proto.Roster{}, false
+	return proto.Roster{}, false, false
 }
 
 // resolution is one team's reading of a send's names.
@@ -229,21 +234,23 @@ func resolveAll(cands []sendCandidate, flag *paths.TeamID, names []string, toCoo
 		unverified *paths.TeamID
 	)
 	for _, c := range cands {
-		r, ok := c.roster()
-		if !ok {
-			if flag != nil {
-				return nil, nil, nil, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
-			}
-			if unverified == nil {
-				unverified = &c.id
-			}
-			continue
+		r, ok, verified := c.roster()
+		var res resolution
+		if ok {
+			res = resolve(sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, names, toCoordinator)
 		}
-		res := resolve(sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, names, toCoordinator)
-		if res.whole() {
+		switch {
+		case ok && res.whole():
 			found = append(found, res)
-		} else if first == nil {
-			first = &res
+		case ok && verified:
+			if first == nil {
+				first = &res
+			}
+		// No roster, or only the cache, which cannot say who is not a member (issue 192).
+		case flag != nil:
+			return nil, nil, nil, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
+		case unverified == nil:
+			unverified = &c.id
 		}
 	}
 	return found, first, unverified, nil

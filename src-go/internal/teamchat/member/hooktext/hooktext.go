@@ -32,6 +32,7 @@ const unshown = "?"
 const (
 	tmplTeam              template = "team {}: you are {}, the {} (coordinator: {})."
 	tmplTeamNoCoordinator template = "team {}: you are {}, the {}; the team has no coordinator now."
+	tmplTeamNotKnown      template = "team {}: you are {}; your role and the team's coordinator are not known yet: run teamchat status --team {}."
 	tmplRoleCoordinator   template = "In team {} you direct the team's agents; ask the humans with teamchat ask --team {}, and follow up with teamchat questions --team {}."
 	tmplRoleWorker        template = "In team {} take direction from the team's humans and its coordinator; report with teamchat report --team {}."
 	tmplRoleProbe         template = "In team {} this session is the team's acceptance probe."
@@ -120,13 +121,15 @@ func Block(reason string) Answer {
 }
 
 // FrameTeam is one team's block of the frame: the session's handle and role in it, the
-// coordinator's handle ("" for none) and the team's description.
+// coordinator's handle ("" for none) and the team's description. Current is whether the role
+// and coordinator come from a team record verified current; the zero value is not.
 type FrameTeam struct {
 	Team        paths.TeamID
 	Handle      string
 	Role        string
 	Coordinator string
 	Description string
+	Current     bool
 }
 
 // Frame is SessionStart's text: A 13.5's frame, each team's block (who the session is, the
@@ -147,14 +150,23 @@ func Frame(teams []FrameTeam, mode string) string {
 	return strings.Join(lines, "\n")
 }
 
+// teamLines is a team's block: its head, with the coordinator clause as
+// proto.ClaimCoordinator decides it (issue 192), and how its role works. A record not
+// verified current names neither role nor coordinator: they are not known yet.
 func teamLines(t FrameTeam) []string {
 	id := t.Team.String()
 	role := oneOf(t.Role, proto.RoleCoordinator, proto.RoleWorker, proto.RoleProbe)
 	if role == unshown {
 		role = roleNone
 	}
-	head := fill(tmplTeamNoCoordinator, id, handle(t.Handle), role)
-	if t.Coordinator != "" {
+	var head string
+	switch proto.ClaimCoordinator(t.Current, t.Coordinator) {
+	case proto.CoordinatorNotKnown:
+		head = fill(tmplTeamNotKnown, id, handle(t.Handle), id)
+		role = ""
+	case proto.CoordinatorAbsent:
+		head = fill(tmplTeamNoCoordinator, id, handle(t.Handle), role)
+	case proto.CoordinatorNamed:
 		head = fill(tmplTeam, id, handle(t.Handle), role, handle(t.Coordinator))
 	}
 	if proto.ValidDescription(t.Description) && t.Description != "" {
@@ -264,12 +276,13 @@ func All() []string {
 	const coordinator = "repo.1+desk.podman"
 	c := Counts{Total: 6, Humans: 1, Agents: 2, Pings: 1, Notices: 1, Timeouts: 1}
 	teams := []FrameTeam{
-		{Team: alpha, Handle: coordinator, Role: proto.RoleCoordinator, Coordinator: coordinator, Description: "The sample team."},
-		{Team: beta, Handle: "repo.2+desk.podman", Role: proto.RoleWorker},
-		{Team: gamma, Handle: "probe.1+desk.podman", Role: proto.RoleProbe, Coordinator: coordinator},
+		{Team: alpha, Handle: coordinator, Role: proto.RoleCoordinator, Coordinator: coordinator, Description: "The sample team.", Current: true},
+		{Team: beta, Handle: "repo.2+desk.podman", Role: proto.RoleWorker, Current: true},
+		{Team: gamma, Handle: "probe.1+desk.podman", Role: proto.RoleProbe, Coordinator: coordinator, Current: true},
+		{Team: beta, Handle: "repo.2+desk.podman"},
 	}
 	return []string{
-		Frame(teams, state.DeliverySocket), Frame(teams[1:2], state.DeliveryWait), Frame(nil, state.DeliveryNone),
+		Frame(teams[:3], state.DeliverySocket), Frame(teams[1:2], state.DeliveryWait), Frame(nil, state.DeliveryNone), Frame(teams[3:], state.DeliverySocket),
 		Pending(c), Missing(1), Missing(3), Stalled(c), StopPending(c), StopNoWaker(),
 		TeamFailed(alpha, state.FailedUnauthorized), TeamDown(beta), DesiredRefused("schema"), AddRefused(gamma),
 		Membership([]string{"MEMBERSHIP sample"}), Recovery(""),
