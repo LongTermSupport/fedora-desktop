@@ -82,7 +82,7 @@ Use these Unicode icons in plan documents:
 
 - [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started (owner Decisions 5-7 open). Host `cc` sessions run under the project's hooks-daemon supervisor as ccy's do, only in a checkout Claude Code already trusts. Addresses #113
 
-- [00225-team-liaison-role](00225-team-liaison-role/) - Not Started. A `liaison` team role that talks to the humans for the coordinator: hand-offs, checked relays, progress updates, read-only code
+- [00225-team-liaison-role](00225-team-liaison-role/) - Not Started (plan only; agent bus v2 only, since v1 is feature-frozen; usable once Plan 00209 Phase 6 migrates a team). A `liaison` team role that talks to the humans for the coordinator: hand-offs posted verbatim, relays the coordinator checks on the homeserver, one conversation across Claude Code and Element, progress updates, read-only code and no write credentials
 
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
 
