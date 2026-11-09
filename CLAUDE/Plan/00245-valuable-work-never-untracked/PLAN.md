@@ -117,8 +117,14 @@ the coordinator runs the full QA over and opens as one PR to F44
   ccy 3.113.0, the Go front's token check, network check and version probe given the limit
   too; review round 3 (CHANGES) fixed: the Go twin rule `project_container_pids_limit`, red on
   `ccc`'s two runs, which now pass the limit.
-- [ ] ⬜ **Task 4.2**: Plan 00173's qa-reviewer fixes (`agent-ae87230b6e5b05508-967f0e77`).
-- [ ] ⬜ **Task 4.3**: Plan 00185's umask pin (`agent-a81014c63f66ee6f8-c4d3bbe2`).
+- [x] ✅ **Task 4.2**: Plan 00173's qa-reviewer fixes (`agent-ae87230b6e5b05508-967f0e77`):
+  merged; its bash `ccy-sessions` change (a warning names each cc session as not shown it) is
+  ported to the Go `ccy-sessions` F44 cut over to (`TestACcSessionIsNamedAsNotShownTheWarning`,
+  and the branch's case in `test-ccy-sessions-reboot.bash` passes against the Go binary).
+- [ ] ⏸ **Task 4.3**: Plan 00185's umask pin (`agent-a81014c63f66ee6f8-c4d3bbe2`): left out
+  for the owner. F44 fixed the same defect another way after the branch stopped (05ad1442c:
+  rule `root-umask`, 7 sites, Plan 00185 Complete); the branch's global pin to 022 is an
+  alternative or a complement to it, which is the owner's call.
 - [ ] ⬜ **Task 4.4**: Plan 00177 Task 7.6, the unknown team (`agent-a8c69aa67110156ce-c48195fd`).
 - [ ] ⬜ **Task 4.5**: ccy Go caches on the host (`agent-ad49d4886a70d25db-01b66214`).
 

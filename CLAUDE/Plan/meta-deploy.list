@@ -37,5 +37,7 @@
 # whose every container now starts with --pids-limit 4096 (CCY_PIDS_LIMIT on the host,
 # 256..32768, overrides) from the new lib/container-limits.bash. No image rebuild; a running
 # session keeps its old limit until it is relaunched. Also play-claude-code-consumer.yml, whose
-# ccc now starts its session and sign-in with --pids-limit 4096.
+# ccc now starts its session and sign-in with --pids-limit 4096. And Plan 00173's follow-up:
+# play-basic-configs.yml (shutdown-with-update says cc sessions are named, not warned) and the
+# Go ccy-sessions in play-claude-yolo.yml (a warning names each cc session as not shown it).
 changed-plays
