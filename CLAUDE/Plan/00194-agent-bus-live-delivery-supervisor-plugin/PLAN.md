@@ -200,6 +200,21 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   on the host at F44 c3391ba9 (ccy 3.99.12.19) and the goodbye acceptance passed G1-G4 and
   C1. Report:
   [261019-notice-duplicate-window-opus.md](subagent-reports/261019-notice-duplicate-window-opus.md).
+- [ ] ❌ **Task 2.0j**: Compact before a cold wake (the owner's request of 2026-10-19: a message
+  that wakes a large, cache-cold context should compact first, then the work continue). Not
+  built on v1: agent bus v1 is feature-frozen (the owner, 2026-11-02; Plan 00209 direction 7),
+  and this is a feature, not a bug fix. Stage 1, the measurement (`helpers/pingbus/coldwake.py`
+  logging one `cold wake:` line per such delivery, observe only), was built test first on branch
+  `review/pingbus-compact-before-wake` (tip 4405d2ee4) and reviewed FIX-FIRST; it is not merged,
+  and the branch is the owner's to drop. Stage 2 never could be built inside pingbus: it needs
+  the owner's decisions D1-D7 and an upstream supervisor change (U1-U3). The research is kept:
+  [SPEC-compact-wake.md](SPEC-compact-wake.md), the developer's report
+  [261019-compact-before-wake-opus.md](subagent-reports/261019-compact-before-wake-opus.md) and
+  the review
+  [261019-compact-before-wake-review-fable.md](subagent-reports/261019-compact-before-wake-review-fable.md),
+  which corrects F2 (a `tmux send-keys` path exists and is rejected) and U1-U3. Plan 00209's v2
+  design has no cold-wake requirement; whether to carry the request into v2 is the owner's
+  decision.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
