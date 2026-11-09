@@ -349,9 +349,11 @@ const logOut = "\x01aaaaaaaaaaaaaaaa\x1fsubject\n\nbody mentions zebra-billing\n
 func TestPushScansEachNewCommitRange(t *testing.T) {
 	logKey := "git log -p -U0 --no-color --no-ext-diff --format=" + LogFormat + " "
 	answers := map[string]proc.Result{
-		"pingbus status":                {Stdout: status},
-		logKey + "bbbb..cccc":           {Stdout: logOut},
-		logKey + "dddd --not --remotes": {Stdout: ""},
+		"pingbus status": {Stdout: status},
+		// An update scans only what no remote ref has yet: a merge of the default branch brings
+		// thousands of commits the remote already publishes, which are not this push's to judge.
+		logKey + "cccc --not bbbb --remotes": {Stdout: logOut},
+		logKey + "dddd --not --remotes":      {Stdout: ""},
 	}
 	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + zeroID + "\nrefs/heads/gone " + zeroID + " refs/heads/gone eeee\n"
 	r := newRig(true, answers, files{}, stdin)

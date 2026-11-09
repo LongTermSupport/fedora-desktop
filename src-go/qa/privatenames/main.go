@@ -306,9 +306,11 @@ func (a app) scanPush(m *Matcher) (result, error) {
 		if localID == zeroID {
 			continue
 		}
+		// Only what no remote ref has yet is this push's to judge: a merge of the default branch
+		// would otherwise rescan every commit the remote already publishes.
 		sel := []string{localID, "--not", "--remotes"}
 		if remoteID != zeroID {
-			sel = []string{remoteID + ".." + localID}
+			sel = []string{localID, "--not", remoteID, "--remotes"}
 		}
 		hits, n, err := a.scanRange(sel, m)
 		if err != nil {

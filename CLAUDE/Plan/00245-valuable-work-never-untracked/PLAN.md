@@ -100,6 +100,27 @@ install-specific identifiers reaching a commit because no detector knows them.
 - [x] Task 3.5: the owner decided the left-overs (product name allowed, journals redacted in
   place, history left); the whole-tree scan reports 0 findings and joins `scripts/qa-gates.tsv`
   as the `private-names` gate ([report](subagent-reports/261103-private-name-guard.md)).
+- [x] Task 3.6: `pre-push` scans only what no remote ref has yet. An update was scanned as
+  `REMOTE..LOCAL`, so a branch that merged the default branch rescanned every commit
+  `origin/F44` already publishes (1940 commits, 13 findings in history the owner left) and
+  could not be pushed. `scanPush` now selects `LOCAL --not REMOTE --remotes`
+  (`TestPushScansEachNewCommitRange`, red then green).
+
+### Phase 4: finish the dormant work branches
+
+The owner's order: the five dormant, unmerged agent branches of half-finished work are
+finished and merged, through one aggregate branch (`agent-a5ee80f767118a918-a448e021`) that
+the coordinator runs the full QA over and opens as one PR to F44
+([report](subagent-reports/261109-dormant-aggregate.md)).
+
+- [ ] 🔄 **Task 4.1**: ccy pids limit (`agent-a5ee80f767118a918-a448e021`): merged over F44 as
+  ccy 3.113.0, the Go front's token check, network check and version probe given the limit
+  too; review round 3 (CHANGES) fixed: the Go twin rule `project_container_pids_limit`, red on
+  `ccc`'s two runs, which now pass the limit.
+- [ ] ⬜ **Task 4.2**: Plan 00173's qa-reviewer fixes (`agent-ae87230b6e5b05508-967f0e77`).
+- [ ] ⬜ **Task 4.3**: Plan 00185's umask pin (`agent-a81014c63f66ee6f8-c4d3bbe2`).
+- [ ] ⬜ **Task 4.4**: Plan 00177 Task 7.6, the unknown team (`agent-a8c69aa67110156ce-c48195fd`).
+- [ ] ⬜ **Task 4.5**: ccy Go caches on the host (`agent-ad49d4886a70d25db-01b66214`).
 
 ## Success Criteria
 
