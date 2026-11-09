@@ -74,7 +74,7 @@ const JobWait = 10 * time.Minute
 
 // The classes of error a call ends in (SD7).
 var (
-	ErrUnitName     = errors.New("not a teamchat homeserver or restore unit name")
+	ErrUnitName     = errors.New("not a teamchat homeserver, terminator or restore unit name")
 	ErrNoSuchUnit   = errors.New("no such unit")
 	ErrNotPermitted = errors.New("not permitted")
 	ErrMasked       = errors.New("the unit is masked")
@@ -84,11 +84,11 @@ var (
 	ErrSystemd      = errors.New("systemd refused")
 )
 
-// serverUnit is a homeserver unit built by paths.ServerUnit, or one of the restore's transient
-// units built by paths.RestoreUnit and paths.RestoreCtlUnit (SD10), in systemd's unit-name
-// characters.
+// serverUnit is a homeserver unit built by paths.ServerUnit, the team's TLS terminator built by
+// paths.TLSUnit, or one of the restore's transient units built by paths.RestoreUnit and
+// paths.RestoreCtlUnit (SD10), in systemd's unit-name characters.
 var (
-	serverUnit = regexp.MustCompile(`\A` + regexp.QuoteMeta(paths.Product) + `-(?:server|restore|restore-ctl)@[A-Za-z0-9:_.\\-]+\.service\z`)
+	serverUnit = regexp.MustCompile(`\A` + regexp.QuoteMeta(paths.Product) + `-(?:server|tls|restore|restore-ctl)@[A-Za-z0-9:_.\\-]+\.service\z`)
 	stateToken = regexp.MustCompile(`\A[a-z][a-z-]{0,63}\z`)
 )
 
@@ -451,7 +451,7 @@ func reply[T any](body []any, what string) (T, error) {
 	return v, nil
 }
 
-// checkUnit refuses a unit that is not a homeserver or restore unit name (SD8, SD10).
+// checkUnit refuses a unit that is not a homeserver, terminator or restore unit name (SD8, SD10).
 func checkUnit(unit string) error {
 	if len(unit) > maxUnitName || !serverUnit.MatchString(unit) {
 		return fmt.Errorf("%w: %q", ErrUnitName, unit)

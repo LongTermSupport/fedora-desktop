@@ -220,6 +220,7 @@ func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error)
 	if hsErr := t.homeserver(ctx, team, f); hsErr != nil {
 		return nil, hsErr
 	}
+	t.terminator(ctx, team, f)
 	view, err := t.cfg.Viewer.View(ctx, team.ID)
 	if err != nil {
 		f.viewFailed = true

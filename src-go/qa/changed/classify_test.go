@@ -1060,27 +1060,41 @@ func TestASpeechToTextGateEditRunsTheGate(t *testing.T) {
 // A changed Python file (by name or shebang) runs the hook handler rules over that file only;
 // JavaScript, shell and deleted files do not.
 func TestAChangedPythonFileRunsTheHookHandlerRulesOnThatFile(t *testing.T) {
+	assertPerFilePythonCheck(t, "hook-handler-rules-files", "hook-handler-rules", ".claude/hooks/handlers/one.py")
+}
+
+// A changed Python file (by name or shebang) runs the walk-open rule over that file only;
+// JavaScript, shell and deleted files do not.
+func TestAChangedPythonFileRunsTheWalkOpenRuleOnThatFile(t *testing.T) {
+	assertPerFilePythonCheck(t, "walk-open-files", "walk-open", "helpers/play_ledger/group_vars.py")
+}
+
+// assertPerFilePythonCheck holds a per-file Python gate check: a changed .py file and an
+// extensionless Python script each get exactly themselves as its items and never the whole gate;
+// a JavaScript file, a shell script and a deleted Python file get no such check.
+func assertPerFilePythonCheck(t *testing.T, perFile, whole, pyFile string) {
+	t.Helper()
 	w := newWorld(t)
-	w.touch(".claude/hooks/handlers/one.py", "x = 1")
+	w.touch(pyFile, "x = 1")
 	w.touch("files/home/.local/bin/py-tool", "#!/usr/bin/env python3")
-	for _, f := range []string{".claude/hooks/handlers/one.py", "files/home/.local/bin/py-tool"} {
+	for _, f := range []string{pyFile, "files/home/.local/bin/py-tool"} {
 		p := w.classify([]string{f})
-		if got := p.items("hook-handler-rules-files"); !reflect.DeepEqual(got, []string{f}) {
-			t.Errorf("%s: hook-handler-rules-files items %v", f, got)
+		if got := p.items(perFile); !reflect.DeepEqual(got, []string{f}) {
+			t.Errorf("%s: %s items %v", f, perFile, got)
 		}
-		if p.has("hook-handler-rules") {
-			t.Errorf("%s ran the whole hook handler rules gate: %v", f, keys(p))
+		if p.has(whole) {
+			t.Errorf("%s ran the whole %s gate: %v", f, whole, keys(p))
 		}
 	}
 	w.touch("extensions/panel.js", "// x")
 	w.touch("scripts/two.bash", "#!/usr/bin/bash")
 	for _, f := range []string{"extensions/panel.js", "scripts/two.bash"} {
-		if p := w.classify([]string{f}); p.has("hook-handler-rules-files") {
-			t.Errorf("%s ran the hook handler rules: %v", f, keys(p))
+		if p := w.classify([]string{f}); p.has(perFile) {
+			t.Errorf("%s ran %s: %v", f, perFile, keys(p))
 		}
 	}
-	if p := w.classify(nil, ".claude/hooks/handlers/gone.py"); p.has("hook-handler-rules-files") {
-		t.Errorf("a deleted file has nothing for hook-handler-rules-files: %v", keys(p))
+	if p := w.classify(nil, "helpers/gone.py"); p.has(perFile) {
+		t.Errorf("a deleted file has nothing for %s: %v", perFile, keys(p))
 	}
 }
 

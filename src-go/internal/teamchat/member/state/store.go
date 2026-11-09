@@ -14,8 +14,10 @@ import (
 )
 
 // MaxStore is the seat store's file cap (B 2.3.2): the list caps' sum, rounded up to the next
-// 256 KiB (n3d-D1), so a list cap always fires first.
-const MaxStore = 12 * 256 << 10
+// 256 KiB (n3d-D1), so a list cap always fires first. The sum is n3d's lists, about 3.0 MB, and
+// the questions room's, about 1.1 MB (SPEC-n3f 12.6, QX6): 4 134 997 bytes counted as written, so
+// 4 MiB.
+const MaxStore = 16 * 256 << 10
 
 // B 2.3.2's caps: entries per list, and bytes per entry as the store writes it (writtenSize).
 const (
@@ -40,6 +42,11 @@ const (
 	// n3d-D24: one 60 s window at the limits' maxima allows 90 sends.
 	capGateKeys = 96
 	sizeGateKey = 96
+
+	// capReports is the report limit's upper bound (n3f-D6); capRemindLate the cap on questions
+	// not closed, since each number is an open question (n3f-D11).
+	capReports    = 60
+	capRemindLate = proto.MaxOpenQuestions
 
 	maxNextBatch      = 1024
 	maxTranscriptPath = 1024
@@ -128,7 +135,13 @@ type Store struct {
 	Ledger   []Ledger     `json:"ledger"`
 	Receipts []Receipt    `json:"receipts"`
 	Outbox   Outbox       `json:"outbox"`
-	Run      StoreRun     `json:"run"`
+	// Questions is the room's question index, null for a seat with none (SPEC-n3f QX5).
+	Questions *proto.QuestionsState `json:"questions"`
+	// RemindedMS is the latest due time this seat has reminded; RemindLate the open questions a
+	// build or catch-up found below it (n3f-D11).
+	RemindedMS int64    `json:"reminded_ms"`
+	RemindLate []int64  `json:"remind_late"`
+	Run        StoreRun `json:"run"`
 }
 
 // Sync is the sync position, its restore epoch and the room floors.
@@ -204,6 +217,24 @@ type Outbox struct {
 	Sending  []Sending `json:"sending"`
 	Gate     Gate      `json:"gate"`
 	LastSent *string   `json:"last_sent"`
+	// Reports are the times of the reports of the last 3600 s (n3f-D6).
+	Reports []int64 `json:"reports"`
+	// QuestionsUnechoed is the event id of the coordinator's last questions post that is posted
+	// and not yet folded, or null (QX3).
+	QuestionsUnechoed *string `json:"questions_unechoed"`
+	// QuestionsUncounted counts the own questions posts this term whose echo was not counted and
+	// the hook lines said about them (QX3).
+	QuestionsUncounted Uncounted `json:"questions_uncounted"`
+	// QuestionsHandover is true while the line that a promotion's questions index is ready is
+	// owed (QX1).
+	QuestionsHandover bool `json:"questions_handover"`
+}
+
+// Uncounted is the own questions posts whose echo was not counted, and how many of them have
+// had their hook line said.
+type Uncounted struct {
+	Count int64 `json:"count"`
+	Said  int64 `json:"said"`
 }
 
 // Ping is a sent ping awaiting its answers; Answered and Reported index into To.
@@ -286,8 +317,9 @@ func NewStore(team paths.TeamID, userID string, run StoreRun, gate Gate) Store {
 		V: Version, Team: team, Seat: seat, UserID: userID,
 		Sync:    Sync{Fresh: true, FloorMS: map[string]int64{}},
 		Pending: []Pending{}, Awaiting: []Awaiting{}, Missed: []Missed{}, Ledger: []Ledger{}, Receipts: []Receipt{},
-		Outbox: Outbox{Pings: []Ping{}, Sending: []Sending{}, Gate: gate},
-		Run:    run,
+		Outbox:     Outbox{Pings: []Ping{}, Sending: []Sending{}, Gate: gate, Reports: []int64{}},
+		RemindLate: []int64{},
+		Run:        run,
 	}
 }
 
@@ -316,7 +348,7 @@ func (a *Awaiting) check(c *rules) {
 }
 
 func (o *Outbox) check(c *rules, server string) {
-	c.need(o.Pings != nil && o.Sending != nil && o.Gate.Recent != nil, "an outbox list is not a list")
+	c.need(o.Pings != nil && o.Sending != nil && o.Gate.Recent != nil && o.Reports != nil, "an outbox list is not a list")
 	ids := make([]string, 0, len(o.Pings))
 	for _, p := range o.Pings {
 		p.check(c, server)
@@ -331,6 +363,20 @@ func (o *Outbox) check(c *rules, server string) {
 	for _, k := range o.Gate.Recent {
 		c.need(sha256Re.MatchString(k.Key) && validMS(k.AtMS), "a gate key is not a SHA-256 and a time")
 	}
+	o.checkQuestionsRoom(c)
+}
+
+// checkQuestionsRoom holds the outbox's keys of the questions room well formed: the report times
+// (n3f-D6), the last questions post not yet folded and the own questions posts not counted
+// (QX3). said counts the lines said about them, so it is never past count.
+func (o *Outbox) checkQuestionsRoom(c *rules) {
+	c.need(len(o.Reports) <= capReports, fmt.Sprintf("reports holds more than %d entries", capReports))
+	for _, ms := range o.Reports {
+		c.need(validMS(ms), "a report time is not a time")
+	}
+	c.need(o.QuestionsUnechoed == nil || proto.ValidEventID(*o.QuestionsUnechoed), "questions_unechoed is not an event id")
+	u := o.QuestionsUncounted
+	c.need(u.Said >= 0 && u.Said <= u.Count, "questions_uncounted is not counts with said at most count")
 }
 
 // ErrTooLarge is a send in flight whose entry, as the store writes it, is over its size: a
@@ -423,14 +469,26 @@ func validUser(id, server string) bool {
 	return len(id) <= maxUserID && proto.ClassifyUserID(id, server) != proto.IDNone
 }
 
-// validItemID is an item's id: an event id, or a TIMEOUT's key (proto.TimeoutKey).
+const reminderRule = "a reminder's key, `~humans`, is on a TIMEOUT in the questions room alone"
+
+// reminderPlaced is whether an item with this id, room and kind keeps to A 10.5: a key that ends
+// `~humans` (proto.ReminderKey) belongs to a TIMEOUT in the questions room, and only to it.
+func reminderPlaced(id, room, item string) bool {
+	if !strings.HasSuffix(id, "~"+proto.HumansWord) {
+		return true
+	}
+	return room == proto.PurposeQuestions && item == records.KindTimeout
+}
+
+// validItemID is an item's id: an event id, or a TIMEOUT's key (proto.TimeoutKey) naming the
+// silent addressee, or humans for a reminder (proto.ReminderKey).
 func validItemID(id string) bool {
 	event, local, timeout := strings.Cut(id, "~")
 	if !timeout {
 		return proto.ValidEventID(id)
 	}
 	_, handle := proto.ParseHandle(local)
-	return proto.ValidEventID(event) && (handle || proto.ValidHumanName(local))
+	return proto.ValidEventID(event) && (handle || proto.ValidHumanName(local) || local == proto.HumansWord)
 }
 
 // validPendingID is a pending item's id: a TIMEOUT's key exactly for a TIMEOUT.
@@ -546,8 +604,41 @@ func (s *Store) check(c *rules) {
 	s.checkPending(c, server)
 	s.checkDelivered(c, server)
 	s.Outbox.check(c, server)
+	s.checkQuestionsRoom(c, server)
 	s.Run.check(c)
 	s.checkLists(c)
+}
+
+// checkQuestionsRoom holds the top-level keys of the questions room well formed: the room's
+// index by the codec's own rules (the store gives it the team's server), the reminder watermark
+// and the numbers of the open questions found below it (n3f-D11). The index key's size follows
+// from its caps (QX6), so no byte rule of its own is needed.
+func (s *Store) checkQuestionsRoom(c *rules, server string) {
+	if s.Questions != nil {
+		if err := s.Questions.Check(server); err != nil {
+			rule := "the key is not valid"
+			if qe, ok := errors.AsType[*proto.QuestionsStateError](err); ok {
+				rule = qe.Rule
+			}
+			c.need(false, "questions: "+rule)
+		}
+	}
+	c.need(s.RemindedMS >= 0, "reminded_ms is not a time")
+	c.need(s.RemindLate != nil, "remind_late is not a list")
+	c.need(len(s.RemindLate) <= capRemindLate, fmt.Sprintf("remind_late holds more than %d entries", capRemindLate))
+	c.need(questionNumbers(s.RemindLate), "remind_late is not distinct question numbers")
+}
+
+// questionNumbers is distinct question numbers: from 1, each once.
+func questionNumbers(ns []int64) bool {
+	seen := make(map[int64]bool, len(ns))
+	for _, n := range ns {
+		if n < 1 || seen[n] {
+			return false
+		}
+		seen[n] = true
+	}
+	return true
 }
 
 // checkPending holds every pending entry well formed, each id once, and agent items within
@@ -558,6 +649,7 @@ func (s *Store) checkPending(c *rules, server string) {
 	for _, p := range s.Pending {
 		c.need(validPendingID(p.ID, p.Item) && slices.Contains(storeRooms, p.Room) && slices.Contains(storeItems, p.Item) &&
 			validMS(p.SentMS) && validUser(p.From, server) && (p.Handed == nil || nonceRe.MatchString(*p.Handed)) && validVerb(p.Item, p.Verb), "a pending entry is not well formed")
+		c.need(reminderPlaced(p.ID, p.Room, p.Item), reminderRule)
 		c.need(!seen[p.ID], "pending holds an id twice")
 		seen[p.ID] = true
 		if !reserved(p.Item) {
@@ -586,6 +678,7 @@ func (s *Store) checkDelivered(c *rules, server string) {
 func (l *Ledger) check(c *rules, server string) {
 	c.need(validItemID(l.ID) && slices.Contains(storeRooms, l.Room) && slices.Contains(storeItems, l.Item) &&
 		(l.Thread == nil || proto.ValidEventID(*l.Thread)) && validUser(l.From, server) && validMS(l.AtMS) && validVerb(l.Item, l.Verb), "a ledger entry is not well formed")
+	c.need(reminderPlaced(l.ID, l.Room, l.Item), reminderRule)
 }
 
 func anys[T any](list []T) []any {

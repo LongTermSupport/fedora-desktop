@@ -97,6 +97,7 @@ func newWorld(t *testing.T) *world {
 	w.store, err = seat.Open(seat.Config{
 		StateHome: filepath.Join(home, "state"), RuntimeDir: filepath.Join(home, "run"), Checkout: key,
 		Clock: clk, Credential: seat.Password{Clock: clk}, Sessions: &w.sessions, Announcer: w.notices,
+		Reach: seat.VersionsReach{Clock: clk},
 	})
 	if err != nil {
 		t.Fatal(err)

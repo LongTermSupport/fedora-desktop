@@ -222,6 +222,13 @@ func installBash(t *testing.T, edit func(string) string) string {
 		t.Fatal(err)
 	}
 	for _, lib := range libs {
+		info, statErr := os.Lstat(lib)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("%s is not a regular file", lib)
+		}
 		writeFile(t, filepath.Join(dst, "lib", filepath.Base(lib)), readFile(t, lib), libMode)
 	}
 	self, err := os.Executable()
@@ -630,13 +637,16 @@ func describe(lines *[]string, path, rel string, d fs.DirEntry) error {
 		*lines = append(*lines, fmt.Sprintf("link %s -> %s", rel, target))
 	case d.IsDir():
 		*lines = append(*lines, fmt.Sprintf("dir  %s %04o", rel, info.Mode().Perm()))
-	default:
+	case d.Type().IsRegular():
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		*lines = append(*lines, fmt.Sprintf("file %s %04o", rel, info.Mode().Perm()))
 		*lines = append(*lines, contentLines(raw)...)
+	default:
+		// A named pipe, socket or device is described, never opened: a pipe would block the read.
+		*lines = append(*lines, fmt.Sprintf("other %s %v", rel, info.Mode()))
 	}
 	return nil
 }

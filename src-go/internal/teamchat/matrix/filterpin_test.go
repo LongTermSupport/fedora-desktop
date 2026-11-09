@@ -29,7 +29,7 @@ func TestTheSyncFilterIsProtosByteForByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), Token: token})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestTheSyncFilterIsProtosByteForByte(t *testing.T) {
 		Rooms:   proto.SideRooms{Questions: "!" + strings.Repeat("Q", 43), Reports: "!" + strings.Repeat("R", 43)},
 	}
 	a := proto.Anchors{Server: server, Team: "team", MainRoom: main, Self: self}
-	for name, filter := range map[string]proto.Value{"sync": proto.SyncFilter(r, a), "re-add": proto.SyncFilterReAdd(r, a)} {
+	for name, filter := range map[string]proto.Value{"sync": proto.SyncFilter(r, a, true), "re-add": proto.SyncFilterReAdd(r, a, true)} {
 		want := filter.Compact()
 		if _, err := c.Sync(t.Context(), matrix.SyncRequest{FilterJSON: json.RawMessage(want)}); err != nil {
 			t.Fatalf("%s: %v", name, err)

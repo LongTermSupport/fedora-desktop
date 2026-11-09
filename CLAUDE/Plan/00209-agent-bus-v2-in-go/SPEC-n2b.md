@@ -32,7 +32,7 @@ reports each role change for the caller to post).
 - **DR1. Shape.** The input is one JSON object with exactly the keys `teamchat_address`
   (optional), `teamchat_teams`, `teamchat_lxc_members` and `teamchat_element_teams` (each a list,
   optional, absent meaning empty). A team entry has exactly C 3.8's keys: `team`, `name`,
-  `state`, `purge`, `port`, `server_name`, `description`, `listen`, `allow_from`, `url`, `humans`,
+  `state`, `purge`, `port`, `server_name`, `description`, `networks`, `url`, `humans`,
   `coordinator`, `trust`. An LXC entry: `team`, `container`, `user`, `checkout`, `site`, `seat`,
   `human_text`, `service`, `state`. An Element entry: `team` alone, so a `base_url` there is
   refused as an unknown key (C 3.10, the N0 re-check's finding 5).
@@ -43,13 +43,14 @@ reports each role change for the caller to post).
   a value (A 2.2), so a declaration error can be shown wherever the play shows it.
 - **DR3. Team values.** `team` passes `paths.ParseTeamID` and is unique. `state` is `present` or
   `absent`; `purge` is a boolean, allowed only with `absent`. A present team needs `port`,
-  `description`, `listen`, `allow_from`, `humans` and `trust`; an absent team needs only `team`
+  `description`, `networks`, `humans` and `trust`; an absent team needs only `team`
   and `state`, and any other key it carries is still checked. `name` passes
   `paths.ParseDisplayName` (default: the id). `port` passes `paths.ParsePort` and no two teams
   share one. `server_name` is a lower-case DNS name of at least two labels, at most 253
   characters (default `paths.ServerName`). `description` passes `proto.ValidDescription`.
-  `listen` is 1 to 8 distinct IP addresses, none unspecified (`0.0.0.0`, `::`), each in its
-  canonical text. `allow_from` is 0 to 32 distinct CIDR prefixes, each in canonical masked text.
+  `networks` is 0 to 32 distinct CIDR prefixes, each in canonical masked text; there is no
+  `listen` or `allow_from` (the listen addresses are derived at apply time from the effective
+  networks, C 3.2.5, and either key is refused as unknown).
   `url` is `http://` or `https://`, a host (an IP or a DNS name) and an optional port, no user,
   path, query or fragment, in its canonical text; with no `url`, the URL is
   `http://<teamchat_address>:<port>`, and a present team with neither is refused. `humans` is 1
@@ -75,7 +76,7 @@ reports each role change for the caller to post).
   checked by the same rules; an LXC entry of another team is refused.
 - **DR8. Canonical `team.json`.** A present team renders to one canonical JSON document with its
   defaults filled (`name`, `server_name`, `url`), keys in a fixed order, lists in their declared
-  order: `{"v":1,"team":...,"name":...,"server_name":...,"port":...,"description":..., "listen":[...],"allow_from":[...],"url":...,"humans":[...],"coordinator":...,"trust":{...}}`
+  order: `{"v":2,"team":...,"name":...,"server_name":...,"port":...,"description":..., "networks":[...],"url":...,"humans":[...],"coordinator":...,"trust":{...}}`
   (`coordinator` only when declared). It is decoded back strictly (`DecodeTeamFile`), and
   `decode(encode(t))` is `t`.
 
@@ -115,16 +116,18 @@ reports each role change for the caller to post).
 
 ## 4. The approval gate (DC18, C 3.5.1)
 
-- **AG1. The gated fields** of a team: `humans`, `coordinator`, `allow_from`, `listen`, `url`
+- **AG1. The gated fields** of a team: `humans`, `coordinator`, `networks`, `url`
   (the resolved URL of DR3, so a changed `teamchat_address` that moves the default URL is a
   change too, and the Element profile's URL, C 3.10, is the approved one), `trust`, and
   `lxc_members` (each of the team's LXC entries as team, container, checkout, seat, user and
   `human_text`, C 3.5.1, since SPEC-n3 n3b-D2), and the team's existence. Nothing else is
   gated: `name`, `description`, `port` and the LXC entries' `site`, `service` and `state`
   change without approval.
-- **AG2. `approved.json`** is `{"v":1,"team":...,"approved":{"humans":[...],"coordinator":..., "allow_from":[...],"listen":[...],"url":...,"trust":{...},"lxc_members":[{"container":..., "checkout":..., "seat":..., "user":...,"human_text":...}]}}`, `coordinator` null when none, decoded strictly (capped at
+- **AG2. `approved.json`** is `{"v":2,"team":...,"approved":{"humans":[...],"coordinator":..., "networks":[...],"url":...,"trust":{...},"lxc_members":[{"container":..., "checkout":..., "seat":..., "user":...,"human_text":...}]}}`, `coordinator` null when none, decoded strictly (capped at
   256 KiB) with the same value rules as the declaration. A file whose `team` is not the team
-  asked for is refused.
+  asked for is refused, and so is one whose `v` is not 2, naming the version it has (a `v` 1 file
+  held `allow_from` and `listen`; v2 of the bus is not deployed, so nothing migrates). `team.json`
+  is read the same way.
 - **AG3. Compare.** `declare.Compare(approved, input)` lists every difference, in the order of
   AG1: a team with no `approved.json` gives one difference, its existence (`team`, `- -> new`);
   a scalar field gives `<old> -> <new>` with `-` for none; a list field gives one difference per
@@ -144,12 +147,12 @@ reports each role change for the caller to post).
   fields as `approved.json` (DR7 input).
 - **AG6. Approve one change.** `team approve --team T --only <field>` with exactly one of
   `--add <entry>`, `--remove <entry>` or `--set <value>`:
-  - `humans`, `allow_from`, `listen`, `lxc_members` take `--add` or `--remove`; `lxc_members`
+  - `humans`, `networks`, `lxc_members` take `--add` or `--remove`; `lxc_members`
     also takes `--set`, which replaces the entry with that container, checkout and seat (a
     `user` or `human_text` change, so a user move is one `--set`); `coordinator` takes `--set <handle>` or `--remove <handle>`; `url` and `trust` take
     `--set`; `team` (a create) takes `--set` with the whole `approved` object as the owner
     entered it on the board, and only when no `approved.json` exists.
-  - The entry is the text AG3 prints (a human name, a CIDR, an address,
+  - The entry is the text AG3 prints (a human name, a CIDR,
     `<container>/<seat>,user=<user>,human_text=<bool>,checkout=<checkout>`), checked by the
     field's grammar (for an LXC entry, AG3's split and DR4's value rules). Tests: two seats of one
     user in one container are two entries; a checkout holding `,` and `=` round-trips; a

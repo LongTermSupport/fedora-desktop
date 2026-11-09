@@ -18,6 +18,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -132,8 +133,9 @@ func take(ctx context.Context, d Deps, team paths.TeamID, keep []int64) (Result,
 	return Result{Backup: n, TimeMS: m.TimeMS, Pruned: pruned}, nil
 }
 
-// readSources reads the five files of BK4 by the trust rule, and decodes `team.json` for the
-// port and the server name.
+// readSources reads the five files of BK4 by the trust rule and the team's CA (Plan 00246 X13),
+// and decodes `team.json` for the port and the server name. A CA the host could not use fails
+// the backup, since a backup of it could not be restored.
 func readSources(d Deps, team paths.TeamID) (Sources, declare.Team, error) {
 	root, err := euid()
 	if err != nil {
@@ -160,6 +162,9 @@ func readSources(d Deps, team paths.TeamID) (Sources, declare.Team, error) {
 			return Sources{}, declare.Team{}, fmt.Errorf("%s is missing", d.Root+f.path)
 		}
 		*f.into = data
+	}
+	if s.CA, err = host.CABackupFiles(d.Root, team, d.StateOwnerUID); err != nil {
+		return Sources{}, declare.Team{}, fmt.Errorf("the team CA: %w", err)
 	}
 	decl, err := declare.DecodeTeamFile(s.TeamJSON)
 	if err == nil && decl.ID != team {

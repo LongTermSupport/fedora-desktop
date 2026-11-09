@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 // A fixed modification time, so a test never reads the clock: every file of the world has it
@@ -177,6 +178,21 @@ func TestEachInputOfTheVerdictChangedRunsItAgain(t *testing.T) {
 				t.Fatalf("the new verdict was not kept: %d runs", w.runs())
 			}
 		})
+	}
+}
+
+// A stamp that is not a regular file enters the key as its error and is never opened: a named
+// pipe would block the read for ever (#195). Its appearing still runs the status again.
+func TestAStampThatIsNotARegularFileIsNeverOpened(t *testing.T) {
+	w := newVerdictWorld(t)
+	w.status(t)
+	opened := fifotest.Plant(t, filepath.Join(w.applied, "beta.json"))
+	w.status(t)
+	if w.runs() != 2 {
+		t.Fatalf("declare status ran %d times, want 2", w.runs())
+	}
+	if opened() {
+		t.Fatal("the pipe was opened")
 	}
 }
 

@@ -2,9 +2,10 @@
 // DESIGN-v2-C-host.md 3.2.2-3.2.5, 3.5.2, 3.5.3; SPEC-n2d.md section 4, HS1-HS15): the team
 // lock taken through teamlock, the refusals before any change, the in-memory render of a
 // team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
-// apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the
-// records written last; Serve, the start and readiness of a team already applied, and the base
-// unit's sandbox lines (SPEC-n2g SM3, n2g-D17). Every host effect (systemd, firewalld, the network, the readiness
+// apply's files, the team's CA and homeserver certificate (tls.go), the firewall, the backup, the
+// unit, readiness, the bound addresses, and the records written last; Serve, the start and
+// readiness of a team already applied, and the base unit's sandbox lines (SPEC-n2g SM3, n2g-D17).
+// Every host effect (systemd, firewalld, the network, the readiness
 // probe, the backup, the status record, bootstrap) is a seam in Deps; the files are written
 // under Deps.Root.
 package host
@@ -17,6 +18,7 @@ import (
 	"io"
 	"io/fs"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,22 +44,27 @@ type Clock interface {
 
 // The steps a failure names (C 3.5.2, 3.5.3). StepRefusals is step 2 and StepRender step 3;
 // StepFiles is step 4's first-apply files, and in `team remove` the drop-in and stamp it
-// deletes; StepInstalled is `team remove` asking whether the team is installed at all.
+// deletes; StepTLS is the team's CA and leaf certificate (SPEC-cross-network X13, X14), made
+// after step 4's files and before the firewall; StepInstalled is `team remove` asking whether
+// the team is installed at all.
 const (
 	StepLock      = "lock"
 	StepInstalled = "installed"
 	StepRefusals  = "refusals"
 	StepRender    = "render"
 	StepFiles     = "files"
+	StepTLS       = "tls"
 	StepFirewall  = "firewall"
 	StepBackup    = "backup"
 	StepUnit      = "unit"
 	StepReady     = "ready"
 	StepAddresses = "addresses"
-	StepBootstrap = "bootstrap"
-	StepRecords   = "records"
-	StepStatus    = "status"
-	StepPurge     = "purge"
+	// StepTerminator is the team's TLS terminator unit (X18), after the homeserver's addresses.
+	StepTerminator = "terminator"
+	StepBootstrap  = "bootstrap"
+	StepRecords    = "records"
+	StepStatus     = "status"
+	StepPurge      = "purge"
 )
 
 // The verbs an Error names.
@@ -121,12 +128,24 @@ type Listener struct {
 	Unit string
 }
 
-// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6)
-// and the live LXC bridge's subnet.
+// Route is the interface that routes a network (SPEC-cross-network X3) and whether it does so by
+// the default route, the route of prefix length 0.
+type Route struct {
+	Interface string
+	Default   bool
+}
+
+// Network is the host's interfaces, its listening sockets (read from /proc/net/tcp and tcp6),
+// the live LXC bridge's subnet, and which interface routes a network.
 type Network interface {
 	Interfaces() ([]Interface, error)
 	Listeners() ([]Listener, error)
 	Bridge() (netip.Prefix, error)
+	// Route is the interface that routes network: the one that holds it when it is a host
+	// prefix of the host's own address, else the best route of the main table (the longest
+	// prefix, then the lowest metric), read as Firewall.Zone reads it. found is false when no
+	// route covers the network.
+	Route(network netip.Prefix) (Route, bool, error)
 }
 
 // Readiness is the probe of a homeserver's `/_tuwunel/server_version` on loopback.
@@ -163,15 +182,17 @@ type Deps struct {
 	Pin            Pin
 	Software       string
 	CtlUID, CtlGID int
-	Approvals      declare.Approvals
-	Systemd        Systemd
-	Firewall       Firewall
-	Network        Network
-	Ready          Readiness
-	Status         Status
-	Guard          teamlock.Guard
-	Backup         func(ctx context.Context, held *teamlock.Lock) error
-	Bootstrap      func(ctx context.Context, b Bootstrap) ([]string, error)
+	// StateOwnerUID owns root's own files, the team CA key among them: 0 on a host.
+	StateOwnerUID uint32
+	Approvals     declare.Approvals
+	Systemd       Systemd
+	Firewall      Firewall
+	Network       Network
+	Ready         Readiness
+	Status        Status
+	Guard         teamlock.Guard
+	Backup        func(ctx context.Context, held *teamlock.Lock) error
+	Bootstrap     func(ctx context.Context, b Bootstrap) ([]string, error)
 }
 
 // Error is a failed verb: the step, and whether it is drift a rule refused (exit 70); anything
@@ -218,30 +239,38 @@ type applying struct {
 	in      declare.Input
 	team    paths.TeamID
 	unit    string
+	tlsUnit string
 	lock    *teamlock.Lock
 	changed []string
 
 	first, stamped bool
-	ifaces         map[string]string
+	// networks, listen and ifaces are what deriveNetworks made (X3): the effective networks, the
+	// listen addresses and the interface carrying each.
+	networks       []netip.Prefix
+	listen         []netip.Addr
+	ifaces         map[netip.Addr]string
 	regKey         string
 	r              rendered
 	answer         answer
 	units          *unitsRecord
 	config, dropIn []byte
-	haveDropIn     bool
+	// tlsDropIn is the terminator's installed drop-in, and leafMade whether this apply made the
+	// leaf, which the running terminator has not read.
+	tlsDropIn  []byte
+	leafMade   bool
+	haveDropIn bool
 	// loaded is whether systemd has the units on disk loaded. It starts true only when units.json
 	// records this render's digests, since units.json is written after a reload succeeded; how
 	// the drop-in's bytes compare says nothing of it, as a reload can fail or a crash come after
 	// the write.
-	loaded    bool
-	teamFile  []byte
-	allowFrom []string
+	loaded   bool
+	teamFile []byte
 }
 
 // Apply is `team apply`'s steps 1 to 11 for one decoded input (C 3.5.2); step 10 is
 // Deps.Bootstrap. It answers the CHANGED lines, those before a failure included.
 func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
-	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID())}
+	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID()), tlsUnit: paths.TLSUnit(in.ID())}
 	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock, d.Guard)
 	if err != nil {
 		return nil, a.fail(StepLock, err)
@@ -268,8 +297,8 @@ func (a *applying) path(p string) string { return a.d.Root + p }
 
 func (a *applying) run(ctx context.Context) error {
 	for _, step := range []func(context.Context) error{
-		a.refusals, a.render, a.files, a.firewall, a.backup, a.start, a.waitReady, a.addresses,
-		a.bootstrap, a.records,
+		a.refusals, a.render, a.files, a.tls, a.firewall, a.backup, a.start, a.waitReady, a.addresses,
+		a.terminate, a.bootstrap, a.records,
 	} {
 		if err := step(ctx); err != nil {
 			return err
@@ -295,39 +324,99 @@ func (a *applying) refusals(_ context.Context) error {
 	if err := declare.Hold(approved, a.in); err != nil {
 		return &Error{Verb: verbApply, Step: StepRefusals, Drift: true, Err: err}
 	}
-	if err := a.listenInterfaces(); err != nil {
+	if err := a.deriveNetworks(); err != nil {
 		return err
 	}
 	return a.port()
 }
 
-// listenInterfaces holds each listen address to exactly one interface, and none a wildcard.
-func (a *applying) listenInterfaces() error {
+// deriveNetworks is the one place the effective networks and the listen addresses are made
+// (X3): everything the config, the filter, the firewall and units.json hold of them comes from
+// a.networks and a.listen, never from the declared list. A network no interface routes, one only
+// the default route covers (unless it is the host's own), and a url the host would not answer
+// on are refused.
+func (a *applying) deriveNetworks() error {
 	ifaces, err := a.d.Network.Interfaces()
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
-	a.ifaces = map[string]string{}
-	for _, listen := range a.in.Team.Listen {
-		addr, err := netip.ParseAddr(listen)
-		if err != nil || addr.IsUnspecified() {
-			return a.refuse("listen address %s is a wildcard or not an address", listen)
+	effective, err := a.in.EffectiveNetworks(a.d.Network.Bridge)
+	if err != nil {
+		return a.fail(StepRefusals, err)
+	}
+	a.networks, a.listen, a.ifaces = effective.All, nil, map[netip.Addr]string{}
+	for _, network := range effective.All {
+		addr, err := a.serve(network, slices.Contains(effective.Own, network), ifaces)
+		if err != nil {
+			return err
 		}
-		var on []string
-		for _, i := range ifaces {
-			if slices.Contains(i.Addrs, addr) {
-				on = append(on, i.Name)
-			}
+		if !slices.Contains(a.listen, addr) {
+			a.listen = append(a.listen, addr)
 		}
-		switch {
-		case len(on) == 0:
-			return a.refuse("listen address %s is on no interface", listen)
-		case len(on) > 1:
-			return a.refuse("listen address %s is on more than one interface: %s", listen, strings.Join(on, ", "))
-		case !validInterface(on[0]):
-			return a.fail(StepRefusals, fmt.Errorf("interface %q of %s has no device unit name", on[0], listen))
+	}
+	slices.SortFunc(a.listen, netip.Addr.Compare)
+	return a.urlHost()
+}
+
+// serve is the listen address that serves network: that of the interface which routes it, held
+// to exactly one interface.
+func (a *applying) serve(network netip.Prefix, own bool, ifaces []Interface) (netip.Addr, error) {
+	route, found, err := a.d.Network.Route(network)
+	switch {
+	case err != nil:
+		return netip.Addr{}, a.fail(StepRefusals, err)
+	case !found:
+		return netip.Addr{}, a.refuse("network %s: no route covers it", network)
+	case route.Default && !own:
+		return netip.Addr{}, a.refuse("network %s: only the default route covers it; add a route (a VPN, a static route) "+
+			"so the homeserver is not reached by the default interface", network)
+	case !validInterface(route.Interface):
+		return netip.Addr{}, a.fail(StepRefusals, fmt.Errorf("interface %q of %s has no device unit name", route.Interface, network))
+	}
+	i := slices.IndexFunc(ifaces, func(i Interface) bool { return i.Name == route.Interface })
+	if i < 0 {
+		return netip.Addr{}, a.refuse("network %s: its route names interface %s, which the host does not have", network, route.Interface)
+	}
+	addr, err := listenAddress(network, own, ifaces[i])
+	if err != nil {
+		return netip.Addr{}, a.refuse("network %s: %w", network, err)
+	}
+	var on []string
+	for _, other := range ifaces {
+		if slices.Contains(other.Addrs, addr) {
+			on = append(on, other.Name)
 		}
-		a.ifaces[listen] = on[0]
+	}
+	if len(on) > 1 {
+		return netip.Addr{}, a.refuse("listen address %s is on more than one interface: %s", addr, strings.Join(on, ", "))
+	}
+	a.ifaces[addr] = route.Interface
+	return addr, nil
+}
+
+// listenText is the listen addresses as units.json and the address check write them.
+func (a *applying) listenText() []string {
+	out := make([]string, 0, len(a.listen))
+	for _, l := range a.listen {
+		out = append(out, l.String())
+	}
+	return out
+}
+
+// urlHost holds the team's url to X12 and to the team's port by declare's rule, `declare check`'s
+// own, and to X6: an IP
+// literal must be one of the listen addresses, a DNS name is the owner's to point at the host.
+func (a *applying) urlHost() error {
+	if problem := declare.URLProblem(a.in.Team.URL, a.in.Team.Port); problem != "" {
+		return a.refuse("url %s: %s", a.in.Team.URL, problem)
+	}
+	u, err := url.Parse(a.in.Team.URL)
+	if err != nil {
+		return a.fail(StepRefusals, err)
+	}
+	host, parseErr := netip.ParseAddr(u.Hostname())
+	if parseErr == nil && !slices.Contains(a.listen, host) {
+		return a.refuse("url host %s is not a listen address of this host (%v)", host, a.listen)
 	}
 	return nil
 }
@@ -348,7 +437,7 @@ func (a *applying) port() error {
 		return a.fail(StepRefusals, err)
 	}
 	for _, l := range listeners {
-		if int(l.Addr.Port()) == port && l.Unit != a.unit {
+		if int(l.Addr.Port()) == port && l.Unit != a.unit && l.Unit != a.tlsUnit {
 			holder := l.Unit
 			if holder == "" {
 				holder = "a process of no unit"
@@ -395,23 +484,24 @@ func (a *applying) render(_ context.Context) error {
 	if err == nil && !found {
 		err = fmt.Errorf("the base unit %s is not installed", paths.ServerUnitTemplateFile)
 	}
+	if err == nil {
+		err = tlsBaseInstalled(a.d.Root)
+	}
 	if err != nil {
 		return a.fail(StepRender, err)
 	}
-	if err = a.readInstalled(); err == nil {
-		err = a.allowed()
-	}
-	if err != nil {
+	if err = a.readInstalled(); err != nil {
 		return a.fail(StepRender, err)
 	}
 	var devices []string
-	for _, listen := range a.in.Team.Listen {
+	for _, listen := range a.listen {
 		if unit := deviceUnit(a.ifaces[listen]); !slices.Contains(devices, unit) {
 			devices = append(devices, unit)
 		}
 	}
 	a.r, err = render(renderSpec{
-		team: a.in.Team, allowFrom: a.allowFrom, devices: devices, regKey: a.regKey, pin: a.d.Pin, baseUnit: base,
+		team: a.in.Team, listen: a.listen, networks: a.networks, devices: devices, regKey: a.regKey, pin: a.d.Pin,
+		baseUnit: base,
 	})
 	if err != nil {
 		return a.fail(StepRender, err)
@@ -443,6 +533,9 @@ func (a *applying) readInstalled() error {
 	if a.dropIn, a.haveDropIn, err = state.ReadFile(a.path(paths.ServerDropInFile(a.team)), fileMax); err != nil {
 		return err
 	}
+	if a.tlsDropIn, _, err = state.ReadFile(a.path(paths.TLSDropInFile(a.team)), fileMax); err != nil {
+		return err
+	}
 	raw, found, err := state.ReadFile(a.path(paths.UnitsRecord(a.team)), fileMax)
 	if err != nil {
 		return err
@@ -456,22 +549,6 @@ func (a *applying) readInstalled() error {
 	}
 	a.teamFile, _, err = state.ReadFile(a.path(paths.TeamDeclaration(a.team)), fileMax)
 	return err
-}
-
-// allowed is allow_from, with the live LXC bridge's subnet for a team with an LXC member.
-func (a *applying) allowed() error {
-	a.allowFrom = slices.Clone(a.in.Team.AllowFrom)
-	if !slices.ContainsFunc(a.in.LXC, func(m declare.LXCMember) bool { return m.State == declare.StatePresent }) {
-		return nil
-	}
-	bridge, err := a.d.Network.Bridge()
-	if err != nil {
-		return err
-	}
-	if s := bridge.Masked().String(); !slices.Contains(a.allowFrom, s) {
-		a.allowFrom = append(a.allowFrom, s)
-	}
-	return nil
 }
 
 // files is step 4, on a first apply only: the team's directories, the config with its new
@@ -555,14 +632,10 @@ func readRules(record string, team paths.TeamID) ([]Rule, bool, error) {
 	return rules, true, nil
 }
 
-// wantedRules is one rule per allow_from source, in the zone that routes it.
+// wantedRules is one rule per effective network, in the zone that routes it (X4).
 func (a *applying) wantedRules(ctx context.Context) ([]Rule, error) {
-	wanted := make([]Rule, 0, len(a.allowFrom))
-	for _, s := range a.allowFrom {
-		source, err := netip.ParsePrefix(s)
-		if err != nil {
-			return nil, err
-		}
+	wanted := make([]Rule, 0, len(a.networks))
+	for _, source := range a.networks {
 		zone, err := a.d.Firewall.Zone(ctx, source)
 		if err != nil {
 			return nil, err
@@ -653,14 +726,8 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	port := a.in.Team.Port
 	if a.units != nil {
 		port = a.units.port
-		old := dropInSpec{
-			team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: a.units.listen,
-		}
-		if !a.haveDropIn || !strings.Contains(string(a.dropIn), old.execStart()) {
-			if err := a.writeDropIn(old.text()); err != nil {
-				return err
-			}
-			a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
+		if err := a.recordedDropIn(); err != nil {
+			return err
 		}
 	}
 	if err := a.reload(ctx); err != nil {
@@ -671,6 +738,20 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	}
 	a.note("unit started for the backup")
 	return a.ready(ctx, port)
+}
+
+// recordedDropIn writes the drop-in of the version and listen set units.json records, unless the
+// one on disk already runs that version.
+func (a *applying) recordedDropIn() error {
+	old := dropInSpec{team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port}
+	if a.haveDropIn && strings.Contains(string(a.dropIn), old.execStart()) {
+		return nil
+	}
+	if err := a.writeDropIn(old.text()); err != nil {
+		return err
+	}
+	a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
+	return nil
 }
 
 func (a *applying) writeDropIn(text []byte) error {
@@ -763,6 +844,11 @@ func (a *applying) waitReady(ctx context.Context) error {
 func (a *applying) ready(ctx context.Context, port int) error { return ready(ctx, a.d, a.unit, port) }
 
 func ready(ctx context.Context, d Deps, unit string, port int) error {
+	return waitUnit(ctx, d, unit, func(ctx context.Context) error { return d.Ready.ServerVersion(ctx, port) })
+}
+
+// waitUnit is that wait for any unit: active, and probe answering nil.
+func waitUnit(ctx context.Context, d Deps, unit string, probe func(context.Context) error) error {
 	start := d.Clock.Now()
 	var last error
 	for {
@@ -772,7 +858,7 @@ func ready(ctx context.Context, d Deps, unit string, port int) error {
 		}
 		switch st.Active {
 		case active:
-			if last = d.Ready.ServerVersion(ctx, port); last == nil {
+			if last = probe(ctx); last == nil {
 				return nil
 			}
 		case "activating", "reloading":
@@ -793,26 +879,21 @@ func ready(ctx context.Context, d Deps, unit string, port int) error {
 	}
 }
 
-// addresses is step 9: the bound address set is loopback and listen exactly (H 7.21).
+// addresses is step 9: the homeserver's bound address set is loopback exactly (H 7.21, X18).
 func (a *applying) addresses(_ context.Context) error {
-	if err := boundAs(a.d, a.unit, a.in.Team.Port, a.in.Team.Listen); err != nil {
+	if err := boundAs(a.d, a.unit, a.in.Team.Port, []string{loopbackListen}); err != nil {
 		return a.fail(StepAddresses, err)
 	}
 	return nil
 }
 
-// boundAs holds the unit's bound addresses on port to loopback and listen exactly.
-func boundAs(d Deps, unit string, port int, listen []string) error {
+// boundAs holds the unit's bound addresses on port to want exactly.
+func boundAs(d Deps, unit string, port int, want []string) error {
 	listeners, err := d.Network.Listeners()
 	if err != nil {
 		return err
 	}
-	want := []string{loopbackListen}
-	for _, l := range listen {
-		if !slices.Contains(want, l) {
-			want = append(want, l)
-		}
-	}
+	want = slices.Clone(want)
 	var got []string
 	for _, l := range listeners {
 		if l.Unit == unit && int(l.Addr.Port()) == port && !slices.Contains(got, l.Addr.Addr().String()) {
@@ -852,7 +933,7 @@ func (a *applying) writeRecords() error {
 	if err := a.writeIfChanged(paths.TeamDeclaration(a.team), a.teamFile, a.r.teamFile, 0o600, "team.json written"); err != nil {
 		return err
 	}
-	u := unitsRecord{digests: a.r.digests, version: a.d.Pin.Version, port: a.in.Team.Port, listen: a.in.Team.Listen}
+	u := unitsRecord{digests: a.r.digests, version: a.d.Pin.Version, port: a.in.Team.Port, listen: a.listenText()}
 	var was []byte
 	if a.units != nil {
 		was = a.units.encode(a.team)

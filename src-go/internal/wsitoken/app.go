@@ -197,6 +197,15 @@ func (a App) named(ctx context.Context) (string, error) {
 
 // check is K4.
 func (a App) check(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		a.say("cannot read the token file " + path + ": " + err.Error())
+		return errFailed
+	}
+	if !info.Mode().IsRegular() {
+		a.say("the token file " + path + " is not a regular file")
+		return errFailed
+	}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		a.say("cannot read the token file " + path + ": " + err.Error())

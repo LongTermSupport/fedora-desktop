@@ -86,22 +86,31 @@ func (r *removing) installed() (bool, error) {
 	return false, nil
 }
 
+// stopUnit stops and disables the team's terminator, then its homeserver: nobody is let in to a
+// homeserver that is going away.
 func (r *removing) stopUnit(ctx context.Context) error {
-	st, err := r.d.Systemd.State(ctx, r.unit)
+	if err := r.stop(ctx, paths.TLSUnit(r.team), "tls unit"); err != nil {
+		return err
+	}
+	return r.stop(ctx, r.unit, "unit")
+}
+
+func (r *removing) stop(ctx context.Context, unit, what string) error {
+	st, err := r.d.Systemd.State(ctx, unit)
 	if err != nil {
 		return err
 	}
 	if st.Active != "inactive" && st.Active != "failed" {
-		if err := r.d.Systemd.Stop(ctx, r.unit); err != nil {
+		if err := r.d.Systemd.Stop(ctx, unit); err != nil {
 			return err
 		}
-		r.note("unit stopped")
+		r.note(what + " stopped")
 	}
 	if st.Enabled {
-		if err := r.d.Systemd.Disable(ctx, r.unit); err != nil {
+		if err := r.d.Systemd.Disable(ctx, unit); err != nil {
 			return err
 		}
-		r.note("unit disabled")
+		r.note(what + " disabled")
 	}
 	return nil
 }
@@ -142,18 +151,27 @@ func (r *removing) files(ctx context.Context) error {
 }
 
 func (r *removing) removeDropIn(ctx context.Context) error {
-	dropIn := r.path(paths.ServerDropInFile(r.team))
-	gone, err := removeFile(dropIn)
-	if err != nil {
+	if err := r.removeOne(paths.TLSDropInFile(r.team), "tls drop-in removed"); err != nil {
 		return err
 	}
-	if gone {
-		r.note("drop-in removed")
-		if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
-			return err
-		}
+	if err := r.removeOne(paths.ServerDropInFile(r.team), "drop-in removed"); err != nil {
+		return err
 	}
 	return r.d.Systemd.DaemonReload(ctx)
+}
+
+// removeOne deletes a drop-in, then its directory when nothing else is in it.
+func (r *removing) removeOne(file, line string) error {
+	dropIn := r.path(file)
+	gone, err := removeFile(dropIn)
+	if err != nil || !gone {
+		return err
+	}
+	r.note(line)
+	if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
+		return err
+	}
+	return nil
 }
 
 func (r *removing) status(ctx context.Context) error {

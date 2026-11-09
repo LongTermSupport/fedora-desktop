@@ -25,10 +25,10 @@ type Pin struct {
 	CacheCapacityModifier string
 }
 
-// loopbackListen is the address every homeserver binds besides its team's listen addresses.
+// loopbackListen is the address every homeserver binds besides the team's derived listen addresses.
 const loopbackListen = "127.0.0.1"
 
-// loopbackAllow is what every drop-in allows besides the listen addresses and allow_from.
+// loopbackAllow is what every drop-in allows besides the listen addresses and the effective networks.
 var loopbackAllow = []string{"127.0.0.1/32", "::1/128"}
 
 // The digest set members (C 3.5.2 step 3).
@@ -39,7 +39,6 @@ const (
 	digestIPAllow    = "ip_address_allow"
 	digestSocketBind = "socket_bind_allow"
 	digestMemory     = "memory_high"
-	digestUnit       = "unit"
 )
 
 // digests are the restart and reload digest sets units.json keeps.
@@ -51,22 +50,25 @@ func (d digests) sameRestart(o digests) bool { return maps.Equal(d.Restart, o.Re
 
 func (d digests) sameReload(o digests) bool { return maps.Equal(d.Reload, o.Reload) }
 
-// renderSpec is what one render reads: the team, its allow_from with the bridge added, the
-// device unit of each interface carrying a listen address, the registration key, the pin and
-// the installed base unit's text.
+// renderSpec is what one render reads: the team, the listen addresses and effective networks
+// derived at apply time (X3, X4), which are the terminator's alone (X18), the device unit of each
+// interface carrying a listen address, the registration key, the pin and the installed base
+// unit's text.
 type renderSpec struct {
-	team      declare.Team
-	allowFrom []string
-	devices   []string
-	regKey    string
-	pin       Pin
-	baseUnit  []byte
+	team     declare.Team
+	listen   []netip.Addr
+	networks []netip.Prefix
+	devices  []string
+	regKey   string
+	pin      Pin
+	baseUnit []byte
 }
 
-// rendered is a team's files in memory and their digest sets.
+// rendered is a team's files in memory and their digest sets: the homeserver's config and
+// drop-in, the terminator's drop-in (which follows the networks, X4) and team.json.
 type rendered struct {
-	config, dropIn, teamFile []byte
-	digests                  digests
+	config, dropIn, tlsDropIn, teamFile []byte
+	digests                             digests
 }
 
 var (
@@ -82,12 +84,9 @@ func render(s renderSpec) (rendered, error) {
 	if err := s.check(); err != nil {
 		return rendered{}, err
 	}
-	d := dropInSpec{
-		team: s.team.ID, version: s.pin.Version, memoryHigh: s.pin.MemoryHigh, port: s.team.Port,
-		listen: s.team.Listen, allowFrom: s.allowFrom, devices: s.devices,
-	}
+	d, tls := dropInSpecs(s.team.ID, s.team.Port, s.pin, s.listen, s.networks, s.devices)
 	config := renderConfig(s)
-	r := rendered{config: config, dropIn: d.text(), teamFile: s.team.Canonical()}
+	r := rendered{config: config, dropIn: d.text(), tlsDropIn: tls.text(), teamFile: s.team.Canonical()}
 	r.digests = digests{
 		Restart: map[string]string{
 			digestBaseUnit: digest(s.baseUnit), digestExecStart: digest([]byte(d.execStart())),
@@ -95,10 +94,24 @@ func render(s renderSpec) (rendered, error) {
 		},
 		Reload: map[string]string{
 			digestIPAllow: digest([]byte(d.ipAllow())), digestSocketBind: digest([]byte(d.socketBind())),
-			digestMemory: digest([]byte(d.memory())), digestUnit: digest([]byte(d.unit())),
+			digestMemory: digest([]byte(d.memory())),
 		},
 	}
 	return r, nil
+}
+
+// dropInSpecs are a team's two drop-ins, the homeserver's and the terminator's, as render makes them.
+func dropInSpecs(team paths.TeamID, port int, pin Pin, listen []netip.Addr, networks []netip.Prefix, devices []string) (dropInSpec, tlsDropInSpec) {
+	return dropInSpec{team: team, version: pin.Version, memoryHigh: pin.MemoryHigh, port: port},
+		tlsDropInSpec{team: team, port: port, listen: listen, networks: networks, devices: devices}
+}
+
+// DropIns are the texts of a team's two drop-ins, the homeserver's then the terminator's, as
+// render makes them: what the unit-text judges outside this package read, so that every unit
+// text the Go code makes is judged in one place (v1names' units test).
+func DropIns(team paths.TeamID, port int, pin Pin, listen []netip.Addr, networks []netip.Prefix, devices []string) ([]byte, []byte) {
+	d, tls := dropInSpecs(team, port, pin, listen, networks, devices)
+	return d.text(), tls.text()
 }
 
 func (s renderSpec) check() error {
@@ -127,21 +140,17 @@ func header(team paths.TeamID) string {
 	return "# Rendered by " + paths.AdminBinary + " team apply for team " + team.String() + "; do not edit.\n"
 }
 
-// renderConfig is the Tuwunel config: bare keys, then the login limit tables (C 3.2.4). Every
-// string in it is printable ASCII (a DNS name, a fixed path, hex), so Go's quoting is TOML's.
+// renderConfig is the Tuwunel config: bare keys, then the login limit tables (C 3.2.4). The
+// homeserver binds loopback alone and stays plain there; the team's TLS terminator is what listens
+// on the derived addresses (X18). Every string in it is printable ASCII (a DNS name, a fixed path,
+// hex), so Go's quoting is TOML's.
 func renderConfig(s renderSpec) []byte {
 	const off = "false"
 	t := s.team
 	q := strconv.Quote
-	listen := []string{q(loopbackListen)}
-	for _, a := range t.Listen {
-		if a != loopbackListen {
-			listen = append(listen, q(a))
-		}
-	}
 	keys := [][2]string{
 		{"server_name", q(t.ServerName)},
-		{"address", "[" + strings.Join(listen, ", ") + "]"},
+		{"address", "[" + q(loopbackListen) + "]"},
 		{"port", strconv.Itoa(t.Port)},
 		{"database_path", q(paths.HomeserverDatabase(t.ID))},
 		{"database_backup_path", q(paths.HomeserverBackups(t.ID))},
@@ -193,51 +202,51 @@ func RegKeyOf(config []byte) string {
 	return string(m[1])
 }
 
-// dropInSpec is what a drop-in says (C 3.2.3).
+// dropInSpec is what the homeserver's drop-in says (C 3.2.3): its binary, its memory ceiling, the
+// loopback it may talk to and the port it may bind. Nothing of it depends on the networks.
 type dropInSpec struct {
 	team       paths.TeamID
 	version    paths.ServerVersion
 	memoryHigh string
 	port       int
-	listen     []string
-	allowFrom  []string
-	devices    []string
-}
-
-func (d dropInSpec) unit() string {
-	if len(d.devices) == 0 {
-		return "[Unit]\n"
-	}
-	devices := strings.Join(d.devices, " ")
-	return "[Unit]\nAfter=" + devices + "\nWants=" + devices + "\n"
 }
 
 func (d dropInSpec) execStart() string { return "ExecStart=" + paths.ServerBinary(d.version) + "\n" }
 
 func (d dropInSpec) memory() string { return "MemoryHigh=" + d.memoryHigh + "\n" }
 
-func (d dropInSpec) ipAllow() string {
-	allow := slices.Clone(loopbackAllow)
-	add := func(p string) {
-		if !slices.Contains(allow, p) {
-			allow = append(allow, p)
-		}
-	}
-	for _, a := range d.listen {
-		if addr, err := netip.ParseAddr(a); err == nil {
-			add(netip.PrefixFrom(addr, addr.BitLen()).String())
-		}
-	}
-	for _, p := range d.allowFrom {
-		add(p)
-	}
-	return "IPAddressAllow=" + strings.Join(allow, " ") + "\n"
-}
+func (d dropInSpec) ipAllow() string { return ipFilterLines(nil, nil) }
 
-func (d dropInSpec) socketBind() string { return "SocketBindAllow=tcp:" + strconv.Itoa(d.port) + "\n" }
+func (d dropInSpec) socketBind() string { return socketBindLines(d.port) }
 
 func (d dropInSpec) text() []byte {
-	return []byte(header(d.team) + d.unit() + "\n[Service]\n" + d.execStart() + d.memory() + d.ipAllow() + d.socketBind())
+	return []byte(header(d.team) + "[Service]\n" + d.execStart() + d.memory() + d.ipAllow() + d.socketBind())
+}
+
+// ipFilterLines are a unit's IP filter: IPAddressDeny=any, then IPAddressAllow with loopback, each
+// listen address as a host prefix and each network, once each. systemd grants what no rule
+// denies, so the allow restricts only beside the deny, which the drop-in carries itself rather
+// than lean on a base unit no Go code makes.
+func ipFilterLines(listen []netip.Addr, networks []netip.Prefix) string {
+	allow := slices.Clone(loopbackAllow)
+	add := func(p netip.Prefix) {
+		if !slices.Contains(allow, p.String()) {
+			allow = append(allow, p.String())
+		}
+	}
+	for _, a := range listen {
+		add(netip.PrefixFrom(a, a.BitLen()))
+	}
+	for _, p := range networks {
+		add(p)
+	}
+	return "IPAddressDeny=any\nIPAddressAllow=" + strings.Join(allow, " ") + "\n"
+}
+
+// socketBindLines are a unit's socket bind: SocketBindDeny=any, then SocketBindAllow for the
+// team's port, and no other.
+func socketBindLines(port int) string {
+	return "SocketBindDeny=any\nSocketBindAllow=tcp:" + strconv.Itoa(port) + "\n"
 }
 
 // validInterface is whether name is a Linux interface name a device unit can be made of.

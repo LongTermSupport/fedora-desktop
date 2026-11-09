@@ -20,7 +20,7 @@ const (
 // signedOut is a member client with no token, for a login.
 func signedOut(t *testing.T, base string) *Client {
 	t.Helper()
-	c, err := NewMember(Config{BaseURL: base, PlainHTTPHosts: []string{loopback}, Token: "unused", Clock: &fakeClock{}})
+	c, err := NewMember(Config{BaseURL: base, Token: "unused", Clock: &fakeClock{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestDeleteDeviceBody(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	held, err := NewMember(Config{BaseURL: srv.URL, PlainHTTPHosts: []string{loopback}, Token: "tok", Clock: &fakeClock{}})
+	held, err := NewMember(Config{BaseURL: srv.URL, Token: "tok", Clock: &fakeClock{}})
 	if err != nil {
 		t.Fatal(err)
 	}

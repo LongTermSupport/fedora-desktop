@@ -331,7 +331,11 @@ class SilentTargetsTest(RelayCase):
 
     def spooled_targets(self, sent_id: str) -> list[str]:
         directory = self.home / "relay" / "spool" / bus.TEAM_A
-        lines = [path.read_text(encoding="utf-8").split("\t") for path in sorted(directory.glob(f"{sent_id}*.line"))]
+        lines = [
+            path.read_text(encoding="utf-8").split("\t")
+            for path in sorted(directory.glob(f"{sent_id}*.line"))
+            if path.is_file()
+        ]
         return sorted(fields[4] for fields in lines)
 
     def test_both_timeouts_are_spooled(self):

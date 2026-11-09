@@ -80,8 +80,8 @@ it, and arm64 support is a standing requirement from then on: the architecture r
   (the ghscopes engine's `ArchPin` spec), blocking with no allowlist. `qa-changed` routes
   every file kind the gate guards to it (`scripts/qa-routing.tsv`), as `F44-arm` does. Red on
   19 lines in 5 files of the `F44` tree, green once each was fixed. The daemon-owned
-  `.claude/ccy/claude-supervise.py` keeps one known instance behind an exclude until upstream
-  fixes it (hooks-daemon issue 174); leaving it is the owner's decision. The aarch64 install
+  `.claude/ccy/claude-supervise.py` is scanned with no exclude: hooks-daemon 3.73.1 picks its
+  hooks-screen build by architecture (hooks-daemon issue 174). The aarch64 install
   lane runs once per commit, for every pull request into `F44`. Done when the pull request is
   green on `F44`, aarch64 included, and merged.
 

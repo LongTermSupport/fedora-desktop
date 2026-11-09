@@ -94,7 +94,7 @@ func (h *homeserver) bundle() Bundle { return bundleAt(h.t, h.hs.URL()) }
 // member is a client holding token on the server.
 func (h *homeserver) member(token string) *matrix.Client {
 	h.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: h.hs.URL(), PlainHTTPHosts: []string{loopback}, Token: token, Clock: h.clock})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: h.hs.URL(), Token: token, Clock: h.clock})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -190,6 +190,8 @@ type world struct {
 	sessions *sessions
 	notices  *announcer
 	seat     Seat
+	// probe is the creation probe a test put in place of the real one; nil until then.
+	probe *reacher
 }
 
 func newWorld(t *testing.T) *world {
@@ -208,8 +210,25 @@ func (w *world) config() Config {
 	return Config{
 		StateHome: filepath.Join(w.home, "state"), RuntimeDir: filepath.Join(w.home, "run"),
 		Checkout: w.key, Clock: w.clock, Credential: Password{Clock: w.clock}, Sessions: w.sessions,
-		Announcer: w.notices,
+		Announcer: w.notices, Reach: VersionsReach{Clock: w.clock},
 	}
+}
+
+// reopen replaces the world's store by one opened from the world's config as mod changes it.
+func (w *world) reopen(mod func(*Config)) {
+	w.t.Helper()
+	cfg := w.config()
+	mod(&cfg)
+	s, err := Open(cfg)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			w.t.Error(err)
+		}
+	})
+	w.store = s
 }
 
 func (w *world) release(session string, leaving bool) error {

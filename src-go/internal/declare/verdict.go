@@ -113,8 +113,20 @@ func stampsKey(k *keyParts, dir string) {
 		return
 	}
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".json") {
-			k.field("stamp", e.Name()+"\n"+readOrError(filepath.Join(dir, e.Name())))
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		// Stat follows a link, as the status run's read does; what is not a regular file at the
+		// end of it enters as its error, never opened (a named pipe would block the read).
+		path := filepath.Join(dir, e.Name())
+		info, statErr := os.Stat(path)
+		switch {
+		case statErr != nil:
+			k.field("stamp", e.Name()+"\nerror: "+statErr.Error())
+		case info.Mode().IsRegular():
+			k.field("stamp", e.Name()+"\n"+readOrError(path))
+		default:
+			k.field("stamp", e.Name()+"\nerror: not a regular file: "+info.Mode().String())
 		}
 	}
 }

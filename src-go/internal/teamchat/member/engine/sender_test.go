@@ -73,7 +73,7 @@ func (w *world) onHS(id paths.TeamID) hsTeam {
 	}
 	token, err := srv.MintToken(agent(id, 1))
 	check(w.t, err)
-	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: srv.URL(), Token: token, Clock: noSleep{}})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
 	if _, err := c.Join(w.t.Context(), rec.main); err != nil {
@@ -168,7 +168,7 @@ func TestSD3_10TheRecoveryFindsTriedSends(t *testing.T) {
 	// Another device sent it, so main gives it no transaction id and the content decides.
 	token, err := h.srv.MintToken(agent(ops, 1))
 	check(t, err)
-	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), Token: token, Clock: noSleep{}})
 	check(t, err)
 	t.Cleanup(other.Close)
 	held, err := other.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("9", 32), out.Content.Compact())
@@ -249,7 +249,7 @@ func (w *world) newDevice(id paths.TeamID, h hsTeam) {
 	w.t.Helper()
 	token, err := h.srv.MintToken(agent(id, 1))
 	check(w.t, err)
-	c, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), Token: token, Clock: noSleep{}})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
 	f := w.fake(id)
@@ -353,7 +353,7 @@ func TestN3dD4TheRecoveryReadsBackToTheAnchor(t *testing.T) {
 	tried.Tried = true
 	token, err := h.srv.MintToken(agent(ops, 1))
 	check(t, err)
-	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noSleep{}})
+	other, err := matrix.NewMember(matrix.Config{BaseURL: h.srv.URL(), Token: token, Clock: noSleep{}})
 	check(t, err)
 	t.Cleanup(other.Close)
 	found, err := other.Send(t.Context(), h.main, proto.MessageType, "tc"+strings.Repeat("7", 32), tried.Content)

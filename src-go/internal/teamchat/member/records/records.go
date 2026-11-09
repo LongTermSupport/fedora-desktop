@@ -13,6 +13,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -32,6 +33,7 @@ const (
 	KindQueued     = "queued"
 	KindPending    = "pending"
 	KindQuestion   = "question"
+	KindUnattached = "unattached"
 	KindHistory    = "history"
 	KindVerified   = "verified"
 	KindMore       = "more"
@@ -46,9 +48,13 @@ const (
 // Kinds is every record kind.
 var Kinds = []string{
 	KindHuman, KindPeer, KindPing, KindTimeout, KindNotice, KindFact, KindOutbox, KindSent,
-	KindQueued, KindPending, KindQuestion, KindHistory, KindVerified, KindMore, KindTeam, KindMember, KindRoom,
-	KindRuntime, KindTeamFailed, KindVersion,
+	KindQueued, KindPending, KindQuestion, KindUnattached, KindHistory, KindVerified, KindMore, KindTeam,
+	KindMember, KindRoom, KindRuntime, KindTeamFailed, KindVersion,
 }
+
+// QuestionNone is the `question` of a human post in the questions room that no question holds;
+// a post in main has a null `question`, and one a question holds has its name, `Q<n>`.
+const QuestionNone = "none"
 
 // Record is one output record; only this package's types are records.
 type Record interface {
@@ -67,7 +73,9 @@ func (l List[T]) MarshalJSON() ([]byte, error) {
 	return marshal([]T(l))
 }
 
-// Human is a HUMAN item; Question is the question number it answers, Revises the event it edits.
+// Human is a HUMAN item. Question is null in main, `Q<n>` for a post a question holds and
+// QuestionNone for one none holds; Headline is the holding question's, else null; Revises is the
+// event it edits.
 type Human struct {
 	Team     paths.TeamID `json:"team"`
 	ID       string       `json:"id"`
@@ -76,9 +84,33 @@ type Human struct {
 	SentMS   int64        `json:"sent_ms"`
 	Room     string       `json:"room"`
 	Text     string       `json:"text"`
-	Question *int64       `json:"question"`
+	Question *string      `json:"question"`
+	Headline *string      `json:"headline"`
 	Revises  *string      `json:"revises"`
 	Restored bool         `json:"restored"`
+}
+
+// checkQuestionName refuses a `question` that is neither null, nor QuestionNone where that is
+// allowed, nor A 2.2's `Q<n>`: the field is a string, so the type does not keep another out.
+func checkQuestionName(kind string, question *string, allowNone bool) error {
+	switch {
+	case question == nil, allowNone && *question == QuestionNone, proto.ValidQuestion(*question):
+		return nil
+	}
+	return fmt.Errorf("a %s record whose question is %q, not a question name", kind, *question)
+}
+
+// MarshalJSON writes the human record, refused when its question is not null, QuestionNone or
+// `Q<n>`, or when it has a headline though no question holds it.
+func (h Human) MarshalJSON() ([]byte, error) {
+	if err := checkQuestionName(KindHuman, h.Question, true); err != nil {
+		return nil, err
+	}
+	if h.Headline != nil && (h.Question == nil || *h.Question == QuestionNone) {
+		return nil, errors.New("a human record with a headline though no question holds the post")
+	}
+	type plain Human
+	return marshal(plain(h))
 }
 
 // Peer is a PEER item; CopyOf is the event it copies.
@@ -106,14 +138,26 @@ type Ping struct {
 	Restored bool         `json:"restored"`
 }
 
-// Timeout is a TIMEOUT item: Silent did not answer this member's ping ID in time.
+// Timeout is a TIMEOUT item. For a ping, Silent did not answer this member's ping ID in time and
+// Verb and Ref are the ping's; for a reminder, Silent is `humans`, Question is the question's
+// name and there is no Verb.
 type Timeout struct {
 	Team     paths.TeamID `json:"team"`
 	ID       string       `json:"id"`
 	Silent   string       `json:"silent"`
-	Verb     string       `json:"verb"`
+	Question *string      `json:"question"`
+	Verb     *string      `json:"verb"`
 	Ref      *string      `json:"ref"`
 	Restored bool         `json:"restored"`
+}
+
+// MarshalJSON writes the timeout record, refused when its question is not null or `Q<n>`.
+func (t Timeout) MarshalJSON() ([]byte, error) {
+	if err := checkQuestionName(KindTimeout, t.Question, false); err != nil {
+		return nil, err
+	}
+	type plain Timeout
+	return marshal(plain(t))
 }
 
 // Notice is a NOTICE item (A 7.4); Carried is A 7.7's carried object when there is one.
@@ -213,14 +257,49 @@ type Pending struct {
 	SentMS int64        `json:"sent_ms"`
 }
 
-// Question is one question in the questions room.
+// Question is one question in the questions room (A 10.4). ID and AskedMS are null while its send
+// is queued; Redacted marks a number kept by a redacted question (QX7), which is closed and holds
+// nothing else; RemindAfterS is null when there is no reminder; Unanswered is at most 16 ids and
+// UnansweredMore the count past them.
 type Question struct {
-	Team       paths.TeamID `json:"team"`
-	N          int64        `json:"n"`
-	State      string       `json:"state"`
-	ID         string       `json:"id"`
-	AskedBy    List[string] `json:"asked_by"`
-	Unanswered List[string] `json:"unanswered"`
+	Team           paths.TeamID `json:"team"`
+	N              int64        `json:"n"`
+	State          string       `json:"state"`
+	ID             *string      `json:"id"`
+	Headline       string       `json:"headline"`
+	AskedBy        List[string] `json:"asked_by"`
+	Re             List[string] `json:"re"`
+	AskedMS        *int64       `json:"asked_ms"`
+	RemindAfterS   *int64       `json:"remind_after_s"`
+	Unanswered     List[string] `json:"unanswered"`
+	UnansweredMore int64        `json:"unanswered_more"`
+	Redacted       bool         `json:"redacted"`
+}
+
+// MarshalJSON writes the question record. A redacted question's text was redacted, so one that
+// says so and still holds anything but its number (closed, with every other field null or
+// empty) is refused rather than written.
+func (q Question) MarshalJSON() ([]byte, error) {
+	if q.Redacted && !holdsOnlyItsNumber(q) {
+		return nil, errors.New("a redacted question record that holds more than its number, closed")
+	}
+	type plain Question
+	return marshal(plain(q))
+}
+
+func holdsOnlyItsNumber(q Question) bool {
+	return q.State == proto.QuestionClosed && q.ID == nil && q.Headline == "" &&
+		len(q.AskedBy) == 0 && len(q.Re) == 0 && q.AskedMS == nil && q.RemindAfterS == nil &&
+		len(q.Unanswered) == 0 && q.UnansweredMore == 0
+}
+
+// Unattached is one human post in the questions room that no question holds and no agent has
+// replied to.
+type Unattached struct {
+	Team   paths.TeamID `json:"team"`
+	ID     string       `json:"id"`
+	From   string       `json:"from"`
+	SentMS int64        `json:"sent_ms"`
 }
 
 // History is one item received ("in") or sent ("out"), the item a record of its own kind.
@@ -308,11 +387,15 @@ type Member struct {
 	Present bool         `json:"present"`
 }
 
-// Room is one of a team's side rooms.
+// Room is one of a team's side rooms. Check names the failed check of an untrusted room, else it
+// is null; Uncounted is the questions room's count of this member's own questions and thread
+// posts whose echo was not counted (QX3), null for any other room.
 type Room struct {
-	Team    paths.TeamID `json:"team"`
-	Purpose string       `json:"purpose"`
-	State   string       `json:"state"`
+	Team      paths.TeamID `json:"team"`
+	Purpose   string       `json:"purpose"`
+	State     string       `json:"state"`
+	Check     *string      `json:"check"`
+	Uncounted *int64       `json:"uncounted"`
 }
 
 // Runtime is the session's resident cost (B40).
@@ -405,6 +488,9 @@ func (Pending) Kind() string { return KindPending }
 func (Question) Kind() string { return KindQuestion }
 
 // Kind is the record kind.
+func (Unattached) Kind() string { return KindUnattached }
+
+// Kind is the record kind.
 func (History) Kind() string { return KindHistory }
 
 // Kind is the record kind.
@@ -442,6 +528,7 @@ func (Sent) record()       {}
 func (Queued) record()     {}
 func (Pending) record()    {}
 func (Question) record()   {}
+func (Unattached) record() {}
 func (History) record()    {}
 func (Verified) record()   {}
 func (More) record()       {}

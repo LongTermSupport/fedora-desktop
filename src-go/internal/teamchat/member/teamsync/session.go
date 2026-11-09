@@ -178,11 +178,13 @@ func (s *sess) start(ctx context.Context, store state.Store) (string, bool, erro
 	return since, false, err
 }
 
-func (s *sess) filter() json.RawMessage { return proto.SyncFilter(s.roster, s.a).Compact() }
+// filter is the sync filter; the questions room is asked for whenever the roster names this
+// member the coordinator, because nothing here yet knows whether that room is ready (QS3).
+func (s *sess) filter() json.RawMessage { return proto.SyncFilter(s.roster, s.a, true).Compact() }
 
 // readd is SY1 (c): one sync with timeline limit 0, persisted with no items.
 func (s *sess) readd(ctx context.Context) (string, error) {
-	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: proto.SyncFilterReAdd(s.roster, s.a).Compact()})
+	resp, err := s.c.Sync(ctx, matrix.SyncRequest{FilterJSON: proto.SyncFilterReAdd(s.roster, s.a, true).Compact()})
 	if err != nil {
 		return "", err
 	}

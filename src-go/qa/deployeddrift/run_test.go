@@ -165,6 +165,16 @@ func TestE4MissingPlaybooksIsExitTwo(t *testing.T) {
 	contains(t, "stderr", r.errOut, "playbooks")
 }
 
+// A play the walk finds that is not a regular file is refused by name, never opened: a named
+// pipe would block the read for ever (#195).
+func TestE4PlaybookThatIsNotARegularFileIsExitTwo(t *testing.T) {
+	w := base()
+	w.repo["playbooks/imports/play-pipe.yml"] = &fstest.MapFile{Mode: fs.ModeNamedPipe}
+	r := w.run()
+	r.expect(t, ExitCannotRun)
+	contains(t, "stderr", r.errOut, "playbooks/imports/play-pipe.yml is not a regular file")
+}
+
 // E5
 func TestE5TemplateWithoutPlaybookDestIsExitTwoEvenInTheContainer(t *testing.T) {
 	w := base()

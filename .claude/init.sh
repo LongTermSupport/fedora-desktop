@@ -3705,7 +3705,7 @@ send_request_stdin() {
     # constants/timeout.py (pinned equal by tests/unit/constants/test_event_budgets.py).
     local _event_socket_wait
     case "$event_name" in
-        WorktreeCreate) _event_socket_wait=85;;
+        WorktreeCreate) _event_socket_wait=90;;
         WorktreeRemove) _event_socket_wait=70;;
         *) _event_socket_wait=30;;
     esac

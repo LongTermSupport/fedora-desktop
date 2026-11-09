@@ -43,7 +43,7 @@ func TestPoolBundleRoundTrip(t *testing.T) {
 	}
 	got := decodeJSON(t, string(data))
 	for _, key := range []string{
-		"v", "team", "server_name", "user_id", "admin_id", "main_room", "base_url", "plain_http_hosts",
+		"v", "team", "server_name", "user_id", "admin_id", "main_room", "base_url", "tls_ca",
 		"device_id", "issued_ms", "issuer",
 	} {
 		if _, ok := got[key]; !ok {
@@ -116,7 +116,8 @@ func TestBundleRefusals(t *testing.T) {
 	doc := string(good)
 	server := paths.ServerName(mustTeam(t))
 	cases := map[string][]byte{
-		"v 2":                   reshape(t, doc, "v", `2`),
+		"v 1":                   reshape(t, doc, "v", `1`),
+		"v 3":                   reshape(t, doc, "v", `3`),
 		"no team":               reshape(t, doc, "team", ""),
 		"team invalid":          reshape(t, doc, "team", `"Ops"`),
 		"server of another":     reshape(t, doc, "server_name", `"dev.teamchat.internal"`),
@@ -125,15 +126,17 @@ func TestBundleRefusals(t *testing.T) {
 		"admin not the admin":   reshape(t, doc, "admin_id", `"@root:`+server+`"`),
 		"room not a room":       reshape(t, doc, "main_room", `"#main:x"`),
 		"http to a name":        reshape(t, doc, "base_url", `"http://example.org:8448"`),
-		"http not listed":       reshape(t, doc, "plain_http_hosts", `[]`),
+		"http to an ip":         reshape(t, doc, "base_url", `"http://192.0.2.10:8448"`),
+		"the v 1 key":           reshape(t, doc, "plain_http_hosts", `[]`),
+		"https with no CA":      reshape(t, doc, "base_url", `"https://chat.example.org:8448"`),
 		"device not the seat's": reshape(t, doc, "device_id", `"OTHER"`),
 		"issued negative":       reshape(t, doc, "issued_ms", `-1`),
 		"issuer not a digest":   reshape(t, doc, "issuer", `"current"`),
 		"unknown key":           reshape(t, doc, "extra", `1`),
-		"repeated key":          []byte(strings.Replace(doc, `{"v":1,`, `{"v":1,"v":1,`, 1)),
-		"a key in capitals":     []byte(strings.Replace(doc, `{"v":1,`, `{"v":1,"ISSUED_MS":5,`, 1)),
-		"a key case-folded":     []byte(strings.Replace(doc, `{"v":1,`, `{"v":1,"Issued_Ms":5,`, 1)),
-		"a key Unicode-folded":  []byte(strings.Replace(doc, `{"v":1,`, `{"v":1,"iſsued_ms":5,`, 1)),
+		"repeated key":          []byte(strings.Replace(doc, `{"v":2,`, `{"v":2,"v":2,`, 1)),
+		"a key in capitals":     []byte(strings.Replace(doc, `{"v":2,`, `{"v":2,"ISSUED_MS":5,`, 1)),
+		"a key case-folded":     []byte(strings.Replace(doc, `{"v":2,`, `{"v":2,"Issued_Ms":5,`, 1)),
+		"a key Unicode-folded":  []byte(strings.Replace(doc, `{"v":2,`, `{"v":2,"iſsued_ms":5,`, 1)),
 		"trailing":              append(append([]byte(nil), good...), " {}"...),
 		"not an object":         []byte(`[]`),
 		"too large":             reshape(t, doc, "base_url", `"`+strings.Repeat("a", maxRecord)+`"`),

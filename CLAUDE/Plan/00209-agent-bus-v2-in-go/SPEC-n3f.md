@@ -129,11 +129,18 @@ where each seam is: `base` is in that tree; `n3d` and `n3e` are added by `feat/b
      removed member's team is gone, LN8. Neither reaches this step.)
   3. the size: more than 1501 bytes read, or more than 1500 after the newline is removed, 10
      `body` ("a report is at most 1500 bytes; it is never cut"); then `ReportForm`: an empty
-     first line or a headline over 120 code points, 10 `body`, naming which;
+     first line or a headline over 120 code points, 10 `body`, naming which (three messages:
+     the size, the empty headline, the long headline). The client does only the reading and the
+     one newline of n3f-D1 (and 64 for a terminal, 10 `schema` for non-UTF-8, which cannot
+     travel in the request); it refuses no size and no empty text, since only the link knows
+     the role and step 2 comes first;
   4. the secret check (the twelve shapes and the member's own token): 10 `secret`;
   5. the reports room verified now (RP4);
   6. `Admit`, its report window seeded from `outbox.reports`: `report_per_hour` reports already
-     in the last 3600 s, 14 `report-rate`, the message naming when the oldest leaves the window;
+     in the last 3600 s, 14 `report-rate`, the message naming when the oldest leaves the window
+     as seconds from now, rounded up, so it reads the same with any clock ("team T allows N
+     reports an hour and they are made; the oldest leaves the window in S seconds; a report that
+     was not posted still counts");
      the same text within 60 s, 15 `duplicate`; the send bucket empty, 14 `rate`;
   7. SD3's write: the token, the transaction id, the content and the report's time in
      `outbox.reports` (n3f-D6) in one store write before the PUT, which the team's sender makes.
@@ -424,6 +431,16 @@ admin redaction makes it rebuilt (QX7).
   restart loads it and syncs on from the store's position, so the questions room is never read
   again; a key whose token lags the position is caught up from its token (QX1).
 
+  The token is held as the key's size bound counts it (QX6): non-empty, at most 1024 bytes, and
+  printable ASCII without a space, `"`, `\`, `<`, `>` or `&` (the characters `encoding/json`
+  escapes, which would make 1024 bytes more in the file). This is narrower than the sync
+  token's own check in n3d's store (any printable ASCII), and real tokens (letters, digits, `_`,
+  `-`, `~`, `.`) pass. A `next_batch` or page `end` outside it is a malformed answer: the
+  engine refuses to write it, treats it as SY8's transient path with one log line naming the
+  token's first offending byte, and never writes the key with it (smallest reading; the spec
+  was silent, and a store that cannot write the key must not be reached by a token it cannot
+  hold).
+
   **A build owed or under way is persisted** (n3f-D21). The `build` record is null for an
   index at the head or behind it, or `{"start": <id or null>, "after": <id or null>, "late_from": <n or null>}`:
 
@@ -465,7 +482,9 @@ admin redaction makes it rebuilt (QX7).
   records byte for byte and holds a byte-equal `questions` key; (g) an admin redaction of a
   counted Q2 with a later Q3 counted, and again with no later question (QX7): live and rebuilt
   byte-equal, the next `ask` numbering Q4 in the first case and Q3 in the second on both seats,
-  Q2 a `redacted` record in both, so no number is given out twice; (h) the link killed by a
+  Q2 a `redacted` record in the first case only (the later Q3 shows the number was skipped; with
+  no later question the count alone holds it, `Next()` is 3, and `questions` lists no Q2), so no
+  number is given out twice; (h) the link killed by a
   failpoint after the SY5 write that folds an admin redaction, with human posts H4 before the
   redaction and H5 after it in the same answer and H6 posted later: the restart finds the build
   owed and builds, never a catch-up; its result equals a fresh build on another seat byte for
@@ -483,7 +502,23 @@ admin redaction makes it rebuilt (QX7).
   only as below the highest: `thread` or `reply` naming it is 23 `not-found`, "Q<n> is closed and
   older than the index keeps"); per question the 16 oldest unanswered ids kept and the rest
   counted; the 1024 most recent human posts' attachments (A 10.3's index check on an older post is
-  10 `target`); the 64 most recent unattached posts no agent post replies to.
+  10 `target`); the 256 most recent agent thread posts and held slots, in a list of their own
+  (OW5 (b)); the 64 most recent unattached posts no agent post replies to.
+
+  - **The two lists of folded events** (OW5 (b)). The fold remembers each event it applied by
+    event id, so that an event fed again (a page re-read after a failed write, QX4's held answer,
+    QX1's catch-up) applies once. Human posts are in `posts`, each `{"id","q","t"}`: the question
+    it was attached to (0 for none) and `t` 1 when it is in that question's thread, else 0 (A
+    10.4 rule 2 attaches a reply to a human post only when it is in a thread, so the kind is
+    kept; the stored state refuses any other `t`, and `t` 1 with `q` 0). Agent thread posts and
+    held slots are in `agent_posts`, each `{"id","q"}`: the question of the thread (an agent's
+    thread post resets its unanswered count and may close it, A 10.4), or 0 for a slot (QX7);
+    no kind is needed, since `q` tells them apart. Each list evicts its own oldest entry past its
+    cap, in stream order, so agent posts never push a human post out. An event id is in at most
+    one list (the fold looks in both before it applies an event, and the stored state refuses an
+    id repeated across them). Past a cap an evicted event fed again applies again, in both the
+    live and a rebuilt index alike; a feed fed again is at most a page or an answer behind, far
+    inside 256 agent events.
 
   - **The store's share, worst case.** Each entry is sized as compact JSON at its longest, as
     n3d-D1 sizes the lists: an event id is 46 bytes with its quotes, a user id at most 130 (A4's
@@ -492,31 +527,41 @@ admin redaction makes it rebuilt (QX7).
     not escaped). The `Question:` section is kept as its SHA-256, 66 bytes in hex with quotes,
     never as text (G1.4): kept as text it would be up to 8000 bytes, escaped up to 6 times that,
     and the 192 the caps keep (64 open, 128 closed) alone would pass 3 MiB.
+
     - A question: 15 bytes of braces and commas, 131 of keys, and the values `n` 19, `id` 46,
       the thread's latest event 46, `headline` 722, the hash 66, `asked_by` 2 + 16 x 130 + 15 =
       2097, `re` 2 + 16 x 46 + 15 = 753, `asked_ms` 19, `remind_after_s` 19, `closed` 5, the
       attach count 19, `unanswered` 753, its count past 16 19: 4729 bytes, sized 5120.
-    - An attachment `{"id":…,"q":…}`: 77 bytes, sized 96. An unattached post (id, `from_id`,
-      `sent_ms`): 224 bytes, sized 256. The fixed fields (the token at n3d's `maxNextBatch`,
-      1024, the last folded event, the next number, the slot and eviction counts, and the
-      `build` record's two event ids and `late_from`; about 1300 bytes with their keys): 2048.
-    - The `questions` key: 192 x 5121 + 1024 x 97 + 64 x 257 + 2048 = 983 232 + 99 328 + 16 448 +
-      2048 = **1 101 056 bytes (about 1.05 MiB) per team**.
+    - An attachment `{"id":…,"q":…,"t":…}`: 83 bytes, sized 96. An agent post or slot
+      `{"id":…,"q":…}`: 77 bytes, sized 96. An unattached post (id, `from_id`, `sent_ms`): 224
+      bytes, sized 256. The fixed fields (the token at n3d's `maxNextBatch`, 1024, the last
+      folded event, the next number, the slot and eviction counts, the `build` record's two
+      event ids and `late_from`, and the five list keys; about 1320 bytes with their keys): 2048.
+    - The `questions` key: 192 x 5121 + 1024 x 97 + 256 x 97 + 64 x 257 + 2048 = 983 232 +
+      99 328 + 24 832 + 16 448 + 2048 = **1 125 888 bytes (about 1.07 MiB) per team**.
     - The seat keys beside it, each with its key name: `outbox.reports` 60 x 14 + 16 = 856;
       `remind_late` 64 x 20 + 16 = 1296; and four scalars, whose values alone are 19
       (`reminded_ms`) + 46 (`outbox.questions_unechoed`) + 38 (`outbox.questions_uncounted`'s
       two counts) + 5 (`outbox.questions_handover`) = 108 bytes, and with their keys, braces
-      and commas about 210, sized **256 together**. n3f adds 1 101 056 + 856 + 1296 + 256 =
-      1 103 464 bytes.
+      and commas about 210, sized **256 together**. n3f adds 1 125 888 + 856 + 1296 + 256 =
+      1 128 296 bytes.
     - n3d's bound (`TestStoreFullFitsTheFileCap`: 4096 + 1024 + each list's count x (size + 1))
-      is 3 001 136 bytes. The new sum is 4 104 600 bytes, which n3d-D1's rule rounds up to 16 x
+      is 3 001 136 bytes. The new sum is 4 129 432 bytes, which n3d-D1's rule rounds up to 16 x
       256 KiB = 4 194 304: **`MaxStore` rises from 3 MiB to 4 MiB** (G2), so a cap always fires
-      before the file cap.
-  - Tests: the 65th `ask` refused; 1100 human posts folded live and rebuilt: the same state; a
-    store with every cap full at its maximum sizes (192 questions with 16 `asked_by` of 128
-    bytes, 16 `re`, 16 unanswered, a headline of 120 escaped code points; 1024 attachments; 64
-    unattached; the longest token), the new keys included, encodes and decodes under
-    `MaxStore`, and `TestStoreFullFitsTheFileCap` holds the new sum rounded up.
+      before the file cap, 64 872 bytes under it. Counted as written, escaping included, as the
+      store's sizing now is (the coordinator's decision (c) on n3d's store sizing), the sum is
+      4 134 997 bytes: the same 4 MiB, 59 307 bytes under it.
+
+  - Tests: the 65th `ask` refused; 1100 human posts folded live and rebuilt: the same state; 300
+    agent thread posts and 257 slots keep the newest 256 and leave all 1024 human posts known; a
+    thread post fed again after 1124 later human posts resets none of them; a room that fires
+    every cap, both lists' included, folded live and stored and reloaded between pages with
+    events fed again (each page's last few, an event of the last 40 after one in four, and the
+    oldest entry of each list): the same state; a store with every cap full at its maximum sizes
+    (192 questions with 16 `asked_by` of 128 bytes, 16 `re`, 16 unanswered, a headline of 120
+    escaped code points; 1024 attachments; 256 agent posts; 64 unattached; the longest token),
+    the new keys included, encodes and decodes under `MaxStore`, and
+    `TestStoreFullFitsTheFileCap` holds the new sum rounded up.
 
 - **QX7. Redactions** (n3f-D20). Only the admin redacts, one event at a time, with the reason
   `secret` (A 4.2, 12.4; `verdict.go:235`), and a read of a redacted event carries
@@ -723,10 +768,10 @@ admin redaction makes it rebuilt (QX7).
 ## 6. Records (B 2.2.2, settled for n3f)
 
 ```json
-{"kind":"question","v":1,"team":"<team>","n":4,"state":"open","id":"$<43>","headline":"Which licence for the new docs site?","asked_by":["<repo>.2"],"re":["$<43>"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["$<43>"],"unanswered_more":0}
+{"kind":"question","v":1,"team":"<team>","n":4,"state":"open","id":"$<43>","headline":"Which licence for the new docs site?","asked_by":["<repo>.2"],"re":["$<43>"],"asked_ms":1760000000000,"remind_after_s":null,"unanswered":["$<43>"],"unanswered_more":0,"redacted":false}
 {"kind":"unattached","v":1,"team":"<team>","id":"$<43>","from":"alice","sent_ms":1760000000000}
 {"kind":"human","v":1,"team":"<team>","id":"$<43>","from":"alice","from_id":"@alice:<server>","sent_ms":1760000000000,"room":"questions","text":"MIT, please.","question":"Q4","headline":"Which licence for the new docs site?","revises":null,"restored":false}
-{"kind":"timeout","v":1,"team":"<team>","id":"$<43>","silent":"humans","question":"Q4","verb":null,"ref":null}
+{"kind":"timeout","v":1,"team":"<team>","id":"$<43>","silent":"humans","question":"Q4","verb":null,"ref":null,"restored":false}
 {"kind":"room","v":1,"team":"<team>","purpose":"questions","state":"joined","check":null,"uncounted":0}
 ```
 
@@ -743,7 +788,8 @@ admin redaction makes it rebuilt (QX7).
   number to a string: `null` in main, `"Q<n>"` when attached, `"none"` when unattached; `room`
   `main` or `questions`.
 - `timeout` for a reminder: `silent` `humans`, `question` `Q<n>`; for a ping's TIMEOUT `question`
-  is `null`.
+  is `null`. It gains `restored`: true for a reminder made again after a restore (QX1, SY6),
+  false otherwise, as on `human`.
 - `room` (in `status`, LN5): `purpose` `reports` or `questions`; `state` one of `joined`,
   `awaiting-invite` (QS2), `left` (QS8), `building` (QX1), `refused` (RP1), `untrusted` (QS8, QS2,
   RP4, with `check` naming the failed check), `not-coordinator` (questions, for a worker);
@@ -839,7 +885,7 @@ Where it was weak:
 | n3f-D14 | **`--re` is checked for grammar only** (A 10.2), with no lookup on main. Why: A says so, receivers do not check it, and a lookup would make `ask` fail 20 while the homeserver is down, where n3d-D2 queues the send.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | n3f-D15 | **Each sync answer is judged in a fixed order** (QS1): main's invite, main's trust and roster, the side-room invites, the questions room's membership and trust, then main's timeline and the questions timeline. Why: `proto.Invite` judges against the roster it is given; judged first against the roster from before the answer, the invite that follows a promotion in the same answer (A 5.2) would be rejected and the room left for good, and a demotion's kick would read as a trust failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | n3f-D16 | **`report` verifies the reports room at the verb when the server answers, and the sender verifies it again before posting a queued report** (RP4). Why: B 2.6 step 10 asks for verification at each send, and the owner's rule (n3d-D2) asks that a send to a down server be queued, not failed; verifying at the verb keeps a failed check from charging anything, and verifying at the sender keeps a report queued past a change from being posted into a room that no longer verifies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| n3f-D17 | **The index is bounded by caps applied in its fold** (QX6): 64 questions not closed (the 65th `ask` is 10 `open-limit`), 128 closed kept, 16 unanswered ids per question, 1024 human posts' attachments, 64 unattached posts; the `Question:` section kept as its SHA-256, not its text; at most 1 101 056 bytes (about 1.05 MiB) in the store per team at the worst case, escaping included, which raises `MaxStore` from 3 MiB to 4 MiB by n3d-D1's rule (QX6 gives the sum); `questions` prints at most 256 records per team, then `more`. Why: the index lives for a link's life and in the store, and the room grows for ever; caps applied in stream order keep the live and the rebuilt index identical, which a trim by age or at load would not.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| n3f-D17 | **The index is bounded by caps applied in its fold** (QX6): 64 questions not closed (the 65th `ask` is 10 `open-limit`), 128 closed kept, 16 unanswered ids per question, 1024 human posts' attachments, 256 agent thread posts and held slots in a list of their own (OW5 (b)), 64 unattached posts; the `Question:` section kept as its SHA-256, not its text; at most 1 125 888 bytes (about 1.07 MiB) in the store per team at the worst case, escaping included, which raises `MaxStore` from 3 MiB to 4 MiB by n3d-D1's rule (QX6 gives the sum); `questions` prints at most 256 records per team, then `more`. Why: the index lives for a link's life and in the store, and the room grows for ever; caps applied in stream order keep the live and the rebuilt index identical, which a trim by age or at load would not.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | n3f-D18 | **Attachment does not depend on delivery** (QS6, QX2): a human post is attached whether it is delivered, dropped `rate` or past `human_max_age_s`, and a held answer's attachments are committed only after its store write (QX4). Why: the build reads history with no flood window, so attaching only delivered posts would make a rebuilt index disagree with the live one; and attaching before the write would count a re-read post twice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | n3f-D19 | **Only a fold of the questions room writes the `questions` key** (QX5): an answer's SY5 write whose filter held questions and whose questions timeline was folded, or a QX1 page's write, both through the engine's one store writer; every other SY5 write leaves the key as it was. Why: while questions is out of the filter (a build, a catch-up, QS7's gap past the bound, QS8's untrusted room) SY5 goes on persisting main answers, and a token taken from those would start the next catch-up past events never folded; the next `ask` would then take a number already used, uncounted by every member (A 6.5), and P1 would lose the posts in between.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | n3f-D20 | **A redaction is applied by rebuilding the index, and a number is never given out twice** (QX7). `Next()` is 1 plus the highest counted plus the redacted slots since the highest was last raised; which questions are counted is unchanged (an agent's `n` from 1 plus the highest to `Next()`), so live still equals rebuilt. Each number a counted question skips is held by a redacted event. Why: a build sees a redacted event only as its sender and `redacted_because`, so the one live state a build can reproduce is the one a build makes; an in-place un-attach cannot restore what the caps dropped or undo a redacted thread post's close. The slots keep the chain (A 6.5) unbroken past a redacted question, from what every build sees, and numbering past them keeps `Q<n>`, the one name humans, main-room messages, transcripts and the `uncounted` line use, from ever naming two questions: a human's late `Q2:` for a redacted Q2 can never attach to a new one. Rejected: dropping the number (every later question uncounted for ever); giving the number again with no later question (a late answer attaches to the wrong question); a reason naming `Q<n>` in the admin's redaction (a change to A 12.4 and C for nothing the slots lack).                                                                                                                                                                                                                                |
@@ -848,8 +894,10 @@ Where it was weak:
 ## 9. For the owner
 
 Product behaviours with no clear best answer. The team coordinator has set each recommendation
-below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a) and OW4 (a). Each
-stays open to the owner changing it later; the coordinator lists them for the owner.
+below as the **coordinator default**: n3f is built on OW1 (a), OW2 (a), OW3 (a) and OW4 (a).
+Each stays open to the owner changing it later; the coordinator lists them for the owner. OW5
+was the coordinator's to answer, an engineering reading and not a product behaviour, and is
+decided: (b).
 
 - **OW1. A human posts in questions while the coordinator is offline.** Nothing tells the human
   that no coordinator session is running; the post waits and is delivered when one runs (OF1).
@@ -857,17 +905,21 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   quiet notice in questions when its coordinator's seat has been free for a while.
   **Recommendation: (a).** (b) adds an admin post driven by liveness, which is display, and a
   notice per outage in a room meant to be quiet.
+
 - **OW2. Telling the askers that their question went up.** When the coordinator runs `ask --asked-by`, the askers learn nothing unless the coordinator says so in main. Options: (a) as
   v1, the coordinator decides; (b) `ask` also sends each asker a quiet text in main naming
   `Q<n>`. **Recommendation: (a).** The skill tells the coordinator to tell the asker; (b) costs
   each asker a model turn for a fact it may not need.
+
 - **OW3. The index's caps** (n3f-D17). The index no longer has a size bound on the room (n3f-D9);
   what bounds it are its caps: 64 questions not closed, 128 closed kept, 1024 human posts'
-  attachments, 64 unattached posts, which at their worst take about 1.05 MiB of store per team
+  attachments, 256 agent thread posts and slots (OW5), 64 unattached posts, which at their worst
+  take about 1.07 MiB of store per team
   and raise `MaxStore` to 4 MiB (QX6). Options: (a) the caps as stated; (b) higher caps, at more
   store per team. **Recommendation: (a)**: 64 questions open at once is far past what a team asks,
   and a refused 65th `ask` tells the coordinator to close some; the owner may prefer to be told the
   figures are ample before they are built.
+
 - **OW4. Human posts during a coordinator handover reach nobody's inbox.** At a demotion the old
   coordinator's questions items not yet seen are dropped (QS9), and the new coordinator delivers
   only what is posted after its own join (QS5). A human post made in between, or accepted by the
@@ -885,6 +937,55 @@ stays open to the owner changing it later; the coordinator lists them for the ow
   history to find the leave, and delivers posts the humans may already have seen answered in
   Element; (c) adds an admin post and a trust rule for it. If the owner prefers (b), it is QS5's
   floor taking the predecessor's leave event in place of the own join.
+
+- **OW5. What the index's 1024-entry post list holds** (QX6, n3f-D17; found by the n3f-a index
+  builder). **Decided. OW5: (b), coordinator, 2026-11-05.** Built as QX6's "two lists of folded
+  events" states: `posts` keeps the 1024 most recent human posts, each `{"id","q","t"}` with `t`
+  0 or 1 (kept, because A 10.4 rule 2 attaches a reply to a human post only when it is in a
+  question's thread); `agent_posts` keeps the 256 most recent agent thread posts and slots, each
+  `{"id","q"}`, `q` 0 for a slot; each list evicts its own oldest; an event id is in at most one
+  list. QX6's sum becomes 1 125 888 bytes, the store's 4 129 432 (4 134 997 counted as written),
+  `MaxStore` stays 4 MiB. The store at its widest, which (b) below estimated at 3 452 995 bytes,
+  is measured at 3 447 379 by `TestStoreFullFitsTheFileCap`: a slot or thread post is written in
+  at most 77 bytes, under the 96 the sum sizes it at. Options (a) to (c) stay as the record of
+  what was weighed.
+
+  The question as it was put: QX6 said the list is "the 1024 most recent human posts'
+  attachments". The fold also has to remember, by event id, each agent thread post (it resets a
+  question's unanswered count and may close it, A 10.4) and each held slot, or an event fed
+  again (a page re-read after a failed write, QX4's held answer, QX1's catch-up) would apply
+  twice: a thread post fed again after later human posts would reset their unanswered count to
+  0 and wipe it. QX6's byte sum had no list for them. Options:
+
+  - (a) **As built in n3f-a:** the same list, each entry `{"id","q","t"}` with `t` an integer
+    kind (0 a human post attached by another rule or to none, 1 a human post in a question's
+    thread, 2 an agent's thread post, 3 a slot; a bool cannot tell an agent's thread post from a
+    human's, and `Composer.threadRelation` must go on seeing human posts only). At most 83 bytes
+    inside the 96 the sum sizes, so the 1 101 056-byte sum and `MaxStore` stand. QX6's wording
+    becomes "the 1024 most recent human posts and agent thread posts". **What it breaks:** the list
+    is shared, so 1024 agent thread posts in a row push every earlier human post out of it; an
+    older human post then fails A 10.3's index check (`reply` to it is 10 `target`) and a late
+    edit of it loses its attachment (rule 4), though the question itself is still kept. If thread
+    posts and human posts alternate one for one, the human window is 512 posts; it is 1024 only
+    while the coordinator posts no thread post.
+  - (b) A second list for agent thread posts and slots, with its own cap (256 entries of
+    `{"id","q"}`, sized 96 as an attachment is, 97 with its comma: 24 832 bytes more; the store at
+    its widest, 3 428 163 bytes, becomes 3 452 995, under 4 MiB), so the humans keep all 1024. **What it breaks:** n3f-a's finished
+    codec, `QuestionsState` shape, fold and size test are reworked and the 71 codec mutants
+    re-run; a second eviction rule must keep live equal to rebuilt; the format gains a field
+    before any seat has written one (cheap now, a migration later).
+  - (c) Remember no ids: apply a thread post only when it is past the persisted token. **What it
+    breaks:** idempotence by event id (n3f-D18's re-read of a held answer, the property test that
+    live equals rebuilt after any re-feed), and the unanswered count of a question whose old
+    thread post is fed again; it needs an exact-once feed position in place of the id, which the
+    spec does not give.
+
+  **Recommendation, as it was given: (a).** It was built, tested and inside the sum. The case it
+  harms (1024 coordinator thread posts with no human post between) costs the coordinator a model
+  turn each, and what it loses is the attachment of a human post that old; the question and its
+  other posts are kept. If the coordinator would rather the humans' window never shrink, (b) is
+  the choice, and it is cheaper before n3f-c writes the key than after. The coordinator chose
+  (b); QX6 and n3f-D17 say which list holds what.
 
 ## 10. The slicing
 
@@ -1014,7 +1115,7 @@ Seven keys, where each sits. In the schema's `"outbox"` object, after `"gate"`:
 At the document's top level, after `"outbox"` and before `"run"`:
 
 ```text
-"questions": {"index": {}, "token": "<token>", "last": "$<43>", "build": null},
+"questions": {"index": <the index's state, QX5>, "token": "<token>", "last": "$<43>", "build": null},
 "reminded_ms": 0,
 "remind_late": []
 ```
@@ -1035,7 +1136,7 @@ The file cap is their sum, about 1.9 MiB, rounded up to **2 MiB**, so a list cap
 New, complete on its own (it keeps n3d's base caps, about 3.0 MiB, and adds this room's):
 
 ```text
-The lists above, with n3d's caps (about 3 001 136 bytes), are the base. The questions room adds its own: 60 report times (14 bytes), 64 `remind_late` numbers (20 bytes), the `questions` key at most 1 101 056 bytes (64 questions not closed, 128 closed, 1024 attachments, 64 unattached posts; SPEC-n3f QX6), and the three `outbox.questions_*` keys with `reminded_ms`, 256 bytes together. The file cap is the sum of the base and these, about 4 104 600 bytes, rounded up to the next 256 KiB: **4 MiB** at these caps (`MaxStore`, pinned by `TestStoreFullFitsTheFileCap`), so a list cap is always the one that fires.
+The lists above, with n3d's caps (about 3 001 136 bytes), are the base. The questions room adds its own: 60 report times (14 bytes), 64 `remind_late` numbers (20 bytes), the `questions` key at most 1 125 888 bytes (64 questions not closed, 128 closed, 1024 attachments, 256 agent posts and slots, 64 unattached posts; SPEC-n3f QX6), and the three `outbox.questions_*` keys with `reminded_ms`, 256 bytes together. The file cap is the sum of the base and these, about 4 129 432 bytes, rounded up to the next 256 KiB: **4 MiB** at these caps (`MaxStore`, pinned by `TestStoreFullFitsTheFileCap`), so a list cap is always the one that fires.
 ```
 
 And in 2.14's row "store writes per event": old `2 MiB at worst`, new `4 MiB at worst`.

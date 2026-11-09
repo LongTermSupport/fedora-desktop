@@ -451,6 +451,7 @@ class SizesHaveOneHomeTest(ResolverRun):
 
     def test_the_extension_keeps_no_model_sizes(self):
         for path in sorted(self._EXTENSION.glob("*.js")):
+            self.assertTrue(path.is_file(), f"{path.name} is not a regular file")
             found = self._SIZE_STRING.search(path.read_text())
             self.assertIsNone(found, f"{path.name} keeps a model size ({found and found[0]}); "
                                      "sizes live in wsi-resolve-model's SIZE_MB")

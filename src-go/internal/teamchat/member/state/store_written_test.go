@@ -236,11 +236,18 @@ func fixedWritten() map[string]int {
 		"sync.next_batch":  2 + 6*maxNextBatch,
 		"sync.floor_ms":    2 + len(storeRooms)*(len(`"questions":,`)+16),
 		"outbox.last_sent": 2 + 44,
-		"run.id":           2 + 16,
-		"run.ended.notice": 2 + len(NoticeDisconnected),
-		"run.ended.reason": 2 + len(ReasonLaunchFailed),
-		"run.ended.state":  2 + len(StateAttempted),
-		"run.ended.txn":    2 + 34,
+		// The questions room's keys (SPEC-n3f QX6). Each list is its frame (the key and the
+		// brackets) and its entries; the key `questions` is bounded whole by its codec, which
+		// counts the escaping, so it is one leaf; an event id has no character to escape.
+		"outbox.reports":            sizeListFrame + capReports*sizeReportTime,
+		"outbox.questions_unechoed": 2 + 44,
+		"remind_late":               sizeListFrame + capRemindLate*sizeRemindLate,
+		"questions":                 proto.MaxQuestionsStateBytes,
+		"run.id":                    2 + 16,
+		"run.ended.notice":          2 + len(NoticeDisconnected),
+		"run.ended.reason":          2 + len(ReasonLaunchFailed),
+		"run.ended.state":           2 + len(StateAttempted),
+		"run.ended.txn":             2 + 34,
 	}
 }
 

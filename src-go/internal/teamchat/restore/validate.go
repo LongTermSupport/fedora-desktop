@@ -91,6 +91,9 @@ func (v *Validated) decide(d Deps, req Request) error {
 	if v.Tar, err = readTar(d, team, req.Backup); err != nil {
 		return err
 	}
+	if err = host.CheckRestoreCA(d.Root, team, d.StateOwnerUID, v.Tar.CA); err != nil {
+		return refusedf("backup %d of team %s: %v", req.Backup, team, err)
+	}
 	floor, err := readFloor(d, team)
 	if err != nil {
 		return err

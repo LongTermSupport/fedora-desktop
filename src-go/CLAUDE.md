@@ -526,7 +526,9 @@ over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is 
 The same engine, given its `HookHandlers` spec, is `qa/cmd/qa-hook-handler-rules` and
 `scripts/qa-hook-handler-rules.bash`, the gate for `.semgrep/hook-handlers.yml` (code the hooks
 daemon loads; Python only, proven against `.semgrep/hook-handlers.py`); its real-semgrep tests
-are in the command package.
+are in the command package. Given its `WalkOpen` spec it is `qa/cmd/qa-walk-open` and
+`scripts/qa-walk-open.bash`, the gate for `.semgrep/walk-open.yml` (`walk-opens-non-regular-file`,
+issue #191; Python only, proven against `.semgrep/walk-open.py`).
 
 `qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
 the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner

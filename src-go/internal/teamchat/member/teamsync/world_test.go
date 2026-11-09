@@ -143,7 +143,7 @@ func (w *world) admin() *matrix.Admin {
 // client is local's own client, on real timers, so it arms nothing on the fake clock.
 func (w *world) client(local string) *matrix.Client {
 	w.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.base, PlainHTTPHosts: []string{"127.0.0.1"}, Token: w.tokens[local], Clock: noWait{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.base, Token: w.tokens[local], Clock: noWait{}})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
 	return c
@@ -175,8 +175,8 @@ func (w *world) bundle() seat.Bundle {
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(w.t, err)
 	return seat.Bundle{
-		V: 1, Team: w.team, ServerName: server, UserID: user(w.self), AdminID: proto.AdminID(server),
-		MainRoom: w.main, BaseURL: w.base, PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: w.team, ServerName: server, UserID: user(w.self), AdminID: proto.AdminID(server),
+		MainRoom: w.main, BaseURL: w.base,
 		DeviceID: paths.SeatDevice, IssuedMS: startMS - 1000, Issuer: issuer,
 	}
 }

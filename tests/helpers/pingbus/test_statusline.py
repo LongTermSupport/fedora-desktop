@@ -344,13 +344,17 @@ class StatusLineTest(unittest.TestCase):
                 stream.close()
 
     def assertGone(self, pid: int) -> None:
+        """Gone as a whole: no such process, or a zombie with no thread left but the leader. The
+        leader's Z in stat alone is not that: a killed program's other threads can still be
+        exiting and holding its files (issue #182)."""
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             try:
-                state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+                status = pathlib.Path(f"/proc/{pid}/status").read_text()
             except (FileNotFoundError, ProcessLookupError):
                 return  # gone before the open, or reaped between the open and the read (ESRCH)
-            if state in ("Z", "X"):
+            fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
+            if fields["State"].split()[0] in ("Z", "X") and fields["Threads"].strip() == "1":
                 return
             time.sleep(0.02)
         self.fail(f"process {pid} outlived the status line")

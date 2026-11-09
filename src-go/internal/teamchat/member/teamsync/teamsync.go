@@ -334,7 +334,9 @@ func (t *Team) current() (*matrix.Client, bundle.Pair, error) {
 		return t.client, p, nil
 	}
 	b := p.Bundle.Bundle
-	c, err := t.cfg.HTTP(matrix.Config{BaseURL: b.BaseURL, PlainHTTPHosts: b.PlainHTTPHosts, Token: p.Token.Reveal(), Clock: t.cfg.Clock, Timers: t.cfg.Clock})
+	mc := b.MemberConfig(p.Token.Reveal())
+	mc.Clock, mc.Timers = t.cfg.Clock, t.cfg.Clock
+	c, err := t.cfg.HTTP(mc)
 	if err != nil {
 		return nil, bundle.Pair{}, err
 	}

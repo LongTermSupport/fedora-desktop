@@ -1,7 +1,9 @@
 package v1names_test
 
 import (
+	"fmt"
 	"io/fs"
+	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -107,12 +109,85 @@ func TestTheUnitCheckDiscriminates(t *testing.T) {
 	}
 }
 
+// filterPairs are the allow directives of a unit's IP filter and of its socket bind, each with the
+// deny that makes the allow restrict anything: systemd grants what no rule denies, so an
+// allow-list alone restricts nothing (systemd.resource-control(5)).
+var filterPairs = [][2]string{{"IPAddressAllow=", "IPAddressDeny=any"}, {"SocketBindAllow=", "SocketBindDeny=any"}}
+
+// unpaired is the allow directives of lines that the same lines do not pair with their deny of
+// any: each is a filter that lets everything in.
+func unpaired(lines []string) []string {
+	var out []string
+	for _, pair := range filterPairs {
+		allows := slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, pair[0]) })
+		if allows && !slices.Contains(lines, pair[1]) {
+			out = append(out, pair[0])
+		}
+	}
+	return out
+}
+
+// filteredUnits is every unit text the Go code makes, judged for its filter: madeUnits and a
+// team's two drop-ins, the homeserver's and the terminator's. A drop-in is judged alone: its base
+// unit is installed by a play (or, for the terminator's, by nothing yet), so a deny there is not
+// the drop-in's code's to promise, and the drop-in that allows must deny.
+func filteredUnits(t *testing.T) []unit {
+	t.Helper()
+	team, err := paths.ParseTeamID("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := paths.ParseServerVersion("1.9.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := host.Pin{Version: version, MemoryHigh: "512M", CacheCapacityModifier: "0.5"}
+	listen := []netip.Addr{netip.MustParseAddr("192.0.2.10")}
+	networks := []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}
+	server, terminator := host.DropIns(team, 8448, pin, listen, networks, []string{"sys-subsystem-net-devices-eth0.device"})
+	return append(madeUnits(t),
+		unit{"the homeserver's drop-in", strings.Split(string(server), "\n")},
+		unit{"the terminator's drop-in", strings.Split(string(terminator), "\n")})
+}
+
+// B3 of PR #128's review, as a class: every unit text v2's Go makes that allows addresses or
+// binds denies all others in the same text.
+func TestEveryUnitTextDeniesWhatItDoesNotAllow(t *testing.T) {
+	for _, u := range filteredUnits(t) {
+		if open := unpaired(u.lines); len(open) > 0 {
+			t.Errorf("%s has %q with no deny of any, so it restricts nothing:\n%s", u.name, open, strings.Join(u.lines, "\n"))
+		}
+	}
+}
+
+// The filter check can fail: an allow alone, an allow beside a narrower deny, and a socket bind
+// allow alone are open; an allow with its deny of any, and no allow at all, are not.
+func TestTheFilterCheckDiscriminates(t *testing.T) {
+	cases := []struct {
+		name  string
+		lines []string
+		want  []string
+	}{
+		{"an IP allow alone", []string{"IPAddressAllow=127.0.0.1/32"}, []string{"IPAddressAllow="}},
+		{"a narrower deny", []string{"IPAddressDeny=192.0.2.0/24", "IPAddressAllow=127.0.0.1/32"}, []string{"IPAddressAllow="}},
+		{"a bind allow alone", []string{"IPAddressDeny=any", "IPAddressAllow=::1/128", "SocketBindAllow=tcp:8448"}, []string{"SocketBindAllow="}},
+		{"both paired", []string{"IPAddressDeny=any", "IPAddressAllow=::1/128", "SocketBindDeny=any", "SocketBindAllow=tcp:8448"}, nil},
+		{"no allow", []string{"IPAddressDeny=any"}, nil},
+	}
+	for _, c := range cases {
+		if got := unpaired(c.lines); !slices.Equal(got, c.want) {
+			t.Errorf("%s: open %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // unitSources are the Go files of internal/teamchat that make unit text (they hold a [Service]
 // section or a --property= argument), and why each is, or is not, one of madeUnits.
 var unitSources = []struct{ file, why string }{
 	{"backup/units.go", "the backup service, in madeUnits"},
 	{"host/lxc/unit/unit.go", "a seat's session unit, which runs inside an LXC guest (C 3.9.4): not a host unit D 4.2 names"},
-	{"host/render.go", "a team's drop-in, which extends the base unit that carries the line"},
+	{"host/render.go", "a team's drop-in, which extends the base unit that carries the six paths; its filter is judged alone, in filteredUnits"},
+	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ (X18a: the homeserver's hardening lines, which host.BaseSandbox holds); no Go code or play makes that base unit's text yet, so nothing judges its six paths: the code that does must add it to madeUnits; the drop-in's filter is judged alone, in filteredUnits"},
 	{"restore/argv.go", "the restore's staging and secure units, in madeUnits"},
 }
 
@@ -129,6 +204,9 @@ func TestEveryUnitTextSourceIsJudged(t *testing.T) {
 			return fs.SkipDir
 		case d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go"):
 			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", p)
 		}
 		data, err := fs.ReadFile(root, p)
 		if err != nil {

@@ -1,21 +1,21 @@
 {
   "cases": [
     {
-      "codePoints": [
+      "code_points": [
         33,
         769
       ],
       "rendered": "\"!\\u0301\""
     },
     {
-      "codePoints": [
+      "code_points": [
         49,
         65039
       ],
       "rendered": "\"1\\ufe0f\""
     },
     {
-      "codePoints": [
+      "code_points": [
         49,
         65039,
         8419
@@ -23,7 +23,7 @@
       "rendered": "\"1️⃣\""
     },
     {
-      "codePoints": [
+      "code_points": [
         10,
         13,
         9,
@@ -33,7 +33,7 @@
       "rendered": "\"\\n\\r\\t\\b\\f\""
     },
     {
-      "codePoints": [
+      "code_points": [
         0,
         27,
         91,
@@ -45,67 +45,67 @@
       "rendered": "\"\\u0000\\u001b[201~\""
     },
     {
-      "codePoints": [
+      "code_points": [
         127
       ],
       "rendered": "\"\\u007f\""
     },
     {
-      "codePoints": [
+      "code_points": [
         133
       ],
       "rendered": "\"\\u0085\""
     },
     {
-      "codePoints": [
+      "code_points": [
         160
       ],
       "rendered": "\"\\u00a0\""
     },
     {
-      "codePoints": [
+      "code_points": [
         8220
       ],
       "rendered": "\"\\u201c\""
     },
     {
-      "codePoints": [
+      "code_points": [
         8232
       ],
       "rendered": "\"\\u2028\""
     },
     {
-      "codePoints": [
+      "code_points": [
         8238
       ],
       "rendered": "\"\\u202e\""
     },
     {
-      "codePoints": [
+      "code_points": [
         1114111
       ],
       "rendered": "\"\\udbff\\udfff\""
     },
     {
-      "codePoints": [
+      "code_points": [
         57344
       ],
       "rendered": "\"\\ue000\""
     },
     {
-      "codePoints": [
+      "code_points": [
         65282
       ],
       "rendered": "\"\\uff02\""
     },
     {
-      "codePoints": [
+      "code_points": [
         65533
       ],
       "rendered": "\"\\ufffd\""
     },
     {
-      "codePoints": [
+      "code_points": [
         97,
         34,
         98,
@@ -115,7 +115,7 @@
       "rendered": "\"a\\\"b\\\\c\""
     },
     {
-      "codePoints": [
+      "code_points": [
         97,
         8205,
         98
@@ -123,14 +123,14 @@
       "rendered": "\"a\\u200db\""
     },
     {
-      "codePoints": [
+      "code_points": [
         97,
         65039
       ],
       "rendered": "\"a\\ufe0f\""
     },
     {
-      "codePoints": [
+      "code_points": [
         99,
         97,
         102,
@@ -144,7 +144,7 @@
       "rendered": "\"café 日本 ←\""
     },
     {
-      "codePoints": [
+      "code_points": [
         101,
         769,
         769,
@@ -155,7 +155,7 @@
       "rendered": "\"é́́́\\u0301\""
     },
     {
-      "codePoints": [
+      "code_points": [
         104,
         101,
         108,
@@ -165,28 +165,28 @@
       "rendered": "\"hello\""
     },
     {
-      "codePoints": [
+      "code_points": [
         9786,
         65039
       ],
       "rendered": "\"☺️\""
     },
     {
-      "codePoints": [
+      "code_points": [
         128077,
         8205
       ],
       "rendered": "\"👍\\u200d\""
     },
     {
-      "codePoints": [
+      "code_points": [
         128077,
         127997
       ],
       "rendered": "\"👍🏽\""
     },
     {
-      "codePoints": [
+      "code_points": [
         128105,
         8205,
         128105,

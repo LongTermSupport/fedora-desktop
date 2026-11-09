@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -14,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
@@ -31,6 +33,7 @@ type fakeMachine struct {
 	pinErr                     error
 	noCtl                      bool
 	kitOwner                   int
+	owner                      uint32 // the uid the state's root-owned files are given
 	proven                     bool
 	conn                       units.Conn
 	n                          counts
@@ -58,7 +61,23 @@ func (f *fakeMachine) machine() machine {
 			return nil, errors.New("no bus here")
 		},
 		restoreProven: f.proven,
+		stateOwnerUID: f.owner,
 	}
+}
+
+// ownerOf is the uid that owns dir: a fixture is its test user's, where root's own files on a
+// host are root's (production).
+func ownerOf(t *testing.T, dir string) uint32 {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("no owner in a stat")
+	}
+	return st.Uid
 }
 
 func build(t *testing.T, f *fakeMachine) *admin.System {
@@ -179,6 +198,68 @@ func TestStatusIsTheTicks(t *testing.T) {
 	}
 }
 
+// caWall is a pki clock stopped at one millisecond.
+type caWall struct{}
+
+func (caWall) WallMS() int64 { return 1_790_000_000_000 }
+
+// plantCA writes a new CA for team where the host keeps it and answers its certificate.
+func plantCA(t *testing.T, root string, team paths.TeamID) []byte {
+	t.Helper()
+	ca, err := pki.Maker{Clock: caWall{}}.NewCA("teamchat " + team.String() + " CA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(root+paths.TLSDir(team), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(root+paths.CAKeyFile(team), ca.KeyPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(root+paths.CACertFile(team), ca.CertPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return ca.CertPEM()
+}
+
+// Plan 00246 S16 (review blocker B2 of pull request 128): the production System's team CA, and
+// the one its seat bundles carry, is the CA the host keeps for the team (host.CAPEM): an applied
+// team's certificate exactly, ErrTeamCANotMade for a team with none, and a refusal naming the file
+// for a CA the host could not sign a leaf with. So an https team's bundle and LXC reach fact carry
+// the team's CA, and a team with none issues nothing instead of a bundle without it.
+func TestTeamCAIsTheHostsCA(t *testing.T) {
+	root := t.TempDir()
+	sys := build(t, &fakeMachine{root: root, owner: ownerOf(t, root)})
+	bundles, ok := sys.Bundles.(admin.SeatBundles)
+	if !ok {
+		t.Fatalf("Bundles is a %T, want the seat side's", sys.Bundles)
+	}
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := map[string]admin.TeamCA{"System.TeamCA": sys.TeamCA, "SeatBundles.CA": bundles.CA}
+	for name, ca := range providers {
+		if _, err := ca(team); !errors.Is(err, ErrTeamCANotMade) {
+			t.Errorf("%s of a team with no CA = %v, want ErrTeamCANotMade", name, err)
+		}
+	}
+	cert := plantCA(t, root, team)
+	for name, ca := range providers {
+		if got, err := ca(team); err != nil || got != string(cert) {
+			t.Errorf("%s of an applied team = %v; want the CA certificate the host keeps", name, err)
+		}
+	}
+	if err := os.Remove(root + paths.CAKeyFile(team)); err != nil {
+		t.Fatal(err)
+	}
+	for name, ca := range providers {
+		if _, err := ca(team); err == nil || errors.Is(err, ErrTeamCANotMade) || !strings.Contains(err.Error(), "ca.key") {
+			t.Errorf("%s of a CA without its key = %v, want a refusal naming ca.key", name, err)
+		}
+	}
+}
+
 // WR2: New is the host's wiring; building it reads only the running binary.
 func TestNewIsTheHostsWiring(t *testing.T) {
 	sys, err := New(digest)()
@@ -187,6 +268,9 @@ func TestNewIsTheHostsWiring(t *testing.T) {
 	}
 	if sys.Host.Root != "" || sys.Host.LockDir != paths.AdminRunDir {
 		t.Fatalf("host paths %+v", sys.Host)
+	}
+	if sys.Host.StateOwnerUID != 0 {
+		t.Fatalf("the host's state is owned by uid %d, want root's", sys.Host.StateOwnerUID)
 	}
 	if _, err := New("not a digest")(); err == nil {
 		t.Fatal("New without a digest wired")

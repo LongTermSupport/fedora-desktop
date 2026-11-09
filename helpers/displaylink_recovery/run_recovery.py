@@ -82,7 +82,15 @@ def edid_byte_count(edid_path: str) -> int:
     service-restart into USB-reauth into module-reload against working monitors.
 
     A real connector here reads 256-384 bytes while reporting st_size 0.
+
+    Returns 0 when nothing is at the path, -1 when something is there but cannot
+    be read as a regular file: an OSError, a named pipe, socket or device, or a
+    dangling symlink (the name exists, its target does not). -1 is never taken
+    as the wedge signature.
     """
+    if os.path.lexists(edid_path) and not os.path.isfile(edid_path):
+        # Not a regular file (opening a named pipe would block): unreadable, not missing.
+        return -1
     try:
         with open(edid_path, "rb") as f:
             return len(f.read())
@@ -97,6 +105,8 @@ def edid_byte_count(edid_path: str) -> int:
 def _drm_head_states() -> list[HeadState]:
     heads = []
     for status_path in sorted(glob.glob("/sys/class/drm/card*-DVI-I-*/status")):
+        if not os.path.isfile(status_path):
+            continue
         connector_dir = os.path.dirname(status_path)
         name = os.path.basename(connector_dir)
         status = _read(status_path).strip()
@@ -149,10 +159,10 @@ def _drm_client_active(heads: list[HeadState]) -> bool:
 def _dock_usb_sysfs_dir() -> str | None:
     for vendor_path in glob.glob("/sys/bus/usb/devices/*/idVendor"):
         device_dir = os.path.dirname(vendor_path)
-        if _read(vendor_path).strip() != DISPLAYLINK_VENDOR_ID:
+        if not os.path.isfile(vendor_path) or _read(vendor_path).strip() != DISPLAYLINK_VENDOR_ID:
             continue
         product_path = os.path.join(device_dir, "idProduct")
-        if os.path.exists(product_path) and _read(product_path).strip() == DISPLAYLINK_PRODUCT_ID:
+        if os.path.isfile(product_path) and _read(product_path).strip() == DISPLAYLINK_PRODUCT_ID:
             return device_dir
     return None
 

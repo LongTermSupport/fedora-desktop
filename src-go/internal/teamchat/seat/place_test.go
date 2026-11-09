@@ -23,7 +23,7 @@ func (w *world) place(password string) error {
 	if err != nil {
 		return err
 	}
-	return c.Fill(w.issued(password))
+	return c.Fill(w.t.Context(), w.issued(password))
 }
 
 // SP1, SP2: a placement claims <seat>.new-<claim>, fills it, and swaps it in; the seat can be
@@ -154,7 +154,7 @@ func TestFillRefusesAnotherSeat(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := c.Fill(is); err == nil {
+		if err := c.Fill(t.Context(), is); err == nil {
 			t.Errorf("%s: filled", name)
 		}
 		if names, err := w.store.root.entries(c.claim.Dir()); err != nil || len(names) != 0 {
@@ -184,7 +184,7 @@ func TestFillNeedsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.unlock(a)
-	if err := c.Fill(w.issued(testPassword)); !errors.Is(err, ErrNotLocked) {
+	if err := c.Fill(t.Context(), w.issued(testPassword)); !errors.Is(err, ErrNotLocked) {
 		t.Errorf("a fill after the unlock: %v", err)
 	}
 	if err := w.place(testPassword); !errors.Is(err, ErrLeftover) {

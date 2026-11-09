@@ -53,7 +53,7 @@ func (f *fakeTimers) all() []armed {
 
 func timedMember(t *testing.T, base, token string, timers Timers) *Client {
 	t.Helper()
-	c, err := NewMember(Config{BaseURL: base, PlainHTTPHosts: []string{loopback}, Token: token, Clock: &fakeClock{}, Timers: timers})
+	c, err := NewMember(Config{BaseURL: base, Token: token, Clock: &fakeClock{}, Timers: timers})
 	if err != nil {
 		t.Fatal(err)
 	}
