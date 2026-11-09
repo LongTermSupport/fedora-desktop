@@ -108,7 +108,7 @@ func timeoutRecord(t paths.TeamID, p state.Pending, pings []state.Ping) records.
 	r.Silent = silent
 	for _, ping := range pings {
 		if ping.ID == event {
-			r.Verb, r.Ref = ping.Verb, ping.Ref
+			r.Verb, r.Ref = new(ping.Verb), ping.Ref
 		}
 	}
 	return r

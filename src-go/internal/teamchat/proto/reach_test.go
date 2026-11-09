@@ -150,7 +150,7 @@ func TestRelationIDs(t *testing.T) {
 func TestSyncFilterReAddDiffersOnlyInTheLimit(t *testing.T) {
 	r := testRoster(t)
 	for _, self := range []string{workerID, coordID} {
-		normal, readd := SyncFilter(r, anchors(self)).Compact(), SyncFilterReAdd(r, anchors(self)).Compact()
+		normal, readd := SyncFilter(r, anchors(self), true).Compact(), SyncFilterReAdd(r, anchors(self), true).Compact()
 		if bytes.Count(normal, []byte(`"limit":100`)) != 1 {
 			t.Fatalf("the filter is %s", normal)
 		}

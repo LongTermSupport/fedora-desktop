@@ -67,6 +67,13 @@ func recipeDigest(l *lab, kind, profile string) (string, error) {
 		return "", fmt.Errorf("hash the recipe: %w", err)
 	}
 	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil {
+			return "", failf("no %s; deploy the lab first", f)
+		}
+		if !info.Mode().IsRegular() {
+			return "", failf("%s is not a regular file; deploy the lab again", f)
+		}
 		body, err := os.ReadFile(f)
 		if err != nil {
 			return "", failf("no %s; deploy the lab first", f)
@@ -80,6 +87,13 @@ func recipeDigest(l *lab, kind, profile string) (string, error) {
 
 // fileSHA256 hashes a file whole.
 func fileSHA256(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", failf("cannot read %s: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", failf("cannot read %s: not a regular file", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", failf("cannot read %s: %v", path, err)

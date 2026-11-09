@@ -247,7 +247,7 @@ func notADirectory(path string) *RefusalError {
 // names is a directory's entries in python's sorted() order; an unreadable directory is a
 // crash, as in v1.
 func names(dir string) ([]string, error) {
-	f, err := os.Open(filepath.Clean(dir))
+	f, err := os.OpenFile(filepath.Clean(dir), os.O_RDONLY|syscall.O_DIRECTORY, 0)
 	if err != nil {
 		return nil, fmt.Errorf("list: %w", err)
 	}

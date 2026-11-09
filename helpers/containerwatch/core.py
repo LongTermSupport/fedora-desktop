@@ -323,17 +323,23 @@ def scan_proc_root(
             continue
         pid = int(entry)
         base = os.path.join(proc_root, entry)
+        cgroup_path = os.path.join(base, "cgroup")
+        stat_path = os.path.join(base, "stat")
+        cmdline_path = os.path.join(base, "cmdline")
+        status_path = os.path.join(base, "status")
+        if not os.path.isfile(cgroup_path):
+            continue  # process exited between listdir and read, or not a process entry
         try:
-            attr = parse_cgroup(_read_text(os.path.join(base, "cgroup")))
+            attr = parse_cgroup(_read_text(cgroup_path))
         except CgroupV1Error:
             raise
         except FileNotFoundError:
             continue  # process exited between listdir and read
-        if attr is None:
+        if attr is None or not os.path.isfile(stat_path):
             continue
 
         try:
-            starttime = parse_starttime(_read_text(os.path.join(base, "stat")))
+            starttime = parse_starttime(_read_text(stat_path))
         except (FileNotFoundError, IndexError, ValueError):
             continue
         age_s = compute_age_s(starttime, btime, now, clock_ticks)
@@ -343,10 +349,12 @@ def scan_proc_root(
         cpu_pct = cpu_sampler(pid)
         if cpu_pct is None or cpu_pct < cpu_threshold:
             continue
+        if not (os.path.isfile(cmdline_path) and os.path.isfile(status_path)):
+            continue
 
         try:
-            cmdline = _read_bytes(os.path.join(base, "cmdline"))
-            status = _read_text(os.path.join(base, "status"))
+            cmdline = _read_bytes(cmdline_path)
+            status = _read_text(status_path)
         except FileNotFoundError:
             continue
 

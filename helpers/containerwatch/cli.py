@@ -113,8 +113,11 @@ def _read_proc_stats(proc_root: str) -> dict[int, str]:
     for entry in entries:
         if not entry.isdigit():
             continue
+        stat_path = os.path.join(proc_root, entry, "stat")
+        if not os.path.isfile(stat_path):
+            continue  # vanished mid-walk, or not a process entry
         try:
-            with open(os.path.join(proc_root, entry, "stat"), encoding="utf-8") as fh:
+            with open(stat_path, encoding="utf-8") as fh:
                 snapshot[int(entry)] = fh.read()
         except (FileNotFoundError, ProcessLookupError, PermissionError):
             # A process exiting mid-walk is ordinary, not an error: it simply has

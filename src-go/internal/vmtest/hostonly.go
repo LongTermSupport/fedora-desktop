@@ -78,11 +78,14 @@ func (c *cli) hostOnlyPreflight(l *lab, id string, cr credentials) error {
 // secretFileOK is a readable, non-empty regular file only its owner can read (E30, B7).
 func secretFileOK(path string) error {
 	info, err := os.Stat(path)
-	if err != nil || !readable(path) {
+	if err != nil {
 		return failf("secret file %s is not readable", path)
 	}
 	if !info.Mode().IsRegular() {
 		return failf("secret file %s is not a regular file", path)
+	}
+	if !readable(path) {
+		return failf("secret file %s is not readable", path)
 	}
 	if info.Size() == 0 {
 		return failf("secret file %s is empty; an empty secret cannot be redacted from the transcript afterwards, nor verified absent from it", path)
