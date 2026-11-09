@@ -137,12 +137,13 @@ also	scripts/qa-lxc-attach-streams.bash,src-go/qa/lxcattach/*,src-go/qa/cmd/qa-l
 also	CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh,CLAUDE/Plan/*/logs/*	plan-script-logging	-
 also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa/cmd/qa-plan-script-logging/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	plan-script-logging	-
 # The version-pins gate judges the manifest and the files its pins name, which are playbooks and
-# the agent-bus pin file, and runs whole when one changes or is deleted, or its own script, Go
+# the agent-bus and teamchat pin files, and runs whole when one changes or is deleted, or its own script, Go
 # package or command change. The manifest counts as covered by it. A pin may name any repository
 # file; one outside these trees is judged by qa-all, not before the commit. It reads no fixture:
 # its controls are Go tests, which the go check runs for a src-go change.
 also	vars/version-pins.yml	version-pins	covered
 also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
+also	files/usr/local/share/teamchat/tuwunel.pin	version-pins	covered
 also	vars/fzf-pin.yml	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
