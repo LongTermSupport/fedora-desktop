@@ -100,17 +100,20 @@ func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 	root, excluded := tableExcluded(t)
 	for _, spec := range []Spec{GHScopes, FindRace, ArchPin} {
 		t.Run(spec.short, func(t *testing.T) {
-			s, err := (&gate{spec: spec, root: root}).loadScope()
+			// The gate's own run: the scope it loads and the files it would hand to semgrep, over
+			// the real git; a handed file the rule's excludes drop is one semgrep never opens.
+			g := &gate{spec: spec, root: root, env: Env{Runner: proc.OS{}}}
+			within, err := g.loadScope()
+			if err != nil {
+				t.Fatal(err)
+			}
+			handed, err := g.handOver(context.Background(), within)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var opened []string
 			for _, rel := range excluded {
-				out, leaveErr := s.leavesOut(rel)
-				if leaveErr != nil {
-					t.Fatal(leaveErr)
-				}
-				if !out {
+				if slices.Contains(handed, rel) && !within.rule.matches(rel) {
 					opened = append(opened, rel)
 				}
 			}

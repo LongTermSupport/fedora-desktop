@@ -56,14 +56,6 @@ func (s scope) notOurs(rel string) (bool, error) {
 	return s.trees.ExcludesFile(s.repo, rel)
 }
 
-// leavesOut is whether the gate leaves the published file rel unread on purpose.
-func (s scope) leavesOut(rel string) (bool, error) {
-	if s.rule.matches(rel) {
-		return true, nil
-	}
-	return s.notOurs(rel)
-}
-
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.
 func (g *gate) readRule() (excludes, error) {
 	for _, rel := range []string{g.spec.ruleFile, g.spec.fixtureFile} {

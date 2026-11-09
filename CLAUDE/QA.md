@@ -878,7 +878,11 @@ tests check this on the real tree, each failing with `qa-trees-drift` and the fi
 would open: `TestEveryGateLeavesOutWhatTheTreesTableExcludes` (`src-go/qa/ghscopes`) for
 `qa-gh-scopes`, `qa-find-race` and `qa-arch-pin`, and
 `TestEveryBashFileTheTreesTableExcludesIsUnjudged` (`src-go/qa/bashlimits`) for
-`qa-bash-limits`. They run in the Go gate (`qa-go-qa.bash`).
+`qa-bash-limits`. They run in the Go gate (`qa-go-qa.bash`). The ghscopes test drives the
+gate's own `handOver` over the real git, so removing the table filter turns it red. The defence
+is a test rather than a static rule because the class is two configuration lists drifting
+apart, which no analyzer over code can express; there is no single-rule harness or defence
+listing for it beyond `go test -run` and this section.
 
 **Why it exists.** A second list of trees that are not ours drifts from the first. The semgrep
 rules of the ghscopes engine carried their own `paths.exclude`, and bash-limits its own
