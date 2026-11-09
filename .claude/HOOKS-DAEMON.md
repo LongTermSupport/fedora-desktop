@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-11-06 (v3.72.1) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-11-09 (v3.73.1) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -267,12 +267,13 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 |----------|---------|----------|-------------|
 | 50 | stop_failure_recorder | ADVISORY | Record each rate-limit or credential StopFailure, silently |
 
-### Daemon Plugin (2 handlers)
+### Daemon Plugin (3 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
 | 8 | SystemPathsHandler | TERMINAL | Block Write/Edit operations on deployed system files |
 | 10 | AnsibleEnforcementHandler | TERMINAL | Block direct system management commands - enforce Ansible deployment |
+| 11 | HiddenGitMutationHandler | TERMINAL | Deny running an uncommitted script whose text holds a git mutation |
 
 ### Pseudo Nitpick (2 handlers)
 

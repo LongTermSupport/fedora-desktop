@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/fifotest"
 )
 
 func writeTree(t *testing.T, root string, files map[string]string) {
@@ -46,6 +49,21 @@ func TestEveryDifferenceIsNamed(t *testing.T) {
 	wantDiffs := []string{"changed.go differs", "extra.go is not what go mod vendor writes", "missing.go is missing"}
 	if !slices.Equal(diffs, wantDiffs) {
 		t.Fatalf("diffs = %q, want %q", diffs, wantDiffs)
+	}
+}
+
+// A vendor entry that is not a regular file is refused by name and never opened (#195).
+func TestAnEntryThatIsNotARegularFileIsRefused(t *testing.T) {
+	want, got := t.TempDir(), t.TempDir()
+	writeTree(t, want, map[string]string{"modules.txt": "x"})
+	writeTree(t, got, map[string]string{"modules.txt": "x"})
+	opened := fifotest.Plant(t, filepath.Join(got, "pipe.go"))
+	_, _, err := compareTrees(want, got)
+	if err == nil || !strings.Contains(err.Error(), "pipe.go is not a regular file") {
+		t.Fatalf("err = %v, want pipe.go refused", err)
+	}
+	if opened() {
+		t.Fatal("the pipe was opened")
 	}
 }
 

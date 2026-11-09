@@ -58,24 +58,37 @@ func newQuestionRoom(t *testing.T, floor int64) *questionRoom {
 	return &questionRoom{t: t, judge: j, index: NewQuestionIndex(testServer, floor), lookup: lookup}
 }
 
-// post judges one event at testNow-ageMs and feeds the index; for a human post it gives the
-// question the post is attached to, 0 for none.
-func (r *questionRoom) post(id, sender string, ageMs int64, content string) int64 {
+// judged is the verdict of one event at testNow-ageMs, which the member's store now knows.
+func (r *questionRoom) judged(id, sender string, ageMs int64, content string) Verdict {
 	r.t.Helper()
 	v := r.judge.Judge(mustParse(r.t, roomEvent(id, sender, testNow-ageMs, content)))
 	r.lookup.events[id] = Related{Sender: sender, RoomID: questionsRoom}
+	return v
+}
+
+// fold gives the index a verdict the way the build and the sync do: an index verdict is fed, a
+// human's post is attached whether it was delivered or dropped for rate (n3f-D18); for a human
+// post it gives the question the post is attached to, 0 for none.
+func (r *questionRoom) fold(v Verdict) int64 {
+	r.t.Helper()
 	if v.Outcome == Index {
 		r.index.Feed(v)
 		return 0
 	}
-	if v.Outcome != Deliver {
-		r.t.Fatalf("event %s: verdict %v %q", id, v.Outcome, v.Reason)
+	if v.Kind != KindHuman && v.Reason != ReasonRate {
+		r.t.Fatalf("event %s: verdict %v %q", v.Event.ID, v.Outcome, v.Reason)
 	}
-	q, attached := r.index.Attach(v)
+	q, attached := r.index.Attach(v.Event, v.Human)
 	if !attached {
 		return 0
 	}
 	return q.N
+}
+
+// post judges one event at testNow-ageMs and folds it.
+func (r *questionRoom) post(id, sender string, ageMs int64, content string) int64 {
+	r.t.Helper()
+	return r.fold(r.judged(id, sender, ageMs, content))
 }
 
 func (r *questionRoom) question(n int64) IndexedQuestion {
@@ -131,9 +144,6 @@ func TestQuestionIndexFeedsOnlyIndexVerdicts(t *testing.T) {
 	ix := NewQuestionIndex(testServer, 0)
 	if ix.Feed(Verdict{Outcome: Deliver}) {
 		t.Error("Feed took a delivery")
-	}
-	if _, ok := ix.Attach(Verdict{Outcome: Index}); ok {
-		t.Error("Attach took an index verdict")
 	}
 	if _, known := ix.Attachment(qid('z')); known {
 		t.Error("an unknown post has an attachment")
@@ -193,14 +203,14 @@ func TestQuestionIndexAttachment(t *testing.T) {
 			t.Errorf("Attachment(%c) = %d %v", tc.id, n, known)
 		}
 	}
-	if q := r.question(1); q.Latest != qid('h') || q.State() != QuestionAnswered || q.Attached != 3 || q.Unanswered != 3 {
+	if q := r.question(1); q.Latest != qid('h') || q.State() != QuestionAnswered || q.Attached != 3 || q.UnansweredCount() != 3 {
 		t.Errorf("Q1 = %+v", q)
 	}
-	if q := r.question(2); q.Attached != 3 || q.Unanswered != 3 {
+	if q := r.question(2); q.Attached != 3 || q.UnansweredCount() != 3 {
 		t.Errorf("Q2 = %+v", q)
 	}
 	r.post(qid('q'), coordID, 5000, threadPost(1, q1, qid('h'), false))
-	if q := r.question(1); q.Unanswered != 0 || q.Attached != 3 || q.Latest != qid('q') {
+	if q := r.question(1); q.UnansweredCount() != 0 || q.Attached != 3 || q.Latest != qid('q') {
 		t.Errorf("Q1 after the coordinator's post = %+v", q)
 	}
 }
@@ -260,8 +270,8 @@ func TestQuestionIndexReminders(t *testing.T) {
 	r.post(qid('i'), coordID, 1000, threadPost(5, qid('e'), qid('e'), true))
 	got := r.index.Reminders(testNow)
 	want := []Reminder{
-		{Key: qid('a') + "~humans", N: 1, QuestionID: qid('a'), Headline: "Which licence for the docs site?"},
-		{Key: qid('f') + "~humans", N: 6, QuestionID: qid('f'), Headline: "Which licence for the docs site?"},
+		{Key: qid('a') + "~humans", N: 1, QuestionID: qid('a'), Headline: "Which licence for the docs site?", DueMs: testNow - 1},
+		{Key: qid('f') + "~humans", N: 6, QuestionID: qid('f'), Headline: "Which licence for the docs site?", DueMs: testNow - 3_600_000 + timeoutGraceMs},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Reminders = %+v, want %+v", got, want)

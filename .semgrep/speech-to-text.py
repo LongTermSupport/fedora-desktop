@@ -4,6 +4,7 @@
 import contextlib
 import io
 import os
+import pathlib
 import shutil
 import sys
 import typing
@@ -358,3 +359,50 @@ def mic_close_message(log):
     # A message, not a command: the dash is prose (wsi-stream-server's stop path).
     # ok: pw-record-stdout-not-raw
     log("pw-record did not close its output in 3 s - killing it", "WARN")
+
+
+# The Python form of issue #182's wait: the leader's Z read as the process's end.
+def assert_gone(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    # ruleid: proc-zombie-taken-as-exit
+    return state in ("Z", "X")
+
+
+def zombie_by_join(pid):
+    fields = (pathlib.Path("/proc") / str(pid) / "stat").read_text().split()
+    # ruleid: proc-zombie-taken-as-exit
+    return fields[2] == "Z"
+
+
+def zombie_by_format(pid):
+    with open("/proc/%d/stat" % pid, encoding="ascii") as handle:
+        rest = handle.read().rsplit(")", 1)[1]
+    # ruleid: proc-zombie-taken-as-exit
+    return rest.strip().startswith("Z")
+
+
+def group_ended(pid):
+    # The whole group's end: State Z and no thread left but the leader.
+    fields = dict(line.split(":", 1) for line in pathlib.Path(f"/proc/{pid}/status").read_text().splitlines())
+    # ok: proc-zombie-taken-as-exit
+    return fields["State"].split()[0] == "Z" and fields["Threads"].strip() == "1"
+
+
+def stat_and_threads(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    status = pathlib.Path(f"/proc/{pid}/status").read_text()
+    threads = [line.split(":", 1)[1].strip() for line in status.splitlines() if line.startswith("Threads:")]
+    # ok: proc-zombie-taken-as-exit
+    return state == "Z" and threads == ["1"]
+
+
+def stopped(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    # ok: proc-zombie-taken-as-exit
+    return state == "T"
+
+
+def grade(letter):
+    # A Z that is not a process state, in a function that reads no stat file.
+    # ok: proc-zombie-taken-as-exit
+    return letter == "Z"

@@ -81,7 +81,7 @@ func (r *pt1Runner) end(kind pt1Kind) {
 	}
 	r.s.wait()
 	for _, pid := range r.links {
-		eventually(r.t, func() bool { return gone(pid) }, r.s.describe)
+		eventually(r.t, func() bool { return gone(r.t, pid) }, r.s.describe)
 	}
 	r.awaitWant()
 }

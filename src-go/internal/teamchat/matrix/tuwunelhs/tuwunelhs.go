@@ -168,18 +168,33 @@ func (hs Server) Stop(sig syscall.Signal) error {
 // config file (exec gives no pid, and the binary's name alone would match another test's). A
 // process whose environment cannot be read is another user's, or gone, so it is not the one.
 func (hs Server) Signal(sig syscall.Signal) error {
-	entries, err := os.ReadDir("/proc")
+	found, err := processes("/proc", []byte("TUWUNEL_CONFIG="+hs.config))
 	if err != nil {
 		return err
 	}
-	want := []byte("TUWUNEL_CONFIG=" + hs.config)
+	if len(found) != 1 {
+		return fmt.Errorf("tuwunel: %d processes have the config %s, want 1", len(found), hs.config)
+	}
+	return unix.Kill(found[0], sig)
+}
+
+// processes is the pid of every process under proc whose environment holds the entry want.
+func processes(proc string, want []byte) ([]int, error) {
+	entries, err := os.ReadDir(proc)
+	if err != nil {
+		return nil, err
+	}
 	var found []int
 	for _, e := range entries {
 		pid, perr := strconv.Atoi(e.Name())
 		if perr != nil || !e.IsDir() {
 			continue
 		}
-		env, rerr := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
+		path := filepath.Join(proc, e.Name(), "environ")
+		if info, serr := os.Lstat(path); serr != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		env, rerr := os.ReadFile(filepath.Clean(path))
 		if rerr != nil {
 			continue
 		}
@@ -187,10 +202,7 @@ func (hs Server) Signal(sig syscall.Signal) error {
 			found = append(found, pid)
 		}
 	}
-	if len(found) != 1 {
-		return fmt.Errorf("tuwunel: %d processes have the config %s, want 1", len(found), hs.config)
-	}
-	return unix.Kill(found[0], sig)
+	return found, nil
 }
 
 // stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which

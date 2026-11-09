@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -140,6 +141,52 @@ func TestSlidingWindows(t *testing.T) {
 	}
 	if DeliveryKey("t", "@a:s") == DeliveryKey("t@", "a:s") {
 		t.Fatal("delivery keys collide")
+	}
+}
+
+// n3f G6 (RP3, n3f-D6): the report window is seeded from the store's `outbox.reports` at each
+// report, names its oldest time for the refusal's message, and gives back the times to store.
+func TestTheReportWindowIsSeededFromTheStore(t *testing.T) {
+	const me = "@repo.2+site.podman:alpha.teamchat.internal"
+	w := SeedWindow(me, []int64{3000, 1000, 2000})
+	if got := w.Count(me, ReportWindowMs, 4000); got != 3 {
+		t.Fatalf("a seeded window counts %d, want 3", got)
+	}
+	if oldest, ok := w.Oldest(me, ReportWindowMs, 4000); !ok || oldest != 1000 {
+		t.Fatalf("Oldest = %d %v, want 1000: the seed is sorted, oldest first", oldest, ok)
+	}
+	if w.Admit(me, 3, ReportWindowMs, 4000) {
+		t.Fatal("a window seeded with 3 admitted a 4th at limit 3")
+	}
+	// The oldest leaves the span exactly ReportWindowMs after it was admitted.
+	if _, ok := w.Oldest(me, ReportWindowMs, 1000+ReportWindowMs-1); !ok {
+		t.Fatal("the oldest left the span a millisecond early")
+	}
+	if oldest, ok := w.Oldest(me, ReportWindowMs, 1000+ReportWindowMs); !ok || oldest != 2000 {
+		t.Fatalf("after the oldest left, Oldest = %d %v, want 2000", oldest, ok)
+	}
+	if !w.Admit(me, 3, ReportWindowMs, 1000+ReportWindowMs) {
+		t.Fatal("the slot the oldest left was not free")
+	}
+	if got := w.Within(me, ReportWindowMs, 1000+ReportWindowMs); !slices.Equal(got, []int64{2000, 3000, 1000 + ReportWindowMs}) {
+		t.Fatalf("Within = %v: the times to store, oldest first, the expired one gone", got)
+	}
+	got := w.Within(me, ReportWindowMs, 1000+ReportWindowMs)
+	got[0] = -1
+	if again := w.Within(me, ReportWindowMs, 1000+ReportWindowMs); again[0] != 2000 {
+		t.Fatal("Within gave the window's own slice, which a caller can change")
+	}
+	if _, ok := w.Oldest("someone else", ReportWindowMs, 0); ok {
+		t.Fatal("an unknown key has an oldest time")
+	}
+	empty := SeedWindow(me, nil)
+	if len(empty.Times[me]) != 0 || empty.Count(me, ReportWindowMs, 0) != 0 {
+		t.Fatal("an empty seed is not an empty window")
+	}
+	seed := []int64{5, 4}
+	SeedWindow(me, seed)
+	if seed[0] != 5 {
+		t.Fatal("SeedWindow sorted the caller's slice")
 	}
 }
 

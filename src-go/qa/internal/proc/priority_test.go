@@ -227,7 +227,15 @@ func reportPriorities(t *testing.T) {
 
 // taskPriority is a thread's nice value (from its stat) and I/O class (ioprio_get).
 func taskPriority(tid int) (int, int, error) {
-	raw, err := os.ReadFile(filepath.Join("/proc/self/task", strconv.Itoa(tid), "stat"))
+	path := filepath.Join("/proc/self/task", strconv.Itoa(tid), "stat")
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, 0, fmt.Errorf("%s is not a regular file", path)
+	}
+	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return 0, 0, err
 	}

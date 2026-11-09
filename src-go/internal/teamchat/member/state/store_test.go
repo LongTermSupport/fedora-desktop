@@ -284,11 +284,38 @@ func fullStore(t *testing.T) Store {
 	for range capGateKeys {
 		s.Outbox.Gate.Recent = append(s.Outbox.Gate.Recent, GateKey{Key: strings.Repeat("ab", 32), AtMS: farMS})
 	}
+	// The questions room's keys (SPEC-n3f QX6): 60 report times, the longest id and counts, the
+	// widest `questions` key, the reminder watermark and 64 numbers at their widest.
+	s.Outbox.Reports = make([]int64, 0, capReports)
+	for range capReports {
+		s.Outbox.Reports = append(s.Outbox.Reports, farMS)
+	}
+	s.Outbox.QuestionsUnechoed = new(eventID(1))
+	s.Outbox.QuestionsUncounted = Uncounted{Count: maxJSONInt, Said: maxJSONInt}
+	s.Outbox.QuestionsHandover = true
+	s.Questions = worstQuestionsKey()
+	s.RemindedMS = maxJSONInt
+	s.RemindLate = make([]int64, 0, capRemindLate)
+	for i := range capRemindLate {
+		s.RemindLate = append(s.RemindLate, maxJSONInt-int64(i))
+	}
 	return s
 }
 
+// The questions room's share of the file cap (SPEC-n3f QX6): a report time is 14 bytes with its
+// comma, a `remind_late` number 20, each list 16 for its key and brackets (the rows of
+// fixedWritten), and the three `outbox.questions_*` keys with `reminded_ms` 256 together.
+const (
+	sizeReportTime      = 14
+	sizeRemindLate      = 20
+	sizeListFrame       = 16
+	sizeQuestionScalars = 256
+)
+
 // TestStoreFullFitsTheFileCap holds B 2.3.2: a store with every list full is under the file
 // cap, by construction and by the caps' arithmetic, so a list cap is always the one that fires.
+// The sum is n3d's lists with the questions room's (SPEC-n3f 12.6, QX6): the file cap is that
+// sum rounded up to the next 256 KiB, 4 MiB at these caps.
 func TestStoreFullFitsTheFileCap(t *testing.T) {
 	s := fullStore(t)
 	data, err := s.encode()
@@ -296,17 +323,28 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 	if len(data) > MaxStore {
 		t.Fatalf("a full store is %d bytes, over the file cap", len(data))
 	}
+	keyData, err := json.Marshal(s.Questions)
+	check(t, err)
+	if len(keyData) > proto.MaxQuestionsStateBytes {
+		t.Fatalf("the full questions key is %d bytes, over the %d QX6 sizes it at", len(keyData), proto.MaxQuestionsStateBytes)
+	}
+	t.Logf("a full store is %d bytes of at most %d; its questions key %d of at most %d", len(data), MaxStore, len(keyData), proto.MaxQuestionsStateBytes)
 	bound := 4096 + writtenFixed() // the keys, numbers and punctuation, and every fixed field as written
 	for _, l := range listCaps {
 		bound += l.count * (l.size + 1)
 	}
+	// The questions room's lists and key are rows of fixedWritten; what is left of its share
+	// (QX6) is the scalars, 256 together, which already hold the event id that has a row too, so
+	// the bound is only larger.
+	bound += sizeQuestionScalars
+	t.Logf("the caps sum to %d bytes as written; the file cap is %d", bound, MaxStore)
 	if bound > MaxStore {
 		t.Fatalf("the list caps sum to %d bytes, over the file cap of %d", bound, MaxStore)
 	}
-	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more.
+	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more; QX6 makes it 4 MiB.
 	const step = 256 << 10
-	if want := (bound + step - 1) / step * step; MaxStore != want {
-		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d", MaxStore, bound, want)
+	if want := (bound + step - 1) / step * step; MaxStore != want || MaxStore != 4<<20 {
+		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d (4 MiB)", MaxStore, bound, want)
 	}
 }
 
@@ -392,6 +430,30 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 			s.Awaiting[0].Transcript.Path = "/" + strings.Repeat("p", maxTranscriptPath) + ".jsonl"
 		}, "transcript is not"},
 		"pending repeated": {func(s *Store) { s.Pending[1].ID = s.Pending[0].ID }, "holds an id twice"},
+		// The questions room's caps (n3f-D6, n3f-D11, QX6), each firing in a store that is full.
+		"reports":     {func(s *Store) { s.Outbox.Reports = append(s.Outbox.Reports, farMS) }, count("reports", capReports)},
+		"remind late": {func(s *Store) { s.RemindLate = append(s.RemindLate, 1) }, count("remind_late", capRemindLate)},
+		"questions not closed": {func(s *Store) {
+			ix := s.Questions.Index
+			ix.Highest++
+			ix.Questions = append(ix.Questions, proto.IndexedQuestion{
+				N: ix.Highest, EventID: eventID(1), Latest: eventID(1), Headline: "h", Hash: strings.Repeat("ab", 32),
+				AskedBy: []string{}, Re: []string{}, Unanswered: []string{},
+			})
+		}, "questions: more than 64 questions are not closed"},
+		"questions posts": {func(s *Store) {
+			s.Questions.Index.Posts = append(s.Questions.Index.Posts, proto.PostEntry{ID: eventID(900_000), Q: 1, T: 1})
+		}, "questions: more than 1024 posts"},
+		"questions agent posts": {func(s *Store) {
+			s.Questions.Index.AgentPosts = append(s.Questions.Index.AgentPosts, proto.AgentPost{ID: eventID(900_000), Q: 1})
+		}, "questions: more than 256 agent posts"},
+		"questions unattached": {func(s *Store) {
+			s.Questions.Index.Unattached = append(s.Questions.Index.Unattached, proto.UnattachedPost{ID: eventID(900_000), From: aliceID, SentMs: 1})
+		}, "questions: more than 64 unattached posts"},
+		"questions unanswered": {func(s *Store) {
+			s.Questions.Index.Questions[0].Unanswered = manyIDs(proto.MaxUnanswered + 1)
+		}, "questions: unanswered is not at most 16"},
+		"questions token": {func(s *Store) { s.Questions.Token = new(strings.Repeat("~", maxNextBatch+1)) }, "questions: token is longer than 1024 bytes"},
 	} {
 		s := fullStore(t)
 		c.grow(&s)

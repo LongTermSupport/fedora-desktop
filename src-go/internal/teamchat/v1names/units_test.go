@@ -1,6 +1,7 @@
 package v1names_test
 
 import (
+	"fmt"
 	"io/fs"
 	"net/netip"
 	"os"
@@ -240,6 +241,9 @@ func TestEveryUnitTextSourceIsJudged(t *testing.T) {
 			return fs.SkipDir
 		case d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go"):
 			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", p)
 		}
 		data, err := fs.ReadFile(root, p)
 		if err != nil {

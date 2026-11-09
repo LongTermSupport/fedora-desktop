@@ -35,6 +35,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/statusline"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/procend"
 )
 
 const (
@@ -265,15 +266,15 @@ func stdinOf(h stdinHolder, root string) ([]byte, error) {
 	return nil, nil
 }
 
-// alive reports whether pid runs and is not a zombie, read the way the oracle reads /proc.
-func alive(pid int) bool {
-	raw, err := fs.ReadFile(os.DirFS("/proc"), filepath.Join(strconv.Itoa(pid), "stat"))
+// alive reports whether pid has not ended as a whole: a zombie whose threads are all gone has
+// ended, and the leader's Z alone does not say so (procend; issue #182).
+func alive(t *testing.T, pid int) bool {
+	t.Helper()
+	ended, err := procend.Ended(pid)
 	if err != nil {
-		return false
+		t.Fatal(err)
 	}
-	// The command name is in parentheses and may hold spaces; the state follows the last ')'.
-	fields := strings.Fields(string(raw[bytes.LastIndexByte(raw, ')')+1:]))
-	return len(fields) > 0 && fields[0] != "Z"
+	return !ended
 }
 
 // gone checks the named pid files: each process must be dead or a zombie within 5 s.
@@ -299,10 +300,10 @@ func goneOne(t *testing.T, root, rel string) string {
 	if err != nil {
 		return rel + ": no pid was written"
 	}
-	for i := 0; i < goneChecks && alive(pid); i++ {
+	for i := 0; i < goneChecks && alive(t, pid); i++ {
 		time.Sleep(pollEvery)
 	}
-	if !alive(pid) {
+	if !alive(t, pid) {
 		return ""
 	}
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {

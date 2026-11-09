@@ -219,7 +219,7 @@ func TestPT1ReadsTheTranscriptBackIntoCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []pt1Copy{{id: "$a"}, {id: "$b"}, {id: "$a", repeat: true}}
+	want := []pt1Copy{{id: "$a", nonce: "0a1b2c3d"}, {id: "$b", nonce: "0a1b2c3d"}, {id: "$a", repeat: true, nonce: "0a1b2c3d"}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("copies %v, want %v", got, want)
 	}

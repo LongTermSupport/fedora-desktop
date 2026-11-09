@@ -12,6 +12,7 @@ run id in the spool, verifies it, and prints one marker line.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -85,6 +86,18 @@ class TestVerify(VerifyCase):
         result = self.run_verify("20260913T114500Z-nothing")
         self.assertEqual(result.returncode, 2)
         self.assertIn("no response", result.stderr)
+
+    def test_a_spool_entry_that_is_not_a_regular_file_is_refused_naming_it(self):
+        # A named pipe called *.response.json would block the read, and skipping it would make
+        # an answered run look unanswered until it timed out.
+        fifo = self.bridge / "responses" / f"{NAME}.response.json"
+        os.mkfifo(fifo)
+        result = subprocess.run(
+            [sys.executable, "-m", "helpers.vmtest.verify_response", "--checkout", str(self.root / "checkout"), "--key", str(self.key), "--run-id", RUN_ID],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False, timeout=60,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(f"{NAME}.response.json is not a regular file", result.stderr)
 
 
 if __name__ == "__main__":

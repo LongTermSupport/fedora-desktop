@@ -170,6 +170,12 @@ also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-
 # change; the .semgrep files are its own data and count as covered.
 also	.semgrep/hook-handlers.yml,.semgrep/hook-handlers.py	hook-handler-rules	covered
 also	scripts/qa-hook-handler-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-hook-handler-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	hook-handler-rules	-
+# The walk-open gate runs over each changed Python file by name (the @py row below), and runs
+# whole when its rule, the rule's fixture, its wrapper, the Go package it
+# shares with the speech-to-text gate, its command, the shared discovery or the trees table change;
+# the .semgrep files are its own data and count as covered.
+also	.semgrep/walk-open.yml,.semgrep/walk-open.py	walk-open	covered
+also	scripts/qa-walk-open.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-walk-open/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	walk-open	-
 # The VM-test manifest gate judges the manifest (which it covers), the Fedora version it composes
 # base names with, the host's validator (the three helpers it imports), the guest scripts it
 # counts and resolves, and runs whole when one changes or is deleted, or its own wrapper, Go
@@ -214,7 +220,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -223,11 +229,11 @@ first	src-go/*	go	covered,closure
 first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
-first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files,hook-handler-rules-files	covered,tree:python
+first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files,hook-handler-rules-files,walk-open-files	covered,tree:python
 first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

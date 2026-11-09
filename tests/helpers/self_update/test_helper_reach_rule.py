@@ -67,8 +67,9 @@ def _modules_under(repo_root: str, rel_dir: str) -> set[str]:
     found = set()
     for dirpath, _dirs, files in os.walk(os.path.join(repo_root, rel_dir)):
         for name in files:
-            if name.endswith(".py"):
-                found.add(os.path.relpath(os.path.join(dirpath, name), repo_root))
+            path = os.path.join(dirpath, name)
+            if name.endswith(".py") and os.path.isfile(path):
+                found.add(os.path.relpath(path, repo_root))
     return found
 
 

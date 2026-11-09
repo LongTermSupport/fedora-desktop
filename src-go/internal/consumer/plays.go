@@ -60,6 +60,13 @@ func optionalPlays(root string) ([]play, error) {
 
 // forEveryone says whether every play in the file is for every audience.
 func forEveryone(file string) (bool, error) {
+	info, err := os.Lstat(file)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", file, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("%s is not a regular file", file)
+	}
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", file, err)

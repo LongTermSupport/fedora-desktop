@@ -44,7 +44,7 @@ readonly DL_SIZE_IF_THERE="if [ -e \"\$1\" ]; then exec stat -c %s -- \"\$1\"; f
 #: In the container: the newest transcript path the session's hooks recorded (inject.py E16).
 readonly DL_TRANSCRIPT_PY='
 import glob, os, sys
-paths = sorted(glob.glob(os.path.join(sys.argv[1], "inject", "*.transcript")), key=os.path.getmtime)
+paths = sorted((p for p in glob.glob(os.path.join(sys.argv[1], "inject", "*.transcript")) if os.path.isfile(p)), key=os.path.getmtime)
 if not paths:
     sys.exit(3)
 with open(paths[-1], encoding="utf-8") as handle:

@@ -2,7 +2,8 @@
 // present from its cache snapshot, a dropdown label that explains itself, a test whose pass
 // hangs on a wall-clock margin too tight for a loaded host, and a job's end published before its
 // cleanup. The same engine runs .semgrep/hook-handlers.yml as a gate of its own (HookHandlers:
-// code the hooks daemon loads resolving a path against the daemon's working directory). The
+// code the hooks daemon loads resolving a path against the daemon's working directory) and
+// .semgrep/walk-open.yml (WalkOpen: a walked directory entry opened unchecked). The
 // rules are semgrep data, proven against a fixture per language on every run; this package
 // owns what is scanned, the proof that every rule still matches, and the refusal to pass over a
 // file the analyser did not read. The specification is the plan's SPEC-qa-speech-to-text-rules.md.
@@ -46,6 +47,12 @@ const (
 	hookPyFixtureFile = ".semgrep/hook-handlers.py"
 )
 
+// The walk-open rule file and its fixture, relative to the repository root.
+const (
+	walkRuleFile      = ".semgrep/walk-open.yml"
+	walkPyFixtureFile = ".semgrep/walk-open.py"
+)
+
 // Spec is one rule file and the gate that runs it: its command, the languages its rules are
 // written for and the fixture each is proven against, and how its findings are headed. The rule
 // files are separate gates so a rule is run, reported and documented with the code it guards.
@@ -77,6 +84,17 @@ var HookHandlers = Spec{
 	languages: []language{langPy},
 	fixtures:  map[language]string{langPy: hookPyFixtureFile},
 	usage:     hookUsageText,
+}
+
+// WalkOpen is the gate for the rule in .semgrep/walk-open.yml: Python that opens an entry a
+// directory walk found without checking it is a regular file.
+var WalkOpen = Spec{
+	command:   "qa-walk-open",
+	title:     "walk-open rule",
+	ruleFile:  walkRuleFile,
+	languages: []language{langPy},
+	fixtures:  map[language]string{langPy: walkPyFixtureFile},
+	usage:     walkUsageText,
 }
 
 // The options that take a value.
@@ -120,6 +138,21 @@ const hookUsageText = `usage: qa-hook-handler-rules [--root DIR] [--scripts DIR]
 The rules in .semgrep/hook-handlers.yml (code the hooks daemon loads that resolves a path against
 the daemon's working directory) over every Python file git would publish, after proving each rule
 against its fixture in .semgrep/.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  PATH            judge these files only (relative to the root) instead of every one
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding or a rule that failed its fixture, 2 bad usage or the run could
+not complete (semgrep missing or broken, a file handed to it not scanned).
+`
+
+const walkUsageText = `usage: qa-walk-open [--root DIR] [--scripts DIR] [PATH...]
+
+The rule in .semgrep/walk-open.yml (Python that opens an entry a directory walk found without
+checking it is a regular file, so a named pipe blocks it for ever) over every Python file git
+would publish, after proving the rule against its fixture in .semgrep/.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

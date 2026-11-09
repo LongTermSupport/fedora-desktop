@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -231,6 +232,22 @@ func TestK4AFileThatDoesNotHoldATokenIsRefusedWithoutPrintingIt(t *testing.T) {
 	k.want(k.exec(), term.ExitFailure, "")
 	k.wantStderr("the token file " + path + " is not a Claude Code OAuth token")
 	k.noTokenValueSeen()
+}
+
+// A token file that is not a regular file is refused by name, never opened: a named pipe would
+// block the read for ever (#195).
+func TestK4ATokenFileThatIsNotARegularFileIsRefused(t *testing.T) {
+	k := newKit(t)
+	k.auto(false)
+	k.setting("claude-token", "work")
+	k.token("work.2099-01-01.token", "sk-ant-oat01-short")
+	path := filepath.Join(k.tokenDir(), "work.2099-02-01.token")
+	opened := fifotest.Plant(t, path)
+	k.want(k.exec(), term.ExitFailure, "")
+	k.wantStderr("the token file " + path + " is not a regular file")
+	if opened() {
+		t.Fatal("the pipe was opened")
+	}
 }
 
 // K5

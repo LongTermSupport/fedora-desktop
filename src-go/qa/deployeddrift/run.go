@@ -309,6 +309,9 @@ func scanRepo(root string, env Env) (*repoTree, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".yml") {
 			return nil
 		}
+		if !d.Type().IsRegular() {
+			return fatalf("%s is not a regular file", p)
+		}
 		text, err := fs.ReadFile(fsys, p)
 		if err != nil {
 			return err
