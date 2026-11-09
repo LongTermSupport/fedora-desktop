@@ -183,7 +183,8 @@
       ansible.builtin.yum_repository:
         name: google-chrome
         description: google-chrome
-        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+        # Google publishes stable/x86_64 and stable/aarch64, named as Fedora names the arch.
+        baseurl: "https://dl.google.com/linux/chrome/rpm/stable/{{ ansible_facts['architecture'] }}"
         enabled: true
         gpgcheck: true
         # The local copy, not the URL: it is the exact bytes the task above checked

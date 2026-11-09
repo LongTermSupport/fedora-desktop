@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\nsuite scripts/test-alpha.bash: names src-go/cmd/frz/main.go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

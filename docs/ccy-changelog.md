@@ -17,11 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.113.3 — container 2.79.27
+## 3.113.4 — container 2.80.1
 
-Follows 3.112.5 (container 2.79.27; 3.113.0 to 3.113.2 were this release's earlier commits
-and never shipped, as were 3.100.19 to 3.100.22 on the Go-cache branch). The image does not
-change.
+Follows 3.113.1 (container 2.80.1). 3.113.2, 3.113.3 and an earlier 3.113.0 and 3.113.1 were
+this release's commits on its own branch and never shipped, as were 3.100.19 to 3.100.22 on the
+Go-cache branch. The image does not change.
 
 - **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
@@ -79,6 +79,23 @@ change.
   under either engine the files in the bind belong to the user.
 - The `CCY_EXTRA_MOUNTS` and `.claude/ccy/mounts` tokens are appended without their debug
   lines. This makes room under the launcher's bash-limits record.
+
+## 3.113.1 — container 2.80.1
+
+The arm64 build of 3.113.0 and the fixes of 3.112.3, 3.112.4 and 3.112.5 in one release: each
+was made on its own line, so neither version holds the other's code. The image is rebuilt
+once, for the agent-bus helper fix 3.112.3 brought.
+
+## 3.113.0 — container 2.80.0
+
+The image builds on arm64 as well as x86_64 (Plan 00243, issue 118). Each download that was
+x86_64 only is chosen by the image architecture: the phpantom-lsp musl target (`uname -m`),
+yq (`yq_linux_<dpkg arch>`, still the latest release), Lightpanda and opencode (one pinned
+sha256 per architecture). On arm64 agent-browser uses Debian `chromium`, since Chrome for
+Testing publishes no linux-arm64 build. An x86_64 image has the same content; it is rebuilt
+once because the Dockerfile changed. The custom-Dockerfile examples in
+`/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt` name the go and AWS CLI archives by
+architecture, and `docker-in-lxc` asks the LXC download template for the host architecture.
 
 ## 3.112.5 — container 2.79.27
 

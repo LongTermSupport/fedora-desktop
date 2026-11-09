@@ -24,6 +24,10 @@ run id; if it names no run id, make one: `scan-$(date -u +%Y%m%d-%H%M)`.
      docs, tests, tooling. Judge what it is and what it does well.
    - otherwise: review only the reported commits and changed paths (`git -C <mirror> show` and
      `diff` between the last-checked sha and the head).
+     Look for ideas, code this repository could reuse, and anything else of value. Before any
+     finding proposes reusing code, check the licence as
+     [Watchlist.md](../../CLAUDE/Watchlist.md#ideas-reusable-code-anything-else-valuable) says,
+     and state it in the issue or plan. A LICENSE change in the range is a finding.
 3. **Judge every finding against what this repository already has** (grep the repo, `CLAUDE/`,
    `docs/` and the plans, including `Completed/`). Discard what exists, what contradicts the
    principles in `CLAUDE.md` (YAGNI, fail fast, Podman first, tooling is Go, IaC only), and

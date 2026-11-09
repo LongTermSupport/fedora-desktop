@@ -34,6 +34,12 @@
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    # The VM is an x86 Windows image run by VirtualBox, which play-virtualbox-windows.yml
+    # installs on x86_64 hosts only.
+    - name: End play on aarch64 (VirtualBox and this x86 Windows VM are x86_64 hosts only)
+      ansible.builtin.meta: end_play
+      when: ansible_facts['architecture'] != 'x86_64'
+
     - name: Get Embedded Windows Key
       become: true
       ansible.builtin.dnf:

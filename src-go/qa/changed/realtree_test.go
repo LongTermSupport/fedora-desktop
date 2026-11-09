@@ -233,6 +233,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
 	".semgrep/find-race.yml":           "check:find-race",
 	".semgrep/find-race.fixture":       "check:find-race",
+	".semgrep/arch-pin.yml":            "check:arch-pin",
+	".semgrep/arch-pin.fixture":        "check:arch-pin",
 	".semgrep/walk-open.yml":           "check:walk-open",
 	".semgrep/walk-open.py":            "check:walk-open",
 }

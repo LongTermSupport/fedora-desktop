@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -124,6 +125,13 @@ class TestTheKeysAreDerivedNotListed(unittest.TestCase):
              "state", "findings", "unchecked"},
             keys,
         )
+
+    def test_the_sample_kernel_is_the_running_architecture_and_changes_no_key(self) -> None:
+        """The sample names the running arch, so no x86_64 literal is pinned (Plan 00243),
+        and the keys are the same whichever arch builds it."""
+        with mock.patch.object(check_panel_contract.platform, "machine", return_value="aarch64"):
+            on_arm = check_panel_contract.document_keys()
+        self.assertEqual(on_arm, check_panel_contract.document_keys())
 
     def test_the_section_ids_come_from_the_real_seam(self) -> None:
         """Against the producer's own constants, not copies of their values. A literal

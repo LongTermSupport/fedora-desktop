@@ -37,18 +37,19 @@ func (k *kit) serveMedia() string {
 	k.served = map[string]string{}
 	var probe strings.Builder
 	probe.WriteString("VMTEST-FRESHNESS-COMPOSE-ID Fedora-44-20261001.0\nVMTEST-FRESHNESS-REVISION " + testProbeRev + "\n")
-	probe.WriteString("VMTEST-FRESHNESS-TREE-URL everything https://dl.example.org/44/Everything/x86_64/os\n")
+	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[k.goarch]
+	probe.WriteString("VMTEST-FRESHNESS-TREE-URL everything https://dl.example.org/44/Everything/" + arch + "/os\n")
 	for _, a := range []struct{ base, file, variant string }{
 		{"server-fast-44", imageName, "Cloud"},
 		{"server-full-44", netinst, "Everything"},
 		{"desktop-44", netinst, "Everything"},
 		{"desktop-44", liveISO, "Workstation"},
 	} {
-		dir := "https://dl.example.org/44/" + a.variant + "/x86_64/"
+		dir := "https://dl.example.org/44/" + a.variant + "/" + arch + "/"
 		body := "media of " + a.file
 		k.served[dir+a.file] = body
 		entry := "SHA256 (" + a.file + ") = " + sum(body) + "\n"
-		if checksum := dir + "Fedora-" + a.variant + "-44-1.1-x86_64-CHECKSUM"; !strings.Contains(k.served[checksum], entry) {
+		if checksum := dir + "Fedora-" + a.variant + "-44-1.1-" + arch + "-CHECKSUM"; !strings.Contains(k.served[checksum], entry) {
 			k.served[checksum] += entry
 		}
 		probe.WriteString("VMTEST-FRESHNESS-ARTEFACT " + a.base + " " + a.file + " " + sum(body) + " label=44-1.1 variant=" + a.variant + " url=" + dir + a.file + "\n")
@@ -321,7 +322,7 @@ func TestE19FullServerBase(t *testing.T) {
 	k := buildKit(t)
 	k.wantCode(k.run("build-base", "server-full"), term.ExitOK)
 	render := k.mustCall("render_kickstart")
-	if !strings.Contains(render.Line(), "--template "+k.path(ksServer)+" --set SSH_PUBKEY=ssh-ed25519 AAAA vmtest-lab --set FEDORA_VERSION=44 --set TREE_URL=https://dl.example.org/44/Everything/x86_64/os") ||
+	if !strings.Contains(render.Line(), "--template "+k.path(ksServer)+" --set SSH_PUBKEY=ssh-ed25519 AAAA vmtest-lab --set FEDORA_VERSION=44 --set SERIAL_CONSOLE=ttyS0 --set TREE_URL=https://dl.example.org/44/Everything/x86_64/os") ||
 		strings.Contains(render.Line(), "--set-stdin") {
 		t.Fatalf("got %s", render.Line())
 	}
@@ -382,7 +383,7 @@ func TestE19DesktopBaseSecrets(t *testing.T) {
 	if stdin != "LUKS_PASSPHRASE="+passphrase+"\nUSER_PASSWORD_CRYPT=$6$salt$crypt\n" {
 		t.Fatalf("render stdin %q", stdin)
 	}
-	if !strings.HasSuffix(render.Line(), "--set FEDORA_VERSION=44 --set-stdin") || strings.Contains(render.Line(), "TREE_URL") {
+	if !strings.HasSuffix(render.Line(), "--set FEDORA_VERSION=44 --set SERIAL_CONSOLE=ttyS0 --set-stdin") || strings.Contains(render.Line(), "TREE_URL") {
 		t.Fatalf("got %s", render.Line())
 	}
 	for _, c := range k.fake.Calls() {

@@ -62,7 +62,7 @@ def _write_fixtures(root: pathlib.Path, **overrides: str | None) -> None:
         path.write_text(text)
 
 
-def _run(fixture_dir: pathlib.Path, manifest_path: pathlib.Path) -> subprocess.CompletedProcess:
+def _run(fixture_dir: pathlib.Path, manifest_path: pathlib.Path, arch: str = "x86_64") -> subprocess.CompletedProcess:
     return subprocess.run(
         [
             sys.executable,
@@ -70,6 +70,8 @@ def _run(fixture_dir: pathlib.Path, manifest_path: pathlib.Path) -> subprocess.C
             "helpers.vmtest.probe_upstream",
             "--fedora-version",
             "44",
+            "--arch",
+            arch,
             "--manifest",
             str(manifest_path),
             "--fixture-dir",
@@ -144,6 +146,32 @@ class TestProbeReadsEverySignal(ProbeCase):
         result = _run(self.fixture_dir, self.manifest_path)
         self.markers(result)
         self.assertIn("fixture", result.stderr)
+
+
+class TestProbeReadsTheGuestArch(ProbeCase):
+    # The lab's guests are the host's architecture, which vmtest names; every tree and
+    # artefact the probe reads is that architecture's.
+    def test_an_aarch64_probe_reads_the_aarch64_trees_and_updates(self):
+        _write_fixtures(
+            self.fixture_dir,
+            **{
+                "dl.fedoraproject.org/pub/fedora/linux/releases/44/Server/aarch64/os/.treeinfo": TREEINFO_TEXT,
+                "dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/aarch64/os/.treeinfo": TREEINFO_TEXT,
+                "dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/aarch64/repodata/repomd.xml": REPOMD_TEXT,
+            },
+        )
+        lines = self.markers(_run(self.fixture_dir, self.manifest_path, arch="aarch64"))
+        self.assertIn("VMTEST-FRESHNESS-REVISION 1789172543", lines)
+        self.assertIn("VMTEST-FRESHNESS-TREE-URL Server https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Server/aarch64/os/", lines)
+        self.assertFalse([line for line in lines if "/x86_64/" in line], lines)
+
+    def test_an_architecture_the_lab_has_no_guest_for_is_refused_before_any_fetch(self):
+        _write_fixtures(self.fixture_dir)
+        result = _run(self.fixture_dir, self.manifest_path, arch="riscv64")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("riscv64", result.stderr)
+        self.assertNotIn("fixture:", result.stderr)
 
 
 class TestProbeFailsClosedPerSignal(ProbeCase):

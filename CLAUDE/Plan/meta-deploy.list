@@ -33,7 +33,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# The dormant-branch aggregate (Plan 00245): picks up play-claude-yolo.yml for ccy 3.113.3,
+# Plan 00243: the arm64 fixes are on F44, so this x86_64 host re-runs the plays they touched
+# (basic-configs, python, rpm-fusion, comms, markless, browsers, toolbox-install,
+# AB-dnf-upgrade, claude-yolo and claude-code-consumer, and of the optional plays those that
+# have run here: cli-tools, network-tools, photography, qobuz, vm-test-lab, nvidia, displaylink,
+# ipu6-webcam, virtualbox-windows and virtualbox-windows-vm-setup). On x86_64 each renders as
+# before; the ccy image is rebuilt once for its version label, and intel-media-driver is now
+# its own dnf task, already satisfied, enforced on every run.
+# The dormant-branch aggregate (Plan 00245): picks up play-claude-yolo.yml for ccy 3.113.4,
 # whose every container now starts with --pids-limit 4096 (CCY_PIDS_LIMIT on the host,
 # 256..32768, overrides) from the new lib/container-limits.bash. No image rebuild; a running
 # session keeps its old limit until it is relaunched. Also play-claude-code-consumer.yml, whose
@@ -44,7 +51,7 @@
 # machine lacks asks what to do (create it, choose another, start without it, or nothing);
 # ccy-teams exits only with codes it documents and says 75, 77 and 78 in words; the board's
 # KIND of a host seat is cc. The owner's test after it is Plan 00177 Task 7.9.
-# And the Go caches (ccy 3.113.3, same play's launcher and ccy-teams): each launch binds
+# And the Go caches (ccy 3.113.4, same play's launcher and ccy-teams): each launch binds
 # ~/.cache/ccy/<project>/go for the Go build, module, golangci-lint and go-qa tool caches,
-# bounded at 8 GiB and cleared at launch when over; no image rebuild.
+# bounded at 8 GiB and cleared at launch when over; no image rebuild beyond Plan 00243's.
 changed-plays

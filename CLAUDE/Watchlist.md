@@ -34,6 +34,27 @@ promote. Each issue carries the `watchlist` label, the run id and the reviewed r
 text is scanned for secrets and install-specific names before it is sent (the repository is
 public and the pre-commit scanner does not see `gh`).
 
+## Ideas, reusable code, anything else valuable
+
+A scan looks for three things: **ideas** to adopt (a design, a feature, a rule), **code** this
+repository could take as it is, and **anything else of value** (a test technique, a security
+finding, a tool worth installing, a defect upstream that affects us). Each becomes an issue or a
+plan by the rules above.
+
+**Code is reused only under a licence that allows it.** This repository is MIT. Before a finding
+proposes copying or vendoring code, the scout records the watched repository's licence (its
+SPDX id from `gh repo view <owner>/<repo> --json licenseInfo`, confirmed against its LICENSE file,
+and any per-file headers on the code in question):
+
+- **MIT, BSD, ISC, Apache-2.0** and similar permissive licences: reusable, keeping the copyright
+  and licence notice with the copied code (and Apache-2.0's NOTICE, if any).
+- **MPL-2.0**: only as whole, separate files that keep their licence.
+- **GPL, AGPL, LGPL, SSPL, BUSL, Elastic, any non-commercial or "source available" licence, or
+  no licence at all**: never copied. The idea may still be adopted, written afresh here.
+
+The issue or plan states the licence and which of these applies. A licence change upstream
+(the LICENSE file in a scanned range) is itself a finding.
+
 ## The state
 
 [Watchlist.tsv](Watchlist.tsv) is the machine-read list: for each repository the URL, the branch

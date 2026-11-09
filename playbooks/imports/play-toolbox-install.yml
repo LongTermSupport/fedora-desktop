@@ -6,6 +6,10 @@
   vars:
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
+    # The key of each release's `downloads` in the JetBrains releases API, by architecture.
+    jetbrains_toolbox_platform_keys:
+      x86_64: linux
+      aarch64: linuxARM64
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -34,6 +38,13 @@
     - name: Check if display server is available
       ansible.builtin.set_fact:
         has_display: "{{ lookup('env', 'DISPLAY') != '' or lookup('env', 'WAYLAND_DISPLAY') != '' }}"
+
+    - name: Fail on an architecture JetBrains publishes no Toolbox build for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in jetbrains_toolbox_platform_keys
+        fail_msg: >-
+          JetBrains Toolbox: no Linux build for {{ ansible_facts['architecture'] }}
+          (published: {{ jetbrains_toolbox_platform_keys | list | join(', ') }})
 
     - block:
         - name: Get available releases
@@ -72,8 +83,9 @@
               }}"
             mode: "0644"
           vars:
-            jetbrains_toolbox_download_query: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.link"
-            jetbrains_toolbox_checksum_link: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.checksumLink"
+            jetbrains_toolbox_platform: "{{ jetbrains_toolbox_platform_keys[ansible_facts['architecture']] }}"
+            jetbrains_toolbox_download_query: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.{{ jetbrains_toolbox_platform }}.link"
+            jetbrains_toolbox_checksum_link: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.{{ jetbrains_toolbox_platform }}.checksumLink"
 
         - name: Unpack install archive
           ansible.builtin.unarchive:
