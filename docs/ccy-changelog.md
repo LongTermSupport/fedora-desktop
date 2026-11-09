@@ -17,9 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.113.0 — container 2.79.27
+## 3.113.1 — container 2.79.27
 
-Follows 3.112.5 (container 2.79.27). The image does not change.
+Follows 3.112.5 (container 2.79.27; 3.113.0 was this change's earlier commit and never
+shipped). The image does not change.
 
 - **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
@@ -36,7 +37,8 @@ Follows 3.112.5 (container 2.79.27). The image does not change.
   session and no later one; a session restored after a reboot or restarted by `ccy-teams`
   takes the default. A running session keeps its old limit until it is relaunched.
   `--debug`'s simplified run command shows the flag too. The Semgrep rule
-  `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it.
+  `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it,
+  and its Go twin `project_container_pids_limit` every Go one; `ccc` passes the default too.
 
 ## 3.112.5 — container 2.79.27
 

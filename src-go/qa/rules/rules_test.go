@@ -161,8 +161,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 31 {
-		t.Fatalf("want 31 rules, got %d", got)
+	if got := len(All()); got != 32 {
+		t.Fatalf("want 32 rules, got %d", got)
 	}
 }
 
@@ -214,4 +214,8 @@ func TestOwnedBy(t *testing.T) {
 
 func TestRawConnProbe(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
+}
+
+func TestContainerPidsLimit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ContainerPidsLimit, "fix/internal/badpids")
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 )
 
 // The pids limit of every container ccy runs, as lib/container-limits.bash settles it as soon as
@@ -11,7 +13,7 @@ import (
 // TestPidsLimitIsTheLibrarys holds these to the library.
 const (
 	pidsLimitEnv     = "CCY_PIDS_LIMIT"
-	pidsLimitDefault = 4096
+	pidsLimitDefault = engine.PidsLimitDefault
 	pidsLimitMin     = 256
 	pidsLimitMax     = 32768
 )

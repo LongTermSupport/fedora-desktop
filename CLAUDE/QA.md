@@ -1170,7 +1170,9 @@ session, the npm update, `setup-token`, or a probe. A Semgrep rule in
 network check and version probe the bash asks it for: `engine.ClaudeHelp`, `RunWithSecret`,
 `RunOnNetwork`, `ClaudeVersion`) take the same limit, held to the library by
 `TestPidsLimitIsTheLibrarys`, by `TestTheLauncherChecksRunUnderThePidsLimit` and by the
-difftest scenarios; the Semgrep rule does not read Go.
+difftest scenarios. The Semgrep rule does not read Go: its Go twin is the project rule
+[project_container_pids_limit](GoProjectRules.md#project_container_pids_limit), which found
+`ccc`'s two runs.
 
 **Why it exists.** Without the flag the engine decides, and the limit is a session's
 fork-bomb guard, so it must be a decision. A pid in the pids cgroup is a thread. A test

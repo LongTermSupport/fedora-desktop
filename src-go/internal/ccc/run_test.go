@@ -11,7 +11,7 @@ func TestSessionArgsMountOnlyTheFolderAndTheState(t *testing.T) {
 		Name: "ccc-claude-42", TimeZone: "Europe/London", Term: "xterm-256color",
 	})
 	want := []string{
-		"run", "--rm", "--interactive", "--tty",
+		"run", "--rm", "--interactive", "--tty", "--pids-limit", "4096",
 		"--name", "ccc-claude-42",
 		"--label", "ccc=true", "--label", "ccc-agent=claude",
 		"--network", "podman",
@@ -46,7 +46,7 @@ func TestSessionArgsLeaveOutAnUnknownZone(t *testing.T) {
 
 func TestSignInArgsMountNothing(t *testing.T) {
 	got := signInArgs(Claude)
-	want := []string{"run", "--rm", "--interactive", "--tty", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"}
+	want := []string{"run", "--rm", "--interactive", "--tty", "--pids-limit", "4096", "--network", "podman", "--entrypoint", "claude", "claude-yolo:latest", "setup-token"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}

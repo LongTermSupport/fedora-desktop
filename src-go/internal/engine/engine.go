@@ -167,6 +167,11 @@ func (e Engine) ClaudeHelp(ctx context.Context, image, pidsLimit string) (string
 	return out, nil
 }
 
+// PidsLimitDefault is the --pids-limit a ccy-image container gets when nothing overrides it
+// (E14): the ccy launcher's CCY_PIDS_LIMIT_DEFAULT (lib/container-limits.bash, held to it by
+// ccylaunch's TestPidsLimitIsTheLibrarys), and ccc's limit.
+const PidsLimitDefault = 4096
+
 // engineFailed is the exit code podman and docker give a run they could not start, a missing
 // image among them; the container's own exit codes are passed through as they are.
 const engineFailed = 125
