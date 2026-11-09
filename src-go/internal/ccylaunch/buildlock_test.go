@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -351,11 +352,42 @@ func TestBuildLockAsksAboutEachBuild(t *testing.T) {
 // F14: a process that has exited and waits to be reaped counts as gone.
 func TestBuildLockCountsAZombieAsGone(t *testing.T) {
 	r := newLockRig(t, "y\n")
-	writeTree(t, r.proc, map[string]string{"4242/stat": "4242 (bash) Z 1 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 50000 0 0\n"})
+	writeTree(t, r.proc, map[string]string{
+		"4242/stat":   zombieStat,
+		"4242/status": "Name:\tbash\nState:\tZ (zombie)\nThreads:\t1\n",
+	})
 	r.lock(t, "claude-yolo_latest.lock", "4242 1600 claude-yolo:latest\n", true)
 	if code, out := r.start(t); code != term.ExitOK || !strings.Contains(out, "has gone") {
 		t.Fatalf("exit %d, stdout %q", code, out)
 	}
+}
+
+// zombieStat is a stat line whose leader thread has exited.
+const zombieStat = "4242 (bash) Z 1 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 50000 0 0\n"
+
+// F14: a leader that is a zombie while its other threads still exit has not gone: it may still
+// hold its files (issue #182).
+func TestBuildLockCountsAZombieWithThreadsLeftAsRunning(t *testing.T) {
+	r := newLockRig(t, "n\n")
+	writeTree(t, r.proc, map[string]string{
+		"4242/stat":   zombieStat,
+		"4242/status": "Name:\tbash\nState:\tZ (zombie)\nThreads:\t3\n",
+	})
+	r.lock(t, "claude-yolo_latest.lock", "4242 1600 claude-yolo:latest\n", true)
+	if code, out := r.start(t); strings.Contains(out, "has gone") {
+		t.Fatalf("a zombie leader with threads left was taken for gone: exit %d, stdout %q", code, out)
+	}
+}
+
+// F14: a zombie's status with no thread count is the run's failure, named.
+func TestBuildLockRefusesAZombieStatusWithoutAThreadCount(t *testing.T) {
+	r := newLockRig(t, "n\n")
+	writeTree(t, r.proc, map[string]string{"4242/stat": zombieStat, "4242/status": "State:\tZ (zombie)\n"})
+	r.lock(t, "claude-yolo_latest.lock", "4242 1600 claude-yolo:latest\n", true)
+	if code, out := r.start(t); code != term.ExitFailure {
+		t.Fatalf("exit %d, stdout %q", code, out)
+	}
+	mustContain(t, "stderr", r.stderr(), "no thread count")
 }
 
 // F14: a failed signal is the run's failure, named.
@@ -402,6 +434,23 @@ func TestBuildLockRefusesWhatIsNotALockFile(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q", code, out)
 	}
 	mustContain(t, "stderr", r.stderr(), "claude-yolo_latest.lock")
+}
+
+// A process whose stat is not a regular file is refused by name, never read: a named pipe
+// would block the read for ever (#195).
+func TestBuildLockRefusesAProcessStatThatIsNotARegularFile(t *testing.T) {
+	r := liveBuild(t, "y\n")
+	if err := os.MkdirAll(filepath.Join(r.proc, "6000"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := fifotest.Plant(t, filepath.Join(r.proc, "6000", "stat"))
+	if code, out := r.start(t); code != term.ExitFailure {
+		t.Fatalf("exit %d, stdout %q", code, out)
+	}
+	mustContain(t, "stderr", r.stderr(), filepath.Join(r.proc, "6000", "stat")+" is not a regular file")
+	if opened() {
+		t.Fatal("the pipe was opened")
+	}
 }
 
 func TestParseBuildRecord(t *testing.T) {

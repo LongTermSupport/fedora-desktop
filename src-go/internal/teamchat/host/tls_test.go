@@ -399,7 +399,15 @@ func heldFiles(t *testing.T, w *world) map[string]string {
 	}
 	held := make(map[string]string, len(entries))
 	for _, e := range entries {
-		held[e.Name()] = string(readFile(t, filepath.Join(dir, e.Name())))
+		name := filepath.Join(dir, e.Name())
+		info, statErr := os.Stat(name)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("%s is not a regular file, nor a link to one", name)
+		}
+		held[e.Name()] = string(readFile(t, name))
 	}
 	return held
 }

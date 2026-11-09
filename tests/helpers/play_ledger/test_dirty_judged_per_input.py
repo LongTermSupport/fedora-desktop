@@ -72,7 +72,9 @@ def findings(root: pathlib.Path, relative_paths: list[str]) -> list[str]:
 
 
 def scanned_files(root: pathlib.Path) -> list[str]:
-    return sorted(str(path.relative_to(root)) for top in SCANNED for path in (root / top).rglob("*.py"))
+    return sorted(
+        str(path.relative_to(root)) for top in SCANNED for path in (root / top).rglob("*.py") if path.is_file()
+    )
 
 
 class TestTheRepository(unittest.TestCase):

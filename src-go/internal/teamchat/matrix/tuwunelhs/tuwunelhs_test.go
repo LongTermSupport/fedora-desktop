@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 func TestStartAnswersVersions(t *testing.T) {
@@ -103,5 +105,34 @@ func TestClockSleepEndsWithTheContext(t *testing.T) {
 	}
 	if (Clock{}).Now().IsZero() {
 		t.Fatal("Now is zero")
+	}
+}
+
+// The process walk opens only a regular environ file: a named pipe in its place is passed over,
+// never opened, and a matching process beside it is still found (#195).
+func TestProcessesPassesOverAnEnvironThatIsNotARegularFile(t *testing.T) {
+	proc := t.TempDir()
+	want := "TUWUNEL_CONFIG=/x/config.toml"
+	for pid, env := range map[string]string{"100": "A=1\x00" + want + "\x00", "300": "A=1\x00"} {
+		if err := os.Mkdir(filepath.Join(proc, pid), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(proc, pid, "environ"), []byte(env), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(proc, "200"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := fifotest.Plant(t, filepath.Join(proc, "200", "environ"))
+	found, err := processes(proc, []byte(want))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0] != 100 {
+		t.Fatalf("found %v, want [100]", found)
+	}
+	if opened() {
+		t.Fatal("the named pipe was opened")
 	}
 }

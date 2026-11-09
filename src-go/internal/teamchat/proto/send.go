@@ -285,7 +285,7 @@ func (c Composer) Admit(out Outgoing) error {
 	}
 	limit := c.Roster.Limits.ReportPerHour
 	if out.report && int64(c.Reports.Count(c.Self, ReportWindowMs, c.NowMs)) >= limit {
-		return refused(ReasonRate, "report_per_hour")
+		return refused(ReasonRate, DetailReportPerHour)
 	}
 	if reason := c.Gate.Admit(c.Roster.Limits, out.dupKey, out.dedupe, c.NowMs); reason != "" {
 		return refused(reason, "")

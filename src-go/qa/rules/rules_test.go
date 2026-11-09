@@ -144,12 +144,25 @@ func TestListingOrder(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), ListingOrder, "fix/internal/badlisting", "fix/internal/badlistingx")
 }
 
+// A directory walk lists named pipes, sockets and devices as well as files, and opening a named
+// pipe blocks for ever: the fixture opens walked entries every way the sweep for #195 found (a
+// listing, a glob, each walk's callback, a helper of the package, a gathered slice, a closure,
+// ParseFile, an fs.FS), with the checks that do not guard (a suffix, !IsDir, a warning that falls
+// through, a check of another name, a check joined by ||) and the ones that do beside them.
+func TestWalkOpen(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), WalkOpen, "fix/internal/badwalk")
+}
+
+func TestZombieExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ZombieExit, "fix/internal/badzombie")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 30 {
-		t.Fatalf("want 30 rules, got %d", got)
+	if got := len(All()); got != 32 {
+		t.Fatalf("want 32 rules, got %d", got)
 	}
 }
 

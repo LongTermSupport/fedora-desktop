@@ -26,7 +26,7 @@ var hostnameReads = []struct{ pkg, recv, name string }{
 	{"os", "", "Hostname"},
 	{"net", "", "LookupAddr"},
 	{"net", "Resolver", "LookupAddr"},
-	{"syscall", "", "Uname"},
+	{syscallPkg, "", "Uname"},
 	{"golang.org/x/sys/unix", "", "Uname"},
 }
 

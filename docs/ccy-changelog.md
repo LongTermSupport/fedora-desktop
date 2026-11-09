@@ -17,6 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.112.5 — container 2.79.27
+
+`--build-lock` no longer takes a process whose leader thread is a zombie for gone while its
+other threads are still exiting (issue 182): such a process may still hold its files, so it
+counts as exited only once `/proc/<pid>/status` lists no thread but the leader. A zombie status
+with no thread count is refused, named.
+
+## 3.112.4 — container 2.79.27
+
+The Go front never opens an entry a directory listing found unless it is a regular file
+(issue 195): `--build-lock` refuses a process `stat` that is not one, `--export-token` refuses
+such a token file, the session registry counts such a record unreadable, the team seats are
+listed with a directory-only open, and the status key enters such a stamp as its error. A
+named pipe in any of those places would have blocked the launcher for ever. The image is
+unchanged.
+
+## 3.112.3 — container 2.79.27
+
+The image is rebuilt for an agent-bus fix (issue 191): the declare helper refuses an
+applied-team stamp that is not a regular file, naming it, instead of opening it (a named pipe
+would block it for ever).
+
 ## 3.112.2 — container 2.79.26
 
 The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix

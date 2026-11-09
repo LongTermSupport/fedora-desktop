@@ -137,8 +137,11 @@ def processes(proc: pathlib.Path) -> list[Process]:
     for entry in proc.iterdir():
         if not entry.name.isdigit():
             continue
+        cmdline = entry / "cmdline"
+        if not cmdline.is_file():
+            continue
         try:
-            raw = (entry / "cmdline").read_bytes()
+            raw = cmdline.read_bytes()
         except OSError:
             continue
         argv = tuple(part.decode("utf-8", "replace") for part in raw.split(b"\0")[:-1])

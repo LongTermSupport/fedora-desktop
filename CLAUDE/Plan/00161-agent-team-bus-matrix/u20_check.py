@@ -421,7 +421,7 @@ def saved_hook_outputs(transcript: pathlib.Path) -> list[str]:
     found = []
     for directory in (transcript.with_suffix(""), transcript.with_suffix(".d")):
         found += [path.read_text(encoding="utf-8", errors="replace")
-                  for path in sorted((directory / "tool-results").glob("hook-*"))]
+                  for path in sorted((directory / "tool-results").glob("hook-*")) if path.is_file()]
     return found
 
 

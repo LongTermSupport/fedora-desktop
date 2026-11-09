@@ -60,12 +60,23 @@ def _write(root: str, rel: str, text: str) -> None:
         handle.write(textwrap.dedent(text))
 
 
+def _isolated_git_env() -> dict[str, str]:
+    """The environment helpers/CLAUDE.md requires of a test that runs git."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    return env
+
+
 class Fixture:
-    """A throwaway repo shaped like this one: playbooks/imports/, files/, tasks/, helpers/."""
+    """A throwaway checkout shaped like this one: playbooks/imports/, files/, tasks/, helpers/.
+    It is a git checkout with nothing committed: the mapper lists a directory through git
+    (`checkout_files`), and an untracked file that is not ignored is checkout content."""
 
     def __init__(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = self._tmp.name
+        subprocess.run(["git", "-C", self.root, "init", "-q"], check=True, capture_output=True, env=_isolated_git_env())
 
     def play(self, rel: str, body: str) -> str:
         _write(self.root, rel, body)
@@ -132,6 +143,7 @@ class TestInputs(FixtureCase):
     def test_a_templated_tail_maps_to_its_literal_prefix(self) -> None:
         """Conservative: every file under the prefix counts, because the loop that fills
         the template in is not something a regex can evaluate."""
+        self.fx.file("files/home/.local/bin/tool")
         play = self.fx.play("playbooks/imports/play-a.yml", f"""
             - hosts: desktop
               tasks:
@@ -347,6 +359,8 @@ class TestLoopedReferences(FixtureCase):
         self.assertFalse(ap.affects(inputs, "files/home/.local/bin/wsi-stream"))
 
     def test_an_attribute_of_a_nested_list_variable_in_a_vars_file_is_read(self) -> None:
+        self.fx.file("extensions/one@fedora-desktop/extension.js")
+        self.fx.file("extensions/two@fedora-desktop/metadata.json")
         self.fx.file("vars/extensions.yml", """\
             extensions:
               system:
@@ -388,6 +402,7 @@ class TestLoopedReferences(FixtureCase):
 
     def test_a_loop_it_cannot_read_keeps_the_directory(self) -> None:
         """No input is lost: a loop built by a filter is not evaluated, so the prefix stays."""
+        self.fx.file("files/lab/old.bash")
         inputs = self._inputs(f"""\
     - ansible.builtin.copy:
         src: "{ROOT}/files/lab/{{{{ item }}}}"
@@ -399,6 +414,7 @@ class TestLoopedReferences(FixtureCase):
         self.assertTrue(ap.affects(inputs, "files/lab/new.bash"))
 
     def test_a_list_item_that_is_not_a_literal_keeps_the_directory(self) -> None:
+        self.fx.file("files/bin/fixed")
         inputs = self._inputs(f"""\
     - ansible.builtin.copy:
         src: "{ROOT}/files/bin/{{{{ item }}}}"
@@ -410,6 +426,7 @@ class TestLoopedReferences(FixtureCase):
         self.assertTrue(ap.affects(inputs, "files/bin/anything"))
 
     def test_a_scalar_variable_no_walked_file_sets_keeps_the_directory(self) -> None:
+        self.fx.file("extensions/one@x/extension.js")
         inputs = self._inputs(f"""\
     - ansible.builtin.copy:
         src: "{ROOT}/extensions/{{{{ from_the_inventory }}}}/"
@@ -418,6 +435,7 @@ class TestLoopedReferences(FixtureCase):
         self.assertTrue(ap.affects(inputs, "extensions/anything/extension.js"))
 
     def test_a_renamed_loop_variable_keeps_the_directory(self) -> None:
+        self.fx.file("files/bin/one")
         inputs = self._inputs(f"""\
     - ansible.builtin.copy:
         src: "{ROOT}/files/bin/{{{{ item }}}}"
@@ -572,6 +590,70 @@ class TestHostOnlyPaths(FixtureCase):
         self.assertEqual(len(ap.play_inputs(self.fx.root, self._play()).unresolved), 1)
 
 
+class TestUntrackedTrees(FixtureCase):
+    """A directory reference that holds no checkout content (issue #191) is no input: git never
+    reports a change there, and play_text would walk scratch files and named pipes."""
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", self.fx.root, *args], check=True, capture_output=True, env=_isolated_git_env())
+
+    def _inputs(self) -> ap.Inputs:
+        play = self.fx.play("playbooks/imports/play-a.yml", """
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.assert:
+                    that: decisions.startswith(root_dir ~ '/scratch/')
+                - ansible.builtin.copy:
+                    src: "{{ root_dir }}/files/conf/"
+                    dest: /etc/conf/
+                - ansible.builtin.file:
+                    path: "{{ root_dir }}/spool/requests/"
+                    state: directory
+        """)
+        self.fx.file("files/conf/a.conf")
+        self.fx.file("scratch/.gitignore", "*\n")
+        self.fx.file("scratch/run.log")
+        return ap.play_inputs(self.fx.root, play)
+
+    def test_in_a_checkout_a_tree_without_tracked_content_is_local_not_a_prefix(self) -> None:
+        self._inputs()
+        self._git("add", "-A")
+        inputs = ap.play_inputs(self.fx.root, "playbooks/imports/play-a.yml")
+        self.assertEqual(inputs.prefixes, {"files/conf/"})
+        self.assertEqual(inputs.local, {"scratch/", "spool/requests/"})
+        self.assertFalse(ap.affects(inputs, "scratch/run.log"))
+        self.assertTrue(ap.affects(inputs, "files/conf/a.conf"))
+
+    def test_an_untracked_tree_git_does_not_ignore_is_checkout_content(self) -> None:
+        # Issue #198: a new directory not yet committed is an input, as git would publish it.
+        inputs = self._inputs()
+        self.assertEqual(inputs.prefixes, {"files/conf/"})
+        self.assertEqual(inputs.local, {"scratch/", "spool/requests/"})
+
+    def test_a_root_that_is_no_checkout_is_refused_never_walked(self) -> None:
+        # Issue #198: without git nothing says which files are ignored, and a walk would count
+        # every one of them, so the mapper fails rather than falling back to one.
+        with tempfile.TemporaryDirectory() as root:
+            _write(root, "playbooks/imports/play-a.yml", """
+                - hosts: desktop
+                  tasks:
+                    - ansible.builtin.copy:
+                        src: "{{ root_dir }}/files/conf/"
+                        dest: /etc/conf/
+            """)
+            _write(root, "files/conf/a.conf", "a\n")
+            with self.assertRaisesRegex(ValueError, "git rev-parse"):
+                ap.play_inputs(root, "playbooks/imports/play-a.yml")
+            with self.assertRaisesRegex(ValueError, "git rev-parse"):
+                ap.candidate_plays(root)
+
+    def test_a_root_inside_a_checkout_is_refused(self) -> None:
+        inner = os.path.join(self.fx.root, "inner")
+        os.makedirs(inner)
+        with self.assertRaisesRegex(ValueError, "not the top of one"):
+            ap.checkout_files(inner)
+
+
 class TestJoinedReferences(FixtureCase):
     """`root_dir ~ '/x'` and `root_dir + '/x'` are checkout references too (Plan 00192 3.6)."""
 
@@ -591,11 +673,13 @@ class TestJoinedReferences(FixtureCase):
         self.assertEqual(inputs.unresolved, [])
 
     def test_a_joined_glob_is_its_literal_prefix(self) -> None:
+        self.fx.file("files/share/lab/old.bash")
         inputs = self._inputs("{{ lookup('fileglob', root_dir ~ '/files/share/lab/*.bash') }}")
         self.assertTrue(ap.affects(inputs, "files/share/lab/new.bash"))
         self.assertFalse(ap.affects(inputs, "files/share/other.bash"))
 
     def test_a_joined_prefix_with_a_templated_tail_is_a_prefix(self) -> None:
+        self.fx.file("files/conf/a.conf")
         inputs = self._inputs("{{ lookup('file', root_dir + '/files/conf/' + item.item) }}")
         self.assertTrue(ap.affects(inputs, "files/conf/anything"))
 
@@ -1067,6 +1151,13 @@ class TestDecide(FixtureCase):
                     src: "{ROOT}/files/other/tool"
         """)
         self.assertIn(nested, ap.decide(self.fx.root, ["files/other/tool"]).skipped)
+
+    def test_a_play_name_that_is_not_a_regular_file_is_refused_naming_it(self) -> None:
+        # A dangling link or a named pipe called play-x.yml would otherwise silently stop being
+        # a candidate play, so a change it depends on would never run it.
+        os.symlink("play-gone.yml", os.path.join(self.fx.root, "playbooks/imports/play-dangling.yml"))
+        with self.assertRaisesRegex(ValueError, "playbooks/imports/play-dangling.yml is not a regular file"):
+            ap.candidate_plays(self.fx.root)
 
 
 class TestCli(FixtureCase):

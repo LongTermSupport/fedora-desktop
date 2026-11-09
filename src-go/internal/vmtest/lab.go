@@ -130,6 +130,10 @@ func parseLabEnv(path string, body []byte) (map[string]string, error) {
 }
 
 func readable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return false

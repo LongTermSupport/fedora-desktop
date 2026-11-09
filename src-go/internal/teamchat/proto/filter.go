@@ -21,17 +21,21 @@ var (
 )
 
 // SyncFilter is this member's sync filter (A 6.10): main for a worker or the probe, main and
-// questions for the non-parked coordinator; presence of the team's humans and members only; no
-// ephemeral or account data.
-func SyncFilter(r Roster, a Anchors) Value { return syncFilter(r, a, timelineLimit) }
+// questions for the non-parked coordinator whose questions room is ready (QS3, n3f G5);
+// presence of the team's humans and members only; no ephemeral or account data.
+func SyncFilter(r Roster, a Anchors, questionsReady bool) Value {
+	return syncFilter(r, a, timelineLimit, questionsReady)
+}
 
 // SyncFilterReAdd is SyncFilter with timeline.limit 0: SY1 (c)'s first sync after a re-add,
 // which takes the room's state and none of the history it missed (n3-D5).
-func SyncFilterReAdd(r Roster, a Anchors) Value { return syncFilter(r, a, 0) }
+func SyncFilterReAdd(r Roster, a Anchors, questionsReady bool) Value {
+	return syncFilter(r, a, 0, questionsReady)
+}
 
-func syncFilter(r Roster, a Anchors, limit int64) Value {
+func syncFilter(r Roster, a Anchors, limit int64, questionsReady bool) Value {
 	rooms := []Value{Str(a.MainRoom)}
-	if coordinator, ok := r.Coordinator(); ok && coordinator == a.Self {
+	if coordinator, ok := r.Coordinator(); ok && coordinator == a.Self && questionsReady {
 		rooms = append(rooms, Str(r.Rooms.Questions))
 	}
 	none := Obj(M("types", Arr()))

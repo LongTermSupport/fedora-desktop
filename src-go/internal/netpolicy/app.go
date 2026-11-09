@@ -473,7 +473,15 @@ func (a App) writeContext(dir string, cx Context) ([]string, error) {
 
 func readState(dir string) (state, error) {
 	var st state
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "state.json")))
+	path := filepath.Join(dir, "state.json")
+	info, err := os.Lstat(path)
+	if err != nil {
+		return st, err
+	}
+	if !info.Mode().IsRegular() {
+		return st, fmt.Errorf("%s is not a regular file", path)
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return st, err
 	}

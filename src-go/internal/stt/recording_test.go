@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 func TestIsAudioByExtensionAnyCase(t *testing.T) {
@@ -118,6 +120,30 @@ func TestALooseFileThatCannotBeReadIsCorrupt(t *testing.T) {
 	}
 	if sum, err := md5File(filepath.Join(t.TempDir(), "gone")); err == nil {
 		t.Errorf("md5File of a missing file: %q, no error", sum)
+	}
+}
+
+// A recording, manifest or sidecar that is not a regular file is corrupt by name, never opened:
+// a named pipe would block the read for ever (#195).
+func TestWhatIsNotARegularFileIsNeverOpened(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "memo.m4a")
+	audioOpened := fifotest.Plant(t, audio)
+	if _, err := md5File(audio); err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Errorf("md5File of a pipe: %v", err)
+	}
+	manifest := filepath.Join(dir, manifestName)
+	manifestOpened := fifotest.Plant(t, manifest)
+	if _, reason := readManifest(manifest); !strings.Contains(reason, manifest+" is not a regular file") {
+		t.Errorf("readManifest of a pipe: %q", reason)
+	}
+	r := audioFile(filepath.Join(dir, "other.m4a"))
+	sidecarOpened := fifotest.Plant(t, r.sidecar)
+	if _, st, reason, found := r.sidecarState(); st != stateCorrupt || !found || !strings.Contains(reason, r.sidecar+" is not a regular file") {
+		t.Errorf("sidecar a pipe: %v %v %q", st, found, reason)
+	}
+	if audioOpened() || manifestOpened() || sidecarOpened() {
+		t.Fatalf("a pipe was opened: audio %v, manifest %v, sidecar %v", audioOpened(), manifestOpened(), sidecarOpened())
 	}
 }
 

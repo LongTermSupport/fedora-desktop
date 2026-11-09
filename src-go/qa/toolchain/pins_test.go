@@ -190,6 +190,13 @@ func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 	}
 	found := 0
 	for _, wf := range workflows {
+		info, err := fs.Stat(root, wf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("%s is not a regular file", wf)
+		}
 		for _, file := range setupGoVersionFiles(t, root, wf) {
 			found++
 			got, err := readGoDirective(root, file)

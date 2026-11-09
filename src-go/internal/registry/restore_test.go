@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 func joinArgs(args []string) string { return strings.Join(args, "|") }
@@ -274,6 +275,35 @@ func TestReadAllReportsEachUnreadableRecord(t *testing.T) {
 	}
 	if !strings.Contains(got.Problems[0].Err.Error(), "does not start with 'ccy-session-record 1'") {
 		t.Fatalf("text %q", got.Problems[0].Err)
+	}
+}
+
+// A record that is not a regular file is a problem named by its path, never opened: a named pipe
+// would block the read for ever (#195). List counts it unreadable too.
+func TestARecordThatIsNotARegularFileIsAProblemNeverOpened(t *testing.T) {
+	s := newStore(t)
+	if err := s.Write(sample()); err != nil {
+		t.Fatal(err)
+	}
+	pipe := filepath.Join(s.Dir(), "ccy-pipe")
+	opened := fifotest.Plant(t, pipe)
+	got, err := s.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Problems) != 1 || got.Problems[0].File != pipe || !errors.Is(got.Problems[0].Err, ErrUnreadable) ||
+		!strings.Contains(got.Problems[0].Err.Error(), "is not a regular file") {
+		t.Fatalf("problems %+v", got.Problems)
+	}
+	list, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(list.Unreadable, []string{"ccy-pipe"}) {
+		t.Fatalf("unreadable %v", list.Unreadable)
+	}
+	if opened() {
+		t.Fatal("the pipe was opened")
 	}
 }
 

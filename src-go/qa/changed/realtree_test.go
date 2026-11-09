@@ -233,6 +233,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
 	".semgrep/find-race.yml":           "check:find-race",
 	".semgrep/find-race.fixture":       "check:find-race",
+	".semgrep/walk-open.yml":           "check:walk-open",
+	".semgrep/walk-open.py":            "check:walk-open",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {
