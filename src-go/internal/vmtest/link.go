@@ -153,9 +153,6 @@ func (c *cli) linkHolders(link string) ([]string, error) {
 // maxMemberLinks is how many links one member may join: its NICs after the passt one.
 const maxMemberLinks = 4
 
-// memberUpUsage is the command line member-up takes.
-const memberUpUsage = "usage: vmtest member-up <name> <base-key> [--link <link>:<a|b>]..."
-
 // linkRef is one --link option: an end of a link.
 type linkRef struct{ link, end string }
 
@@ -166,48 +163,6 @@ func parseLinkOption(v string) (linkRef, error) {
 		return linkRef{}, usagef("--link wants <link>:<a|b>; got '%s'", v)
 	}
 	return linkRef{link: link, end: end}, nil
-}
-
-// memberUpArgs is what member-up was asked: a member, its base and the link ends it joins.
-type memberUpArgs struct {
-	name, key string
-	refs      []linkRef
-}
-
-// parseMemberUp splits member-up's arguments; what cannot be run is a usage error (E68).
-func parseMemberUp(args []string) (memberUpArgs, error) {
-	var got memberUpArgs
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--link":
-			v := ""
-			if i+1 < len(args) {
-				i++
-				v = args[i]
-			}
-			ref, err := parseLinkOption(v)
-			if err != nil {
-				return memberUpArgs{}, err
-			}
-			if slices.Contains(got.refs, ref) {
-				return memberUpArgs{}, usagef("the link end %s:%s is given twice", ref.link, ref.end)
-			}
-			got.refs = append(got.refs, ref)
-		case strings.HasPrefix(args[i], "-"):
-			return memberUpArgs{}, usagef("unknown option %s", args[i])
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-	if len(positional) != 2 {
-		return memberUpArgs{}, usagef("%s", memberUpUsage)
-	}
-	if len(got.refs) > maxMemberLinks {
-		return memberUpArgs{}, usagef("at most %d --link options; got %d", maxMemberLinks, len(got.refs))
-	}
-	got.name, got.key = positional[0], positional[1]
-	return got, nil
 }
 
 // memberNIC is one NIC of a member on a link (E68): the end it holds, its socket pair's ports,

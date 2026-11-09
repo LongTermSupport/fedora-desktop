@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -176,6 +177,78 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 	return nil
 }
 
+// memberUpUsage is the command line member-up takes.
+const memberUpUsage = "usage: vmtest member-up <name> <base-key> [--ram-mib N] [--link <link>:<a|b>]..."
+
+// minMemberRAMMiB is the least memory a member may be given with --ram-mib (E69): a starting
+// value, unverified on a real guest.
+const minMemberRAMMiB = 768
+
+// memberUpArgs is what member-up was asked: a member, its base, the link ends it joins and, when
+// not zero, the memory it is given instead of the base's.
+type memberUpArgs struct {
+	name, key string
+	refs      []linkRef
+	ramMiB    int
+}
+
+// set takes one option and its value (E68, E69); an option repeated that may not be, or a value
+// it cannot take, is a usage error.
+func (m *memberUpArgs) set(option, value string) error {
+	if option == "--ram-mib" {
+		if m.ramMiB != 0 {
+			return usagef("--ram-mib is given twice")
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < minMemberRAMMiB || strconv.Itoa(n) != value {
+			return usagef("--ram-mib wants a whole number of MiB, %d or more; got '%s'", minMemberRAMMiB, value)
+		}
+		m.ramMiB = n
+		return nil
+	}
+	ref, err := parseLinkOption(value)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(m.refs, ref) {
+		return usagef("the link end %s:%s is given twice", ref.link, ref.end)
+	}
+	m.refs = append(m.refs, ref)
+	return nil
+}
+
+// parseMemberUp splits member-up's arguments; what cannot be run is a usage error (E68).
+func parseMemberUp(args []string) (memberUpArgs, error) {
+	var got memberUpArgs
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		option := args[i]
+		if option != "--link" && option != "--ram-mib" {
+			if strings.HasPrefix(option, "-") {
+				return memberUpArgs{}, usagef("unknown option %s", option)
+			}
+			positional = append(positional, option)
+			continue
+		}
+		value := ""
+		if i+1 < len(args) {
+			i++
+			value = args[i]
+		}
+		if err := got.set(option, value); err != nil {
+			return memberUpArgs{}, err
+		}
+	}
+	if len(positional) != 2 {
+		return memberUpArgs{}, usagef("%s", memberUpUsage)
+	}
+	if len(got.refs) > maxMemberLinks {
+		return memberUpArgs{}, usagef("at most %d --link options; got %d", maxMemberLinks, len(got.refs))
+	}
+	got.name, got.key = positional[0], positional[1]
+	return got, nil
+}
+
 func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	got, err := parseMemberUp(args)
 	if err != nil {
@@ -195,7 +268,7 @@ func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	if err := c.diskGuard(ctx, l, memberNeed); err != nil {
 		return err
 	}
-	return c.memberUp(ctx, l, got.name, got.key, nics)
+	return c.memberUp(ctx, l, got, nics)
 }
 
 // checkMemberFree refuses a member that exists already (E56) and NICs that cannot be given (E68).
@@ -213,13 +286,20 @@ func (c *cli) checkMemberFree(ctx context.Context, name, dir string, nics []memb
 
 // memberUp boots a member and leaves it running (E56); one that does not finish is torn
 // down (E57). nics are the links it joins (E68).
-func (c *cli) memberUp(ctx context.Context, l *lab, name, key string, nics []memberNIC) error {
+func (c *cli) memberUp(ctx context.Context, l *lab, got memberUpArgs, nics []memberNIC) error {
+	name, key := got.name, got.key
 	b, err := c.baseFacts(ctx, l, key)
 	if err != nil {
 		return err
 	}
 	if b.Profile != profileServer {
 		return failf("a member boots a server base; %s is %s", b.Name, b.Profile)
+	}
+	if got.ramMiB > b.RAMMiB {
+		return usagef("--ram-mib %d is more than the %d MiB base %s has", got.ramMiB, b.RAMMiB, b.Name)
+	}
+	if got.ramMiB != 0 {
+		b.RAMMiB = got.ramMiB
 	}
 	baseDir, dir, domain := l.at(basesDir, b.Name), l.at(membersDir, name), memberDomain(name)
 	if !readable(filepath.Join(baseDir, "base.qcow2")) || !readable(filepath.Join(baseDir, "base.json")) {
