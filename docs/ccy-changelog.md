@@ -17,10 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.113.2 — container 2.79.27
+## 3.113.3 — container 2.79.27
 
-Follows 3.112.5 (container 2.79.27; 3.113.0 and 3.113.1 were this release's earlier commits
-and never shipped). The image does not change.
+Follows 3.112.5 (container 2.79.27; 3.113.0 to 3.113.2 were this release's earlier commits
+and never shipped, as were 3.100.19 to 3.100.22 on the Go-cache branch). The image does not
+change.
 
 - **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
@@ -190,6 +191,26 @@ Launcher only; the image is not rebuilt.
   **Close it without compacting** on a `ccy-sessions` row, beside End (Ctrl-X), which still
   kills.
 - `ccy-teams wind-down` waits for a pane to be idle again with the same code.
+- **The Go caches leave the container's writable layer.** Ending a long QA-heavy session
+  waited 12 to 56 s after the container had died. That time went into `podman run --rm`
+  deleting the writable layer, which the Go caches had filled with tens of thousands of files
+  (the build cache alone held 2 GB in 30k files after 40 minutes). The launcher now calls
+  `ccy-teams internal go-cache <project> [z]` and appends what it prints. That is a bind of
+  `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` (shared relabel `:z` on SELinux hosts),
+  plus `GOCACHE`, `GOMODCACHE`, `GOLANGCI_LINT_CACHE` and `GOQA_TOOLS_DIR` pointing into it.
+  The caches persist, warm the next session, and are shared by every seat of the project.
+  go's caches are built for concurrent use, and go-qa installs its tools by rename.
+- **Bounded at launch:** over 8 GiB on disk, `go-build` and `golangci-lint` are cleared,
+  then `mod` and `go-qa-tools` if the total is still over. Still over after that, the launch
+  fails and names the directory. This runs under an flock on `~/.cache/ccy/<project>/go.lock`,
+  beside the bind where the container cannot reach it. Every step inside the bind goes
+  through an `os.Root`, so a link the container plants is never followed. Each cache is
+  renamed aside before it is removed, so its path always holds either the whole old cache
+  or a fresh one. Files that another seat removes during the walk are ignored.
+- **Docker** gets the same bind and bound: the launcher refuses a rootful engine first, so
+  under either engine the files in the bind belong to the user.
+- The `CCY_EXTRA_MOUNTS` and `.claude/ccy/mounts` tokens are appended without their debug
+  lines. This makes room under the launcher's bash-limits record.
 
 ## Host cc — compacts at ccy's auto-compact window
 
