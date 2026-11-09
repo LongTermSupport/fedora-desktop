@@ -1481,8 +1481,13 @@ class LxcMemberTest(CommandCase):
                      ("--team", "alpha", "--container", "container-a", "--user", "agent")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[:2], (0, ""), argv)
         for argv in (("--role", "boss"), ("--host", "My Host"), ("--user", "A"), ("--checkout", "x"),
-                     ("--container", "-x")):
+                     ("--container", "-x"), ("--user", "root")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 64, argv)
+        # Plan 00177 Task 11.3: root is refused at the question, saying why and what to do.
+        code, _, err = self.run_cmd("lxc-check", "--team", "alpha", "--container", "container-a", "--user", "root")
+        self.assertEqual(code, 64)
+        self.assertIn("user must not be root", err)
+        self.assertIn("an ordinary user", err)
         # a team the file does not declare present is the file's state: no answer passes (78)
         for argv in (("--team", "nosuch"), ("--team", "gamma")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 78, argv)

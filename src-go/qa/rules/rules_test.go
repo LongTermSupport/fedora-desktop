@@ -29,6 +29,18 @@ func TestSeamCommandsDynamicNames(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/dynamic")
 }
 
+// lxccmd is the second owner of lxc-ls, lxc-info and lxc-attach. A dynamicNames row lets its
+// function hand a run-time inner program to lxc-attach; without the row the finding stays, and a
+// wrapper that is not inner is not excused by it.
+func TestSeamCommandsInnerDynamic(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Guest", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Inside", reason: "the host-written kit binary"},
+		{pkg: "internal/teamchat/host/lxc/lxccmd", fn: "LXC.Env", reason: "the host-written kit binary"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/teamchat/host/lxc/lxccmd")
+}
+
 // A shellStrings row excuses its function's shell string and nothing else: the neighbour is
 // flagged, and an owned program in the excused function still is.
 func TestSeamCommandsShellStrings(t *testing.T) {
@@ -61,8 +73,45 @@ func TestHomeAbbrev(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/qa/rules", "fix/internal/badhome")
 }
 
+func TestSelfErasingClipboard(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SelfErasingClipboard, "fix/qa/rules", "fix/internal/badclip")
+}
+
+func TestFakeClockCount(t *testing.T) {
+	allow := []allowance{{pkg: "internal/countallowed", fn: "TestNothingWaits", reason: "claims nothing at all is armed"}}
+	analysistest.Run(t, analysistest.TestData(), newFakeClockCount(allow), "fix/internal/fakeclock", "fix/internal/othertimers",
+		"fix/internal/badcount", "fix/internal/countallowed")
+}
+
+func TestGoroutineEnd(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), GoroutineEnd, "fix/internal/badgo", "fix/internal/checkedgo")
+}
+
+func TestLeakcheckOnce(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), LeakcheckOnce, "fix/internal/twicecheck")
+}
+
+func TestTestSpin(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TestSpin, "fix/internal/spin")
+}
+
+// A condition handed to leakcheck.Poll or Drive is read twice around the idle reading, so it must
+// not act: the fixture has the clock moves, sends and closes in it (a select's, a nested
+// function literal's) and the reads, receives, steps and conditions held in a variable beside them.
+func TestFakeRestart(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), FakeRestart, "fix/internal/badrestart")
+}
+
+func TestPollPure(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), PollPure, "fix/internal/pollpure")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
+}
+
+func TestCommandFailureDropped(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), CommandFailureDropped, "fix/internal/execx", "fix/internal/wrapper", "fix/internal/badfailure")
 }
 
 func TestRefusalKind(t *testing.T) {
@@ -80,12 +129,55 @@ func TestPackageTests(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests", "fix/internal/externaltests")
 }
 
+// A test that gives a file to another user fails for an unprivileged user: the fixture has each
+// way of writing the call, and the clean forms (the caller's own uid, -1, a branch or a skip on
+// the user being root) beside them.
+func TestTestChown(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TestChown, "fix/internal/badchown", "fix/internal/guardedchown")
+}
+
+// A test that asserts the order of a directory listing nothing sorted fails on a runner whose
+// filesystem lists the names another way: the fixture has the listing calls (a function of the
+// package, a wrapper, a file's own methods, a test helper, another package's function through the
+// exported fact) compared in order, and the sorted and order-free forms beside them.
+func TestListingOrder(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ListingOrder, "fix/internal/badlisting", "fix/internal/badlistingx")
+}
+
+// A directory walk lists named pipes, sockets and devices as well as files, and opening a named
+// pipe blocks for ever: the fixture opens walked entries every way the sweep for #195 found (a
+// listing, a glob, each walk's callback, a helper of the package, a gathered slice, a closure,
+// ParseFile, an fs.FS), with the checks that do not guard (a suffix, !IsDir, a warning that falls
+// through, a check of another name, a check joined by ||) and the ones that do beside them.
+func TestWalkOpen(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), WalkOpen, "fix/internal/badwalk")
+}
+
+func TestZombieExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ZombieExit, "fix/internal/badzombie")
+}
+
+func TestRowKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RowKind, "fix/internal/teams/board", "fix/internal/badrowkind")
+}
+
+func TestChildExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ChildExit, "fix/internal/term", "fix/internal/badexit")
+}
+
+// A seat session asked as Kind == KindCcy misses a cc seat: the fixture compares both ways
+// round and with !=, beside IsSession, another kind and a plain string; an IsSession method,
+// which defines the question, is not judged.
+func TestSessionKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SessionKind, "fix/internal/badsessionkind")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 10 {
-		t.Fatalf("want 10 rules, got %d", got)
+	if got := len(All()); got != 35 {
+		t.Fatalf("want 35 rules, got %d", got)
 	}
 }
 
@@ -133,4 +225,12 @@ func TestOwnedBy(t *testing.T) {
 			t.Errorf("ownedBy(%q, %q) = %v, want %v", c.pkg, c.owner, got, c.want)
 		}
 	}
+}
+
+func TestRawConnProbe(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
+}
+
+func TestContainerPidsLimit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ContainerPidsLimit, "fix/internal/badpids")
 }

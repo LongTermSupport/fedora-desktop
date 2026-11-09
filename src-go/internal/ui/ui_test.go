@@ -24,7 +24,7 @@ func newGum(f *execx.Fake) *Gum {
 // terminal's echo (internal/ttyecho) keeps the echo off while it runs: a key typed as the next
 // screen starts is not echoed over it.
 func TestEveryProgramUiRunsMayRunWithTheEchoHeld(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum"}, execx.Result{Stdout: []byte("a\n")})
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("a\n")})
 	f.On([]string{"tput"}, execx.Result{Stdout: []byte("80\n")})
@@ -63,7 +63,7 @@ func TestConfirmMapsGumExitCodes(t *testing.T) {
 		{2, false, ErrCancelled},
 	}
 	for _, c := range cases {
-		f := &execx.Fake{}
+		f := noTerminal()
 		f.On([]string{"gum", "confirm"}, execx.Result{ExitCode: c.code})
 		got, err := newGum(f).Confirm(context.Background(), testHead, "Create one now?", false)
 		if got != c.want || !errors.Is(err, c.err) {
@@ -76,7 +76,7 @@ func TestConfirmMapsGumExitCodes(t *testing.T) {
 }
 
 func TestGumEnvironmentUsesTheTerminalsColoursAndOneAccent(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum"}, execx.Result{})
 	if _, err := newGum(f).Confirm(context.Background(), testHead, "q", true); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestGumEnvironmentUsesTheTerminalsColoursAndOneAccent(t *testing.T) {
 }
 
 func TestInputTrimsAndCancels(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "input"}, execx.Result{Stdout: []byte("  example-org/proj \n")})
 	g := newGum(f)
 	got, err := g.Input(context.Background(), testHead, "Repositories", "e.g. x/y", "example-org/proj")
@@ -117,7 +117,7 @@ func TestInputTrimsAndCancels(t *testing.T) {
 }
 
 func TestChoose(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum", "choose"}, execx.Result{Stdout: []byte("B\n")})
 	got, err := newGum(f).Choose(context.Background(), testHead, "Trust", "A", []string{"A", "B"})
 	if err != nil || got != "B" {

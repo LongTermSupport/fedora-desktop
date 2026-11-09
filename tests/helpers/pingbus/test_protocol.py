@@ -146,7 +146,7 @@ class TestConstants(unittest.TestCase):
             (
                 "version", "schema", "size", "edit", "sender", "role", "target", "verb",
                 "ref", "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate",
-                "unresolved", "provenance",
+                "unresolved", "provenance", "gap",
             ),
         )
 
@@ -1063,7 +1063,7 @@ class TestPingEvent(unittest.TestCase):
                 self.assertEqual((out.kind, out.reason), (p.DROP, reason))
         self.assertEqual(set(producers) | p.REASONS_DECIDED_ELSEWHERE, set(p.DROP_REASONS))
         self.assertFalse(set(producers) & p.REASONS_DECIDED_ELSEWHERE)
-        self.assertEqual(p.REASONS_DECIDED_ELSEWHERE, {"stale", "rate", "forge-rate", "unresolved", "provenance"})
+        self.assertEqual(p.REASONS_DECIDED_ELSEWHERE, {"stale", "rate", "forge-rate", "unresolved", "provenance", "gap"})
 
 
 class TestHumanMessage(unittest.TestCase):
@@ -1867,6 +1867,80 @@ class TestCoordinator(RefusalAssertions):
         p.check_role("halt", ORCH, ctx)
         self.assertRefused("role", p.check_role, "halt", WORKER, ctx)
         self.assertEqual(p.sender_class(ORCH, ctx), "coordinator")
+
+
+class TestHumanAnswerUnderAnAgentsMessage(unittest.TestCase):
+    """A human's thread reply, or reply, in the main room under an agent's message carries no
+    mention when Element sends it (a thread reply's `m.in_reply_to` is only its fallback), and
+    is delivered to the agent that sent the message it answers: the root's sender, which the
+    caller looks up (`sender_of`)."""
+
+    THREAD = {"rel_type": "m.thread", "event_id": EVENT_ID_2, "is_falling_back": True,
+              "m.in_reply_to": {"event_id": EVENT_ID_2}}
+
+    def outcome(self, body: dict, root_sender: str | None, me: str = WORKER) -> p.Outcome:
+        return p.validate_event(event(HUMAN, body), make_ctx(), me,
+                                sender_of=lambda event_id: root_sender if event_id == EVENT_ID_2 else None)
+
+    def test_reply_root_is_the_thread_root_or_the_replied_event(self) -> None:
+        self.assertEqual(p.reply_root(human_content(**{"m.relates_to": self.THREAD})), EVENT_ID_2)
+        other_last = {"rel_type": "m.thread", "event_id": EVENT_ID_2, "is_falling_back": True,
+                      "m.in_reply_to": {"event_id": EVENT_ID}}
+        self.assertEqual(p.reply_root(human_content(**{"m.relates_to": other_last})), EVENT_ID_2)
+        reply = {"m.in_reply_to": {"event_id": EVENT_ID_2}}
+        self.assertEqual(p.reply_root(human_content(**{"m.relates_to": reply})), EVENT_ID_2)
+        for label, relates in [("none", None), ("an edit", {"rel_type": "m.replace", "event_id": EVENT_ID_2}),
+                               ("not an event ID", {"rel_type": "m.thread", "event_id": "x"}),
+                               ("a list", [1]), ("reply not an object", {"m.in_reply_to": "x"})]:
+            with self.subTest(case=label):
+                extra = {} if relates is None else {"m.relates_to": relates}
+                self.assertIsNone(p.reply_root(human_content(**extra)))
+
+    def test_a_thread_reply_naming_nobody_under_my_message_is_delivered_to_me(self) -> None:
+        out = self.outcome(human_content("yes, ship it", mention=None, **{"m.relates_to": self.THREAD}), WORKER)
+        self.assertEqual((out.kind, out.human.text, out.human.answers), (p.ACCEPT, "yes, ship it", EVENT_ID_2))
+
+    def test_a_reply_naming_nobody_under_my_message_is_delivered_to_me(self) -> None:
+        relates = {"m.in_reply_to": {"event_id": EVENT_ID_2}}
+        out = self.outcome(human_content("> <@x> mine\n\nyes", mention=(), **{"m.relates_to": relates}), WORKER)
+        self.assertEqual((out.kind, out.human.text, out.human.answers), (p.ACCEPT, "yes", EVENT_ID_2))
+
+    def test_under_another_agents_message_it_is_that_agents_not_mine(self) -> None:
+        body = human_content(mention=None, **{"m.relates_to": self.THREAD})
+        out = self.outcome(body, WORKER2)
+        self.assertEqual((out.kind, out.reason), (p.IGNORE, p.IGNORE_NOT_ADDRESSED))
+        ev = event(HUMAN, body)
+        self.assertFalse(p.reached_no_agent(ev, make_ctx(), out, sender_of=lambda _: WORKER2))
+
+    def test_under_a_humans_message_or_one_not_found_it_reached_no_agent(self) -> None:
+        body = human_content(mention=None, **{"m.relates_to": self.THREAD})
+        for root_sender in (HUMAN2, None, NO_ROLE):
+            with self.subTest(root=root_sender):
+                out = self.outcome(body, root_sender)
+                self.assertEqual(out.kind, p.IGNORE)
+                self.assertTrue(p.reached_no_agent(event(HUMAN, body), make_ctx(), out,
+                                                   sender_of=lambda _, s=root_sender: s))
+
+    def test_without_a_lookup_nothing_changes(self) -> None:
+        body = human_content(mention=None, **{"m.relates_to": self.THREAD})
+        out = p.validate_event(event(HUMAN, body), make_ctx(), WORKER)
+        self.assertEqual((out.kind, out.reason), (p.IGNORE, p.IGNORE_NOT_ADDRESSED))
+
+    def test_an_addressed_message_answers_nothing_and_is_never_looked_up(self) -> None:
+        asked: list[str] = []
+        out = p.validate_event(event(HUMAN, human_content(**{"m.relates_to": self.THREAD})), make_ctx(), WORKER,
+                               sender_of=lambda event_id: asked.append(event_id))
+        self.assertEqual((out.kind, out.human.answers, asked), (p.ACCEPT, None, []))
+        p.validate_event(event(HUMAN, human_content(mention=None)), make_ctx(), WORKER,
+                         sender_of=lambda event_id: asked.append(event_id))
+        self.assertEqual(asked, [])
+
+    def test_an_edit_is_still_dropped_and_an_agents_reply_is_not_a_humans(self) -> None:
+        edit = human_content(mention=None, **{"m.relates_to": {"rel_type": "m.replace", "event_id": EVENT_ID_2}})
+        self.assertEqual(self.outcome(edit, WORKER).reason, "edit")
+        agent = p.validate_event(event(WORKER2, human_content(mention=None, **{"m.relates_to": self.THREAD})),
+                                 make_ctx(), WORKER, sender_of=lambda _: WORKER)
+        self.assertEqual(agent.kind, p.DROP)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     extension_name: remote-desktop-toggle@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"

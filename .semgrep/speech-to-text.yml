@@ -480,79 +480,127 @@ rules:
     metadata:
       dbf-class: a process killed uncatchably whose files the killer leaves on disk
 
-  # Rule: code the hooks daemon loads never resolves a path against its own working
-  # directory (Defence Before Fix; CLAUDE/QA.md "hook-path-resolved-against-cwd").
+  # Rule: a capture piped to a reader asks for raw PCM (Defence Before Fix; CLAUDE/QA.md
+  # "pw-record-stdout-not-raw", Plan 00229).
   #
-  # A hook handler runs in the daemon's process, whose working directory is not the agent's
-  # project. A relative tool path resolved with os.path.realpath() was judged against
-  # wherever the daemon (or its test) ran: allowed in the container, whose working
-  # directory is /workspace, and blocked as a system file on the host, whose is under /home.
+  # What pw-record writes to stdout is the tool's choice unless --raw says otherwise:
+  # pipewire 1.6.10 began writing a Sun AU container there, whose big-endian samples, read
+  # as raw little-endian PCM, are loud noise that still follows the speech. Whisper wrote
+  # every dictation down as "so so so", and nothing failed.
   #
-  # WRONG: os.path.realpath(file_path)
-  # RIGHT: if not os.path.isabs(file_path):
-  #            file_path = os.path.join(project_root, file_path)
-  #        os.path.realpath(file_path)
+  # WRONG: ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+  # RIGHT: ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
   #
-  # The rule reports, in a module that imports claude_code_hooks_daemon (any import form):
-  # os.getcwd() and Path.cwd() always; .resolve() or .absolute() at the end of a chain that
-  # starts with Path(...) not built from __file__, other than Path(value) itself; and os.path.realpath, abspath or relpath of a
-  # value, or Path(value).resolve() or .absolute(), unless the value is __file__ or the same
-  # block first has `if not os.path.isabs(value):` whose body makes the value absolute with
-  # os.path.join or raises.
-  - id: hook-path-resolved-against-cwd
+  # The rule reports an argv list, or a command string, that runs pw-record or pw-cat with
+  # its output to stdout ("-", /dev/stdout or /dev/fd/1) and has neither --raw nor -a. In a
+  # string, the output must end the string or be followed by a pipe, a redirect or a
+  # command separator, so a message such as "pw-record ... 3 s - killing it" is prose. A
+  # recording to a named file is left alone: its container is chosen by the file's
+  # extension and read by a tool that understands it.
+  - id: pw-record-stdout-not-raw
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: '[..., "pw-record", ..., "-", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/fd/1", ...]'
+          - pattern: '[..., "pw-cat", ..., "-", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/fd/1", ...]'
+          - pattern-regex: '[''"]pw-(?:record|cat)\b[^''"\n]*\s(?:-|/dev/stdout|/dev/fd/1)(?=\s*(?:[|>;&]|[''"]))'
+      - pattern-not: '[..., "--raw", ...]'
+      - pattern-not: '[..., "-a", ...]'
+      - pattern-not-regex: '[''"]pw-(?:record|cat)\b[^''"\n]*\s(?:--raw|-a)\b'
+    message: >
+      pw-record-stdout-not-raw: pw-record or pw-cat writes to stdout here without --raw, so
+      the stream may carry a container header and samples in another byte order. Add
+      --raw. See CLAUDE/QA.md "pw-record-stdout-not-raw".
+    severity: ERROR
+    metadata:
+      dbf-class: an audio capture piped to a reader in a format the reader did not ask for
+  - id: pw-record-stdout-not-raw
+    languages: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: '[..., "pw-record", ..., "-", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-record", ..., "/dev/fd/1", ...]'
+          - pattern: '[..., "pw-cat", ..., "-", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/stdout", ...]'
+          - pattern: '[..., "pw-cat", ..., "/dev/fd/1", ...]'
+          - pattern-regex: '[''"`]pw-(?:record|cat)\b[^''"`\n]*\s(?:-|/dev/stdout|/dev/fd/1)(?=\s*(?:[|>;&]|[''"`]))'
+      - pattern-not: '[..., "--raw", ...]'
+      - pattern-not: '[..., "-a", ...]'
+      - pattern-not-regex: '[''"`]pw-(?:record|cat)\b[^''"`\n]*\s(?:--raw|-a)\b'
+    message: >
+      pw-record-stdout-not-raw: pw-record or pw-cat writes to stdout here without --raw, so
+      the stream may carry a container header and samples in another byte order. Add
+      --raw. See CLAUDE/QA.md "pw-record-stdout-not-raw".
+    severity: ERROR
+    metadata:
+      dbf-class: an audio capture piped to a reader in a format the reader did not ask for
+  # Rule: a process's end is not its leader's zombie state (Defence Before Fix; CLAUDE/QA.md
+  # "proc-zombie-taken-as-exit"; the Go side is the project rule project_zombie_exit).
+  #
+  # /proc/<pid>/stat is the thread-group leader's own entry, and its state turns Z as soon
+  # as the leader thread exits. The other threads of a killed multi-threaded program may
+  # still be exiting then, holding the process's files (a flock, a socket), so code that
+  # reads Z as "it has ended" and then relies on the release races them (issue #182: a
+  # status line read once the link showed Z found its lock still held).
+  #
+  # WRONG: state = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]
+  #        if state in ("Z", "X"): return
+  # RIGHT: read /proc/<pid>/status and require "State:" Z (or X) and "Threads:" 1, or wait
+  #        for the effect itself (the lock free, the line drawn).
+  #
+  # The rule reports a comparison with "Z" (==, !=, in a tuple, list or set, startswith) in
+  # a function that holds a string, f-strings included, naming a /proc stat file (one that
+  # ends in "/stat", or is "stat"), unless the function also names the thread count
+  # ("Threads..."). A path built entirely at run time is not seen.
+  - id: proc-zombie-taken-as-exit
     languages: [python]
     patterns:
       - pattern-either:
           - pattern-inside: |
-              from claude_code_hooks_daemon.$M import $N
-              ...
+              def $F(...):
+                ...
+                <... "=~/(^|\/)stat$/" ...>
+                ...
           - pattern-inside: |
-              from claude_code_hooks_daemon import $N
-              ...
+              def $F(...):
+                ...
+                <... f"/proc/{$P}/stat" ...>
+                ...
           - pattern-inside: |
-              import claude_code_hooks_daemon
-              ...
+              def $F(...):
+                ...
+                with <... "=~/(^|\/)stat$/" ...> as $H:
+                  ...
+                ...
           - pattern-inside: |
-              import claude_code_hooks_daemon.$M
-              ...
+              def $F(...):
+                ...
+                with <... f"/proc/{$P}/stat" ...> as $H:
+                  ...
+                ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            <... "=~/^Threads/" ...>
+            ...
       - pattern-either:
-          - pattern: os.getcwd()
-          - pattern: Path.cwd()
-          - pattern: pathlib.Path.cwd()
-          - patterns:
-              - pattern-either:
-                  - pattern: $P.resolve(...)
-                  - pattern: $P.absolute()
-              - pattern-not: Path($X).resolve(...)
-              - pattern-not: Path($X).absolute()
-              - pattern-not: pathlib.Path($X).resolve(...)
-              - pattern-not: pathlib.Path($X).absolute()
-              - metavariable-regex:
-                  metavariable: $P
-                  regex: '^(?!.*__file__)(pathlib\.)?Path\('
-          - patterns:
-              - pattern-either:
-                  - pattern: os.path.realpath($X)
-                  - pattern: os.path.abspath($X)
-                  - pattern: os.path.relpath($X)
-                  - pattern: Path($X).resolve(...)
-                  - pattern: Path($X).absolute()
-                  - pattern: pathlib.Path($X).resolve(...)
-                  - pattern: pathlib.Path($X).absolute()
-              - pattern-not: Path(__file__).resolve(...)
-              - pattern-not: os.path.realpath(__file__)
-              - pattern-not-inside: |
-                  if not os.path.isabs($X):
-                    $X = os.path.join(...)
-                  ...
-              - pattern-not-inside: |
-                  if not os.path.isabs($X):
-                    raise $E
-                  ...
+          - pattern: $S == "Z"
+          - pattern: '"Z" == $S'
+          - pattern: $S != "Z"
+          - pattern: $S in (..., "Z", ...)
+          - pattern: $S in [..., "Z", ...]
+          - pattern: $S in {..., "Z", ...}
+          - pattern: $S.startswith("Z")
     message: >
-      hook-path-resolved-against-cwd: this resolves a path against the hooks daemon's
-      working directory, which is not the agent's project. Make a relative path absolute
-      against the project root first. See CLAUDE/QA.md "hook-path-resolved-against-cwd".
+      proc-zombie-taken-as-exit: Z in /proc/<pid>/stat is the leader thread's state; the
+      process's other threads may still hold its files. Require State Z and Threads 1 in
+      /proc/<pid>/status, or wait for the effect itself. See CLAUDE/QA.md
+      "proc-zombie-taken-as-exit".
     severity: ERROR
     metadata:
-      dbf-class: a path resolved against the hooks daemon's working directory
+      dbf-class: a process judged ended by its leader's zombie state while its threads still hold its files

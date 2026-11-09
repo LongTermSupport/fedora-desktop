@@ -234,6 +234,27 @@ func TestNumberedMenuChooses(t *testing.T) {
 	}
 }
 
+// E18: a tput that ran and could not say is the common width, and the menu is drawn; a tput that
+// could not run is a failure with its cause, before the menu, and nothing is opened.
+func TestNumberedMenuWidthFailures(t *testing.T) {
+	w, p := numberedWorld(t, "3\n")
+	w.runner.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1})
+	if code := w.run(p); code != term.ExitOK {
+		t.Fatalf("tput refused: exit %d: %s", code, w.stderr.String())
+	}
+	w.wantStderr("   1) xxd (hex dump)\n")
+
+	w, p = numberedWorld(t, "3\n")
+	w.runner.OnError([]string{"tput"}, &execx.NotInstalledError{Name: "tput"})
+	if code := w.run(p); code != term.ExitFailure {
+		t.Fatalf("tput missing: exit %d: %s", code, w.stderr.String())
+	}
+	w.wantStderr("could not read the terminal's width: " + (&execx.NotInstalledError{Name: "tput"}).Error())
+	if strings.Contains(w.stderr.String(), "1) xxd") || w.called("file -- "+p) {
+		t.Fatalf("went on without a width: %q %q", w.stderr.String(), w.ran())
+	}
+}
+
 // The run holds the terminal's echo off between screens, gives it back while the numbered reply
 // is typed, and leaves the terminal as it found it; the production environment holds it.
 func TestTheEchoIsHeldForTheRunAndGivenBackForTheNumberedReply(t *testing.T) {

@@ -52,13 +52,17 @@ const (
 	GoingContinue Going = "continue"
 	// GoingUntouched is left alone; Detail says why.
 	GoingUntouched Going = "untouched"
+	// GoingNotStarted is a recorded session the restore could not start; Detail says why. It is
+	// in the manifest so that verify-restore reports it, not a manifest without it reading as
+	// every session up (fedora-desktop#108).
+	GoingNotStarted Going = "not-started"
 	// GoingKeep, given to Merge, takes the entry this boot's manifest already holds for that name.
 	GoingKeep Going = "keep"
 )
 
 func (g Going) valid() bool {
 	switch g {
-	case GoingNone, GoingPending, GoingCompacting, GoingCompact, GoingContinue, GoingUntouched:
+	case GoingNone, GoingPending, GoingCompacting, GoingCompact, GoingContinue, GoingUntouched, GoingNotStarted:
 		return true
 	case GoingKeep:
 		return false
@@ -239,7 +243,7 @@ func setEntryField(e *Entry, path, key, value string) error {
 		e.Supervised = value == valYes
 	case "going":
 		if !Going(value).valid() {
-			return fmt.Errorf("the restore manifest %s has going=%s, which is none of none, pending, compacting, compact, continue or untouched, and is not read", path, value)
+			return fmt.Errorf("the restore manifest %s has going=%s, which is none of none, pending, compacting, compact, continue, untouched or not-started, and is not read", path, value)
 		}
 		e.Going = Going(value)
 	case "at":
@@ -362,7 +366,8 @@ func acquire(path string, wait time.Duration, openMsg, busyMsg string) (func() e
 // Merge is the restore's write, under the lock. An entry whose going is GoingKeep (a session
 // found already running) takes the entry this boot's manifest already holds for that name, so a
 // second restore leaves an earlier one's set-going state alone; with none there, it is written
-// as GoingNone. No manifest, one from an earlier boot, or one that cannot be read starts empty:
+// as GoingNone, as it is when the held entry is GoingNotStarted: the session runs now, so whoever
+// started it is driving it. No manifest, one from an earlier boot, or one that cannot be read starts empty:
 // the entries this restore knows are the ones that should be up. warn, if not nil, is told why
 // an existing manifest was replaced because it could not be read; that is not a failure.
 func (s *Store) Merge(entries []Entry, warn func(error)) error {
@@ -384,7 +389,7 @@ func (s *Store) Merge(entries []Entry, warn func(error)) error {
 		out := make([]Entry, 0, len(entries))
 		for _, e := range entries {
 			if e.Going == GoingKeep {
-				if i := held.Index(e.Name); i >= 0 {
+				if i := held.Index(e.Name); i >= 0 && held.Entries[i].Going != GoingNotStarted {
 					e = held.Entries[i]
 				} else {
 					e.Going = GoingNone

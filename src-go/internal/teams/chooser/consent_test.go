@@ -1,6 +1,7 @@
 package chooser
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,6 +319,67 @@ func TestATeamAloneStillNeedsATerminal(t *testing.T) {
 	r.Host.IsTerminal = func(any) bool { return false }
 	exit(t, r.run("--type=host", "alpha"), term.ExitUsage, r)
 	r.lacksOutput(t)
+}
+
+// pingbus looks for the record under the owner's passwd home (config._home_of), never under
+// HOME, PINGBUS_HOME or XDG_CONFIG_HOME: the chooser reads and writes it there too, so the two
+// never disagree about whether the owner accepted.
+func TestTheRecordIsUnderThePasswdHomeWhateverTheEnvironmentSays(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	passwd := t.TempDir()
+	var asked []int
+	r.Host.UserHome = func(uid int) (string, error) {
+		asked = append(asked, uid)
+		return passwd, nil
+	}
+	r.Env["PINGBUS_HOME"] = filepath.Join(t.TempDir(), "pingbus-home")
+	r.Env["XDG_CONFIG_HOME"] = filepath.Join(t.TempDir(), "xdg")
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	if len(asked) == 0 || asked[0] != os.Getuid() {
+		t.Fatalf("the passwd home was looked up for %v, want this user %d", asked, os.Getuid())
+	}
+	body, err := os.ReadFile(filepath.Clean(filepath.Join(passwd, ".config", "pingbus", "element-accepted")))
+	if err != nil || string(body) != "accepted "+acceptedAt+"\n" {
+		t.Fatalf("record under the passwd home %q, %v", body, err)
+	}
+	for _, elsewhere := range []string{a.record, r.Env["PINGBUS_HOME"], r.Env["XDG_CONFIG_HOME"]} {
+		if _, err := os.Lstat(elsewhere); err == nil {
+			t.Fatalf("%s was written", elsewhere)
+		}
+	}
+}
+
+func TestARecordUnderThePasswdHomeAnswersWhenHOMEHasNone(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	r.consentRig()
+	r.hostSeat()
+	passwd := t.TempDir()
+	r.Host.UserHome = func(int) (string, error) { return passwd, nil }
+	dir := filepath.Join(passwd, ".config", "pingbus")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	teamtest.MustWrite(t, filepath.Join(dir, "element-accepted"), "accepted earlier\n")
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked again: %v", r.Script.GumLog)
+	}
+}
+
+func TestAUserWithNoPasswdHomeCannotBeAsked(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	r.consentRig()
+	r.hostSeat()
+	r.Host.UserHome = func(int) (string, error) { return "", errors.New("unknown userid") }
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), "passwd", "unknown userid")
+	r.lacksOutput(t)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked: %v", r.Script.GumLog)
+	}
 }
 
 func TestWithoutGumTheConsentCannotBeAsked(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,8 +25,6 @@ const (
 	setGoingCompact  = "/compact This session was restored after a reboot. After compacting, carry on with the work that was in progress."
 	setGoingContinue = "continue"
 )
-
-var wholeTokens = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // lookKind is what a restored session's pane shows.
 type lookKind int
@@ -70,7 +67,7 @@ func (l look) expectedWhy() string {
 	case lookAttached:
 		return whyAttached
 	case lookTyped:
-		return whyTyped
+		return whyTyped + "; its box line reads " + l.detail
 	case lookReady, lookUnreadable, lookDead, lookNotDrawn, lookBusy:
 	}
 	return ""
@@ -151,7 +148,7 @@ func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	if err = g.loop(ctx, work); err != nil {
-		return term.ExitFailure
+		return a.failed(err)
 	}
 	return g.verdict()
 }
@@ -312,7 +309,7 @@ func (g *goingRun) pass(ctx context.Context, work []string, live map[string]bool
 			err = g.setOne(ctx, name, live[name], attached[name])
 		case restore.GoingCompacting:
 			err = g.continueAfterCompaction(ctx, name, live[name], attached[name])
-		case restore.GoingNone, restore.GoingCompact, restore.GoingContinue, restore.GoingUntouched, restore.GoingKeep:
+		case restore.GoingNone, restore.GoingCompact, restore.GoingContinue, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
 		}
 		if err != nil {
 			return err
@@ -374,15 +371,10 @@ func (g *goingRun) leave(name string, expect restore.Going, reason, why string) 
 // as part of it.
 func (a *App) typeInto(ctx context.Context, name, text string) error {
 	if err := a.Tmux.SendKeys(ctx, name, text); err != nil {
-		a.failErr(err)
 		return err
 	}
 	a.Pause(a.cfg.SubmitDelay, nil)
-	if err := a.Tmux.SendEnter(ctx, name); err != nil {
-		a.failErr(err)
-		return err
-	}
-	return nil
+	return a.Tmux.SendEnter(ctx, name)
 }
 
 // lookAt is what the session's pane shows.
@@ -399,7 +391,7 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 		return look{kind: lookDead, detail: verdict.Detail}
 	case restore.StateWaitingAtPrompt:
 		return look{kind: lookWaiting, detail: verdict.Detail}
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
 		// The pane is neither dead nor at a prompt; what it is doing is read below.
 	}
 	// A person attached is at the keyboard: whatever they are doing, nothing is typed over it.
@@ -412,7 +404,8 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 	case screen.Busy:
 		return look{kind: lookBusy}
 	case screen.Typed:
-		return look{kind: lookTyped}
+		// The box line as the pane holds it, escapes made visible: the evidence for the verdict.
+		return look{kind: lookTyped, detail: strconv.Quote(screen.InputLine(pane))}
 	case screen.NotDrawn:
 	}
 	return look{kind: lookNotDrawn}
@@ -428,7 +421,7 @@ func (g *goingRun) conversationOwner(file, name string) string {
 		switch e.Going {
 		case restore.GoingCompacting, restore.GoingCompact, restore.GoingContinue:
 			return e.Name
-		case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingKeep:
+		case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
 		}
 	}
 	return ""
@@ -487,6 +480,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	// Taken before typing, so whatever the input writes to the transcript is at or after it.
 	at := g.app.Now()
 	if err = g.app.typeInto(ctx, name, text); err != nil {
+		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "send-failed")
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
@@ -622,6 +616,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 func (g *goingRun) typeContinue(ctx context.Context, e restore.Entry) error {
 	at := g.app.Now()
 	if err := g.app.typeInto(ctx, e.Name, setGoingContinue); err != nil {
+		g.app.failErr(err)
 		return g.leaveAlone(e.Name, restore.GoingCompacting, "send-failed-after-compaction")
 	}
 	g.app.sayf("set %s going after its compaction: continue.\n", e.Name)

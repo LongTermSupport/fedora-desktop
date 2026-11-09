@@ -31,7 +31,9 @@ LAUNCHER="$CCY_DIR/claude-yolo"
 LIB_DIR="$CCY_DIR/lib"
 SEATS_LIB="$LIB_DIR/agent-bus-seats.bash"
 MEMBERSHIP_LIB="$LIB_DIR/agent-bus-membership.bash"
-PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
+# The image's build-context staging and build are in tasks/claude-yolo-image.yml, which
+# play-claude-yolo.yml and play-claude-code-consumer.yml import (Plan 00233).
+PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 
 for f in "$LAUNCHER" "$SEATS_LIB" "$MEMBERSHIP_LIB" "$LIB_DIR/common-pure.bash" "$LIB_DIR/session-registry.bash" \
     "$LIB_DIR/restart-request.bash" "$LIB_DIR/ssh-handling.bash"; do
@@ -155,6 +157,20 @@ fi
 exit "${FAKE_PINGBUS_RC:-0}"
 FAKE
 chmod 755 "$bus_bin/pingbus"
+
+# The fake clock: `date +%s%3N` prints FAKE_NOW_MS when a test sets it, so the test owns the time
+# the launcher records; every other `date`, and that one with FAKE_NOW_MS unset, is the real one.
+FAKE_REAL_DATE=$(command -v date)
+export FAKE_REAL_DATE
+cat >"$bus_bin/date" <<'FAKE'
+#!/usr/bin/env bash
+if [ "$*" = "+%s%3N" ] && [ -n "${FAKE_NOW_MS:-}" ]; then
+    echo "$FAKE_NOW_MS"
+    exit 0
+fi
+exec "$FAKE_REAL_DATE" "$@"
+FAKE
+chmod 755 "$bus_bin/date"
 
 # The fake engine (container_cmd): each call is one line in $FAKE_BUS_LOG. The container is the
 # process whose pid is in $FAKE_CTR_PID: `ps` prints an id while it lives, `stop` ends it.
@@ -327,12 +343,14 @@ check "a session that cannot be named stops the launch" "rc=1" \
 seats_root="$work/.claude/ccy/pingbus/seats"
 mkdir -p "$seats_root"
 disconnect_re="^pingbus seat disconnected --root $seats_root --session ccy-proj-1 --since [0-9]{13}\$"
-before_ms=$(date +%s%3N)
+fake_now_ms=1762000000123
 check "after the container, pingbus is asked to tell what ended without a goodbye" "rc=0" \
-    "$(lib_run take_then_disconnect dev1@team-a false false yolo-1)"
-since_ms=$(grep -E "$disconnect_re" "$FAKE_BUS_LOG" | grep -oE '[0-9]{13}$')
+    "$(FAKE_NOW_MS=$fake_now_ms lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+# The launch's start is the clock the launcher was given, exactly: a window between reads of the
+# real clock taken in three processes failed on CI runs that did nothing wrong. The real clock's
+# shape (thirteen digits) is checked below by disconnect_re, on runs with no fake clock.
 check "  with the seats, the session and the launch's start" "yes" \
-    "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
+    "$(grep -qxF -- "pingbus seat disconnected --root $seats_root --session ccy-proj-1 --since $fake_now_ms" "$FAKE_BUS_LOG" && echo yes || echo no)"
 check "  after the seats were taken" "yes" \
     "$(grep -qE -- "$disconnect_re" <<<"$(tail -n 1 "$FAKE_BUS_LOG")" && echo yes || echo no)"
 lib_run take_then_disconnect "" false false yolo-1 >/dev/null
@@ -627,6 +645,17 @@ awk '/^# Try to load previous launch configuration/ {p=1} /^# A headless launch 
 check "the Quick Launch block was found" "yes" "$(has 'load_launch_config ".claude/ccy"' "$work/quick.bash")"
 proj="$work/proj"
 mkdir -p "$proj/.claude/ccy"
+# The saved file is read by the Go front beside the launcher (--read-launch-config, F16): the
+# real one, built here, in QUICK_FRONT_DIR (a case may point it at a stand-in).
+mkdir -p "$work/front" "$work/front-fails"
+export QUICK_FRONT_DIR="$work/front"
+front_build=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$work/front/claude-yolo" ./cmd/claude-yolo 2>&1)
+check "the Go front builds" "" "$front_build"
+# A front that cannot read the file, as for a permissions or read error (which root, running
+# this suite in ccy, cannot be given on a regular file).
+printf '#!/bin/bash\necho "ccy: cannot read the saved launch configuration %s: permission denied" >&2\nexit 1\n' \
+    "$proj/.claude/ccy/.last-launch.conf" >"$work/front-fails/claude-yolo"
+chmod 755 "$work/front-fails/claude-yolo"
 
 # quick <headless> <args-as-flags...>: run the block in proj; prints the resulting choices,
 # whether a prompt was reached, and the exit code.
@@ -653,25 +682,34 @@ quick() {
             printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"
         }
         CONFIG_VERSION=2 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
+        SCRIPT_DIR="$QUICK_FRONT_DIR"
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
         TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
         CCY_SESSION_NAME="${QUICK_SESSION-ccy-proj-1}" NO_BUS_MODE="${QUICK_NO_BUS:-false}"
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
+        . "$LIB_DIR/launch-summary.bash"
         . "$0" >"$QUICK_OUT"
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
         printf "%s" "${quick_kept_team:-}" >"$TEAMS_KEPT"
+        printf "%s" "$CCY_SEATS" >"$TEAMS_SEATS"
+        printf "%s" "${CCY_NO_PROJECT_NETWORK:-false}" >"$QUICK_NO_PROJECT_NET"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
     printf ' rc=%s prompt=%s' "$?" "$(if [ -s "$PROMPT_LOG" ]; then echo yes; else echo no; fi)"
 }
+export LIB_DIR
 export PROMPT_LOG="$work/prompt.log"
 # What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
 export QUICK_OUT="$work/quick.out"
 export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt" TEAMS_REC="$work/teams-recorded.log"
 # The saved team a launch on no team (--no-bus, --opencode) left alone, to be written back.
 export TEAMS_KEPT="$work/teams-kept.txt"
+# The seats the launch goes on to take (CCY_SEATS, which ccy_seats_take is given) after the block.
+export TEAMS_SEATS="$work/teams-seats.txt"
+# Whether the launch goes on with no project network but the default one (CCY_NO_PROJECT_NETWORK).
+export QUICK_NO_PROJECT_NET="$work/no-project-net.txt"
 # recorded_after <quick args...>: what the launch put into its session's record (ccy-teams
 # record-seats calls), or none.
 recorded_after() {
@@ -703,8 +741,16 @@ save personal /keys/id_a proj_net
 check "interactive with saved choices: the prompt is still asked" "yes" \
     "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save personal "" ""
+# No saved network is what an interactive launch onto the default network saves too, so a
+# headless replay of it joins the default network (podman), as that launch did, and skips the
+# project-network detection and its offers. It is not --no-network: a session on pasta can join
+# no network later (ccy --connect), and an interactive yes to the same record is not one either.
 check "headless, saved with no key and no network: those are the choices, not a menu" \
-    "token=personal keys= no_ssh=true net= no_net=true rc=0 prompt=no" "$(quick true)"
+    "token=personal keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true)"
+check "  no project network, but not --no-network: the default network, without detection" "true" "$(cat "$QUICK_NO_PROJECT_NET")"
+save personal /keys/id_a ""
+quick false >/dev/null
+check "  interactive, the same record: detection as before" "false" "$(cat "$QUICK_NO_PROJECT_NET")"
 save "" /keys/id_a ""
 check "headless, saved with no token: refused, no prompt" "yes" \
     "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
@@ -716,6 +762,48 @@ check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"
+
+echo "=== Quick Launch summary: the loop around ccy-teams launch-summary (Go draws the screen) ==="
+
+# summary_run <given> <replies...>: ccy_launch_summary with ccy-teams answering each call with the
+# next reply (a file of TEAMS/ROLES/ASK lines), and the token and key questions stubbed. Prints
+# the choices it leaves and the arguments of every call.
+summary_run() {
+    local given="$1" dir="$work/summary-replies" i=0 reply
+    shift
+    rm -rf "$dir" "$work/summary-calls"
+    mkdir -p "$dir"
+    for reply in "$@"; do i=$((i + 1)); printf '%b' "$reply" >"$dir/$i.txt"; done
+    SUMMARY_DIR="$dir" SUMMARY_CALLS="$work/summary-calls" TEAMS_GIVEN="$given" bash -c '
+        . "$LIB_DIR/launch-summary.bash"
+        ccy-teams() { set -- "$SUMMARY_DIR"/*.txt "$@"; [ -e "$1" ] || return 9; echo "$*" >>"$SUMMARY_CALLS"; cat "$1"; rm -f "$1"; }
+        select_token() { SELECTED_TOKEN=/t/new.2030-01-01.token; }
+        discover_and_select_ssh_keys() { SSH_KEYS=(/keys/id_b); }
+        NO_BUS_MODE=false TOKEN_DIR=/t LAST_TOKEN=old LAST_SSH_KEYS=/keys/id_a LAST_NETWORK=net
+        quick_team=1@a quick_roles=a=worker
+        ccy_launch_summary
+        printf "token=%s keys=%s net=%s team=%s roles=%s" "$LAST_TOKEN" "$LAST_SSH_KEYS" "$LAST_NETWORK" "$quick_team" "$quick_roles"'
+}
+check "summary: accepting it keeps every default and takes its teams and roles" \
+    "token=old keys=/keys/id_a net=net team=2@a roles=a=coordinator" \
+    "$(summary_run false 'TEAMS\t2@a\nROLES\ta=coordinator\nASK\tnone\n')"
+check "summary: a token line asks the token question and shows the summary again" \
+    "token=new keys=/keys/id_a net=net team=2@a roles=a=coordinator" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\ttoken\n' 'TEAMS\t2@a\nROLES\ta=coordinator\nASK\tnone\n')"
+check "summary: a key line asks the key question and shows the summary again" \
+    "token=old keys=/keys/id_b net=net team=1@a roles=a=worker" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\tssh\n' 'TEAMS\t1@a\nROLES\ta=worker\nASK\tnone\n')"
+check "summary: a network line clears the network, asked at its own step of the launch" \
+    "token=old keys=/keys/id_a net= team=1@a roles=a=worker" \
+    "$(summary_run false 'TEAMS\t1@a\nROLES\ta=worker\nASK\tnetwork\n')"
+check "summary: with --teams given the teams are skipped and left as they were" \
+    "token=old keys=/keys/id_a net=net team=1@a roles=a=worker" \
+    "$(summary_run true 'TEAMS\t\nROLES\t\nASK\tnone\n')"
+check "  and the call says so" "yes" "$(grep -q -- '--skip-teams' "$work/summary-calls" && echo yes || echo no)"
+check "  the saved defaults are the call's arguments" "yes" \
+    "$(grep -q -- '--type=podman --token=old --ssh=/keys/id_a --network=net --teams=1@a --roles=a=worker' "$work/summary-calls" && echo yes || echo no)"
+check "summary: leaving it (nothing printed) ends the launch quietly" "rc=0" \
+    "rc=$(summary_run false '' >/dev/null; echo $?)"
 
 echo "=== Quick Launch remembers the team ==="
 
@@ -745,6 +833,12 @@ check "  several seats are kept together" "ran=dev1@team-a,qa2@team-b end=dev1@t
 save personal /keys/id_a proj_net dev1@team-a
 check "interactive, y typed: the team comes with it" \
     "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER=y teams_after false)"
+# Plan 00177 Task 11.2: a plain ccy whose Quick Launch takes the saved seats leaves them in
+# CCY_SEATS in the launcher's own shell, which the one ccy_seats_take below is given, so the
+# launch block is printed as for --teams.
+save personal /keys/id_a proj_net dev1@team-a
+check "  the seats are the launch's own to take (CCY_SEATS)" "dev1@team-a" \
+    "$(QUICK_ANSWER=y quick false >/dev/null; cat "$TEAMS_SEATS")"
 save personal /keys/id_a proj_net dev1@team-a
 check "interactive, a bare Enter (the default yes): the team comes with it" \
     "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER='' teams_after false)"
@@ -855,6 +949,25 @@ save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TOKEN
 check "a missing key is not filled from the environment" "$refused removed" \
     "$(LAST_TOKEN=leaked quick true | grep -o 'rc=.*') $(file_left)"
 
+echo "=== a saved file that does not read is kept, never deleted on a guess ==="
+
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+check "a file the front cannot read: headless is refused, the file is kept" "$refused kept" \
+    "$(QUICK_FRONT_DIR="$work/front-fails" quick true | grep -o 'rc=.*') $(file_left)"
+check "  the front's cause is shown" "yes" "$(has "permission denied" "$work/quick.err")"
+check "  and it says the file is kept" "yes" "$(has "it is kept" "$work/quick.err")"
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+check "  interactive: the prompts are asked again, the file is kept" "yes kept" \
+    "$(QUICK_FRONT_DIR="$work/front-fails" quick false >/dev/null; has "Reconfiguring" "$work/quick.err") $(file_left)"
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+printf '%s\n' "LAST_LAUNCH_DATE=\$(touch pwned)" >>"$conf"
+cp "$conf" "$work/malformed.conf"
+check "a malformed line (once sourced, run): refused, the file kept as it was" "$refused kept same" \
+    "$(quick true | grep -o 'rc=.*') $(file_left) $(cmp -s "$conf" "$work/malformed.conf" && echo same || echo changed)"
+check "  the line is named, with the path" "yes yes" \
+    "$(has "line 8" "$work/quick.err") $(has ".last-launch.conf" "$work/quick.err")"
+check "  and nothing in it ran" "no" "$(if [ -e "$proj/pwned" ]; then echo yes; else echo no; fi)"
+
 echo "=== headless: a key that needs a passphrase is refused before launch ==="
 
 awk '/^# A headless launch never unlocks an SSH key/ {p=1} p {print} p && /^fi$/ {exit}' "$LAUNCHER" >"$work/keys.bash"
@@ -930,6 +1043,13 @@ check "Quick Launch's summary names each seat with its role, through ccy-teams" 
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
     "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
+# Plan 00177 Task 11.2: every launch route that takes a seat (--teams, the Quick Launch's saved
+# seats, a restart or restore replaying --teams) ends in CCY_SEATS, set only by
+# ccy_launch_teams, and the one take after them all is given it, so each prints the block.
+check "CCY_SEATS is set in two places only: cleared, then by ccy_launch_teams's check" "2" \
+    "$(grep -c -E '^ *CCY_SEATS=' "$LAUNCHER")"
+check "  the seats are taken once, with CCY_SEATS, after the Quick Launch's ccy_launch_teams" "1 yes" \
+    "$(grep -c -E '^ccy_seats_take "[$]CCY_SEATS" ' "$LAUNCHER") $(awk '/^ +ccy_launch_teams$/ {q=NR} /^ccy_seats_take "[$]CCY_SEATS" / {t=NR} END {print (q && t > q) ? "yes" : "no"}' "$LAUNCHER")"
 check "the launcher's cleanup ignores SIGHUP and SIGINT first, tells what ended without a goodbye last, then puts them back (Plan 00194)" \
     "    trap '' HUP INT|    ccy_bus_disconnected|    trap - HUP INT" \
     "$(awk '/^cleanup\(\) \{$/ {p=1; next} p && /^\}$/ {exit} p && NF && !/^ *#/ {if (!first) first=$0; prev=last; last=$0} END {print first "|" prev "|" last}' "$LAUNCHER")"

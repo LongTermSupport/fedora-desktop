@@ -1,0 +1,37 @@
+name: Branch hygiene
+
+# The owner's branch policy (scripts/branch-policy.toml): a cap on open work branches, no merged
+# branch left undeleted, no work branch dormant past the limits unless parked. It judges the
+# repository's global state, so it is its own workflow and NOT a gate of qa-all or qa-changed: a
+# branch's CI must not go red because of other branches. See CLAUDE/QA.md, "Branch hygiene".
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  push:
+    branches: [F44]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  branch-hygiene:
+    name: scripts/qa-branch-hygiene.bash
+    runs-on: ubuntu-latest
+    steps:
+      # Full history and every remote branch: the merged-into-F44 test needs the ancestry.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # setup-go@v5 installs the go directive of the file named here (the qa module's), as in qa.yml;
+      # TestEveryWorkflowSetsUpTheGoFloor (src-go/qa/toolchain) holds every workflow to it.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src-go/qa/go.mod
+
+      - name: Judge the branches
+        run: ./scripts/qa-branch-hygiene.bash

@@ -51,6 +51,7 @@ class FakeHost:
         self.notify_rc: dict[str, int] = {}
         self.reboot_rc = 0
         self.verify_rc = 0
+        self.check_restore_rc = 0
         self.reset_failed_rc = 0
         self.boot = "boot-1"
         self.cancel_on_sleep: int | None = None
@@ -98,6 +99,10 @@ class FakeHost:
     def verify_restore(self, wait_seconds: int) -> int:
         self.calls.append(f"verify-restore {wait_seconds}")
         return self.verify_rc
+
+    def check_restore(self) -> int:
+        self.calls.append("check-restore")
+        return self.check_restore_rc
 
     def reset_failed(self, unit: str) -> int:
         self.calls.append(f"reset-failed {unit}")
@@ -154,7 +159,7 @@ class CycleCase(unittest.TestCase):
         return record
 
     def mutating_calls(self) -> list[str]:
-        return [c for c in self.host.calls if c.startswith(("play ", "notify", "reboot", "sleep"))]
+        return [c for c in self.host.calls if c.startswith(("play ", "check-restore", "notify", "reboot", "sleep"))]
 
 
 class TestConfig(unittest.TestCase):
@@ -748,6 +753,7 @@ class TestWarnAndReboot(CycleCase):
             self.mutating_calls(),
             [
                 f"play {PLAY}",
+                "check-restore",
                 "notify going-down --minutes 3 owed=True",
                 "sleep 120",
                 "notify going-down --minutes 1 owed=True",
@@ -767,8 +773,32 @@ class TestWarnAndReboot(CycleCase):
         self.run_cycle()
         self.assertEqual(
             self.mutating_calls(),
-            [f"play {PLAY}", "notify going-down --minutes 1 owed=True", "sleep 60", "reboot"],
+            [f"play {PLAY}", "check-restore", "notify going-down --minutes 1 owed=True", "sleep 60", "reboot"],
         )
+
+    def test_a_session_that_cannot_be_restored_holds_the_reboot_and_says_so(self) -> None:
+        # fedora-desktop#108: asked after the plays (so the new ccy-sessions judges) and before
+        # anyone is warned; the reboot stays owed, and the next cycle asks again.
+        self.host.check_restore_rc = 1
+        code, out, err = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_UNRESTORABLE)
+        self.assertEqual(self.mutating_calls(), [f"play {PLAY}", "check-restore"])
+        self.assertEqual(self.host.calls[-1], "alert unrestorable-sessions")
+        self.assertIn("SELF-UPDATE-CYCLE unrestorable-sessions", out)
+        self.assertIn("ALERT unrestorable-sessions", err)
+        result = self.result()
+        self.assertEqual((result["phase"], result["outcome"]), ("warn", "unrestorable-sessions"))
+        self.assertIn("ccy-sessions restore --check", result["detail"])
+        self.assertIn("no reboot, retried next cycle", result["detail"])
+        self.assertIsNotNone(self.state.read_owed(), "the reboot stays owed for the next cycle")
+
+        self.host.calls.clear()
+        self.host.check_restore_rc = 0
+        self.host.update_result = cycle.UpdateResult(rc=0, old=None, new=None, target=None, nothing=NEW)
+        code, _, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.mutating_calls()[0], "check-restore")
+        self.assertEqual(self.host.calls[-1], "reboot")
 
     def test_an_unwarnable_session_is_22_with_no_reboot(self) -> None:
         self.host.notify_rc["going-down --minutes 3"] = 1

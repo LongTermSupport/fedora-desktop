@@ -43,6 +43,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     extension_name: fedora-desktop@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     user_extensions_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
@@ -65,6 +66,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     # The health section's "open the full report in a terminal" row (Plan 00136) opens
     # the user's default terminal through the XDG launcher, so whichever terminal they

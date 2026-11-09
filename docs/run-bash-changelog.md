@@ -15,6 +15,66 @@ the index, not the record.
 
 ---
 
+## 1.36.2 — headless `--changed --yes` runs its plays like one play (Plan 00214 Task 4.3d)
+
+Run headless (an agent shell has no terminal, so a set `RUN_BASH_*` turns it on),
+`--changed --yes` and `--optional-only` now need only the sudo credential an unattended play
+needs, not the first-install input. A sudo password reaches every play of the batch.
+Headless `--rerun`, and `--changed` without `--yes`, are refused before anything runs and
+name `--changed --yes`.
+
+## 1.36.1 — the dirty-checkout warning says only a play reading the change is offered again (Plan 00141)
+
+A play run now records which paths were uncommitted, and `--changed` offers a play again only
+when one of them is its own input (or the list was cut, or the record predates the list). The
+warning before `--changed` and `--rerun` says so, instead of promising every play is offered
+again.
+
+## 1.36.0 — a failed optional play no longer ends the developer run (Plan 00228 Task 6.6)
+
+The headless `RUN_BASH_OPTIONAL_PLAYBOOKS` list, the attended menu (a number, A, W and B), the
+hardware plays it runs by itself, and the optional plays `--rerun` and `--changed` pick all go
+on past a failed optional play. At the end a summary on stderr names every optional play
+installed, failed (with its exit status and the `./run.bash <play>` that retries it alone) or
+stopped part way, and the run exits 1 before the setup marker when any failed. A play ended by
+a signal, or by Ctrl-C (Ansible's exit 99), stops the run at once with its own status. Every
+name in `RUN_BASH_OPTIONAL_PLAYBOOKS` is resolved before any play runs. Main plays, `--rerun`'s
+included, still stop at the first failure. The consumer path (Task 2.6) already worked this way.
+
+## 1.35.0 — every package is upgraded before any Ansible process starts (Plan 00229 Task 2.2)
+
+The dependency step runs `dnf -y upgrade --refresh` before it installs Ansible's dependencies,
+on the developer and the headless path alike, and a failed upgrade stops the run there. The
+main playbook's upgrade play used to replace python3 under the running `ansible-playbook`; its
+extension modules then no longer matched the interpreter, and the first later import of one
+failed (`lookup('url')` in `play-toolbox-install.yml`: "name 'ssl' is not defined"), so a fresh
+install from a base behind the repos died there. `play-AB-dnf-upgrade.yml` stays in the main
+playbook as a no-op upgrade with its kernel cleanup, and its reboot notice now fires whenever
+the running kernel is not the newest installed. `consumer-install` upgrades first the same way.
+
+## 1.34.0 — a busy play lock is waited for, not refused at once (Plan 00201 Task 2.19)
+
+When another play run holds the shared play lock, run.bash says who holds it and waits up to
+30 minutes for it (`python3 -m helpers.play_lock.lock wait`, on run.bash's own descriptor),
+then goes ahead, or exits 75 as before if it is still held. `FEDORA_DESKTOP_PLAY_LOCK_WAIT`
+(seconds) changes the bound.
+
+## 1.33.1 — a consumer box is never offered a GitHub issue (Plan 00228)
+
+`--consumer` on a developer box is refused before anything runs (no dnf, no git pull). On a
+consumer box a failed single play, `--changed` or `--rerun` says the log is the output on
+screen and gives the public issues URL instead of offering to file a GitHub issue. The
+`--help` columns line up again, and the step counter's lookup is one condition.
+
+## 1.33.0 — `--consumer`: the install for someone who does not write code (Plan 00228)
+
+`--consumer`, or a checkout whose host_vars says `install_audience: consumer`, installs git
+and Go, clones or pulls `~/Projects/fedora-desktop` over HTTPS and execs
+`scripts/consumer-install.bash` (the Go command `consumer-install`), passing
+`--optional-only` on. A single play, `--changed` and `--rerun` stay with run.bash; a headless
+consumer run is refused. Every other run takes the developer path unchanged. The optional
+menu's auto-run loop, whose list was always empty, is gone.
+
 ## 1.32.1 — a re-run injects only the missing Ansible dependencies (Plan 00188)
 
 The Ansible step reads the venv's injected packages from `pipx list --json` and injects only
@@ -326,7 +386,7 @@ exported onto `PATH`. Exported before any pipx-installed tool is used headlessly
 
 Plan 00073 built `RUN_BASH_SUDO_PASSWORD[_FILE]` as a second, equally supported sudo
 credential on the (at the time) 1.11.0 line that later became `plan-00066-ccy-ci-runner`.
-Plan 00084 ports the same design onto this line (lts-infra Plan 00045) so it composes with
+Plan 00084 ports the same design onto this line (example-team Plan 00045) so it composes with
 1.14.0's `RUN_BASH_GITHUB_ACCOUNTS=none`:
 
 - Preflight **asserts** one of NOPASSWD:ALL or the password file and decides

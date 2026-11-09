@@ -29,10 +29,11 @@ import threading
 import time
 import unittest
 import urllib.parse
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, forge, hooks, inbox, limits, protocol
+from helpers.pingbus import cli, forge, hooks, inbox, limits, protocol, syncer
 from tests.helpers.pingbus import fake_client_api
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
@@ -181,6 +182,7 @@ class BusCase(unittest.TestCase):
         self.upstream: tuple[str, str] | None = None
         self.threads: list[threading.Thread] = []
         self.outputs: list[str] = []
+        self.returned_at = 0.0  # time.monotonic() when the last run_cli's main returned
         self.a = Team(self, TEAM_A, SN_A)
         self.a.write_bundle()
         self.teams = [self.a]
@@ -205,7 +207,8 @@ class BusCase(unittest.TestCase):
         self.env["PINGBUS_TEAMS"] = f"{TEAM_A},{TEAM_B}"
         return self.b
 
-    def runtime(self, long_poll_ms: int = LONG_POLL_MS, sleep=None, monotonic=None) -> cli.Runtime:
+    def runtime(self, long_poll_ms: int = LONG_POLL_MS, sleep=None, monotonic=None,
+                threads: list[threading.Thread] | None = None) -> cli.Runtime:
         return cli.Runtime(
             forge_for=lambda member, environ: (lambda record: self.forge),
             clock_ms=lambda: int(self.now * 1000),
@@ -213,7 +216,7 @@ class BusCase(unittest.TestCase):
             monotonic=monotonic or time.monotonic,
             long_poll_ms=long_poll_ms,
             tick_s=0.05,
-            threads=self.threads,
+            threads=self.threads if threads is None else threads,
             seats_root=self.tmp / "checkout" / "seats",
             upstream=lambda: self.upstream,
         )
@@ -223,9 +226,19 @@ class BusCase(unittest.TestCase):
                 monotonic=None) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         data = stdin.encode("utf-8") if isinstance(stdin, str) else stdin
+        threads: list[threading.Thread] = []
         code = cli.main(list(argv), environ=env or self.env, stdout=out, stderr=err,
                         stdin=io.BytesIO(data),
-                        runtime=self.runtime(long_poll_ms, sleep=sleep, monotonic=monotonic))
+                        runtime=self.runtime(long_poll_ms, sleep=sleep, monotonic=monotonic,
+                                             threads=threads))
+        self.returned_at = time.monotonic()
+        # A team's thread (`watch`'s, `wait`'s) outlives `main` and may still write to the
+        # streams: they are read once every thread this run started has ended (issue #180).
+        for thread in threads:
+            thread.join(10)
+            if thread.is_alive():
+                raise AssertionError(f"pingbus {' '.join(argv)}: thread {thread.name} still ran "
+                                     "10 s after main returned, so its output is not complete")
         self.outputs += [out.getvalue(), err.getvalue()]
         return code, out.getvalue(), err.getvalue()
 
@@ -540,6 +553,29 @@ class SayTest(BusCase):
     def test_say_needs_an_addressee(self):
         self.joined()
         self.assertEqual(self.run_cli("say", stdin="hello")[0], cli.EXIT_USAGE)
+
+    def test_the_coordinator_says_to_all_reaches_every_member_but_itself(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker",
+                                                     self.a.peer: "worker"}))
+        code, _, err = self.run_cli("say", "--all", stdin="winding down at five")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me(),
+                         [protocol.build_text([self.a.alice, self.a.orch, self.a.peer],
+                                              "winding down at five")])
+
+    def test_a_worker_cannot_say_to_all(self):
+        self.joined()
+        code, _, err = self.run_cli("say", "--all", stdin="hello everyone")
+        self.assertEqual(code, cli.EXIT_REFUSED, err)
+        self.assertIn("--all", err)
+        self.assertEqual(self.a.messages_from_me(), [])
+
+    def test_say_to_all_does_not_combine_with_to(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker"}))
+        self.assertEqual(self.run_cli("say", "--all", "--to", "alice", stdin="x")[0], cli.EXIT_USAGE)
+        self.assertEqual(self.run_cli("say", "--all", "--to-coordinator", stdin="x")[0], cli.EXIT_USAGE)
 
     def test_say_to_a_peer_agent_only_is_not_copied(self):
         self.joined()
@@ -863,6 +899,32 @@ class RecvTest(BusCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual([line[2] for line in self.lines(out, "HUMAN")], [TEAM_B])
 
+    def broken_sync(self):
+        def fail(engine, timeout_ms=0):
+            raise inbox.StateError("the sync position cannot be used")
+        return mock.patch.object(syncer.Syncer, "sync_once", fail)
+
+    def test_a_sync_that_fails_still_delivers_what_the_inbox_holds_and_says_how_to_recover(self):
+        """Issue #116: a member whose sync fails still gets what was stored, and is told
+        where the room's own record is."""
+        self.joined()
+        event = self.a.human("stored before the sync broke")
+        member = cli.config.load_active(self.env)[0]
+        cli._seat(member, self.env, self.runtime(), io.StringIO()).syncer.sync_once(0)
+        with self.broken_sync():
+            code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([line[3] for line in self.lines(out, "HUMAN")], [event])
+        self.assertIn("the sync position cannot be used", err)
+        self.assertIn(f"pingbus history --team {TEAM_A}", err)
+
+    def test_a_sync_that_fails_with_nothing_stored_exits_with_its_code(self):
+        self.joined()
+        with self.broken_sync():
+            code, out, err = self.run_cli("recv")
+        self.assertEqual((code, out), (cli.EXIT_CONFIG, ""))
+        self.assertIn(f"pingbus history --team {TEAM_A}", err)
+
     def test_human_text_false_drops_human_messages(self):
         self.a.write_bundle(human_text=False)
         self.joined()
@@ -1019,7 +1081,7 @@ class WaitTest(BusCase):
         self.later(0.3, lambda: b.human("for b"))
         start = time.monotonic()
         code, out, _ = self.run_cli("wait", "--timeout", "30", long_poll_ms=8000)
-        elapsed = time.monotonic() - start
+        elapsed = self.returned_at - start  # when wait returned, not when team A's poll ended
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual([line[2] for line in self.lines(out, "HUMAN")], [TEAM_B])
         self.assertLess(elapsed, 4, "team B waited behind team A's long-poll")

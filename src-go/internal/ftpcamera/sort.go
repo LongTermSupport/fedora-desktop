@@ -252,10 +252,14 @@ func (c *cli) sortPass(ctx context.Context) error {
 
 func (c *cli) sortListed(ctx context.Context, path string, tally *sortTally) error {
 	name := filepath.Base(path)
-	if completeness(ctx, c.env.Runner, c.onPath, path) == truncated {
+	v, why := completeness(ctx, c.env.Runner, c.onPath, path)
+	if v == truncated {
 		c.err.f("  %spartial%s  %s  (truncated at %s bytes — left in place)\n", c.err.r, c.err.n, name, sizeText(path))
 		tally.truncated++
 		return nil
+	}
+	if why != nil {
+		c.err.f("  note: %s could not be checked for completeness: %v\n", name, why)
 	}
 	class := classOf(path)
 	date := c.exifDate(ctx, path, class)

@@ -9,12 +9,13 @@ import (
 // argument of its own, never spliced into a string (D4).
 const targetArg = "\x00target"
 
-// handler is one terminal handler: its program, label and arguments, and the pager its stdout
-// feeds when it has one.
+// handler is one terminal handler: its program, label and arguments, the pager its stdout feeds
+// when it has one, and the options it takes under a terminal multiplexer.
 type handler struct {
-	label string
-	argv  []string
-	pager []string
+	label    string
+	argv     []string
+	pager    []string
+	muxFlags []string
 }
 
 func h(label string, argv ...string) handler { return handler{label: label, argv: argv} }
@@ -22,6 +23,12 @@ func h(label string, argv ...string) handler { return handler{label: label, argv
 // paged is h with its stdout fed to the pager.
 func (x handler) paged(pager ...string) handler {
 	x.pager = pager
+	return x
+}
+
+// underMux is h with flags put after its program when it runs inside tmux or screen (E11a).
+func (x handler) underMux(flags ...string) handler {
+	x.muxFlags = flags
 	return x
 }
 
@@ -76,7 +83,8 @@ var terminalTable = []typeRule{
 		h("pdfinfo (metadata)", "pdfinfo", "--", T),
 	}},
 	{matches: under("image/"), handlers: []handler{
-		h("chafa (terminal image)", "chafa", "--", T),
+		// tmux and screen pass no sixel or kitty image, which chafa would otherwise pick.
+		h("chafa (terminal image)", "chafa", "--", T).underMux("--format", "symbols"),
 		h("viu (terminal image)", "viu", "--", T),
 		h("identify (metadata)", "identify", "--", T),
 		h("exiftool (metadata)", "exiftool", "--", T).paged(lessPager...),
@@ -146,11 +154,22 @@ func (r *run) terminalCandidates(mime, target string) ([]candidate, bool) {
 		offered = append(r.installed(genericHandlers), r.textViewers()...)
 	}
 	offered = append(offered, r.installed([]handler{identify})...)
+	mux := r.inMultiplexer()
 	cands := make([]candidate, len(offered))
 	for i, x := range offered {
-		cands[i] = candidate{label: x.label, argv: withTarget(x.argv, target), pager: x.pager}
+		argv := x.argv
+		if mux && x.muxFlags != nil {
+			argv = slices.Concat(argv[:1], x.muxFlags, argv[1:])
+		}
+		cands[i] = candidate{label: x.label, argv: withTarget(argv, target), pager: x.pager}
 	}
 	return cands, known
+}
+
+// inMultiplexer is whether open runs inside tmux or screen: TMUX set, or a TERM they name.
+func (r *run) inMultiplexer() bool {
+	t := r.env.Getenv("TERM")
+	return r.env.Getenv("TMUX") != "" || strings.HasPrefix(t, "tmux") || strings.HasPrefix(t, "screen")
 }
 
 // textViewers is E12, the installed ones.

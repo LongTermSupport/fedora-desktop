@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m CCY_PIDS_LIMIT=max is not a pids limit: a whole number from 256 to 32768; it cannot be turned off (the default is 4096; docs/ccy.md, "Container limits").
+=== calls
+=== files

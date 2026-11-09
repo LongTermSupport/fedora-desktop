@@ -31,10 +31,10 @@ select = ["E4", "E7", "E9", "F"]
 # Deliberately NOT enabled, and why — revisit as a considered decision, not by
 # accident:
 #   E5   (line length)  — 209 pre-existing findings; never enforced here.
-#   BLE  (blind except) — would encode the repo's no-bare-except rule, but 1 of
-#                         the 3 findings is in .claude/ccy/claude-supervise.py,
-#                         which is daemon-owned and overwritten on upgrade, so it
-#                         is not ours to fix.
+#   BLE  (blind except) — would encode the repo's no-bare-except rule; its
+#                         findings in this repo's own Python need fixing first.
+#                         (Daemon-deployed Python, .claude/ccy, is not gated
+#                         here at all: scripts/qa-trees.tsv.)
 #   PLW1510 (subprocess check=) — helpers/CLAUDE.md already mandates this and the
 #                         helpers now comply explicitly; enabling it repo-wide is
 #                         a policy call for the owner.

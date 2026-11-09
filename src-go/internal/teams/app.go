@@ -2,7 +2,7 @@
 // It parses the command line, checks that CCY is installed here and hands the subcommand to the
 // package that owns it:
 //
-//	board   the table of teams, seats and people, and --list
+//	board   the table of teams, seats and people, --list, and --graph (the same as a Mermaid flowchart)
 //	picker  the interactive list (no argument), with the seats, login and create flows it calls
 //	ops     apply, remove, backup and restore
 //	create  the create wizard
@@ -16,6 +16,7 @@
 //	settings the team row's Edit settings: the team's entry edited, saved and applied
 //	membership internal membership-init: the launcher writes a session's desired membership
 //	containername internal claim-container-name: the launcher's container name, claimed atomically
+//	gocache internal go-cache: the launcher's Go caches, on the host and bounded
 //	discover the one lookup of which session names a seat (records and desired memberships)
 //	hot     session list, add, remove, move, role and repair: a running session's teams and roles
 //
@@ -37,6 +38,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/find"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/gocache"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
@@ -80,6 +82,8 @@ type App struct {
 	Membership *membership.Init
 	// ContainerName is `internal claim-container-name`, the launcher's.
 	ContainerName *containername.Claim
+	// GoCache is `internal go-cache`, the launcher's.
+	GoCache *gocache.Cache
 	// Session is `ccy-teams session ...`, hot control of a running session.
 	Session *hot.Hot
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
@@ -94,7 +98,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // captures (choose-teams) is given a host that prints everything else on stderr, so a play's
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
-	if len(args) > 0 && args[0] == subChooseTeams {
+	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -102,6 +106,15 @@ func NewAppFor(cfg config.Config, args []string) *App {
 
 // subChooseTeams is the subcommand whose stdout is its payload.
 const subChooseTeams = "choose-teams"
+
+// subLaunchSummary is the launch summary, whose stdout is its payload too.
+const subLaunchSummary = "launch-summary"
+
+// subChooseSeat is the launcher's seat and role question.
+const subChooseSeat = "choose-seat"
+
+// subDescribeSeats names a launch's seats with their roles.
+const subDescribeSeats = "describe-seats"
 
 // Wire builds the flows over h, after h has built every adapter it was not given.
 func Wire(h *host.Host) *App {
@@ -126,10 +139,13 @@ func Wire(h *host.Host) *App {
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session
+	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
+	chosen.Probe = pick.Probe
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
-		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked),
-		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
+		Chooser: chosen,
+		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), GoCache: gocache.New(h),
+		Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -163,6 +179,9 @@ func (a *App) Run(args []string) term.ExitCode {
 			code = term.ExitFailure
 		}
 	}
+	if why := term.Explain(code); why != "" {
+		a.Print(a.Stderr, "ccy-teams: "+why+".\n")
+	}
 	return a.Term.Finish(code, a.Out.Err())
 }
 
@@ -173,8 +192,8 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
-		"choose-seat", "describe-seats", subChooseTeams, subInternal, subSession:
-	case "-l", "--list":
+		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession:
+	case "-l", "--list", subGraph:
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
 		}
@@ -217,17 +236,38 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
 		return a.Find.RecordSeats(ctx, rest)
-	case subChooseTeams:
-		return a.Chooser.Run(ctx, rest)
-	case "choose-seat":
-		return a.Choose.Seat(ctx, rest)
-	case "describe-seats":
-		return a.Choose.Describe(ctx, rest)
-	case "-l", "--list":
-		return a.Board.List(ctx)
+	case subChooseTeams, subLaunchSummary, subChooseSeat, subDescribeSeats:
+		return a.launchQuestions(ctx, sub, rest)
+	case "-l", "--list", subGraph:
+		return a.printBoard(ctx, sub)
 	default:
 		return a.Picker.Run(ctx)
 	}
+}
+
+// launchQuestions is the commands the launcher asks of a person through: the summary, the team
+// chooser, and the seat chooser and describer.
+func (a *App) launchQuestions(ctx context.Context, sub string, rest []string) term.ExitCode {
+	switch sub {
+	case subLaunchSummary:
+		return a.Chooser.Summary(ctx, rest)
+	case subChooseSeat:
+		return a.Choose.Seat(ctx, rest)
+	case subDescribeSeats:
+		return a.Choose.Describe(ctx, rest)
+	}
+	return a.Chooser.Run(ctx, rest)
+}
+
+// subGraph is `ccy-teams --graph`: the --list pass drawn as a Mermaid flowchart.
+const subGraph = "--graph"
+
+// printBoard is the two printouts of the board: the table (--list) or the flowchart (--graph).
+func (a *App) printBoard(ctx context.Context, sub string) term.ExitCode {
+	if sub == subGraph {
+		return a.Board.Graph(ctx)
+	}
+	return a.Board.List(ctx)
 }
 
 // subRestart is `ccy-teams restart`, subWindDown `ccy-teams wind-down`.
@@ -263,10 +303,13 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.Find.RestartArgs(ctx, rest[1:], a.Stdin, a.Payload)
 		case "claim-container-name":
 			return a.ContainerName.Run(ctx, rest[1:])
+		case "go-cache":
+			return a.GoCache.Run(ctx, rest[1:])
 		}
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
-		"internal restart-args <session>, or internal claim-container-name <project> <suffix> <owner-pid>.")
+		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
+		"or internal go-cache <project> [z].")
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).

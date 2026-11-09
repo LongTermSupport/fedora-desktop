@@ -20,8 +20,18 @@ const (
 	sidecarSuffix = ".stt.md"
 	// frontMatter is how every sidecar stt writes begins (render).
 	frontMatter = "---\n"
-	complete    = "COMPLETE"
 )
+
+// manifestStates is every state the phone app's manifest can carry (its SessionState enum:
+// ACTIVE, COMPLETE, INTERRUPTED), each final (transcribed) or not yet (waiting). The app
+// uploads manifest.json only once the session has stopped, so ACTIVE should never arrive; it
+// still means "being recorded", so it waits. A state not listed is a failure, never quietly
+// one or the other.
+var manifestStates = map[string]bool{
+	"COMPLETE":    true,
+	"INTERRUPTED": true, // stopped early (flat battery, crash): the end may be missing
+	"ACTIVE":      false,
+}
 
 var audioExtensions = []string{".ogg", ".opus", ".oga", ".m4a", ".mp3", ".wav", ".flac", ".webm", ".aac"}
 
@@ -37,6 +47,8 @@ type recording struct {
 	audio []audioPart
 	// stale is set by state when the sidecar's fingerprint does not match the audio (S19).
 	stale bool
+	// recordingState is the manifest's final state, filled by state; empty for a loose file.
+	recordingState string
 }
 
 // audioPart is one part of a recording as its sidecar records it (S19): from the manifest for
@@ -224,9 +236,14 @@ func (r *recording) readiness(c check) (state, string) {
 		return stateCorrupt, reason
 	}
 	r.audio = m.fingerprint()
-	if *m.State != complete {
+	final, known := manifestStates[*m.State]
+	switch {
+	case !known:
+		return stateCorrupt, "the manifest's state " + *m.State + " is not one stt knows"
+	case !final:
 		return stateWaiting, "the manifest says " + *m.State
 	}
+	r.recordingState = *m.State
 	if length := m.millis(); length < c.minMillis {
 		return stateShort, fmt.Sprintf("%.1f s", float64(length)/1000)
 	}
@@ -246,10 +263,17 @@ func (r *recording) readiness(c check) (state, string) {
 // It returns the sidecar's audio fingerprint (S19; nil when it has none), the state, the
 // reason, and whether there is a sidecar at all.
 func (r *recording) sidecarState() ([]audioPart, state, string, bool) {
-	f, err := os.Open(r.sidecar)
+	info, err := os.Stat(r.sidecar)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, statePending, "", false
 	}
+	if err != nil {
+		return nil, stateCorrupt, "cannot read its sidecar: " + err.Error(), true
+	}
+	if !info.Mode().IsRegular() {
+		return nil, stateCorrupt, "cannot read its sidecar: " + r.sidecar + " is not a regular file", true
+	}
+	f, err := os.Open(r.sidecar)
 	if err != nil {
 		return nil, stateCorrupt, "cannot read its sidecar: " + err.Error(), true
 	}
@@ -380,6 +404,13 @@ func checkPart(part, label string, size int64, sum string, verify bool) (state, 
 }
 
 func readManifest(path string) (manifest, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return manifest{}, "cannot read " + path + ": " + err.Error()
+	}
+	if !info.Mode().IsRegular() {
+		return manifest{}, path + " is not a regular file"
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return manifest{}, "cannot read " + path + ": " + err.Error()
@@ -406,6 +437,13 @@ func readManifest(path string) (manifest, string) {
 }
 
 func md5File(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("open: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)

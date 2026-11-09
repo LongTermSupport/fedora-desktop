@@ -201,7 +201,8 @@ above.
 
 - H1. `rclone-cache-status --no-dir` lists every mount with live cache figures, not an error.
 - H2. Run from inside a mount directory, the analysis matches what the mount holds.
-- H3. `rclone-cache-warm <dir>` and `rclone-tail --once` still bracket their runs with it.
+- H3. `rclone-cache-warm <dir>` and `rclone-tail` in its streaming mode still bracket their runs
+  with it; `rclone-tail --once` does not bracket.
 
 `deploy-rclone-cache-status.bash` (queued in `meta-deploy.list`) runs `play-rclone.yml --tags rclone-cache-status`, which builds and installs the command and leaves the mounts up, then
 `acceptance-rclone-cache-status.bash`, which scripts H1 and the installed-program check; H2 and

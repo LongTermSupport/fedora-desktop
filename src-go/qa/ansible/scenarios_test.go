@@ -15,7 +15,7 @@ const (
 
 // play is a playbook text; scope "" leaves the scope line out.
 func play(scope string, guard bool) string {
-	text := playbookShebang + "\n---\n- hosts: all\n  name: P\n  vars:\n"
+	text := playbookShebang + "\n---\n- hosts: all\n  name: P\n  vars:\n    audience: all\n"
 	if scope != "" {
 		text += "    scope: " + scope + "\n"
 	}
@@ -60,7 +60,30 @@ func violationLines(out string) []string {
 }
 
 func scenarios() []scenario {
-	return slices.Concat(failFastScenarios(), fileAndQuoteScenarios(), scopeAndFactScenarios(), regexBackrefScenarios())
+	return slices.Concat(failFastScenarios(), fileAndQuoteScenarios(), scopeAndFactScenarios(), audienceScenarios(), regexBackrefScenarios())
+}
+
+// audienceScenarios is check 4b: vars.audience and the developer play's guard (Plan 00228).
+func audienceScenarios() []scenario {
+	return []scenario{
+		{
+			name: "audience missing and developer unguarded", code: ExitFailed,
+			files: with(map[string]string{
+				"playbooks/x.yml": playbookShebang + "\n---\n- hosts: all\n  vars:\n    scope: general\n" + plainTasks,
+				"playbooks/y.yml": playbookShebang + "\n---\n- hosts: all\n  vars:\n    scope: general\n    audience: developer\n" + plainTasks,
+			}),
+			want: []string{
+				"  ERROR (audience): playbooks/x.yml — missing vars.audience (need exactly one of all|developer, CLAUDE/AnsibleStyle.md)",
+				"  ERROR (audience): playbooks/y.yml — audience=developer requires exactly one audience guard task (meta: end_play when: " + audienceGuardWhen + ")",
+			},
+		},
+		{
+			name: "developer play with its guard is fine", code: ExitOK,
+			files: with(map[string]string{
+				"playbooks/y.yml": playbookShebang + "\n---\n- hosts: all\n  vars:\n    scope: general\n    audience: developer\n  tasks:\n" + audienceGuardTask(),
+			}),
+		},
+	}
 }
 
 func regexBackrefScenarios() []scenario {
@@ -157,6 +180,12 @@ func fileAndQuoteScenarios() []scenario {
 				"  ERROR (fail-fast): tasks/bin.yml:1:      failed_when: false",
 				"  ERROR (regex-backref-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its backreferences cannot be judged: yaml: control characters are not allowed",
 				regexBackrefAdvice,
+				"  ERROR (regex-class-escape): tasks/bin.yml:1: cannot be parsed as YAML, so its regex escapes cannot be judged: yaml: control characters are not allowed",
+				regexEscapeAdvice,
+				"  ERROR (root-umask): tasks/bin.yml:1: cannot be parsed as YAML, so the files its root tasks create cannot be judged: yaml: control characters are not allowed",
+				rootUmaskAdvice,
+				"  ERROR (play-ux): tasks/bin.yml:1: cannot be parsed as YAML, so its plays cannot be judged: yaml: control characters are not allowed",
+				"    A file that is not YAML cannot be judged; fix its syntax",
 			},
 		},
 		{

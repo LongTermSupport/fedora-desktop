@@ -47,6 +47,7 @@ func newHarness(t *testing.T) *harness {
 	env.OpenTTY = func() (io.ReadCloser, error) { return nil, errors.New("no tty") }
 	h.app = &App{Env: env}
 	h.fake.OnError([]string{"fzf"}, &execx.NotInstalledError{Name: "fzf"})
+	h.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	for _, c := range fixtureContainers() {
 		h.fake.On([]string{"podman", "pause", c}, execx.Result{Stdout: []byte(c + "\n")})
 		h.fake.On([]string{"podman", "unpause", c}, execx.Result{Stdout: []byte(c + "\n")})

@@ -227,8 +227,9 @@ CLAUDE/Plan/mkplan.bash --journal <plan-number> <category> untracked/scratch/jou
 
 `<category>` is one of `action`, `finding`, `decision`, `thought`, `blocker`,
 `handoff`, `correction`; add `--ref T1.2` for a task reference (a `correction`
-requires `--ref` naming the entry it corrects). The script creates today's
-day-file from the template when there is none. Use a new body-file name for
+requires `--ref` naming the entry it corrects). The script writes one new entry
+file, `JOURNAL/YYYY-MM-DD/HHMMSSZ-<category>-<hex>.md`, and never opens an
+existing one. Use a new body-file name for
 every entry (a reused one is refused by the clobber guard), your configured
 plan directory if it is not `CLAUDE/Plan/`, and, in a worktree, that
 worktree's own `mkplan.bash`.
@@ -236,8 +237,8 @@ worktree's own `mkplan.bash`.
 Hand-typed timestamps have landed 40 minutes in the future, and an
 append-only journal cannot correct one until the clock passes it. So the
 `plan_journal_guard` handler DENIES, in every checkout, an `Edit`/`Write` that
-adds any line to a day-file, a `Write` that creates one, and a Bash command
-that writes into one by any route (a redirect, `tee`, a heredoc, a copy or
+changes any existing journal file (entry file or legacy day-file), a `Write`
+that creates one by hand, and a Bash command that writes into one by any route (a redirect, `tee`, a heredoc, a copy or
 link, an in-place editor, a patch, an interpreter program, a wrapper, or a name
 the shell builds at run time). **A coordinator's dispatch brief that asks for
 journalling must carry this two-step pattern**, not "append with Edit and
@@ -978,8 +979,8 @@ Use this template when improving existing code without changing behaviour.
 2. **During work**: Update status if blocked
 3. **After completing**: Mark ✅, run QA, commit with reference
 4. **Regularly**: Review the plan and edit it IN PLACE so it states current
-   truth. Append the narrative of what happened to the plan's `JOURNAL/`
-   day-file with `mkplan.bash --journal` (see "Journal entries" above) —
+   truth. Record the narrative of what happened as an entry in the plan's
+   `JOURNAL/` with `mkplan.bash --journal` (see "Journal entries" above) —
    never to `PLAN.md`. See [CLAUDE/PlanJournalling.md](../PlanJournalling.md).
 
 ### Handling Changes

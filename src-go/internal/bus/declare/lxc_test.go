@@ -2,7 +2,10 @@ package declare
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +44,18 @@ func TestLxcMembers(t *testing.T) {
 	}
 }
 
+// The root refusal is members.py's own words (ROOT_USER_REFUSAL), which declare.py prints.
+func TestTheRootRefusalIsMembersPys(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "helpers", "agent_bus_lxc", "members.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, tail, ok := strings.Cut(rootUserRefusal, "container, ")
+	if !ok || !strings.Contains(string(src), "ROOT_USER_REFUSAL = (\""+head+"container, \"\n                     \""+tail+"\")") {
+		t.Fatalf("members.py ROOT_USER_REFUSAL is not %q", rootUserRefusal)
+	}
+}
+
 func TestLxcMembersRefusals(t *testing.T) {
 	head := "agent_bus_lxc_members:\n  - team: alpha\n    container: c\n    user: u\n"
 	entry := func(extra string) string { return head + "    checkout: /x\n" + extra }
@@ -53,6 +68,7 @@ func TestLxcMembersRefusals(t *testing.T) {
 		{"agent_bus_lxc_members:\n  - team: \"alpha\"\n    container: c\n    user: u\n    checkout: /x\n    state: [\"absent\"]\n", "line 6: state must be one of present, absent"},
 		{"agent_bus_lxc_members:\n  - team: alpha\n    container: -c\n    user: u\n", "agent_bus_lxc_members entry 1: container must be an LXC container name"},
 		{"agent_bus_lxc_members:\n  - team: alpha\n    container: c\n    user: U\n", "agent_bus_lxc_members entry 1: user must be a user name"},
+		{"agent_bus_lxc_members:\n  - team: alpha\n    container: c\n    user: root\n", "agent_bus_lxc_members entry 1: " + rootUserRefusal},
 		{entry("    host: 5\n"), "agent_bus_lxc_members entry 1: host must be a string"},
 		{entry("    host: \"\"\n"), "agent_bus_lxc_members entry 1: host: no role is set for this install: pass --host"},
 		{entry("    host: -bad-\n"), "agent_bus_lxc_members entry 1: host: host '-bad-' does not fit [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])? once normalised"},

@@ -5,7 +5,7 @@ _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
 the model's prose. Standard library only; the host-side commands read the values the product owns
-from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
+from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py), `rendered-team` (bridge.py),
 `session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
 table.go), `hot-marks` (hot.go), `session-names` (seat.py), `membership-dirs` (ccy-teams'
 membership package), and `status-line-names` and `expect-segment` (statusline.go and
@@ -14,6 +14,8 @@ statusline.py). Commands
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
+  rendered-team TEAMFILE             the team file as play-agent-bus.yml renders it to install:
+                                     the LXC bridge's subnet added (bridge.py), state present
   bus-ports N OWNER_HOST_VARS        N ports by declare.py's finder, clear of the owner's and
                                      of every listening port, one per line
   launch-conf-clean CONF TEAM[,TEAM]   ccy's Quick Launch record names none of the teams
@@ -43,7 +45,10 @@ statusline.py). Commands
                                      relaunch request's file name (membership.go, desired.go)
   status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
   product-value FILE NAME [FILL...]  any named text of this checkout's helpers/ module or src-go/ file (NAME[key] for a
-                                     table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d
+                                     table's entry), placeholders filled: key=value for {key}, in order for Go %s/%d;
+                                     a helpers/ function naming a text (checkout.py hs_unit) is called with the FILLs
+  product-pattern FILE NAME [PATTERN...]  the same text as a grep -P pattern: fixed parts quoted, each placeholder
+                                     the PATTERN given (key=PATTERN for {key}, in order for Go)
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
@@ -57,6 +62,7 @@ Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not ther
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import os
 import pathlib
@@ -99,8 +105,6 @@ _PIECE_TEAM, _PIECE_MEMBER, _PIECE_LETTER = "\x00\x01\x00", "\x00\x02\x00", "\x0
 #: A mark after a team's role, such as `(down)`; a mark of something unreadable (`(colour?)`)
 #: has a `?` and is not one of these.
 _SEGMENT_MARKS = r"(?: \([a-z]+\))*"
-#: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
-CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
 
 class Failed(Exception):
@@ -145,6 +149,19 @@ def team_file(
         "forge_api": GITHUB_API,
         "description": description,
     }
+
+
+def rendered_team(team: dict) -> dict:
+    """The team as play-agent-bus.yml renders the file it installs: allow_from by bridge.py's
+    `apply` on the live bridge (the declared list plus the LXC bridge's subnet), and
+    `state: present`. Installed any other way, the team's first play changes its unit drop-in
+    and restarts its homeserver, and the board calls it out of date until then."""
+    bridge = _checkout_module("helpers.agent_bus.bridge")
+    try:
+        rendered = bridge.apply(bridge.live_subnet(), [team])["teams"][0]
+    except bridge.BridgeError as exc:
+        raise Failed(str(exc)) from None
+    return {**rendered, "state": "present"}
 
 
 def host_vars(teams: Sequence[dict]) -> str:
@@ -259,8 +276,8 @@ def say_outcome(status: int, stderr: str) -> int:
         return EXIT_OK
     if (
         status == 64
-        and CHOICES_TEXT in stderr
-        and "no verified team record yet" in stderr
+        and choices_head() in stderr
+        and no_record_yet() in stderr
     ):
         return EXIT_NOT_YET
     return EXIT_FAIL
@@ -421,22 +438,30 @@ def expect_list_row(
         )
 
 
-def expect_block(stderr: str, seats: Sequence[tuple[str, str, str]]) -> None:
-    """S-C4: "This session is on N teams:" then one line per seat, team, seat, role, description."""
+#: ccy-teams' launch block, whose head and seat line are read from its named texts.
+CHOOSE_GO = "src-go/internal/teams/choose/choose.go"
+
+
+def expect_block(stderr: str, seats: Sequence[tuple[str, str, str]], source: str | None = None) -> None:
+    """S-C4: the head ("This session is on N teams:") then one line per seat: team, seat, role,
+    description, each as choose.go's named texts (`source`, default the file) print them."""
     lines = stderr.splitlines()
-    noun = "team" if len(seats) == 1 else "teams"
-    head = f"This session is on {len(seats)} {noun}:"
+    noun = product_value(CHOOSE_GO, "blockNounOne" if len(seats) == 1 else "blockNounMany", source=source)
+    head = product_value(CHOOSE_GO, "blockHead", [str(len(seats)), noun], source)
     if head not in lines:
         raise Failed(f"no launch block line {head!r}")
     start = lines.index(head) + 1
     width = max(len(team) for _, team, _ in seats)
+    fixed, _ = _product_parts(CHOOSE_GO, "blockLine", ["", "", "", ""], source)
+    if len(fixed) != 5:
+        raise Failed(f"{CHOOSE_GO} blockLine has not the four fields team, seat, role, description: {fixed!r}")
     problems = []
     for offset, (seat, team, description) in enumerate(seats):
         got = lines[start + offset] if start + offset < len(lines) else ""
+        lead, after_team, after_seat, after_role, tail = (re.escape(part) for part in fixed)
         want = re.compile(
-            re.escape(f"  {team:<{width}}  seat {seat} (")
-            + r"[^()]+"
-            + re.escape(f")  {description}")
+            lead + re.escape(f"{team:<{width}}") + after_team + re.escape(seat) + after_seat
+            + r"[^()\[\]]+" + after_role + re.escape(description) + tail
         )
         if not want.fullmatch(got):
             problems.append(
@@ -479,9 +504,20 @@ def expect_sent(text: str, team: str) -> str:
     return lines[0][3]
 
 
+def choices_head() -> str:
+    """pingbus's refusal when several teams are active and none is inferred (cli.py)."""
+    return product_value("helpers/pingbus/cli.py", "CHOICES_HEAD")
+
+
+def no_record_yet() -> str:
+    """Why pingbus cannot judge a team before its first verified record (inbox.py)."""
+    return product_value("helpers/pingbus/inbox.py", "NO_RECORD_YET")
+
+
 def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
-    if CHOICES_TEXT not in stderr:
-        raise Failed(f"the refusal does not say {CHOICES_TEXT!r}: {stderr!r}")
+    head = choices_head()
+    if head not in stderr:
+        raise Failed(f"the refusal does not say {head!r}: {stderr!r}")
     lines = stderr.splitlines()
     missing = [
         f"  {team}  {description}"
@@ -645,6 +681,18 @@ def membership_dirs(membership_go: str | None = None, desired_go: str | None = N
 
 
 _PRODUCT_NAME_RE = re.compile(r"(?P<name>[A-Za-z_]\w*)(?:\[(?P<key>[\w-]+)\])?")
+
+
+def _is_function(value: object) -> bool:
+    """A plain function of a module (not a class, whose call would build an object)."""
+    return inspect.isfunction(value)
+
+
+def _names_function(rel: str, name: str) -> bool:
+    """Whether a helpers/ module's `name` is a function, whose fills are its arguments in order."""
+    if not (rel.startswith("helpers/") and rel.endswith(".py")):
+        return False
+    return _is_function(getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), name, None))
 _GO_VERB_RE = re.compile(r"%[-+ #0-9.]*[a-zA-Z]")
 
 
@@ -652,17 +700,27 @@ def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | 
     """A named text of this checkout's product, never a copy: a module-level constant of a
     helpers/ module (imported; a path is given as text; `NAME[key]` is one entry of a table), or
     a Go package-level string constant (read from `source`, default the file). `fills` complete
-    its placeholders: `key=value` for a Python `{key}`, in order for a Go `%s` or `%d`."""
+    its placeholders: `key=value` for a Python `{key}`, in order for a Go `%s` or `%d`. A helpers/
+    function that names a text from its arguments (checkout.py's `hs_unit(team)`) is called with
+    the fills, in order."""
     match = _PRODUCT_NAME_RE.fullmatch(name)
     if match is None:
         raise Failed(f"{name!r} is not a constant name")
     if rel.startswith("helpers/") and rel.endswith(".py"):
         value = getattr(_checkout_module(rel.removesuffix(".py").replace("/", ".")), match["name"], None)
-        if match["key"] is not None:
+        called = _is_function(value)
+        if called:
+            if match["key"] is not None:
+                raise Failed(f"{rel} {name}: a function has no entries")
+            try:
+                value = value(*fills)
+            except TypeError as e:
+                raise Failed(f"{rel} {match['name']} cannot be called with {list(fills)!r}: {e}") from e
+        elif match["key"] is not None:
             value = value.get(match["key"]) if isinstance(value, dict) else None
         if isinstance(value, pathlib.PurePath):
             value = str(value)
-        if fills and isinstance(value, str):
+        if fills and not called and isinstance(value, str):
             pairs = dict(fill.partition("=")[::2] for fill in fills)
             if set(pairs) != set(re.findall(r"\{(\w+)\}", value)):
                 raise Failed(f"{rel} {name} {value!r} has not one placeholder for each of {list(fills)!r}")
@@ -683,6 +741,34 @@ def product_value(rel: str, name: str, fills: Sequence[str] = (), source: str | 
     if not isinstance(value, str) or not value or "\n" in value:
         raise Failed(f"{rel} names no one-line text {name}: {value!r}")
     return value
+
+
+_SENTINEL_RE = re.compile("\x00([0-9]+)\x00")
+
+
+def _product_parts(rel: str, name: str, patterns: Sequence[str], source: str | None) -> tuple[list[str], list[str]]:
+    """The named text split at its placeholders: its fixed parts (one more than the placeholders)
+    and the pattern for each placeholder, in the text's order. A Python `{key}` takes the
+    `key=PATTERN` given for it; a Go verb, or a helpers/ function's argument, the next PATTERN."""
+    if rel.endswith(".py") and not _names_function(rel, name):
+        pairs = [pattern.partition("=") for pattern in patterns]
+        fills = [f"{key}=\x00{i}\x00" for i, (key, _, _) in enumerate(pairs)]
+        regexes = [regex for _, _, regex in pairs]
+    else:
+        fills = [f"\x00{i}\x00" for i in range(len(patterns))]
+        regexes = list(patterns)
+    pieces = _SENTINEL_RE.split(product_value(rel, name, fills, source))
+    return pieces[0::2], [regexes[int(i)] for i in pieces[1::2]]
+
+
+def product_pattern(rel: str, name: str, patterns: Sequence[str] = (), source: str | None = None) -> str:
+    """A named text of this checkout's product (as product_value reads it) as a Perl pattern for
+    `grep -P`: each fixed part quoted (`\\Q...\\E`), each placeholder the pattern given for it."""
+    fixed, regexes = _product_parts(rel, name, patterns, source)
+    if any(r"\E" in part for part in fixed):
+        raise Failed(f"{rel} {name} holds \\E, which a quoted part cannot")
+    quoted = [f"\\Q{part}\\E" if part else "" for part in fixed]
+    return "".join(q + r for q, r in zip(quoted, [*regexes, ""], strict=True))
 
 
 def status_line_names(source: str | None = None) -> list[str]:
@@ -878,6 +964,7 @@ def _team_file(a: Sequence[str]) -> None:
 #: name -> (argument count, or -1 for one or more, and the function).
 COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "team-file": (6, _team_file),
+    "rendered-team": (1, lambda a: print(json.dumps(rendered_team(_json_file(a[0])), indent=1))),
     "host-vars": (-1, lambda a: print(host_vars([_json_file(p) for p in a]), end="")),
     "bus-ports": (2, lambda a: _lines(owner_bus_ports(int(a[0]), a[1]))),
     "launch-conf-clean": (2, lambda a: launch_conf_clean(_read(a[0]), a[1].split(","))),
@@ -920,6 +1007,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "membership-dirs": (0, lambda a: _lines(membership_dirs())),
     "status-line-names": (0, lambda a: _lines(status_line_names())),
     "product-value": (-1, lambda a: _print(product_value(a[0], a[1], a[2:])) if len(a) >= 2 else _usage(2)),
+    "product-pattern": (-1, lambda a: _print(product_pattern(a[0], a[1], a[2:])) if len(a) >= 2 else _usage(2)),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,

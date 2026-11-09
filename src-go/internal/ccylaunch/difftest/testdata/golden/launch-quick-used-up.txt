@@ -11,7 +11,7 @@ remote does not use an ssh-config alias bound to GitHub.
 Git push operations will NOT work without SSH keys.
 
 To set up GitHub SSH keys, run:
-  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+  ansible-playbook playbooks/imports/play-github-cli-multi.yml
 
 Or specify a key manually:
   ccy --ssh-key ~/.ssh/<your-key>

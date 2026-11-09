@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ghlogin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -27,7 +28,7 @@ var usageText string
 
 const (
 	tool         = "gh-account-setup"
-	ghHost       = "github.com"
+	ghHost       = ghlogin.Host
 	scopesModule = "helpers.github_scopes.cli"
 	sshTimeout   = 15 * time.Second
 	playbook     = "playbooks/imports/play-github-cli-multi.yml"
@@ -91,8 +92,6 @@ type run struct {
 	startActive       string
 	executable        string
 	executableChecked bool
-	// passOptional: --check goes on without a passphrase, so its failure is a warning (E12).
-	passOptional bool
 }
 
 const (
@@ -147,7 +146,7 @@ func (r *run) main(ctx context.Context, opts options) term.ExitCode {
 	if err != nil {
 		return exitFor(ctx, err)
 	}
-	r.startActive = st.active
+	r.startActive = st.Active
 	// Every mode returns rather than exits, so the restore runs however the mode ended (E26);
 	// a signal only cancels ctx, which the restore does not use.
 	code := exitFor(ctx, r.runMode(ctx, opts))
@@ -303,22 +302,14 @@ func (r *run) preflight(ctx context.Context) error {
 func ghCmd(args ...string) execx.Cmd { return execx.Cmd{Name: "gh", Args: args} }
 
 // readStatus is gh's local view of the github.com accounts (E6).
-func (r *run) readStatus(ctx context.Context) (status, error) {
-	res, err := r.env.Runner.Run(ctx, ghCmd("auth", "status", "--hostname", ghHost, "--json", "hosts"))
-	if err != nil {
-		return status{}, fmt.Errorf("gh auth status failed: %w", err)
-	}
-	st, err := parseStatus(res.Stdout)
-	if err != nil {
-		return status{}, fmt.Errorf("gh auth status: %w: %q", err, strings.TrimSpace(string(res.Stdout)))
-	}
-	return st, nil
+func (r *run) readStatus(ctx context.Context) (ghlogin.Status, error) {
+	return ghlogin.Read(ctx, r.env.Runner)
 }
 
-func (r *run) status(ctx context.Context) (status, error) {
+func (r *run) status(ctx context.Context) (ghlogin.Status, error) {
 	st, err := r.readStatus(ctx)
 	if err != nil {
-		return status{}, r.failf("%v", err)
+		return ghlogin.Status{}, r.failf("%v", err)
 	}
 	return st, nil
 }
@@ -328,8 +319,12 @@ func (r *run) restore(ctx context.Context, code term.ExitCode) term.ExitCode {
 	if r.startActive == "" {
 		return code
 	}
-	if st, err := r.readStatus(ctx); err == nil && strings.EqualFold(st.active, r.startActive) {
+	st, err := r.readStatus(ctx)
+	if err == nil && strings.EqualFold(st.Active, r.startActive) {
 		return code
+	}
+	if err != nil {
+		r.warnf(r.err, "Could not read which account gh has active (%v), so it is switched back to %s anyway", err, r.startActive)
 	}
 	out, err := execx.Combined(ctx, r.env.Runner, ghCmd("auth", "switch", "--hostname", ghHost, "--user", r.startActive))
 	if err != nil {
@@ -409,13 +404,36 @@ func (r *run) takeGivenPassphrase() error {
 	return nil
 }
 
-// loadPassphrase is the passphrase from run.bash, else the vault's; it reports its failure.
+// loadPassphrase is the passphrase from run.bash, else the vault's. A vault that could not be
+// decrypted is a *decryptError, not yet printed: the caller says it, as a failure or (--check)
+// a warning. Every other failure is already reported.
 func (r *run) loadPassphrase(ctx context.Context) error {
 	if r.hasPass {
 		return nil
 	}
 	return r.decryptPassphrase(ctx)
 }
+
+// needPassphrase is loadPassphrase for a mode that cannot go on without it: a decrypt failure is
+// reported as the run's failure.
+func (r *run) needPassphrase(ctx context.Context) error {
+	err := r.loadPassphrase(ctx)
+	if failed, ok := errors.AsType[*decryptError](err); ok {
+		r.badf(r.err, "%s", failed.Error())
+		r.advicef(r.err, decryptAdvice)
+		return errReported
+	}
+	return err
+}
+
+// decryptError is why github_ssh_passphrase could not be read from the vault.
+type decryptError struct{ why string }
+
+func (e *decryptError) Error() string {
+	return "Failed to decrypt github_ssh_passphrase from the vault (" + e.why + ")"
+}
+
+const decryptAdvice = "Check the vault password file ansible.cfg names, or run run.bash first to set up the vault"
 
 func (r *run) decryptPassphrase(ctx context.Context) error {
 	cmd := execx.Cmd{
@@ -442,27 +460,17 @@ func (r *run) decryptPassphrase(ctx context.Context) error {
 	res, err := r.env.Runner.Run(ctx, cmd)
 	if err != nil {
 		// An execx.ExitError's text carries ansible's stderr, so it is not printed again.
-		return r.decryptFailed("ansible failed: " + err.Error())
+		return &decryptError{why: "ansible failed: " + err.Error()}
 	}
 	pass, err := parseVaultOutput(string(res.Stdout))
 	if err != nil {
-		return r.decryptFailed(err.Error())
+		return &decryptError{why: err.Error()}
 	}
 	if r.pass, err = execx.NewSecret(askpassSecretVar, pass); err != nil {
-		return r.decryptFailed(err.Error())
+		return &decryptError{why: err.Error()}
 	}
 	r.hasPass = true
 	return nil
-}
-
-func (r *run) decryptFailed(why string) error {
-	report := r.badf
-	if r.passOptional {
-		report = r.warnf
-	}
-	report(r.err, "Failed to decrypt github_ssh_passphrase from the vault (%s)", why)
-	r.advicef(r.err, "Check the vault password file ansible.cfg names, or run run.bash first to set up the vault")
-	return errReported
 }
 
 // askpass is c set up to get the passphrase from this binary as its askpass program (E21).
@@ -498,7 +506,7 @@ func (r *run) add(ctx context.Context, a account) error {
 		r.infof(r.err, "Account '%s' is already in %s", c.alias, r.yml)
 		a, configured = c, true
 	}
-	if err := r.loadPassphrase(ctx); err != nil {
+	if err := r.needPassphrase(ctx); err != nil {
 		return err
 	}
 	if !configured {
@@ -535,7 +543,7 @@ func (r *run) setupAll(ctx context.Context) error {
 	} else {
 		r.infof(r.err, "Each account needs at most one browser authorisation, asking for every scope it lacks — log in as the correct user when prompted")
 	}
-	if err := r.loadPassphrase(ctx); err != nil {
+	if err := r.needPassphrase(ctx); err != nil {
 		return err
 	}
 	for _, a := range accounts {
@@ -579,8 +587,8 @@ func (r *run) auditHeadless(ctx context.Context, accounts []account) error {
 }
 
 // ghLogin is the account's login as gh spells it when gh holds it, else as configured.
-func ghLogin(st status, username string) string {
-	if l := st.login(username); l != "" {
+func ghLogin(st ghlogin.Status, username string) string {
+	if l := st.Login(username); l != "" {
 		return l
 	}
 	return username
@@ -601,7 +609,7 @@ func (r *run) setupAccount(ctx context.Context, a account) error {
 	if err != nil {
 		return err
 	}
-	login := st.login(a.username)
+	login := st.Login(a.username)
 	if login != "" {
 		r.okf(r.err, "Authenticated: %s", a.username)
 	} else if login, err = r.logIn(ctx, a, helper); err != nil {
@@ -672,17 +680,17 @@ func (r *run) logIn(ctx context.Context, a account, helper string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if !strings.EqualFold(st.active, u) {
-		r.badf(r.err, "Authenticated as '%s' but expected '%s'", st.active, u)
+	if !strings.EqualFold(st.Active, u) {
+		r.badf(r.err, "Authenticated as '%s' but expected '%s'", st.Active, u)
 		r.advicef(r.err, "You used the wrong browser profile")
-		if st.active != "" {
-			r.advicef(r.err, "Run: gh auth logout --hostname %s --user %s", ghHost, st.active)
+		if st.Active != "" {
+			r.advicef(r.err, "Run: gh auth logout --hostname %s --user %s", ghHost, st.Active)
 		}
 		r.advicef(r.err, "Then re-run this using the browser profile for '%s'", u)
 		return "", errReported
 	}
 	r.okf(r.err, "Authenticated: %s", u)
-	return st.active, nil
+	return st.Active, nil
 }
 
 func startFailure(err error) string {
@@ -758,7 +766,7 @@ func (r *run) switchTo(ctx context.Context, login string) error {
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(st.active, login) {
+	if strings.EqualFold(st.Active, login) {
 		return nil
 	}
 	out, err := execx.Combined(ctx, r.env.Runner, ghCmd("auth", "switch", "--hostname", ghHost, "--user", login))
@@ -827,15 +835,7 @@ func makeSSHDir(dir string) error {
 
 // token is the account's own gh token, so a call acts as it and not as the active account.
 func (r *run) token(ctx context.Context, login string) (execx.Secret, error) {
-	res, err := r.env.Runner.Run(ctx, ghCmd("auth", "token", "--hostname", ghHost, "--user", login))
-	if err != nil {
-		return execx.Secret{}, fmt.Errorf("gh holds no token for %s: %w", login, err)
-	}
-	s, err := execx.NewSecret("GH_TOKEN", strings.TrimSpace(string(res.Stdout)))
-	if err != nil {
-		return execx.Secret{}, fmt.Errorf("gh's token for %s: %w", login, err)
-	}
-	return s, nil
+	return ghlogin.Token(ctx, r.env.Runner, login)
 }
 
 // registered reports whether the key's .pub is on the account (E18).
@@ -949,11 +949,14 @@ func (r *run) check(ctx context.Context) error {
 		return nil
 	}
 	r.say(r.out, fmt.Sprintf("Checking %d GitHub account(s)", len(accounts)))
-	r.passOptional = true
-	switch err := r.loadPassphrase(ctx); {
-	case errors.Is(err, errVaultFileMissing):
-		return err
-	case err != nil:
+	// --check goes on without a passphrase, so a vault it cannot decrypt is a warning (E12).
+	if err := r.loadPassphrase(ctx); err != nil {
+		failed, ok := errors.AsType[*decryptError](err)
+		if !ok {
+			return err
+		}
+		r.warnf(r.err, "%s", failed.Error())
+		r.advicef(r.err, decryptAdvice)
 		r.warnf(r.err, "Could not decrypt the passphrase — SSH tests may be limited")
 	}
 	healthy := true
@@ -986,7 +989,7 @@ func (r *run) checkAccount(ctx context.Context, a account) bool {
 	login := ""
 	if st, err := r.readStatus(ctx); err != nil {
 		issue("Auth: could not be read (%v)", err)
-	} else if login = st.login(a.username); login != "" {
+	} else if login = st.Login(a.username); login != "" {
 		r.okf(r.out, "Auth: OK")
 	} else {
 		issue("Auth: not authenticated as %s", a.username)

@@ -196,7 +196,8 @@ func (a answers) context() string {
 func (a answers) where2() string { return "(container " + a.container + ", user " + a.user + ")" }
 
 // Run is ccy-teams lxc-add with the arguments after "lxc-add". It returns the exit code:
-// 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
+// 0 done or declined, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal
+// code.
 func (a *Adder) Run(ctx context.Context, args []string) term.ExitCode {
 	a.term = a.NewTerm()
 	a.asked = 0
@@ -212,7 +213,7 @@ func (a *Adder) Run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		a.term.Printf("%s\n", de.Error())
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	a.term.PrintError(err.Error())
 	return term.ExitFailure
@@ -231,6 +232,14 @@ func (a *Adder) failed(msg string) error {
 func (a *Adder) cancelled() error {
 	a.term.Printf("Cancelled; nothing was changed.\n")
 	return &stop{term.ExitCancelled}
+}
+
+// declined is a person's No or Stop: nothing is done, by choice, and the run succeeds, as a No
+// does in shutdown, restart and wind-down; Esc is the cancel (130). In the picker it goes back to
+// the list (Plan 00201 Task 2.29).
+func (a *Adder) declined(msg string) error {
+	a.term.Printf("%s\n", msg)
+	return &stop{term.ExitOK}
 }
 
 // gumErr is a gum question's error: leaving it is the run's cancellation.
@@ -318,8 +327,7 @@ func (a *Adder) sayDeclared(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if choice != update {
-		a.term.Printf("Nothing was changed. ccy-teams apply %s joins it as declared.\n", ans.team)
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was changed. ccy-teams apply " + ans.team + " joins it as declared.")
 	}
 	return nil
 }
@@ -428,9 +436,9 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 	}
 	parts := make([]string, 0, len(roster.Members))
 	for _, m := range roster.Members {
-		state := "active"
+		state := agentbus.WordNotParked
 		if m.Parked {
-			state = "parked"
+			state = agentbus.WordParked
 		}
 		parts = append(parts, m.Handle+"="+state)
 	}
@@ -645,13 +653,13 @@ func (a *Adder) checked(err error) (bool, error) {
 	}
 	if !errors.Is(err, declare.ErrRefused) {
 		a.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
-		return false, &stop{term.ExitCode(de.Code)}
+		return false, &stop{term.FromChild(de.Code)}
 	}
 	file := term.AbbrevHome(a.HostVars, a.Home)
 	a.problem(de.Error(), false)
 	a.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix the entry it names in %s, "+
 		"then run ccy-teams lxc-add %s again; nothing was changed.\n", file, file, a.team)
-	return false, &stop{term.ExitCode(de.Code)}
+	return false, &stop{term.FromChild(de.Code)}
 }
 
 // summary checks the whole entry as one (a second coordinator, a duplicate), shows what will
@@ -668,7 +676,7 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 	if _, err := a.Declare.LxcAddDryRun(ctx, check, ans.writes() == writeUpdate); err != nil {
 		if de, ok := errors.AsType[*declare.Error](err); ok {
 			a.term.Printf("%s\nRefused; nothing was changed.\n", de.Error())
-			return &stop{term.ExitCode(de.Code)}
+			return &stop{term.FromChild(de.Code)}
 		}
 		return err
 	}
@@ -698,8 +706,7 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if !yes {
-		a.term.Printf("Nothing was added.\n")
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was added.")
 	}
 	return nil
 }
@@ -713,8 +720,7 @@ func (a *Adder) confirmApply(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if !yes {
-		a.term.Printf("Nothing was changed; ccy-teams apply %s joins it later.\n", ans.team)
-		return &stop{term.ExitFailure}
+		return a.declined("Nothing was changed; ccy-teams apply " + ans.team + " joins it later.")
 	}
 	return nil
 }
@@ -818,7 +824,7 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 		"(ccy --teams, with no value)\n", ans.checkout, launcher)
 	a.term.Printf("  Check    set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1"+
 		"   (reads %s's room live, as this member)\n", ans.team)
-	a.term.Printf("  GitHub   the play checked that %s is logged in to GitHub there, and agent-bus-claude refuses to start "+
+	a.term.Printf("  GitHub   the play installed gh there if it was missing and checked that %s is logged in to GitHub, and agent-bus-claude refuses to start "+
 		"until it is; if it is ever logged out: gh auth login --hostname github.com, as %s.\n", ans.user, ans.user)
 	return nil
 }
@@ -857,9 +863,8 @@ func (a *Adder) declareAndApply(ctx context.Context, ans answers) error {
 				ans.takeover.holder, ans.team, ans.team)
 		}
 		return a.failed(ans.label() + " is declared in " + term.AbbrevHome(a.HostVars, a.Home) + " but not joined. " +
-			"If the cause above is about gh, log in inside the container as " + ans.user + ":\n" +
-			"  " + a.attach(ans) + "     (then gh auth login, and exit)\n" +
-			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
+			"If the cause above is gh's login, run the command it gives (gh shows a one-time code to enter at GitHub). " +
+			"Once the cause is fixed, ccy-teams lxc-add " + ans.team + " again, or ccy-teams apply " + ans.team + ", joins it.")
 	}
 	return nil
 }

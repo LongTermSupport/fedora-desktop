@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -210,5 +211,29 @@ func TestAFeedIsCheckedAndRefusedWhereItCannotBeFed(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprintf("%v %+v %#v", fed, fed, fed), placeholder) {
 		t.Error("a Cmd with a Feed printed the secret")
+	}
+}
+
+func TestWriteFileWritesTheValueAloneToANewPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := mustSecret(t, "PW").WriteFile(dir, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir + "/pw")
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v %v", info, err)
+	}
+	got, err := fs.ReadFile(os.DirFS(dir), "pw")
+	if err != nil || string(got) != placeholder {
+		t.Fatalf("file %q %v", got, err)
+	}
+	for _, tc := range []struct{ dir, name, why string }{
+		{dir, "pw", "wrote over a file that was there"},
+		{dir + "/absent", "pw", "wrote into a directory that is not there"},
+		{dir, "../pw", "wrote outside its directory"},
+	} {
+		if err := mustSecret(t, "PW").WriteFile(tc.dir, tc.name); err == nil {
+			t.Error("WriteFile " + tc.why)
+		}
 	}
 }

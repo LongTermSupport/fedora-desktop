@@ -41,6 +41,7 @@ done
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/rerun-plays-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
@@ -64,6 +65,12 @@ EOF
 for name in play-a play-b play-c play-d; do
     printf -- '- hosts: localhost\n  tasks: []\n' >"$CHECKOUT/playbooks/imports/$name.yml"
 done
+mkdir -p "$CHECKOUT/playbooks/imports/optional/common"
+for name in play-o1 play-o2; do
+    printf -- '- hosts: localhost\n  tasks: []\n' >"$CHECKOUT/playbooks/imports/optional/common/$name.yml"
+done
+O1="playbooks/imports/optional/common/play-o1.yml"
+O2="playbooks/imports/optional/common/play-o2.yml"
 A="playbooks/imports/play-a.yml"
 B="playbooks/imports/play-b.yml"
 C="playbooks/imports/play-c.yml"
@@ -167,6 +174,22 @@ check "exits with the failed play's status" "4" "$rc"
 check "runs up to and including the failure" "play-a.yml play-b.yml " "$(plays_run)"
 check "names the one not run" "yes" "$(yes_if grep -q "Not run: $C" <<<"$out")"
 
+echo "=== an optional play's failure does not stop the run (Plan 00228 Task 6.6) ==="
+printf 'PLAY stale %s\nPLAY stale %s\nPLAY stale %s\n' "$A" "$O1" "$O2" >"$MARKERS"
+run_rerun 'a\n' FAKE_FAIL_PLAY=play-o1.yml -- --rerun
+check "a failed optional play: exit 1" "1" "$rc"
+check "the plays after it still run" "play-a.yml play-o1.yml play-o2.yml " "$(plays_run)"
+check "the summary names the failed optional play" "yes" "$(yes_if grep -qF "$O1: failed (exit 4)" <<<"$out")"
+check "and the one installed" "yes" "$(yes_if grep -qF "$O2: installed" <<<"$out")"
+check "and does not claim every play ran" "no" "$(yes_if grep -q 'All 3 selected' <<<"$out")"
+run_rerun 'a\n' FAKE_FAIL_PLAY=play-a.yml -- --rerun
+check "a failed main play still stops the run, with its status" "4" "$rc"
+check "before the optional plays" "play-a.yml " "$(plays_run)"
+run_rerun 'a\n' -- --rerun
+check "main and optional plays all passing: exit 0" "0" "$rc"
+check "says they all ran" "yes" "$(yes_if grep -q 'All 3 selected play(s) ran' <<<"$out")"
+printf 'PLAY stale %s\nPLAY current %s\nPLAY failed %s\nPLAY unresolved %s\n' "$A" "$B" "$C" "$D" >"$MARKERS"
+
 echo "=== a mistyped answer is named and asked again ==="
 run_rerun 'banana\n2\n' -- --rerun
 check "a typo then a valid pick: exits 0" "0" "$rc"
@@ -246,6 +269,8 @@ run_rerun '1\n' -- --rerun --optional-only
 check "with --optional-only: refused" "1" "$rc"
 run_rerun '1\n' -- --rerun --headless
 check "headless: refused (it asks before running anything)" "1" "$rc"
+check "naming --changed --yes as the unattended form" "yes" "$(yes_if grep -q -- '--changed --yes' <<<"$out")"
+check "and before the provisioning preflight asks for its input" "no" "$(yes_if grep -q 'RUN_BASH_USER_EMAIL' <<<"$out")"
 run_rerun '1\n' -- --rerun --changed
 check "with --changed: refused" "1" "$rc"
 check "none of those ran anything" "" "$(plays_run)"

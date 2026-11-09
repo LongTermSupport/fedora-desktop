@@ -48,7 +48,7 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 		return seatCode
 	}
 	if !c.exists && len(roster.Members) >= rosterLimit {
-		x.mark(markFailed, fmt.Sprintf("seat %s: %s has %d agents, the most a team can have: park or remove a member first (ccy-teams, Ctrl-X on a member)",
+		x.mark(markFailed, fmt.Sprintf("seat %s: %s has %d agents, the most a team can have: park or remove a member first (ccy-teams, Enter on a member)",
 			c.seat, team, len(roster.Members)))
 		return term.ExitFailure
 	}
@@ -105,7 +105,7 @@ func (x *Hot) teamUp(ctx context.Context, team string) (agentbus.Roster, term.Ex
 		return agentbus.Roster{}, term.ExitFailure, false
 	}
 	if state != systemd.HomeserverUp {
-		x.mark(markFailed, "team "+team+": homeserver for "+team+" is down: systemctl status agent-bus-hs@"+team)
+		x.step(markFailed, fmt.Sprintf(stepTeamNamed, team), fmt.Sprintf(teamDown, team, team))
 		return agentbus.Roster{}, term.ExitFailure, false
 	}
 	roster, err := x.Host.Bus.List(ctx, team)
@@ -162,10 +162,10 @@ func (x *Hot) pickSeat(ctx context.Context, t *target, team, given string) (choi
 		}
 		k := discover.Key{Dir: t.checkout(), Team: team, Seat: seat}
 		if others := claims.live.DesiredBy(k); len(others) > 0 {
-			return "named by session " + others[0] + ", which has not taken it yet"
+			return fmt.Sprintf(namedByOther, others[0])
 		}
 		if owner := claims.restored.SessionOf(k); owner != "" {
-			return "named by session " + owner + "'s record, which a restore starts again"
+			return fmt.Sprintf(namedByRecord, owner)
 		}
 		return ""
 	}
@@ -178,7 +178,7 @@ func (x *Hot) pickSeat(ctx context.Context, t *target, team, given string) (choi
 		x.mark(markFailed, "seat "+c.seat+": "+why)
 		return choice{}, exitBusy, false
 	}
-	x.mark(markDone, "seat "+c.seat+": free, not named by any session in "+term.AbbrevHome(t.checkout(), x.Host.Home))
+	x.step(markDone, fmt.Sprintf(stepSeatNamed, c.seat), fmt.Sprintf(seatFree, term.AbbrevHome(t.checkout(), x.Host.Home)))
 	return c, term.ExitOK, true
 }
 
@@ -338,7 +338,7 @@ func (x *Hot) apply(ctx context.Context, t *target, team string, c choice, alloc
 		inbound = *w.rep.Inbound
 	}
 	if inbound {
-		x.say("Done. The session is told it joined " + team + " as " + c.handle + ". Nothing restarted.")
+		x.say(fmt.Sprintf(doneJoinedNothingRestarted, team, c.handle))
 		return term.ExitOK
 	}
 	if t.cc() {
@@ -384,8 +384,12 @@ type waited struct {
 func (x *Hot) waitHeld(ctx context.Context, t *target, team, seat string) waited {
 	start := x.Now()
 	for {
-		if x.ended(ctx, t) {
-			return waited{why: "session ended during the add; seat " + seat + " left free", ended: true}
+		ended, err := x.ended(ctx, t)
+		if err != nil {
+			return waited{why: fmt.Sprintf("seat %s: whether %s still runs could not be read: %v", seat, t.session, err)}
+		}
+		if ended {
+			return waited{why: fmt.Sprintf(endedDuringAdd, seat), ended: true}
 		}
 		held, heldErr := x.isHeld(ctx, t, team, seat)
 		rep, repErr := membership.ReadReport(t.checkout(), t.session)
@@ -424,15 +428,18 @@ func whyNot(rep membership.Report, repErr error, team, seat string, generation i
 // message (H34), so it is asked to relaunch once, through the supervisor's restart, which
 // replays the record.
 func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.ExitCode {
-	x.say("  " + t.session + " started on no team, so it relaunches once, at its next idle moment, to accept team messages (up to " +
-		seconds(x.Waits.Relaunch) + ").")
+	x.say(fmt.Sprintf(relaunchesOnce, t.session, seconds(x.Waits.Relaunch)))
 	if err := membership.WriteRelaunch(t.dir, t.desired.Generation, x.Now()); err != nil {
 		x.mark(markFailed, "session: the relaunch could not be asked for: "+err.Error())
 		return term.ExitFailure
 	}
 	start := x.Now()
+	// A look that fails mid-relaunch (two containers for a moment) is looked at again; the last
+	// failure is said if the wait runs out.
+	var lookErr error
 	for x.Now().Sub(start) < x.Waits.Relaunch {
 		id, err := x.container(ctx, t.session)
+		lookErr = err
 		if err == nil && id != "" && id != t.container {
 			rep, repErr := membership.ReadReport(t.checkout(), t.session)
 			if repErr != nil && !errors.Is(repErr, os.ErrNotExist) {
@@ -441,12 +448,16 @@ func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.E
 				return term.ExitFailure
 			}
 			if repErr == nil && rep.Holds(team, seat) && rep.Inbound != nil && *rep.Inbound {
-				x.mark(markDone, fmt.Sprintf("session: relaunched once to accept team messages (it started on no team): resumed, seat %s held (%.0f s)",
-					seat, x.elapsed(start)))
+				x.step(markDone, stepSession, fmt.Sprintf(relaunchedOnce, seat, x.elapsed(start)))
 				return term.ExitOK
 			}
 		}
 		x.Sleep(x.Waits.Poll)
+	}
+	if lookErr != nil {
+		x.mark(markFailed, "session: whether it relaunched could not be read within "+seconds(x.Waits.Relaunch)+": "+lookErr.Error()+
+			". The request stays, so it relaunches at its next idle moment; run ccy-teams session list to see it.")
+		return term.ExitFailure
 	}
 	x.mark(markFailed, "session: not relaunched within "+seconds(x.Waits.Relaunch)+". It holds seat "+seat+
 		" but cannot be woken by team messages yet. The request stays, so it relaunches at its next idle moment; "+
@@ -487,7 +498,7 @@ func (x *Hot) alreadyIn(ctx context.Context, t *target, s membership.Seat, given
 	x.mark(markSkip, "record: --teams "+membership.Canonical(t.desired.Seats))
 	x.mark(markSkip, fmt.Sprintf("membership: generation %d already names seat %s", t.desired.Generation, s.Seat))
 	x.mark(markSkip, "session: seat "+s.Seat+" held")
-	x.say("Nothing to do: " + t.session + " is already in " + s.Team + " as seat " + s.Seat + ".")
+	x.say(fmt.Sprintf(alreadyIn, t.session, s.Team, s.Seat))
 	return term.ExitOK
 }
 

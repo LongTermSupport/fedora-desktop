@@ -8,8 +8,8 @@ Do these in order, once. Each step names what you should see.
    pingbus plugin 1.2.3, Tuwunel 1.9.4, ccy-teams with the sign-in fixes); those deploys also
    applied every team. The deploy queue is empty, so do not run `meta-deploy.bash`.
 2. **Look at the teams.** In a terminal, `cd ~` first, then `ccy-teams`. Run it from your home
-   folder: inside a checkout it may offer to start a session there (default Yes), or to create
-   a team for it (default No). Every team row should read **up** and **up to date**. If it opens
+   folder: inside a checkout it may offer to start a session there, or to create
+   a team for it (both default No). Every team row should read **up** and **up to date**. If it opens
    with "Not as declared: ..." and "Update them now (play-agent-bus.yml)?", answer Yes. If it
    says "Team ... has no description.", choose "Describe <team> now" and write one line, or
    "Not now (ask again next time)" (Esc is the same); only "Never ask about <team>" stops it
@@ -39,17 +39,18 @@ Do these in order, once. Each step names what you should see.
    Next time, press Enter on any team row and choose **Open every team in Element, a window each**.
 5. **Start the agents with `ccy`, not `cc --teams`.** `cc` runs as you on the desktop, beside
    your Element sign-in, so a misbehaving agent there could post as you. A ccy session runs
-   in a container. In each project checkout run `ccy --teams`. If only one team covers the
-   checkout, it says "Team ... works on ..." and takes it without a list. Otherwise, Tab marks
-   teams and Enter takes them. For each team, "Team `<team>`: which seat does this session
+   in a container. In each project checkout run `ccy --teams`. If the machine has only
+   one team and it covers the checkout, it says "Team ... works on ..." and takes it without a
+   list. With two or more teams the list is shown, covering teams first, even when only one
+   covers the checkout: Tab marks teams and Enter takes them. For each team, "Team `<team>`: which seat does this session
    take?": take the default. For a seat that already exists you are asked its role: the first
    line, **Keep as is: ...**, or **Make coordinator** for the agent that should take your
    requests (one per team; sudo asks). A **new** seat is not asked: it joins as a worker. To
    make it the coordinator later, in `ccy-teams` press Enter on its seat, then **Make
    coordinator**, then Yes.
 6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
-   one line per seat with its role and the team's description. The status line ends
-   `👥 <team> (<role>)` (several teams: `👥 <team> (<role>), <team> (<role>)`); a red
+   one line per seat with its role and the team's description. The status line has a row
+   `👥 <team>: <repo>.<seat> (w)` (`c` for a coordinator; several teams: `👥 <team>: <repo>.<seat> (w), <team>: <repo>.<seat> (w)`); a red
    `👥 no record ...` or a `(role?)` is a
    fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
    line under **Quick Launch Available**, and Enter takes them again.
@@ -90,11 +91,14 @@ team covers, whose own status line is a hooks daemon's.
 02. Tab-mark A and B, then Enter. For each, the scope question names the repository; choose
     Add for A and "Join without adding" for B.
 03. Before step 01, note `systemctl show -P ActiveEnterTimestamp agent-bus-hs@A agent-bus-hs@B`;
-    check that `play-agent-bus.yml` ran once, for A only (its output has no `restarted` line for
-    a homeserver), and that both timestamps are unchanged afterwards.
+    check that `play-agent-bus.yml` ran once, for A only, and that both timestamps are unchanged
+    afterwards. The timestamps are the evidence of no restart: the play prints only
+    `changed: (item=A)` for the install task, never the installer's own `restarted` line.
 04. Each team asks for its seat; an existing seat then asks its role (choose **Keep as is**).
     The launch block reads "This session is on 2 teams:", with each seat and description.
-05. In the session, the status line shows `👥 A,B` on its own row, below the checkout's own status line.
+05. In the session, the status line shows each seat on its own row, below the checkout's own
+    status line: `👥 A: <repo>.<seat> (w), B: <repo>.<seat> (w)` (the role's letter, `c` for a
+    coordinator).
     A red `👥 no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
     an `ABOUT` line for each team that has a description.
 06. Ask the other agent on A to ping this session, then the one on B. The session is woken once
@@ -102,24 +106,37 @@ team covers, whose own status line is a hooks daemon's.
     Element.
 07. Run `ccy-teams`: A's row shows its description (cut to fit) and **up to date**. The board
     has no scope column: in the same checkout `ccy-teams for-checkout` prints A (and `ccy --teams` now shows A as "covers owner/repo").
-08. In a host checkout of another project, run `cc --teams` and mark A and B. To see the
-    consent question again, rename `~/.config/pingbus/element-accepted` first. The question
-    names both handles: answer No once (nothing is started or recorded, and a checkout that had
-    no `.claude/ccy/` still has none), then run it again and answer Yes.
-09. The cc session shows the launch block, and its status line shows `👥 A,B` on its own row. While it
+08. `cc --teams`'s consent question, answered No and then Yes. Nobody types this step:
+    [acceptance-consent.bash](acceptance-consent.bash) does it, run through `meta-deploy.bash`.
+    The question is asked only while the consent record (`element-accepted` under your passwd
+    home's `.config/pingbus`) does not exist, and no environment variable moves it. So the
+    script holds the record aside under another name in the same directory, and puts it back
+    however the run ends. A run killed outright leaves the held copy; the next run puts it back
+    first. On two throwaway teams, in a scratch checkout with no `.claude/`, it drives
+    `cc --teams` in a private tmux. The question must name both handles. After No, nothing is
+    started or recorded, and the checkout still has no `.claude/ccy/`. After Yes, the record
+    exists and both seats are held. Then the session ends, the seats are released, and the
+    teams are purged. A person is needed only if sudo asks for a password inside that tmux; the
+    script then prints how to attach, and waits.
+09. The cc session shows the launch block, and its status line shows each seat on its own
+    `👥` row, as in step 05. While it
     runs, `ls /tmp/pingbus-sessions-$(id -u)/` (or `$PINGBUS_SESSIONS_DIR` when set) shows one
     file for it; after you end it, that file is gone. A file still there means SessionEnd did
     not remove it: this step fails.
 10. If the scope added in step 02 should not stay, remove the repository from A's `repos` in
-    the host_vars and run `ccy-teams apply A`.
-11. One real Ctrl-P paste (a new password signs out your Element sessions of A, so do this
-    last and keep the new password). In `ccy-teams`, Ctrl-P on your row under A, answer Yes.
+    the host_vars and run `ccy-teams apply A` (or clear Repositories in A's **Edit settings**
+    and choose **Save and apply**). A's `ActiveEnterTimestamp`, as in step 03, is unchanged.
+11. One real New password paste (a new password signs out your Element sessions of A, so do
+    this last and keep the new password). In `ccy-teams`, Enter on your row under A, then New
+    password, answer Yes.
     With the Clipboard Indicator extension on (this repo's default), no copy is offered: one
-    line says the extension would use up the paste and keep the password, and the password is
-    typed from the screen; its menu in the top bar must not list the password. Then, in the
-    Extensions app, switch Clipboard Indicator off, Ctrl-P again and answer "Yes, copy the
-    password": paste it into Element's sign-in (Ctrl-V) and sign in; a second Ctrl-V anywhere
-    pastes nothing. Switch Clipboard Indicator back on.
+    line says the extension keeps the password in its history, and the password is typed from
+    the screen; its menu in the top bar must not list the password. Then, in the Extensions
+    app, switch Clipboard Indicator off, Enter on your row then New password again and answer
+    "Yes, copy the password": paste it into Element's sign-in (Ctrl-V) and sign in, then press
+    Enter in `ccy-teams`. It says the password was cleared, and a Ctrl-V anywhere pastes
+    nothing. Once more, but copy some other text before the Enter: it says the clipboard was
+    left as it is, and Ctrl-V pastes that text. Switch Clipboard Indicator back on.
 12. Shut a team's sessions down (Task 2.14, [SPEC-shutdown.md](SPEC-shutdown.md)). Use a
     throwaway team, or a real one whose sessions may end now, with a ccy session in a seat (two
     is better: leave one idle and one working on a long task). Keep one attached in a
@@ -127,9 +144,10 @@ team covers, whose own status line is a hooks daemon's.
     every session of `<team>`**. It lists each session (and any LXC agent as not reachable),
     then asks, with No highlighted: choose Yes. In the attached terminal you see `/exit` typed
     and the session end; the working one is interrupted first, then ends the same way. Each
-    line reads `exited cleanly; seat N@<team> released`. The list then shows those seats
-    **free**, and the team row still **up**. A line saying `stopped` or `failed` fails this
-    step: send it.
+    line reads `exited cleanly; seat N@<team> released`; a seat whose session had ended
+    already (a cc session from step 09) is listed as `no session running, nothing to shut down`, and the run does not fail on it. The list then shows those seats with SESSION
+    **free** (STATE stays `active`: the member is still on the team), and the team row still
+    **up**. A line saying `stopped` or `failed` fails this step: send it.
 13. A team's settings (Task 2.15, SPEC-many-teams.md section F). In `ccy-teams`, press Enter on
     a team's row and choose **Edit settings**. The screen's heading reads `Teams › <team> › Settings` over `team <team> · no changes waiting`, and it lists the description, people, GitHub owner, repositories, excluded
     repositories, path limit, allowed networks and coordinator with their values. Below them

@@ -21,7 +21,12 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # Freeze the timestamp once so every downstream task sees the same
     # value. Putting `lookup('pipe', 'date …')` in `vars:` directly
     # re-evaluates the lookup on every variable access — which created

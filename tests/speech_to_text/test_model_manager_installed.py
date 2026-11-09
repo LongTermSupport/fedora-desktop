@@ -1,4 +1,5 @@
-"""wsi-model-manager counts a model as installed only when its weights are on disk.
+"""wsi-model-manager counts a model as installed only when its weights are on disk, and
+offers only the models that fit this machine's GPU (Plan 00234).
 
 An interrupted download leaves a cache snapshot holding the small config files and no
 model.bin. The manager once counted any snapshot as installed, and then refused to
@@ -207,6 +208,7 @@ class DownloadAutoTest(unittest.TestCase):
             "#!/bin/sh\n"
             f'echo "$*" >> "{self.calls}"\n'
             'case "$*" in\n'
+            '  --realtime-models) echo tiny.en ;;\n'
             f'  *--suggest*) [ {suggest_rc} -eq 0 ] || '
             f'{{ echo "wsi-resolve-model: no GPU answer" >&2; exit {suggest_rc}; }}\n'
             f'    case "$*" in *"--mode batch"*) echo "{batch}" ;; *) echo "{streaming}" ;; esac ;;\n'
@@ -234,7 +236,8 @@ class DownloadAutoTest(unittest.TestCase):
         self.assertEqual([d["repo_id"] for d in self.downloads],
                          ["distil-whisper/distil-large-v3.5-ct2"])
         self.assertEqual(out.splitlines(), [
-            "WSI-MODEL-DOWNLOADED distil-large-v3.5 distil-whisper/distil-large-v3.5-ct2"])
+            "WSI-MODEL-DOWNLOADED distil-large-v3.5 distil-whisper/distil-large-v3.5-ct2",
+            "WSI-MODEL-PRESENT tiny.en Systran/faster-whisper-tiny.en"])
 
     def test_two_picks_are_both_downloaded(self):
         self.resolver("small", "base")
@@ -242,7 +245,7 @@ class DownloadAutoTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(sorted(d["repo_id"] for d in self.downloads),
                          ["Systran/faster-whisper-base", "Systran/faster-whisper-small"])
-        self.assertEqual(len(out.splitlines()), 2)
+        self.assertEqual(len(out.splitlines()), 3, "two picks and the real-time model")
 
     def test_the_download_is_anonymous_and_may_use_the_network(self):
         self.resolver("small", "small")
@@ -259,7 +262,8 @@ class DownloadAutoTest(unittest.TestCase):
     def test_each_mode_is_checked_on_disk_without_suggest_after_downloading(self):
         self.resolver("small", "base")
         self.run_flag()
-        checks = [c for c in self.calls.read_text().splitlines() if "--suggest" not in c]
+        checks = [c for c in self.calls.read_text().splitlines()
+                  if "--suggest" not in c and c.endswith(" auto")]
         self.assertEqual(sorted(checks), ["--mode batch --language en auto",
                                           "--mode streaming --language en auto"])
 
@@ -297,6 +301,260 @@ class DownloadAutoTest(unittest.TestCase):
             rc = manager.main(["--bogus"])
         self.assertEqual(rc, 2)
         self.app.assert_not_called()
+
+
+class DownloadRealtimeTest(unittest.TestCase):
+    """Plan 00234 Task 4.1: `--download-realtime` fetches each live preview model the
+    resolver lists (`--realtime-models`) that is not on disk, for play-speech-to-text.yml;
+    `--download-auto` fetches them too. One already on disk is not fetched again, so a
+    run with nothing missing needs no network. Every model is checked on disk afterwards
+    with the resolver, and any failure exits 1 with nothing on stdout."""
+
+    REPOS = {"tiny.en": "Systran/faster-whisper-tiny.en", "tiny": "Systran/faster-whisper-tiny"}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = pathlib.Path(self._tmp.name)
+        self.present = self.dir / "present"
+        self.present.mkdir()
+        self.downloads = []
+        self.lands = True
+        script = self.dir / "wsi-resolve-model"
+        script.write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  --realtime-models) [ -e "$STUB_LIST_FAILS" ] && { echo "wsi-resolve-model: broken" >&2; exit 1; }\n'
+            '    printf "tiny.en\\ntiny\\n" ;;\n'
+            '  *--suggest*) echo small ;;\n'
+            '  *) for last in "$@"; do :; done\n'
+            f'    [ -e "{self.present}/$last" ] || '
+            '{ echo "wsi-resolve-model: $last is not downloaded" >&2; exit 3; }\n'
+            '    echo "$last" ;;\n'
+            'esac\n')
+        script.chmod(0o755)
+        self.list_fails = self.dir / "list-fails"
+        for patcher in (mock.patch.object(manager, "RESOLVER", script),
+                        mock.patch.object(manager, "snapshot_download", self.fake_download),
+                        mock.patch.object(manager, "session_language", lambda: "en"),
+                        mock.patch.dict(manager.os.environ,
+                                        {"STUB_LIST_FAILS": str(self.list_fails)})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def fake_download(self, **kwargs):
+        self.downloads.append(kwargs["repo_id"])
+        name = next((n for n, repo in self.REPOS.items() if repo == kwargs["repo_id"]), None)
+        if self.lands and name:
+            (self.present / name).touch()
+
+    def on_disk(self, *names):
+        for name in names:
+            (self.present / name).touch()
+
+    def run_flag(self, flag="--download-realtime"):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = manager.main([flag])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_each_missing_real_time_model_is_downloaded_and_reported(self):
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, list(self.REPOS.values()))
+        self.assertEqual(out.splitlines(), [f"WSI-MODEL-DOWNLOADED {n} {r}"
+                                            for n, r in self.REPOS.items()])
+
+    def test_a_model_on_disk_is_not_fetched_again(self):
+        self.on_disk("tiny.en", "tiny")
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, [], "a model on disk was fetched again")
+        self.assertEqual(out.splitlines(), [f"WSI-MODEL-PRESENT {n} {r}"
+                                            for n, r in self.REPOS.items()])
+
+    def test_a_download_error_fails_naming_the_repo(self):
+        def broken(**kwargs):
+            raise OSError("connection reset")
+
+        with mock.patch.object(manager, "snapshot_download", broken):
+            rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("connection reset", err)
+        self.assertIn("Systran/faster-whisper-tiny.en", err)
+
+    def test_a_download_that_leaves_no_weights_fails(self):
+        self.lands = False
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("tiny.en", err)
+        self.assertIn("not on disk", err)
+
+    def test_a_resolver_that_cannot_list_them_fails_before_any_download(self):
+        self.list_fails.touch()
+        rc, out, err = self.run_flag()
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(self.downloads, [])
+        self.assertIn("broken", err)
+
+    def test_download_auto_fetches_the_real_time_models_too(self):
+        self.on_disk("auto")
+        rc, out, err = self.run_flag("--download-auto")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.downloads, ["Systran/faster-whisper-small",
+                                          *self.REPOS.values()])
+        self.assertIn("WSI-MODEL-DOWNLOADED tiny.en Systran/faster-whisper-tiny.en",
+                      out.splitlines())
+
+
+class FitsThisMachineTest(unittest.TestCase):
+    """Plan 00234: the manager shows which models fit this machine's GPU, preselects the
+    biggest English-only one that does, and refuses to download one that does not. The
+    sizes and the fit rule are wsi-resolve-model's (`--fit`), so these tests build the
+    machine's report with the resolver's own fit_report."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resolver = stt_stubs.load_script("wsi-resolve-model", "wsi_resolve_model_fit")
+
+    def report(self, gpu=("NVIDIA RTX A2000 Laptop GPU", 4096)):
+        return self.resolver.fit_report(gpu)
+
+    def test_every_offered_model_has_a_size_and_the_resolvers_language(self):
+        report = self.report()
+        for model_id, _label, _repo, english_only, _desc in manager.MODELS:
+            self.assertIn(model_id, report["models"], model_id)
+            self.assertEqual(english_only, self.resolver.is_english_only(model_id), model_id)
+
+    def test_the_biggest_english_only_model_that_fits_is_preselected(self):
+        self.assertEqual(manager.best_english_fit(self.report()), "distil-large-v3.5")
+        self.assertEqual(manager.best_english_fit(self.report(("Small GPU", 2048))), "small.en")
+        self.assertEqual(manager.best_english_fit(self.report(None)), "distil-large-v3.5")
+
+    def test_nothing_is_preselected_when_no_english_model_fits(self):
+        self.assertIsNone(manager.best_english_fit(self.report(("Tiny GPU", 512))))
+
+    def test_a_model_too_big_is_refused_saying_what_it_needs_and_what_fits(self):
+        reason = manager.download_refusal("large-v3", self.report(), "")
+        self.assertIsNotNone(reason)
+        for phrase in ("Large v3", "4.4 GB", "4.0 GB", "NVIDIA RTX A2000 Laptop GPU",
+                       "Distil Large v3.5"):
+            self.assertIn(phrase, reason)
+
+    def test_a_model_that_fits_is_not_refused(self):
+        self.assertIsNone(manager.download_refusal("distil-large-v3.5", self.report(), ""))
+
+    def test_on_the_cpu_nothing_is_refused(self):
+        self.assertIsNone(manager.download_refusal("large-v3", self.report(None), ""))
+
+    def test_when_the_fit_cannot_be_told_every_download_is_refused_with_the_reason(self):
+        reason = manager.download_refusal("tiny", None, "nvidia-smi is not installed")
+        self.assertIn("nvidia-smi is not installed", reason)
+
+    def test_the_fit_column_says_fits_or_too_big_with_the_memory_needed(self):
+        report = self.report()
+        self.assertEqual(manager.fit_cell("distil-large-v3.5", report), "✓ fits (2.6 GB)")
+        self.assertEqual(manager.fit_cell("large-v3", report), "✗ too big (4.4 GB)")
+        self.assertEqual(manager.fit_cell("large-v3", self.report(None)), "CPU")
+        self.assertEqual(manager.fit_cell("tiny", None), "?")
+
+    def test_the_machine_line_names_the_gpu_or_says_the_cpu_is_used(self):
+        self.assertEqual(manager.machine_line(self.report(), ""),
+                         "GPU: NVIDIA RTX A2000 Laptop GPU, 4.0 GB")
+        line = manager.machine_line(self.report(None), "")
+        self.assertIn("No usable NVIDIA GPU", line)
+        self.assertIn("CPU", line)
+        self.assertIn("cannot tell", manager.machine_line(None, "nvidia-smi failed"))
+
+    def test_the_report_is_asked_of_the_resolver(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = pathlib.Path(tmp) / "wsi-resolve-model"
+            script.write_text(f"#!/bin/sh\necho \"$*\" > {tmp}/args\n"
+                              "echo '{\"device\": \"cpu\", \"gpu\": null, "
+                              "\"gpu_memory_mb\": null, \"models\": {}}'\n")
+            script.chmod(0o755)
+            with mock.patch.object(manager, "RESOLVER", script):
+                self.assertEqual(manager.machine_fit()["device"], "cpu")
+            self.assertEqual(pathlib.Path(tmp, "args").read_text().split(), ["--fit"])
+
+    def test_a_resolver_that_cannot_judge_raises_its_last_stderr_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = pathlib.Path(tmp) / "wsi-resolve-model"
+            script.write_text("#!/bin/sh\necho 'detail' >&2\n"
+                              "echo 'wsi-resolve-model: nvidia-smi failed' >&2\nexit 1\n")
+            script.chmod(0o755)
+            with mock.patch.object(manager, "RESOLVER", script), \
+                    self.assertRaises(RuntimeError) as raised:
+                manager.machine_fit()
+            self.assertIn("nvidia-smi failed", str(raised.exception))
+
+
+class OpensAtOnceTest(unittest.TestCase):
+    """Plan 00234 Tasks 2.4 and 2.5: the manager's window was black for seconds after it
+    opened, because on_mount ran the resolver three times (two --suggest, one --fit, each
+    loading CTranslate2) before the first frame was drawn. The first frame now says what
+    it is checking, the probes run in a worker, and the GPU line is in the normal text
+    colour, not the muted one."""
+
+    def test_the_first_frame_says_what_is_being_checked(self):
+        made = []
+
+        class Recorded:
+            def __init__(self, *args, **kwargs):
+                made.append((args, kwargs))
+
+        with mock.patch.object(manager, "Static", Recorded):
+            list(manager.ModelManagerApp.compose(mock.MagicMock()))
+        status = [args for args, kwargs in made if kwargs.get("id") == "status"]
+        self.assertEqual(status, [(manager.CHECKING_LINE,)])
+        self.assertEqual(manager.CHECKING_LINE, "Checking the GPU and the models...")
+
+    def test_on_mount_runs_no_probe_itself_and_starts_the_worker(self):
+        app = mock.MagicMock()
+        with mock.patch.object(manager, "machine_fit") as fit, \
+                mock.patch.object(manager, "auto_suggestions") as suggest, \
+                mock.patch.object(manager, "session_language") as language:
+            manager.ModelManagerApp.on_mount(app)
+        fit.assert_not_called()
+        suggest.assert_not_called()
+        language.assert_not_called()
+        app._probe_machine.assert_called_once_with()
+
+    def test_the_probe_returns_the_fit_and_the_suggestions(self):
+        with mock.patch.object(manager, "session_language", return_value="en"), \
+                mock.patch.object(manager, "auto_suggestions",
+                                  return_value={"distil-large-v3.5": ["batch"]}), \
+                mock.patch.object(manager, "machine_fit", return_value={"device": "cpu"}):
+            self.assertEqual(manager.probe_machine(),
+                             ({"distil-large-v3.5": ["batch"]}, "", {"device": "cpu"}, ""))
+
+    def test_the_probe_reports_each_failure_with_its_reason(self):
+        with mock.patch.object(manager, "session_language", return_value="en"), \
+                mock.patch.object(manager, "auto_suggestions",
+                                  side_effect=RuntimeError("no model")), \
+                mock.patch.object(manager, "machine_fit",
+                                  side_effect=RuntimeError("nvidia-smi failed")):
+            suggested, suggest_error, fit, fit_error = manager.probe_machine()
+        self.assertEqual((suggested, fit), ({}, None))
+        self.assertIn("no model", suggest_error)
+        self.assertEqual(fit_error, "nvidia-smi failed")
+
+    def test_while_checking_the_machine_line_says_so_and_downloads_wait(self):
+        self.assertEqual(manager.machine_line(None, "", checking=True), manager.CHECKING_LINE)
+        app = mock.MagicMock()
+        app._probing = True
+        manager.ModelManagerApp._start_download(app, "tiny")
+        app._do_download.assert_not_called()
+        self.assertIn("Still checking", app.notify.call_args.args[0])
+
+    def test_the_status_line_is_in_the_normal_text_colour(self):
+        status_rule = re.search(r"#status \{(.*?)\}", manager.ModelManagerApp.CSS, re.S).group(1)
+        self.assertNotIn("muted", status_rule)
+        self.assertNotIn("dim", status_rule)
+        self.assertIn("color: $text;", status_rule)
 
 
 if __name__ == "__main__":

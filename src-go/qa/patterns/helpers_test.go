@@ -178,6 +178,28 @@ func (f *fakeRun) git(c proc.Cmd) (proc.Result, error) {
 	return proc.Result{Stdout: strings.Join(list, "\x00") + "\x00"}, nil
 }
 
+// readMirror is the text of each mirrored file, by its path below dir; an entry that is not a
+// regular file is refused, never opened.
+func readMirror(dir string, rels []string) (map[string]string, error) {
+	data := map[string]string{}
+	for _, rel := range rels {
+		path := filepath.Join(dir, rel)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s is not a regular file", path)
+		}
+		body, err := os.ReadFile(filepath.Clean(path))
+		if err != nil {
+			return nil, err
+		}
+		data[rel] = string(body)
+	}
+	return data, nil
+}
+
 func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	if f.noSemgrep {
 		return proc.Result{}, errors.New("executable file not found in $PATH")
@@ -190,7 +212,6 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	}
 	f.mirror = c.Dir
 	f.mirrorFiles = nil
-	f.mirrorData = map[string]string{}
 	f.ignoreFile = nil
 	err := filepath.WalkDir(c.Dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -203,12 +224,8 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	if err != nil {
 		return proc.Result{}, err
 	}
-	for _, rel := range f.mirrorFiles {
-		data, readErr := os.ReadFile(filepath.Join(c.Dir, rel))
-		if readErr != nil {
-			return proc.Result{}, readErr
-		}
-		f.mirrorData[rel] = string(data)
+	if f.mirrorData, err = readMirror(c.Dir, f.mirrorFiles); err != nil {
+		return proc.Result{}, err
 	}
 	if text, ok := f.mirrorData[".semgrepignore"]; ok {
 		f.ignoreFile = &text

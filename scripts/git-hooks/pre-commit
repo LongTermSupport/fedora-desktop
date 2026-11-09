@@ -112,6 +112,10 @@ if [ ${#STAGED_CHANGE_LIST[@]} -eq 0 ]; then
     exit 0
 fi
 
+# Install-specific names (teams, seats, containers, hosts, client projects) in the added lines;
+# the term list comes from the agent bus, not localhost.yml (Plan 00245 Phase 3).
+"${HOOK_LIB%/*}/../../qa-private-names.bash" staged >&2
+
 # ============================================================================
 # CCY Version Bump Validation
 # ============================================================================
@@ -190,22 +194,27 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
             echo -e "CCY code was modified but CCY_VERSION was not bumped.\nCurrent version: $STAGED_VERSION\n"
             echo "Staged CCY file(s):"
             printf '  %s\n' "${CCY_STAGED[@]}"
-            echo ""
-            echo "The version lives in the launcher, so a lib/ change must stage"
-            echo "$CCY_SCRIPT as well — the libraries are part of the same"
-            echo "program and the runtime hash covers all of them."
-            echo ""
-            echo "Actions to take:"
-            echo "  1. Bump CCY_VERSION in $CCY_SCRIPT"
-            echo "     - Patch (x.y.Z): Bug fixes, minor changes"
-            echo "     - Minor (x.Y.0): New features, backward compatible"
-            echo "     - Major (X.0.0): Breaking changes"
-            echo ""
-            echo -e "  2. Update the version comment to describe the change\n"
-            echo -e "Example:\n  CCY_VERSION=\"3.0.1\"  # Fix: persist sessions in .claude/ccy/\n"
-            echo "To bypass this check (NOT RECOMMENDED):"
-            echo "  git commit --no-verify"
-            echo ""
+            cat <<EOF
+
+The version lives in the launcher, so a lib/ change must stage
+$CCY_SCRIPT as well — the libraries are part of the same
+program and the runtime hash covers all of them.
+
+Actions to take:
+  1. Bump CCY_VERSION in $CCY_SCRIPT
+     - Patch (x.y.Z): Bug fixes, minor changes
+     - Minor (x.Y.0): New features, backward compatible
+     - Major (X.0.0): Breaking changes
+
+  2. Update the version comment to describe the change
+
+Example:
+  CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
+
+To bypass this check (NOT RECOMMENDED):
+  git commit --no-verify
+
+EOF
             exit 1
         fi
     elif [ -n "$HEAD_VERSION" ]; then
@@ -226,14 +235,14 @@ fi
 # sources (a --from copy takes from a build stage, not the repo), so a file the
 # image starts copying is guarded without anyone remembering to list it here.
 #
-# The play fills the build context from two repo roots, and builds the pingbus zipapp in it
-# from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
+# The play fills the build context from two repo roots, copies the fzf pin (vars/fzf-pin.yml)
+# into it, and builds the pingbus zipapp in it from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
 # checks these lists against every file play-claude-yolo.yml puts into the image.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
 CCY_CONTEXT_ROOTS=("$CCY_CONTEXT" "files/opt/claude-yolo")
-CCY_IMAGE_PATHS=("$CCY_DOCKERFILE" "helpers/pingbus" "helpers/agent_bus")
+CCY_IMAGE_PATHS=("$CCY_DOCKERFILE" "helpers/pingbus" "helpers/agent_bus" "vars/fzf-pin.yml")
 CCY_COPY_SOURCES=()
 if git cat-file -e ":$CCY_DOCKERFILE" 2>/dev/null; then
     staged_dockerfile_src=$(git show ":$CCY_DOCKERFILE")

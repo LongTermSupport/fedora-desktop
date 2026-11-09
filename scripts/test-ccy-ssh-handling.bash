@@ -51,6 +51,7 @@ done
 # mktemp, not "$$": this repo is bind-mounted into containers, and a PID in one
 # namespace is not unique across them.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-ssh-handling-fixtures.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 trap 'rm -rf "$WORK"' EXIT
 
 # ── Stub ssh / ssh-add ───────────────────────────────────────────────────────
@@ -559,7 +560,8 @@ SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_ALPHA")"
 if ssh_agent_holds_key "$K_ALPHA"; then pass "a key whose fingerprint the agent lists is held"; else fail "listed key not held"; fi
 if ! ssh_agent_holds_key "$K_BETA"; then pass "a key the agent does not list is not held"; else fail "unlisted key reported held"; fi
 
-SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_BETA")"$'\n'"$(agent_line "$K_ALPHA")"
+SSH_AGENT_PROBE_OUTPUT="$(agent_line "$K_BETA")"
+SSH_AGENT_PROBE_OUTPUT+=$'\n'"$(agent_line "$K_ALPHA")"
 if ssh_agent_holds_key "$K_ALPHA" && ssh_agent_holds_key "$K_BETA" && ! ssh_agent_holds_key "$K_GAMMA"; then
     pass "several agent identities: each listed key is held, the unlisted one is not"
 else
@@ -862,6 +864,83 @@ if grep -qxF "rc=1" "$WORK/build-fail.result" && grep -qF "message not completed
     pass "a forwarded key that does not authenticate fails, printing the one-key agent's log"
 else
     fail "forwarded key failure: $(tr '\n' ' ' < "$WORK/build-fail.result") / $(tr '\n' ' ' < "$WORK/build-fail.out")"
+fi
+
+# ── entrypoint.sh: GitHub host keys from api.github.com/meta ─────────────────
+# The step is cut out of the real entrypoint (between its GITHUB-HOST-KEYS markers) and run
+# under set -e, as the entrypoint runs it, against a stub curl. A failed fetch keeps the
+# container starting on StrictHostKeyChecking=accept-new, and the warning must say what
+# failed: curl's own message (DNS, connection, HTTP status) or why the answer was unusable.
+hdr "entrypoint.sh GitHub host-key fetch"
+ENTRYPOINT="$REPO_ROOT/files/var/local/claude-yolo/entrypoint.sh"
+hk_step="$WORK/hostkeys-step.bash"
+awk '/^# >>> GITHUB-HOST-KEYS/ { on = 1; next } /^# <<< GITHUB-HOST-KEYS/ { on = 0 } on' \
+    "$ENTRYPOINT" > "$hk_step"
+if [ ! -s "$hk_step" ]; then
+    fail "no GITHUB-HOST-KEYS block found in $ENTRYPOINT"
+fi
+mkdir -p "$WORK/hk-bin"
+cat > "$WORK/hk-bin/curl" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" > "$HK_DIR/curl.args"
+[ -n "${HK_CURL_STDERR:-}" ] && printf '%s\n' "$HK_CURL_STDERR" >&2
+printf '%s' "${HK_CURL_STDOUT:-}"
+exit "${HK_CURL_RC:-0}"
+STUB
+chmod +x "$WORK/hk-bin/curl"
+cat > "$WORK/hostkeys-runner.bash" <<'RUNNER'
+set -e
+github_ssh_directives=()
+. "$HK_DIR/hostkeys-step.bash"
+printf 'directive:%s\n' "${github_ssh_directives[@]}"
+echo after
+RUNNER
+
+# run_hostkeys <rc> <stdout> <stderr>: run the step with the stub curl answering as given.
+run_hostkeys() {
+    rm -rf "$WORK/hk-home"
+    mkdir -p "$WORK/hk-home/.ssh"
+    HOME="$WORK/hk-home" HK_DIR="$WORK" PATH="$WORK/hk-bin:$PATH" \
+        HK_CURL_RC="$1" HK_CURL_STDOUT="$2" HK_CURL_STDERR="$3" \
+        bash "$WORK/hostkeys-runner.bash" > "$WORK/hk.out" 2> "$WORK/hk.err"
+    echo "$?" > "$WORK/hk.status"
+}
+
+# expect_hostkeys_fallback <label> <text the warning must carry>
+expect_hostkeys_fallback() {
+    if [ "$(cat "$WORK/hk.status")" = "0" ] && grep -qx after "$WORK/hk.out" \
+        && grep -qx 'directive:    StrictHostKeyChecking accept-new' "$WORK/hk.out" \
+        && grep -qF -- "$2" "$WORK/hk.err" && ! grep -q 'offline?' "$WORK/hk.err" \
+        && [ ! -s "$WORK/hk-home/.ssh/known_hosts" ]; then
+        pass "$1: the start goes on with accept-new and the warning says: $2"
+    else
+        fail "$1: status $(cat "$WORK/hk.status") / out $(tr '\n' ' ' < "$WORK/hk.out") / err $(tr '\n' ' ' < "$WORK/hk.err")"
+    fi
+}
+
+run_hostkeys 6 "" "curl: (6) Could not resolve host: api.github.com"
+expect_hostkeys_fallback "DNS failure" "curl: (6) Could not resolve host: api.github.com"
+if grep -qE '(^| )-[a-zA-Z]*f' "$WORK/curl.args" && grep -qE '(^| )-[a-zA-Z]*S' "$WORK/curl.args"; then
+    pass "curl is asked to fail on an HTTP error status and to show its error (-f, -S)"
+else
+    fail "curl arguments lack -f or -S: $(cat "$WORK/curl.args")"
+fi
+run_hostkeys 7 "" "curl: (7) Failed to connect to api.github.com port 443: Connection refused"
+expect_hostkeys_fallback "connection failure" "Failed to connect to api.github.com port 443"
+run_hostkeys 22 "" "curl: (22) The requested URL returned error: 403"
+expect_hostkeys_fallback "HTTP error status" "The requested URL returned error: 403"
+run_hostkeys 0 "<html>rate limited</html>" ""
+expect_hostkeys_fallback "an answer that is not JSON" "malformed answer from api.github.com/meta"
+run_hostkeys 0 '{"message":"no keys here"}' ""
+expect_hostkeys_fallback "JSON with no ssh_keys" "malformed answer from api.github.com/meta"
+
+run_hostkeys 0 '{"ssh_keys":["ssh-ed25519 AAAAfixture"]}' ""
+if [ "$(cat "$WORK/hk.status")" = "0" ] && grep -qx after "$WORK/hk.out" \
+    && grep -qxF 'github.com ssh-ed25519 AAAAfixture' "$WORK/hk-home/.ssh/known_hosts" \
+    && ! grep -q 'accept-new' "$WORK/hk.out" && [ ! -s "$WORK/hk.err" ]; then
+    pass "a good answer pins the keys in known_hosts, with no fallback and nothing on stderr"
+else
+    fail "good answer: status $(cat "$WORK/hk.status") / out $(tr '\n' ' ' < "$WORK/hk.out") / err $(tr '\n' ' ' < "$WORK/hk.err")"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────

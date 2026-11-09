@@ -327,5 +327,6 @@
   },
   "enabledPlugins": {
     "defence-before-fix@defence-before-fix": true
-  }
+  },
+  "autoCompactWindow": 480000
 }

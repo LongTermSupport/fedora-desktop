@@ -1,0 +1,26 @@
+Usage: reclaim [SUBCOMMAND]
+
+Interactive disk-space reclamation for Fedora. Run with no arguments to open the menu. It
+reports disk usage and offers targeted cleanup actions, each confirmed before it runs.
+
+Subcommands:
+  (none)        Open the interactive menu (needs a terminal)
+  report        Print a disk-usage report to stdout and exit (non-interactive)
+  -h, --help    Show this help
+  --version     Show the version
+
+Menu actions:
+  Analyse    biggest directories (ncdu, or a du summary; baobab on a desktop), biggest files
+  Packages   dnf autoremove (orphans) + dnf clean all, remove old kernels (keeps the newest 2)
+  Logs       journal disk usage + vacuum to a target size
+  Containers podman (and docker, if present) system prune
+  User data  flatpak unused runtimes, clear ~/.cache, empty the trash
+  Sweep      run the safe reclaim actions back to back
+
+Destructive actions always show what they will do and default to "No". Package, kernel and
+journal actions get root through sudo, which says why before it asks; container, flatpak,
+cache and trash actions run as you.
+
+Examples:
+  reclaim                 open the menu
+  reclaim report | less   read the report in a pager

@@ -272,8 +272,8 @@ Put rarely-changing items at top, frequently-changing at bottom:
 
 4. Verify Installations
 ------------------------
-  # Install Go
-  RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \
+  # Install Go (dpkg names the arch as Go does: amd64, arm64)
+  RUN wget -qO- "https://go.dev/dl/go1.21.5.linux-$(dpkg --print-architecture).tar.gz" | \
       tar -C /usr/local -xzf -
 
   ENV PATH="/usr/local/go/bin:${PATH}"
@@ -339,7 +339,7 @@ Example 2: Go Project with AWS CLI
   FROM claude-yolo:latest
 
   # Install Go 1.21
-  RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \
+  RUN wget -qO- "https://go.dev/dl/go1.21.5.linux-$(dpkg --print-architecture).tar.gz" | \
       tar -C /usr/local -xzf -
 
   ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}" \
@@ -349,8 +349,8 @@ Example 2: Go Project with AWS CLI
   RUN --mount=type=cache,target=/root/go/pkg/mod \
       go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-  # Install AWS CLI v2
-  RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+  # Install AWS CLI v2 (uname -m names the arch as AWS does: x86_64, aarch64)
+  RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "awscliv2.zip" && \
       unzip -q awscliv2.zip && \
       ./aws/install && \
       rm -rf aws awscliv2.zip

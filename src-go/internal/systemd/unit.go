@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
@@ -21,6 +22,16 @@ func (s *Systemd) UnitActive(ctx context.Context, unit string) (bool, error) {
 	return err == nil, nil
 }
 
+// DefaultTarget is the unit the machine boots into ("systemctl get-default"), such as
+// graphical.target on a desktop.
+func (s *Systemd) DefaultTarget(ctx context.Context) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"get-default"}})
+	if err != nil {
+		return "", named("systemctl get-default", err)
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
+}
+
 // StartAsRoot starts a system unit as root.
 func (s *Systemd) StartAsRoot(ctx context.Context, root *sudo.Sudo, unit string) error {
 	return named("systemctl start "+unit, root.Run(ctx, "systemctl", "start", unit))
@@ -34,6 +45,16 @@ func (s *Systemd) StopAsRoot(ctx context.Context, root *sudo.Sudo, unit string) 
 // DaemonReloadAsRoot makes systemd reread its unit files and drop-ins, as root.
 func (s *Systemd) DaemonReloadAsRoot(ctx context.Context, root *sudo.Sudo) error {
 	return named("systemctl daemon-reload", root.Run(ctx, "systemctl", "daemon-reload"))
+}
+
+// UserUnitEnvironment is the Environment= a user unit gives its process, as systemd has loaded
+// it ("NAME=value" words, space-separated); a unit that sets none, or is not there, is "".
+func (s *Systemd) UserUnitEnvironment(ctx context.Context, unit string) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"--user", "show", "--property=Environment", "--value", unit}})
+	if err != nil {
+		return "", named("systemctl --user show "+unit, err)
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
 func named(what string, err error) error {

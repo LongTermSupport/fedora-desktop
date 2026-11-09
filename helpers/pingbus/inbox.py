@@ -56,6 +56,8 @@ SYNC_FILE = "sync.json"
 LOCK_FILE = "lock"
 #: The last verified team record (§12): the `agent_bus.team` content the syncer verified.
 TEAM_FILE = "team.json"
+#: Why a team cannot be judged before its first verified record: send's choices name it too.
+NO_RECORD_YET = "no verified team record yet"
 #: Why the room is not trusted (§8, §12), for an offline `status`; gone while it is trusted.
 UNTRUSTED_FILE = "untrusted.json"
 UNTRUSTED_REASON_MAX = 200
@@ -104,6 +106,10 @@ STORED_KEYS = ("type", "event_id", "sender", "origin_server_ts", "content")
 #: so it stays byte-identical to what older code writes and reads.
 ROOM_KEY = "room"
 QUESTION_KEY = "question"
+#: A main-room human message that names no one but answers this member's own message
+#: (`protocol.reply_root`) carries that message's event ID: the syncer asked the homeserver
+#: who sent it, so re-validation, offline, knows it is this member's.
+ANSWERS_KEY = "answers"
 #: The side rooms this member has met (`save_side_rooms`), and its report send times, kept
 #: apart from the outbox's gate, whose keys an older reader checks exactly.
 SIDE_ROOMS_FILE = "rooms.json"
@@ -271,7 +277,11 @@ def _stored(event: Mapping[str, object]) -> dict:
     if ROOM_KEY not in event:
         if QUESTION_KEY in event:
             raise ValueError("only a questions-room item carries a question")
+        if ANSWERS_KEY in event:
+            data[ANSWERS_KEY] = _check_event_id(event[ANSWERS_KEY])
         return data
+    if ANSWERS_KEY in event:
+        raise ValueError("only a main-room item answers this member's message")
     if event[ROOM_KEY] != protocol.PURPOSE_QUESTIONS:
         raise ValueError("a stored item's room is the questions room or absent")
     _question_of(event.get(QUESTION_KEY))
@@ -334,7 +344,7 @@ def load_cached_record(member: config.Member) -> protocol.TeamRecord:
     try:
         raw = _read_regular(path, TEAM_RECORD_MAX_BYTES)
     except FileNotFoundError:
-        raise protocol.Untrusted(f"{where}: no verified team record yet (not joined)") from None
+        raise protocol.Untrusted(f"{where}: {NO_RECORD_YET} (not joined)") from None
     except _Unusable as exc:
         raise protocol.Untrusted(f"{where}: {exc}") from None
     except OSError as exc:
@@ -493,7 +503,11 @@ class TeamState:
             return rejected
         if not isinstance(event, dict) or event.get("event_id") != m[1]:
             return rejected
-        room, question = protocol.ROOM_MAIN, None
+        room, question, answers = protocol.ROOM_MAIN, None, None
+        if ANSWERS_KEY in event:
+            answers = event.pop(ANSWERS_KEY)
+            if ROOM_KEY in event or QUESTION_KEY in event or not protocol.is_event_id(answers):
+                return rejected
         if ROOM_KEY in event or QUESTION_KEY in event:
             if event.get(ROOM_KEY) != protocol.PURPOSE_QUESTIONS or QUESTION_KEY not in event:
                 return rejected
@@ -503,7 +517,8 @@ class TeamState:
                 return rejected
             room = protocol.PURPOSE_QUESTIONS
             event = {key: event[key] for key in STORED_KEYS if key in event}
-        outcome = protocol.validate_event(event, ctx, self_user_id, human_text=human_text, room=room)
+        outcome = protocol.validate_event(event, ctx, self_user_id, human_text=human_text, room=room,
+                                          sender_of=protocol.own_message(answers, self_user_id))
         return outcome, room, question
 
     def in_inbox(self, event_id: str) -> bool:

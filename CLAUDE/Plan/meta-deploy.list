@@ -32,18 +32,26 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# changed-plays: expected to pick up play-claude-yolo.yml (CCY 3.100.18: the ccy-token-usable
-# usage gate, so no session starts on a used-up token; cc-claude, so host cc sessions compact
-# at 600k as ccy does, and cc cannot launch until this has run; ccy-teams and ccy-sessions
-# keep the terminal's echo off and their menus match the board, Plan 00177), plus any play
-# whose deployed inputs the same echo fix changed (the Go tools podfreeze, lxcfreeze,
-# ftp-camera and open). It runs before Plan 00185 so that play-fonts.yml runs once, there.
+
+# Plan 00243: the arm64 fixes are on F44, so this x86_64 host re-runs the plays they touched
+# (basic-configs, python, rpm-fusion, comms, markless, browsers, toolbox-install,
+# AB-dnf-upgrade, claude-yolo and claude-code-consumer, and of the optional plays those that
+# have run here: cli-tools, network-tools, photography, qobuz, vm-test-lab, nvidia, displaylink,
+# ipu6-webcam, virtualbox-windows and virtualbox-windows-vm-setup). On x86_64 each renders as
+# before; the ccy image is rebuilt once for its version label, and intel-media-driver is now
+# its own dnf task, already satisfied, enforced on every run.
+# The dormant-branch aggregate (Plan 00245): picks up play-claude-yolo.yml for ccy 3.113.4,
+# whose every container now starts with --pids-limit 4096 (CCY_PIDS_LIMIT on the host,
+# 256..32768, overrides) from the new lib/container-limits.bash. No image rebuild; a running
+# session keeps its old limit until it is relaunched. Also play-claude-code-consumer.yml, whose
+# ccc now starts its session and sign-in with --pids-limit 4096. And Plan 00173's follow-up:
+# play-basic-configs.yml (shutdown-with-update says cc sessions are named, not warned) and the
+# Go ccy-sessions in play-claude-yolo.yml (a warning names each cc session as not shown it).
+# And Plan 00177 Tasks 7.6-7.8, in the same play's ccy-teams: ccy --teams with a team this
+# machine lacks asks what to do (create it, choose another, start without it, or nothing);
+# ccy-teams exits only with codes it documents and says 75, 77 and 78 in words; the board's
+# KIND of a host seat is cc. The owner's test after it is Plan 00177 Task 7.9.
+# And the Go caches (ccy 3.113.4, same play's launcher and ccy-teams): each launch binds
+# ~/.cache/ccy/<project>/go for the Go build, module, golangci-lint and go-qa tool caches,
+# bounded at 8 GiB and cleared at launch when over; no image rebuild beyond Plan 00243's.
 changed-plays
-# Plan 00185, colour emoji in terminals (#60): triage.bash first (read-only: which font
-# fontconfig and Ptyxis pick for the emoji now), then deploy.bash runs play-fonts.yml, the
-# renamed play-ms-fonts.yml: installs Noto Color Emoji if missing, deploys
-# /etc/fonts/conf.d/69-colour-emoji-fallback.conf (the colour font as the emoji fallback
-# after the text fonts) and rebuilds the font caches; then acceptance.bash (17 fontconfig
-# checks, including the font Ptyxis is set to), and triage again. Close and reopen terminal
-# windows afterwards; the issue's printf in a new window is left for Plan 00219.
-00185-terminal-emoji-glyphs

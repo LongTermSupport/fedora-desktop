@@ -38,6 +38,8 @@ type kit struct {
 	stdinTTY bool
 	colour   bool
 	proc     fstest.MapFS
+	// random is the source of the hotspot password's words.
+	random io.Reader
 
 	mu    sync.Mutex
 	now   time.Time
@@ -145,6 +147,7 @@ func newKit(t *testing.T) *kit {
 		proc:   fstest.MapFS{},
 		live:   make(chan struct{}, 8),
 	}
+	k.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	if err := os.MkdirAll(k.upload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +188,7 @@ func (k *kit) app() *App {
 		OpenTTY:    func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil },
 		ConfigPath: k.config,
 		Echo:       k.echo,
+		Random:     k.random,
 	}}
 }
 

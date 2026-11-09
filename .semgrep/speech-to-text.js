@@ -130,3 +130,15 @@ const killQuietly = pid => {
 
 // ok: recorder-killed-leaving-its-files
 test('Escape kills a batch recorder', () => discardSignal({serverMode: false}));
+
+// ruleid: pw-record-stdout-not-raw
+const captureArgv = ['pw-record', '--rate', '16000', '--format', 's16', '-'];
+
+// ok: pw-record-stdout-not-raw
+const rawCaptureArgv = ['pw-record', '--raw', '--rate', '16000', '--format', 's16', '-'];
+
+// ok: pw-record-stdout-not-raw
+const fileCaptureArgv = ['pw-record', '--rate', '44100', '/dev/shm/recording.wav'];
+
+// ruleid: pw-record-stdout-not-raw
+const shellCapture = `pw-record --rate 16000 - | sox -t raw -r 16000 - out.wav`;

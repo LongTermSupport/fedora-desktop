@@ -30,11 +30,15 @@ type SessionControl interface {
 // actSessions is the teams list's own row that shows the running sessions.
 const actSessions = "sessions"
 
-// The rows of the lists that are choices, not teams or sessions, each with its shortcut, which
-// ui prints beside it.
+// helpLabel is the help line of every row's menu.
+const helpLabel = "What the columns and the menu lines mean"
+
+// The rows of the lists that are choices, not teams or sessions; Enter on one chooses it.
 var (
-	sessionsAction     = ui.Action{ID: actSessions, Label: "Running sessions: change a session's teams while it runs", Key: "tab"}
-	sessionsHelpAction = ui.Action{ID: actHelp, Label: "What this list shows", Key: keyHelp}
+	sessionsAction     = ui.Action{ID: actSessions, Label: "Running sessions: change a session's teams while it runs"}
+	sessionsHelpAction = ui.Action{ID: actHelp, Label: "What this list shows"}
+	// listActions are the teams list's own rows, below the teams.
+	listActions = []ui.Action{sessionsAction}
 )
 
 // view is which list the picker shows: the teams, or the running sessions.
@@ -46,7 +50,7 @@ const (
 )
 
 const (
-	sessionsKeyLine = "Enter lists what can be done to the session   ? help   Esc back to the teams"
+	sessionsKeyLine = "Enter lists what can be done to the session   Esc back to the teams"
 	questionKeyLine = "Enter choose   Esc or q back to the list"
 	roleWorker      = agentbus.RoleWorker
 	roleCoordinator = agentbus.RoleCoordinator
@@ -79,15 +83,10 @@ func (r *run) sessionsPass(ctx context.Context) error {
 		Title: "Running sessions", Header: ui.Header(sessionsKeyLine, hot.OnlyTmuxLine, heading),
 		Rows: lines, Tags: tags, Actions: []ui.Action{sessionsHelpAction}, ExitLabel: "Back to the teams",
 	})
-	var notOffered *ui.NotOfferedError
 	switch {
 	case errors.Is(err, ui.ErrLeave):
 		r.view = viewTeams
 		return p.Kit.Interrupted(ctx)
-	case errors.As(err, &notOffered):
-		p.Kit.Tell(nothingOnThisRow)
-		p.Kit.BackToList(ctx)
-		return nil
 	case err != nil:
 		return err
 	case picked.Action == actHelp:
@@ -426,7 +425,7 @@ func (r *run) seatLabel(checkout string, cell hot.Cell) string {
 // seatHandle is the handle of a seat of checkout, as the board's seat rows have it.
 func (r *run) seatHandle(checkout string, cell hot.Cell) string {
 	for _, row := range r.snap.Rows {
-		if row.Kind == board.KindCcy && row.Dir == checkout && row.Team == cell.Team && row.Member == cell.Seat {
+		if row.Kind.IsSession() && row.Dir == checkout && row.Team == cell.Team && row.Member == cell.Seat {
 			return row.Handle
 		}
 	}

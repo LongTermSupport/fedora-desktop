@@ -11,7 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
@@ -83,6 +85,9 @@ type Host struct {
 	Exec     func(path string, argv []string, dir string) error
 	// InContainer says whether this is a CCY container, where ccy-teams has no business.
 	InContainer func() bool
+	// UserHome is the passwd database's home of a uid: where pingbus looks for its owner's
+	// Element acceptance (helpers/pingbus/config.py _home_of), whatever HOME says.
+	UserHome func(uid int) (string, error)
 }
 
 // New is the production Host: the real OS and the process's own streams.
@@ -136,11 +141,23 @@ func (h *Host) Wire() {
 	if h.Out == nil {
 		h.Out = &term.Printer{}
 	}
+	if h.UserHome == nil {
+		h.UserHome = passwdHome
+	}
 	if h.Term == nil {
 		h.Term = h.FreshTerm()
 	}
 	h.wireTools()
 	h.wireAsking()
+}
+
+// passwdHome is the passwd database's home of uid.
+func passwdHome(uid int) (string, error) {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
 }
 
 // FreshTerm is a Term over the host's streams with no steps counted yet: a flow that numbers
@@ -225,11 +242,13 @@ func (h *Host) wireTools() {
 // wireAsking builds what the questions and the picker are asked through, and the seams to the
 // terminal and the launcher.
 func (h *Host) wireAsking() {
+	// One Drain for both: leaving a gum question drains the picker drawn next, and the reverse.
+	drain := &ui.Drain{}
 	if h.Gum == nil {
-		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.Picker == nil {
-		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.LookPath == nil {
 		h.LookPath = exec.LookPath

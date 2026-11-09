@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestUsageRefusals(t *testing.T) {
 	}{
 		{[]string{"--view", "--view-jpg"}, "ERROR: --view and --view-jpg are mutually exclusive\n"},
 		{[]string{"--view-jpg", "--view"}, "ERROR: --view and --view-jpg are mutually exclusive\n"},
-		{[]string{"--sort", "--push"}, "ERROR: only one primary mode at a time\n  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy\n"},
+		{[]string{"--sort", "--push"}, "ERROR: only one primary mode at a time\n  Pick one of: --sort --pass --push --copy --copy-preflight --prune --async --async-copy --new-hotspot-password\n"},
 		{[]string{"--async", "--copy"}, "ERROR: only one primary mode at a time\n"},
 		{[]string{"--prune", "--view"}, "ERROR: --view / --view-jpg requires an FTP-server mode\n  (default, --async, or --async-copy). The mode you picked\n  exits before any uploads arrive, so there's nothing to view.\n"},
 		{[]string{"--copy-preflight", "--hotspot"}, "ERROR: --hotspot requires an FTP-server mode\n  (default, --async, or --async-copy). The mode you picked\n  exits without running the FTP server.\n"},
@@ -80,6 +81,39 @@ func TestCameraAccountMissing(t *testing.T) {
 		k.fake.On([]string{"getent", "passwd", "camera"}, res)
 		k.wantCode(k.run("--sort"), term.ExitFailure)
 		k.wantErr("ERROR: 'camera' user not found — run play-ftp-camera.yml first\n")
+	}
+}
+
+// E7, E64: a lookup that fails for another reason says why, not that the account is missing.
+func TestCameraAccountLookupFails(t *testing.T) {
+	k := newKit(t)
+	k.fake.On([]string{"getent", "passwd", "camera"}, execx.Result{Stderr: []byte("getent: cannot open database\n"), ExitCode: 1})
+	k.wantCode(k.run("--sort"), term.ExitFailure)
+	k.wantErr("ERROR: could not look up the 'camera' user: getent exited 1: getent: cannot open database\n")
+	if strings.Contains(k.err.String(), "not found") {
+		t.Errorf("a failed lookup guessed a missing account: %q", k.err.String())
+	}
+}
+
+// E64: a failure no step printed is printed once by the dispatch; one already printed is not
+// printed again.
+func TestReportPrintsOnlyWhatWasNotPrinted(t *testing.T) {
+	k := newKit(t)
+	c := newCLI(k.app().Env)
+	c.report(errors.New("rm -f x: sudo exited 1"))
+	c.report(errFailed)
+	c.report(&printed{cause: errors.New("sudo: not ready")})
+	if got := k.err.String(); got != "ERROR: rm -f x: sudo exited 1\n" {
+		t.Errorf("stderr %q", got)
+	}
+	if !errors.Is(&printed{cause: errors.New("x")}, errFailed) {
+		t.Error("printed is not errFailed")
+	}
+	if got := unprinted(errors.New("exiftool exited 2")); got != ": exiftool exited 2" {
+		t.Errorf("unprinted %q", got)
+	}
+	if got := unprinted(errFailed); got != "" {
+		t.Errorf("unprinted of a printed failure %q", got)
 	}
 }
 
@@ -261,7 +295,7 @@ func TestOutputThatCannotBeWrittenFailsTheRun(t *testing.T) {
 
 func TestNewEnvIsTheRealMachine(t *testing.T) {
 	env := NewEnv()
-	if env.ConfigPath != DefaultConfigPath || env.PID != os.Getpid() || env.Runner == nil || env.Self == "" {
+	if env.ConfigPath != DefaultConfigPath || env.PID != os.Getpid() || env.Runner == nil || env.Self == "" || env.Random != rand.Reader {
 		t.Fatalf("%+v", env)
 	}
 	if err := env.Sleep(t.Context(), 0); err != nil {

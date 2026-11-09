@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the host tests, Tasks 6.4, 7.5 and 9.5)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and built 28-10-26; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26; 7.6 to 7.8, the unknown team, merged through Plan 00245's dormant-branch aggregate, host test 7.9 open)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -39,131 +39,50 @@ offer to create a team when there is none; think about the UX; do a full critica
 
 ## Tasks
 
-### Phase 1: Critical UX review
+Completed phases are summarised here; their full text, every task id included, is in
+[DONE-phases.md](DONE-phases.md).
 
-- [x] ✅ **Task 1.1**: A full critical pass over `ccy-teams` (every verb, key, prompt, message
-  and failure path; first run, no teams, sudo refused or cancelled, no TTY, a team with no
-  members). Write the findings into `UX-REVIEW.md` in this folder, each with its fix.
+### Phase 1: Critical UX review (done)
 
-### Phase 2: Build
+Task 1.1: the full critical pass, written into `UX-REVIEW.md`.
+[Full text](DONE-phases.md#phase-1-critical-ux-review).
 
-- [x] ✅ **Task 2.1**: Fix every finding from Task 1.1, with tests in
-  `scripts/test-ccy-teams-command.bash`. Update `docs/agent-bus.md` "Getting started" where
-  the flow changes. The no-teams offer and the new create flow came first, by the owner's
-  order. Then sudo (a scoped read-only sudoers rule in play-agent-bus.yml), the people and
-  their passwords, add-repo, colour (CCY 3.94.2: the shared picker passes `--ansi`) and
-  help. UX-REVIEW.md's deferred D1 and D2 stay open.
-- [x] ✅ **Task 2.2**: The `qa-reviewer` agent on the branch; fix its findings.
+### Phase 2: Build (done)
 
-### Phase 3: Host
+Tasks 2.1 and 2.2: every UX-REVIEW finding fixed (no-teams offer, create flow, scoped read-only
+sudoers rule, colour, help; D1 and D2 deferred), and the qa-reviewer's findings.
+[Full text](DONE-phases.md#phase-2-build).
 
-- [x] ✅ **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml` for gum, CCY
-  3.94.2 and ccy-teams; `play-agent-bus.yml` for the sudoers rule
-  `/etc/sudoers.d/agent-bus-read-only`), then the owner's first real `ccy-teams` use. Host
-  run passed 26-10-13 (both plays), and again with Plan 00161's D64/D65. The owner created
-  a real team with `ccy-teams create`; their findings are Phase 4.
+### Phase 3: Host (done)
 
-### Phase 4: The owner's first-use findings
+Task 3.1: host run passed 26-10-13; the owner's first real use became Phase 4.
+[Full text](DONE-phases.md#phase-3-host).
 
-- [x] ✅ **Task 4.1**: The create wizard was a wall of text. It now shows numbered steps
-  (`1/4  GitHub owner`), a one-line hint each, a ✓ per answer and a short summary without
-  `forge_api` or `path_prefixes`. gum's grey key-help line is hidden (gum 0.17 cannot
-  recolour it).
+### Phase 4: The owner's first-use findings (done)
 
-- [x] ✅ **Task 4.2**: Create sets up Element itself (the `agent_bus_element_teams` entry
-  and its play) and offers to open it. No message tells the owner to edit `localhost.yml`.
-  Create declares the Element profile through `declare.py` and runs
-  `play-agent-bus-element.yml` after `play-agent-bus.yml`.
+Tasks 4.1 to 4.11: the stepped create wizard, Element and sign-in from create, seat defaults and
+the `ccy --teams <team>` chooser, team scope, `cc --teams` as a host member, and the qa-reviewer
+fixes. [Full text](DONE-phases.md#phase-4-the-owners-first-use-findings).
 
-- [x] ✅ **Task 4.3**: Offer sign-in straight after create (reuse `set_password`).
+### Phase 5: Host (done)
 
-- [x] ✅ **Task 4.4**: Run from a repository root, `ccy-teams` offers to start a ccy session
-  there as a team member, with `ccy --teams <team>` and no seat.
+Task 5.1: deployed and the owner's round trip through Element worked; the clunky UX became
+Phase 6. [Full text](DONE-phases.md#phase-5-host).
 
-- [x] ✅ **Task 4.5**: Seats default to the next free number, and members are always shown as
-  `<repo>.<N>`, counting from 1. Through 4.8's chooser; `agent-bus seat list` on a terminal
-  shows the full handle and the type in words.
+### Phase 6: No hidden keys (done)
 
-- [x] ✅ **Task 4.6**: ccy's offer to re-attach to a detached session keeps `--teams`: it
-  attaches only to a session holding the requested seats, and otherwise says why it
-  starts a new one (CCY 3.95.0).
-
-- [x] ✅ **Task 4.7**: `path_prefixes` no longer limits paths in an org-wide team. It is
-  optional in the team file and the team record (absent: any path); create writes none. An
-  existing entry that names it keeps its limit until the line is removed.
-
-- [x] ✅ **Task 4.8**: `ccy --teams <team>`, with no seat, is the normal form: on a terminal ccy
-  shows the checkout's seats in that team (full handle, free or held), defaults to the lowest
-  free one or a new number, and says the handle before taking it. Unattended launches carry
-  the canonical `<seat>@<team>`. A mixed-case team name gets a lower-case suggestion.
-  Built: `agent-bus seat choose` and a gum chooser in the launcher (CCY 3.95.0); headless,
-  restore and restart are refused a bare team (`seat check --resolved`).
-
-- [x] ✅ **Task 4.9**: `ccy-teams create` asks the team's scope: this repository (the
-  default inside a checkout, named after it), the whole GitHub owner, or several
-  repositories of any owners (one comma-separated input). Each repository is checked for
-  syntax, existence and the gh login's push access, in a re-prompt loop. An absent
-  `branches` means any branch, the same as an org-wide team (a protocol change).
-  The 4.7 follow-up offers once to remove an old `path_prefixes` limit.
-  [report](subagent-reports/261013-p177-create-sonnet.md)
-
-- [x] ✅ **Task 4.10**: `cc --teams <team>`: a desktop Claude Code session, running as the
-  owner, joins as a `host` member with its own Matrix account. The owner accepts that it
-  sits beside their Element session (a misbehaving agent could use it). pingbus's refusal
-  beside an Element profile becomes an explicit opt-in for that member. The guard is
-  cc's alone, never project settings (those are shared with ccy sessions), and it is
-  instruction, not containment: the session is told only the correct way to post (pingbus,
-  as its own member). Nothing in its context mentions the owner's Element session or
-  posting as anyone else, so the idea is never put in front of it. `cc --teams`
-  passes `claude --settings <file>` with `Read(...)`/`Edit(...)` deny rules on Element's
-  session folders. Claude Code's sandbox is left out for now: it would also restrict
-  network access; a real boundary is investigated in issue #101
-  ([research](RESEARCH-cc-boundary.md): a `systemd-run --user` service with
-  `InaccessiblePaths=`, not built, the owner's call). Asked for by the owner
-  26-10-13. Built and tested (`scripts/test-cc-teams.bash`); the acceptance of Element is
-  per user, asked before the seat is made. [report](subagent-reports/task-4.10-cc-teams.md).
-  Not yet run on the host.
-
-- [x] ✅ **Task 4.11**: The `qa-reviewer` over Phase 4, and its fixes.
-  [report](subagent-reports/261013-qa-reviewer-phase4.md). All fixed: the guard test, the
-  meta-deploy list, the acceptance asked before the seat, the write-access check for
-  `create --yes`, the bus address asked by create (never "edit localhost.yml"), and the
-  advisories (container 2.52, CCY 3.95.2).
-  [fixes](subagent-reports/261013-p177-fixes-sonnet.md). Full QA passes.
-
-### Phase 5: Host
-
-- [x] ✅ **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
-  owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
-  offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
-  Deployed; the Go `ccy-teams` works, but the owner's test found the UX clunky: Phase 6.
-  The owner signed in to Element, launched a ccy session into a team, and a message they
-  posted in the room woke the idle session, which answered in the room: the round trip
-  works. That the exchange is hidden inside tool calls in the session is Plan 00194. Done:
-  the deploy and the test ran (journal 26-10-13 21:03, the seven fixes); the re-tests of
-  `ccy --teams` and `cc --teams` are Task 7.5, of the board Task 6.4.
-
-### Phase 6: No hidden keys (from the owner's host test)
-
-The owner had to discover Ctrl-E to open Element; Enter on their name kept offering a new
-password, which they set repeatedly, each time signing out their other sessions; and Ctrl-E
-quit `ccy-teams` to start Element.
-
-- [x] ✅ **Task 6.1**: Every action is reachable without knowing a key: Enter on any row opens
-  a menu of what can be done to it, in words, each with its shortcut beside it; the footer
-  names the selected row's actions, not a fixed list.
-- [x] ✅ **Task 6.2**: A person who is signed in is offered Element first; a new password is a
-  plainly labelled choice that says it signs out their N sessions, and asks before doing it.
-  After a password is set, Element is offered at once.
-- [x] ✅ **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
-  board, which then reads the person's sessions again.
-- [ ] ⬜ **Task 6.4**: The host agent tests it again on the host, driving `ccy-teams` in tmux.
+Tasks 6.1 to 6.4: a row menu for every action, Element offered before a new password, Element
+started apart from the board; host PASS 26-10-26.
+[Full text](DONE-phases.md#phase-6-no-hidden-keys-from-the-owners-host-test).
 
 ### Phase 7: `ccy --teams` finds the team (the owner's host test)
 
 - [x] ✅ **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
   checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
-  the repository), choosing alone when exactly one matches and saying so when none does.
+  the repository), saying so when none does. When the machine has exactly one team and it
+  covers the checkout, it is taken without a list; with two or more teams the list is always
+  shown, covering teams first (Plan 00201 S-B2, which replaced "taken when exactly one
+  matches"; Task 11.1).
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
   ratchet, only calls it and must not grow. Built as `ccy-teams for-checkout` (CCY 3.96.0).
   The owner's test found that an uncovered checkout made them type a team name; Plan 00201
@@ -171,6 +90,7 @@ quit `ccy-teams` to start Element.
   calls, and brought cc onto the same flow. Deployed. The owner's test of it is Plan 00201's
   [ACCEPTANCE-owner.md](../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/ACCEPTANCE-owner.md)
   step 5 (Task 7.5).
+
 - [x] ✅ **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
   it launches into the same team; an explicit `--teams` overrides it. Only a person's yes to
@@ -178,6 +98,7 @@ quit `ccy-teams` to start Element.
   Plan 00161 M2.9 defect). Deployed; the unattended half passed on the host in Plan 00161's
   acceptance (M2.9, M2.10 at F44 6affbfec). The person's yes is the owner's test: Plan
   00201's ACCEPTANCE-owner.md steps 3 and 6 (Task 7.5).
+
 - [x] ✅ **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
   after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
   pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
@@ -185,6 +106,7 @@ quit `ccy-teams` to start Element.
   `helpers/agent_bus/element.py` now passes a folder that holds only the acceptance record,
   valid by pingbus's own `config.element_accepted`. Anything else there still refuses.
   Built test first. The owner's run of the Element play on the host passed (26-10-15).
+
 - [x] ✅ **Task 7.4**: A person is never left with an account they cannot sign in to. After an
   apply (from `ccy-teams create` or `ccy-teams apply <team>`), passed or failed, every person
   of the team who has no Element session (the picker's check) is offered the sign-in on a
@@ -194,10 +116,39 @@ quit `ccy-teams` to start Element.
   Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
   `261015-create-signin-gap-sonnet.md`. Built test first and deployed; the owner's test is
   Task 7.5.
-- [ ] ⬜ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
+
+- [x] ✅ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
   `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
+  Host run 26-10-26 (throwaway team): 7.2's quick launch, the seat question, status line and
+  `pingbus status`, and 7.4 PASS (the apply path does not offer Element after the password:
+  an observation). Still open: step 5 FAILS (Task 11.1), and the launch block is missing (11.2).
+  Host run 27-10-27 (throwaway teams, after 11.1 and 11.2): steps 3, 5 and 6 PASS (the Quick
+  Launch Team line, the seat and role questions with Keep as is, the launch block and the
+  status line naming both seats).
+
+- [x] ✅ **Task 7.6**: An unknown team never just ends the run (owner: `ccy --teams <team-a>,<team-b>` with an unknown team "should have taken me to somewhere to create the
+  team"). On a terminal, a team named alone that has no homeserver up and no host_vars entry
+  is asked about (`chooser/unknown.go`): create it (the create wizard, offering the typed name
+  as the Team name), choose one of this machine's teams that is up in its place, start the rest of the
+  list without it, or start nothing. Leaving the wizard or the choice comes back to the
+  question, three rounds at most, then exit 1; a No at the wizard's review is a leave (F44's
+  `declined`, exit 130 to the chooser). Without a terminal it stays fail-fast:
+  `agent-bus seat check --resolved` refuses the list with its reason. Built test first
+  (`unknown_test.go`) on a branch that stopped at review round 2, then finished and merged over
+  F44 through Plan 00245 Task 4.4 (CCY 3.113.2).
+
+- [x] ✅ **Task 7.7**: Exit codes from other programs keep their meaning: `term.FromChild`
+  keeps 64, 75, 77, 78 and 130 and turns any other code into 1, and `ccy-teams` names 75, 77
+  and 78 in its last line (before this the shell's prompt said "Unknown error code" for
+  agent-bus's 78). Defence Before Fix rule `project_child_exit` (red `1824f6ed5`).
+
+- [x] ✅ **Task 7.8**: The board shows a host seat's KIND as `cc`, from the seat's handle, not
+  `ccy` for every seat of a checkout. Defence Before Fix rule `project_row_kind`.
+
+- [ ] ⬜ **Task 7.9**: The host run (meta-deploy `play-claude-yolo.yml`, CCY 3.113.2), then
+  the owner's test: `ccy --teams <unknown-team>` in a checkout offers to create it.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 
@@ -236,78 +187,47 @@ are too, by the same route.
   documented as the alternative.
 - [ ] ⬜ **Task 9.5**: The host agent tests it on the host, with sudo, so with the owner present (meta-deploy of `play-claude-yolo.yml`
   builds the new `ccy-teams`): `ccy-teams lxc-add <team>` for a real container.
-- [x] ✅ **Task 9.6**: The review of `lxc-add`
-  ([report](subagent-reports/261014-fable-review-lxc-add.md)) is answered; each finding, in
-  the order of the report:
-  - F1 fixed: with no host given, `check_lxc` takes the host the same container and user
-    already has, so a user in one team can be added to a second (Python and Go tests, the
-    report's probe included).
-  - F2, F3 fixed: `declare.py lxc-suggest-seat` says whether the container's name gives a
-    seat the team does not already hold (any host, because the host is not yet known); when it
-    does not, the flow asks for the seat with a free one suggested, checked at that question
-    and asked again up to three times. A dry-run refusal at the summary now ends with
-    "Refused; nothing was changed."
-  - F4 fixed: the host word suggested is `worker`; `lxc-suggest-host` is gone.
-  - F5 done: this branch's phase is 9 (Phase 8 belongs to `feat/ccy-teams-hot-add`).
-  - F6 done: `meta-deploy.list` has the `play-claude-yolo.yml` entry and deliberately omits the 00161
-    acceptance: that runs from F44's current list BEFORE this branch merges, because its
-    message counts predate the goodbye (00196 has already run, so nothing else builds this
-    `ccy-teams`).
-  - F7 resolved: the host question is checked with team, container and user.
-  - F8 fixed: names read from a container are shown only if the play's user pattern accepts
-    them, and the read runs `env -i PATH=... HOME=/root`, as `members.py` does.
-  - F9 done: the unused `LxcRemove` is gone (the Python `lxc-remove` stays for the play's
-    `state: absent` route), and the spacing is fixed.
-- [x] ✅ **Task 9.7**: The handle is derived from the repository, never asked (owner:
-  "seat names / host word should be derived from the repo just like with ccy"). One rule in
-  `helpers/agent_bus_lxc/derive.py`, built on `checkout.repo_from_origin` and
-  `checkout.host_from_env_local` (the pure halves of what `agent-bus seat take` applies):
-  `<repo>` from the checkout's origin, `<host>` the `HOOKS_DAEMON_HOSTNAME` its
-  `ccy.env.local` assigns else `local`, `<seat>` the bundle's, else the container-name seat
-  of a member already in the team, else the lowest number no active member of the same
-  `<repo>+<host>.lxc` holds (`checkout.seat_choices`' rule; a parked number returns).
-  `members.py` and `play-agent-bus.yml` derive for an entry that omits host and seat, so a
-  hand-written entry needs team, container, user and checkout; `host` and `seat` stay as
-  overrides, an entry that gives both is used as it is, and an existing entry keeps its
-  handle. The checkout is read from the host's side through the container's LXC config
-  (rootfs and `lxc.mount.entry` binds) by a root script that runs no git, follows no link and
-  caps every size (owner's safety rules; a symlinked `.git/config`, an fsmonitor setting and
-  an oversized file are tested). The flow asks only container, user, checkout (checkouts with
-  a GitHub remote suggested) and role, and shows the derived handle before the yes. The host
-  word and seat questions, `lxc-suggest-seat` and its Go client methods are gone;
-  `declare.py` gains `lxc-derive`, `lxc-checkouts` and `lxc-script`. The users listing keeps
-  `getent passwd` through `lxc-attach` (it needs the running container anyway, and the
-  names it returns are already validated by the play's pattern).
-- [x] ✅ **Task 9.8**: The review of the derivation
-  ([report](subagent-reports/261014-fable-review-lxc-derive.md)) is answered; each finding, in
-  the order of the report (every test written and seen to fail first, journalled):
-  - F1 fixed: `resolve_members` returns a derived entry with `repo` set to the checkout's
-    (`member.repo or identity.repo`), `_join` mints the handle and passes `--repo` from that
-    value, and `_suggest` (which now has a repo to compare) refuses a container whose
-    `pingbus suggest-handle` names another repo. A declared `repo:` that disagrees with the
-    checkout's is refused too. `[Remote "origin"]` is read (section names are case-insensitive,
-    the subsection is not). `insteadOf`: a config that has a `url.<base>.insteadOf` and an origin
-    url is REFUSED, not applied. Why: applying it as git does needs every `url.*.insteadOf` value,
-    longest prefix first, over includes and the global config the host cannot see; refusing is a
-    dozen lines, cannot read the name wrongly, and a rewrite only in the agent's `~/.gitconfig`
-    is caught by the agreement check above. The derive.py comment and the docs are corrected.
-  - F2 fixed: an active numbered member of the identity that no entry holds (explicit seat, or
-    the bundle of a declared entry anywhere in the file) is refused with the two ways out (state
-    absent then present again, or another explicit `seat`), as the explicit-seat path refuses.
-    A hand-joined member looks the same, so it is refused the same way; the `lxc-derive`
-    preview cannot see bundles and skips such a number (`unheld_ok`). The review's suggestion of
-    `seat: <n>` to reclaim is not offered: the explicit path itself refuses that, and the
-    remedy it names is state absent then present.
-  - F3 fixed: after the apply `ccy-teams lxc-add` reads the team back and reports the one new
-    active handle of that repo and host; when it cannot name exactly one (none, several, or the
-    read fails) it says the handle is only the expected one and where to look. The summary says
-    "Handle (expected)".
-  - F4 fixed: an `optional` bind with a missing source is skipped (LXC mounts nothing); any
-    other missing source, or rootfs, is refused by name, with no traceback.
-  - F5 fixed: a url wholly inside one pair of quotes with no escape is read as git reads it;
-    any other quote, escape or continuation is refused.
-  - F6 fixed: the root reader's refusal text has every non-printable character replaced.
-  - F7 accepted as the review says; F8 fixed (`scripts/test-ccy-teams-command.bash` is mode 755).
+  PARTIAL 26-10-26: container, user and checkout questions and Esc pass on a throwaway; the
+  rest needs a prepared container (no play makes its user, checkout or gh login). Finding: 11.3.
+  27-10-27 on a throwaway Ubuntu LXC (user and a checkout made as test set-up): container list,
+  user, checkout suggestion, role, review box, the save and the apply all PASS; the join stops
+  at members.py's "gh is required and must be logged in" (78) and lxc-add says "declared … but
+  not joined". Left for the owner: gh installed and logged in, in a real container; then the
+  join, the agent start and its pingbus check. Finding: Task 9.9.
+  Owner, 2026-10-28: "Make it IaC". Built 28-10-26: `members.py` (the present phase that
+  `ccy-teams lxc-add`'s apply runs, through `play-agent-bus.yml`) now installs gh in each
+  container where it is missing, once every container has passed the other checks
+  (`GH_INSTALL_SH`: GitHub's apt or dnf repository, as `play-git-configure-and-tools.yml` does
+  for the host, or Alpine's `github-cli`; nothing when gh is there), then checks every agent
+  user's login before any team change and stops with one message giving, per missing login,
+  `sudo lxc-attach -n <container> -- su - <user> -c 'gh auth login --hostname github.com --web'`
+  and "ccy-teams lxc-add <team> again, or ccy-teams apply <team>". lxc-add's own failure text
+  points at that command instead of giving a second one. Left: the host agent's meta-deploy
+  run (`play-claude-yolo.yml` for the new `ccy-teams`, then `play-agent-bus.yml`: gh installed
+  in the throwaway container, the login message seen); the owner's device-code login only; then
+  `ccy-teams lxc-add <team>` again joins, and the agent start and pingbus check as above.
+- [x] ✅ **Task 9.9**: A member lxc-add declared that never joined (no bundle, as when gh is
+  missing) could not be taken off: `state: absent` failed in `members.py` `_absent_one` with
+  "the entry leaves out its host or seat", blocking every `play-agent-bus.yml` run (host agent,
+  27-10-27). Fixed in the absent path (option 1; lxc-add still writes no host or seat, Task
+  9.7's derivation stays the play's): with no bundle, the member record's handle is parked;
+  with no record, the `<repo>+<host>` is derived from the checkout (or the entry's `repo` for a
+  destroyed container) and the team searched: no active unheld member of it means nothing to
+  park, one is refused by name with the `seat` to set. A present member that cannot join (gh)
+  failing every apply of its team is by design. Red 10, green 167.
+  [Report](subagent-reports/261027-task-9-9.md). Host check: lxc-add a throwaway container
+  without gh, `declare lxc-remove`, then `ccy-teams remove <team>` passes with nothing parked.
+  Host, 27-10-27 at F44 fe894347c: PASS. On a throwaway team and an Ubuntu container with no
+  gh, lxc-add stopped at "gh is required" (exit 1, "declared … but not joined", by design);
+  `declare lxc-remove` exit 0 ("declared absent"); `ccy-teams remove` ran "Take the LXC members
+  declared absent off their teams" unchanged (nothing parked) and removed the team, exit 0.
+- [x] ✅ **Task 9.6**: The review of `lxc-add` answered, F1 to F9.
+  [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
+- [x] ✅ **Task 9.7**: The handle is derived from the repository (`helpers/agent_bus_lxc/derive.py`),
+  never asked; the flow asks only container, user, checkout and role.
+  [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
+- [x] ✅ **Task 9.8**: The review of the derivation answered, F1 to F8.
+  [Full text](DONE-phases.md#phase-9-the-done-tasks-96-to-98).
 
 ### Phase 10: The host agent's board findings (driving `ccy-teams` in tmux)
 
@@ -326,9 +246,245 @@ are too, by the same route.
   between (`podfreeze`, `lxcfreeze`, `open`, `ftp-camera`); a child given the terminal for its
   own input, and a numbered reply read in the tool itself, run with the echo the terminal had. No rule (run-time state across
   processes), recorded beside 10.1; [search](subagent-reports/261023-search-echo-between-screens.md).
-- [ ] ⬜ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
+- [x] ✅ **Task 10.3**: The host agent drives `ccy-teams` in tmux again: from `~`, the team and
   person menus say Start is unavailable; Esc from a menu then Down pressed quickly shows no
-  `^[[B`.
+  `^[[B`. Passed at cad6b5053: the team, member and person rows and menus each say Start is
+  unavailable because `~` is not a project folder; Esc then Down in one send-keys moved the
+  cursor one row, with no `^[[B` in the pane.
+- [x] ✅ **Task 10.4**: An Esc is never lost to the key after it (the host agent's finding: in a
+  row menu, Down within about 50 ms of Esc, or both in one `tmux send-keys`, left the menu open
+  and moved its cursor; Ctrl-R then turned a seat's restore off with no question). Cause, proven
+  with real fzf: fzf reads an Esc and the next key inside its 100 ms wait as that key with Alt
+  (`alt-down`), which no screen bound. Defence Before Fix: failing tests first, a project rule,
+  the fix, and the sweep of every screen a person leaves with Esc (fzf, Bubble Tea, gum, tmux).
+  - [x] ✅ **Task 10.4.1**: Failing tests: every fzf screen leaves on each of the 69 Esc-joined
+    keys; pathinput cancels on a joined Esc; the teams list comes back on the row after Esc then
+    Down or Up.
+  - [x] ✅ **Task 10.4.2**: The rule `project_esc_joined`
+    ([GoProjectRules.md](../../GoProjectRules.md#project_esc_joined)), red on its own: 5 findings
+    through `./scripts/qa-changed.bash --base F44`, 3 Go (`ui.Picker.Pick`, `ui.Picker.Choose`,
+    pathinput) and 2 shell (`ccy_tmux_pick` in tmux-session.bash, Ctrl-R in history-search.bash).
+  - [x] ✅ **Task 10.4.3**: Green: every instance fixed (fzf binds the joined keys to abort,
+    Esc then Down or Up in a row menu moves the list cursor, pathinput cancels on a joined Esc),
+    tmux `escape-time` 10, CCY 3.100.24 (released as 3.100.25 with the F44 merge), a `changed-plays` run queued in `meta-deploy.list`.
+  - [x] ✅ **Task 10.4.4**: The Defence Before Fix conformance review conformed: red at the
+    rule commit with exactly the 5 findings, green at the fix, no false positives. Its one note:
+    `files/etc/tmux.conf` is not covered by `qa-changed`.
+  - [x] ✅ **Task 10.4.6**: fzf's word editing kept (qa-reviewer finding, coordinator
+    decision): `alt-b`, `alt-f`, `alt-d` and `alt-bs` are no longer bound to abort, so Ctrl-R
+    and the `ui` filters keep a query being edited by word; the rule requires the other 65 keys
+    (`fzfbind.EscJoined`, less `fzfbind.WordEditing`) and flags a word key bound to abort. Only
+    Esc then b, f, d or Backspace within fzf's wait is still lost; the arrows stay covered.
+    The freeze golden argv re-pinned under bug 28. CCY 3.100.26.
+  - [x] ✅ **Task 10.4.5**: Host re-check after the deploy and a tmux server restart: Esc and
+    Down in one `tmux send-keys` close a ccy-teams row menu and move the list cursor; Esc then a
+    key leaves `ccy_tmux_pick` and Ctrl-R; `tmux show -s escape-time` says 10.
+    PASS 26-10-26 (host agent, private tmux): row menu 7 of 8 (the first lost the Down, not
+    reproduced), `ccy_tmux_pick` 4 of 4, Ctrl-R 3 of 3, escape-time 10 with no restart needed;
+    again on podfreeze and lxcfreeze after their rebuild.
+- [x] ✅ **Task 10.5**: Host check of the gum decision below, after the `escape-time` 10
+  deploy and a tmux server restart: in a ccy-teams gum confirm (the take-down "Back up first?"
+  will do), Esc then Down sent as two `tmux send-keys` calls 20 ms apart answers No and leaves;
+  the same in a gum choose and a gum input cancels. Only both keys in one `send-keys` call may
+  still lose the Esc. PASS 26-10-26 (host agent): split 20 ms apart, a real ccy-teams confirm
+  and gum confirm, choose and input 9 of 9 leave; joined in one call 6 of 6 lose the Esc, as
+  decided below.
+- [x] ✅ **Task 10.6**: The restore toggle asks before turning restore OFF (decided 2026-10-28,
+  below). Tests first: turning a seat's restore OFF, from the menu row and with Ctrl-R in the
+  list, shows a Confirm, default No, naming the seat and that its session will not come back
+  after a reboot; No (and Esc) leaves restore on and changes nothing; Yes turns it off. Turning
+  it ON asks nothing. Built in `seats.ToggleRestore` (both routes reach it) with the picker's
+  `flow.Kit.Confirm`, heading `… › <seat> › Restore off`; the help, usage text and
+  docs/agent-bus.md say so.
+
+#### Owner decisions (Task 10.4, an Esc joined to the key after it)
+
+- **gum prompts** (decided by delegated review on the owner's instruction: **keep gum**,
+  option c). About 38 call sites, all through `internal/ui/ui.go`, lose the Esc only of a
+  one-write `\e\e[B`; with tmux `escape-time` 10 only a `tmux send-keys` with both keys, or a
+  paste, reaches it, and nothing destructive is behind a lost Esc. Standing condition: a
+  destructive gum confirm defaults to No or sits behind a typed name. Revisit if Task 10.5 shows
+  gum losing an Esc from keys typed apart. Analysis: the 10-26 journal decision entry.
+- **wsi-model-manager (Textual)** (owner: "fix"): Esc then a letter becomes Alt+letter (the Esc
+  is lost), and Esc then Enter reaches the app as a plain Enter. On the remove confirmation,
+  which focuses Yes, that removes the model. To be fixed (queued); a possible mitigation is
+  `ESCDELAY=10` before textual is imported.
+- **Restore toggle** (decided 2026-10-28: part C item 4 of the unblocking list, which the owner
+  answered "all recommended"; it follows the standing condition above, a destructive confirm
+  defaults to No). Turning a seat's restore OFF (the menu row and Ctrl-R from the list) asks
+  first (Confirm, default No, naming the seat and that its session will not come back after a
+  reboot); turning it ON needs no question. Built by Task 10.6.
+
+### Phase 11: Findings of the host run of 26-10-26 (done)
+
+Tasks 11.1 to 11.4: chooser texts corrected (rule `chooser-skip-condition-text`), the launch
+block printed after `session add` and `move`, `root` refused as an LXC agent's user, and
+`remove` takes the team's Element launcher away. Host PASS 26-10-26 at bc581f0ae; its findings
+are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26-10-26).
+
+### Phase 12: Findings of the Phase 11 host run
+
+- [x] ✅ **Task 12.1**: The launch block printed by `session add` and `move` says "(new seat:
+  it joins as a worker)" for seats that already existed (the session's held seat after add;
+  the move's own step said "seat 1: exists"). `newSeatWords` (`internal/teams/choose/choose.go`)
+  is chosen when the seat is missing from `Bus.SeatList(ctx, "")`, which reads the cwd's
+  checkout, and `hot.go` prints the block from the ccy-teams terminal, whose cwd need not be the
+  session's checkout: likely a lookup against the wrong checkout, not wording. Confirmed by test
+  (`TestTheBlockReadsTheSessionsCheckoutNotTheWorkingDirectory`, red then green). `choose.Block`
+  now takes the session's checkout; a seat list agent-bus refused or could not all read says
+  "role unknown", never "new seat". The launcher's own subcommands keep the cwd: they run in the
+  checkout by contract.
+
+- [x] ✅ **Task 12.2**: `session add` into a team created a minute earlier printed "left aside
+  1 joined room of an earlier room version" (`helpers/agent_bus/admin.py`, from `joined_rooms`).
+  It counts every joined room not of room version 12, and Tuwunel's own server admin room is one,
+  so a new team counts 1: the count is right and the words mislead. Say what it is (or leave the
+  server's admin room out of the count). Now only rooms whose create event the team admin sent
+  are named ("left aside N room(s) the team admin made in an earlier room version (not a bus
+  room)"); the server's admin room, sent by the server's own user, is left out without a guessed
+  name or alias.
+
+- [x] ✅ **Task 12.3**: A key typed just after Esc reaches the next prompt: in `ccy-teams remove`, Esc answered "Back up first?" No and a Down sent 20 ms later moved step 2's cursor off
+  its default "Leave it running". Harmless there (Enter and the typed name are still needed),
+  but a key acts on a screen the person has not seen. Keeping held keys is deliberate
+  (`internal/ttyecho/ttyecho.go`: they "stay in the input for the next screen to read"), so the
+  fix names which prompts drain: at least a prompt that follows an Esc answer, and every prompt
+  of a destructive flow. Decided rule (`ui.Drain`, stated in the ttyecho package doc): a screen
+  discards the waiting input (tcflush) when it follows a leave (Esc, Ctrl-C, a No; gum confirm
+  gives Esc and No one exit, so both count) or belongs to a destructive flow: `ccy-teams remove`,
+  `ccy-teams restore`, and ccy-sessions' End question. Every other screen keeps type-ahead. One
+  Drain is shared by a command's gum and fzf. Tests: ui fakes, ops and sessions flows, and a
+  real pty in `ttyecho_test.go`.
+
+- [x] ✅ **Task 12.4**: Host check, after meta-deploy (`play-claude-yolo.yml`, which builds
+  ccy-teams, ccy-sessions and CCY 3.100.30 with its image, container 2.79.12; then
+  `play-agent-bus.yml`, which rebuilds the host's `agent-bus.pyz` with the new `admin.py`). On
+  throwaway teams only, as Task 11.2:
+
+  1. Launch a scratch session in team A, then from a terminal whose cwd is another checkout run
+     `ccy-teams session add <session> <team B> --yes`: the block names both seats with their
+     role (`worker`), never "new seat". Then `session move` the other way: the same.
+  2. `session add` into a team made a minute earlier prints no "left aside" line.
+  3. `ccy-teams remove <team>`: Esc on "Back up first?" then Down within 50 ms: step 2's cursor
+     is still on "Leave it running". Elsewhere (the board after a plain answer), a key typed while
+     the next screen loads still reaches it.
+
+  Host, 26-10-26 at e3777b225, on throwaway teams: 1 and 2 PASS; 3's second half PASS (the
+  board keeps type-ahead). 3's first half FAILS 8 of 8: a Down sent 1 to 40 ms after Esc still
+  moved step 2 off "Leave it running", while a plain No left it there. Task 12.5.
+
+- [x] ✅ **Task 12.5**: Task 12.3's drain does not work on the host: in `ccy-teams remove`, Esc on
+  "Back <team> up first?" then a Down sent as a separate write 1 to 40 ms later still reaches
+  step 2. Reproduce in a pty test with the real gum (Esc, a pause, then Down as its own write),
+  find why 12.3's pty test passed while the host failed and fix the test so it models the host,
+  then fix the drain; type-ahead elsewhere is kept.
+  Built (code done; host check open). Cause, measured on the real gum 0.17 in a pty: the hold and
+  the flush do run (two flushes, one per question), but the confirm exits about 3 ms after the
+  Esc, the flush follows at once, and the next gum starts reading its input at once and draws
+  some 40 ms later: a Down 5 to 40 ms after the Esc arrives after the flush and before the draw,
+  and gum takes it. 12.3's pty test pressed its keys before the flush and ran no real program, so
+  it proved only that tcflush discards what is already queued. Fix: a draining screen waits
+  `settleTime` (150 ms, `ttyecho.Hold.Settle`) before it discards, then runs. Tests:
+  `ui/drain_pty_test.go` on the real gum (red 4 of 5 gaps before the fix; the plain-answer half
+  keeps type-ahead), and `ttyecho` (settle before the flush, the real 150 ms in a synctest
+  bubble, a key arriving during the settle discarded on a real pty). Left: a key pressed after
+  the 150 ms and before gum draws (its own start, about 40 ms) still reaches it.
+  Host, after meta-deploy (`play-claude-yolo.yml`), on a throwaway team: `ccy-teams remove <team>`, Esc on "Back <team> up first?", then Down as a separate send-keys 1, 5, 10, 20 and 40
+  ms later: step 2's cursor stays on "Leave it running" every time. The board after a plain
+  answer still takes a key typed while it loads. Host, 27-10-26 at f9073ce05: PASS, 16 of 16
+  stayed on "Leave it running" (was 0 of 8); a Down after step 2 draws still moves it (the
+  check is not vacuous); a 300 ms gap carries, as expected past the 150 ms wait; the board keeps
+  type-ahead, 5 of 5.
+
+- [x] ✅ **Task 12.6**: Task 12.5's real-gum test is flaky:
+  `internal/ui` `TestOnTheRealGumADownSentJustAfterEscDoesNotReachTheNextQuestion/1ms` failed in
+  one `qa-changed` run on 27-10-26 (a branch that does not touch `internal/ui`) and passed when
+  run alone 3 times. A test whose verdict depends on machine load is a gate that cries wolf.
+  Measure how often it fails under load (e.g. `-count` with parallel load), find whether the
+  1 ms case races the settle or the test's own timing, and make the verdict deterministic
+  without weakening what it proves.
+  Done: the test's own timing. Under load, 9 of 80 runs of the 1 ms case failed, every one with
+  "the screen never showed What happens to it?". When the Down is written before gum has read
+  the Esc, the two are read as one sequence, which gum takes as Alt+Down: the confirm does not
+  end (probe: Esc and Down in one write, the confirm never ends, 3 of 3). Fix, test only: the
+  gap now counts from the confirm's end (a runner that reports the confirm's Run returning),
+  so the Down always lands between the confirm and the next draw. A second defect, also in the
+  test and seen by the coordinator's qa-all under `-race`: on a failure, gumPty's cleanup
+  closed the pty while the gum goroutine still ran (a data race on the terminal's fd). The
+  cleanup now waits for that goroutine. Probe red, then green: race reported, then none.
+  After, with `-race` and under CPU load: 0 of 50 (1 ms) and 0 of 150 (all gaps) failed. Beside
+  a parallel `go test -race ./...`, 0 of 100 failed. Before, with `-race`: 2 of 50 failed, and
+  the race was reported. Still red without the settle (`Settle` nil), with `-race`: 10 of 10
+  runs, idle and loaded. No host run: only a test changed. Report: [subagent-reports/261027-task-12-6.md](subagent-reports/261027-task-12-6.md).
+
+- Fact-check of this phase:
+  [subagent-reports/261026-fact-check-phase12.md](subagent-reports/261026-fact-check-phase12.md).
+
+### Phase 13: The wizard asks GitHub as every gh login (the owner's finding)
+
+- [x] ✅ **Task 13.1**: `ccy-teams create` refused the owner's own checkout three times ("not
+  found, or your gh login cannot see it"): it ran plain `gh api repos/<repo>`, as whichever gh
+  login was active, and the host has several (`play-github-cli-multi.yml`'s `gh-<alias>`
+  functions). Now the wizard reads gh's working logins (`gh auth status --json hosts`) and asks
+  GitHub as each one, its token from `gh auth token --user <login>` given as GH_TOKEN through an
+  `execx.Secret`, never `gh auth switch` (which changes the active account under every other
+  session). A repository says which login can push ("push access through account-b"); one no
+  login can see or push to names the logins tried; the owner lookup is asked the same way. The
+  three tries for a mistyped repository stay. Several logins that can push are named, not asked
+  about: nothing in the team keeps a gh login (a ccy session picks its own when it starts,
+  `lib/ssh-handling.bash`), so the answer would change nothing. The parsing and the token are
+  `internal/ghlogin`, shared with `gh-account-setup`. Red then green in the journal;
+  `scripts/test-ccy-teams-command.bash` changed with it. Report:
+  [subagent-reports/261027-task-13-1.md](subagent-reports/261027-task-13-1.md).
+- [x] ✅ **Task 13.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+  (`play-claude-yolo.yml`): in the owner's checkout whose repository only a non-active gh login
+  can push to, `ccy-teams create` says "push access through <that login>" and goes on to the
+  team name; `gh auth status` afterwards shows the same active account as before. Passed at
+  cad6b5053, in a checkout the active login cannot see: "push access through <that login>",
+  then step 3 (team name); Ctrl-C there said nothing was changed, and `gh auth status` was
+  identical before and after.
+
+### Phase 14: No shortcut keys (the owner's request)
+
+- [x] ✅ **Task 14.1**: The owner: "i dont want magic key comboes in ccy-teams - i want context
+  menu items when i hit return". Built: no ccy-teams screen takes a shortcut key (Ctrl-N, -P,
+  -E, -R, -X, -U, Tab, ? are gone; no `--expect` on its lists), every action is a line of the
+  menu Enter opens, the footer says what Enter on the row offers, and help is the menu line
+  "What the columns and the menu lines mean". The fake fzf of `teamtest` and of
+  `scripts/test-ccy-teams-command.bash` now refuses a key fzf would not hand back. Deployed by
+  `play-claude-yolo.yml`. Report:
+  [subagent-reports/261030-no-shortcut-keys.md](subagent-reports/261030-no-shortcut-keys.md).
+  Deployed at 784e4dace (2026-10-30): on the host the footer reads "↑↓ choose Enter lists
+  what can be done to the row Esc or q quit", and Enter on a team row opens its menu.
+
+### Phase 15: The teams as a graph (issue #111, step 1)
+
+- [x] ✅ **Task 15.1**: `ccy-teams --graph` prints the `--list` pass as a Mermaid `flowchart`:
+  each team a subgraph (description, homeserver, people), each member's kind, seat, role,
+  checkout and live state (online, offline, or unknown with why), LXC members inside their
+  container, the coordinator's edges to its workers; it fails as `--list` does. A pure
+  formatter (`board.Mermaid`) with a golden test; usage, help and `docs/agent-bus.md`.
+  Red then green in the journal.
+
+- [ ] 🔄 **Task 15.2**: Host check, once `changed-plays` has rebuilt ccy-teams
+  (`play-claude-yolo.yml`): `ccy-teams --graph` on the host renders in a Mermaid viewer, every
+  member of `ccy-teams --list` is in it, and its exit code matches `--list`'s. Host agent,
+  2026-11-02, after the deploy at 80c7a524f: both exit 0; all 31 distinct members of `--list`
+  are nodes of `--graph` (0 missing; 6 teams, 13 subgraphs balanced). Left: the render, since
+  the host has no Mermaid parser.
+
+- [x] ✅ **Task 15.3**: The owner (2026-11-02): the list showed members green and "active"
+  whose sessions were not running, while `pingbus status` called them stale. "active" was the
+  registry's park state (not parked), read by `agent-bus list`, never liveness. Built under
+  Defence Before Fix: the rule `project_liveness_word` (red, then every finding fixed);
+  `agent-bus list` prints a `LIVE` line per member (its `agent_bus.status`, judged as
+  `pingbus status` judges it); `--list`, the picker and `--graph` show listening, stale, not
+  listening, parked, or unknown with why. CCY 3.104.17. Report:
+  [subagent-reports/261102-active-state.md](subagent-reports/261102-active-state.md).
+
+- [ ] 🔄 **Task 15.4**: Host check, once `changed-plays` has run `play-agent-bus.yml` and
+  `play-claude-yolo.yml`: `ccy-teams --list` calls a member whose `pingbus status` is stale
+  "stale" and a running one "listening", and `--graph` draws the same.
 
 ## Success Criteria
 

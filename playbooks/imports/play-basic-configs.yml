@@ -10,12 +10,17 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # Every account the Bash Tweaks run for, and so every account whose history they move.
     bash_history_accounts:
       - home: /root
         owner: root
       - home: "/home/{{ user_login }}"
         owner: "{{ user_login }}"
+    # yq names its builds amd64/arm64; the map is keyed by the arch as Fedora names it.
+    yq_arch_names:
+      x86_64: amd64
+      aarch64: arm64
   tasks:
     # Priority 0: PS1_Colour given as an extra-var. run.bash passes RUN_BASH_PS1_COLOUR this way
     # on a headless run, where nobody can answer the prompt below; an extra-var outranks every
@@ -72,7 +77,10 @@
           (default: lightblueBold)
           Tip: set hostname_overrides.<hostname>.ps1_colour in localhost.yml to skip this prompt
       register: ps1_colour_prompt
-      when: PS1_Colour is not defined and ps1_colour_file is defined and not ps1_colour_file.stat.exists
+      # A consumer is never asked about a terminal prompt's colour: the default is set below.
+      when: >-
+        PS1_Colour is not defined and ps1_colour_file is defined and not ps1_colour_file.stat.exists
+        and install_audience != 'consumer'
 
     - name: Set PS1_Colour from prompt
       ansible.builtin.set_fact:
@@ -92,12 +100,17 @@
           - wget
           - bash-completion
           - htop
+          - btop
           - python3-libdnf5
           - multitail
           - figlet
           - p7zip
-          - fzf    # draws the Ctrl+R history search list (history-search.bash)
           - gawk   # bash-history-rank
+      tags: packages
+
+    # fzf draws the Ctrl+R history search list (history-search.bash).
+    - name: Install fzf from its upstream release
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
       tags: packages
 
     # Packages found on a host that nothing here installs or needs, removed so the host is
@@ -121,13 +134,14 @@
     # touched — a rule the operator wrote themselves (docs/headless-server-install.md Step 0a)
     # is theirs and stays. Headless runs supply their credential through the preflight
     # contract (NOPASSWD the operator owns, or RUN_BASH_SUDO_PASSWORD_FILE), never through
-    # this block.
-    - name: Passwordless Sudo (desktop profile grants it, server profile removes it)
+    # this block. A consumer install (Plan 00228 Decision 8) removes it too: a non-technical
+    # user's account should not be a silent path to root.
+    - name: Passwordless Sudo (developer desktop grants it, server and consumer remove it)
       ansible.builtin.blockinfile:
         dest: /etc/sudoers
         marker: "## {mark} passwordless sudo for {{ user_login}}"
         block: "{{ user_login }}    ALL=(ALL)    NOPASSWD: ALL"
-        state: "{{ 'absent' if provisioning_profile == 'server' else 'present' }}"
+        state: "{{ 'absent' if provisioning_profile == 'server' or install_audience == 'consumer' else 'present' }}"
         validate: visudo -cf %s
 
     - name: Vim Colours
@@ -295,13 +309,16 @@
 
     # The desktop user only: root keeps plain history and stock Ctrl+R, since a recorder
     # running as root adds a second copy of root's commands for no search benefit.
-    - name: Deploy the Ctrl+R history search
+    - name: Deploy the Ctrl+R history search and its recorder
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/history-search.bash"
-        dest: "/home/{{ user_login }}/.bashrc-includes/history-search.bash"
+        src: "{{ root_dir }}/files/home/bashrc-includes/{{ item }}"
+        dest: "/home/{{ user_login }}/.bashrc-includes/{{ item }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
+      loop:
+        - history-record.bash
+        - history-search.bash
 
     # The desktop user only: that is the shell a dropped SSH session falls back to. A root
     # shell gets the same clean-up from the user prompt it returns to.
@@ -355,6 +372,24 @@
         group: root
         mode: "0644"
 
+    # A consumer install has no ccy (play-claude-yolo.yml ends itself there), so
+    # shutdown-with-update has no sessions to warn. Root-owned, so the user cannot switch the
+    # warnings off by editing it (Plan 00231).
+    - name: Assert the Install Audience Is developer or consumer
+      ansible.builtin.assert:
+        that:
+          - install_audience in ['developer', 'consumer']
+        fail_msg: >-
+          install_audience={{ install_audience }} is not recognised. Expected developer or consumer.
+
+    - name: Record the Install Audience for shutdown-with-update
+      ansible.builtin.copy:
+        content: "{{ install_audience }}\n"
+        dest: /etc/fedora-desktop/install-audience
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Deploy shutdown-with-update script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"
@@ -363,7 +398,7 @@
         group: root
         mode: "0755"
 
-    # The same script under a second name: both warn the running ccy/cc sessions
+    # The same script under a second name: both warn the running ccy sessions
     # first, and it reads its own basename to reboot instead of shutting down
     # (Plan 00135). A symlink, so the two can never drift apart.
     - name: Link reboot-with-update to the same script
@@ -374,13 +409,34 @@
         owner: root
         group: root
 
-    - name: Deploy shutdown-with-update alias
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
-        dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
-        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        mode: "0644"
+    # Plan 00231: run bare, the script hands itself to sudo by its installed path. This lets
+    # the desktop user, and only that user, through without a password, for the argument
+    # lists its parser accepts and nothing else. Every profile and audience by default: on a
+    # consumer install it is the one way that account reaches the update and the power action.
+    # shutdown_with_update_sudoers: false is for managed VMs whose policy forbids any permanent
+    # NOPASSWD rule; the rule is then removed and the script asks for the sudo password.
+    - name: Let the desktop user run shutdown-with-update without a password (a scoped sudoers rule)
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/fedora-desktop-shutdown-with-update.j2"
+        dest: /etc/sudoers.d/fedora-desktop-shutdown-with-update
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      when: shutdown_with_update_sudoers | bool
+
+    - name: Remove the shutdown-with-update sudoers rule where host_vars turn it off
+      ansible.builtin.file:
+        path: /etc/sudoers.d/fedora-desktop-shutdown-with-update
+        state: absent
+      when: not (shutdown_with_update_sudoers | bool)
+
+    # The old `sudo` aliases only worked in a shell opened after the play, and not at all from
+    # a script or over `ssh host cmd`; the script elevates itself now, so they go.
+    - name: Remove the old shutdown-with-update sudo alias
+      ansible.builtin.file:
+        path: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
+        state: absent
       loop:
         - /root
         - /home/{{ user_login }}
@@ -479,21 +535,31 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Install ssh-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/ssh-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/ssh-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # histclean removes matching entries from the history and Ctrl+R context files of the
+    # desktop user (Plan 00247). A line starting with nohist=1 is kept out of history by HISTIGNORE
+    # in the profile.d history block.
+    - name: Build and Install the histclean Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: histclean
+        go_command_dest: "/home/{{ user_login }}/.local/bin/histclean"
+        go_command_mode: "0755"
 
-    - name: Install scp-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/scp-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/scp-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # The three with-key commands are Go binaries (src-go/cmd/*-with-key, Plan 00192), built
+    # and installed at their old paths by the shared build-go-command.yml.
+    - name: Build and Install the ssh-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ssh-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ssh-with-key"
+        go_command_mode: "0755"
+
+    - name: Build and Install the scp-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: scp-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/scp-with-key"
+        go_command_mode: "0755"
 
     - name: Install ssh-copy-id-with-password helper script
       ansible.builtin.copy:
@@ -503,13 +569,12 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Install ssh-copy-id-with-key helper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/ssh-copy-id-with-key"
-        dest: "/home/{{ user_login }}/.local/bin/ssh-copy-id-with-key"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    - name: Build and Install the ssh-copy-id-with-key Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ssh-copy-id-with-key
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ssh-copy-id-with-key"
+        go_command_mode: "0755"
 
     - name: Install ssh-keys-rekey helper script
       ansible.builtin.copy:
@@ -519,14 +584,33 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Fail on an architecture yq publishes no build for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in yq_arch_names
+        fail_msg: "yq: no build for {{ ansible_facts['architecture'] }} (published: {{ yq_arch_names | list | join(', ') }})"
+      tags: yq
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
         set -euo pipefail
-        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
+        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_{{ yq_arch_names[ansible_facts['architecture']] }} && chmod 0755 /usr/bin/yq
       args:
         executable: /bin/bash
         creates: /usr/bin/yq
+      tags: yq
+
+    # Every user runs yq. An install made under a restrictive umask left it root-only, and the
+    # creates: guard above never runs the install again (CLAUDE/QA.md#root-umask).
+    - name: Make yq runnable by every user
+      become: true
+      ansible.builtin.file:
+        path: /usr/bin/yq
+        state: file
+        owner: root
+        group: root
+        mode: "0755"
+      when: not ansible_check_mode
       tags: yq
 
     # Gates the probe below, and exists only for `--check`. On a real run the install

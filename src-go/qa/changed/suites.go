@@ -156,9 +156,10 @@ func (s *session) buildOwners(ctx context.Context, rows []goRow) (map[string][]s
 }
 
 // selectSuites picks the suites the changed files need, in population order: a suite that
-// builds from a changed file, that changed itself, or whose text names a changed file by path
+// builds from a changed file, that changed itself, whose text names a changed file by path
 // or basename (the path as a substring, the basename as a token: not inside a longer word or
-// name). Naming covers the file. It then settles which changed files nothing covers.
+// name), or that reaches it through a glob or a directory under a repository-rooted variable
+// (suiteReaches). Naming or reaching covers the file. It then settles which changed files nothing covers.
 func (s *session) selectSuites(ctx context.Context) error {
 	population, err := loadPopulation(s.scripts, s.routing.perFileGates)
 	if err != nil {
@@ -191,18 +192,33 @@ func (s *session) selectSuites(ctx context.Context) error {
 			why = append(why, "the suite itself changed")
 			s.plan.covered[suite] = true
 		}
-		for _, f := range changed {
-			if f != suite && !strings.HasSuffix(f, ".md") && namesFile(string(text), f) {
-				why = append(why, "names "+f)
-				s.plan.covered[f] = true
-			}
-		}
+		why = append(why, s.namedOrReached(string(text), suite, changed)...)
 		if len(why) > 0 {
 			s.plan.suites = append(s.plan.suites, pickedSuite{name: suite, why: why, rows: gateRows[name]})
 		}
 	}
 	s.settleUncovered()
 	return nil
+}
+
+// namedOrReached is why the suite's text selects it for the changed files it names or reaches,
+// each of which it covers. A markdown file is neither: it is read, not run.
+func (s *session) namedOrReached(text, suite string, changed []string) []string {
+	reaches := suiteReaches(text, suite)
+	var why []string
+	for _, f := range changed {
+		if f == suite || strings.HasSuffix(f, ".md") {
+			continue
+		}
+		if namesFile(text, f) {
+			why = append(why, "names "+f)
+			s.plan.covered[f] = true
+		} else if i := slices.IndexFunc(reaches, func(p string) bool { return reached(p, f) }); i >= 0 {
+			why = append(why, "reaches "+f+" through "+reaches[i])
+			s.plan.covered[f] = true
+		}
+	}
+	return why
 }
 
 // settleUncovered names the changed files no rule, suite or exclusion accounts for.

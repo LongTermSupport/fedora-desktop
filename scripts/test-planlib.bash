@@ -141,7 +141,7 @@ mkdir -p "${TMPROOT}/a/repo/CLAUDE/Plan/00001-x/deep/deeper"
 run_capture _plan_find_repo_root "${TMPROOT}/a/repo/CLAUDE/Plan/00001-x/deep/deeper"
 assert_eq "find_repo_root resolves the root from a deep plan subdir" "${TMPROOT}/a/repo" "${OUT}"
 
-# THE case that matters most for THIS repo: it is routinely checked out INSIDE lts-infra at
+# THE case that matters most for THIS repo: it is routinely checked out INSIDE example-team at
 # untracked/repos/fedora-desktop, and BOTH repos have an ansible.cfg at their root. An
 # unbounded walk from a plan script here finds the OUTER repo's marker and appears to work.
 make_repo "${TMPROOT}/b/outer"
@@ -904,8 +904,9 @@ FOUND="$(plan_image_build 2>"${CAPTURE_FILE}")"
 RC=$?
 assert_eq "no build lock directory is no build" "3" "${RC}"
 # A real build, as the launcher runs one: its own ccy_image_build_locked takes the lock and
-# writes the record (a check of `false` always builds); the build is a sleep.
-bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 8' _ "${CCY_BUILD_LOCK_LIB}" &
+# writes the record (a check of `false` always builds); the build is a sleep. Its self-prune
+# (lib/image-build-prune.bash) is `true`, which records nothing and removes nothing.
+CCY_CONTAINER_IMAGES=true bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 8' _ "${CCY_BUILD_LOCK_LIB}" &
 BUILDER=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     if [[ -s "${LOCK}" ]] || ! kill -0 "${BUILDER}" 2>/dev/null; then

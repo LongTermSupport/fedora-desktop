@@ -76,7 +76,7 @@ func TestCheckProjectsRefusesWhenContainersCannotBeMatched(t *testing.T) {
 	if _, err := h.app.checkProjects(context.Background(), "reboot-warning"); !errors.Is(err, errReported) {
 		t.Fatalf("ps: %v", err)
 	}
-	contains(t, "ps", h.stderr(), "the process table could not be read, so no session can be matched to its container: ps: gone")
+	contains(t, "ps", h.stderr(), "the process table could not be read, so no session can be matched to its container: ps exited 1: ps: gone")
 
 	h = newHarness(t)
 	h.sessions("cc-a 1 /srv/a")
@@ -258,7 +258,7 @@ func TestDeliverSignalStopsAtTheFirstRefusedWarningButNotAWithdrawal(t *testing.
 	if _, err := h.app.deliverSignal(context.Background(), projects, "reboot-warning", 3, false); !errors.Is(err, errReported) {
 		t.Fatalf("got %v", err)
 	}
-	contains(t, "warning", h.stderr(), "ERROR: signalling reboot-warning to "+a+" failed.")
+	contains(t, "warning", h.stderr(), "ERROR: signalling reboot-warning to "+a+" failed (exit 1).")
 	if h.count(cli(b)) != 0 {
 		t.Fatal("a warning stops at the first project that refuses")
 	}
@@ -291,5 +291,31 @@ func TestSignalProjectsChecksBeforeItSignals(t *testing.T) {
 	n, err := h.app.signalProjects(context.Background(), "reboot-warning", 5, false)
 	if err != nil || n != 1 {
 		t.Fatalf("%d %v", n, err)
+	}
+}
+
+// A cc session runs claude on the host with no ccy supervisor, and only the supervisor shows
+// the daemon's warning, so a warning names every cc session as not shown it; its project is
+// still signalled. A cancellation, which nobody acts on, names none.
+func TestACcSessionIsNamedAsNotShownTheWarning(t *testing.T) {
+	for _, kind := range []string{"reboot-warning", "shutdown-warning", kindCancelled} {
+		h := newHarness(t)
+		a, b := h.project("a", true), h.project("b", true)
+		h.okCLI(a)
+		h.okCLI(b)
+		h.sessions("cc-a 1 "+a, "ccy-c 0 "+b)
+		containerRoute(h)
+		h.fake.On([]string{"podman", "exec"}, execx.Result{})
+		projects, err := h.app.checkProjects(context.Background(), kind)
+		if err != nil || len(projects) != 2 {
+			t.Fatalf("%s: %+v %v", kind, projects, err)
+		}
+		named := strings.Contains(h.stderr(), "  not shown: cc-a  in "+a)
+		if named != (kind != kindCancelled) || strings.Contains(h.stderr(), "not shown: ccy-c") {
+			t.Fatalf("%s: stderr %q", kind, h.stderr())
+		}
+		if kind != kindCancelled {
+			contains(t, "not shown", h.stderr(), "Not shown the warning: these cc sessions run claude on the host with no ccy supervisor")
+		}
 	}
 }

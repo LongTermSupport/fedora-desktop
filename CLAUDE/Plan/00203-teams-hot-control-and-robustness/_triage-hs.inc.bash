@@ -24,10 +24,16 @@ heading() {
 # Every team with a homeserver unit systemd knows of: loaded (running or not) or enabled.
 installed_teams() {
     local units files
-    units="$(systemctl list-units --all --plain --no-legend --full 'agent-bus-hs@*.service')"
-    files="$(systemctl list-unit-files --plain --no-legend --full 'agent-bus-hs@*.service')"
+    units="$(systemctl list-units --all --plain --no-legend --full "${HS_GLOB:?}")"
+    files="$(systemctl list-unit-files --plain --no-legend --full "${HS_GLOB}")"
+    # The team is what the glob's `*` stands for: between its head and its tail, with no dot.
     printf '%s\n%s\n' "${units}" "${files}" | awk '{print $1}' \
-        | awk -F'[@.]' '/^agent-bus-hs@.+\.service$/ && $2 != "" {print $2}' | sort -u
+        | awk -v head="${HS_GLOB%%\**}" -v tail="${HS_GLOB#*\*}" '
+            index($0, head) == 1 && length($0) > length(head) + length(tail) \
+                && substr($0, length($0) - length(tail) + 1) == tail {
+                team = substr($0, length(head) + 1, length($0) - length(head) - length(tail))
+                if (team !~ /\./) print team
+            }' | sort -u
 }
 
 # jexport <file> <journalctl args...> — a JSON export of the journal as root. journalctl exits
@@ -46,7 +52,11 @@ jexport() {
 }
 
 export_journal() {
-    jexport "${EXPORTS}/units.json" -u 'agent-bus-hs@*' -u 'agent-bus-hs-health@*' -u 'agent-bus-backup@*'
+    local units=() glob
+    for glob in "${UNIT_GLOBS[@]}"; do
+        units+=(-u "${glob}")
+    done
+    jexport "${EXPORTS}/units.json" "${units[@]}"
     # Who can stop a homeserver: ansible's module records, sudo's command records, the installer.
     jexport "${EXPORTS}/mentions.json" --grep 'agent-bus'
     jexport "${EXPORTS}/kernel.json" -k --grep '(?i)out of memory|oom-kill|oom_reaper|tuwunel|segfault|hung_task|no space left'
@@ -165,6 +175,14 @@ watcher_logs() {
         return 1
     fi
     path="${home}/${entries}"
+    # The words each kind of line ends with are cli.py's own, read the same way.
+    local exits ended refused restarted dropped silent
+    exits="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_EXITS)" || return 1
+    ended="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_ENDED)" || return 1
+    refused="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_REFUSED)" || return 1
+    restarted="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py WATCHER_RESTARTED)" || return 1
+    dropped="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py TEAM_NOT_WATCHED)" || return 1
+    silent="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/pingbus/cli.py HOMESERVER_SILENT)" || return 1
     names="$(podman ps --format '{{.Names}}')"
     for name in ${names}; do
         if ! podman exec "${name}" test -f "${path}"; then
@@ -174,10 +192,10 @@ watcher_logs() {
         log="$(podman exec "${name}" cat "${path}")"
         printf '=== %s: %s modified %s\n' "${name}" "${path}" "$(podman exec "${name}" stat -c '%y' "${path}")"
         printf '    exits: %s; supervisor restarts: %s; teams dropped: %s; homeserver outages: %s\n' \
-            "$(grep -c 'the watcher exits\|the watcher ended\|the watcher was refused' <<<"${log}")" \
-            "$(grep -c 'starting it again' <<<"${log}")" \
-            "$(grep -c 'no longer watched' <<<"${log}")" \
-            "$(grep -c 'does not answer' <<<"${log}")"
+            "$(grep -cF -e "${exits}" -e "${ended}" -e "${refused}" <<<"${log}")" \
+            "$(grep -cF -e "${restarted}" <<<"${log}")" \
+            "$(grep -cF -e "${dropped}" <<<"${log}")" \
+            "$(grep -cF -e "${silent}" <<<"${log}")"
         awk '{l[NR]=$0} END{for(i=NR-39;i<=NR;i++) if(i>0) print "    " l[i]}' <<<"${log}"
     done
     if [[ "${found}" -eq 0 ]]; then
@@ -186,7 +204,7 @@ watcher_logs() {
 }
 
 gather_facts() {
-    local team hs failed=0
+    local team hs health backup failed=0
     heading "the Tuwunel binary the units run"
     probe "tuwunel --version" "${TUWUNEL}" --version
     probe "tuwunel binary mtime and size" stat -c '%y %s bytes %n' "${TUWUNEL}"
@@ -205,12 +223,14 @@ gather_facts() {
     heading "session watchers: each running container's watch.log"
     probe "watch.log per container" watcher_logs
     for team in "${TEAMS[@]}"; do
-        hs="agent-bus-hs@${team}.service"
+        hs="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/agent_bus/health.py hs_unit "${team}")" || return 1
+        health="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/agent_bus/health.py health_service "${team}")" || return 1
+        backup="$(python3 -I "${TRIAGE_M7_CHECK}" product-value helpers/agent_bus/health.py backup_service "${team}")" || return 1
         heading "team ${team}: limits, peaks, restart counters, database and its filesystem"
         probe "${hs} state, limits and counters" systemctl show "${hs}" -p "${HS_PROPS}"
         probe "${hs} unit and drop-ins" systemctl cat "${hs}"
-        probe "agent-bus-hs-health@${team}.service" systemctl show "agent-bus-hs-health@${team}.service" -p "${ONESHOT_PROPS}"
-        probe "agent-bus-backup@${team}.service" systemctl show "agent-bus-backup@${team}.service" -p "${ONESHOT_PROPS}"
+        probe "${health}" systemctl show "${health}" -p "${ONESHOT_PROPS}"
+        probe "${backup}" systemctl show "${backup}" -p "${ONESHOT_PROPS}"
         probe "health record ${team}.json" health_record "${team}"
         probe "tuwunel.toml (secret-named string values substituted)" redacted_config "${team}"
         probe "database size, filesystem and free space" db_and_filesystem "${team}"

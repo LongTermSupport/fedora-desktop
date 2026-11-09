@@ -3,6 +3,7 @@ package vmtest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,9 +18,13 @@ import (
 )
 
 const (
-	guestRunState     = "/var/lib/vmtest"
-	guestUserEmail    = "vmtest@example.com" // RFC 2606 reserved: the guest's git identity is a placeholder
-	provisionLimit    = 5400 * time.Second
+	guestRunState  = "/var/lib/vmtest"
+	guestUserEmail = "vmtest@example.com" // RFC 2606 reserved: the guest's git identity is a placeholder
+	provisionLimit = 5400 * time.Second
+	// promptIdle is how long an attended run may stand silent at a prompt-shaped line before
+	// it is taken for a question nobody will answer. A prompt is silent until answered; the
+	// bound leaves room for a step that prints a label ending in ':' and then works.
+	promptIdle        = 60 * time.Second
 	prepareLimit      = 1800 * time.Second
 	sessionPoll       = 15 * time.Second
 	sessionReport     = 300 * time.Second
@@ -88,6 +93,9 @@ func (r *running) overrides() string {
 
 // provision runs run.bash at the pinned commit and returns its status (E36, E37).
 func (r *running) provision(ctx context.Context) (int, error) {
+	if r.s.Consumer() {
+		return r.consumerProvision(ctx)
+	}
 	if r.b.Profile == profileDesktop {
 		return r.sessionProvision(ctx)
 	}
@@ -158,7 +166,11 @@ func (r *running) waitRunExit(ctx context.Context) (bool, error) {
 		if err := r.g.mustBeUp(ctx, "run.bash in the session"); err != nil {
 			return false, err
 		}
-		if r.g.succeeds(ctx, "test -r "+guestRunState+"/run.exit") {
+		done, err := r.g.readable(ctx, guestRunState+"/run.exit")
+		if err != nil {
+			return false, err
+		}
+		if done {
 			return true, nil
 		}
 		if err := r.c.env.Sleep(ctx, sessionPoll); err != nil {
@@ -169,7 +181,7 @@ func (r *running) waitRunExit(ctx context.Context) (bool, error) {
 			out, err := r.g.output(ctx, "cat "+guestRunState+"/run.log")
 			r.c.p.Print(r.transcript, out)
 			if err != nil {
-				r.c.logf("could not read the run log from the guest")
+				r.c.logf("could not read the run log from the guest: %v", err)
 			}
 			r.note(fmt.Sprintf("ERROR: the session runner did not finish run.bash within %ds\n", int(provisionLimit.Seconds())))
 			return false, nil
@@ -307,20 +319,35 @@ func (r *running) desktopReboot(ctx context.Context) error {
 	if err := r.g.waitSSH(ctx); err != nil {
 		return err
 	}
+	return r.waitSession(ctx, "", " after the reboot")
+}
+
+// waitSession waits for the autologin session on seat0, and for also (a remote condition, ""
+// for none) to hold, then gives gnome-shell a moment to answer on D-Bus; when is what the
+// timeout says it was waiting after.
+func (r *running) waitSession(ctx context.Context, also, when string) error {
+	probe := "loginctl list-sessions --no-legend"
+	if also != "" {
+		probe += " && " + also
+	}
 	r.c.logf("waiting for the autologin session on seat0 (up to %ds)", int(rebootLimit.Seconds()))
 	start := r.c.env.Now()
 	for {
 		if err := r.g.mustBeUp(ctx, "the autologin session"); err != nil {
 			return err
 		}
-		if out, err := r.g.merged(ctx, "loginctl list-sessions --no-legend"); err == nil && seat0RE.MatchString(out) {
+		out, last := r.g.merged(ctx, probe)
+		if last == nil && seat0RE.MatchString(out) {
 			break
 		}
 		if err := r.c.env.Sleep(ctx, poll); err != nil {
 			return ctxErr(ctx, err)
 		}
 		if r.c.env.Now().Sub(start) >= rebootLimit {
-			return failf("no autologin session on seat0 within %ds after the reboot (stage: boot)", int(rebootLimit.Seconds()))
+			if last != nil {
+				return failf("no autologin session on seat0 within %ds%s (stage: boot): %v", int(rebootLimit.Seconds()), when, last)
+			}
+			return failf("no autologin session on seat0 within %ds%s (stage: boot)", int(rebootLimit.Seconds()), when)
 		}
 	}
 	// gnome-shell needs a moment after the session appears before its D-Bus interface answers.
@@ -358,7 +385,7 @@ func (r *running) evidence(ctx context.Context) {
 	}
 	shot := filepath.Join(r.dir, "screenshot.png")
 	if err := r.c.virshShow(ctx, "screenshot", r.g.domain, shot); err != nil {
-		r.c.logf("screenshot failed (recorded as absent)")
+		r.c.logf("screenshot failed (recorded as absent): %v", err)
 		return
 	}
 	r.c.p.Print(r.transcript, "VMTEST-EVIDENCE screenshot=runs/"+r.id+"/screenshot.png (evidence only: proves the compositor produced a frame, not that the frame is correct)\n")
@@ -372,18 +399,28 @@ func (r *running) capture(ctx context.Context, remote, file, absent string) stri
 		r.c.logf("could not save %s: %v", file, werr)
 	}
 	if err != nil {
-		r.c.logf("%s", absent)
+		r.c.logf("%s: %v", absent, err)
 		return ""
 	}
 	return out
 }
 
-// succeeds reports whether remote exits 0 in the guest; its output is dropped, as a probe's is.
-func (g *guest) succeeds(ctx context.Context, remote string) bool {
-	cmd := g.sshCmd(remote)
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+// readable is whether path is readable in the guest (`test -r`). Only test's own no, exit 1,
+// is false: any other failure (ssh's 255, a killed run) is returned, so a lost connection is
+// not read as "not yet".
+func (g *guest) readable(ctx context.Context, path string) (bool, error) {
+	cmd := g.sshCmd("test -r " + path)
+	cmd.Stdout = io.Discard
 	_, err := g.c.env.Runner.Run(ctx, cmd)
-	return err == nil
+	var exit *execx.ExitError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &exit) && exit.Code == 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("could not ask the guest whether %s exists: %w", path, ctxErr(ctx, err))
+	}
 }
 
 // merged is remote's stdout and stderr together, as the session probe reads them.

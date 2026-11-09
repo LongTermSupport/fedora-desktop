@@ -41,21 +41,23 @@ type world struct {
 	stderr     bytes.Buffer
 	helper     string
 
-	accounts    map[string]*ghAccount
-	order       []string
-	active      string
-	loginAs     string // the account a browser login authorises
-	loginFails  bool
-	refreshFail bool
-	switchFails bool
-	keysFail    bool
-	addFails    bool
-	keys        map[string][]string // login -> registered public key lines
-	sshAs       map[string]string   // key path -> the login GitHub greets it as
-	vaultOut    string
-	vaultFails  bool
-	ghVersion   string
-	statusFails bool
+	accounts     map[string]*ghAccount
+	order        []string
+	active       string
+	loginAs      string // the account a browser login authorises
+	loginFails   bool
+	refreshFail  bool
+	switchFails  bool
+	keysFail     bool
+	addFails     bool
+	keys         map[string][]string // login -> registered public key lines
+	sshAs        map[string]string   // key path -> the login GitHub greets it as
+	vaultOut     string
+	vaultFails   bool
+	ghVersion    string
+	statusFails  bool
+	statusCalls  int // gh auth status runs so far
+	statusFailAt int // the one gh auth status run (1-based) that fails; 0 for none
 }
 
 func newWorld(t *testing.T) *world {
@@ -158,7 +160,8 @@ func (w *world) script() {
 		return execx.Result{Stdout: []byte(w.ghVersion)}, nil
 	})
 	f.OnFunc([]string{"gh", "auth", "status"}, func(execx.Cmd) (execx.Result, error) {
-		if w.statusFails {
+		w.statusCalls++
+		if w.statusFails || w.statusCalls == w.statusFailAt {
 			return execx.Result{Stderr: []byte("fatal"), ExitCode: 1}, nil
 		}
 		return execx.Result{Stdout: w.statusJSON()}, nil

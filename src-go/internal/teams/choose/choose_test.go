@@ -2,6 +2,10 @@ package choose
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatcheckouts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -295,6 +300,19 @@ func TestTheWrappersRefusalIsTheExitCode(t *testing.T) {
 	}
 }
 
+// A code of agent-bus's that ccy-teams does not document (69, unreachable) is said, and the
+// launch fails with 1 (term.FromChild).
+func TestAWrapperCodeTheToolsDoNotDocumentIsAFailure(t *testing.T) {
+	h := newRig(t)
+	h.OnErr(seatChoose, "agent-bus: the homeserver did not answer", 69)
+	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(h.ErrOut.String(), "agent-bus seat choose exited 69") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 func TestAnUnreadableTeamFailsBeforeAnyRoleIsOffered(t *testing.T) {
 	h := newRig(t)
 	h.OnErr(teamtest.SudoBus+"list alpha", "sudo: a password is required", 1)
@@ -430,6 +448,63 @@ func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 	}
 }
 
+// Plan 00177 Task 12.1: a seat list agent-bus refused (here a checkout ccy never ran in) says
+// nothing of whether a seat exists, so its seats are not called new.
+func TestDescribeBlockOfAnUnreadSeatListSaysTheRoleIsUnknown(t *testing.T) {
+	h := newRig(t)
+	bare := filepath.Join(h.Root, "bare")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h.On("git rev-parse --show-toplevel", bare+"\n", 0)
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.stdout(), "  alpha  seat 1 (role unknown: the checkout's seats could not all be read (the reason is above))  ") ||
+		!strings.Contains(h.ErrOut.String(), "agent-bus: "+bare+" has no .claude/ccy/") {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
+	}
+}
+
+// Plan 00201 Task 2.29: the launch block, which follows every seat take, lists the session's
+// checkout among the seat checkouts, so its seats are read there once the session has ended.
+func TestDescribeBlockListsTheCheckoutAmongTheSeatCheckouts(t *testing.T) {
+	h := newRig(t)
+	store, err := h.Host.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := seatcheckouts.Of(store)
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	got, err := list.Read()
+	if err != nil || !slices.Equal(got, []string{h.Checkout()}) {
+		t.Fatalf("list %v, %v", got, err)
+	}
+	other := filepath.Join(h.Root, "other")
+	if code := Block(t.Context(), h.Host, flow.New(h.Host), &strings.Builder{}, other, "1@alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if got, err = list.Read(); err != nil || !slices.Equal(got, []string{h.Checkout(), other}) {
+		t.Fatalf("list %v, %v", got, err)
+	}
+}
+
+func TestDescribeBlockFailsWhenTheCheckoutCannotBeListed(t *testing.T) {
+	h := newRig(t)
+	list := filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts")
+	if err := os.MkdirAll(list, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if h.stdout() != "" || !strings.Contains(h.ErrOut.String(), list) {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
+	}
+}
+
 func TestDescribeBlockOfOneTeamSaysSo(t *testing.T) {
 	h := newRig(t)
 	h.RemoveSeat(t, h.Checkout(), "alpha", "1")
@@ -465,5 +540,19 @@ func TestDescribeNothingAndATeamAlone(t *testing.T) {
 	h.c.Describe(t.Context(), []string{"alpha"})
 	if h.stdout() != "alpha\n" {
 		t.Fatalf("stdout %q", h.stdout())
+	}
+}
+
+// TestBlockTextsKeepTheirBytes: the launch block's head and seat line, named for Plan 00201's
+// m7_check (Task 2.24), are the lines they were before they were named.
+func TestBlockTextsKeepTheirBytes(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{fmt.Sprintf(blockHead, 1, blockNounOne), "This session is on 1 team:"},
+		{fmt.Sprintf(blockHead, 2, blockNounMany), "This session is on 2 teams:"},
+		{fmt.Sprintf(blockLine, "a    ", "1", "worker", "about"), "  a      seat 1 (worker)  about"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
 	}
 }

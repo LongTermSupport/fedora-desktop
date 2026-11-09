@@ -99,6 +99,24 @@ func TestPreflightNoMount(t *testing.T) {
 	k.wantErr("ERROR: No rclone mount found for remote 'lib'\n  Is rclone-lib.service running?\n  Start it: systemctl --user start rclone-lib\n")
 }
 
+// E24: a listing that fails says why, not that there is no mount; a mount whose source cannot
+// be read is passed over and said.
+func TestPreflightMountListingFails(t *testing.T) {
+	k := remoteKit(t)
+	k.fake.On([]string{"findmnt", "-n", "-o", "TARGET", "-t", "fuse.rclone"}, execx.Result{Stderr: []byte("findmnt: cannot read mountinfo\n"), ExitCode: 4})
+	k.wantCode(k.run("--copy-preflight"), term.ExitFailure)
+	k.wantErr("ERROR: could not list the rclone mounts: findmnt exited 4: findmnt: cannot read mountinfo\n")
+	if strings.Contains(k.err.String(), "No rclone mount found") {
+		t.Errorf("a failed listing guessed no mount: %q", k.err.String())
+	}
+
+	k = remoteKit(t)
+	k.fake.On([]string{"findmnt", "-n", "-o", "TARGET", "-t", "fuse.rclone"}, execx.Result{Stdout: []byte("/broken\n")})
+	k.fake.On([]string{"findmnt", "-n", "-o", "SOURCE", "/broken"}, execx.Result{ExitCode: 1})
+	k.wantCode(k.run("--copy-preflight"), term.ExitFailure)
+	k.wantErr("  Start it: systemctl --user start rclone-lib\n  could not read the source of /broken: findmnt exited 1\n")
+}
+
 func TestPreflightMountDestinationMissing(t *testing.T) {
 	k := remoteKit(t)
 	if err := os.RemoveAll(remoteDest(k)); err != nil {
@@ -149,6 +167,16 @@ func TestPush(t *testing.T) {
 	if strings.Contains(k.out.String()+k.err.String(), "rclone-cache-warm") || strings.Contains(k.err.String(), "No rclone mount") {
 		t.Errorf("no mount: no hint and no error:\n%s%s", k.out.String(), k.err.String())
 	}
+
+	k.fake.On([]string{"findmnt", "-n", "-o", "TARGET", "-t", "fuse.rclone"}, execx.Result{ExitCode: 4})
+	k.wantCode(k.run("--push"), term.ExitOK)
+	if strings.Contains(k.out.String()+k.err.String(), "rclone-cache-warm") || strings.Contains(k.err.String(), "WARNING") {
+		t.Errorf("a findmnt that ran and refused: no hint and no warning:\n%s%s", k.out.String(), k.err.String())
+	}
+
+	k.fake.OnError([]string{"findmnt"}, &execx.NotInstalledError{Name: "findmnt"})
+	k.wantCode(k.run("--push"), term.ExitOK)
+	k.wantErr("WARNING: no mount hint: could not list the rclone mounts: " + (&execx.NotInstalledError{Name: "findmnt"}).Error() + "\n")
 
 	k.fake.On([]string{"rclone", "copy"}, execx.Result{ExitCode: 7})
 	k.wantCode(k.run("--push"), term.ExitFailure)
@@ -216,7 +244,7 @@ func TestCopyCannotCopy(t *testing.T) {
 	k := remoteKit(t)
 	k.fake.On([]string{"cp", "-r"}, execx.Result{ExitCode: 1})
 	k.wantCode(k.run("--copy"), term.ExitFailure)
-	k.wantErr("ERROR: Failed to copy files to mount\n")
+	k.wantErr("ERROR: Failed to copy files to mount: cp exited 1\n")
 }
 
 func TestCopyStatsNotJSON(t *testing.T) {
@@ -241,7 +269,7 @@ func TestCopyVerificationFails(t *testing.T) {
 	scriptRC(k, []string{vfs(0, 0, 0)}, []string{"{}"})
 	k.fake.On([]string{"rclone", "check"}, execx.Result{Stderr: []byte("1 differences found\n"), ExitCode: 1})
 	k.wantCode(k.run("--copy"), term.ExitFailure)
-	k.wantErr("Verification failed:\n1 differences found\n", "Run ftp-camera --push to push remaining files directly.\n")
+	k.wantErr("Verification failed: rclone exited 1\n1 differences found\n", "Run ftp-camera --push to push remaining files directly.\n")
 }
 
 // E35: an interrupt while waiting ends the run with 130.

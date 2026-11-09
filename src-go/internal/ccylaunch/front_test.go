@@ -294,7 +294,7 @@ func TestAMissingBashLauncherIsReported(t *testing.T) {
 func TestHelp(t *testing.T) {
 	dir := install(t)
 	inspect := []string{"podman", "image", "inspect", "claude-yolo:latest"}
-	claudeHelp := []string{"podman", "run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
+	claudeHelp := []string{"podman", "run", "--rm", "--pids-limit", "4096", "--entrypoint", "claude", "claude-yolo:latest", "--help"}
 	cases := []struct {
 		name  string
 		setup func(f *execx.Fake)
@@ -320,7 +320,12 @@ func TestHelp(t *testing.T) {
 			f.On(claudeHelp, execx.Result{ExitCode: 1})
 		}, helpRule + "Claude Code Help (from container):\n" + helpRule + "\n" +
 			"Note: the image exists, but 'claude --help' would not run inside it.\n" +
-			"  podman said: no output\n"},
+			"  podman said: no output (claude --help in claude-yolo:latest: podman exited 1)\n"},
+		{"an engine that cannot run", func(f *execx.Fake) {
+			f.OnError(inspect, &execx.NotInstalledError{Name: "podman"})
+		}, helpRule + "Claude Code Help:\n" + helpRule + "\n" +
+			"Could not ask podman whether the image is built: inspect image claude-yolo:latest: " +
+			(&execx.NotInstalledError{Name: "podman"}).Error() + "\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

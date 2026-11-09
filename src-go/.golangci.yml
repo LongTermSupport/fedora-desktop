@@ -112,11 +112,24 @@ linters:
       - path: internal/ccylaunch/[^/]+\.go
         linters: [gosec]
         text: "G304|G401|G501|G703"
+      # The planted-pipe helpers open the named pipe a test made in its own temporary directory.
+      - path: (qa/)?internal/fifotest/
+        linters: [gosec]
+        text: "G304"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go
         linters: [gosec]
         text: "G302"
+      # The guest-root tests build fixtures with modes such as 0755, 0775 and 0757, because
+      # those modes are what the reads and writes must check or refuse.
+      - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
+      # The lxc phase tests build fixture guest trees with the modes a real guest has.
+      - path: internal/teamchat/host/lxc/[a-z_]+_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
@@ -168,6 +181,11 @@ linters:
       - path: qa/(patterns/helpers_test|cmd/qa-patterns/main_test)\.go
         linters: [gosec]
         text: "G304"
+      # The QA lock's tests hold the lock through a second open of a file under a temporary
+      # directory, read its record back, and signal a child process by marker files beside it.
+      - path: qa/internal/qalock/.*_test\.go
+        linters: [gosec]
+        text: "G304|G703"
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go
         linters: [gosec]
@@ -220,6 +238,16 @@ linters:
       - path: internal/rclonecache/stats\.go
         linters: [tagliatelle]
         text: "CacheMax"
+      # container-images old-range decodes c/storage's own image records, whose keys are
+      # c/storage's (mapped-layers).
+      - path: internal/containerimages/oldrange_records\.go
+        linters: [tagliatelle]
+        text: "mapped-layers"
+      # ccy-network-policy decodes `podman inspect`, whose keys are podman's own Go field names
+      # (State, ResolvConfPath, EffectiveCaps).
+      - path: internal/netpolicy/podman\.go
+        linters: [tagliatelle]
+        text: "'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'"
       # wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own
       # (channel_map) and the sound server's property names (application.process.id).
       - path: internal/wsimedia/app\.go
@@ -279,7 +307,79 @@ linters:
       - path: internal/ghaccount/[a-z]+_test\.go|cmd/gh-account-setup/main_test\.go
         linters: [gosec]
         text: "G304|G302|G301|G306"
+      # consumer-install reads the checkout's own files (host_vars, the version file, the
+      # optional plays it lists) by paths computed from the checkout it runs in.
+      - path: internal/consumer/(app|plays)\.go
+        linters: [gosec]
+        text: "G304"
+      # Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's
+      # register endpoint): the admin client computes it, and the fake homeserver and its replay
+      # check it. The hash is the server's, not a choice made here.
+      - path: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test)\.go
+        linters: [gosec]
+        text: "G401|G505"
+      # The seat store refuses a directory others can enter and a record others can read (Plan
+      # 00209 SPEC-n2c.md SW1, SW2); its tests build those states.
+      - path: internal/teamchat/seat/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
+      # A member's own files refuse a directory or file others can write or enter, and a lock
+      # file of any mode but 0600 (SPEC-n3 TB4, GU1); their tests build those states.
+      - path: internal/teamchat/member/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
+      # The Element profiles refuse a consent others can read and put back a profile directory
+      # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states.
+      - path: internal/teamchat/element/.*_test\.go
+        linters: [gosec]
+        text: "G302"
   settings:
+    tagliatelle:
+      case:
+        overrides:
+          # One rule, the repository owner's decision of 2026-11-03 (pull request 124): the JSON
+          # formats v2 (teamchat) owns, and the wire formats it speaks, are snake_case, and are
+          # still held to that one case. The packages below are the ones whose structs carry such
+          # keys: the Matrix client-server API (access_token, next_batch) and its fake homeserver,
+          # the GitHub REST API the forge checker reads (full_name, default_branch), and teamchat's
+          # own records (seat, status, health, member records, state and link wire, lxcstate).
+          # tagliatelle matches a package by its path and takes no pattern, so each package is a
+          # line; a teamchat package that decodes another program's camelCase wire (member/kit,
+          # member/link: Claude Code's settings and hook JSON) is deliberately not listed. This
+          # tightens a check rather than excusing one, so the suppression record does not see it.
+          - pkg: internal/teamchat/matrix
+            rules:
+              json: snake
+          - pkg: internal/teamchat/matrix/fakehs
+            rules:
+              json: snake
+          - pkg: internal/teamchat/seat
+            rules:
+              json: snake
+          - pkg: internal/teamchat/status
+            rules:
+              json: snake
+          - pkg: internal/teamchat/health
+            rules:
+              json: snake
+          - pkg: internal/teamchat/member/records
+            rules:
+              json: snake
+          - pkg: internal/teamchat/member/state
+            rules:
+              json: snake
+          - pkg: internal/teamchat/member/wire
+            rules:
+              json: snake
+          - pkg: internal/teamchat/host/lxc/lxcstate
+            rules:
+              json: snake
+          - pkg: internal/teamchat/member/forge
+            rules:
+              json: snake
+          - pkg: internal/teamchat/proto
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:

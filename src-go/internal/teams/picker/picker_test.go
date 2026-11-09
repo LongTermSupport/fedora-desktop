@@ -36,7 +36,7 @@ func TestPickerEscLeavesWithTheHouseStyleArgvAndTaggedRows(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	args := h.Script.FzfArgs[0]
-	if !slices.Contains(args, "--expect=tab,ctrl-e,ctrl-n,ctrl-u,?,ctrl-x,ctrl-r,ctrl-p") ||
+	if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) ||
 		!slices.Contains(args, "--border-label= Agent teams ") || !slices.Contains(args, "--with-nth=1") {
 		t.Fatalf("args %q", args)
 	}
@@ -59,9 +59,9 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	header := h.HeaderOf(0)
 	// newRig's alpha has its description offer answered never, so its row can undo that.
 	for _, want := range []string{
-		"↑↓ choose   Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit\n",
-		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   add a running session to alpha via Enter   edit alpha's settings via Enter   Ctrl-U update out-of-date teams   restart alpha's desktop sessions via Enter   wind down alpha's sessions via Enter   be asked to describe alpha again via Enter   ? help   shut down alpha's sessions via Enter   Ctrl-X take alpha down\n",
-		"Ctrl-N starts a new ccy session in the row's team, in " + h.Checkout() + "\n",
+		"↑↓ choose   Enter lists what can be done to the row, help among it   Running sessions is the last row   Esc or q quit\n",
+		"This row, Enter to: open alpha in Element, open every team in Element, start a session in alpha, add an LXC container to alpha, add a running session to alpha, edit alpha's settings, update out-of-date teams, restart alpha's desktop sessions, wind down alpha's sessions, be asked to describe alpha again, help, shut down alpha's sessions, take alpha down\n",
+		"A new ccy session (Enter on a row) starts in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",
 		"TEAM ",
 	} {
@@ -74,19 +74,19 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	}
 }
 
-func TestPickerHeaderSaysCtrlNIsUnavailableOutsideAProjectAndRestoreOn(t *testing.T) {
+func TestPickerHeaderSaysANewSessionIsUnavailableOutsideAProjectAndRestoreOn(t *testing.T) {
 	h := newRig(t)
 	teamtest.MustWrite(t, h.Env["HOME"]+"/.config/systemd/user/default.target.wants/ccy-sessions-restore.service", "")
 	h.Script.Fzf = []string{"|ABORT"}
 	h.run()
 	header := h.HeaderOf(0)
-	if !strings.Contains(header, "Ctrl-N unavailable: "+h.Root+" is not a project folder (no git repository)\n") ||
+	if !strings.Contains(header, "A new ccy session is unavailable: "+h.Root+" is not a project folder (no git repository)\n") ||
 		!strings.Contains(header, "restore on this machine is on (") {
 		t.Fatalf("header %q", header)
 	}
 }
 
-func TestPickerHeaderNeverOffersCtrlNInAContainersCheckout(t *testing.T) {
+func TestPickerHeaderNeverOffersANewSessionInAContainersCheckout(t *testing.T) {
 	h := newRig(t)
 	top := h.InLxcCheckout()
 	h.Script.Fzf = []string{"|ABORT"}
@@ -94,10 +94,10 @@ func TestPickerHeaderNeverOffersCtrlNInAContainersCheckout(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	header := h.HeaderOf(0)
-	if strings.Contains(header, "Ctrl-N starts a new ccy session") {
+	if strings.Contains(header, "A new ccy session (Enter on a row) starts") {
 		t.Fatalf("a host session is offered in a container's files: %q", header)
 	}
-	if !strings.Contains(header, "Ctrl-N unavailable: "+top+" is LXC container "+teamtest.LxcContainer+"'s checkout") ||
+	if !strings.Contains(header, "A new ccy session is unavailable: "+top+" is LXC container "+teamtest.LxcContainer+"'s checkout") ||
 		!strings.Contains(header, "ccy-teams lxc-add") {
 		t.Fatalf("header %q", header)
 	}
@@ -323,8 +323,9 @@ func TestPickerARowTheListNeverShowedIsAFailure(t *testing.T) {
 
 func TestPickerCountsOnlyConsecutiveNoOps(t *testing.T) {
 	h := newRig(t)
-	// outside a project, Ctrl-N is flow.Refused each time
-	h.Script.Fzf = []string{"ctrl-n|port 6167", "ctrl-n|port 6167", "ctrl-n|port 6167"}
+	// outside a project, starting a session is flow.Refused each time
+	start := []string{"|port 6167", "|Start a ccy session"}
+	h.Script.Fzf = slices.Concat(start, start, start)
 	if code := h.run(); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -333,8 +334,9 @@ func TestPickerCountsOnlyConsecutiveNoOps(t *testing.T) {
 	}
 
 	h = newRig(t)
-	// a key that does something in between starts the count again
-	h.Script.Fzf = []string{"ctrl-n|port 6167", "ctrl-n|port 6167", "?|port 6167", "ctrl-n|port 6167", "ctrl-n|port 6167", "|ABORT"}
+	// a line that does something in between starts the count again
+	help := []string{"|port 6167", "|What the columns"}
+	h.Script.Fzf = slices.Concat(start, start, help, start, start, []string{"|ABORT"})
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
@@ -367,11 +369,11 @@ func TestPickerStartupOfferUpdateRunsApplyAll(t *testing.T) {
 	}
 }
 
-func TestPickerCtrlUUpdatesEverythingAndWaits(t *testing.T) {
+func TestPickerUpdateEveryTeamUpdatesEverythingAndWaits(t *testing.T) {
 	h := newRig(t)
 	h.outdatedUntilApplied("unstamped")
-	h.Script.Gum = []string{"NO"} // the start-up offer to update is declined; Ctrl-U does it
-	h.Script.Fzf = []string{"ctrl-u|port 6167", "|ABORT"}
+	h.Script.Gum = []string{"NO"} // the start-up offer to update is declined; the menu line does it
+	h.Script.Fzf = []string{"|port 6167", "|Update every team", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
@@ -385,7 +387,7 @@ func TestPickerNamesTheVerbWhenAFlowFailsAndStopsWhenItIsCancelled(t *testing.T)
 	h.outdatedUntilApplied("unstamped")
 	h.OnErr(h.Host.Play, "boom", 1)
 	h.Script.Gum = []string{"NO"}
-	h.Script.Fzf = []string{"ctrl-u|port 6167", "|ABORT"}
+	h.Script.Fzf = []string{"|port 6167", "|Update every team", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
@@ -397,7 +399,7 @@ func TestPickerNamesTheVerbWhenAFlowFailsAndStopsWhenItIsCancelled(t *testing.T)
 	h = newRig(t)
 	// Ctrl-C at the first question of taking a team down
 	h.Script.Gum = []string{"YES", "YES", "CANCEL"}
-	h.Script.Fzf = []string{"ctrl-x|port 6167"}
+	h.Script.Fzf = []string{"|port 6167", "|Take alpha down"}
 	if code := h.run(); code != term.ExitCancelled {
 		t.Fatalf("exit %d", code)
 	}

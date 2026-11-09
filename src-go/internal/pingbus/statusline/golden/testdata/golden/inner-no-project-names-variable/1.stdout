@@ -1,0 +1,1 @@
+[31mstatus line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an absolute path, and the payload has no absolute workspace.project_dir or cwd, so it was not run[0m

@@ -14,8 +14,8 @@ var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 func TestWordColour(t *testing.T) {
 	cases := map[string]string{
 		"free": cYellow, "invited": cYellow, "no": cYellow, "parked": cYellow,
-		"never signed in": cYellow, "alpha-1(stopped)": cYellow,
-		"up": cGreen, "active": cGreen, "held": cGreen, "in room": cGreen, "yes": cGreen, "2 signed in": cGreen,
+		"never signed in": cYellow, "alpha-1(stopped)": cYellow, "stale": cYellow, "not listening": cYellow,
+		"up": cGreen, "listening": cGreen, "active": "", "held": cGreen, "in room": cGreen, "yes": cGreen, "2 signed in": cGreen,
 		"out of date": cYellow, "out of date: config": cYellow, "not built": cYellow,
 		"up to date":      cGreen,
 		"down (inactive)": cRed, "not installed": cRed, "not in room": cRed, "unknown": cRed,
@@ -35,7 +35,7 @@ func sample() []Row {
 	return []Row{
 		{Team: "alpha", Member: "Builds the site", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
 		{
-			Team: "alpha", Member: "1", Kind: KindCcy, State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj",
+			Team: "alpha", Member: "1", Kind: KindCcy, State: "listening", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj",
 			Handle: "a-rather-long-repository-name.1+build-host.podman", Dir: "/proj", Role: "coordinator",
 		},
 		{
@@ -47,6 +47,22 @@ func sample() []Row {
 			Handle: "proj.2+local.podman", Dir: "-", Role: "worker",
 		},
 		{Team: "alpha", Member: "owner", Kind: KindHuman, State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element", Handle: "-", Dir: "-"},
+	}
+}
+
+// The KIND column is the row's Kind, which a seat row takes from its handle (KindOf, as collect
+// builds it): a cc session's host seat reads "cc", as the same member's roster row does (host
+// run at fe894347c: the board said "ccy"), a ccy session's "ccy".
+func TestASeatsKindColumnIsWhatItsHandleSays(t *testing.T) {
+	cases := map[string]string{
+		"proj.1+local.host":   "cc",
+		"proj.1+local.podman": "ccy",
+	}
+	for handle, want := range cases {
+		r := Row{Team: "alpha", Member: "1", Kind: KindOf(handle), Handle: handle, Dir: "/proj"}
+		if got := r.cells()[colKind]; got != want {
+			t.Errorf("handle %q: KIND %q, want %q", handle, got, want)
+		}
 	}
 }
 

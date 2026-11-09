@@ -34,6 +34,54 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00250-branches-cleaned-up-when-done](00250-branches-cleaned-up-when-done/) - In Progress. A done branch is deleted with its worktree: defences first (delete on merge, no hidden git mutations in scripts, scratch outside worktrees), then every instance cleaned through the tools.
+
+- [00249-agent-bus-retention](00249-agent-bus-retention/) - Not Started (plan only; owner decisions D1-D15 open, the 14-day maximum decided). Bounds agent team bus homeserver storage: RocksDB's WAL archive, 75-90% of each database and pruned by nothing, first; then a 14-day event cap per room through Tuwunel's `purge_history`, from a per-team `retention_days` (default and ceiling 14) and a timer the play installs. Research cites Tuwunel 1.9.4; `triage.bash` measures each team's storage.
+
+- [00248-teams-quick-launch](00248-teams-quick-launch/) - Not Started (plan only; owner decisions D1-D11 open). Every team start (`ccy --teams`, `--teams TEAM`, the picker's and the create wizard's "Start a ccy session", adding a team to a running session) settled on the one launch summary of Plan 00201 Task 2.33: each team, seat and role defaulted, Enter accepts all, a held seat or used-up token shown and asked; proposes to supersede Plan 00223's separate screen
+
+- [00246-agent-bus-v2-landing-and-cross-network](00246-agent-bus-v2-landing-and-cross-network/) - In Progress. Split out of Plan 00209 Phase 8: v2 (`teamchat`) lands on F44 through pull request 124 (the project-rule, suppression-record, gitleaks and Go-test gates), then cross-network membership (team CIDRs, TLS with the team CA pinned, a remote seat's token issued over ssh) on its own branch
+
+- [00247-shell-history-clean-and-skip](00247-shell-history-clean-and-skip/) - In Progress. `nohist` (run a command with no history) and `histclean` (remove matching history entries after a confirmation).
+
+- [00245-valuable-work-never-untracked](00245-valuable-work-never-untracked/) - In Progress. Valuable work written to untracked places gets lost; triage, then a blocking defence (Defence Before Fix).
+
+- [00244-element-quits-while-typing](00244-element-quits-while-typing/) - On Hold (the quit investigation is parked by the owner: it has not happened again lately; reopen if it does). The Element client vanished twice mid-typing with no crash record; the leading cause is a stray Ctrl+Q whose quit prompt defaults to "Close Element", so the next Enter confirms it. Then the owner decides: live with it, report upstream, or compare clients.
+
+- [00243-arm64-aarch64-support](00243-arm64-aarch64-support/) - In Progress. Full arm64 support, swept and kept by a QA rule, proven on the example-team aarch64 test bed; the work collects on branch `F44-arm`.
+
+- [00242-consumer-install-follow-ups](00242-consumer-install-follow-ups/) - Not Started. What Plan 00228's consumer install decided on but did not build: the "Update fedora-desktop" launcher, a route from a consumer box to a developer one, run.bash as a thin Go wrapper, the mixed plays gated, a consumer `--changed` in Go, the kickstart choice, and the final review's open findings (the re-run's unchecked speech-to-text play, play-rclone's developer closing message).
+
+- [00241-agent-bus-message-style](00241-agent-bus-message-style/) - In Progress (the style is drafted; the owner's review is pending). Agents' messages read well in Element: agents write markdown, and pingbus sends it as Matrix HTML beside the plain body, in one style (STYLE.md) with a fixed headline emoji per kind of message. Two deploys: the receivers accept the formatted shape first, then the senders send it.
+
+- [00240-team-sessions-report-tooling-issues-to-fedora-desktop](00240-team-sessions-report-tooling-issues-to-fedora-desktop/) - Not Started (the owner's questions Q1-Q3 open). Sessions running fedora-desktop tooling in other repositories (ccy, LXC, other members) learn where the tooling comes from and report a defect in it cleanly: a skill shipped in the pingbus plugin every team member loads, and a Go generator with a fixed field set, as the hooks daemon's issue-report does.
+
+- [00238-runaway-process-alert](00238-runaway-process-alert/) - Not Started (research plan; Mozilla's docs read; host tests and the owner's questions Q1-Q7 open). Which Firefox tab is burning CPU or memory, from outside the UI: a control port is rejected for the daily browser, a privileged extension hangs on whether Fedora's build requires signing; proposed a Go user service that alerts on any runaway process and names a Firefox tab process as such, never killing anything, plus Firefox's built-ins and an optional cap on its app scope.
+
+- [00237-qa-runs-one-at-a-time](00237-qa-runs-one-at-a-time/) - In Progress. QA never runs in parallel: qa-all, qa-changed and the Go gate run alone take one flock(2) lock in the git common directory, shared by every worktree, CCY container and the host; a second run waits naming the holder (`--no-wait` fails at once), a nested run inherits the lock, and the whole QA process tree runs at nice 19, ionice idle.
+
+- [00239-ccy-project-image-rebuilds-cheap](00239-ccy-project-image-rebuilds-cheap/) - Not Started (research done; the owner's questions open; the host measurement first). A ccy release or a Claude Code update no longer rebuilds a heavy project image in full: the project rebuild keyed on the base's inputs instead of the image ID of `:latest`, the version label moved to the end of the base, working cache mounts, and multi-stage builder caches the prune keeps; requirement R-FRESH (a maximum age on every cached layer, a daily upstream digest check, a refresh timer, staleness named at launch and in the health report) so cheaper never means a frozen base.
+
+- [00236-subagents-cannot-speak-for-their-seat](00236-subagents-cannot-speak-for-their-seat/) - Not Started (decided by the owner). A hooks-daemon project rule that applies only inside a sub-agent denies pingbus's speaking commands, `ccy-teams` mutations and the Agent tool, each with a reason pointing at the final reply to the coordinator; read-only pingbus stays allowed and the main session is never affected; coordinators are told not to use fork sub-agents for worker tasks.
+
+- [00235-podman-images-cleaned-up-automatically](00235-podman-images-cleaned-up-automatically/) - Not Started (research done; the owner's questions decided; the host triage is queued). The rootless podman store filled half the disk with images ccy's rebuilds and updates left untagged: ccy removes what its own build replaced, a daily user timer from play-podman.yml prunes unused dangling images and logs each removal, the host-health report names low disk and an overgrown store, and a QA rule refuses an image build with no cleanup.
+
+- [00234-stt-model-manager-fits-gpu](00234-stt-model-manager-fits-gpu/) - In Progress (the owner's look passed; its two follow-ups, a checking message on opening and a readable GPU line, are built and wait on the host run). The speech-to-text model manager shows which models fit this machine's NVIDIA GPU, preselects the best English-only one that fits and refuses one that does not.
+
+- [00232-ccy-network-policy-per-container](00232-ccy-network-policy-per-container/) - In Progress (deployed and ACCEPTED on the host at CCY 3.101.1; left: the final review, the owner's points, and why a seated headless session outlives its input). Issue #114: a network policy per ccy container, held in its own network namespace from the host; the default refuses private ranges and the host itself, derives everything agent teams need, and tells the session its limits.
+
+- [00233-ccc-claude-code-for-consumers](00233-ccc-claude-code-for-consumers/) - In Progress (built; host deploy and acceptance open). `ccc`: a Go command that runs Claude Code in rootless podman, always in `~/CCC` (a local git repository, no forge), mounting only that folder and its own state and carrying only the sign-in token; ccy's image, token pool and bypass mode without its GitHub, SSH or bus prerequisites; core on every install, started as `ccc` or from a "Claude" app grid entry.
+
+- [00231-shutdown-with-update-runs-without-a-password-prompt](00231-shutdown-with-update-runs-without-a-password-prompt/) - In Progress. Run bare, shutdown-with-update and reboot-with-update hand themselves to sudo, which a scoped, argument-pinned sudoers rule lets the desktop user through without a password; a consumer install with no ccy has no sessions to warn. Under Defence Before Fix: the `sudoers-rule` check in `qa-ansible`.
+
+- [00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors](00230-optional-plays-fail-fast-ask-for-missing-settings-friendly-errors/) - In Progress. The optional plays failed late on a missing setting, hid failures behind `no_log` and ran `ansible-vault` outside the checkout. Under Defence Before Fix: five `qa-ansible` rules, a shared ask-and-vault-save task file, and every instance fixed.
+
+- [00229-stt-capture-raw-pcm](00229-stt-capture-raw-pcm/) - In Progress. Dictation pasted "so so so": pipewire 1.6.10's `pw-record` writes an AU container to stdout and the server read it as raw PCM. Under Defence Before Fix: `--raw` everywhere, a container header fails the dictation, and a semgrep rule against a stdout capture without `--raw`.
+
+- [00227-ccy-sessions-cold-migrate-to-another-machine](00227-ccy-sessions-cold-migrate-to-another-machine/) - Not Started (owner Decisions 1-14 open). ccy sessions and whole agent teams moved cold to another laptop by Go send and receive verbs that refuse while any member runs, host members resumed by recorded id and LXC members by `ccy --continue`
+
+- [00226-cc-runs-under-the-hooks-daemon-supervisor](00226-cc-runs-under-the-hooks-daemon-supervisor/) - Not Started (owner Decisions 5-7 open). Host `cc` sessions run under the project's hooks-daemon supervisor as ccy's do, only in a checkout Claude Code already trusts. Addresses #113
+
 - [00225-team-liaison-role](00225-team-liaison-role/) - Not Started. A `liaison` team role that talks to the humans for the coordinator: hand-offs, checked relays, progress updates, read-only code
 
 - [00223-ccy-one-confirm-relaunch](00223-ccy-one-confirm-relaunch/) - Not Started. One Quick Launch screen for ccy, accepted with one Enter, `ccy --teams` included: only the seat is rechecked, and a used-up token goes to the token chooser
@@ -74,11 +122,7 @@ Use these Unicode icons in plan documents:
 
 - [00196-team-coordinator-role](00196-team-coordinator-role/) - In Progress. One agent per team is the coordinator: copied on what workers tell humans, addressable with `--to-coordinator`, set from `ccy-teams` and bare `ccy --teams`
 
-- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
-
-- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - In Progress. Opening a file from Nautilus opens GNOME Text Editor in a new window on the current workspace, not as a tab on another workspace
-
-- [00199-quick-markdown-viewer](00199-quick-markdown-viewer/) - In Progress. A desktop viewer that renders a Markdown file nicely and opens quickly; adopt one or build one
+- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - In Progress (design written). A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
 - [00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker](00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/) - In Progress. `ccy --teams`: one session on several teams, a description for every team, and a picker instead of a hard stop when no team covers the checkout
 
@@ -104,11 +148,7 @@ Use these Unicode icons in plan documents:
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
-- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (colour emoji fallback built in `play-fonts.yml`, host run pending). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
-
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
-
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed and accepted on the host; the host agent's check in a real interactive shell is left
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
@@ -134,7 +174,7 @@ Use these Unicode icons in plan documents:
 
 - [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. One tooling folder per language, each with its own QA pipeline; first consumer is Plan 00155's Rust mapper.
 
-- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
+- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (Phase 3 host deploy; whether cc sessions should be shown the warning). Evening run accepted. On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
 
 - [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - In Progress (triage done). A Bluetooth headset chosen as input still left dictation on the laptop mic; fix in `play-hd-audio.yml`.
 
@@ -145,8 +185,6 @@ Use these Unicode icons in plan documents:
 - [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress (Phase 1 accepted on the host; Phase 3 next). The ccy image keeps its tools current; ccy refuses a git that cannot read the repo.
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
-
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the host agent's acceptance run (now with the `[Y/n]` offer legs) and `cc` checks are left.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
@@ -172,7 +210,7 @@ Use these Unicode icons in plan documents:
 
 - [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Not Started (owner decisions). A "Fedora Desktop" entry in the tmux F12 menu, built from drop-ins.
 
-- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions). Switch a running ccy session's token through the supervisor.
+- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions, then a host spike). Hot-swap a running ccy or `cc` session's token through a local Go forwarder behind `ANTHROPIC_BASE_URL`; supervisor respawn is the fallback.
 
 - [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - In Progress (deployed; logout and visual check left). Container Watch folds into the one Fedora Desktop panel icon.
 
@@ -229,8 +267,6 @@ Use these Unicode icons in plan documents:
 - [00088-claude-code-state-dir-stale-home-fact](00088-claude-code-state-dir-stale-home-fact/) - Dormant (downstream live re-proof). `claude_state_dir` comes from `user_login`, not a poisoned `HOME`.
 
 - [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - Dormant (downstream live re-proof). A guest without `kernel-modules` no longer fails the kernel enumeration.
-
-- [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Dormant (until the owner schedules Phase 3). A network per ccy session.
 
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - Blocked (host Task 3.3). run.bash's grub cgroup check aborts on a proven failure.
 
@@ -312,6 +348,20 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00228-consumer-install-without-github](Completed/00228-consumer-install-without-github/) - `./run.bash --consumer` sets fedora-desktop up for someone who does not write code: no GitHub account, the public repo over HTTPS, and only the plays whose `audience` key is `all`, through a Go `consumer-install` that run.bash hands over to; attended only, headless and the server profile refused. VM-accepted (consumer 20 of 20, fresh 16 of 16, server-fast 13 of 13 at be1611132). The launcher, the route to a developer box and Tasks 6.1-6.4 moved to Plan 00242.
+
+- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](Completed/00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - Opening a file from Nautilus opened it as a tab in GNOME Text Editor's existing window and switched workspace, because the editor is D-Bus activated. `play-gnome-shell.yml` writes a per-user desktop file with D-Bus activation off and `--new-window`, regenerated from the system file on every run. Deployed and accepted; the owner confirmed each file opens where they are.
+
+- [00080-ccy-session-network-isolation](Completed/00080-ccy-session-network-isolation/) - Superseded by Plan 00232, never built. It decided on a network per ccy session. Plan 00232's default policy refuses the shared bridge's own subnet instead, so sessions cannot reach each other and `ccy --connect` keeps working.
+
+- [00185-terminal-emoji-glyphs](Completed/00185-terminal-emoji-glyphs/) - Colour emoji in the terminal (#60): `play-fonts.yml` makes Noto Color Emoji the emoji fallback after the text fonts, moves Symbola after it for serif, and keeps the font caches readable by every user (rule `root-umask`). Host acceptance 19 of 19; the screen check is Plan 00219's.
+
+- [00167-cc-refuses-to-start-outside-a-repo](Completed/00167-cc-refuses-to-start-outside-a-repo/) - `cc` outside a git working tree offers this machine's fedora-desktop checkout (`[Y/n]`) or refuses, and in a subdirectory starts at the repository's top, through the Go `cc-project-dir`. Issue #90. Deployed; host acceptance and the owner's `cc` checks passed.
+
+- [00199-quick-markdown-viewer](Completed/00199-quick-markdown-viewer/) - A desktop viewer that renders a Markdown file nicely and opens quickly. Nothing existing fitted, so the owner had md-viewer built (its own repository, Go on Gio); a play installs it and makes it the `text/markdown` default. The owner uses it and closed the plan as working.
+
+- [00183-prompt-shows-stale-tracking-ref](Completed/00183-prompt-shows-stale-tracking-ref/) - The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`) and a prompt fetch that can never ask for a passphrase (`git-prompt-fetch`). Deployed and accepted on the host, and seen in a real interactive shell.
+
 - [00193-coral-adoption-audit](Completed/00193-coral-adoption-audit/) - Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon. Recommendation: leave it and borrow ideas. The owner decided it is not useful here; coral goes on the repo watch list (Plan 00200).
 
 - [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
@@ -357,20 +407,6 @@ Use these Unicode icons in plan documents:
 - [00076-bash-gate-coverage-hole-nonexecutable-scripts](Completed/00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it. Task 4.5, found while closing and outside every success criterion, became Plan 00129.
 
 - [00125-ci-qa-gate-red-and-machine-dependent](Completed/00125-ci-qa-gate-red-and-machine-dependent/) - The `QA` workflow had been red for three weeks and `qa-all.bash` answered differently per machine; the docs gate now asks trackedness rather than existence, and a failing gate no longer aborts the suite.
-
-- [00120-ccy-gpu-device-optional-on-headless-hosts](Completed/00120-ccy-gpu-device-optional-on-headless-hosts/) - ccy handed every container `--device /dev/dri` unconditionally, and on a host with no GPU (a headless server, a serial-console VM) podman aborted the session with `stat /dev/dri: no such file or directory`, exit 125; the flags are now a pure function of whether the node exists (ccy 3.56.0, PR #43).
-
-- [00068-ccy-ci-runner-variant](Completed/00068-ccy-ci-runner-variant/) - Specifies what `ccy` owes a headless CI runner: the fail-fast contract at every prompt site, a per-event tool surface asserted at startup, and compose/networking kept as capability minus negotiation. No code here — Plan 00113 implements it.
-
-- [00110-vm-lifecycle-acceptance-testing](Completed/00110-vm-lifecycle-acceptance-testing/) - Full fresh-install lifecycle acceptance testing against VMs for both the server and desktop profiles, off a reused base snapshot kept current by a TTL policy, triggerable from a CCY container through a closed-verb host-action bridge; its first desktop run found the extensions defect Plan 00112 carries.
-
-- [00111-terminal-death-takes-all-ccy-sessions](Completed/00111-terminal-death-takes-all-ccy-sessions/) - A Wayland protocol error killed Ptyxis and took every in-flight CCY session with it (not OOM); `ccy` and `cc` now run inside a tmux server under `systemd --user`, one attach per session, with `ccy-sessions` and the `ccy` re-attach offer to get back in. CCY 3.53.3.
-
-- [00081-secret-scanner-and-qa-gate-coverage-holes](Completed/00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two in the pre-commit secret scanner on a public repo; every fix has a gate that fails against the unfixed code, each proved by re-introducing the defect.
-
-- [00101-ccy-token-usage-via-ratelimit-headers](Completed/00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
-
-- [00108-headless-prompt-colour](Completed/00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

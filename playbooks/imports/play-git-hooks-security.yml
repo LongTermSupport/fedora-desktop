@@ -7,9 +7,14 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"
 
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Verify we are in a git repository
       ansible.builtin.stat:
         path: "{{ repo_path }}/.git"
@@ -33,6 +38,12 @@
         path: "{{ repo_path }}/scripts/git-hooks/commit-msg"
       register: commit_msg_hook
       failed_when: not commit_msg_hook.stat.exists or not commit_msg_hook.stat.executable
+
+    - name: Verify pre-push hook exists and is executable
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks/pre-push"
+      register: pre_push_hook
+      failed_when: not pre_push_hook.stat.exists or not pre_push_hook.stat.executable
 
     # Both hooks source this. Without it neither can run, so its absence must
     # fail the play rather than surface later as a hook that exits 1 on every

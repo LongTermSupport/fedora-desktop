@@ -332,13 +332,35 @@ class ListAndCheckTest(SideRoomsCase):
         self.assertEqual(admin.list_members(self.ctx(), self.transport), [
             "HUMAN\talice\tinvite",
             f"MEMBER\t{coordinator}\tcoordinator\tinvite\tactive",
+            f"LIVE\t{coordinator}\t-",
             f"MEMBER\t{worker}\tworker\tinvite\tactive",
+            f"LIVE\t{worker}\t-",
             f"ROOM\t{ALICE}\treports\tinvite",
             f"ROOM\t{uid(coordinator)}\treports\t-",
             f"ROOM\t{uid(worker)}\treports\t-",
             f"ROOM\t{ALICE}\tquestions\tinvite",
             f"ROOM\t{uid(coordinator)}\tquestions\tjoin",
             f"ROOM\t{uid(worker)}\tquestions\t-",
+        ])
+
+    def test_list_says_whether_each_member_is_listening_as_pingbus_status_does(self) -> None:
+        """LIVE <handle> listening|stale|-: the member's `agent_bus.status` in the team room,
+        judged against the clock as `pingbus status` judges it (`until` after now is listening,
+        at or before now is stale, none is -). The park state (MEMBER's last field) is not
+        liveness: a member that is active (not parked) can be stale."""
+        listening, token_l = self.member(role="coordinator")
+        lapsed, token_s = self.member()
+        silent, _ = self.member()
+        self.listening(listening, token_l, until=NOW_MS + 60_000)
+        self.listening(lapsed, token_s, until=NOW_MS)
+        lines = admin.list_members(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertEqual([line for line in lines if line.startswith(("MEMBER", "LIVE"))], [
+            f"MEMBER\t{listening}\tcoordinator\tjoin\tactive",
+            f"LIVE\t{listening}\tlistening",
+            f"MEMBER\t{lapsed}\tworker\tjoin\tactive",
+            f"LIVE\t{lapsed}\tstale",
+            f"MEMBER\t{silent}\tworker\tinvite\tactive",
+            f"LIVE\t{silent}\t-",
         ])
 
     def test_check_rooms_names_an_invited_coordinator_offline_and_passes(self) -> None:
@@ -455,7 +477,29 @@ class ServerAdminRoomTest(SideRoomsCase):
         self.assertIn(admin_room, self.joined())
         self.assertTrue(protocol.is_any_room_id(admin_room))
         self.assertFalse(protocol.is_room_id(admin_room))
-        self.assertIn(f"left aside 1 joined room of an earlier room version: {admin_room}", err.getvalue())
+        # Plan 00177 Task 12.2: the server's own room is not one the team admin made, so nothing
+        # of the team's can be in it, and naming it read as an earlier version of the team's room.
+        self.assertNotIn("left aside", err.getvalue())
+        self.assertNotIn(admin_room, err.getvalue())
+
+    def test_an_earlier_version_room_the_admin_made_is_named(self) -> None:
+        mine = self.fake.earlier_version_room(ADMIN_ID)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.bootstrap()
+        self.assertIn(mine, self.joined())
+        said = err.getvalue()
+        self.assertIn(f"team team-a: left aside 1 room the team admin made in an earlier room "
+                      f"version (not a bus room): {mine}", said)
+        self.assertNotIn(self.fake.server_admin_room, said)
+
+    def test_two_earlier_version_rooms_are_counted_as_rooms(self) -> None:
+        first, second = self.fake.earlier_version_room(ADMIN_ID), self.fake.earlier_version_room(ADMIN_ID)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.bootstrap()
+        self.assertIn(f"left aside 2 rooms the team admin made in an earlier room version (not bus rooms): "
+                      f"{', '.join(sorted([first, second]))}", err.getvalue())
 
     def test_a_second_run_still_changes_nothing(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):

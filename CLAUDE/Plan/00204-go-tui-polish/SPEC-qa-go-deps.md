@@ -19,6 +19,11 @@ kind <TAB> module path <TAB> reason
 | `module`  | the module may be in `src-go/go.mod`'s requirements, direct or indirect              |
 | `pseudo`  | the module may be required at a pseudo-version (an untagged commit) instead of a tag |
 | `replace` | `src-go/go.mod` may carry a `replace` directive for the module                       |
+| `keepout` | the module is kept out of a command (four fields, below)                             |
+
+A `keepout` row has a package between the module and the reason:
+`keepout <TAB> module path <TAB> ./cmd/<name> <TAB> reason` (Plan 00209 SPEC-n2b.md GD1-GD3,
+decision n2b-D10).
 
 Versions are not in the allowlist: `go.mod` pins them and `go.sum` locks their content, and a
 second statement of a version would drift.
@@ -54,12 +59,18 @@ second statement of a version would drift.
   started is exit 2; one that fails is a finding carrying its output (but see G12). The scratch
   directory is removed whatever the outcome.
 - **G11.** Every finding is reported on stderr before the exit, not only the first. Pass: one
-  stdout line, `GO-DEPS-OK <n> module(s) allowlisted (<p> at a pseudo-version, <r> replaced); go.sum verified, tidy, vendor/ in sync (<f> files)`.
+  stdout line, `GO-DEPS-OK <n> module(s) allowlisted (<p> at a pseudo-version, <r> replaced), <k> keepout(s) held; go.sum verified, tidy, vendor/ in sync (<f> files)`.
 - **G12.** A go command that failed because it could not fetch a module (its output says the
   lookup was disabled, a dial, DNS, proxy or TLS failure, or a timeout; a cold module cache with
   no network) could not judge, and says so. With no other finding the gate is exit 2; a definite
   finding (G3-G9) outranks it and the gate is exit 1, naming both. Output carrying
   `SECURITY ERROR` is always a finding.
+- **G14.** A `keepout` row is refused by the allowlist reader (exit 2 naming the line) when its
+  package is not `./cmd/<name>`, when the same module and package are listed twice, or when the
+  module has no `module` row. For each row, `go list -deps -f '{{with .Module}}{{.Path}}{{end}}' <package>` runs in `src-go` (G10's environment); any package it lists in the module is a
+  finding naming the package, the module and the row's reason. A `go list` that fails is a
+  finding (the build is broken), or could not judge under G12. A keepout row is never stale
+  under G6: its module row carries that check.
 - **G13.** The pre-commit secret scan skips `src-go/vendor` only when this gate passes over the
   staged tree: when anything under `src-go/vendor/` is staged, `scripts/git-hooks/lib/staged-scan-list.bash`
   checks the staged `src-go` out of the index into a scratch directory and runs

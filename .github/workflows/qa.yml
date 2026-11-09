@@ -25,21 +25,51 @@ concurrency:
   cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
+  # A branch pushed without the default branch's tip would spend the full suite on a tree that
+  # lacks fixes already there, and fail on them. This job fails such a push in seconds instead,
+  # and qa-all waits on it. A pull request is checked out merged onto its base, and a tag or the
+  # default branch itself has nothing to lack, so they pass straight through.
+  base:
+    name: contains the default branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require the default branch's tip
+        if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+        env:
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          tip=$(git rev-parse --short "origin/$DEFAULT")
+          if ! git merge-base --is-ancestor "origin/$DEFAULT" HEAD; then
+            echo "::error::this branch lacks origin/$DEFAULT at $tip: merge $DEFAULT into it and push again; the full suite does not run on a stale base"
+            exit 1
+          fi
+          echo "contains origin/$DEFAULT at $tip"
+
   qa-all:
     # No gate count in this name. It said "(8 gates)" while qa-all.bash ran
     # thirteen, because a number here is a second place to state a fact that
     # lives in one place already — and nothing checks it. qa-all.bash prints its
     # own gates, one pass line each.
     name: qa-all.bash
+    needs: base
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The python of the ccy image, 3.13, which src-go/internal/bus/pycompat reproduces and is
+      # proven against: its tests run python3.13 by name (this action puts it on PATH) and
+      # refuse one that reports any other version.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -78,20 +108,40 @@ jobs:
             "ruff==${RUFF}" \
             "semgrep==${SEMGREP}" \
             ansible
+          # The runner's architecture picks each asset, in each upstream's own spelling. The
+          # shellcheck digests belong to the SHELLCHECK pin in .qa-versions: bump them with it.
+          case "$(uname -m)" in
+            x86_64) sc_arch=x86_64; sc_sha=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198; go_arch=amd64 ;;
+            aarch64) sc_arch=aarch64; sc_sha=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588; go_arch=arm64 ;;
+            *) echo "Install QA tooling: no shellcheck, golangci-lint or fzf build pinned for $(uname -m)" >&2; exit 1 ;;
+          esac
           curl -fsSL -o /tmp/shellcheck.tar.xz \
-            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.${sc_arch}.tar.xz"
+          echo "${sc_sha}  /tmp/shellcheck.tar.xz" | sha256sum -c -
           tar -xJf /tmp/shellcheck.tar.xz -C /tmp
           sudo install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck
           # golangci-lint: the archive is verified against the release's own checksums
           # file before it is unpacked.
-          GL="golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"
+          GL_NAME="golangci-lint-${GOLANGCI_LINT}-linux-${go_arch}"
+          GL="${GL_NAME}.tar.gz"
           GL_URL="https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}"
           mkdir -p /tmp/golangci-lint
           curl -fsSL -o "/tmp/golangci-lint/${GL}" "${GL_URL}/${GL}"
           curl -fsSL -o /tmp/golangci-lint/checksums.txt "${GL_URL}/golangci-lint-${GOLANGCI_LINT}-checksums.txt"
           (cd /tmp/golangci-lint && grep " ${GL}\$" checksums.txt | sha256sum -c -)
           tar -xzf "/tmp/golangci-lint/${GL}" -C /tmp/golangci-lint
-          sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint
+          sudo install -m 0755 "/tmp/golangci-lint/${GL_NAME}/golangci-lint" /usr/local/bin/golangci-lint
+          # fzf: scripts/test-bash-history-search.bash drives the real picker. The release and
+          # its sha256 are the ones every host and the ccy image install (vars/fzf-pin.yml),
+          # which names its builds as Go does (amd64, arm64).
+          FZF_VERSION="$(awk -F'"' '/^fzf_version:/ {print $2}' vars/fzf-pin.yml)"
+          FZF_SHA="$(awk -F'"' -v key="fzf_sha256_${go_arch}:" '$1 == key " " {print $2}' vars/fzf-pin.yml)"
+          test -n "${FZF_VERSION}" && test -n "${FZF_SHA}"
+          curl -fsSL -o /tmp/fzf.tar.gz \
+            "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_${go_arch}.tar.gz"
+          echo "${FZF_SHA}  /tmp/fzf.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/fzf.tar.gz -C /tmp fzf
+          sudo install -m 0755 /tmp/fzf /usr/local/bin/fzf
           # Asserts the whole toolchain at once, so CI fails on a drifted pin
           # here rather than reporting a verdict nobody else can reproduce.
           ./scripts/qa-toolchain.bash
@@ -152,9 +202,15 @@ jobs:
       # version, which nothing here pins. The gate honours this variable on GitHub Actions only
       # (anywhere else it is exit 2), prints HOOK-HANDLERS-EXEMPT with the reason, and runs for
       # real in every local qa-all and qa-changed, where the daemon is provisioned.
+      # The Go gate runs the whole of src-go under -race, and internal/teamchat a second time
+      # under the busfailpoints tag with -count=2. With teamchat it needs more than qa-all's default
+      # limit of 30 minutes per gate (its first run on this tree was killed at exactly that limit,
+      # the other gates having passed), so the limit is 120 minutes here. A hung test is still
+      # stopped at 30 minutes by `go test -timeout`, which names it (scripts/qa-go-qa.bash).
       - name: Run full QA suite
         env:
           QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all"
+          QA_ALL_TIMEOUT: "120m"
         run: ./scripts/qa-all.bash
 
       - name: Upload QA results
@@ -194,7 +250,13 @@ jobs:
         run: |
           set -euo pipefail
           VER=8.30.1
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          case "$(uname -m)" in
+            x86_64) gl_arch=x64; gl_sha=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;;
+            aarch64) gl_arch=arm64; gl_sha=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;;
+            *) echo "Install gitleaks: no build pinned for $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_${gl_arch}.tar.gz" -o /tmp/gitleaks.tgz
+          echo "${gl_sha}  /tmp/gitleaks.tgz" | sha256sum -c -
           tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
           sudo install /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version

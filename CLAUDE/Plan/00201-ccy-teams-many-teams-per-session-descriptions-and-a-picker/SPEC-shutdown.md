@@ -16,6 +16,12 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
   seats. cc chooses its seats after tmux starts (`cc-teams.bash`), so a cc record names its
   seats only when it was launched with a full `<seat>@<team>` list. ccy-teams' table already
   joins the records' seats to `agent-bus seat list` per checkout (`board.Snapshot.SeatSession`).
+- **Where a seat is once its session has ended.** A record names its checkout only while the
+  session runs. The list of seat checkouts (`~/.local/state/ccy/seat-checkouts`, beside the
+  registry; package `teams/seatcheckouts`) keeps every checkout a launch took seats in (the
+  launch block, `describe-seats --block`, follows every seat take and adds it) and every one the
+  board has seen with a seat directory, so the board and shutdown read those seats after their
+  sessions end (Task 2.29).
 - **What a seat's "held" is.** `agent-bus seat list` says `held` while a live process holds
   the seat's lock (`helpers/pingbus/seat.py`, `seat_state`: an flock on `seat.lock`). The lock
   is the session's own process (the watcher in a ccy container; `pingbus seat exec`, which
@@ -81,12 +87,20 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
     not fail the run (Plan 00211, rule `offline-member-blocks`). This departs from the first
     version of SD5, under which every LXC member failed the run;
   - any other roster member that is not a seat of a checkout known here (`host`, `docker`,
-    `vm`, or `ccy` with no checkout): "not a session on this host's ccy tmux (another
-    machine, or a checkout ccy-teams does not know); end it where it runs";
+    `vm`, or `ccy` with no checkout; a known checkout is one a live session or record names,
+    the working directory's, or one on the list of seat checkouts): "not a session on this
+    host's ccy tmux (another machine, or a checkout ccy-teams does not know); end it where it
+    runs";
   - the team's members when the roster could not be read (sudo, homeserver down): "the team's
     members could not be read (<why>), so members outside this host's checkouts are not
     listed".
     Parked members are not listed: a parked member has no session.
+- **SD5a** **No session running** (listed, never acted on, never a failure): a seat of a known
+  checkout that is free and that no live session names, such as a cc host seat whose session
+  ended before the shutdown. It is listed under "No session running, nothing to shut down:"
+  and in the result as "<seat>@<team> (<handle>): no session running, nothing to shut down".
+  It is not in the count line. This departs from the first version, under which such a seat,
+  once no record named its checkout, was not reachable and failed the run (Task 2.29).
 - **SD6** The preview, on stderr, lists each session (name, seat and handle, checkout, "open
   on a terminal" when a client is attached, other teams), then the unreachable members with
   their reason, then one line: each session is sent `/exit` as if typed; one that has not
@@ -105,6 +119,22 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
 
 ### Clean first
 
+Plan 00203 Task 3.16 runs SD10 to SD14 as the forced end of a timed wind-down, with its
+waits cut, a last-shutdown record written first, and two departures in that mode only (unsent
+text and the compose-stop question end in `kill-session`); 00203 Task 3.15 adds the LXC
+members, their `systemctl stop` and the `ccy-teams-hold.conf` drop-in (`Restart=no`, written
+before the `/exit`, which a play-agent-bus apply honours). A change here is checked against
+both.
+
+- **SD9a** (Plan 00191 Task 4.12, amending SD10) The close is `internal/sessclose`, where
+  SD10-SD13 now live, shared with `ccy --stop` and ccy-sessions' Close. By default each session
+  is compacted before its `/exit`: at a ready box `/compact <close instruction>` is typed the
+  way SD10 types `/exit`, and `/exit` follows once the transcript records a compact_boundary
+  after it (a session that records no conversation: its pane busy, then ready again). A
+  session with nothing to compact since its last compaction gets `/exit` at once. A compaction
+  not complete within 600 s, a ready pane with no boundary within 30 s, or a transcript that
+  cannot be read **fails** the session, which is left running and never stopped. With
+  `--no-compact`, SD10 as written below.
 - **SD10** Each session's pane is read (`capture-pane`, `screen.ClaudeState`), all sessions in
   one pass, then again every poll (1 s) until each is done:
   - **ready** (claude's prompt, input box empty): `/exit` is typed (`send-keys -l /exit`), then
@@ -120,6 +150,13 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
   - **at a launcher question** (`screen.KnownPrompts`) other than compose-stop: claude is not
     running; the session is **stopped** at once (SD12), "it was at the launcher's <name>
     question, so claude was not running".
+- **SD10a** (Task 2.31) After `/exit`, a session with a background task running shows Claude
+  Code's question (2.1.311: title "Background work is running", subtitle "The following will
+  stop when you exit:", options "Exit and stop tasks", "Move to background and exit" when
+  offered, and "Stay"; Esc is Stay), `screen.AtBackgroundWorkExit`. The owner asked for the
+  shutdown, so while the cursor is on "Exit and stop tasks" Enter is pressed, once, and the
+  exit wait starts again. With the cursor elsewhere nothing is pressed; a session stopped at
+  the end of the wait says `: claude was asking "Background work is running" (a background task of the session) with the cursor off "Exit and stop tasks"` before `, so its tmux session was killed`.
 - **SD11** A session is **exited cleanly** when, after `/exit` was typed, its tmux session is
   gone; or its pane shows the launcher's compose-stop question (claude has ended; the line
   adds "its launcher asks whether to stop compose services: attach it (ccy-sessions) to
@@ -148,9 +185,12 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
 ### The result
 
 - **SD15** One line per session on stderr: `<session>: exited cleanly`, `<session>: stopped: <why>`, or `<session>: failed: <why>`, each followed by the seats it held, "released"; then
-  one line per unreachable member, `<member>: not shut down: <why>`. Then a count line.
+  one line per unreachable member, `<member>: not shut down: <why>`, then one per offline
+  member and per seat with no session (SD5, SD5a), each "nothing to shut down". Then a count
+  line.
 - **SD16** Exit 0 only when every session exited cleanly or was stopped, every seat is
-  released and nothing was unreachable; otherwise 1. No member is skipped silently.
+  released and nothing was unreachable; otherwise 1. An offline member and a seat with no
+  session do not fail the run. No member is skipped silently.
 
 ## Limits, stated plainly
 

@@ -2,9 +2,9 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail` and `gh-account-setup` live here; their bash
-originals are gone (`scripts/gh-account-setup.bash` stays, as the wrapper that builds and runs
-the Go command).
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open`, `rclone-cache-status`, `rclone-tail`, `gh-account-setup`, `setup-rclone`, `reclaim`, `nord`, `nvidia-status`, the `ssh-with-key` family and `consumer-install` live here; their
+bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.bash` and
+`scripts/nvidia-status.bash` stay, as the wrappers that build and run the Go commands).
 `convert` is new, with no bash original.
 
 ## Layout
@@ -23,9 +23,12 @@ the Go command).
   derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
   flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
   engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
-- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E60): every verb,
+- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E66): every verb,
   through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
-  (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python.
+  (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python. The
+  lab's own retention (the disk and RAM floors, the run and build sweep, the overlay prune rule)
+  is Go (`retention.go`); the bridge spool's sweep stays in `helpers/vmtest/retention.py`,
+  because spool.py's pinned descriptors are the bridge helpers' too.
 - `internal/ftpcamera/` — the camera FTP session tool (spec `SPEC-ftp-camera.md`, E1-E66): the
   launcher, the sort, push, copy and prune modes, and the vsftpd session with its log
   followers and teardown; root through `sudo`, systemctl through `systemd`, and the rclone
@@ -46,15 +49,52 @@ the Go command).
   vault's passphrase given to `ssh-keygen` and `ssh` through the command itself as
   `SSH_ASKPASS`, never in argv), the key's upload and the SSH check, and gh's active account
   put back however the run ends; `github_accounts` read from `host_vars` as YAML.
+- `internal/consumer/` — the `consumer-install` command (Plan 00228), which `./run.bash --consumer` execs: a consumer host_vars written once, the vault password made at random,
+  Ansible through pipx, the main playbook, then a numbered menu of the optional plays whose
+  every play says `audience: all`; no gh, no SSH key, root through `internal/sudo`.
+- `internal/setuprclone/` — the `setup-rclone` command (spec `SPEC-setup-rclone.md`, E1-E23):
+  rclone's wizard in the foreground, the rclone configuration vaulted by `ansible-vault` from
+  its stdin, `rclone_mounts` edited as two top-level blocks of the `host_vars` text and read
+  back as YAML before the atomic write, and the rclone play run in the checkout.
+- `internal/reclaim/` — the `reclaim` command (spec `SPEC-reclaim.md`, E1-E30): the disk report
+  and a numbered menu on `/dev/tty` of cleanups, each behind a default-no confirmation; root
+  through `internal/sudo`, ncdu through `execx.Foregrounder`, podman and docker pruned as the
+  user (it is one of their owners); the biggest-files walk and the `~/.cache` and trash
+  removals in Go. `testdata/scenarios.json` is the scenario table the Go (`TestScenarios`) and
+  the bash it replaced (the plan's `reclaim-parity/parity.py`) were both judged by.
+- `internal/nord/` — the `nord` command (spec `SPEC-nord.md`, E1-E24): NordVPN's `.ovpn`
+  configs imported into NetworkManager and connected, switched and disconnected through `nmcli`
+  (nord is one of its owners), profiles named by UUID after each listing, the password stored
+  in the profile only through nmcli's editor on its stdin (`nmcli connection edit`, an
+  `execx.Feed`); the chooser is
+  `ui.Lines.Choose` on `/dev/tty`, NetworkManager's state asked through `internal/systemd`.
+- `internal/nvidiastatus/` — the `nvidia-status` command (spec `SPEC-nvidia-status.md`,
+  E1-E26): the NVIDIA driver's report, from mokutil, rpm, modinfo, `/proc/modules`,
+  `/proc/driver/nvidia/version`, nvidia-smi, glxinfo, vulkaninfo, vainfo (libva's default
+  driver, then NVIDIA's by name) and journalctl, each question asked once under a fixed bound;
+  facts first, then the words, and the exit status is the verdict. It only reads.
+- `internal/sshkey/` — `ssh-with-key`, `scp-with-key` and `ssh-copy-id-with-key` (spec
+  `SPEC-ssh-with-key.md`, E1-E20), three thin `cmd/` mains over one package: one login key,
+  `ssh -G` asked before connecting whether ssh's configuration would offer another, and the
+  program exec'd; with `-A`, the run re-executes itself under `ssh-agent` (its command mode, so
+  the agent ends with the run), adds the chosen keys with `ssh-add` and runs the program through
+  `execx.Foregrounder`. ssh-copy-id-with-key checks itself, with the new key alone, whether the
+  key is installed, then runs `ssh-copy-id -f`. No passphrase passes through it.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
+  `sessprobe`, `sessclose` (a session closed as a person would: `/compact`, its end waited
+  for, then `/exit`; ccy-teams shutdown, `ccy --stop` and ccy-sessions' Close; C1-C10), `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
+  `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
+  login without `gh auth switch`),
+  `duration` (`duration.Times`, a Duration times a number that refuses a product past int64,
+  for a number no refusal in its package bounds: `project_duration_overflow`),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
   `ttyecho` (the terminal's echo held off from an interactive command's first screen to the end
-  of its run, so keys typed between two screens are not echoed; a child given the terminal runs
-  in the mode found),
+  of its run, so keys typed between two screens are not echoed but kept for the next screen,
+  except a screen `ui.Drain` marks to discard them: the one after a leave, and every screen of a
+  destructive flow; a child given the terminal runs in the mode found),
   `engine` (the ccy launcher's container engine: selection, the questions it asks podman or
   docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc)
   and `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool
@@ -140,7 +180,8 @@ the Go command).
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, one home abbreviation, a `WaitDelay` that names
+  tmux target forms, no wall clock in tests, no real-time bound a test can shorten, teamchat's
+  launch value branched on only in its agent seam, no Duration built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
   its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
@@ -248,8 +289,8 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
-`play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
+`play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-podman.yml` for `container-images`, `play-nordvpn-openvpn.yml` for `nord`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
+`play-basic-configs.yml` for `git-fetch-age` and the `ssh-with-key` family, and `play-git-configure-and-tools.yml` for
 `git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
 `play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
 built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions
@@ -257,11 +298,41 @@ built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other 
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in
-`scripts/go-binary-suites.tsv`. `gh-account-setup` is not deployed: it runs from the checkout
-before any play, so `scripts/gh-account-setup.bash` builds it there (`run_go_command` in
-`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to the wrapper reaches it. Never
+`scripts/go-binary-suites.tsv`. `gh-account-setup`, `setup-rclone` and `consumer-install` are not deployed: they run from the
+checkout (before any play, and to edit its `host_vars`), so `scripts/gh-account-setup.bash`,
+`scripts/setup-rclone.bash` and `scripts/consumer-install.bash` build them there (`run_go_command` in
+`scripts/lib/go-tool.bash`, the same flags) and execs it, so a signal sent to a wrapper reaches its command.
+`nvidia-status` is not deployed either: `play-nvidia.yml` tells the person to run
+`scripts/nvidia-status.bash` from the checkout, which builds it the same way. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
+
+## Build tags
+
+Build tags select code the default build leaves out. `.golangci.yml`
+names no build tags, so golangci-lint's default run sees the untagged build only, and a gate that
+judges a tagged build sets the tag itself.
+
+- `busfailpoints`: teamchat's armed failpoints (`failpoint/armed.go`; in the default build,
+  `failpoint/hit.go`'s `Hit` is an empty function) and the tests that crash at them (keeper,
+  link, and wiring's end-to-end failpoint rows). The `teamchat-failpoints-lint`, `-vet` and
+  `-test` stages of `qa/go-qa.toml` lint, vet and test `./internal/teamchat/...` built with it
+  (`go test -race -shuffle=on -count=2`, every test twice); go-qa's built-in tools judge the inert build.
+  The `project-rules-tagged` stage runs the project rules (`qa/rules`) over `./internal/teamchat/...`
+  with the tag, which the analyzers stage (untagged build only) cannot reach.
+- `teamchatrelease`: the release build of teamchat. `failpoint`'s gate test, run by go-qa's
+  built-in test runner, builds `./cmd/teamchat` with it and holds that the binary carries no
+  failpoint name. `member/cli/release_test.go` (every verb built, CL2) carries the tag; Task
+  3.3's build runs it, and no gate runs it yet.
+- `tuwunel`: the tests against a real Tuwunel (Plan 00209 SPEC-matrix M44, SPEC-n3 n3-D5) and their helper package
+  `matrix/tuwunelhs`, which skips when `FAKEHS_TUWUNEL_BIN` names no binary. Only the
+  `project-rules-tagged` stage judges this build (the project rules, vet-wise); a change to these
+  files is also checked by hand with `go test -race -tags tuwunel` and
+  `golangci-lint run --build-tags tuwunel` over `./internal/teamchat/...`, with
+  `FAKEHS_TUWUNEL_BIN` set.
+- `ccyteamstest` (`internal/teams/host`, `internal/teams/ops`) and `difftest` (`cmd/claude-yolo`):
+  the `project-rules-tagged` stage runs the project rules over those builds too (its pairs
+  of tag and packages are one array in `qa/go-qa.toml`).
 
 ## QA
 
@@ -302,12 +373,15 @@ difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
 `qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
 Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
-deprecated fact vars, guessed runtime-dir uids, regex backreference escapes read from each file
-parsed as YAML): the script only builds and runs the command. It
+deprecated fact vars, guessed runtime-dir uids, regex backreference and letter escapes and files users read
+created as root under the inherited umask, and the six play-UX rules of Plan 00230, all read from each file parsed as YAML): the script only builds and runs the command. It
 starts no process itself: the one `git ls-files` it needs (it judges only what git would
 publish) is injected and run by the command through the seam. Its spec is the intended behaviour
 (`SPEC-qa-ansible.md`, expectations E1-E19 and E16a), proven by unit tests and end-to-end scenario trees
-(the backreference rule also against `tests/fixtures/ansible-regex-backref/`),
+(the backreference rule also against `tests/fixtures/ansible-regex-backref/`, the letter
+escape rule against `tests/fixtures/ansible-regex-class-escape/`, the root umask
+rule against `tests/fixtures/ansible-root-umask/`, the play-UX rules against
+`tests/fixtures/ansible-play-ux/`),
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
 `qa/ansiblesyntax` + `qa/cmd/qa-ansible-syntax` (same nested module) are
@@ -324,6 +398,22 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
 
+`qa/teamchatseparate` + `qa/cmd/qa-teamchat-separate` (same nested module) are
+`scripts/qa-teamchat-separate.bash`, the gate `teamchat-keeps-off-v1` (Plan 00209 D 4.1): no
+file v2 of the agent-team bus owns holds a v1 name. The script only builds and runs the command.
+The name list `v1-names.txt` and the allowlist `allowed.tsv` are its data; the expectations
+(K1-K7) are its package doc, proven by unit tests over a fake tree and a real work tree in the
+command package. `internal/teamchat/paths`, the one source of every v2 name, reads the same list
+in its own test.
+
+`qa/untrackedaudit` + `qa/cmd/qa-untracked-audit` (same nested module) are
+`scripts/qa-untracked-audit.bash` (Plan 00245, Defence Before Fix): old non-scratch files in
+`untracked/`, unpushed branches, old dirty work trees and stashes. The data is
+`scripts/untracked-policy.yml`; the tree is read through `fs.FS`, git through `qa/internal/proc`
+and the clock is injected, so the unit tests use a fake tree and a fake git. It is local only (CI
+has no `untracked/`) and waits on its sweep before it joins `scripts/qa-gates.tsv`
+([QA.md](../CLAUDE/QA.md)).
+
 `qa/ansiblepause` + `qa/cmd/qa-ansible-pause` (same nested module) are
 `scripts/qa-ansible-pause.bash`, the rule pause-without-register: the script only builds and runs
 the command. A line scan (the annotation is a comment, which a YAML load drops) over the `yaml`
@@ -338,7 +428,7 @@ through `qa/internal/proc`, which gained `Cmd.Stdin` for it; one definition of a
 the gate needs python3), then cross-checked against the guest scripts that `qa/discovery` lists as
 published: each runnable scenario's `planned` against the `PLANNED` assignment read from its
 checker's `mvdan.cc/sh` syntax tree, each `guest-prepare-*` fixture against a declared reboot, and
-orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V16) is the specification, proven by unit
+orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V17) is the specification, proven by unit
 tests over real temporary git repositories with a fake validator and by the real validator in
 `qa/cmd/qa-vmtest-manifest`.
 
@@ -378,7 +468,11 @@ the refusal to pass over a script semgrep did not read or parse. git and semgrep
 `gh-scope-outside-ssot` gate: semgrep stays the engine and `.semgrep/gh-scopes.yml` the data; the
 Go owns scope (what git would publish, handed by name), the rule self-test against its fixture and
 the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
-which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
+which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification. The same engine,
+given its `FindRace` spec, is `qa/cmd/qa-find-race` and `scripts/qa-find-race.bash`, the gate for
+`.semgrep/find-race.yml` (`find-race-negated-stat-test`, issue #152), and given its `ArchPin`
+spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semgrep/arch-pin.yml`
+(`arch-pinned-artefact`, Plan 00243); the real-semgrep tests of each are in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
 `scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the
@@ -429,6 +523,12 @@ rule file per language, so an extensionless Python script never meets a JavaScri
 owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), the proof that
 every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
 over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
+The same engine, given its `HookHandlers` spec, is `qa/cmd/qa-hook-handler-rules` and
+`scripts/qa-hook-handler-rules.bash`, the gate for `.semgrep/hook-handlers.yml` (code the hooks
+daemon loads; Python only, proven against `.semgrep/hook-handlers.py`); its real-semgrep tests
+are in the command package. Given its `WalkOpen` spec it is `qa/cmd/qa-walk-open` and
+`scripts/qa-walk-open.bash`, the gate for `.semgrep/walk-open.yml` (`walk-opens-non-regular-file`,
+issue #191; Python only, proven against `.semgrep/walk-open.py`).
 
 `qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
 the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner
@@ -488,6 +588,18 @@ command. It reads the repo and the host through `fs.FS`; the one git question (i
 worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
 specification, proven by unit tests over in-memory trees.
 
+`qa/branchhygiene` + `qa/cmd/qa-branch-hygiene` (same nested module) are
+`scripts/qa-branch-hygiene.bash`, the branch-policy job (`scripts/branch-policy.toml`; cap on open
+work branches, merged branches deleted, dormancy limits, parked branches): the script only builds
+and runs the command. Unlike every gate above it is not in `qa-gates.tsv` or `qa-changed`; only
+`.github/workflows/branch-hygiene.yml` runs it, because it judges the repository's global state
+([QA.md](../CLAUDE/QA.md#branch-hygiene--the-repositorys-branches-judged-daily)). The rule is pure
+over branch facts, the policy and an injected clock; git goes through `qa/internal/proc`, faked in
+the unit tests. `qa/branchdelete` + `qa/cmd/branch-delete-list` are `scripts/branch-delete-list.bash`,
+the one way to build a bulk delete list (issue #150): it reads the policy through
+`branchhygiene.ReadPolicy` and origin's refs through one `git ls-remote --symref origin`, and
+refuses the whole list, naming each offender, rather than filtering it. Not a gate either.
+
 `qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
 clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
 carries a symlinked-root test, because an engine that prints realpaths leaks the checkout path
@@ -495,7 +607,12 @@ when the root is stripped unresolved. A gate whose tests run on a fake tree take
 a field (`rootpath.RootVia`).
 
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
-terminal live and in order).
+terminal live and in order). Its `Priority.Ensure` is how a QA command becomes a background job
+(nice 19, ionice idle, by re-executing itself from a lowered thread; `QA_FULL_PRIORITY=1` opts
+out), and `qa/internal/qalock` is the one QA lock (flock(2) on a file in the git common
+directory, a wait that names the holder, inherited by nested runs): `qa-all`, `qa-changed` and
+`qa/cmd/qa-lock` (which `scripts/qa-go-qa.bash` runs go-qa under) take both
+([QA.md](../CLAUDE/QA.md#qa-runs-one-at-a-time-the-qa-lock-and-low-priority)).
 
 A new gate's command and package are built on four shared packages under `qa/internal`, never on
 a copy of their code. `cmdmain` is for the `main`: every command's `run` starts with

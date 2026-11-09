@@ -29,14 +29,14 @@ func excluded(rel string) bool {
 	return strings.HasPrefix(rel, ".semgrep/")
 }
 
-// files is the files to judge: those named, else every JavaScript and Python file git would
+// files is the files to judge: those named, else every file of the spec's languages git would
 // publish.
 func (g *gate) files(paths []string) (fileSets, error) {
 	if len(paths) > 0 {
 		return g.named(paths)
 	}
 	sets := fileSets{}
-	for _, lang := range languages {
+	for _, lang := range g.spec.languages {
 		all, err := g.discover(discoveryList[lang])
 		if err != nil {
 			return nil, err
@@ -115,8 +115,33 @@ func (g *gate) relative(p string) (string, error) {
 	return rel, nil
 }
 
-// languageOf is the language of a named file: by its name, else by a shebang naming python.
+// languageOf is the language of a named file, which must be one the spec's rules are written for.
 func (g *gate) languageOf(rel string) (language, error) {
+	lang, err := g.detectLanguage(rel)
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(g.spec.languages, lang) {
+		return "", fmt.Errorf("%s is %s", rel, g.spec.noneOf())
+	}
+	return lang, nil
+}
+
+// noneOf says a file is in none of the spec's languages: "not Python", or "neither JavaScript
+// nor Python".
+func (s Spec) noneOf() string {
+	names := make([]string, 0, len(s.languages))
+	for _, lang := range s.languages {
+		names = append(names, nounOf[lang])
+	}
+	if len(names) == 1 {
+		return "not " + names[0]
+	}
+	return "neither " + strings.Join(names, " nor ")
+}
+
+// detectLanguage is the language of a named file: by its name, else by a shebang naming python.
+func (g *gate) detectLanguage(rel string) (language, error) {
 	info, err := os.Stat(g.path(rel))
 	if err != nil {
 		return "", fmt.Errorf("cannot read %s: %s", rel, reason(err))
@@ -137,7 +162,7 @@ func (g *gate) languageOf(rel string) (language, error) {
 	if discovery.PythonShebang(first) {
 		return langPy, nil
 	}
-	return "", fmt.Errorf("%s is neither JavaScript nor Python", rel)
+	return "", fmt.Errorf("%s is %s", rel, g.spec.noneOf())
 }
 
 // firstLine is the first line of a file, read from its first bytes.

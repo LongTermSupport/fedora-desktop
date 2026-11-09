@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -17,12 +19,14 @@ import (
 // rather than 1 (B4); and SIGTERM's 143 comes from the cancelled context, as it now does for
 // every command (E4).
 
-// libvirt is a fake libvirt: the domains it knows, what domstate answers, and whether
-// virt-install fails. Every virsh and virt-install call goes through it.
+// libvirt is a fake libvirt: the domains it knows, what domstate answers, whether
+// virt-install fails, and what a booted guest writes to its serial console file.
+// Every virsh and virt-install call goes through it.
 type libvirt struct {
 	domains   []string
 	state     string
 	virtFails bool
+	console   string
 }
 
 func (k *kit) withLibvirt() *libvirt {
@@ -35,11 +39,6 @@ func (k *kit) withLibvirt() *libvirt {
 			return execx.Result{Stdout: []byte(strings.Join(lv.domains, "\n") + "\n")}, nil
 		case "domstate":
 			return execx.Result{Stdout: []byte(lv.state + "\n")}, nil
-		case "dominfo":
-			if slices.Contains(lv.domains, args[1]) {
-				return execx.Result{}, nil
-			}
-			return execx.Result{ExitCode: 1}, nil
 		case "undefine":
 			lv.domains = slices.DeleteFunc(lv.domains, func(d string) bool { return d == args[len(args)-1] })
 		}
@@ -50,6 +49,9 @@ func (k *kit) withLibvirt() *libvirt {
 			return execx.Result{ExitCode: 1}, nil
 		}
 		lv.domains = append(lv.domains, argAfter(c.Args, "--name"))
+		if serial, ok := strings.CutPrefix(argAfter(c.Args, "--serial"), "file,path="); ok && lv.console != "" {
+			k.writeAbs(serial, lv.console)
+		}
 		return execx.Result{}, nil
 	})
 	k.fake.OnFunc([]string{"qemu-img"}, func(c execx.Cmd) (execx.Result, error) {
@@ -58,7 +60,6 @@ func (k *kit) withLibvirt() *libvirt {
 		}
 		return execx.Result{}, nil
 	})
-	k.fake.On(helperArgv("retention"), execx.Result{})
 	return lv
 }
 
@@ -126,9 +127,9 @@ func TestE59MemberDown(t *testing.T) {
 	}
 
 	k = newKit(t)
-	k.fake.On([]string{"virsh"}, execx.Result{ExitCode: 1})
+	k.fake.On([]string{"virsh"}, execx.Result{Stderr: []byte("error: failed to connect to the hypervisor\n"), ExitCode: 1})
 	k.wantCode(k.run("member-down", "m0"), term.ExitFailure)
-	k.wantErr("ERROR: virsh -c qemu:///session list failed")
+	k.wantErr("ERROR: virsh -c qemu:///session list failed: virsh exited 1: error: failed to connect to the hypervisor\n")
 	if k.out.Len() != 0 {
 		t.Fatal("a failed list was reported as a member removed")
 	}
@@ -151,7 +152,7 @@ func TestE56MemberUp(t *testing.T) {
 	if !k.exists("members/m1/overlay.qcow2") || k.read("members/m1/ssh-port") != "40123\n" {
 		t.Fatal("no overlay or no port in the member's directory")
 	}
-	if k.count("backend.type=passt") != 1 || k.count("retention floor --path "+k.path("members")+" --base-size 4 --step run --guest-mib 4096") != 1 {
+	if k.count("backend.type=passt") != 1 || k.count("retention") != 0 {
 		t.Fatalf("calls %v", k.lines(""))
 	}
 	assertNoProbeFiles(t, k)
@@ -214,7 +215,72 @@ func TestE57MemberUpTeardown(t *testing.T) {
 	}
 }
 
-// E4, E57: SIGTERM in the SSH wait: 143, never 0; the guest, overlay and port are removed.
+// E57: a failed member-up shows the last lines of the console log before its error, as plain
+// text: carriage returns, terminal escapes and other control bytes are dropped.
+func TestE57MemberUpShowsTheConsoleTail(t *testing.T) {
+	k := memberKit(t)
+	var log strings.Builder
+	for i := 1; i <= 14; i++ {
+		log.WriteString("boot line " + strconv.Itoa(i) + "\r\n")
+	}
+	log.WriteString("\x1b[0;32m  OK  \x1b[0m Reached target\x07 cloud-init.\r\n\r\n\n")
+	k.lv.console = log.String()
+	k.lv.state = "shut off"
+	k.wantCode(k.run("member-up", "m7", "server-fast"), term.ExitFailure)
+	var want strings.Builder
+	want.WriteString("==> the last 10 lines of " + k.path("members/m7/console.log") + ":\n")
+	for i := 6; i <= 14; i++ {
+		want.WriteString("    boot line " + strconv.Itoa(i) + "\n")
+	}
+	want.WriteString("      OK   Reached target cloud-init.\n==> member not started")
+	k.wantErr(want.String())
+	if strings.Contains(k.err.String(), "boot line 5\n") {
+		t.Fatal("more than 10 lines shown")
+	}
+	if !strings.HasSuffix(k.err.String(), "ERROR: guest vmtest-member-m7 is shut off while waiting for SSH; see "+k.path("members/m7/console.log")+"\n") {
+		t.Fatalf("the error is not the last line:\n%s", k.err.String())
+	}
+
+	k = memberKit(t)
+	k.lv.virtFails = true
+	k.wantCode(k.run("member-up", "m8", "server-fast"), term.ExitFailure)
+	k.wantErr("==> no console output to show: open " + k.path("members/m8/console.log") + ": no such file or directory\n")
+
+	k = memberKit(t)
+	k.lv.console, k.lv.state = "\r\n \n", "shut off"
+	k.wantCode(k.run("member-up", "m9", "server-fast"), term.ExitFailure)
+	k.wantErr("==> " + k.path("members/m9/console.log") + " holds no console output\n")
+}
+
+// E24: VMTEST_SSH_WAIT_TIMEOUT sets the wait for SSH, read with the lab, so a bad value is
+// refused before anything boots.
+func TestE24SSHWaitIsSettable(t *testing.T) {
+	k := memberKit(t)
+	k.env["VMTEST_SSH_WAIT_TIMEOUT"] = "900"
+	k.fake.OnFunc([]string{"ssh"}, func(execx.Cmd) (execx.Result, error) {
+		k.now = k.now.Add(5 * time.Second)
+		return execx.Result{ExitCode: 255}, nil
+	})
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("==> waiting for SSH on 127.0.0.1:40123 (up to 900s)")
+	k.wantErr("ERROR: guest did not answer SSH within 900s (VMTEST_SSH_WAIT_TIMEOUT): ssh exited 255; see " + k.path("members/m1/console.log"))
+	if n := len(k.slept); n != 90 {
+		t.Fatalf("slept %d times; 10s a try fills 900s in 90", n)
+	}
+
+	for _, bad := range []string{"soon", "0", "-5", "1.5", "086400", "86401", "9223372037"} {
+		k = memberKit(t)
+		k.env["VMTEST_SSH_WAIT_TIMEOUT"] = bad
+		k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+		k.wantErr("ERROR: VMTEST_SSH_WAIT_TIMEOUT must be a positive number of seconds up to 86400, got '" + bad + "'")
+		if len(k.fake.Calls()) != 0 || k.exists("members/m1") {
+			t.Fatalf("%q: the lab was used before the setting was refused", bad)
+		}
+	}
+}
+
+// E4, E57: SIGTERM in the SSH wait: 143, never 0; the guest, overlay and port are removed, and
+// the directory with its console log stays until member-down.
 func TestE57MemberUpSignal(t *testing.T) {
 	k := memberKit(t)
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -229,6 +295,10 @@ func TestE57MemberUpSignal(t *testing.T) {
 	if k.exists("members/m6/overlay.qcow2") || k.exists("members/m6/ssh-port") {
 		t.Fatal("overlay or port left behind")
 	}
+	if !k.exists("members/m6") {
+		t.Fatal("a signal removed the member's directory and its console log")
+	}
+	k.wantErr("==> member not started; its console log is kept in " + k.path("members/m6") + " until: vmtest member-down m6")
 	assertNoProbeFiles(t, k)
 }
 
@@ -264,12 +334,12 @@ func TestE58MemberSSH(t *testing.T) {
 	k.wantCode(k.run("member-ssh", "m5", "dnf", "-y", "install", "git-core"), 124)
 	k.wantErr("ERROR: member-ssh m5: the command did not finish within 1s (VMTEST_MEMBER_SSH_TIMEOUT)")
 
-	for _, bad := range []string{"soon", "0", "-5", "1.5"} {
+	for _, bad := range []string{"soon", "0", "-5", "1.5", "86401", "9223372037"} {
 		k = newKit(t)
 		k.write("members/m5/ssh-port", "40123\n")
 		k.env["VMTEST_MEMBER_SSH_TIMEOUT"] = bad
 		k.wantCode(k.run("member-ssh", "m5", "true"), term.ExitFailure)
-		k.wantErr("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds, got '" + bad + "'")
+		k.wantErr("VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds up to 86400, got '" + bad + "'")
 	}
 
 	k = newKit(t)

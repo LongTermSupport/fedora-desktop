@@ -386,7 +386,7 @@ Two lessons worth more than the findings:
   (heading "LUKS + Btrfs") **passes only under the corrected rule**.
 - **The audit's own new report contained two broken links**, written this session:
   `reports/ci-required-config.md` cited `.claude/rules/no-armed-flags.md` and
-  `.claude/rules/bash-standards.md`. Those are the **outer lts-infra checkout's** rules — this repo
+  `.claude/rules/bash-standards.md`. Those are the **outer example-team checkout's** rules — this repo
   is vendored at `untracked/repos/fedora-desktop` inside it and has neither file. The depth was
   wrong too (`../../../` resolves to `CLAUDE/`, not the repo root). Both replaced with this repo's
   own [CLAUDE.md § Fail Fast](../../../../CLAUDE.md#fail-fast--hard-rule) and a plain statement of

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/duration"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -176,7 +176,11 @@ func (a *App) secondWarning(ctx context.Context, run *rebootRun) (term.ExitCode,
 		a.sayf("would wait %d minute(s), then warn again at one minute\n", run.minutes-1)
 		return term.ExitOK, false
 	}
-	wait := time.Duration(run.minutes-1) * a.cfg.Minute
+	wait, err := duration.Times(run.minutes-1, a.cfg.Minute)
+	if err != nil {
+		a.sayf("cannot wait %d minute(s): %v\n", run.minutes-1, err)
+		return term.ExitFailure, true
+	}
 	if a.Pause(wait, run.sig) {
 		return a.cancelled(run), true
 	}
@@ -192,7 +196,8 @@ func (a *App) secondWarning(ctx context.Context, run *rebootRun) (term.ExitCode,
 
 // systemctlReboot asks systemd to reboot. From here an INT or TERM is the shutdown reaching
 // this process, not a cancellation, so the channel is simply no longer read. A refused reboot
-// is a failure, reported as one: nobody cancelled it.
+// is a failure, reported as one (exit 1, the usage's code for it; systemctl's own code is
+// in the message): nobody cancelled it.
 func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) term.ExitCode {
 	err := (&systemd.Systemd{Runner: a.Runner}).Reboot(ctx, a.Stderr)
 	if err == nil {
@@ -205,7 +210,7 @@ func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) term.ExitCode
 		return term.ExitFailure
 	}
 	a.fail(fmt.Sprintf("the reboot failed: systemctl reboot exited %d (its reason is above). The machine is staying up.", exit.Code))
-	return term.ExitCode(exit.Code)
+	return term.ExitFailure
 }
 
 // withdraw tells the sessions the reboot they were warned of is not happening. It carries on

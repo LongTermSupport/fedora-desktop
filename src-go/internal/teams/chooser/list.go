@@ -131,7 +131,7 @@ func teamNames(list []entry) string {
 // person choose the scope, so the new team is taken only if it covers this checkout. Cancelling
 // the wizard goes back to the list.
 func (c *Chooser) created(ctx context.Context, repo string) ([]entry, term.ExitCode, bool) {
-	team, code := c.Create(ctx)
+	team, code := c.Create(ctx, "")
 	switch {
 	case code == term.ExitCancelled:
 		c.say("Nothing was created; back to the list.")

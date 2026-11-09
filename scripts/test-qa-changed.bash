@@ -153,7 +153,9 @@ echo
 echo "== git collection (scratch repository) =="
 
 REPO="$SCRATCH/repo"
-mkdir -p "$REPO"
+# The checks run isolated from the machine, which reads the commands the repository installs
+# from files/home/.local/bin; a repository without it is refused. Empty, git does not see it.
+mkdir -p "$REPO/files/home/.local/bin"
 git_s() { git -C "$REPO" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git_s init -q
@@ -228,7 +230,7 @@ expect_lacks "the watch list: it is covered" "$plan" "not covered by qa-changed:
 
 echo
 echo "== bash files, the allowlist and its Go source -> the bash-limits gate =="
-for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/reclaim files/home/.local/bin/fedora-desktop-health.j2; do
+for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/lan-scan files/home/.local/bin/fedora-desktop-health.j2; do
     plan="$(plan_for "$changed")"
     expect_has "bash-limits: $changed runs the gate" "$plan" "check bash-limits"
 done
@@ -245,6 +247,17 @@ plan="$(plan_for src-go/internal/ui/ui.go)"
 expect_lacks "bash-limits: untouched by an unrelated Go file" "$plan" "check bash-limits"
 plan="$(plan_for CLAUDE/QA.md)"
 expect_lacks "bash-limits: untouched by markdown" "$plan" "check bash-limits"
+
+echo
+echo "== the files the arch-pin rule guards -> the arch-pin gate =="
+for changed in files/var/local/claude-yolo/Dockerfile .claude/ccy/Dockerfile playbooks/imports/play-python.yml tasks/build-go-command.yml vars/fedora-version.yml files/var/local/docker-in-lxc .github/workflows/qa.yml .semgrep/arch-pin.yml; do
+    plan="$(plan_for "$changed")"
+    expect_has "arch-pin: $changed runs the gate" "$plan" "check arch-pin"
+done
+plan="$(plan_for .semgrep/arch-pin.yml)"
+expect_lacks "arch-pin: the gate script is not also picked as a suite" "$plan" "suite scripts/qa-arch-pin.bash"
+plan="$(plan_for CLAUDE/QA.md)"
+expect_lacks "arch-pin: untouched by markdown" "$plan" "check arch-pin"
 
 echo
 echo "== src-go -> the ccy-teams command suite =="
@@ -336,10 +349,10 @@ expect_rc "a bad --base is exit 2, not 'nothing to check'" 2
 expect_lacks "a bad --base does not say nothing to check" "$OUT" "nothing to check"
 
 mkdir -p "$REPO/files/home/.local/bin"
-printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/reclaim"
+printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/lan-scan"
 git_s add -A
 git_s commit -q -m "a listed tool"
-rm "$REPO/files/home/.local/bin/reclaim"
+rm "$REPO/files/home/.local/bin/lan-scan"
 capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan
 expect_has "a deleted allowlisted tool runs the bash-limits gate" "$OUT" "check bash-limits"
 expect_lacks "a deleted file is not checked per file" "$OUT" "check shellcheck: files/home"

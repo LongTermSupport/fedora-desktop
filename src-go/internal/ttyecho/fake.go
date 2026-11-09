@@ -12,11 +12,23 @@ import (
 // FakeModes is a terminal's mode for tests: the mode a hold set, every descriptor it asked
 // about, and a failure to read or set it.
 type FakeModes struct {
-	Mode   unix.Termios
-	Sets   int
-	FDs    []int
-	GetErr error
-	SetErr error
+	Mode     unix.Termios
+	Sets     int
+	Flushes  int
+	FDs      []int
+	GetErr   error
+	SetErr   error
+	FlushErr error
+}
+
+// Flush counts a discard of the typed input, or fails with FlushErr.
+func (f *FakeModes) Flush(fd int) error {
+	f.FDs = append(f.FDs, fd)
+	if f.FlushErr != nil {
+		return f.FlushErr
+	}
+	f.Flushes++
+	return nil
 }
 
 // Get is the mode, or GetErr.

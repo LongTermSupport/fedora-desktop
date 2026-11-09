@@ -125,5 +125,223 @@ the agent working against the wind-down.
   supervisor's and submitted. The supervisor is daemon-owned; a lock both honour would close it.
 - An LXC member started by hand, not by the play's unit, is not on the `agent-bus-claude`
   server and fails (F3).
-- `ccy-teams shutdown` still leaves LXC members out; the same path would reach them (a plan
-  task of its own).
+- `ccy-teams shutdown` still leaves LXC members out; the same path reaches them in Task 3.15
+  (section 5, a draft).
+
+## 5. `ccy-teams shutdown` reaching LXC members (Task 3.15, draft expectations)
+
+Draft: numbered for the Fable review, built tests first after it. The rules every lifecycle
+operation shares (offline members, the per-team lock) are CR1 to CR8 of
+[DECISIONS-lifecycle.md](DECISIONS-lifecycle.md).
+
+- LS1. `ccy-teams shutdown` types `/exit` into a running container's `agent-bus-claude`
+  session through `lxcfreeze.Lister.InContainer` (F3), as wind-down does, instead of naming
+  every LXC member as not reachable. A container stopped at the shutdown is offline: named, not
+  a failure (CR1).
+
+- LS2. Why a typed `/exit` is not enough for a `service: true` member: its unit
+  `agent-bus-claude-<user>.service` has `Type=forking`, `ExecStop=... kill-server`,
+  `Restart=always` and `RestartSec=10s` (`helpers/agent_bus_lxc/members.py`
+  `render_member_unit`). claude's exit ends the tmux server, so the main process, and systemd
+  starts a fresh conversation 10 s later, which a later `--continue` would take. A
+  `systemctl stop` run after the `/exit` races that restart, since every read of the session
+  is one `sudo lxc-attach`.
+
+- LS3. **The hold.** Before the `/exit`, the shutdown writes the hold drop-in
+  `agent-bus-claude-<user>.service.d/ccy-teams-hold.conf` in the unit's directory
+  (`GUEST_UNIT_DIR`, `/etc/systemd/system`) and runs `systemctl daemon-reload`. It holds:
+
+  - a comment line naming the team whose shutdown wrote it;
+  - `[Unit]` `ConditionPathExists=!<its own path>`, so no start (an apply's, a container boot's
+    or a restart's) starts the unit while the file exists;
+  - `[Service]` `Restart=no`, so the `/exit` (or the hard stop) leaves the unit inactive with
+    no restart to race.
+
+  It is under `/etc`, not `/run`, so a container reboot keeps it (Decision 24 names the
+  alternatives). The file name is one constant, `HOLD_DROPIN` in members.py and
+  `lxcfreeze.HoldDropIn` in Go, each pinned to the one value by a test against a shared
+  fixture under `src-go/internal/bus/declare/testdata/parity/lxc/`.
+
+- LS4. The hold is written as root through the root runner (LS9) by
+  `install -D -m 0644 /dev/stdin <path>`, the text on stdin, and removed by `rm -f -- <path>`
+  followed by `systemctl daemon-reload`. No Python text is copied into Go; members.py keeps its
+  own `UNIT_WRITE_PY` and `UNIT_REMOVE_PY` pattern.
+
+- LS5. After the `/exit` it runs `systemctl stop` of the unit (nothing to do once inactive; the
+  end of the hard stop otherwise). The member counts as ended only when the unit is inactive
+  and its `NRestarts` is unchanged since before the `/exit`. Otherwise the report says
+  "restarted before it was stopped: its newest conversation may be a fresh one", and the member
+  is a failure (exit 1). A start of a held unit returns success and leaves it inactive, so no
+  step reads "started" or "stopped" from `systemctl`'s exit alone: it reads `ActiveState`.
+
+- LS6. **Off the success path the hold is removed.** On every path where the member is not
+  ended (the `/exit` or the hard stop failed, its `lxc-attach` failed, a `--cancel` stopped the
+  forced phase before it, or it was not reached after the write), the shutdown removes the hold
+  and runs `daemon-reload` before it reports, so a running member keeps `Restart=always`. A
+  removal that fails is a failure naming the member and the drop-in's path (exit 1).
+
+- LS7. **An apply honours the hold.** `_ensure_service` (members.py) starts any inactive unit
+  on every play-agent-bus apply today (its `elif state["ActiveState"] != "active"` branch). With
+  the hold present it writes and reloads a changed unit and enables it as before, but does not
+  start or restart it, and reports
+  `<label> held stopped by a ccy-teams shutdown of <team>; ccy-teams resume <team> starts it`.
+  The play does not fail. `_drop_service` removes the hold with the unit. The board and
+  `ccy-teams apply` show the member as held. members.py and its tests change with 3.15.
+
+- LS8. For each LXC member ended, the last-shutdown record's entry (RS1) also records the name
+  and mtime of the newest transcript in the member's store (Decision 23: the ccy store of its
+  checkout, or the user's own store for a service member), read-only through the user runner.
+
+- LS9. **Two runners.** `lxcfreeze.Lister.InContainer` runs tmux only, on the socket and session
+  `agent-bus-claude` (`winddown.go` `lxcTmux`), and stays the route for reading and typing. The
+  hold, `systemctl`, `agent-bus seat list` (3.17), the transcript read and the resume command
+  under the default connect (3.18) need a new `lxcfreeze` runner: a named program run inside
+  the container, as root or as the member's user, through the same
+  `sudo -n lxc-attach --clear-env`, each program on an allow list (SPEC-lxc-connect-and-resume
+  K10).
+
+- LS10. **The preview names what else ends.** A service member's one session is in every team
+  its user is declared in (one session per container and user, members.py `_check_between`),
+  so its `/exit` and `systemctl stop` take it off those teams too. The preview (3.15's and
+  3.16's) shows "also on <team>" for it, as SD4 does for a desktop session.
+
+## 6. A timed wind-down that ends in a forced shutdown (Task 3.16, draft expectations)
+
+Draft, as section 5. Decisions 14 to 17 and 21 of
+[DECISIONS-lifecycle.md](DECISIONS-lifecycle.md) are its open defaults.
+
+- TW1. `ccy-teams wind-down <team> --then-shutdown[=<minutes>]` and a team menu line, Wind down
+  and shut down the team: an outer window (default 15 minutes, 30 offered in the picker) and an
+  inner coordinator deadline inside it (Decision 14).
+- TW2. 3.14's typed path reaches the coordinator first, then every other member (Decision 15).
+  Each text names the inner deadline as a clock time and says the team is shut down by force
+  at it.
+- TW3. Enforcement is on the host, never left to the coordinator. At the inner deadline (or
+  earlier, Decision 16) Plan 00201's `ccy-teams shutdown` path (SPEC-shutdown.md SD10 to SD12:
+  `/exit` typed, a busy turn interrupted, then `tmux kill-session`) runs on every session still
+  open, its waits cut so that it ends inside the outer window.
+- TW4. The wait runs outside the owner's terminal unless the team has an online LXC member
+  (Decision 17), takes the per-team lock (CR4 to CR8), and can be cancelled.
+- TW5. LXC members are wound down by 3.14's route. They are forced only once 3.15 lands (LS1
+  to LS7). Until then an online LXC member is named as not forced, with the text to give it by
+  hand, and is a failure (exit 1: it is online and the shutdown did not end it). Its entry is
+  still written, and 3.17 judges it (RS7).
+- TW6. Once 3.15 has landed, the wind-down writes each online service member's hold (LS3) at
+  its start, not at the force. So a service member that ends during the window (the owner
+  `/exit`s it, or claude exits) stays ended in its own conversation, instead of being started
+  fresh by `Restart=always` with a newer transcript.
+- TW7. An offline member is shown as offline, is not typed to or forced, and changes no exit
+  code (CR1).
+- TW8. **The record is a draft until the force.** 3.17's last-shutdown record is drafted at
+  the wind-down's start, from the members found then, into a separate draft file beside the
+  record. When the forced phase begins the draft is merged and promoted: every draft entry is
+  kept, those still found are refreshed, and the result becomes the team's last-shutdown
+  record. So a member that ended during the window is still in it. A draft that no lock holds
+  (left by a holder that crashed) is overwritten by the next wind-down and never read by
+  `resume`.
+- TW9. A `--cancel` before the force, or a foreground countdown ended by a closed terminal,
+  deletes the draft and leaves the previous last-shutdown record as it was, so a shutdown that
+  never happened can neither replace a real one nor be resumed. It removes the holds TW6 wrote;
+  a service member that ended during the window is started through its unit with the
+  `continue-once` flag (SPEC-lxc-connect-and-resume K7), so the cancel leaves it in its own
+  conversation.
+- TW10. A hold the countdown could not remove on its way out (a closed terminal whose sudo is
+  gone) is left in place. The apply and the board name it held (LS7), and the next resume of
+  the team the hold names releases it (RS10).
+- TW11. **Forced means forced.** At the inner deadline the cut shutdown departs from SD10 and
+  SD11 for this mode only:
+  - a session whose input box holds unsent text is ended by `tmux kill-session` after the
+    record is written, and the report names it with its unsent text, as much of it as the pane
+    shows (a long input is clipped). That text is printed to stderr only, never written to the
+    record, the draft, the unit's journal or any log, since it may hold a secret; a unit run
+    says only that the session had unsent text;
+  - a session left at the launcher's compose-stop question is ended by `kill-session` too, the
+    report naming its compose services as left as they were.
+- TW12. `--cancel` before the deadline stops the unit (or the countdown) and says what was
+  already typed. Once the forced phase has begun it stops before the next session not yet typed
+  to or killed, and the report names which sessions ended and which were left running. The
+  record already written stays; an LXC member not ended has its hold removed (LS6).
+- TW13. Plan 00201's SPEC-shutdown.md carries a line pointing here, so SD10 to SD14 and this
+  mode do not drift.
+
+## 7. A compaction before the shutdown (Task 3.20, draft expectations)
+
+The owner's request: compact each session just before it is shut down, so the next day's
+resume does not reload a large conversation into a cold prompt cache. A compaction run while
+the cache is warm costs a fraction of one run after a restore, which is what `ccy-sessions set-going` does today (Plan 00135 Task 8.2: `/compact` as the first input when the context is
+at or above the floor). Built in 3.20 on 3.14's wind-down; the parts that name 3.16's window
+and force apply once 3.16 lands.
+
+- WC1. **Every session 3.14's path reaches is typed `/compact` through that path**: a ccy or
+  cc session on the host's ccy tmux, supervised or not, and an LXC member in its tmux session
+  `agent-bus-claude` through `lxc-attach` (F1, `winddown.go` `lxcTmux`). This is the owner's
+  direction of 2026-10-28, which replaces the earlier ruling that a supervised session waits
+  for a hooks-daemon supervisor request: "maybe for now we do need to allow typing into
+  sessions because blocking on hooks daemon will slow us down a lot". The reason: the
+  supervisor route needs an upstream change first (WC8), and the compaction is wanted now. The
+  typing is 3.14's: at an idle, empty box, the line then Enter after the submit pause, one
+  poll of grace and one more Enter for a line left in the box. The supervisor can type at the
+  same idle moments (section 4's known limit); that limit is accepted for now, as it is for
+  the wind-down text.
+- WC2. A session is compacted once it has answered the wind-down instruction: its box is idle
+  and empty again after the instruction left it, having been seen busy since, or idle for the
+  settle bound (30 s) when no busy look was caught. Its context is then read from its
+  transcript (`transcript.Cache.ContextTokens`, the conversation the session's SessionStart
+  hook recorded, `conversation.For`). At or above `set-going`'s floor it is typed `/compact`
+  followed by a fixed instruction: it is being wound down, should keep what it needs to
+  resume the work another time, and should drop the rest. Below the floor it is not
+  compacted, and the report says so with both numbers. The floor has one home: the play's
+  `ccy_restore_compact_floor` written into `ccy-sessions-set-going.service` as
+  `CCY_RESTORE_COMPACT_FLOOR_TOKENS`, parsed by one parser (`src-go/internal/compactfloor`)
+  that `set-going` and `wind-down` share. `wind-down` reads it from that unit's environment
+  (`systemctl --user show`); a floor that cannot be read, or a transcript that cannot be
+  found, leaves the session wound down and not compacted, said why, and fails the run (exit
+  1), as a fault the owner must see.
+- WC3. **An LXC member's transcript is in its container**, under the member user's home, which
+  the host reads only as root through its rootfs; ccy-teams reads none of it. So an LXC member
+  is compacted whatever its context (the floor cannot be read for it, and the report says so),
+  and its compaction's end is read from its pane: busy after `/compact` went in, then idle
+  and empty again (or idle for the settle bound with no busy look caught), bounded by the
+  window. A host session's end is its transcript's `compact_boundary` after the moment
+  `/compact` was typed (`transcript.Cache.CompactedSince`), read on every look. Claude writes
+  the transcript after it redraws the pane, so a host session idle again with no boundary yet
+  is given the settle bound (30 s, the same `Waits.Settle`) for it, the transcript read again
+  on each look; a busy look in that time starts the grace again. Still no boundary at its end
+  means a compaction that did not finish (Claude refused or failed it), which is reported as
+  such and fails the run.
+- WC4. Coordinator first, as TW2, then the others, **one compaction at a time**, so the host is
+  not loaded by several at once. The wind-down instruction still goes to every session
+  together (3.14); only the compactions queue. Whenever no compaction runs, the next is the
+  coordinator's if it has answered, else the first other session that has; a coordinator
+  still answering does not hold up a worker that has. **The turn is bounded**: a session given
+  it whose box is not idle and empty within the settle bound (30 s; busy again, from a cron
+  tick or its supervisor, or a line left in its box) is not interrupted. It goes back to the
+  queue behind every session the turn has not yet passed on from, and the turn passes to the
+  next. A session the turn passed on from and that is never compacted is named at the end of
+  the window ("its box was not idle and empty when its turn to compact came"). When the turn
+  comes, a host session's context is read again before `/compact` is typed: one compacted
+  since it answered (by its supervisor at the same idle moment) is below the floor and is not
+  compacted again. The same holds for a session wound down by two teams' wind-downs: the
+  first's `compact_boundary` sets its context to the compacted size, below the floor.
+- WC4a. **The window.** Until 3.16 brings the outer window (TW1), the whole wind-down,
+  instruction, answers and compactions, is bounded by a window of 15 minutes (TW1's default)
+  from its start. A session still answering at its end is not compacted, and one whose
+  compaction has not finished is reported as not finished; neither fails the run (they are
+  not faults, the session is shut down as today), and nothing is interrupted. A host
+  session's transcript is read once more on the window's last look before it is judged, so a
+  compaction that ended on that look counts as compacted. When 3.16 lands
+  its `--then-shutdown` window is this window, and the force follows it.
+- WC5. A plain `ccy-teams shutdown` (no wind-down) does not compact unless asked
+  (`--compact`), since it is the quick path.
+- WC6. On resume, a compacted session is below the floor, so `set-going` types `continue`
+  and no cold `/compact` is spent.
+- WC7. A member 3.14's path does not reach (offline, or not reachable from here) is named as
+  not wound down, so not compacted, and is shut down as before.
+- WC8. **The supervisor route is the later direction of travel, not a precondition** (owner,
+  2026-10-28). A follow-up, not this task, asks the hooks-daemon supervisor for a wind-down
+  request (a file it watches, or a signal): it waits for an idle moment, injects `/compact`
+  with the given instruction, and records when it is done, with no pane timing. Once it
+  ships, a supervised session moves to it and the typed path stays for the rest. Nothing is
+  filed upstream in 3.20.
+- WC9. Putting LXC members under the supervisor too (so every kind takes the same route) goes
+  with WC8 and Plan 00226, which brings `cc` under it.

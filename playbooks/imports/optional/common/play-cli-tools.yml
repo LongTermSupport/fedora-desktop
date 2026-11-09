@@ -9,9 +9,10 @@
 #
 # Tools (run one alone with --tags <tag>):
 #   open                 tag open-command         open anything, desktop or over SSH
+#   randfile             tag randfile             one random file of a directory (open "$(randfile)")
 #   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
-#   mpv                  tag mpv                  play audio and video from a terminal
+#   mpv                  tag mpv                  media player, the desktop's default for video
 #   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
 #   imgpaste             tag imgpaste             image -> self-decoding block for an agent
 #
@@ -25,13 +26,14 @@
 # Standalone / opt-in play — run directly:
 #   ./playbooks/imports/optional/common/play-cli-tools.yml
 #
-# open and convert are Go binaries built from this checkout (src-go/cmd/<name>), so the Go
-# toolchain is installed first. play-golang.yml stays its one source of truth; the tags make
-# --tags open-command or --tags convert-command install the toolchain too.
+# open, convert and reclaim are Go binaries built from this checkout (src-go/cmd/<name>), so
+# the Go toolchain is installed first. play-golang.yml stays its one source of truth; the tags
+# make --tags open-command, convert-command or disk-reclaim install the toolchain too.
 - import_playbook: ../../play-golang.yml
   tags:
     - open-command
     - convert-command
+    - disk-reclaim
 
 - hosts: desktop
   name: CLI Tools - small command-line utilities
@@ -39,18 +41,26 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     user_bin_dir: "/home/{{ user_login }}/.local/bin"
     # Pin ouch by version and checksum. Update deliberately; vars/version-pins.yml names
-    # this var. The sha256 is the release asset's published digest for ouchArch and must
-    # change with every bump, or the download fails verification.
+    # this var. One static musl build per architecture, keyed as Fedora names it; each
+    # sha256 is that release asset's published digest and must change with every bump.
     # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.8.1"
-    ouchSha256: "866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c"
-    ouchArch: "x86_64-unknown-linux-musl"
+    ouchBuilds:
+      x86_64: {triple: x86_64-unknown-linux-musl, sha256: 866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c}
+      aarch64: {triple: aarch64-unknown-linux-musl, sha256: 9caf888aa6944887084b917c7872d16a439a82f6ca1754c89816cda5dc957546}
+    ouchArch: "{{ ouchBuilds[ansible_facts['architecture']].triple }}"
+    ouchSha256: "{{ ouchBuilds[ansible_facts['architecture']].sha256 }}"
     ouchDir: "/opt/ouch-{{ ouchVersion }}"
     ouchBin: "/usr/local/bin/ouch"
     ouchUrl: "https://github.com/ouch-org/ouch/releases/download/{{ ouchVersion }}/ouch-{{ ouchArch }}.tar.gz"
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # Tagged `always`: every tool's block needs it, including a run with --tags <tool>.
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
@@ -81,9 +91,14 @@
           - shared-mime-info     # the freedesktop MIME database itself
           - desktop-file-utils   # .desktop database the app list is read from
           - file                 # last-resort MIME fallback on a minimal box
-          - fzf                  # the good chooser (a numbered menu is used without it)
           - less                 # pager behind most terminal handlers
         state: present
+      tags:
+        - packages
+        - open-command
+
+    - name: Install fzf, the good chooser (a numbered menu is used without it), from its upstream release
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
       tags:
         - packages
         - open-command
@@ -111,6 +126,18 @@
         go_command_dest: "{{ user_bin_dir }}/open"
         go_command_mode: "0755"
       tags: open-command
+
+    # ── randfile ─────────────────────────────────────────────────────────────────
+    # One random file of a directory on stdout, so it composes with open: open "$(randfile)".
+    # Plain bash (find and shuf, both in the base system).
+    - name: Deploy randfile
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/randfile"
+        dest: "{{ user_bin_dir }}/randfile"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: randfile
 
     # ── convert ──────────────────────────────────────────────────────────────────
     # convert (src-go/cmd/convert, Plan 00210) owns a table of conversions and calls a proven
@@ -143,7 +170,7 @@
       tags: convert-command
 
     # ── reclaim ──────────────────────────────────────────────────────────────────
-    # A dependency-light bash menu that reports what is using disk and runs targeted
+    # A dependency-light menu that reports what is using disk and runs targeted
     # cleanups, each behind an explicit confirmation; ncdu and baobab do deep dives.
     - name: Install reclaim command-line disk-usage tools
       ansible.builtin.package:
@@ -163,13 +190,14 @@
       when: provisioning_profile != 'server'
       tags: disk-reclaim
 
-    - name: Deploy the reclaim TUI
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/reclaim"
-        dest: "{{ user_bin_dir }}/reclaim"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # The command is a Go binary (src-go/cmd/reclaim, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the reclaim Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: reclaim
+        go_command_dest: "{{ user_bin_dir }}/reclaim"
+        go_command_mode: "0755"
       tags: disk-reclaim
 
     # ── mpv ──────────────────────────────────────────────────────────────────────
@@ -185,6 +213,51 @@
       tags:
         - packages
         - mpv
+
+    # Fedora's mpv decodes in software by default, too slow for 4K HEVC. The config turns
+    # on hardware decoding and a deep network cache (the file says why each line is there).
+    # HEVC itself comes from libavcodec-freeworld, which play-rpm-fusion.yml installs with
+    # the multimedia group.
+    - name: Create the mpv config directory (desktop only)
+      become: false
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/mpv"
+        state: directory
+        mode: "0755"
+      when: provisioning_profile != 'server'
+      tags: mpv
+
+    - name: Deploy mpv.conf tuned for 4K remux playback (desktop only)
+      become: false
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/mpv/mpv.conf"
+        dest: "/home/{{ user_login }}/.config/mpv/mpv.conf"
+        mode: "0644"
+      when: provisioning_profile != 'server'
+      tags: mpv
+
+    # mpv as the default video player, so `open`, Nautilus and xdg-open all play video with
+    # the config above, not with GNOME's player. Same declarative mimeapps.list key as
+    # play-md-viewer.yml: every other default is left as it is.
+    - name: Make mpv the default video player (desktop only)
+      become: false
+      community.general.ini_file:
+        path: "/home/{{ user_login }}/.config/mimeapps.list"
+        section: Default Applications
+        option: "{{ item }}"
+        value: mpv.desktop
+        no_extra_spaces: true
+        create: true
+        mode: "0644"
+      loop:
+        - video/x-matroska
+        - video/mp4
+        - video/webm
+        - video/quicktime
+        - video/x-msvideo
+        - video/mp2t
+      when: provisioning_profile != 'server'
+      tags: mpv
 
     # ── compress / uncompress ────────────────────────────────────────────────────
     - name: Preflight - assert ncompress is not installed (conflicts with our compress/uncompress)
@@ -203,6 +276,12 @@
 
           Remove it first: sudo dnf remove ncompress
       when: ncompress_check.rc == 0
+      tags: compression-helpers
+
+    - name: Fail on an architecture with no pinned ouch build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in ouchBuilds
+        fail_msg: "ouch: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ ouchBuilds | list | join(', ') }})"
       tags: compression-helpers
 
     - name: Create versioned ouch directory
@@ -321,6 +400,7 @@
           - "CLI Tools installed"
           - "============================================"
           - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
+          - "  randfile [DIR]     - print one random file of DIR (default .): open \"$(randfile)\""
           - "  convert FILE --to docx - write FILE.docx beside a Markdown file (convert FILE lists formats)"
           - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
           - "  mpv FILE            - play an audio or video file in the terminal (desktops only)"

@@ -39,6 +39,18 @@ type kit struct {
 	// served is the fake web server: URL to the body curl gets; a missing URL fails.
 	served map[string]string
 	gw     *guestWorld // the fake guest, when a test installs one
+	// faultAt, when positive, makes the faultAt'th command the CLI runs exit 1 (fault_test.go).
+	faultAt int
+	// free is the space the lab's filesystem has, and freeErr what reading it fails with.
+	free    int64
+	freeErr error
+	// freeErrAt is what reading the free space under one path fails with.
+	freeErrAt map[string]error
+	// hostMiB is the host's memory, and hostErr what reading it fails with.
+	hostMiB int
+	hostErr error
+	// goarch is the host's architecture as Go names it; the lab's guests are this architecture.
+	goarch string
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -70,6 +82,9 @@ func newKit(t *testing.T) *kit {
 		fake:     &execx.Fake{},
 		now:      time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC),
 		port:     40123,
+		free:     1 << 50,
+		hostMiB:  1 << 16,
+		goarch:   "amd64",
 		bases:    map[string]string{},
 		scens:    map[string]string{},
 	}
@@ -130,10 +145,11 @@ func (k *kit) base(key, name, kind, profile, tree string) {
 func (k *kit) scenario(id string, fields map[string]string) {
 	f := map[string]string{
 		"id": id, "base": "server-fast", "base_name": "server-fast-44", "profile": "server", "planned": "5",
-		"max_skipped": "0", "runnable": "true", "host_only": "false", "reboot_before_checks": "false", "run_env": "-",
+		"max_skipped": "0", "runnable": "true", "host_only": "false", "reboot_before_checks": "false", "run_env": "-", "audience": "developer",
+		"optional_plays": "-",
 	}
 	maps.Copy(f, fields)
-	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env"}
+	order := []string{"id", "base", "base_name", "profile", "planned", "max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience", "optional_plays"}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
 		parts = append(parts, key+"="+f[key])
@@ -207,7 +223,7 @@ func argAfter(args []string, flag string) string {
 
 func (k *kit) environment() Env {
 	return Env{
-		Runner: k.fake,
+		Runner: k.runner(),
 		Stdin:  strings.NewReader(k.stdin),
 		Stdout: &k.out,
 		Stderr: &k.err,
@@ -222,9 +238,17 @@ func (k *kit) environment() Env {
 			k.now = k.now.Add(d)
 			return nil
 		},
-		FreePort:  func() (int, error) { return k.port, nil },
+		FreePort: func() (int, error) { return k.port, nil },
+		FreeBytes: func(path string) (int64, error) {
+			if err, ok := k.freeErrAt[path]; ok {
+				return 0, err
+			}
+			return k.free, k.freeErr
+		},
+		HostMiB:   func() (int, error) { return k.hostMiB, k.hostErr },
 		Random:    zeroReader{},
 		GPGKeyDir: k.gpg,
+		GOARCH:    k.goarch,
 		TempDir:   k.t.TempDir(),
 	}
 }

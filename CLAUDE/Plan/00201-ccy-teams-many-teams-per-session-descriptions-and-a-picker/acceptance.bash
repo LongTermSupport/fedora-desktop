@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plan 00201 — acceptance.bash: the automated part of milestone M7, the two-team acceptance leg.
-# The interactive part (the chooser, scope widening, cc's consent) is the owner's:
-# ACCEPTANCE-owner.md.
+# The interactive part (the chooser, scope widening) is ACCEPTANCE-owner.md; its step 08, cc's
+# consent, is acceptance-consent.bash.
 #
 # RUN ON THE HOST, as the desktop user (not root), after play-agent-bus.yml and
 # play-claude-yolo.yml: through CLAUDE/Plan/meta-deploy.bash, or

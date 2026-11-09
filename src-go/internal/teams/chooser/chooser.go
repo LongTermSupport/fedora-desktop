@@ -45,7 +45,8 @@ const (
 type SeatFunc func(ctx context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode)
 
 // CreateFunc runs the create wizard for this checkout: the team it made, or "" and the code.
-type CreateFunc func(ctx context.Context) (string, term.ExitCode)
+// name, when not empty, is the team the person named, offered as the new team's name.
+type CreateFunc func(ctx context.Context, name string) (string, term.ExitCode)
 
 // ApplyFunc applies the declared teams (the play), saying why it failed when it does.
 type ApplyFunc func(ctx context.Context, teams []string) error
@@ -64,7 +65,9 @@ type Chooser struct {
 	// Payload receives the one value the launcher captures.
 	Payload io.Writer
 
-	Seat   SeatFunc
+	Seat SeatFunc
+	// Probe reads a remembered seat for the launch summary.
+	Probe  ProbeFunc
 	Create CreateFunc
 	Apply  ApplyFunc
 	Locked LockFunc
@@ -175,18 +178,30 @@ func (c *Chooser) printList(refs []string) term.ExitCode {
 }
 
 // resolve is a given list: each seat kept, each team named alone replaced by the seat the
-// person chooses for it, in order.
+// person chooses for it, in order. A team this machine does not have is asked about first
+// (unknown.go): made, swapped for one it has, or left out.
 func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.ExitCode {
 	var refs []string
 	items := strings.Split(list, ",")
-	for i, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" {
+	for i := range items {
+		items[i] = strings.TrimSpace(items[i])
+		if items[i] == "" {
 			c.usage("the list '" + list + "' has an empty item.")
 			return term.ExitUsage
 		}
+	}
+	for i, item := range items {
 		if !strings.Contains(item, "@") {
-			ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(items), item), item, memberType)
+			team, then, code := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, slices.Concat(refs, items[i:]))
+			switch {
+			case code != term.ExitOK:
+				return code
+			case then == leaveOut:
+				continue
+			case then == leaveRun:
+				return term.ExitOK
+			}
+			ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(items), team), team, memberType)
 			if code != term.ExitOK {
 				return code
 			}
@@ -196,6 +211,10 @@ func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.Exi
 			item = ref
 		}
 		refs = append(refs, item)
+	}
+	if len(refs) == 0 {
+		c.say(nothingChosen)
+		return term.ExitOK
 	}
 	return c.finish(ctx, memberType, refs)
 }
@@ -252,7 +271,7 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 func (c *Chooser) failed(err error) term.ExitCode {
 	c.Host.ReportErr(err)
 	if de, ok := errors.AsType[*declare.Error](err); ok && de.Code != 0 {
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	return term.ExitFailure
 }

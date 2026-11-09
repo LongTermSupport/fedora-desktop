@@ -11,7 +11,7 @@ import (
 // Why an LXC member is offline or cannot be told apart from an online one.
 const (
 	whyLxcDeferred = "offline (its container was not running at the last apply, so it has not joined yet)"
-	whyNoSudo      = "lxc-ls needs sudo, which is not ready"
+	whyNoSudo      = "lxc-ls needs sudo"
 )
 
 // Containers is the host's LXC, as lxcfreeze.Lister reads it: which containers run.
@@ -52,7 +52,7 @@ func (s *Shutdown) resolveLxc(ctx context.Context, team string, p *plan) {
 		return
 	}
 	if err = s.Sudo.Ready(ctx, "Whether the LXC members' containers run is read with lxc-ls as root."); err != nil {
-		p.notReached(whyNoSudo, joined...)
+		p.notReached(whyNoSudo+": "+err.Error(), joined...)
 		return
 	}
 	running, _, err := s.Lxc.Containers(ctx)

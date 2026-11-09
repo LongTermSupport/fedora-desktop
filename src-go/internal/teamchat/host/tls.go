@@ -1,0 +1,335 @@
+package host
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/netip"
+	"net/url"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
+)
+
+// The modes of the files in root/<team>/tls/ (SPEC-cross-network X13): the keys are root's alone,
+// and the certificates, which every member bundle carries, are readable so that a tool running as
+// root and one reading a copy of the directory are not told apart by their bytes.
+const (
+	keyMode  fs.FileMode = 0o600
+	certMode fs.FileMode = 0o644
+)
+
+// caAdvice ends every refusal of a CA: the host never replaces one on its own, because every
+// bundle issued carries its certificate.
+const caAdvice = "a team's CA is never replaced by an apply: restore the file from a team backup, " +
+	"or remove both CA files so that the next apply makes a new CA (every bundle issued before it must then be reissued)"
+
+// wallClock is the host's Clock as pki reads it.
+type wallClock struct{ Clock }
+
+func (w wallClock) WallMS() int64 { return w.Now().UnixMilli() }
+
+// tls is the step after the first apply's files (X13, X14): the team's CA is made once and never
+// replaced, and the leaf its homeserver is reached by is made when there is none, when its names
+// are not the wanted names, and when fewer than 30 days of it remain. The leaf's names are every
+// derived listen address and the url host when that is a name. A CA that cannot be used is a
+// refusal that names the file, and nothing after this step runs.
+func (a *applying) tls(_ context.Context) error {
+	names, err := a.leafNames()
+	if err != nil {
+		return a.fail(StepTLS, err)
+	}
+	if err = mkdirOwned(a.path(paths.TLSDir(a.team)), -1, -1); err != nil {
+		return a.fail(StepTLS, err)
+	}
+	maker := pki.Maker{Clock: wallClock{a.d.Clock}, Rand: a.d.Rand}
+	ca, found, err := loadCA(a.d.Root, a.team, a.d.StateOwnerUID)
+	if err != nil {
+		return &Error{Verb: verbApply, Step: StepTLS, Drift: true, Err: err}
+	}
+	if !found {
+		if ca, err = a.makeCA(maker); err != nil {
+			return a.fail(StepTLS, err)
+		}
+	}
+	if err = a.ensureLeaf(maker, ca, names); err != nil {
+		return a.fail(StepTLS, err)
+	}
+	return nil
+}
+
+// leafNames are what the leaf is reached by: the derived listen addresses, and the url host when
+// it is not an IP literal (X6 already holds a literal to the listen addresses). The declaration
+// holds the host to its canonical, lower-case form.
+func (a *applying) leafNames() (pki.Names, error) {
+	u, err := url.Parse(a.in.Team.URL)
+	if err != nil {
+		return pki.Names{}, err
+	}
+	names := pki.Names{IPs: slices.Clone(a.listen)}
+	if _, literal := netip.ParseAddr(u.Hostname()); literal != nil {
+		names.DNS = u.Hostname()
+	}
+	return names, nil
+}
+
+// makeCA makes the team's CA and writes it without replacing anything. The key goes first: a
+// crash between the two files leaves a key that signed nothing and no certificate any bundle
+// could carry, which the next apply refuses by name.
+func (a *applying) makeCA(m pki.Maker) (pki.CA, error) {
+	ca, err := m.NewCA("teamchat " + a.team.String() + " CA")
+	if err != nil {
+		return pki.CA{}, err
+	}
+	if err = writeCA(a.d.Root, a.team, ca); err != nil {
+		return pki.CA{}, err
+	}
+	a.note("ca made")
+	return ca, nil
+}
+
+// writeCA creates the CA's two files, the key before the certificate, each only if absent.
+func writeCA(root string, team paths.TeamID, ca pki.CA) error {
+	if err := createOnly(root+paths.CAKeyFile(team), ca.KeyPEM(), keyMode); err != nil {
+		return err
+	}
+	return createOnly(root+paths.CACertFile(team), ca.CertPEM(), certMode)
+}
+
+// loadCA reads the team's CA from root. found is false when neither file is there. A lone file,
+// a file that is not regular, and a pair pki refuses are errors naming the file. The key must be
+// owner's alone (root's on a host), mode 0600 exactly, judged on the file opened (state's ST4);
+// one that is not is refused with the fix, which is never made for the owner. The certificate,
+// 0644, is not judged so.
+func loadCA(root string, team paths.TeamID, owner uint32) (pki.CA, bool, error) {
+	certFile, keyFile := root+paths.CACertFile(team), root+paths.CAKeyFile(team)
+	cert, haveCert, err := state.ReadFile(certFile, fileMax)
+	if err != nil {
+		return pki.CA{}, false, err
+	}
+	key, haveKey, err := state.ReadPrivateFile(keyFile, fileMax, owner)
+	if err != nil {
+		return pki.CA{}, false, caKeyFix(err, keyFile, owner)
+	}
+	switch {
+	case !haveCert && !haveKey:
+		return pki.CA{}, false, nil
+	case !haveCert:
+		return pki.CA{}, false, fmt.Errorf("the CA certificate %s is not there, but the CA key %s is; %s", certFile, keyFile, caAdvice)
+	case !haveKey:
+		return pki.CA{}, false, fmt.Errorf("the CA key %s is not there, but the CA certificate %s is; %s", keyFile, certFile, caAdvice)
+	}
+	if _, err = pki.Fingerprint(cert); err != nil {
+		return pki.CA{}, false, fmt.Errorf("%s: %w; %s", certFile, err, caAdvice)
+	}
+	ca, err := pki.ParseCA(cert, key)
+	if err != nil {
+		return pki.CA{}, false, fmt.Errorf("%s: %w; %s", keyFile, err, caAdvice)
+	}
+	return ca, true, nil
+}
+
+// caKeyFix is err with the fix for a CA key refused for its owner or its mode: the commands a
+// person runs, since the host never changes the key's owner or mode on its own.
+func caKeyFix(err error, keyFile string, owner uint32) error {
+	who := "root"
+	if owner != 0 {
+		who = strconv.FormatUint(uint64(owner), 10)
+	}
+	var oe *state.OwnerError
+	var me *state.ModeError
+	switch {
+	case errors.As(err, &oe):
+		return fmt.Errorf("the CA key is %w; the key must be %s's alone: chown %s %s", err, who, who, keyFile)
+	case errors.As(err, &me):
+		return fmt.Errorf("the CA key %w; the key must be readable by its owner alone: chmod 600 %s", err, keyFile)
+	}
+	return err
+}
+
+// ensureLeaf makes the leaf again when it must be, and says why. A leaf is derived, so one that
+// is missing, torn, or signed by another CA is made again rather than refused, and the apply
+// says what was wrong with it.
+func (a *applying) ensureLeaf(m pki.Maker, ca pki.CA, want pki.Names) error {
+	line, err := a.leafVerdict(ca, want)
+	if err != nil || line == "" {
+		return err
+	}
+	leaf, err := m.NewLeaf(ca, want)
+	if err != nil {
+		return err
+	}
+	if err = state.WriteFile(a.path(paths.LeafKeyFile(a.team)), leaf.KeyPEM(), keyMode, -1); err != nil {
+		return err
+	}
+	if err = state.WriteFile(a.path(paths.LeafCertFile(a.team)), leaf.CertPEM(), certMode, -1); err != nil {
+		return err
+	}
+	a.leafMade = true
+	a.note(line)
+	return nil
+}
+
+// leafVerdict is the CHANGED line for a leaf that must be made, and "" for one that is kept.
+func (a *applying) leafVerdict(ca pki.CA, want pki.Names) (string, error) {
+	cert, haveCert, err := state.ReadFile(a.path(paths.LeafCertFile(a.team)), fileMax)
+	if err != nil {
+		return "", err
+	}
+	// The leaf key is root's alone, 0600, as the CA key is; but the leaf is derived, so one that
+	// is not is made again with a new key, never chmodded: others may have read the old one.
+	key, haveKey, err := state.ReadPrivateFile(a.path(paths.LeafKeyFile(a.team)), fileMax, a.d.StateOwnerUID)
+	var oe *state.OwnerError
+	var me *state.ModeError
+	if errors.As(err, &oe) || errors.As(err, &me) {
+		return "leaf made again: " + err.Error(), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case !haveCert && !haveKey:
+		return "leaf made", nil
+	case !haveCert || !haveKey:
+		return "leaf made again: a file of its pair is not there", nil
+	}
+	leaf, err := pki.ParseLeaf(ca.CertPEM(), cert, key)
+	if err != nil {
+		return "leaf made again: " + strings.TrimPrefix(err.Error(), "pki: "), nil
+	}
+	renewal, err := leaf.NeedsRenewal(wallClock{a.d.Clock}, want)
+	if err != nil || !renewal.Needed() {
+		return "", err
+	}
+	return "leaf made again: " + renewal.String(), nil
+}
+
+// ErrCANotMade is a team with neither CA file: no apply has made its CA yet.
+var ErrCANotMade = errors.New("the team CA is not made yet")
+
+// CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle or an LXC reach
+// fact (X15); `teamchat-admin`'s production System serves it as its team CA. It is read as root
+// from root/<team>/tls/ and judged with the key beside it, so a bundle never carries a certificate
+// the host could not sign a leaf with. A team whose CA is not made yet is ErrCANotMade. owner owns
+// the CA key (root, 0, on a host).
+func CAPEM(root string, team paths.TeamID, owner uint32) (string, error) {
+	ca, found, err := loadCA(root, team, owner)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("%w (team %s): team apply makes it", ErrCANotMade, team)
+	}
+	return string(ca.CertPEM()), nil
+}
+
+// BackupFile is one file a team backup carries: its name in the backup, its mode and its bytes.
+type BackupFile struct {
+	Name string
+	Mode fs.FileMode
+	Data []byte
+}
+
+// CABackupFiles are the files of the team's CA that its backup carries, the certificate and then
+// the key, named as they are in root/<team>/tls/ and with the modes they have there (X13). The
+// leaf is not among them: the next apply makes it again. A team with no CA yet has none to carry;
+// a CA the host could not use is an error, since a backup of it could not be restored.
+func CABackupFiles(root string, team paths.TeamID, owner uint32) ([]BackupFile, error) {
+	ca, found, err := loadCA(root, team, owner)
+	if err != nil || !found {
+		return nil, err
+	}
+	return []BackupFile{
+		{Name: filepath.Base(paths.CACertFile(team)), Mode: certMode, Data: ca.CertPEM()},
+		{Name: filepath.Base(paths.CAKeyFile(team)), Mode: keyMode, Data: ca.KeyPEM()},
+	}, nil
+}
+
+// RestoreCA puts the CA files of a backup back under root with their modes, and says whether it
+// wrote them. The files are judged first: exactly the certificate and the key, each once, with the
+// modes CABackupFiles gives, a pair pki accepts. A team that already has the same CA is left as it
+// is; one that has another is refused, and nothing is replaced. No file at all is a backup taken
+// before the backup carried the CA, and leaves the team's CA, or its lack of one, as it is. A CA
+// key in place that is not owner's alone is refused as loadCA refuses it, and nothing is written.
+func RestoreCA(root string, team paths.TeamID, owner uint32, files []BackupFile) (bool, error) {
+	ca, write, err := restorable(root, team, owner, files)
+	if err != nil || !write {
+		return false, err
+	}
+	if err = mkdirOwned(root+paths.TLSDir(team), -1, -1); err != nil {
+		return false, err
+	}
+	return true, writeCA(root, team, ca)
+}
+
+// CheckRestoreCA is RestoreCA's judgement without its write, for a restore to refuse before it
+// changes anything.
+func CheckRestoreCA(root string, team paths.TeamID, owner uint32, files []BackupFile) error {
+	_, _, err := restorable(root, team, owner, files)
+	return err
+}
+
+// restorable is the CA a backup's files hold and whether RestoreCA must write it.
+func restorable(root string, team paths.TeamID, owner uint32, files []BackupFile) (pki.CA, bool, error) {
+	if len(files) == 0 {
+		return pki.CA{}, false, nil
+	}
+	ca, err := backupCA(team, files)
+	if err != nil {
+		return pki.CA{}, false, err
+	}
+	have, found, err := loadCA(root, team, owner)
+	switch {
+	case err != nil:
+		return pki.CA{}, false, err
+	case !found:
+		return ca, true, nil
+	case !bytes.Equal(have.CertPEM(), ca.CertPEM()) || !bytes.Equal(have.KeyPEM(), ca.KeyPEM()):
+		return pki.CA{}, false, fmt.Errorf("the team already has another CA (%s) than the backup's, and a restore never replaces it: "+
+			"to take the backup's CA, remove both CA files and restore again (every bundle the team's CA issued must then be reissued)",
+			root+paths.CACertFile(team))
+	}
+	return ca, false, nil
+}
+
+// backupCA is the CA a backup's files hold, when they are exactly the CA's two files.
+func backupCA(team paths.TeamID, files []BackupFile) (pki.CA, error) {
+	certName, keyName := filepath.Base(paths.CACertFile(team)), filepath.Base(paths.CAKeyFile(team))
+	modes := map[string]fs.FileMode{certName: certMode, keyName: keyMode}
+	data := map[string][]byte{}
+	for _, f := range files {
+		mode, known := modes[f.Name]
+		_, seen := data[f.Name]
+		switch {
+		case !known:
+			return pki.CA{}, fmt.Errorf("the backup holds %s, which is no file of the CA", f.Name)
+		case seen:
+			return pki.CA{}, fmt.Errorf("the backup holds %s twice", f.Name)
+		case f.Mode != mode:
+			return pki.CA{}, fmt.Errorf("the backup's %s has mode %o, not %o", f.Name, f.Mode, mode)
+		case len(f.Data) > fileMax:
+			return pki.CA{}, fmt.Errorf("the backup's %s is over %d bytes", f.Name, fileMax)
+		}
+		data[f.Name] = f.Data
+	}
+	for _, name := range []string{certName, keyName} {
+		if _, ok := data[name]; !ok {
+			return pki.CA{}, fmt.Errorf("the backup holds no %s", name)
+		}
+	}
+	if _, err := pki.Fingerprint(data[certName]); err != nil {
+		return pki.CA{}, fmt.Errorf("the backup's %s: %w", certName, err)
+	}
+	ca, err := pki.ParseCA(data[certName], data[keyName])
+	if err != nil {
+		return pki.CA{}, fmt.Errorf("the backup's %s: %w", keyName, err)
+	}
+	return ca, nil
+}

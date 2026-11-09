@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -42,8 +43,8 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 		t.Fatalf("someone with no sessions is asked nothing but whether to open Element: %q", h.Script.FzfArgs)
 	}
 	h.Script.HeadingAt(0, "Teams › alpha › Open in Element\nteam alpha")
-	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
-		t.Fatal("opening Element defaults to Yes")
+	if !slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
+		t.Fatal("opening Element must start on Exit (decision A12): an offer that opens something defaults to No")
 	}
 }
 
@@ -141,16 +142,42 @@ func TestIssuePasswordAsksNothingAndShowsTheLogin(t *testing.T) {
 	}
 }
 
-func TestPasswordLoginOfATeamWithNoAddressSaysSo(t *testing.T) {
-	h := newRig(t)
-	snap := h.pass(t)
-	delete(snap.URL, "alpha")
-	delete(snap.Server, "alpha")
-	h.l.showLogin(snap, "alpha", "owner", "pw")
-	for _, want := range []string{"Homeserver  unknown (not declared)\n", "@owner:alpha.agent-bus.internal\n"} {
-		if !strings.Contains(h.ErrOut.String(), want) {
-			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
-		}
+// A sign-in block whose homeserver address is not known names what the team lacks and where it
+// is set, and never claims the Element profile has the homeserver.
+func TestPasswordLoginOfATeamWithNoAddressSaysWhatIsMissing(t *testing.T) {
+	cases := map[string]struct {
+		port, want string
+	}{
+		"not declared":       {port: "", want: "Homeserver  unknown: alpha is not declared present in the host_vars\n"},
+		"no port":            {port: "-", want: "Homeserver  unknown: alpha declares no port in the host_vars\n"},
+		"no listen, no addr": {port: "6167", want: "Homeserver  unknown: alpha has no listen address and agent_bus_address is not set in the host_vars\n"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			snap := h.pass(t)
+			delete(snap.URL, "alpha")
+			delete(snap.Server, "alpha")
+			if c.port == "" {
+				delete(snap.Port, "alpha")
+			} else {
+				snap.Port["alpha"] = c.port
+			}
+			h.l.showLogin(snap, "alpha", "owner", "pw")
+			out := h.ErrOut.String()
+			for _, want := range []string{
+				c.want, "@owner:alpha.agent-bus.internal\n",
+				"Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+					"set it in the host_vars, then run ccy-teams apply alpha.\n",
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("stderr %q lacks %q", out, want)
+				}
+			}
+			if strings.Contains(out, "has the homeserver set already") || strings.Contains(out, "not declared)") {
+				t.Fatalf("stderr %q", out)
+			}
+		})
 	}
 }
 
@@ -178,12 +205,23 @@ func TestPasswordIsBoldOnAColourTerminal(t *testing.T) {
 	}
 }
 
+// The texts of the copy: what the question promises, what is said once the password is on the
+// clipboard, and what each end of the wait says.
+const (
+	copyQuestion = "Copy the password? Put owner's new password on the clipboard, to paste into Element. " +
+		"Once you have pasted it, press Enter here: ccy-teams then clears the clipboard if it still holds the password " +
+		"(after 45 seconds it does so without the Enter)."
+	copiedLine  = "The password is on the clipboard.\n"
+	pasteNow    = "Paste the password into Element, then press Enter here (within 45 seconds) to clear it from the clipboard.\n"
+	clearedLine = "The password was cleared from the clipboard. GNOME or a clipboard history may still keep a copy of it: " +
+		"copy something else if in doubt.\n"
+	leftLine = "The clipboard no longer holds the password (something else was copied), so it was left as it is.\n"
+)
+
 func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
-	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
-	h.withoutClipboardHistory()
-	h.On("wl-copy", "", 0)
+	h.copiable("a-new-password")
 	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
@@ -191,34 +229,182 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	}
 	var copyCall execx.Cmd
 	for _, c := range h.Fake.Calls() {
-		if c.Name == "wl-copy" {
+		if c.Name == "wl-copy" && len(c.Args) == 0 {
 			copyCall = c
 		}
 	}
-	if copyCall.Name == "" || !slices.Equal(copyCall.Args, []string{"--paste-once"}) {
-		t.Fatalf("wl-copy call %+v: the password is never an argument", copyCall)
+	if copyCall.Name == "" {
+		t.Fatalf("no plain wl-copy in %v: the password is never an argument, and no flag makes it erase itself", h.Fake.Calls())
 	}
 	in, err := io.ReadAll(copyCall.Stdin)
 	if err != nil || string(in) != "a-new-password" {
 		t.Fatalf("stdin %q %v", in, err)
 	}
-	// Security audit L4: the password serves one paste and is gone; nothing clears the clipboard
-	// later, so what the person copies afterwards is never wiped.
 	if h.Fake.Called("systemd-run") {
 		t.Fatalf("a timer was started: %v", h.Fake.Calls())
 	}
-	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard for one paste; after that it is gone from the clipboard.\n") {
-		t.Fatalf("stderr %q", h.ErrOut.String())
+	for _, want := range []string{copiedLine, pasteNow, clearedLine} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
 	}
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
 		t.Fatal("the copy question defaults to Yes")
 	}
-	if !strings.Contains(h.HeaderOf(0), "Copy the password?") {
-		t.Fatalf("args %q", h.Script.FzfArgs[0])
+	if !strings.Contains(h.HeaderOf(0), copyQuestion) {
+		t.Fatalf("header %q", h.HeaderOf(0))
 	}
 	h.Script.HeadingAt(0, "Teams › alpha › owner › Element password › Copy\nowner in team alpha · 0 Element sessions")
 	if !slices.Contains(h.Script.Rows[0], "Yes, copy the password") {
 		t.Fatalf("rows %q", h.Script.Rows[0])
+	}
+}
+
+// The clipboard is read back to compare, with the password nowhere in any argv, and cleared
+// only after that read; the primary selection is never touched.
+func TestPasswordOnTheClipboardIsReadBackWithoutTheSecretAndThenCleared(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range h.Fake.Calls() {
+		if slices.Contains(c.Args, "a-new-password") || slices.Contains(c.Args, "--primary") || slices.Contains(c.Args, "-p") {
+			t.Fatalf("call %q: the password is never an argument, and the primary selection is left alone", c.Line())
+		}
+	}
+	read, cleared := h.callIndex("wl-paste --no-newline"), h.callIndex("wl-copy --clear")
+	if read < 0 || cleared < read || h.callIndex("wl-copy") > read {
+		t.Fatalf("calls %v: copy, read back, then clear", h.Fake.Calls())
+	}
+	if h.Out.String() != "" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+	if strings.Count(h.ErrOut.String(), "a-new-password") != 1 {
+		t.Fatalf("stderr %q: the password is shown once, never again from the read back", h.ErrOut.String())
+	}
+}
+
+// Something the person copied after the password is theirs: it is never wiped.
+func TestPasswordOnTheClipboardIsLeftAloneOnceSomethingElseIsCopied(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a link the person copied")
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called("wl-copy --clear") {
+		t.Fatalf("the clipboard was cleared: %v", h.Fake.Calls())
+	}
+	if !strings.Contains(h.ErrOut.String(), leftLine) || strings.Contains(h.ErrOut.String(), clearedLine) {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// heldTTY is a terminal nobody types on: a read waits until the terminal is closed.
+type heldTTY struct{ closed chan struct{} }
+
+func (h heldTTY) Read([]byte) (int, error) {
+	<-h.closed
+	return 0, io.EOF
+}
+
+func (h heldTTY) Close() error {
+	close(h.closed)
+	return nil
+}
+
+// No Enter within the wait: the clipboard is cleared all the same, and the person is told why.
+func TestPasswordOnTheClipboardIsClearedWhenNoEnterComesInTime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newRig(t)
+		h.passwordable()
+		h.copiable("a-new-password")
+		h.Script.Fzf = []string{"|YES"}
+		snap := h.pass(t)
+		if _, err := h.l.IssuePassword(context.Background(), snap, "alpha", "owner"); err != nil {
+			t.Fatal(err)
+		}
+		h.l.Kit.OpenTTY = func() (io.ReadCloser, error) { return heldTTY{closed: make(chan struct{})}, nil }
+		// In the bubble the wait can only end at its deadline: nobody types and nothing cancels.
+		h.l.SettleClipboard(context.Background())
+		if !h.Fake.Called("wl-copy --clear") {
+			t.Fatalf("calls %v", h.Fake.Calls())
+		}
+		for _, want := range []string{"No Enter within 45 seconds.\n", clearedLine} {
+			if !strings.Contains(h.ErrOut.String(), want) {
+				t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+			}
+		}
+	})
+}
+
+// A run ended by Ctrl-C while it waits still clears the password it put on the clipboard.
+func TestPasswordOnTheClipboardIsClearedWhenTheRunIsInterrupted(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	if _, err := h.l.IssuePassword(context.Background(), snap, "alpha", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.l.SettleClipboard(ctx)
+	if !h.Fake.Called("wl-copy --clear") || !strings.Contains(h.ErrOut.String(), clearedLine) {
+		t.Fatalf("calls %v stderr %q", h.Fake.Calls(), h.ErrOut.String())
+	}
+}
+
+func TestPasswordOnTheClipboardWhoseClearFailsSaysItMayStillBeThere(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.OnErr("wl-copy --clear", "compositor gone", 1)
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	want := "ERROR: wl-copy --clear failed (wl-copy exited 1: compositor gone): the password may still be on the clipboard; " +
+		"copy something else to replace it.\n"
+	if !strings.Contains(h.ErrOut.String(), want) || strings.Contains(h.ErrOut.String(), clearedLine) {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestPasswordOnTheClipboardThatCannotBeReadIsNotClearedAndSaysSo(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.OnErr("wl-paste", "Failed to connect to a Wayland server", 1)
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called("wl-copy --clear") {
+		t.Fatalf("cleared without knowing what it held: %v", h.Fake.Calls())
+	}
+	want := "ERROR: the clipboard could not be read back (wl-paste exited 1: Failed to connect to a Wayland server), so it was not cleared: " +
+		"the password may still be on the clipboard; copy something else to replace it.\n"
+	if !strings.Contains(h.ErrOut.String(), want) {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// Nothing to settle when no password went to the clipboard.
+func TestSettleClipboardWithNothingCopiedDoesNothing(t *testing.T) {
+	h := newRig(t)
+	h.l.SettleClipboard(context.Background())
+	if len(h.Fake.Calls()) != 0 || h.ErrOut.String() != "" {
+		t.Fatalf("calls %v stderr %q", h.Fake.Calls(), h.ErrOut.String())
 	}
 }
 
@@ -251,15 +437,15 @@ func TestPasswordClipboardFailureIsNotCalledSuccess(t *testing.T) {
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy failed (above), so the password is not on the clipboard; copy it from above.\n") ||
-		strings.Contains(h.ErrOut.String(), "The password is on the clipboard.") {
-		t.Fatalf("stderr %q", h.ErrOut.String())
+	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy failed (wl-copy exited 1: no display), so the password is not on the clipboard; copy it from above.\n") ||
+		strings.Contains(h.ErrOut.String(), copiedLine) || h.Fake.Called("wl-paste") {
+		t.Fatalf("stderr %q calls %v", h.ErrOut.String(), h.Fake.Calls())
 	}
 }
 
-// Review S1: the Clipboard Indicator extension reads every new selection, which uses up the
-// one paste and keeps the password in its history; it honours no password-manager hint. With
-// it on, the clipboard is not offered, and the person is told why in one line.
+// Review S1: the Clipboard Indicator extension reads every new selection and keeps it in its
+// history, past any clear; it honours no password-manager hint. With it on, the clipboard is
+// not offered, and the person is told why in one line.
 func TestPasswordIsNotOfferedForTheClipboardWhileClipboardIndicatorIsOn(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
@@ -274,7 +460,7 @@ func TestPasswordIsNotOfferedForTheClipboardWhileClipboardIndicatorIsOn(t *testi
 		t.Fatalf("wl-copy ran: %v", h.Fake.Calls())
 	}
 	want := "The password is not offered for the clipboard: the Clipboard Indicator extension is on, " +
-		"and it would use up the one paste and keep the password in its history. Type it from above.\n"
+		"and it keeps everything copied in its history, past any clear. Type it from above.\n"
 	if !strings.Contains(h.ErrOut.String(), want) || strings.Contains(h.ErrOut.String(), "is on the clipboard") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
@@ -298,7 +484,7 @@ func TestPasswordIsNotOfferedForTheClipboardWhenTheExtensionsCannotBeRead(t *tes
 	if h.Fake.Called("wl-copy") {
 		t.Fatalf("wl-copy ran: %v", h.Fake.Calls())
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: whether the Clipboard Indicator extension is on could not be read, so the password is not offered for the clipboard; type it from above.\n") {
+	if !strings.Contains(h.ErrOut.String(), "ERROR: whether the Clipboard Indicator extension is on could not be read (gsettings exited 1: No such schema), so the password is not offered for the clipboard; type it from above.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
@@ -314,12 +500,13 @@ func TestPasswordIsOfferedForTheClipboardWhereGNOMEShellIsNot(t *testing.T) {
 		return "/usr/bin/" + name, nil
 	}
 	h.On("wl-copy", "", 0)
+	h.On("wl-paste", "a-new-password", 0)
 	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
 	}
-	if !h.Fake.Called("wl-copy --paste-once") {
+	if !h.Fake.Called("wl-copy --clear") {
 		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 }
@@ -340,6 +527,31 @@ func TestPasswordWithoutWlCopySaysWhatInstallsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// Without wl-paste the clipboard cannot be read back, so the copy could never be cleared: it is
+// not offered.
+func TestPasswordWithoutWlPasteIsNotOfferedForTheClipboard(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.l.Kit.LookPath = func(name string) (string, error) {
+		if name == "wl-paste" {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/" + name, nil
+	}
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called("wl-copy") {
+		t.Fatalf("calls %v", h.Fake.Calls())
+	}
+	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-paste is not installed, so a copied password could not be cleared from the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

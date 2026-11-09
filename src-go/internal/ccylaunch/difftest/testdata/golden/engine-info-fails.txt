@@ -11,7 +11,7 @@ remote does not use an ssh-config alias bound to GitHub.
 Git push operations will NOT work without SSH keys.
 
 To set up GitHub SSH keys, run:
-  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+  ansible-playbook playbooks/imports/play-github-cli-multi.yml
 
 Or specify a key manually:
   ccy --ssh-key ~/.ssh/<your-key>
@@ -45,7 +45,7 @@ getenforce
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
 gh auth token
 ccy-token-usable -- '{sandbox}/home/.claude-tokens/ccy/tokens/work.2030-06-01.token'
-podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+podman run --rm --pids-limit 4096 --pull=never -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint sh claude-yolo:latest -c 'printf '\''header = "Authorization: Bearer %s"\n'\'' "$CLAUDE_CODE_OAUTH_TOKEN" | curl --config - "$@"' ccy-check-token --silent --show-error --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --connect-timeout 5 --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.anthropic.com/v1/messages
     env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
 === files

@@ -199,8 +199,10 @@ func TestParityWithV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// v1 runs as python3.13 by name, the ccy image's python that pycompat reproduces: 3.14 (a
+	// Fedora 44 host's python3) nests deeper.
 	res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
-		Name: "python3", Args: []string{"-P", "-c", v1Harness},
+		Name: "python3.13", Args: []string{"-P", "-c", v1Harness},
 		Env: []string{"PYTHONPATH=" + repoRoot(t)}, Stdin: strings.NewReader(string(input)),
 	})
 	if err != nil {

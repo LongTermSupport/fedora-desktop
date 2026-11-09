@@ -82,7 +82,7 @@ write_bdf() {
     } >"$file"
 }
 # The file names set the scan order, and so how ties fall: the symbol fonts first.
-write_bdf "$work/fonts/a-symbols.bdf" "Fixture Symbols" "${LATIN[@]}" "${EMOJI[@]}" "${SYMBOLS[@]}"
+write_bdf "$work/fonts/a-symbols.bdf" "Symbola" "${LATIN[@]}" "${EMOJI[@]}" "${SYMBOLS[@]}"
 write_bdf "$work/fonts/b-mono-emoji.bdf" "Noto Emoji" "${KEYCAP_BASES[@]}" "${EMOJI[@]}"
 write_bdf "$work/fonts/m-mono.bdf" "Fixture Mono" "${LATIN[@]}"
 write_bdf "$work/fonts/m-sans.bdf" "Fixture Sans" "${LATIN[@]}" "${SYMBOLS[@]}"
@@ -94,7 +94,8 @@ write_bdf "$work/fonts/z-colour-emoji.bdf" "Noto Color Emoji" "${KEYCAP_BASES[@]
 # sealed_config <name> [include] — a config naming only the fixtures, with the rules of a
 # distribution in the order Fedora has them: each text font gets its generic family as a
 # default (45-latin.conf), a font with none gets sans-serif (49-sansserif.conf), each generic
-# family prefers its text font (60-latin.conf), then the file under test at 69, then a later
+# family prefers its text font (60-latin.conf), serif prefers Symbola (65-gdouros-symbola.conf,
+# gdouros-symbola-fonts), then the file under test at 69, then a later
 # file preferring one more text font for each family (as 69-unifont.conf does). Each config has
 # its own cache.
 sealed_config() {
@@ -114,6 +115,9 @@ sealed_config() {
         for pair in "Fixture Mono=monospace" "Fixture Sans=sans-serif" "Fixture Serif=serif"; do
             printf '<alias><family>%s</family><prefer><family>%s</family></prefer></alias>\n' "${pair#*=}" "${pair%%=*}"
         done
+        # 65-gdouros-symbola.conf, as Fedora's gdouros-symbola-fonts ships it.
+        printf '<alias><family>serif</family><prefer><family>Symbola</family></prefer></alias>\n'
+        printf '<alias><family>Symbola</family><default><family>serif</family></default></alias>\n'
         if [ -n "$include" ]; then printf '<include ignore_missing="no">%s</include>\n' "$include"; fi
         for generic in monospace sans-serif serif; do
             printf '<alias><family>%s</family><prefer><family>Fixture Late</family></prefer></alias>\n' "$generic"
@@ -181,21 +185,21 @@ esac
 # the size: "sans-serif" would be read as the family "sans", so it is written escaped.
 REQUESTS=("monospace=Fixture Mono" "sans\\-serif=Fixture Sans" "serif=Fixture Serif"
     "Fixture Mono=Fixture Mono" "Fixture Code=Fixture Code")
-EMOJI_FONTS=("Noto Color Emoji" "Fixture Symbols" "Noto Emoji")
+EMOJI_FONTS=("Noto Color Emoji" "Symbola" "Noto Emoji")
 
 for pair in "${REQUESTS[@]}"; do
     request="${pair%%=*}"
     text="${pair#*=}"
     # The single best match: the defect without the file, the colour font with it.
     for cp in "${EMOJI[@]}"; do
-        check "without the file, $request:charset=$cp" "Fixture Symbols" "$(family_for without "$request:charset=$cp")"
+        check "without the file, $request:charset=$cp" "Symbola" "$(family_for without "$request:charset=$cp")"
         check "with the file, $request:charset=$cp" "Noto Color Emoji" "$(family_for with "$request:charset=$cp")"
     done
     # The ordered list: it starts with the text font; the colour font comes first of the
     # emoji-capable fonts only with the file.
     check "with the file, the ordered list for $request starts with $text" "$text" \
         "$(first_of with "$request" "$text" "${EMOJI_FONTS[@]}")"
-    check "without the file, the ordered list for $request puts a monochrome font first" "Fixture Symbols" \
+    check "without the file, the ordered list for $request puts a monochrome font first" "Symbola" \
         "$(first_of without "$request" "${EMOJI_FONTS[@]}")"
     check "with the file, the ordered list for $request puts the colour font first" "Noto Color Emoji" \
         "$(first_of with "$request" "${EMOJI_FONTS[@]}")"
@@ -212,7 +216,13 @@ for cp in "${SYMBOLS[@]}"; do
         "$(family_for with "Fixture Code:charset=$cp")"
 done
 check "with the file, the ordered list for Fixture Code has Fixture Sans before the colour font" "Fixture Sans" \
-    "$(first_of with "Fixture Code" "Fixture Sans" "Noto Color Emoji" "Fixture Symbols")"
+    "$(first_of with "Fixture Code" "Fixture Sans" "Noto Color Emoji" "Symbola")"
+
+# Fedora's 65-gdouros-symbola.conf prefers Symbola for serif, and the file moves it to the end
+# of the serif list; a request for Symbola by name is left alone.
+for cp in "${EMOJI[@]}"; do
+    check "with the file, Symbola:charset=$cp stays on Symbola" "Symbola" "$(family_for with "Symbola:charset=$cp")"
+done
 
 echo "passed: $passed"
 echo "failed: $failed"

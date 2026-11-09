@@ -72,3 +72,44 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a ready-wait that ignores its child's exit
+
+  # Rule: a restart loop records each exit where a status command reads it, and has a way
+  # out (Defence Before Fix; CLAUDE/QA.md "restart-loop-hides-its-exits"; issue #116).
+  #
+  # The sibling of the rule above: a loop that runs a child, waits and runs it again must
+  # act on how the child exited, not only log it. pingbus's supervisor restarted a watcher
+  # that exited 7 on a failure a restart could not fix every 60 s for days, and said so
+  # only in watch.log: `pingbus status` showed nothing, so the member looked merely silent.
+  #
+  # WRONG: while True:
+  #            code = rt.run_child(argv, environ)
+  #            log.write(f"exited {code}: starting it again")
+  #            rt.sleep(backoff.next())
+  # RIGHT: the same loop also hands each exit to a recorder named `record_*` or
+  #        `_record_*` (a state file the status command prints), and returns or breaks
+  #        when the record says a restart cannot change the outcome.
+  #
+  # The rule reports a `while` loop whose body runs a child (`subprocess.run`/`call`, a
+  # `.wait()`, a `run_child`) and sleeps, unless the body both calls a `record_*`
+  # function and can return or break. Whether a given exit is permanent is the program's
+  # own knowledge, which no pattern can judge: the rule holds the shape that makes it
+  # visible and stoppable. The body is judged by one regex over its text because semgrep
+  # loses a metavariable bound inside a loop body once the body itself is bound.
+  - id: restart-loop-hides-its-exits
+    languages: [python]
+    patterns:
+      - pattern: |
+          while $COND:
+            $...BODY
+      - metavariable-regex:
+          metavariable: $...BODY
+          regex: '(?s)^(?=.*(\brun_child\(|\bsubprocess\.(run|call)\(|\.wait\(\)))(?=.*\bsleep\()(?:(?!.*\b_?record_\w*\()|(?!.*\b(return|break)\b))'
+    message: >
+      restart-loop-hides-its-exits: this loop runs a child again after it exits without
+      recording the exit where a status command reads it, or without a way out, so a
+      failure no restart can fix is retried for ever and is visible only in a log. Hand
+      each exit to a `record_*` function and return when it says the failure is permanent.
+      See CLAUDE/QA.md "restart-loop-hides-its-exits".
+    severity: ERROR
+    metadata:
+      dbf-class: a failure a restart cannot fix is retried for ever, silently

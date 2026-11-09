@@ -112,7 +112,7 @@ func (p *panel) notify(ctx context.Context, message, icon string, ms int) {
 	}}
 	res, err := p.runner.Run(ctx, cmd)
 	if err != nil {
-		p.log.debug("Desktop notification was not accepted (gdbus call failed)")
+		p.log.debug("Desktop notification was not accepted (gdbus call failed: " + err.Error() + ")")
 		return
 	}
 	if m := notifyReply.FindStringSubmatch(string(res.Stdout)); m != nil {

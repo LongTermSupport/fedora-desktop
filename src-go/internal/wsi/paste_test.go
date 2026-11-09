@@ -48,10 +48,12 @@ func TestW30ThePanelNamesTheKeyAndTheSave(t *testing.T) {
 	if code != 0 || k.keys() != ctrlV+" | "+enterKey+" | "+ctrlS {
 		t.Fatalf("exit %d keys %q: %s", code, k.keys(), k.errb.String())
 	}
-	if k.asked != 1 || k.copied["wl-copy"] != "Hello world" {
+	// Once before the paste and once before the Enter (W33)
+	if k.asked != 2 || k.copied["wl-copy"] != "Hello world" {
 		t.Fatalf("asked %d copied %q", k.asked, k.copied)
 	}
 	k.wantStderr("[WSI] Pasting into 'org.gnome.TextEditor': Ctrl+V, then Ctrl+S")
+	k.wantStderr("'org.gnome.TextEditor' still has focus before the Enter")
 	k.wantStderr("[WSI] Save simulated via Ctrl+S")
 	// No fixed wait before the paste: the read-back is the gate (W32)
 	if st := k.states(); st[len(st)-1] != "SUCCESS" || !slices.Equal(k.sleeps[len(k.sleeps)-1:], []time.Duration{300 * time.Millisecond}) || slices.Contains(k.sleeps, 50*time.Millisecond) {
@@ -141,6 +143,40 @@ func TestW33FocusIsAskedAgainBeforeTheEnterAfterARetake(t *testing.T) {
 	k.wantStderr("the panel does not pin focus, so it cannot say whether the window still has it; sending the Enter")
 }
 
+// Owner sheet A13: the target is asked again before every Enter or save, not only after a
+// retake; with no retake the wait stays 0.3 s.
+func TestW33FocusIsAskedAgainBeforeEveryEnter(t *testing.T) {
+	const notSent = "'The text was pasted but not sent: the window this dictation started in was closed. No Enter was pressed.'|'dialog-error'|0"
+	k, code := paste(t, []string{editor, closedWin}, "--paste-with-shift", "1")
+	if code != 1 || k.keys() != ctrlV || k.asked != 2 {
+		t.Fatalf("closed after the paste: exit %d keys %q asked %d", code, k.keys(), k.asked)
+	}
+	k.wantStderr("[ERROR] The text was pasted but not sent: the window this dictation started in was closed")
+	if n := k.notes(); n[len(n)-1] != notSent {
+		t.Fatalf("notes %q", n)
+	}
+	if slices.Contains(k.sleeps, enterDelayAfterRetake) || !slices.Contains(k.sleeps, enterDelay) {
+		t.Fatalf("no retake, so no 1 s wait: sleeps %v", k.sleeps)
+	}
+
+	k, code = paste(t, append([]string{editor}, repeat(unfocused, focusPolls+1)...), "--paste-with-shift", "1")
+	if code != 1 || k.keys() != ctrlV {
+		t.Fatalf("focus lost after the paste: exit %d keys %q", code, k.keys())
+	}
+	k.wantStderr("WARN: 'org.gnome.TextEditor' lost focus again after the paste; giving it focus back before the Enter")
+	k.wantStderr("[ERROR] The text was pasted but not sent: the window this dictation started in would not take focus back")
+
+	k, code = paste(t, []string{editor, closedWin}, "--paste-with-shift", "1", "--no-auto-enter")
+	if code != 1 || k.keys() != ctrlV {
+		t.Fatalf("the save alone is checked too: exit %d keys %q", code, k.keys())
+	}
+
+	k, code = paste(t, []string{"('kitty', true, false, true, false)", closedWin}, "--paste-with-shift", "0", "--no-auto-enter")
+	if code != 0 || k.keys() != ctrlShiftV || k.asked != 1 {
+		t.Fatalf("no key after the paste, nothing to ask: exit %d keys %q asked %d", code, k.keys(), k.asked)
+	}
+}
+
 func TestW31NothingIsPressedForAClosedOrUnfocusedWindow(t *testing.T) {
 	k, code := paste(t, []string{closedWin}, "--paste-with-shift", "1")
 	if code != 1 || k.keys() != "" || k.copied["wl-copy"] != "Hello world" {
@@ -154,6 +190,33 @@ func TestW31NothingIsPressedForAClosedOrUnfocusedWindow(t *testing.T) {
 		t.Fatalf("exit %d keys %q asked %d", code, k.keys(), k.asked)
 	}
 	k.wantStderr("Nothing was pasted: the window this dictation started in would not take focus back")
+}
+
+// Issue #106: the panel says another Ptyxis tab is showing than at Insert; the text stays
+// on the clipboard and nothing is pressed, before the paste or before its Enter.
+func TestW31NothingIsPressedIntoAnotherTab(t *testing.T) {
+	const otherTab = "('org.gnome.Ptyxis', true, false, true, false, true)"
+	const sameTab = "('org.gnome.Ptyxis', true, false, true, false, false)"
+	k, code := paste(t, []string{otherTab}, "--paste-with-shift", "1")
+	if code != 1 || k.keys() != "" || k.asked != 1 || k.copied["wl-copy"] != "Hello world" {
+		t.Fatalf("exit %d keys %q asked %d copied %q", code, k.keys(), k.asked, k.copied)
+	}
+	if n := k.notes(); n[len(n)-1] != "'Nothing was pasted: the terminal tab this dictation started in is no longer the one showing. The text is on the clipboard: Ctrl+V.'|'dialog-error'|0" {
+		t.Fatalf("notes %q", n)
+	}
+
+	k, code = paste(t, []string{sameTab}, "--paste-with-shift", "0")
+	if code != 0 || k.keys() != ctrlShiftV+" | "+enterKey {
+		t.Fatalf("the same tab: exit %d keys %q", code, k.keys())
+	}
+
+	unfocusedTab := "('org.gnome.Ptyxis', true, false, false, false, false)"
+	retaken := append([]string{unfocusedTab}, repeat(sameTab, 6)...)
+	k, code = paste(t, append(retaken, otherTab), "--paste-with-shift", "1")
+	if code != 1 || k.keys() != ctrlShiftV {
+		t.Fatalf("another tab before the Enter: exit %d keys %q", code, k.keys())
+	}
+	k.wantStderr("[ERROR] The text was pasted but not sent: the terminal tab this dictation started in is no longer the one showing")
 }
 
 func TestW29TheLegacyPasteIsPrimaryAndShiftInsert(t *testing.T) {

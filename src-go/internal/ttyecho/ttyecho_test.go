@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -440,6 +442,184 @@ func TestTheRunsEndStopsWatchingTheSignals(t *testing.T) {
 	}
 }
 
+// Plan 00177 Task 12.3: a screen marked DrainInput discards what was typed before it, after the
+// hold is taken; any other screen leaves the keys for itself to read.
+func TestADrainingScreenDiscardsTheTypedKeysAndAnyOtherKeepsThem(t *testing.T) {
+	w := held(t)
+	run := w.h.Runner(noScreen{})
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true}); err != nil {
+		t.Fatal(err)
+	}
+	if w.modes.Flushes != 0 {
+		t.Fatalf("a screen that keeps the keys flushed %d times", w.modes.Flushes)
+	}
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+		t.Fatal(err)
+	}
+	if w.modes.Flushes != 1 || w.modes.Echo() {
+		t.Fatalf("flushes %d, echo %t", w.modes.Flushes, w.modes.Echo())
+	}
+}
+
+// runRecorder is a screen that notes how many flushes had happened when it ran.
+type runRecorder struct {
+	modes *FakeModes
+	at    []int
+}
+
+func (r *runRecorder) Run(context.Context, execx.Cmd) (execx.Result, error) {
+	r.at = append(r.at, r.modes.Flushes)
+	return execx.Result{}, nil
+}
+
+// Plan 00177 Task 12.5: a key sent just after the Esc that ended the last screen reaches the
+// terminal after that screen has ended, so a flush the moment it ends misses it and the next gum
+// reads it. A draining screen first lets such keys arrive (Settle), then discards, then runs; a
+// screen that keeps type-ahead does neither.
+func TestADrainingScreenLetsTheKeysOnTheirWayArriveBeforeItDiscards(t *testing.T) {
+	w := held(t)
+	var settledAfter []int
+	w.h.Settle = func() { settledAfter = append(settledAfter, w.modes.Flushes) }
+	screen := &runRecorder{modes: w.modes}
+	run := w.h.Runner(screen)
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(settledAfter) != "[0]" || fmt.Sprint(screen.at) != "[0 1]" {
+		t.Fatalf("settled after %v flushes, screens ran after %v: want one settle before the one flush, then the screen", settledAfter, screen.at)
+	}
+}
+
+// The real settle is settleTime on the time package: in a synctest bubble it is still asleep
+// 1 ns short of it and done once it has passed.
+func TestNewSettlesForSettleTimeOnTheRealClock(t *testing.T) {
+	h := New(nil)
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			h.Settle()
+			close(done)
+		}()
+		time.Sleep(settleTime - time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("the settle ended before settleTime")
+		default:
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("the settle goes on past settleTime")
+		}
+	})
+	if settleTime < 100*time.Millisecond {
+		t.Fatalf("settleTime %v is shorter than the host's Esc-then-key gaps it has to cover", settleTime)
+	}
+}
+
+// On a real terminal: a key that arrives after the last screen ended, while the next draining
+// screen settles, is discarded; what is typed once the screen runs is read.
+func TestOnARealTerminalAKeyArrivingAsTheNextScreenStartsIsDiscarded(t *testing.T) {
+	master, terminal := pty(t)
+	h := New(terminal)
+	press := func(s string) {
+		if _, err := io.WriteString(master, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.Settle = func() {
+		press("\x1b[B\n")
+		fd := int(terminal.Fd())
+		var readable unix.FdSet
+		readable.Set(fd)
+		if _, err := unix.Select(fd+1, &readable, nil, nil, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	err := h.Held(func() {
+		if err := Screen(h); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := h.Runner(noScreen{}).Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+			t.Error(err)
+			return
+		}
+		press("ok\n")
+		if line := readTo(t, bufio.NewReader(terminal), '\n'); line != "ok\n" {
+			t.Errorf("after the drain the program read %q", line)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInputThatCannotBeDiscardedFailsTheScreen(t *testing.T) {
+	w := held(t)
+	w.modes.FlushErr = errors.New("TCFLSH: input/output error")
+	f := &execx.Fake{}
+	_, err := w.h.Runner(f).Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true})
+	if err == nil || len(f.Calls()) != 0 || !strings.Contains(err.Error(), "discard the keys typed before gum: TCFLSH: input/output error") {
+		t.Fatalf("ran %v, err %v", f.Calls(), err)
+	}
+}
+
+// On a real terminal: a line typed while held is still there for a screen that keeps it, and
+// gone for a screen that drains; what is typed after the drain is read.
+func TestOnARealTerminalADrainingScreenStartsOnNoKeyTypedBeforeIt(t *testing.T) {
+	master, terminal := pty(t)
+	h := New(terminal)
+	press := func(s string) {
+		if _, err := io.WriteString(master, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := h.Held(func() {
+		if err := Screen(h); err != nil {
+			t.Error(err)
+			return
+		}
+		press("\x1b[B\n")
+		// A whole line in the terminal's input: select blocks until the line discipline has it.
+		fd := int(terminal.Fd())
+		var readable unix.FdSet
+		readable.Set(fd)
+		if _, err := unix.Select(fd+1, &readable, nil, nil, nil); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := h.Runner(noScreen{}).Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+			t.Error(err)
+			return
+		}
+		press("ok\n")
+		if line := readTo(t, bufio.NewReader(terminal), '\n'); line != "ok\n" {
+			t.Errorf("after the drain the program read %q", line)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoTerminalNothingToDiscard(t *testing.T) {
+	w := held(t)
+	w.h.IsTerminal = func(any) bool { return false }
+	if _, err := w.h.Runner(noScreen{}).Run(t.Context(), execx.Cmd{Name: "gum", EchoHeld: true, DrainInput: true}); err != nil {
+		t.Fatal(err)
+	}
+	if w.modes.Flushes != 0 {
+		t.Fatalf("flushed %d times with no terminal", w.modes.Flushes)
+	}
+}
+
 // pty is a real pseudo-terminal: the master a person types into and reads the screen from,
 // and the terminal the program holds.
 func pty(t *testing.T) (*os.File, *os.File) {
@@ -512,5 +692,30 @@ func TestOnARealTerminalKeysTypedBetweenScreensAreNotEchoedAndStillRead(t *testi
 	press("Z")
 	if got := readTo(t, screen, 'Z'); got != "Z" {
 		t.Fatalf("held, the terminal showed %q before the next key", got)
+	}
+}
+
+func TestOffClearsOnlyTheEchoAndRestorePutsTheModeBack(t *testing.T) {
+	m := &FakeModes{Mode: unix.Termios{Lflag: Cooked}}
+	restore, err := OffVia(m, 0)()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Echo() || m.Mode.Lflag&unix.ISIG == 0 || m.Mode.Lflag&unix.ICANON == 0 {
+		t.Fatalf("mode while off %#x", m.Mode.Lflag)
+	}
+	if err := restore(); err != nil || m.Mode.Lflag != Cooked {
+		t.Fatalf("restored %#x %v", m.Mode.Lflag, err)
+	}
+	m.GetErr = errors.New("not a terminal")
+	if _, err := OffVia(m, 0)(); err == nil {
+		t.Error("a mode that cannot be read was not an error")
+	}
+	m.GetErr, m.SetErr = nil, errors.New("cannot set")
+	if _, err := OffVia(m, 0)(); err == nil {
+		t.Error("a mode that cannot be set was not an error")
+	}
+	if Off(0) == nil {
+		t.Error("Off is nil")
 	}
 }

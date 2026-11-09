@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
@@ -92,7 +94,7 @@ func TestConfigReadsTheKnobs(t *testing.T) {
 	}
 	want := Config{
 		CcyLib: defaultLib, Minute: 0, Poll: 500 * time.Millisecond, SetGoingWait: 7 * time.Second, StartWindow: time.Hour,
-		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: ParseTokenFloor("150000"), PassphraseFile: "/p", BootIDFile: "/b",
+		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: compactfloor.Parse("150000"), PassphraseFile: "/p", BootIDFile: "/b",
 	}
 	if cfg != want {
 		t.Fatalf("config %+v, want %+v", cfg, want)
@@ -111,6 +113,19 @@ func TestConfigDefaults(t *testing.T) {
 }
 
 func TestConfigRefusesWhatIsNotANumber(t *testing.T) {
+	// 1e300 seconds is past a time.Duration, and so is anything over a day of seconds as far as
+	// these knobs go (project_duration_overflow).
+	for _, big := range []string{"86401", "1e300"} {
+		_, err := loadConfig(func(k string) string {
+			if k == "CCY_SESSIONS_POLL_SECONDS" {
+				return big
+			}
+			return ""
+		})
+		if err == nil || !strings.Contains(err.Error(), "CCY_SESSIONS_POLL_SECONDS is '"+big+"', more than 86400 seconds") {
+			t.Fatalf("%q: %v", big, err)
+		}
+	}
 	for _, bad := range []string{"soon", "-1", "NaN", "Inf"} {
 		_, err := loadConfig(func(k string) string {
 			if k == "CCY_SESSIONS_POLL_SECONDS" {
@@ -285,17 +300,13 @@ func TestStdoutIsFedByOutAndStderrByTheTerm(t *testing.T) {
 	}
 }
 
-func TestParseTokenFloor(t *testing.T) {
-	if n, ok := ParseTokenFloor("150000").Tokens(); !ok || n != 150000 {
-		t.Fatalf("got %d, %v", n, ok)
+// A failure reported where it happened is not printed again; any other is printed.
+func TestFailedPrintsOnlyAnUnreportedError(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.failed(errReported); code != term.ExitFailure || h.stderr() != "" {
+		t.Fatalf("reported: exit %d stderr %q", code, h.stderr())
 	}
-	for _, bad := range []string{"", "0", "-5", "012", "1.5", "lots", "99999999999999999999"} {
-		f := ParseTokenFloor(bad)
-		if _, ok := f.Tokens(); ok {
-			t.Errorf("%q should not be a floor", bad)
-		}
-		if f.String() != bad {
-			t.Errorf("%q is reported as %q", bad, f.String())
-		}
+	if code := h.app.failed(errBoom); code != term.ExitFailure || h.stderr() != "ERROR: boom\n" {
+		t.Fatalf("unreported: exit %d stderr %q", code, h.stderr())
 	}
 }

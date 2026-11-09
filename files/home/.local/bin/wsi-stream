@@ -23,6 +23,7 @@ import socket
 import json
 import fcntl
 import re
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -54,10 +55,12 @@ DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 # it needs and whether to save after the paste
 PANEL_DBUS_PATH = "/org/fedoradesktop/SpeechToText/Panel"
 PANEL_DBUS_INTERFACE = "org.fedoradesktop.SpeechToText.Panel"
-# (wm_class, with_shift, save_after, focused, gone); a panel that does not pin the window
-# (one loaded before Task 9.10, until the next login) answers the first three only
+# (wm_class, with_shift, save_after, focused, gone, tab_changed); a panel that does not pin
+# the window (one loaded before Task 9.10, until the next login) answers the first three
+# only, and one that does not watch a terminal's tabs (before issue #106) the first five
 PASTE_TARGET_REPLY = re.compile(
-    r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)(?:, (true|false), (true|false))?\)$")
+    r"^\('((?:[^'\\]|\\.)*)', (true|false), (true|false)"
+    r"(?:, (true|false), (true|false)(?:, (true|false))?)?\)$")
 # How long a paste waits for the panel to give the pinned window focus back, asking again
 # at each poll (the asking is what re-activates it)
 PASTE_FOCUS_WAIT_SECONDS = 2.0
@@ -89,6 +92,9 @@ KEEPALIVE_INTERVAL = 5.0
 PROGRESS_INTERVAL = 1.0
 DRAIN_POLL_INTERVAL = 0.5
 DRAIN_GRACE_SECONDS = 10  # beyond the server's own drain deadline
+# The magic a pre-buffer capture starts with when it is a container, not raw PCM (the
+# server's CONTAINER_MAGIC; the two are separate executables with no shared module)
+CONTAINER_MAGIC = {b".snd": "AU", b"RIFF": "WAV", b"FORM": "AIFF", b"fLaC": "FLAC", b"OggS": "Ogg"}
 MIC_CLOSE_SECONDS = 5  # the server's longest wait for pw-record to close (3 s TERM + 2 s KILL)
 NOTIFY_MS = 2000  # a routine notification's lifetime
 SERVER_REPLY_TIMEOUT = 10  # STOP closes the microphone before it replies (up to ~5 s)
@@ -210,9 +216,73 @@ def resolve_model(mode, language, setting=None):
     """
     if setting is None:
         setting = os.environ.get("WHISPER_MODEL", "auto")
-    result = subprocess.run(
-        [str(MODEL_RESOLVER), "--mode", mode, "--language", language or "", setting],
-        capture_output=True, text=True, timeout=30, check=False)
+    return ask_resolver(["--mode", mode, "--language", language or "", setting])
+
+
+def resolve_realtime_model(language):
+    """The live preview model RealtimeSTT loads beside the main one, checked on disk the
+    same way. Raises as resolve_model does."""
+    return ask_resolver(["--realtime", "--language", language or ""])
+
+
+def realtime_config(language):
+    """RealtimeSTT's live preview settings, the same in both of its modes. The model is
+    named, never RealtimeSTT's default, which nothing downloads; and no realtimesst.log,
+    which it writes into the working directory: the home directory, from the panel."""
+    return {
+        "enable_realtime_transcription": True,
+        "realtime_model_type": resolve_realtime_model(language),
+        "realtime_processing_pause": 0.2,
+        "on_realtime_transcription_update": on_realtime_update,
+        "no_log_file": True,
+    }
+
+
+def load_recorder(config, release=lambda: None):
+    """AudioToTextRecorder(**config), or this process ends at once with the reason shown.
+
+    RealtimeSTT 1.0.0 loads the main model in a worker thread it means to be a daemon and
+    is not (`thread.deamon = True`, misspelt). A load error there is logged and ends that
+    thread alone, and the constructor waits for the model for ever; an error the
+    constructor raises (the live preview model, the VAD) leaves that thread keeping the
+    process alive. Either way the dictation hung. A thread dying while the recorder is
+    built, and the constructor raising, both end the process here. release() frees what
+    the caller holds (the pre-buffer's pw-record) first.
+    """
+    from RealtimeSTT import AudioToTextRecorder
+    previous_hook = threading.excepthook
+
+    def thread_died(hook_args):
+        recorder_load_failed(f"{hook_args.exc_type.__name__}: {hook_args.exc_value}", release)
+
+    threading.excepthook = thread_died
+    try:
+        return AudioToTextRecorder(**config)
+    except Exception as e:
+        recorder_load_failed(f"{type(e).__name__}: {e}", release)
+    finally:
+        threading.excepthook = previous_hook
+
+
+def recorder_load_failed(reason, release):
+    """ERROR, a notification that stays, and os._exit: a normal exit would wait on
+    RealtimeSTT's worker thread for ever, and atexit's cleanup would shut down a recorder
+    that never came up."""
+    log(f"The speech recorder did not load: {reason}", "ERROR")
+    release()
+    remove_own_pid_file(PID_FILE)
+    emit_dbus_signal("StateChanged", "ERROR")
+    urgent_notification(f"Dictation could not start: the speech recorder did not load "
+                        f"({reason}). Nothing was transcribed.")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(1)
+
+
+def ask_resolver(argv):
+    """wsi-resolve-model's answer for argv; ModelNotDownloaded on its exit 3."""
+    result = subprocess.run([str(MODEL_RESOLVER), *argv], capture_output=True, text=True,
+                            timeout=30, check=False)
     if result.returncode == RESOLVER_NOT_DOWNLOADED:
         reason = result.stderr.strip().splitlines()[-1]
         raise ModelNotDownloaded(reason.removeprefix("wsi-resolve-model: "))
@@ -290,7 +360,6 @@ def read_remaining_audio(proc, chunk_size, feed):
     a pw-record that ignores SIGTERM so the read always reaches EOF.
     """
     import array
-    import threading
     proc.terminate()
     killer = threading.Timer(2, proc.kill)
     killer.start()
@@ -589,14 +658,16 @@ def copy_to_clipboard(text, use_clipboard=False):
 
 
 def parse_paste_target(reply):
-    """(wm_class, with_shift, save_after, focused, gone) from the panel's PasteKey reply,
-    or None. A three-field reply is a panel that does not pin: focused, never gone."""
+    """(wm_class, with_shift, save_after, focused, gone, tab_changed) from the panel's
+    PasteKey reply, or None. A three-field reply is a panel that does not pin: focused,
+    never gone; a reply without tab_changed never says another tab is showing."""
     match = PASTE_TARGET_REPLY.match(reply.strip())
     if match is None:
         return None
     pinning = match[4] is not None
     return (match[1], match[2] == "true", match[3] == "true",
-            match[4] == "true" if pinning else True, match[5] == "true" if pinning else False)
+            match[4] == "true" if pinning else True, match[5] == "true" if pinning else False,
+            match[6] == "true")
 
 
 class PasteTargetUnavailable(Exception):
@@ -631,7 +702,8 @@ def paste_target_now(fallback_with_shift, for_enter=False):
     focus back and this asks again, every PASTE_FOCUS_POLL_SECONDS for up to
     PASTE_FOCUS_WAIT_SECONDS, then until the window has kept focus for
     PASTE_FOCUS_SETTLE_SECONDS; refocused says so, and the Enter waits longer. Raises
-    PasteTargetUnavailable if the window was closed or never got focus back. A panel that
+    PasteTargetUnavailable if the window was closed, never got focus back, or shows another
+    terminal tab than at Insert (issue #106). A panel that
     cannot answer (one loaded before PasteKey existed, until the next login) leaves the
     key chosen at Insert, which is said in the log, and no save. for_enter: asked again
     just before the Enter that follows a paste after a retake, and logged as such.
@@ -649,9 +721,12 @@ def paste_target_now(fallback_with_shift, for_enter=False):
                 log(f"The panel did not say how to paste into the focused window ({why}); "
                     f"using the key chosen at Insert", "WARN")
             return fallback_with_shift, False, unfocused > 0
-        wm_class, with_shift, save_after, focused, gone = target
+        wm_class, with_shift, save_after, focused, gone, tab_changed = target
         if gone:
             raise PasteTargetUnavailable("the window this dictation started in was closed")
+        if tab_changed:
+            raise PasteTargetUnavailable(
+                "the terminal tab this dictation started in is no longer the one showing")
         if focused and (unfocused == 0 or settled == settle_polls):
             if for_enter:
                 log(f"{wm_class!r} still has focus before the Enter" if unfocused == 0
@@ -790,19 +865,23 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
             else:
                 press(env, KEY_CTRL, KEY_V)  # every other app
                 log("Paste simulated via Ctrl+V")
-            if refocused and not skip_enter:
+            key_due = not skip_enter or save_after
+            if refocused and key_due:
+                # A retake can be undone by whatever took focus during the dictation, so
+                # it is given longer to show before the panel is asked again (Plan 00164)
                 log(f"Waiting {PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS} s before the Enter: "
                     f"focus was given back for this paste")
                 time.sleep(PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
-                # Focus can move away again after the retake (Plan 00164): asked again, the
-                # panel gives it back once more, or there is no window to send the Enter to
+            else:
+                # Longer delay for longer text
+                time.sleep(min(0.3 + len(text) * 0.002, 1.0))
+            if key_due:
+                # Focus can move during the wait after any paste: asked again, the panel
+                # gives it back, or there is no window to send the Enter or the save to
                 try:
                     paste_target_now(with_shift, for_enter=True)
                 except PasteTargetUnavailable as e:
                     raise EnterNotSent(str(e)) from e
-            else:
-                # Longer delay for longer text
-                time.sleep(min(0.3 + len(text) * 0.002, 1.0))
 
         if not skip_enter:
             press(env, KEY_ENTER)
@@ -1861,9 +1940,6 @@ def run_standard_streaming(args, stop):
     if not check_dependencies():
         return 1
 
-    from RealtimeSTT import AudioToTextRecorder
-    import threading
-
     # Write PID file
     PID_FILE.write_text(str(os.getpid()))
     log(f"PID file written: {PID_FILE}")
@@ -1875,7 +1951,9 @@ def run_standard_streaming(args, stop):
     # Language from arg, then env, then default to English
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
     model_size = resolve_model("streaming", language)
-    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
+    live_preview = realtime_config(language)
+    log(f"Using model: {model_size}, language: {language or 'auto-detect'}, "
+        f"live preview: {live_preview['realtime_model_type']}")
 
     final_text = ""
     recorder_error = None
@@ -1913,9 +1991,7 @@ def run_standard_streaming(args, stop):
             "min_length_of_recording": 0.3,
             "min_gap_between_recordings": 0.1,
             # Real-time transcription streams to buffer file
-            "enable_realtime_transcription": True,
-            "realtime_processing_pause": 0.2,
-            "on_realtime_transcription_update": on_realtime_update,
+            **live_preview,
             "spinner": False,
         }
 
@@ -1924,7 +2000,7 @@ def run_standard_streaming(args, stop):
         recorder_config["compute_type"] = "float16"
         log("Requesting GPU (CUDA)")
 
-        recorder = AudioToTextRecorder(**recorder_config)
+        recorder = load_recorder(recorder_config)
         log("Recorder initialized, waiting for audio pipeline...")
 
         # Notify user that model is loaded, now initializing audio
@@ -2107,8 +2183,6 @@ def run_prebuffered_streaming(args, stop):
     if not check_dependencies():
         return 1
 
-    from RealtimeSTT import AudioToTextRecorder
-    import threading
     import array
 
     # Without handlers SIGTERM's default action killed this process outright: no
@@ -2131,10 +2205,12 @@ def run_prebuffered_streaming(args, stop):
     log("Starting pw-record immediately (pre-buffering enabled)")
 
     try:
-        # Start pw-record to stdout pipe: 16000 Hz, mono, S16_LE format
-        # This is the format RealtimeSTT expects for feed_audio()
+        # Start pw-record to stdout pipe: raw 16000 Hz, mono, S16_LE, the format
+        # RealtimeSTT expects for feed_audio(). Without --raw pw-record 1.6.10 writes
+        # a Sun AU container (big-endian samples) to stdout
         pw_record_cmd = [
             "pw-record",
+            "--raw",
             "--rate", "16000",
             "--channels", "1",
             "--format", "s16",
@@ -2154,6 +2230,16 @@ def run_prebuffered_streaming(args, stop):
         model_ready = threading.Event()
         model_error = None
 
+        # The first chunk is checked before any audio can reach feed_audio(): a
+        # container stream read as raw PCM is noise the model writes down as words
+        first_chunk = audio_process.stdout.read(chunk_size)
+        container = CONTAINER_MAGIC.get(first_chunk[:4])
+        if container is not None:
+            raise RuntimeError(f"pw-record wrote a {container} container, "
+                               "not raw 16 kHz s16 PCM; the capture command needs --raw")
+        if first_chunk:
+            audio_buffer.append(first_chunk)
+
         def load_model_thread():
             """Load Whisper model in background thread."""
             global recorder
@@ -2169,9 +2255,7 @@ def run_prebuffered_streaming(args, stop):
                     "language": language,
                     "use_microphone": False,  # We'll feed audio manually
                     "silero_sensitivity": 0.4,
-                    "enable_realtime_transcription": True,
-                    "realtime_processing_pause": 0.2,
-                    "on_realtime_transcription_update": on_realtime_update,
+                    **realtime_config(language),
                     "spinner": False,
                 }
 
@@ -2180,7 +2264,7 @@ def run_prebuffered_streaming(args, stop):
                 recorder_config["compute_type"] = "float16"
                 log("Requesting GPU (CUDA)")
 
-                recorder = AudioToTextRecorder(**recorder_config)
+                recorder = load_recorder(recorder_config, release=audio_process.kill)
                 log("Model loaded successfully!")
                 model_ready.set()
             except Exception as e:

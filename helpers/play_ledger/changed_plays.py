@@ -2,17 +2,24 @@
 
 A play has to run again when any of its inputs changed between the commit it last ran
 from and the working tree, when that last run did not succeed, or when it ran from a
-checkout with uncommitted changes. Its inputs are its own file and every checkout path it
-deploys, as `helpers/self_update/affected_plays.py` reads them from the play text. A
-dirty run is run again because what it deployed may be an edit since reverted, which no
-diff can show.
+checkout with one of its inputs uncommitted. Its inputs are its own file and every checkout path it
+deploys, as `helpers/self_update/affected_plays.py` reads them from the play text. The
+group_vars file every play loads is judged a variable at a time instead: a play has to run
+again when a variable of it that changed is one the play's input files name
+(`helpers/play_ledger/group_vars.py` gives the rule). A
+run with an input uncommitted is run again because what it deployed may be an edit since
+reverted, which no diff can show. Which paths were uncommitted is recorded per run, so a
+stray file no play reads stales nothing; a record that cannot name them all (one from before
+they were kept, or a list cut at its limit) stales the play.
 
 Run it:
 
     python3 -m helpers.play_ledger.changed_plays [--repo-root DIR]
 
 stdout carries only marker lines, in the order the plays should run: the order
-`playbook-main.yml` imports them, then the plays it does not import, by path.
+`playbook-main.yml` imports them, then the plays it does not import, by path. Without
+`--all`, stderr says why each RUN play runs, one `changed-plays: <play>: <reasons>` line
+each, for the person reading `run.bash --changed`.
 
     RUN <play>                  run it again
     UNRESOLVED <play> <where>   not changed as far as can be told, but it holds a reference
@@ -43,10 +50,10 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TextIO
 
-from helpers.play_ledger import git_history, ledger, retired, store
+from helpers.play_ledger import git_history, group_vars, ledger, retired, store
 from helpers.self_update import affected_plays
 
 EXIT_OK = 0
@@ -61,6 +68,9 @@ STATE_CURRENT = "current"
 
 #: The states `run.bash --changed` runs.
 RUN_STATES = (STATE_STALE, STATE_FAILED)
+
+#: How many changed paths (or Go packages, or commands) a reason names before it counts the rest.
+PATHS_SHOWN = 3
 
 MAIN_PLAYBOOK ="playbooks/playbook-main.yml"
 _IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
@@ -81,9 +91,14 @@ class Judgement:
 
     `order` is every play in `states` or `gone`, in the order a catch-up runs them.
     `changed_inputs` holds, for a stale play, the changed checkout paths among its inputs
-    (none when it is stale only because it ran dirty, which `dirty` says). `took_over`
+    (none when it is stale only because it ran dirty, which `dirty` says). `dirty` is the
+    plays whose last run had an input uncommitted: `dirty_inputs` names those inputs, and a
+    play in `dirty` but not there ran from a record that cannot name them all. `took_over`
     names, for a successor that has to run, the removed plays it takes over. `not_judged`
     is every ledgered play outside `playbooks/imports/`, which no catch-up runs.
+    `changed_go` holds, for a stale play, the Go packages among its changed inputs, each
+    with the commands built from it. `changed_vars` holds, for a stale play, the changed
+    variables of the group_vars file it reads.
     """
 
     order: tuple[str, ...]
@@ -94,6 +109,9 @@ class Judgement:
     dirty: frozenset[str]
     took_over: dict[str, list[str]]
     not_judged: tuple[str, ...]
+    changed_go: dict[str, dict[str, frozenset[str]]] = field(default_factory=dict)
+    changed_vars: dict[str, list[str]] = field(default_factory=dict)
+    dirty_inputs: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def runs(self) -> list[str]:
@@ -152,8 +170,14 @@ def judge(
     inputs_of: Callable[[str, str], affected_plays.Inputs] | None = None,
     main_order: Callable[[str], list[str]] = main_order,
     retired_plays: Callable[[str], dict[str, str]] = retired.load,
+    group_vars_at: Callable[[str, str], str | None] = group_vars.text_at,
+    group_vars_now: Callable[[str], str | None] = group_vars.text_now,
+    play_text: Callable[[str, affected_plays.Inputs], str] = group_vars.play_text,
 ) -> Judgement:
     """Judge every host play in `latest` (the ledger folded to each play's last run).
+
+    A change to the group_vars file is judged a variable at a time (`group_vars`): it makes
+    stale the plays that read a variable that changed, and no other.
 
     Raises `NoAnswer` rather than return a partial judgement. The callables are test seams.
     """
@@ -179,6 +203,11 @@ def judge(
     diffs: dict[str, list[str]] = {}
     states: dict[str, str] = {}
     changed_inputs: dict[str, list[str]] = {}
+    changed_go: dict[str, dict[str, frozenset[str]]] = {}
+    changed_vars: dict[str, list[str]] = {}
+    vars_since: dict[str, set[str]] = {}
+    dirty: set[str] = set()
+    dirty_inputs: dict[str, list[str]] = {}
     for play in host_plays:
         record = latest[play]
         commit = record["commit"]
@@ -190,6 +219,11 @@ def judge(
             if commit not in diffs:
                 diffs[commit] = changed_since(repo_root, commit)
             inputs = inputs_of(repo_root, play)
+            if group_vars.GROUP_VARS in diffs[commit] and commit not in vars_since:
+                vars_since[commit] = group_vars.changed_names(group_vars_at(repo_root, commit),
+                                                              group_vars_now(repo_root))
+            names = vars_since.get(commit, set())
+            read = group_vars.names_read(names, play_text(repo_root, inputs)) if names else []
         except Exception as error:
             raise NoAnswer(
                 f"cannot judge {play}, which last ran from {commit}: {error}",
@@ -199,9 +233,22 @@ def judge(
             states[play] = STATE_FAILED
             continue
         changed = [path for path in diffs[commit] if affected_plays.affects(inputs, path)]
-        if record["dirty"] or changed:
+        if read:
+            changed_vars[play] = read
+        dirty_paths = ledger.recorded_dirty_paths(record)
+        if dirty_paths is None:
+            dirty.add(play)
+        else:
+            touched = [path for path in dirty_paths if _reads(inputs, path)]
+            if touched:
+                dirty.add(play)
+                dirty_inputs[play] = touched
+        if play in dirty or changed or read:
             states[play] = STATE_STALE
             changed_inputs[play] = changed
+            go = affected_plays.go_changes(inputs, changed)
+            if go:
+                changed_go[play] = {package: frozenset(names) for package, names in go.items()}
             continue
         if inputs.unresolved:
             unresolved[play] = list(inputs.unresolved)
@@ -228,10 +275,62 @@ def judge(
         gone=tuple(gone),
         unresolved=unresolved,
         changed_inputs=changed_inputs,
-        dirty=frozenset(play for play in states if latest.get(play, {}).get("dirty")),
+        dirty=frozenset(dirty),
         took_over=took_over,
         not_judged=tuple(sorted(play for play in latest if not play.startswith(prefix))),
+        changed_go=changed_go,
+        changed_vars=changed_vars,
+        dirty_inputs=dirty_inputs,
     )
+
+
+def _reads(inputs: affected_plays.Inputs, path: str) -> bool:
+    """Whether an uncommitted `path` at a play's last run could have changed what it deployed.
+
+    The same inputs a committed change is judged against, and the group_vars file every play
+    loads: which of its variables an uncommitted edit touched is not recorded, so it counts
+    for every play.
+    """
+    return path == group_vars.GROUP_VARS or affected_plays.affects(inputs, path)
+
+
+def _shown(items: list[str], noun: str = "") -> str:
+    """The first PATHS_SHOWN of `items`, and a count of the rest."""
+    more = len(items) - PATHS_SHOWN
+    text = ", ".join(items[:PATHS_SHOWN])
+    if more > 0:
+        text += f" and {more} more" + (f" {noun}{'' if more == 1 else 's'}" if noun else "")
+    return text
+
+
+def reasons(judgement: Judgement, play: str) -> list[str]:
+    """Why a stale play has to run again, one reason a line, for a person to read.
+
+    A changed Go file is named as its package, with the commands built from it, on a line
+    of its own, so other changed paths can never crowd it into a count.
+    """
+    lines = [
+        f"it takes over {old}, which the checkout removed"
+        for old in judgement.took_over.get(play, [])
+    ]
+    go = judgement.changed_go.get(play, {})
+    paths = [path for path in judgement.changed_inputs.get(play, [])
+             if posixpath.dirname(path) not in go]
+    if paths:
+        lines.append(f"changed: {_shown(paths)}")
+    if go:
+        commands = sorted(set().union(*go.values()))
+        lines.append(f"changed Go packages: {_shown(list(go))} (built into {_shown(commands, 'command')})")
+    variables = judgement.changed_vars.get(play, [])
+    if variables:
+        lines.append(f"changed variables of {group_vars.GROUP_VARS}: {_shown(variables, 'variable')}")
+    if play in judgement.dirty_inputs:
+        lines.append(f"it last ran with uncommitted changes to its inputs: "
+                     f"{_shown(judgement.dirty_inputs[play])}")
+    elif play in judgement.dirty:
+        lines.append("it last ran from a checkout with uncommitted changes, "
+                     "and the ledger does not name them all")
+    return lines
 
 
 def run(
@@ -272,6 +371,10 @@ def run(
             stdout.write(f"PLAY {judgement.states[play]} {play}\n")
         elif play in runs:
             stdout.write(f"RUN {play}\n")
+            why = (["its last run here did not succeed"]
+                   if judgement.states[play] == STATE_FAILED else reasons(judgement, play))
+            if why:
+                stderr.write(f"changed-plays: {play}: {'; '.join(why)}\n")
         elif play in judgement.unresolved:
             stdout.writelines(f"UNRESOLVED {play} {where}\n" for where in judgement.unresolved[play])
     return EXIT_OK

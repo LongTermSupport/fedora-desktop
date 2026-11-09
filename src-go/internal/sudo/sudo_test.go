@@ -94,6 +94,9 @@ func TestReadyNoTerminalRefusesWithProbe(t *testing.T) {
 	if !errors.Is(err, ErrNotReady) {
 		t.Fatalf("got %v", err)
 	}
+	if !strings.Contains(err.Error(), "sudo -n -v: sudo exited 1: sudo: a password is required; sudo -n true: sudo exited 1") {
+		t.Errorf("the probes' failures are not carried: %v", err)
+	}
 	want := "ERROR: Backing up. That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: sudo: a password is required). Run sudo -v first.\n"
 	if said(s) != want {
 		t.Errorf("got %q", said(s))
@@ -356,5 +359,36 @@ func TestForgetThatFailsIsAnError(t *testing.T) {
 	}
 	if err := s.Forget(context.Background()); err == nil {
 		t.Fatal("a failed sudo -k was not reported")
+	}
+}
+
+func TestCheckPasswordFeedsItOnStdinIgnoringTheCache(t *testing.T) {
+	f := &execx.Fake{}
+	fed := false
+	f.OnFunc([]string{"sudo", "-k", "-S", "-p", "", "-v"}, func(c execx.Cmd) (execx.Result, error) {
+		fed = c.Feed != nil && c.Feed.Secret.Is("right") && c.Feed.After == "\n" && c.Feed.Before == ""
+		if !fed {
+			return execx.Result{ExitCode: 1, Stderr: []byte("Sorry, try again.\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	s := newSudo(f, true)
+	right, err := execx.NewSecret("SUDO_PASSWORD", "right")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CheckPassword(context.Background(), right); err != nil || !fed {
+		t.Fatalf("a right password: %v (fed %v)", err, fed)
+	}
+	wrong, err := execx.NewSecret("SUDO_PASSWORD", "wrong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckPassword(context.Background(), wrong); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("a wrong password: %v", err)
+	}
+	f.OnError([]string{"sudo", "-k"}, errors.New("no sudo"))
+	if err := s.CheckPassword(context.Background(), right); err == nil || errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("sudo not starting: %v", err)
 	}
 }

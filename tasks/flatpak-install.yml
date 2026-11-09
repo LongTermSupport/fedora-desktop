@@ -1,0 +1,41 @@
+# Install one Flatpak from a remote and prove the app that is installed is the app declared.
+#
+# Import this from any play that installs a Flatpak, instead of calling community.general.flatpak
+# directly:
+#
+#   - name: Install Foo
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+#     vars:
+#       flatpak_app_id: org.example.Foo
+#       flatpak_remote: flathub          # optional, default flathub
+#     tags: [foo]
+#
+# Why the check: Flathub keeps old IDs as redirects to a renamed app, so installing a stale ID
+# succeeds and installs the app under its current ID. The play then reports success on a
+# different app than it declares, and anything keyed on the declared ID (an override, a
+# launcher, a later idempotence probe) looks for an app that is not there. `flatpak info` on
+# the declared ID fails unless exactly that ID is installed, so a stale ID stops the play
+# here and names the fix.
+- name: "Install Flatpak {{ flatpak_app_id }}"
+  become: true
+  community.general.flatpak:
+    name: "{{ flatpak_app_id }}"
+    remote: "{{ flatpak_remote | default('flathub') }}"
+    state: present
+
+- name: "Probe that Flatpak {{ flatpak_app_id }} is installed under that exact ID"
+  become: true
+  ansible.builtin.command:
+    argv: [flatpak, info, --system, "{{ flatpak_app_id }}"]
+  register: flatpak_installed_probe
+  changed_when: false
+  failed_when: false  # FAIL-FAST-OK: probe; the assert below checks flatpak_installed_probe.rc and fails
+
+- name: "Assert Flatpak {{ flatpak_app_id }} is the installed app, not a renamed one"
+  ansible.builtin.assert:
+    that:
+      - flatpak_installed_probe.rc == 0
+    fail_msg: |
+      Flatpak {{ flatpak_app_id }} installed but `flatpak info {{ flatpak_app_id }}` does not
+      find it, so the ID is not the app's current ID on the remote (the remote redirected
+      it to a renamed app). Find the current ID with `flatpak list --app` and put it in the play.

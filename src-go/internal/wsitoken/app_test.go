@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -149,7 +150,8 @@ func TestK1AnUnreadableAutoSettingFailsBeforeAnyTokenIsRead(t *testing.T) {
 	k := newKit(t)
 	k.run.On([]string{filepath.Join(k.bin, "wsi-setting"), "claude-token-auto"}, execx.Result{ExitCode: 1})
 	k.want(k.exec(), term.ExitFailure, "")
-	k.wantStderr("wsi-claude-token: cannot read the claude-token-auto setting (re-run play-speech-to-text.yml)")
+	k.wantStderr("wsi-claude-token: cannot read the claude-token-auto setting (" +
+		filepath.Join(k.bin, "wsi-setting") + " exited 1; re-run play-speech-to-text.yml)")
 }
 
 func TestK1AnAutoSettingThatIsNotABooleanFails(t *testing.T) {
@@ -174,7 +176,8 @@ func TestK2AnUnreadableNamedTokenSettingFails(t *testing.T) {
 	k.auto(false)
 	k.run.On([]string{filepath.Join(k.bin, "wsi-setting"), "claude-token"}, execx.Result{ExitCode: 1})
 	k.want(k.exec(), term.ExitFailure, "")
-	k.wantStderr("cannot read the claude-token setting (re-run play-speech-to-text.yml)")
+	k.wantStderr("cannot read the claude-token setting (" + filepath.Join(k.bin, "wsi-setting") +
+		" exited 1; re-run play-speech-to-text.yml)")
 }
 
 // K3
@@ -229,6 +232,22 @@ func TestK4AFileThatDoesNotHoldATokenIsRefusedWithoutPrintingIt(t *testing.T) {
 	k.want(k.exec(), term.ExitFailure, "")
 	k.wantStderr("the token file " + path + " is not a Claude Code OAuth token")
 	k.noTokenValueSeen()
+}
+
+// A token file that is not a regular file is refused by name, never opened: a named pipe would
+// block the read for ever (#195).
+func TestK4ATokenFileThatIsNotARegularFileIsRefused(t *testing.T) {
+	k := newKit(t)
+	k.auto(false)
+	k.setting("claude-token", "work")
+	k.token("work.2099-01-01.token", "sk-ant-oat01-short")
+	path := filepath.Join(k.tokenDir(), "work.2099-02-01.token")
+	opened := fifotest.Plant(t, path)
+	k.want(k.exec(), term.ExitFailure, "")
+	k.wantStderr("the token file " + path + " is not a regular file")
+	if opened() {
+		t.Fatal("the pipe was opened")
+	}
 }
 
 // K5

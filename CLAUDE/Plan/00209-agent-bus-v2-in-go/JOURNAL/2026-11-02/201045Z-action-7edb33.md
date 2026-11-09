@@ -1,0 +1,15 @@
+## 20:10 · action · —   — Tasks 8.1, 8.3 to 8.5 fixed; 8.2 and two findings wait for the owner
+
+Tasks 8.1, 8.3, 8.4 and 8.5 are fixed on `spike/v2-merge-up`; 8.2 and two findings of 8.1 wait for the owner.
+
+Merging F44 in brought F44's new `project_liveness_word` rule, so Task 8.1 grew from 29 findings to 38. Each class was fixed in full, with no exclusion, suppression or rule change.
+
+- `project_realtime_bound` (9 production sites, 2 tests): `internal/teamchat/clock` is now the one home of teamchat's real timers. The five private copies of `Sleep`, `AfterFunc` and `Hold` (matrix, member/lock, teamlock, admin/wire, fakehs) delegate to `clock.System()`, and the rules package's `realClocks` table has three rows for the clock package's real side, each with its reason (the table's existing mechanism, which every other real clock uses). The two tests that passed on a real timer now wait for the event and fail when the timer fires.
+- `project_duration_overflow` (14 sites): the link socket refuses a `deadline_ms` a Duration cannot hold; the client's wait and history flags are bounded where they are read; a keeper `next_ms` or a stored proof time past its bound reads as "due" instead of wrapping; the fake homeserver builds its sync timeout with `duration.Times`.
+- `project_goroutine_end` (5, F44 code) and `project_command_failure_dropped` (1): each goroutine now signals its end and its owner waits for it; the key copy in `ccc` waits on `poll` with a stop pipe; the gh check names why it failed (exit code, signal, time limit, errno) and still never quotes gh's output.
+- `project_liveness_word` (9): systemd's word comes from `internal/systemd`; the roster state in `roster.json` and `status.json` is renamed from "active" to "enrolled" in code, tests and the specs that define it. v2 is not deployed, so nothing migrates. Left open for the owner: Matrix presence "online" at `matrix/sync.go` and `matrix/fakehs/session.go`, the protocol's own word; the only fixes are an allowance row (the owner's call) or a spec change.
+- Task 8.3: one file (`qa/rules/fakeclockcount.go`) needed formatting.
+- Task 8.4: the lxc `test_derive` failure was already fixed on F44 (a fake `claude` made by linking a coreutils tool under another name exits at once on the runner's coreutils); this branch has the fix through the merge. The plan's cited-constant finding was a copy of `PIN_FILE` in `hca_server.py`, now imported.
+- Task 8.5: 13 gitleaks findings (not 12), all placeholders in teamchat test files, allowlisted per file, per value and to the generic-api-key rule. Testing the entries showed the mainline's containerwatch entry allowlisted far more than it said (a key gitleaks does not read, and a path-wide match that skips the file), so that entry is now narrow too, and a helper test (`test_config_as_written_rule.py`) holds the shape.
+
+Task 8.2 (the six gosec exclusions have no entry in the project record) is the owner's: the record's ratchet is the owner's signature and its ceiling is `high_water`, so adding entries is baselining.

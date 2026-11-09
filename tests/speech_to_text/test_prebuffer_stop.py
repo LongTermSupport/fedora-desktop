@@ -18,6 +18,7 @@ import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 _spec = importlib.util.spec_from_file_location(
     "stt_stubs", pathlib.Path(__file__).resolve().parent / "stt_stubs.py")
@@ -48,6 +49,7 @@ class StubRecorder:
         else:
             time.sleep(self.load_seconds)
         self.ready_at = time.monotonic()
+        self.config = config
         self.fed_bytes = 0
         self.started = False
         self.stopped = False
@@ -90,6 +92,7 @@ class PrebufferStopTest(unittest.TestCase):
         self.patches = {
             "check_dependencies": lambda: True,
             "resolve_model": lambda mode, language: "base",
+            "resolve_realtime_model": lambda language: f"realtime-for-{language}",
             "notify": lambda state, message: self.states.append(state),
             "emit_dbus_signal": lambda *a: None,
             "desktop_notification": lambda *a: None,
@@ -176,6 +179,7 @@ class PrebufferStopTest(unittest.TestCase):
             "written": mic["written"],
             "fed": StubRecorder.instance.fed_bytes,
             "ready": StubRecorder.instance.ready_at,
+            "config": StubRecorder.instance.config,
         }
 
     # The model below loads only once the microphone has closed, so a stop that waited for
@@ -214,6 +218,93 @@ class PrebufferStopTest(unittest.TestCase):
         self.assertEqual(r["fed"], r["written"], "the pipe was not drained at stop")
         self.assertIn("RECORDING", self.states)
         self.assertEqual(self.pasted, ["Words so far"])
+
+    def test_the_live_preview_model_is_the_resolvers_and_no_log_file_is_written(self):
+        # Plan 00234 Task 4.1: RealtimeSTT's default real-time model is one nothing
+        # downloads, and its realtimesst.log lands in the working directory (the home
+        # directory, when the panel starts wsi-stream)
+        r = self.run_mode(load_seconds=0.0, grace=0, term_after=[0.3], after="model")
+        self.assertEqual(r["rc"], 0)
+        self.assertTrue(r["config"]["enable_realtime_transcription"])
+        self.assertEqual(r["config"]["realtime_model_type"], "realtime-for-en")
+        self.assertIs(r["config"]["no_log_file"], True)
+        self.assertEqual(r["config"]["model"], "base")
+
+
+class RecorderLoadFailureTest(unittest.TestCase):
+    """Plan 00234 Task 4.1: a recorder that fails to load ends wsi-stream at once, the panel
+    told why. RealtimeSTT 1.0.0's main model loads in a worker thread that is not a daemon
+    (`thread.deamon = True`, misspelt): an error there ends only that thread and the
+    constructor waits for ever, and an error the constructor raises leaves that thread
+    keeping the process alive. Either way the dictation hung without a word."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.exits = []
+        self.exited = threading.Event()
+        self.signals = []
+        self.urgent = []
+        self.pid_file = pathlib.Path(self.tmp.name) / "stt.pid"
+        self.pid_file.write_text(str(os.getpid()))
+        self.hook = threading.excepthook
+        self.addCleanup(setattr, threading, "excepthook", self.hook)
+        for patcher in (
+                mock.patch.dict(sys.modules, {"RealtimeSTT": None}),
+                mock.patch.multiple(
+                    wsi_stream, PID_FILE=self.pid_file, ended_with=None,
+                    emit_dbus_signal=lambda name, value: self.signals.append(value),
+                    urgent_notification=self.urgent.append),
+                mock.patch.object(wsi_stream.os, "_exit", self.fake_exit)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def fake_exit(self, code):
+        self.exits.append(code)
+        self.exited.set()
+
+    def recorder_class(self, build):
+        sys.modules["RealtimeSTT"] = types.SimpleNamespace(AudioToTextRecorder=build)
+
+    def assert_ended_with(self, reason):
+        self.assertEqual(self.exits, [1], "wsi-stream did not end at once")
+        self.assertIn("ERROR", self.signals)
+        self.assertEqual(len(self.urgent), 1, "the user is not told")
+        self.assertIn(reason, self.urgent[0])
+        self.assertFalse(self.pid_file.exists(), "the PID file outlived the process")
+        self.assertIs(threading.excepthook, self.hook, "the thread hook was left installed")
+
+    def test_a_constructor_that_raises_ends_the_process_and_releases_the_microphone(self):
+        def build(**config):
+            raise RuntimeError("CUDA failed with error out of memory")
+
+        self.recorder_class(build)
+        release = mock.Mock()
+        wsi_stream.load_recorder({"model": "base"}, release)
+        self.assert_ended_with("CUDA failed with error out of memory")
+        release.assert_called_once_with()
+
+    def test_a_model_thread_that_dies_while_the_constructor_waits_ends_the_process(self):
+        def build(**config):
+            def load():
+                raise OSError("LocalEntryNotFoundError: Systran/faster-whisper-tiny")
+
+            threading.Thread(target=load).start()
+            # RealtimeSTT waits here for the model for ever; the stand-in stops waiting
+            # once the process has been ended
+            self.exited.wait(10)
+            return object()
+
+        self.recorder_class(build)
+        wsi_stream.load_recorder({"model": "base"})
+        self.assert_ended_with("LocalEntryNotFoundError")
+
+    def test_a_recorder_that_loads_is_returned_and_nothing_ends(self):
+        built = object()
+        self.recorder_class(lambda **config: built)
+        self.assertIs(wsi_stream.load_recorder({"model": "base"}), built)
+        self.assertEqual(self.exits, [])
+        self.assertIs(threading.excepthook, self.hook)
 
 
 if __name__ == "__main__":

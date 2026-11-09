@@ -75,7 +75,15 @@ DICTATION_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid
 FILE_JOB_MARKER = DICTATION_DIR.parent / "wsi-file-job"
 # How often a file job paused for a dictation looks again.
 DICTATION_POLL_SECONDS = 0.2
-CAPTURE_CMD = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+# --raw: without it pw-record 1.6.10 writes a Sun AU container (big-endian samples) to stdout
+CAPTURE_CMD = ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+# The magic a capture stream starts with when it is a container, not the raw PCM read here
+CONTAINER_MAGIC = {b".snd": "AU", b"RIFF": "WAV", b"FORM": "AIFF", b"fLaC": "FLAC", b"OggS": "Ogg"}
+
+
+def container_header(chunk):
+    """The name of the container `chunk` starts with, or None for raw PCM."""
+    return CONTAINER_MAGIC.get(bytes(chunk[:4]))
 
 # Configuration
 DEFAULT_IDLE_TIMEOUT = 1200  # 20 minutes; 0 means never shut down
@@ -568,6 +576,7 @@ class DictationSession:
         log("Dictation aborted - discarding it")
         if self._capture_thread is not None:
             self._capture_thread.join(timeout=3)
+        self._reap()
         self._finished.set()
 
     def fail(self, message, failed=None):
@@ -598,6 +607,7 @@ class DictationSession:
             self._journal.close()
             self._log_stats_locked("failed")
         log(f"Dictation FAILED: {message}", "ERROR")
+        self._reap()
         self._finished.set()
 
     def mark_delivered(self):
@@ -689,11 +699,19 @@ class DictationSession:
 
     def _capture(self):
         pending = []
+        first = True
         try:
             while True:
                 chunk = self._proc.stdout.read(FRAME_BYTES)
                 if not chunk:
                     break
+                if first:
+                    first = False
+                    container = container_header(chunk)
+                    if container is not None:
+                        self.fail(f"the microphone (pw-record) wrote a {container} container, "
+                                  "not raw 16 kHz s16 PCM; the capture command needs --raw")
+                        break
                 self.captured_bytes += len(chunk)
                 frame = array.array("h", chunk[:len(chunk) - len(chunk) % 2])
                 if len(frame) < FRAME_SAMPLES:
@@ -713,6 +731,25 @@ class DictationSession:
         except Exception as e:
             self.fail(f"audio capture failed: {e}")
             self._enqueue(self._segmenter.finish())
+        finally:
+            self._reap()
+
+    def _reap(self):
+        """Wait for the capture child, killing it if it outlives its signal: an unwaited
+        pw-record stays defunct. Popen.wait is safe from several threads. Never raises."""
+        if self._proc is None:
+            return
+        try:
+            self._proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            log(f"pw-record (PID {self._proc.pid}) still running 3 s after the session "
+                "closed it - killing it", "WARN")
+            self._proc.kill()
+            try:
+                self._proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                log(f"pw-record (PID {self._proc.pid}) survived SIGKILL; it is left unreaped",
+                    "ERROR")
 
     def _segment(self, frames):
         if self._vad is None:

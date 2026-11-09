@@ -47,15 +47,15 @@ DOCUMENTATION = """
     short_description: Record each play run to the host play-run ledger
     description:
       - Appends one record per play to $XDG_STATE_HOME/fedora-desktop/play-ledger/runs.jsonl,
-        capturing the repo commit, whether the tree was dirty, the play file's hash as
+        capturing the repo commit, which paths of the tree were dirty, the play file's hash as
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
       - Records nothing for a play outside the repo root, such as a private play run from a
         linked worktree, and prints one LEDGER-PLAY-NOT-TRACKED line to stderr naming it.
-      - After the records are written, asks host-health-collect.service to run again so the
-        Fedora Desktop panel stops describing the host as it was before the run. A failure
-        to ask prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
+      - After the records are written, restarts host-health-collect.service and waits for
+        it, so the status document describes the run by the time the run ends. A failure
+        to collect prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
       - On any write failure, writes a BROKEN sentinel and prints LEDGER-WRITE-FAILED to
         stderr rather than raising, because Ansible discards exceptions raised in a callback.
     requirements:
@@ -135,7 +135,7 @@ class CallbackModule(CallbackBase):
         if self._collector is None and not self._broken:
             self._collector = collector.RunCollector(
                 commit=repo.head_commit(_REPO_ROOT),
-                dirty=repo.is_dirty(_REPO_ROOT),
+                dirty=repo.dirty_state(_REPO_ROOT),
                 hash_play=repo.sha256_file,
                 repo_root=_REPO_ROOT,
             )

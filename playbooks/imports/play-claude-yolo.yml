@@ -13,6 +13,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # 'latest' tracks the leading-edge release train (the same one npm's `latest`
     # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
     # the same Claude Code version. 'stable' is the slower staged-rollout channel
@@ -56,6 +57,10 @@
     # host_vars to change it; the reasoning is in the plan's 26-10-08 journal.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
   pre_tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     - name: Load container defaults
       ansible.builtin.include_vars:
         file: "{{ root_dir }}/vars/container-defaults.yml"
@@ -114,398 +119,56 @@
           {% endif %}
       when: container_service_check.rc != 0
 
-    - name: Create Claude YOLO Base Directory
+    # Before anything changes: a server restoring sessions unattended unlocks their SSH key
+    # with this passphrase.
+    - name: Ask For The SSH Key Passphrase For Unattended Restore When It Is Missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: github_ssh_passphrase
+        secret_label: GitHub SSH key passphrase
+        secret_explain: |
+          This server restores ccy sessions after a reboot (ccy_restore_sessions: true), and
+          each restored session unlocks its GitHub SSH key with nobody at the keyboard. Type
+          the passphrase of the ~/.ssh/github_* keys. To not restore sessions, stop here and
+          set ccy_restore_sessions: false in localhost.yml.
+      when:
+        - ccy_restore_ssh_unlock | bool
+        - github_ssh_passphrase is not defined
+
+    # The Go front of the ccy launcher goes in before the libs (in the image tasks below) and
+    # the bash launcher that ask it questions (F16-F22), so a failed build leaves the installed
+    # front, bash and libs unchanged and working together. The front carries CCY_VERSION from
+    # -ldflags and refuses --version and --help when it differs from the bash launcher's, so
+    # it is built with the version read from the file the bash copy below installs.
+    - name: Read the Launcher's CCY_VERSION for the Go Front
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/ccy-version.yml"
+
+    - name: Create the ccy Launcher Directory
       become: true
       ansible.builtin.file:
-        path: /opt/claude-yolo
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Create Custom Dockerfiles Directory
-      become: true
-      ansible.builtin.file:
-        path: /opt/claude-yolo/custom-dockerfiles
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Copy Dockerfile
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile"
-        dest: /opt/claude-yolo/Dockerfile
-        owner: root
-        group: root
-        mode: "0644"
-      tags:
-        - scripts
-        - dockerfile
-
-    - name: Copy Entrypoint Script
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint.sh"
-        dest: /opt/claude-yolo/entrypoint.sh
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - scripts
-        - entrypoint
-
-    - name: Copy Browser Mode Stub into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/agent-browser-mode-required"
-        dest: /opt/claude-yolo/agent-browser-mode-required
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - scripts
-
-    - name: Copy Browser Session Guard into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/agent-browser-session-guard"
-        dest: /opt/claude-yolo/agent-browser-session-guard
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - scripts
-
-    # The ctrl+z patch script that used to be copied here is gone (CCY 3.42.0).
-    # Suppressing ctrl+z is now the PTY supervisor's job, so remove the stale
-    # copy from build contexts provisioned by an earlier run — otherwise the
-    # Dockerfile hash changes while a dead file lingers beside it.
-    - name: Remove Retired ctrl+z Patch Script from Docker Build Context
-      become: true
-      ansible.builtin.file:
-        path: /opt/claude-yolo/ccy-ctrl-z-patch.js
-        state: absent
-      tags:
-        - scripts
-        - dockerfile
-
-    # The Dockerfile COPYs this directory into the image at /opt/claude-yolo/supervisor-plugins/.
-    # Without it the build context has no supervisor-plugins/ and the image build fails.
-    - name: Copy Supervisor Plugins into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/supervisor-plugins/"
-        dest: /opt/claude-yolo/supervisor-plugins/
-        owner: root
-        group: root
-        mode: "0644"
-        directory_mode: "0755"
-      tags:
-        - scripts
-        - dockerfile
-
-    - name: Copy PHPantom LSP Plugin into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/plugins/"
-        dest: /opt/claude-yolo/plugins/
-        owner: root
-        group: root
-        mode: "0644"
-        directory_mode: "0755"
-      tags:
-        - scripts
-        - dockerfile
-
-    - name: Create Documentation Directory
-      become: true
-      ansible.builtin.file:
-        path: /opt/claude-yolo/docs
+        path: /var/local/claude-yolo
         state: directory
         owner: root
         group: root
         mode: "0755"
       tags:
         - scripts
-        - docs
+        - launchers
 
-    - name: Copy CCY Startup Info File
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-yolo/ccy-startup-info.txt"
-        dest: /opt/claude-yolo/ccy-startup-info.txt
-        owner: root
-        group: root
-        mode: "0644"
-      tags:
-        - scripts
-
-    - name: Copy Documentation into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-      loop:
-        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
-          dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
-        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-GUIDE.txt"
-          dest: /opt/claude-yolo/docs/CCY-GUIDE.txt
-      tags:
-        - scripts
-        - docs
-
-    - name: Create Skills Directory in Docker Build Context
-      become: true
-      ansible.builtin.file:
-        path: /opt/claude-yolo/skills/browsing
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - scripts
-        - skills
-
-    - name: Copy Browsing Skills into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: /opt/claude-yolo/skills/browsing/
-        owner: root
-        group: root
-        mode: "0644"
-      loop:
-        # SKILL.md is deliberately the only file here. The command reference used to be
-        # duplicated into COMMANDLINE-USAGE.md and EXAMPLES.md, which drifted so far that
-        # all 97 of their examples used an `agent-browser run "..."` syntax the CLI no
-        # longer has. agent-browser ships its own version-matched skills
-        # (`agent-browser-headless skills get core --full`), so the skill now points at those.
-        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/SKILL.md"
-      tags:
-        - scripts
-        - skills
-
-    - name: Create Optional Child-Claude Directories in Docker Build Context
-      become: true
-      ansible.builtin.file:
-        path: "/opt/claude-yolo/optional/child-claude/{{ item }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      loop:
-        - bin
-        - skills/child-claude
-      tags:
-        - scripts
-        - skills
-
-    # Staged OUTSIDE /opt/claude-yolo/skills/ deliberately. The entrypoint copies
-    # that directory into every session unconditionally, so opt-in content cannot
-    # live there. Reasoning: Plan 00092, by number under CLAUDE/Plan/.
-    #
-    # The next two tasks only ever ADD, exactly like the browsing copy above, and the
-    # Dockerfile COPYs this whole directory. So deleting a file from
-    # files/opt/claude-yolo/optional/ does NOT remove it from a host's build context, and
-    # the stale copy keeps shipping into the image. If anything under optional/ is ever
-    # removed or renamed, add it to a `state: absent` task — the pattern is at
-    # "Remove Obsolete Browsing Skill Files" below, which exists because this was missed once.
-    - name: Copy Optional Child-Claude Wrapper into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/bin/ccy-claude"
-        dest: /opt/claude-yolo/optional/child-claude/bin/ccy-claude
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - scripts
-        - skills
-
-    - name: Copy Optional Child-Claude Skill into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md"
-        dest: /opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md
-        owner: root
-        group: root
-        mode: "0644"
-      tags:
-        - scripts
-        - skills
-
-    # The agent team bus member kit (Plan 00161 DESIGN.md section 5.3): the plugin, its
-    # settings and the pingbus zipapp. Loaded, idle, in every session started in ccy's tmux
-    # (PINGBUS_MEMBERSHIP, Plan 00203); a seat is held only when the session's desired
-    # membership names one. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
-    # its job here. Add-only like the child-claude copies above.
-    - name: Create Optional Agent-Bus Directories in Docker Build Context
-      become: true
-      ansible.builtin.file:
-        path: "/opt/claude-yolo/optional/agent-bus/{{ item }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      loop:
-        - plugin/pingbus/.claude-plugin
-        - plugin/pingbus/hooks
-        - plugin/pingbus/skills/pingbus
-      tags:
-        - scripts
-        - skills
-
-    - name: Copy Optional Agent-Bus Plugin and Settings into Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-      loop:
-        - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/settings.json"
-          dest: /opt/claude-yolo/optional/agent-bus/settings.json
-        - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/plugin.json"
-          dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/.claude-plugin/plugin.json
-        - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json"
-          dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json
-        - src: "{{ root_dir }}/files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md"
-          dest: /opt/claude-yolo/optional/agent-bus/plugin/pingbus/skills/pingbus/SKILL.md
-      tags:
-        - scripts
-        - skills
-
-    # Built here from helpers/ with the builder agent-bus-install uses, so the core ccy play
-    # never depends on the bus play, and the same source gives the same bytes in both places.
-    - name: Build the pingbus Zipapp into Docker Build Context
-      become: true
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -B
-          - -s
-          - -m
-          - helpers.pingbus.bundle
-          - --source
-          - "{{ root_dir }}"
-          - --out
-          - /opt/claude-yolo/optional/agent-bus/pingbus
-          - pingbus
-        chdir: "{{ root_dir }}"
-      register: ccy_pingbus_bundle
-      changed_when: ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
-      failed_when: >-
-        ccy_pingbus_bundle.rc != 0
-        or not (ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
-                or ccy_pingbus_bundle.stdout.startswith('BUNDLE-UNCHANGED '))
-      tags:
-        - scripts
-        - skills
-
-    # A seated session's status line (Plan 00213): the Go port of `pingbus status-line`, which
-    # starts no Python on a refresh. The entrypoint links it beside pingbus. Static, because the
-    # image is Debian and the host's glibc is newer than the image's.
-    - name: Build the pingbus-status-line Command into Docker Build Context
+    - name: Build and Install the Go Front of the ccy Launcher
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
       vars:
-        go_command_name: pingbus-status-line
-        go_command_dest: /opt/claude-yolo/optional/agent-bus/pingbus-status-line
+        go_command_name: claude-yolo
+        go_command_dest: /var/local/claude-yolo/claude-yolo
         go_command_mode: "0755"
+        go_command_ldflags: "-X main.Version={{ ccy_version }}"
         go_command_owner: root
-        go_command_static: true
-      tags:
-        - scripts
-        - skills
-
-    - name: Remove Obsolete Browsing Skill Files from Docker Build Context
-      become: true
-      ansible.builtin.file:
-        path: "/opt/claude-yolo/skills/browsing/{{ item }}"
-        state: absent
-      loop:
-        - COMMANDLINE-USAGE.md
-        - EXAMPLES.md
-      # The copy task above only ever ADDS files, so deleting these from the repo would
-      # otherwise leave stale copies in the build context on every host that has already
-      # deployed them — and the Dockerfile COPYs the whole directory, so the removed,
-      # wrong documentation would keep shipping into the image indefinitely.
-      tags:
-        - scripts
-        - skills
-
-    - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "/opt/claude-yolo/custom-dockerfiles/{{ item | basename }}"
-        owner: root
-        group: root
-        mode: "0644"
-        force: false # NEVER overwrite - users can customize these
-      loop:
-        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.project-template"
-        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-ansible"
-        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-golang"
-      tags:
-        - scripts
-        - templates
-
-    # Shared library for DRY helpers (used by ccy)
-    - name: Create Shared Library Directory
-      become: true
-      ansible.builtin.file:
-        path: /var/local/claude-yolo/lib
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
       tags:
         - scripts
         - launchers
 
-    - name: Install Shared Helper Libraries
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "/var/local/claude-yolo/lib/{{ item | basename }}"
-        owner: root
-        group: root
-        mode: "0755"
-      loop:
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/common-pure.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/host-paths.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-handoff.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/launcher-path.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-usable.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/tmux-session.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-membership.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build-lock.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/image-build.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-choice.bash"
-        # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
-        - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
-      # `launchers` is on the lib and on every script that sources it (ccy, cc,
-      # ccy-sessions), with the directories they land in: a tag that deployed one
-      # without the others would recreate the new-lib-under-old-cc break.
-      tags:
-        - scripts
-        - launchers
+    - name: Stage and Build the Claude YOLO Container Image
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/claude-yolo-image.yml"
 
     # Clean up the per-host install of the obsolete terminal-detection.bash
     # lib (Plan 00047 pre-flight, removed in the pivot away from Path C+).
@@ -563,10 +226,13 @@
     # front (src-go/cmd/claude-yolo) at /var/local/claude-yolo/claude-yolo, which the ccy alias
     # runs, and the bash launcher beside it as claude-yolo.bash. The bash names the front, not
     # its own $0, in every session record and every re-run (restores, restarts, the Dockerfile
-    # modes), so nothing replayed later skips the front. The front answers --version, --help, --list-tokens, --token-usage, --prevent and --export-token NAME and execs the bash for every
-    # other run; CCY_LEGACY=1 sends every run to the bash (docs/ccy.md). The bash goes in first,
-    # so the claude-yolo already there keeps working until the front replaces it; a failed
-    # build stops the play before that.
+    # modes), so nothing replayed later skips the front. The front answers --version, --help,
+    # --list-tokens, --token-usage, --prevent and --export-token NAME itself and execs the bash
+    # for every other run; CCY_LEGACY=1 sends those to the bash (docs/ccy.md). The bash and the
+    # libs it sources ask the front the questions only it answers (F16-F22: the saved launch
+    # configuration, the token and network checks, the container listings, stops and network
+    # removal), so the front is built and installed above, before them: a failed build stops
+    # the play with the installed pair unchanged.
     - name: Copy the Bash Launcher Beside the Go Front
       become: true
       ansible.builtin.copy:
@@ -575,43 +241,6 @@
         owner: root
         group: root
         mode: "0755"
-      tags:
-        - scripts
-        - launchers
-
-    # The front carries CCY_VERSION from -ldflags and refuses --version and --help when it
-    # differs from the bash launcher's, so the build reads it from the same file the copy above
-    # installs. The group is one backslash: a >- scalar keeps it and {{ }} hands it to the filter
-    # as written (CLAUDE/QA.md, regex-backref-escape).
-    - name: Read CCY_VERSION for the Go Front's Build
-      ansible.builtin.set_fact:
-        ccy_front_version: >-
-          {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
-          | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\1', multiline=True)
-          | default([], true) | first | default('') }}
-      tags:
-        - scripts
-        - launchers
-
-    - name: Assert CCY_VERSION Was Read for the Go Front
-      ansible.builtin.assert:
-        that:
-          - ccy_front_version is match('^[0-9][0-9.]*$')
-        fail_msg: >-
-          No CCY_VERSION="x.y.z" line was found in files/var/local/claude-yolo/claude-yolo; the
-          Go front cannot be built without its version.
-      tags:
-        - scripts
-        - launchers
-
-    - name: Build and Install the Go Front of the ccy Launcher
-      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
-      vars:
-        go_command_name: claude-yolo
-        go_command_dest: /var/local/claude-yolo/claude-yolo
-        go_command_mode: "0755"
-        go_command_ldflags: "-X main.Version={{ ccy_front_version }}"
-        go_command_owner: root
       tags:
         - scripts
         - launchers
@@ -653,6 +282,8 @@
           - wget
           - git
           - openssh-clients
+          # ccy-network-policy holds each session's network policy in an nft table
+          - nftables
 
     - name: Check if Claude Code is Already Installed
       ansible.builtin.stat:
@@ -948,15 +579,17 @@
     # play, not only of play-tmux-sessions.yml (which runs later in playbook-main.yml and
     # owns the configuration). Installing it here too keeps a standalone run of this play
     # on a fresh host working; the package task is idempotent.
-    - name: Install tmux, fzf, gum and wl-clipboard (ccy runs every session inside tmux; the pickers use fzf; ccy-teams asks with gum and copies with wl-copy)
+    - name: Install tmux, gum and wl-clipboard (ccy runs every session inside tmux; ccy-teams asks with gum and copies with wl-copy)
       become: true
       ansible.builtin.package:
         name:
           - tmux
-          - fzf
           - gum
           - wl-clipboard
         state: present
+
+    - name: Install fzf from its upstream release (the ccy pickers use it)
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/install-fzf.yml"
 
     - name: Ensure the User Bin Directory Exists
       ansible.builtin.file:
@@ -1012,6 +645,21 @@
       vars:
         go_command_name: ccy-token-usable
         go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-token-usable"
+        go_command_mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    # A ccy session's network policy (Plan 00232): the launcher (lib/agent-choice.bash) runs
+    # the session's container through it, which blocks private ranges and the host unless the
+    # checkout's policy file allows them, and ccy --connect and --disconnect refresh it. A Go
+    # binary (src-go/cmd/ccy-network-policy) built and installed like ccy-sessions; it needs
+    # the nftables this play installs, and without nft a session runs unprotected and is told.
+    - name: Build and Install the ccy-network-policy Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ccy-network-policy
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-network-policy"
         go_command_mode: "0755"
       tags:
         - scripts
@@ -1118,6 +766,7 @@
     # run that fails part-way never leaves a drop-in naming a file that is not there (the
     # next boot would restore nothing). Both go where the unlock does not apply, so a box
     # that leaves the server profile or the opt-in keeps no plaintext copy of the passphrase.
+    # Not no_log: an assert's output names the expression and the message, never the value.
     - name: Assert The Vault Holds The SSH Key Passphrase For Unattended Restore
       ansible.builtin.assert:
         that:
@@ -1125,13 +774,11 @@
           - github_ssh_passphrase | length > 0
           - "'\n' not in github_ssh_passphrase"
         fail_msg: >-
-          This server restores ccy sessions after a reboot (ccy_restore_sessions: true) and
-          has a GitHub identity, so each restored session must unlock its SSH key with nobody
-          at the keyboard, from github_ssh_passphrase. It is missing, empty or spans several
-          lines. Set it with ./vault.bash set github_ssh_passphrase (the passphrase of the
-          ~/.ssh/github_* keys), or set ccy_restore_sessions: false.
+          The github_ssh_passphrase saved for unattended session restore is empty or spans
+          several lines, so a restored session could not unlock its SSH key with it. Remove
+          its block from localhost.yml and run this play again to be asked for it, or set
+          ccy_restore_sessions: false.
         quiet: true
-      no_log: true
       when: ccy_restore_ssh_unlock | bool
 
     - name: Create Claude YOLO Root Directory
@@ -1143,16 +790,27 @@
         mode: "0700"
 
     # In the owner-only directory above, beside the Claude tokens, readable by this user alone:
-    # the same boundary as the vault password file and the key itself.
+    # the same boundary as the vault password file and the key itself. A copy module's msg
+    # names the file and the error, never the content, so the rescue can print it.
     - name: Write The SSH Key Passphrase For Unattended Session Restore
-      ansible.builtin.copy:
-        content: "{{ github_ssh_passphrase }}"
-        dest: "{{ ccy_restore_ssh_passphrase_file }}"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0600"
-      no_log: true
       when: ccy_restore_ssh_unlock | bool
+      block:
+        - name: Write The SSH Key Passphrase For Unattended Session Restore
+          ansible.builtin.copy:
+            content: "{{ github_ssh_passphrase }}"
+            dest: "{{ ccy_restore_ssh_passphrase_file }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop Because The SSH Key Passphrase Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              Could not write {{ ccy_restore_ssh_passphrase_file }}:
+              {{ ansible_failed_result.msg | default('no reason given') }}. Sessions
+              restored after a reboot could not unlock their SSH key, so the restore unlock
+              is not set up. Fix the cause above and run the play again.
 
     - name: Ensure The Restore Unit's Drop-In Directory Exists
       ansible.builtin.file:
@@ -1286,51 +944,6 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0700"
-
-    - name: Calculate Dockerfile Hash for Build
-      ansible.builtin.shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
-      register: dockerfile_hash
-      changed_when: false
-
-    # `images -q` prints nothing (rc 0) for a missing tag, so a first build or a rebuild is told
-    # apart from a full cache hit by comparing the image ID before and after the build.
-    - name: Read Claude YOLO Image ID Before Build
-      ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
-      register: image_id_before
-      changed_when: false
-
-    # Under the image's build lock, the one every ccy launch takes (lib/image-build-lock.bash,
-    # Plan 00216): a launch started while the play builds waits for this build and uses it, and
-    # the play waits for a launch's build. The check is false: the play always builds.
-    - name: Build Claude YOLO Container Image with Hash
-      ansible.builtin.command:
-        argv:
-          - bash
-          - -c
-          - source "$0" && ccy_image_build_locked "$@"
-          - /var/local/claude-yolo/lib/image-build-lock.bash
-          - claude-yolo:latest
-          - "false"
-          - --
-          - "{{ container_engine }}"
-          - build
-          - --build-arg
-          - DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
-          - -t
-          - claude-yolo:latest
-          - /opt/claude-yolo
-      register: container_build
-      changed_when: false
-
-    - name: Detect Whether Claude YOLO Image Was Rebuilt
-      ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
-      register: image_id_after
-      changed_when: image_id_after.stdout != image_id_before.stdout
-
-    - name: Verify Container Image
-      ansible.builtin.command: "{{ container_engine }} image inspect claude-yolo:latest"
-      register: image_verify
-      changed_when: false
 
     # =========================================================================
     # Retired claude-browser artifact cleanup — remove all remnants of the retired claude-browser system

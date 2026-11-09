@@ -27,8 +27,8 @@ instead. The inner command runs in its own process group, killed on a timeout an
 process is cancelled (Claude Code cancels an in-flight render when a new one starts), so nothing
 it started outlives the render.
 
-Each team shows this session's member in it and its role, `👥 desktop: fedora-desktop.2 (c),
-other: fedora-desktop.2 (w)` (Plan 00217 SPEC-team-colours C15 to C18): the member's handle up to
+Each team shows this session's member in it and its role, `👥 desktop: example-repo.2 (c),
+other: example-repo.2 (w)` (Plan 00217 SPEC-team-colours C15 to C18): the member's handle up to
 its `+`, from the bundle, and the role's letter, read on every render from the team record the
 hooks' role notice reads (`inbox.cached_role`), so a role change shows at the next refresh with
 no restart. What cannot be read is `member?` or `(role?)`, never a guess, with one line on stderr
@@ -68,6 +68,10 @@ COMMAND = "pingbus status-line"
 KIT_COMMAND = "pingbus-status-line"
 #: Set for the inner status line, so a settings file that names this command cannot loop.
 INNER_VAR = "PINGBUS_STATUS_LINE_INNER"
+PROJECT_VAR = "CLAUDE_PROJECT_DIR"
+#: Shown instead of running a command that spells the project variable when no project is found.
+NO_PROJECT_NOTE = ("status line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an "
+                   "absolute path, and the payload has no absolute workspace.project_dir or cwd, so it was not run")
 SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
 SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -97,6 +101,8 @@ NO_MEMBERSHIP = "this session's membership is unreadable (pingbus status)"
 #: killed watcher left stops counting after DOWN_FRESH_S.
 DOWN_DIR = "down"
 DOWN_FRESH_S = 300.0
+#: The mark after the role of a team marked down; Plan 00203's M4 looks for it.
+DOWN_MARK = "(down)"
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 #: Shown in place of a role, and of this member's short name, that cannot be read (C16).
 ROLE_UNKNOWN = "role?"
@@ -459,7 +465,7 @@ def _team_piece(environ: Mapping[str, str], team: str, found: MemberRole, colour
     """`team: member (r)`, then each of its marks: the one order every team is shown in."""
     short, role = found
     letter = ROLE_LETTERS.get(role, ROLE_UNKNOWN) if role is not None else ROLE_UNKNOWN
-    marks = (" (down)" if _is_down(environ, team) else "") + (f" ({COLOUR_UNKNOWN})" if colour_unknown else "")
+    marks = (f" {DOWN_MARK}" if _is_down(environ, team) else "") + (f" ({COLOUR_UNKNOWN})" if colour_unknown else "")
     return f"{team}: {short or MEMBER_UNKNOWN} ({letter}){marks}"
 
 
@@ -507,7 +513,12 @@ def _inner(raw: bytes, payload: dict, environ: Mapping[str, str], run: Runner) -
         return f"{RED}status line: {exc}{RESET}"
     if command is None:
         return ""
-    text, status = run(command, raw, environ, _project_dir(payload, environ))
+    project = _project_dir(payload, environ)
+    if project is None and PROJECT_VAR in command:
+        return f"{RED}{NO_PROJECT_NOTE}{RESET}"
+    if project is not None and not environ.get(PROJECT_VAR, "").startswith("/"):
+        environ = dict(environ, **{PROJECT_VAR: str(project)})
+    text, status = run(command, raw, environ, project)
     text = text.rstrip("\n")
     if status == 0:
         return text

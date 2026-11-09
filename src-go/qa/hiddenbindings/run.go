@@ -41,6 +41,7 @@ const (
 const (
 	fixtureTree  = "tests/fixtures/hidden-bindings/"
 	shFixture    = fixtureTree + "fixture.bash"
+	escFixture   = fixtureTree + "esc-joined.bash"
 	pyFixture    = fixtureTree + "fixture.py"
 	helperModule = "helpers.qa_environment.textual_bindings"
 	fixtureMark  = "# finding"
@@ -152,7 +153,7 @@ func Main(args []string, env Env) ExitCode {
 		return code
 	}
 	return report(env, &failure{msg: fmt.Sprintf(
-		"%d action(s) reachable only by a key; make each a visible choice (CLAUDE/GoProjectRules.md, %s)", len(findings), Rule)}, false)
+		"%d finding(s): an action reachable only by a key (%s: make it a visible choice) or an Esc lost to the key after it (%s: bind every Esc-joined key to abort); CLAUDE/GoProjectRules.md", len(findings), Rule, EscRule)}, false)
 }
 
 func write(env Env, text string) ExitCode {
@@ -212,7 +213,11 @@ func (g *gate) shell(files []string) ([]Finding, error) {
 		if err != nil {
 			return nil, err
 		}
-		findings = append(findings, found...)
+		esc, err := ShellEscFindings(src, rel)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(append(findings, found...), esc...)
 	}
 	return findings, nil
 }
@@ -233,6 +238,17 @@ func (g *gate) prove(ctx context.Context) error {
 		return err
 	}
 	if markErr := matchMarks(shFixture, shSrc, shFound); markErr != nil {
+		return markErr
+	}
+	escSrc, err := g.read(escFixture)
+	if err != nil {
+		return err
+	}
+	escFound, err := ShellEscFindings(escSrc, escFixture)
+	if err != nil {
+		return err
+	}
+	if markErr := matchMarks(escFixture, escSrc, escFound); markErr != nil {
 		return markErr
 	}
 	pyFound, err := g.python(ctx, []string{pyFixture})

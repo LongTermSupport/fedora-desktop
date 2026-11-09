@@ -171,22 +171,52 @@ func encList(vs []Value) any {
 	return out
 }
 
-// compareResult checks a Go answer (value or *Error) against python's (value or exception):
-// the same value, or the same exception class with the same message.
+// compareResult is compareResultOn against the oracle's release, failing on t.
 func compareResult(t *testing.T, what string, got any, err error, r pyResult) {
 	t.Helper()
+	compareResultOn(t, pythonVersion(t), what, got, err, r)
+}
+
+// judge is the part of a test compareResultOn reports through.
+type judge interface {
+	Helper()
+	Errorf(format string, args ...any)
+	Logf(format string, args ...any)
+}
+
+// compareResultOn checks a Go answer (value or *Error) against python's (value or exception)
+// from release rel. On any 3.13: both accept with the same value, or both raise the same
+// class. The message (with its position) must match on the reproduced 3.13.5 only; on another
+// 3.13 a different one is logged with both releases named.
+func compareResultOn(j judge, rel pyRelease, what string, got any, err error, r pyResult) {
+	j.Helper()
 	if r.failed() {
 		var pe *Error
-		if !errors.As(err, &pe) || string(pe.Class) != r.Err || err.Error() != fromCPs(r.Msg) {
-			t.Errorf("%s: python %s, Go %.200v %v", what, pyErrText(r), got, err)
+		if !errors.As(err, &pe) || string(pe.Class) != r.Err {
+			j.Errorf("%s: python %s, Go %.200v %v", what, pyErrText(r), got, err)
+			return
 		}
+		if err.Error() == fromCPs(r.Msg) {
+			return
+		}
+		if rel == (pyRelease{oracleVersion[0], oracleVersion[1], reproducedPatch}) {
+			j.Errorf("%s: python %s, Go %v", what, pyErrText(r), err)
+			return
+		}
+		j.Logf("%s: python %d.%d.%d words it %q, the Go reproduces %d.%d.%d's %q (both raise %s)",
+			what, rel[0], rel[1], rel[2], string(r.Msg), oracleVersion[0], oracleVersion[1], reproducedPatch, err, r.Err)
 		return
 	}
 	if err != nil {
-		t.Errorf("%s: python %.200s, Go %v", what, r.OK, err)
+		j.Errorf("%s: python %.200s, Go %v", what, r.OK, err)
 		return
 	}
-	if !sameJSON(t, got, r.OK) {
-		t.Errorf("%s: python %.200s, Go %.200v", what, r.OK, got)
+	ok, cmpErr := sameJSONErr(got, r.OK)
+	if cmpErr != nil {
+		j.Errorf("%s: comparing: %v", what, cmpErr)
+		return
+	}
+	if !ok {
+		j.Errorf("%s: python %.200s, Go %.200v", what, r.OK, got)
 	}
 }

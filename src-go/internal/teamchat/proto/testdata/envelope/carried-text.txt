@@ -1,0 +1,13 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 1 notices, 0 timeouts): admin (NOTICE)
+<<teamchat 3f9c2a71 1/1>>
+kind: NOTICE (a message carried over from v1 by the admin)
+from: admin
+role: admin
+team: myteam
+to: this session, as myrepo.3+desk.lxc
+sent: 2026-10-21T13:02:11Z
+id: $ccccccccccccccccccccccccccccccccccccccccccc
+carried: myrepo.1+desk.podman, 2026-10-21T13:01:11Z
+authority: the admin's account of a message sent on v1 before the move; not a live request
+body: "please review the branch"
+<<end teamchat 3f9c2a71 1/1>>

@@ -25,7 +25,7 @@ func (noLxc) ReadCheckout(context.Context, string, string, string, string, strin
 	return "", errors.New("not asked")
 }
 
-func TestEveryRowsMenuOffersAddingAnLxcContainerWithNoHiddenKey(t *testing.T) {
+func TestEveryRowsMenuOffersAddingAnLxcContainer(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	for _, row := range r.snap.Rows {
@@ -33,13 +33,8 @@ func TestEveryRowsMenuOffersAddingAnLxcContainerWithNoHiddenKey(t *testing.T) {
 		if !slices.Contains(labels, "Add an LXC container's agent to alpha") {
 			t.Fatalf("%s: menu %q lacks the LXC action", row.Member, labels)
 		}
-		if footer := r.footerFor(row); !strings.Contains(footer, "add an LXC container to alpha via Enter") {
+		if footer := r.footerFor(row); !strings.Contains(footer, "add an LXC container to alpha") {
 			t.Fatalf("%s: footer %q", row.Member, footer)
-		}
-	}
-	for _, a := range r.actionsFor(h.row(t, r.snap, board.NoDescription)) {
-		if a.id == actLxc && a.key != "" {
-			t.Fatalf("%s is a menu line only, with no shortcut: %+v", actLxc, a)
 		}
 	}
 }

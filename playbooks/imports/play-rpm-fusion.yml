@@ -5,6 +5,7 @@
   become: true
   vars:
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
   tasks:
     # The dnf module accepts remote-URL rpms and is a no-op once installed, so the two
     # release packages no longer re-fetch rpmfusion.org headers on every main run.
@@ -19,7 +20,7 @@
         disable_gpg_check: true
 
     # Multimedia codec setup is a one-time operation; the creates guard skips the whole
-    # block (openh264 enable + multimedia group + intel-media-driver) after first run.
+    # block (openh264 enable + multimedia group) after first run.
     # The @core/@multimedia `dnf update` lines are intentionally dropped — play-AB-dnf-
     # upgrade.yml already brings every package to latest earlier in the same run.
     - name: Configure multimedia codecs (openh264 + multimedia group)
@@ -28,8 +29,20 @@
         set -x
         dnf -y config-manager setopt fedora-cisco-openh264.enabled=1
         dnf -y group install multimedia --allowerasing --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
-        dnf -y install intel-media-driver
         touch /var/local/.rpmfusion-multimedia-configured
       args:
         executable: /bin/bash
         creates: /var/local/.rpmfusion-multimedia-configured
+
+    # Intel GPU hardware video decode. RPM Fusion nonfree builds it for x86_64 (and i686)
+    # only, as the hardware is x86 only, so it is skipped by name on any other architecture.
+    - name: Install intel-media-driver (Intel GPUs; RPM Fusion has no aarch64 build, skipped there)
+      ansible.builtin.dnf:
+        name: intel-media-driver
+        state: present
+      when: ansible_facts['architecture'] == 'x86_64'
+
+    - name: Say intel-media-driver is skipped on this architecture (RPM Fusion builds it for x86 only)
+      ansible.builtin.debug:
+        msg: "intel-media-driver: RPM Fusion has no {{ ansible_facts['architecture'] }} build (Intel GPUs are x86 only); skipped"
+      when: ansible_facts['architecture'] != 'x86_64'

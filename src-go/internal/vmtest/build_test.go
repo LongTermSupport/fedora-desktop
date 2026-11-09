@@ -37,18 +37,19 @@ func (k *kit) serveMedia() string {
 	k.served = map[string]string{}
 	var probe strings.Builder
 	probe.WriteString("VMTEST-FRESHNESS-COMPOSE-ID Fedora-44-20261001.0\nVMTEST-FRESHNESS-REVISION " + testProbeRev + "\n")
-	probe.WriteString("VMTEST-FRESHNESS-TREE-URL everything https://dl.example.org/44/Everything/x86_64/os\n")
+	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[k.goarch]
+	probe.WriteString("VMTEST-FRESHNESS-TREE-URL everything https://dl.example.org/44/Everything/" + arch + "/os\n")
 	for _, a := range []struct{ base, file, variant string }{
 		{"server-fast-44", imageName, "Cloud"},
 		{"server-full-44", netinst, "Everything"},
 		{"desktop-44", netinst, "Everything"},
 		{"desktop-44", liveISO, "Workstation"},
 	} {
-		dir := "https://dl.example.org/44/" + a.variant + "/x86_64/"
+		dir := "https://dl.example.org/44/" + a.variant + "/" + arch + "/"
 		body := "media of " + a.file
 		k.served[dir+a.file] = body
 		entry := "SHA256 (" + a.file + ") = " + sum(body) + "\n"
-		if checksum := dir + "Fedora-" + a.variant + "-44-1.1-x86_64-CHECKSUM"; !strings.Contains(k.served[checksum], entry) {
+		if checksum := dir + "Fedora-" + a.variant + "-44-1.1-" + arch + "-CHECKSUM"; !strings.Contains(k.served[checksum], entry) {
 			k.served[checksum] += entry
 		}
 		probe.WriteString("VMTEST-FRESHNESS-ARTEFACT " + a.base + " " + a.file + " " + sum(body) + " label=44-1.1 variant=" + a.variant + " url=" + dir + a.file + "\n")
@@ -144,8 +145,7 @@ func TestE15FastBaseBuild(t *testing.T) {
 		t.Fatal("the record or the build directory is wrong")
 	}
 	order := []string{
-		"retention floor --path " + k.path("bases") + " --base-size 35 --step rebuild --guest-mib 4096",
-		"virsh -c qemu:///session dominfo vmtest-build-server-fast-44",
+		"virsh -c qemu:///session list --all --name",
 		"cp --reflink=auto " + k.path("images/"+imageName) + " " + k.path("bases/server-fast-44.build/disk.qcow2"),
 		"qemu-img resize -q " + k.path("bases/server-fast-44.build/disk.qcow2") + " 20G",
 		"--cloud-init clouduser-ssh-key=" + k.path(sshKeyFile) + ".pub,disable=on --graphics none --serial file,path=" + k.path("bases/server-fast-44.build/console.log") + " --noautoconsole",
@@ -220,20 +220,21 @@ func TestE15BuildRefusals(t *testing.T) {
 	}
 
 	k = buildKit(t)
-	k.fake.On(helperArgv("retention"), execx.Result{ExitCode: 1})
-	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
-	k.wantErr("ERROR: the host cannot carry a rebuild of server-fast-44 (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above")
-	if k.count("virt-install") != 0 {
-		t.Fatal("built past a refused floor")
-	}
-
-	k = buildKit(t)
 	k.lv.domains = []string{"vmtest-build-server-fast-44"}
 	k.write("bases/server-fast-44.build/console.log", "the last attempt")
 	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
 	k.wantErr("ERROR: a domain named vmtest-build-server-fast-44 already exists; a previous build did not clean up. Inspect it, then: virsh -c qemu:///session undefine --nvram vmtest-build-server-fast-44")
 	if k.read("bases/server-fast-44.build/console.log") != "the last attempt" || k.count("undefine") != 0 {
 		t.Fatal("a refused build touched the previous one")
+	}
+
+	// libvirt unreachable is a failure with its cause, never "no such domain".
+	k = buildKit(t)
+	k.fake.On([]string{"virsh", "-c", libvirtURI, "list"}, execx.Result{Stderr: []byte("error: failed to connect to the hypervisor\n"), ExitCode: 1})
+	k.wantCode(k.run("build-base", "server-fast"), term.ExitFailure)
+	k.wantErr("ERROR: virsh -c qemu:///session list failed: virsh exited 1: error: failed to connect to the hypervisor\n")
+	if k.count("virt-install") != 0 || k.count("cp --reflink") != 0 {
+		t.Fatal("a build ran without knowing whether its domain exists")
 	}
 
 	k = buildKit(t)
@@ -321,7 +322,7 @@ func TestE19FullServerBase(t *testing.T) {
 	k := buildKit(t)
 	k.wantCode(k.run("build-base", "server-full"), term.ExitOK)
 	render := k.mustCall("render_kickstart")
-	if !strings.Contains(render.Line(), "--template "+k.path(ksServer)+" --set SSH_PUBKEY=ssh-ed25519 AAAA vmtest-lab --set FEDORA_VERSION=44 --set TREE_URL=https://dl.example.org/44/Everything/x86_64/os") ||
+	if !strings.Contains(render.Line(), "--template "+k.path(ksServer)+" --set SSH_PUBKEY=ssh-ed25519 AAAA vmtest-lab --set FEDORA_VERSION=44 --set SERIAL_CONSOLE=ttyS0 --set TREE_URL=https://dl.example.org/44/Everything/x86_64/os") ||
 		strings.Contains(render.Line(), "--set-stdin") {
 		t.Fatalf("got %s", render.Line())
 	}
@@ -365,7 +366,7 @@ func TestE19InstallerFailures(t *testing.T) {
 	k = buildKit(t)
 	k.fake.On([]string{"blkid"}, execx.Result{Stdout: []byte("\n")})
 	k.wantCode(k.run("build-base", "server-full"), term.ExitFailure)
-	k.wantErr("ERROR: could not read the volume label of " + netinst)
+	k.wantErr("ERROR: could not read the volume label of " + netinst + ": it has none")
 	if k.count("--location") != 0 {
 		t.Fatal("installed without a stage-2 label")
 	}
@@ -382,7 +383,7 @@ func TestE19DesktopBaseSecrets(t *testing.T) {
 	if stdin != "LUKS_PASSPHRASE="+passphrase+"\nUSER_PASSWORD_CRYPT=$6$salt$crypt\n" {
 		t.Fatalf("render stdin %q", stdin)
 	}
-	if !strings.HasSuffix(render.Line(), "--set FEDORA_VERSION=44 --set-stdin") || strings.Contains(render.Line(), "TREE_URL") {
+	if !strings.HasSuffix(render.Line(), "--set FEDORA_VERSION=44 --set SERIAL_CONSOLE=ttyS0 --set-stdin") || strings.Contains(render.Line(), "TREE_URL") {
 		t.Fatalf("got %s", render.Line())
 	}
 	for _, c := range k.fake.Calls() {

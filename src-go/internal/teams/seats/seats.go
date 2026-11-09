@@ -79,7 +79,7 @@ func (s *Seats) AttachSeat(ctx context.Context, snap *board.Snapshot, row board.
 		return s.Kit.Refuse(ctx, row.Handle+" is a ccy member whose checkout is not known here, so there is no session to attach.")
 	}
 	if _, live := snap.Live[row.Session]; !live {
-		return s.Kit.Refuse(ctx, "Seat "+row.Label()+" in "+row.Team+" has no running session to attach. Ctrl-N starts one.")
+		return s.Kit.Refuse(ctx, "Seat "+row.Label()+" in "+row.Team+" has no running session to attach. Start a ccy session, on the row's menu, starts one.")
 	}
 	return s.AttachSession(ctx, snap, row.Session)
 }
@@ -204,12 +204,26 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 }
 
 // ToggleRestore turns on or off the restart after a reboot of the session holding a seat.
+// Turning it off asks first, default No (Plan 00177 Task 10.6); turning it on asks nothing.
 func (s *Seats) ToggleRestore(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	current, recorded := snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
-	if row.Kind != board.KindCcy || !recorded {
-		return s.Kit.Note(ctx, "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session.")
+	if !row.Kind.IsSession() || !recorded {
+		return s.Kit.Note(ctx, "Restore after a reboot is whether a seat's ccy session comes back after a reboot, and this row has no session.")
 	}
 	name := row.Record
+	if current {
+		ref := row.Member + "@" + row.Team
+		yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Restore off").About("seat "+ref+" · session "+name+" · in "+s.Kit.Abbrev(row.Dir)),
+			"Turn restore off for seat "+ref+"? Its session, "+name+", will not come back after a reboot: "+
+				"it stays down until it is started by hand. Start its session again after a reboot, on the seat's menu, turns restore on again.",
+			"turn restore off for "+ref, false)
+		if err != nil {
+			return flow.Done, err
+		}
+		if !yes {
+			return s.Kit.Note(ctx, "Nothing was changed: session "+name+" will still be started again after a reboot.")
+		}
+	}
 	store, err := s.Registry()
 	if err != nil {
 		s.Kit.Term.PrintError(err.Error())
@@ -238,9 +252,9 @@ func (s *Seats) RemoveOrPark(ctx context.Context, snap *board.Snapshot, row boar
 		return flow.Done, nil
 	case row.Kind == board.KindHuman:
 		return s.Kit.Note(ctx, "A team's people are its agent_bus_teams entry's humans: change them there, then ccy-teams apply "+row.Team+".")
-	case row.Kind == board.KindCcy && row.Dir != "-":
+	case row.Kind.IsSession() && row.Dir != "-":
 		return s.removeSeat(ctx, row)
-	case row.Kind == board.KindCcy && snap.Incomplete != "":
+	case row.Kind.IsSession() && snap.Incomplete != "":
 		return s.Kit.Note(ctx, row.Handle+" may be one of the seats that could not be read (above), so it is not parked here: "+
 			"remove it with agent-bus seat remove in its checkout.")
 	}

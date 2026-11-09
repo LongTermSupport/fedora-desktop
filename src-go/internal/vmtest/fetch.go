@@ -11,8 +11,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-const arch = "x86_64"
-
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func (c *cli) cmdFetch(ctx context.Context, args []string) (err error) {
@@ -56,11 +54,15 @@ func (c *cli) fetch(ctx context.Context, l *lab, b baseFacts, p *probe) ([]artef
 // fetchArtefact downloads one artefact and proves it against the signed CHECKSUM beside it.
 // The CHECKSUM's name is structured (variant, compose label, arch), so no listing is scraped.
 func (c *cli) fetchArtefact(ctx context.Context, l *lab, a artefact) error {
+	arch, archErr := c.guestArch()
+	if archErr != nil {
+		return archErr
+	}
 	dest := l.at(imagesDir, a.File)
 	if err := c.download(ctx, a.URL, dest); err != nil {
 		return err
 	}
-	checksumName := "Fedora-" + a.Variant + "-" + a.Label + "-" + arch + "-CHECKSUM"
+	checksumName := "Fedora-" + a.Variant + "-" + a.Label + "-" + arch.Fedora + "-CHECKSUM"
 	dir := a.URL[:strings.LastIndex(a.URL, "/")]
 	checksumFile := l.at(imagesDir, checksumName)
 	if err := c.download(ctx, dir+"/"+checksumName, checksumFile); err != nil {
@@ -120,7 +122,7 @@ func (c *cli) download(ctx context.Context, url, dest string) error {
 	}
 	args = append(args, url)
 	if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "curl", Args: args, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
-		return errors.Join(ctxErr(ctx, failf("download failed: %s", url)), removeIfPresent(partial))
+		return errors.Join(ctxErr(ctx, failf("download failed: %s: %v", url, err)), removeIfPresent(partial))
 	}
 	info, err := os.Stat(partial)
 	if err == nil && info.Size() > 0 {
@@ -166,13 +168,23 @@ func (c *cli) verifySigned(ctx context.Context, l *lab, file string) (err error)
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "gpg2", Args: []string{"--homedir", home, "--quiet", flagImport, key}})
 	if err != nil {
 		c.p.Print(c.env.Stderr, string(res.Stderr))
-		return ctxErr(ctx, failf("could not import %s", key))
+		return ctxErr(ctx, failf("could not import %s (%s)", key, exitCause(err)))
 	}
 	res, err = c.env.Runner.Run(ctx, execx.Cmd{Name: "gpg2", Args: []string{"--homedir", home, "--verify", file}})
 	if err != nil {
 		c.p.Print(c.env.Stderr, string(res.Stderr))
-		return ctxErr(ctx, failf("GPG signature verification FAILED for %s — refusing the artefact", filepath.Base(file)))
+		return ctxErr(ctx, failf("GPG signature verification FAILED for %s (%s) — refusing the artefact", filepath.Base(file), exitCause(err)))
 	}
 	c.logf("GPG signature verified on %s", filepath.Base(file))
 	return nil
+}
+
+// exitCause is a failed command's error without the stderr already printed above it.
+func exitCause(err error) string {
+	if exit, ok := errors.AsType[*execx.ExitError](err); ok {
+		bare := *exit
+		bare.Stderr = ""
+		return bare.Error()
+	}
+	return err.Error()
 }

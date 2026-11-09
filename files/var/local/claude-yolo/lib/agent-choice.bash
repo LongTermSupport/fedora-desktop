@@ -15,7 +15,8 @@
 # opencode launch carries no bus kit and no supervisor, and the options that need them are
 # refused. The image disables opencode's ctrl+z suspend instead (its /etc/opencode/tui.json).
 #
-# Requires print_error (common-pure.bash), container_cmd (common.bash) and the launcher's CCY_ROOT.
+# Requires print_error (common-pure.bash), ccy_network_policy_launch (network-policy.bash) and
+# the launcher's CCY_ROOT.
 
 CCY_AGENT=claude
 CCY_AGENT_KEYS=()
@@ -77,11 +78,12 @@ ccy_agent_command() {
     printf '%s\nExecuting %s with arguments:\n  %s\n%s\n\n' "$rule" "$title" "$shown" "$rule"
 }
 
-# ccy_agent_container <engine args...> — the engine with each provider key in its environment
+# ccy_agent_container <engine run args...> — the engine's run under the session's network policy
+# (ccy_network_policy_launch, lib/network-policy.bash), with each provider key in its environment
 # only: local -x ends with this function, so nothing the launcher starts afterwards has one. A
 # key that can no longer be read, or reads as blank, is 1: the session would start without it.
 # --debug's set -x is paused while a key is in a traced word (local - restores it on return), and
-# resumed for the engine call, whose argv holds the key's name only.
+# resumed for the run, whose argv holds the key's name only.
 ccy_agent_container() {
     local - name value traced=""
     [[ $- != *x* ]] || traced=1
@@ -94,5 +96,5 @@ ccy_agent_container() {
         local -x "$name=$value"
     done
     [ -z "$traced" ] || set -x
-    container_cmd "$@"
+    ccy_network_policy_launch "$@"
 }

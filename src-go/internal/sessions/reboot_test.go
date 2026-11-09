@@ -1,12 +1,15 @@
 package sessions
 
 import (
+	"context"
+	"math"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const canReboot = "busctl --system call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanReboot"
@@ -113,6 +116,18 @@ func TestRebootDryRunChecksEverythingAndDoesNothing(t *testing.T) {
 	}
 }
 
+// A countdown longer than a time.Duration holds would wrap negative and reboot at once
+// (project_duration_overflow): the one-minute wait refuses it instead of pausing.
+func TestAWaitPastADurationIsRefusedNotWrapped(t *testing.T) {
+	h := rebootReady(t)
+	h.app.cfg.Minute = math.MaxInt64 / 2
+	code, ends := h.app.secondWarning(context.Background(), &rebootRun{rebootParams: rebootParams{minutes: 4}})
+	if code != term.ExitFailure || !ends || len(h.pauses) != 0 {
+		t.Fatalf("code %v, ends %v, pauses %v", code, ends, h.pauses)
+	}
+	contains(t, "refused", h.stderr(), "cannot wait 3 minute(s)")
+}
+
 func TestRebootUsageMistakes(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -124,6 +139,8 @@ func TestRebootUsageMistakes(t *testing.T) {
 		{[]string{"reboot", "--in", ""}, "--in needs a number of minutes."},
 		{[]string{"reboot", "--in", "0"}, "--in needs a whole number of minutes, at least 1; got '0'."},
 		{[]string{"reboot", "--in", "x"}, "--in needs a whole number of minutes, at least 1; got 'x'."},
+		{[]string{"reboot", "--in", "10081"}, "--in takes at most 10080 minutes (a week); got '10081'."},
+		{[]string{"reboot", "--in", "153722867280913"}, "--in takes at most 10080 minutes (a week); got '153722867280913'."},
 		{[]string{"reboot", "--bogus"}, "unknown reboot option '--bogus'."},
 	}
 	for _, c := range cases {
@@ -224,11 +241,13 @@ func TestAWithdrawalThatFailsAtOneProjectStillReachesTheNext(t *testing.T) {
 	contains(t, "partial", h.stderr(), "some still expect the reboot")
 }
 
-func TestARefusedSystemctlExitsWithItsStatusAndWithdrawsWithoutCallingItCancelled(t *testing.T) {
+// systemctl's own code is said, not handed on: ccy-sessions documents 1 for a failure, and a
+// person's shell cannot name systemctl's 3 (project_child_exit).
+func TestARefusedSystemctlIsAFailureNamingItsStatusAndWithdrawsWithoutCallingItCancelled(t *testing.T) {
 	h := rebootReady(t)
 	p := h.p
 	systemctlRC(h, 3)
-	exitCodeIs(t, h.run("reboot", "--in", "1"), 3, h)
+	exitCodeIs(t, h.run("reboot", "--in", "1"), 1, h)
 	if h.count(cli(p.a)+" signal reboot-cancelled") != 1 || h.count(cli(p.b)+" signal reboot-cancelled") != 1 {
 		t.Fatalf("every warned project is told: %v", h.ran())
 	}

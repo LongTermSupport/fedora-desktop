@@ -16,18 +16,32 @@ func (c *Collector) List(ctx context.Context) term.ExitCode {
 	if err != nil {
 		return term.ExitFailure
 	}
-	if len(s.Rows) == 0 {
-		c.Out.Print(c.Stderr, "No agent teams on this machine yet. ccy-teams create starts one.\n")
+	if !c.sayUnshown(s) {
 		return term.ExitOK
-	}
-	if s.NeedSudo != "" {
-		c.Out.Print(c.Stderr, "The members of"+s.NeedSudo+" are not shown: reading them needs root. "+
-			"Run sudo -v first, or run play-agent-bus.yml once, which installs a rule that lets ccy-teams read them without a password.\n")
 	}
 	if err := c.printTable(s); err != nil {
 		c.Term.PrintError("the table could not be written: " + err.Error())
 		return term.ExitFailure
 	}
+	return verdict(s)
+}
+
+// sayUnshown says on stderr what a printout of s cannot show: that there is no team (false:
+// there is nothing to print), or which teams' members wait on sudo.
+func (c *Collector) sayUnshown(s *Snapshot) bool {
+	if len(s.Rows) == 0 {
+		c.Out.Print(c.Stderr, "No agent teams on this machine yet. ccy-teams create starts one.\n")
+		return false
+	}
+	if s.NeedSudo != "" {
+		c.Out.Print(c.Stderr, "The members of"+s.NeedSudo+" are not shown: reading them needs root. "+
+			"Run sudo -v first, or run play-agent-bus.yml once, which installs a rule that lets ccy-teams read them without a password.\n")
+	}
+	return true
+}
+
+// verdict is the exit code of a printout of s: a part that could not be read is a failure.
+func verdict(s *Snapshot) term.ExitCode {
 	if s.Incomplete != "" || s.NeedSudo != "" || membersUnreadable(s) {
 		return term.ExitFailure
 	}

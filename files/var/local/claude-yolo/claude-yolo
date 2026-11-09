@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.18"  # Container 2.79.9: no session starts on a token with no usage left (ccy-token-usable). See docs/ccy-changelog.md.
+CCY_VERSION="3.113.4"  # Container 2.80.1: --teams asks what to do with a team this machine lacks; every container ccy runs gets a bounded --pids-limit; the Go caches live on the host per project, bounded. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build agent-choice)
+CCY_LIBS=(token-handoff common host-paths token-management token-usable ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats image-build-lock image-build-prune image-build network-policy agent-choice launch-summary container-limits)
 
 # First, before anything that can end this launch: a GitHub token handed on by the launch
 # that started this one is taken, and its file deleted, at once; and the Go front's path, when
@@ -70,6 +70,8 @@ source "$SCRIPT_DIR/lib/network-management.bash"
 source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
 # shellcheck source=lib/docker-health.bash
 source "$SCRIPT_DIR/lib/docker-health.bash"
+# shellcheck source=lib/docker-network-cleanup.bash
+source "$SCRIPT_DIR/lib/docker-network-cleanup.bash"
 # shellcheck source=lib/session-registry.bash
 source "$SCRIPT_DIR/lib/session-registry.bash"
 # shellcheck source=lib/restart-request.bash
@@ -86,15 +88,22 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 source "$SCRIPT_DIR/lib/image-build-lock.bash"
 # shellcheck source=lib/image-build.bash
 source "$SCRIPT_DIR/lib/image-build.bash"
+# shellcheck source=lib/network-policy.bash
+source "$SCRIPT_DIR/lib/network-policy.bash"
 # shellcheck source=lib/agent-choice.bash
 source "$SCRIPT_DIR/lib/agent-choice.bash"
+# shellcheck source=lib/launch-summary.bash
+source "$SCRIPT_DIR/lib/launch-summary.bash"
+# shellcheck source=lib/container-limits.bash
+source "$SCRIPT_DIR/lib/container-limits.bash"
+ccy_container_limits || exit 1
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.79.9"
+REQUIRED_CONTAINER_VERSION="2.80.1"
 
 set -e
 
@@ -169,8 +178,10 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
-if [ "$1" = "--build-lock" ]; then
-    print_error "ccy --build-lock is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
+if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
+    "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
+    "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" ]]; then
+    print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi
 
@@ -228,16 +239,16 @@ Options:
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Put this session in agent team bus teams, one seat in each.
-                         Bare --teams chooses teams from a list with what each is for
-                         (Tab marks several); a team not covering this repository is
-                         widened only on a yes. The launch prints each team's seat, role
-                         and description; the status line shows 👥 A,B. With a team
-                         alone ccy asks the seat (lowest free is the default); name it
-                         (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
-                         to skip the question, as a launch with nobody to ask must. A
-                         seat is created on first use (sudo agent-bus add-member) and held
-                         by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
+                         Join agent team bus teams, one seat each. Bare --teams lists the
+                         teams and what each is for (Tab marks several); one not covering
+                         this repository is widened only on a yes. A team alone: ccy asks
+                         the seat (lowest free is the default), and offers to create a team
+                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
+                         quote a list with spaces) when nobody can be asked. A seat is made
+                         on first use (sudo agent-bus add-member), held by one session; the
+                         launch prints each seat, role and description (status line 👥 A,B).
+                         Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
+                         set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
                          in ccy's tmux is on no team but carries the kit idle (no hooks run,
                          its own status line, no inbox socket; joining a team relaunches it).
@@ -266,6 +277,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
@@ -307,8 +319,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as a table
-  ccy --token-usage --json      # The same, as one JSON document
+  ccy --token-usage [--json]    # Usage limits of every token, as bars or one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 
@@ -332,7 +343,7 @@ Token Management:
   Desktop Claude Code (~/.claude/) is NEVER modified
 
 Token usage report (ccy --token-usage [--json]):
-  One row per token name. A name with two files reports the earliest-dated one, the file
+  One entry per token name. A name with two files reports the earliest-dated one, the file
   'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
   A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
   the token menu shows (over 100 means past the limit). Token values are never printed.
@@ -409,7 +420,7 @@ EOF
         # The engine's own message is kept and shown: "help unavailable" on its
         # own tells the user nothing about WHY, and the reason (image broken,
         # engine not running, entrypoint missing) is what they need.
-        if claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             printf '%s\n' "$claude_help"
         else
             echo "Note: the image exists, but 'claude --help' would not run inside it."
@@ -434,14 +445,11 @@ if [ "$#" -eq 1 ] && [ "$1" = "--list-tokens" ]; then
     exit 0
 fi
 
-# `ccy --token-usage [--json]` prints every token's usage limits and exits (usage_report,
-# lib/token-management.bash). Here, before the repository check, the session registry, tmux
-# and every engine call: it needs none of them, and must work from a script with no terminal.
+# `ccy --token-usage [--json]` is the Go front's (src-go/internal/ccylaunch): it reaches this
+# bash launcher only under CCY_LEGACY, or run by its own path.
 if [ "$1" = "--token-usage" ]; then
-    shift
-    ccy_token_usage_rc=0
-    usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?
-    exit "$ccy_token_usage_rc"
+    print_error "--token-usage is answered by the Go front, /var/local/claude-yolo/claude-yolo; run that without CCY_LEGACY"
+    exit 1
 fi
 
 # Fail fast: Must be run from a git repository root
@@ -529,39 +537,26 @@ PROJECT_NAME=$(get_project_name)
 # Function to load last launch configuration for current project
 # Returns 0 if valid config loaded, 1 if no config or invalid
 load_launch_config() {
-    local ccy_root="$1"
-    local config_file="$ccy_root/.last-launch.conf"
+    local config_file="$1/.last-launch.conf" saved key value
+    [[ -f "$config_file" ]] || return 1  # No config, use interactive
 
-    # Check if config exists
-    if [[ ! -f "$config_file" ]]; then
-        return 1  # No config, use interactive
-    fi
-
-    # Source config. `source=/dev/null` states a fact rather than silencing a
-    # check: .last-launch.conf is user runtime state written at launch, not a
-    # file in this repo, so there is nothing for shellcheck to follow. The
-    # failure IS handled — the `||` branch below reports and resets it. What the file does
-    # not set must not come from the environment, so the keys are cleared first.
-    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_LAUNCH_DATE
-    # shellcheck source=/dev/null
-    source "$config_file" 2>/dev/null || {
-        echo "Warning: Config file corrupted, reconfiguring..." >&2
-        rm -f "$config_file"
-        return 1
-    }
+    # The Go front reads the file strictly (F16) and hands back KEY<TAB>value lines, never
+    # code to run. A file it cannot read is said, with its cause, and kept: this launch asks
+    # again, and a headless one is refused for want of saved choices. What the file does not
+    # set must not come from the environment, so the keys are cleared first. An empty file
+    # gives one empty line, which ends the loop.
+    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_TEAM_ROLES LAST_LAUNCH_DATE
+    saved=$("$SCRIPT_DIR/claude-yolo" --read-launch-config "$config_file") ||
+        { echo "The saved launch configuration was not read (above); it is kept. Reconfiguring..." >&2; return 1; }
+    while IFS=$'\t' read -r key value && [[ -n "$key" ]]; do printf -v "$key" '%s' "$value"; done <<<"$saved"
 
     # The format decides whether the saved choices can be read, not the ccy version that
     # wrote them. A file with no format line was not written by ccy and is not trusted.
     if [[ "${SAVED_CONFIG_VERSION:-none}" != "$CONFIG_VERSION" ]]; then
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "⚠️  Saved launch configuration is in another format" >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Saved format:  ${SAVED_CONFIG_VERSION:-none}" >&2
-        echo "This ccy reads format ${CONFIG_VERSION}" >&2
-        echo "" >&2
-        echo "Reconfiguring with interactive prompts..." >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "" >&2
+        local rule="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf '%s\n' "$rule" "⚠️  Saved launch configuration is in another format" "$rule" \
+            "Saved format:  ${SAVED_CONFIG_VERSION:-none}" "This ccy reads format ${CONFIG_VERSION}" "" \
+            "Reconfiguring with interactive prompts..." "$rule" "" >&2
         rm -f "$config_file"
         return 1
     fi
@@ -642,7 +637,7 @@ HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
 # A saved team a Quick Launch with no bus kit leaves alone, written back for the next launch.
-NO_BUS_MODE=false quick_kept_team=""
+NO_BUS_MODE=false quick_kept_team="" quick_roles="" quick_summary=false
 PROMPT_TEXT=""
 NEXT_IS_MAX_AGE=false
 NEXT_IS_RUN_FOR=false
@@ -962,7 +957,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
     if [ -z "$claude_help" ] && container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
-        if ! claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+        if ! claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
             print_error "Could not run 'claude --help' in $IMAGE_NAME to validate flags"
             echo "$claude_help" >&2
             exit 1
@@ -1156,18 +1151,10 @@ if [ "$EXPORT_TOKEN_MODE" = true ]; then
     exit $?
 fi
 
-# Handle connect and disconnect modes (neither needs SSH/GH setup). Both at once would
-# attach and detach in one breath, so it is refused rather than one silently winning.
-if [ "$CONNECT_MODE" = true ] && [ "$DISCONNECT_MODE" = true ]; then
-    print_error "--connect and --disconnect cannot be used together"
-    exit 1
-fi
-if [ "$DISCONNECT_MODE" = true ]; then
-    disconnect_from_network "$DISCONNECT_NETWORK" "_yolo" "ccy"
-    exit $?
-fi
-if [ "$CONNECT_MODE" = true ]; then
-    connect_to_network "$CONNECT_NETWORK" "_yolo" "ccy"
+# Handle connect and disconnect modes (neither needs SSH/GH setup); the live sessions' network
+# policies follow (lib/network-policy.bash).
+if [ "$CONNECT_MODE" = true ] || [ "$DISCONNECT_MODE" = true ]; then
+    ccy_network_change "$CONNECT_MODE" "$DISCONNECT_MODE" "$CONNECT_NETWORK" "$DISCONNECT_NETWORK"
     exit $?
 fi
 
@@ -1262,23 +1249,18 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
-        # A restore takes the saved configuration without asking: it is the one the person
-        # last chose in this project, and the only evidence of what they want. So does a
-        # headless launch, whose stdin is the session's own input. Unasked (end of input
-        # included), the saved team is not taken: only --teams or a person's yes joins one
-        # (Plan 00161 M2.9).
-        quick_unasked="" quick_team="$LAST_TEAMS"
-        if [ "$SESSION_RESTORE" = true ]; then quick_unasked="Session restore" quick_team=""
-        elif [ "$HEADLESS_MODE" = true ]; then quick_unasked="Headless launch" quick_team=""
-        elif ccy_nobody_to_ask; then quick_unasked="No terminal to ask on" quick_team=""
-        elif [ "$NO_BUS_MODE" = true ]; then quick_team="" quick_kept_team="$LAST_TEAMS" # --no-bus/--opencode: on no team, the saved one kept
-        fi
-        ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
+        ccy_quick_mode
+        [ "$quick_summary" = true ] || ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
         echo ""
 
         while true; do
-            [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
-                quick_unasked="No answer (end of input)"
+            if [ "$quick_summary" = true ]; then
+                ccy_launch_summary
+                use_config=y
+            else
+                [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
+                    quick_unasked="No answer (end of input)"
+            fi
             if [ -n "$quick_unasked" ]; then
                 echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+" but not its team (only --teams joins one)"}."
                 use_config=unasked
@@ -1305,18 +1287,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
                         [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
                     fi
-                    # Headless, an empty saved choice is that choice (no key, no network),
-                    # never the picker it would otherwise fall through to; a saved launch
-                    # with no token cannot be replayed.
-                    if [ "$HEADLESS_MODE" = true ]; then
-                        if [[ -z "$LAST_TOKEN" ]]; then
-                            print_error "Headless launch: the saved Quick Launch choices name no token, and a headless launch never asks for one."
-                            echo "  Launch with --token NAME (and --ssh-key, --ssh-agent or --no-ssh)." >&2
-                            exit 1
-                        fi
-                        [[ -n "$LAST_SSH_KEYS" ]] || NO_SSH_MODE=true
-                        [[ -n "$LAST_NETWORK" ]] || NO_NETWORK_MODE=true
-                    fi
+                    ccy_quick_mode headless
                     break
                     ;;
                 N|n|No|no)
@@ -1654,14 +1625,17 @@ if [ "$TOKEN_BYTES" -lt 90 ] || [ "$TOKEN_BYTES" -gt 120 ]; then
     TOKEN_VALIDATION_FAILED=true
     VALIDATION_FAILURE_REASON="length"
 else
-    # Validate token against Claude API (sanity check for corruption)
+    # Only a refusal by the API (3) is an invalid token. A check that could not run stops the
+    # launch with its cause: nothing is known about the token, and the session needs the same
+    # engine, image and API.
     echo "Validating token..."
-    if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
-        TOKEN_VALIDATION_FAILED=true
-        VALIDATION_FAILURE_REASON="api"
-    else
-        echo "✓ Token validated successfully"
-    fi
+    check_rc=0
+    validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME" || check_rc=$?
+    case "$check_rc" in
+    0) echo "✓ Token validated successfully" ;;
+    3) TOKEN_VALIDATION_FAILED=true; VALIDATION_FAILURE_REASON="api" ;;
+    *) print_error "Token $(basename "$SELECTED_TOKEN") was not checked (above); it is kept. Fix the cause and launch again."; exit 1 ;;
+    esac
 fi
 
 # Handle token validation failure with unified recovery UI
@@ -1694,21 +1668,12 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
         echo "The token has valid format, but does not authenticate with Claude API."
     fi
 
-    echo ""
-    echo "Common causes:"
-    echo "  • Token file corrupted (truncated, extra characters, etc.)"
-    echo "  • Token was manually edited incorrectly"
-    echo "  • Token was revoked on Claude's side"
-    echo "  • File was damaged (filesystem issue, interrupted write, etc.)"
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Recovery options:"
-    echo ""
-    echo "  1) Recreate token (same name: '$token_name')"
-    echo "  2) Select different token"
-    echo "  3) Exit and fix manually"
-    echo ""
+    printf '%s\n' "" "Common causes:" "  • Token file corrupted (truncated, extra characters, etc.)" \
+        "  • Token was manually edited incorrectly" "  • Token was revoked on Claude's side" \
+        "  • File was damaged (filesystem issue, interrupted write, etc.)" "" \
+        "════════════════════════════════════════════════════════════════════════════════" "" \
+        "Recovery options:" "" "  1) Recreate token (same name: '$token_name')" \
+        "  2) Select different token" "  3) Exit and fix manually" ""
 
     if ccy_nobody_to_ask; then
         ccy_prompt_refuse token-recovery "Check it with ccy --list-tokens, or launch with another --token NAME."
@@ -1755,11 +1720,13 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                     exit 1
                 fi
 
-                if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
-                    print_error "Selected token also failed validation"
-                    echo "Please check your tokens or create a new one with: ccy --create-token"
-                    exit 1
-                fi
+                check_rc=0
+                validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME" || check_rc=$?
+                case "$check_rc" in
+                0) ;;
+                3) print_error "The API refused the selected token too. Check your tokens or create one with: ccy --create-token"; exit 1 ;;
+                *) print_error "The selected token was not checked (above); it is kept. Fix the cause and launch again."; exit 1 ;;
+                esac
 
                 echo "✓ Selected token validated successfully"
                 echo ""
@@ -1832,7 +1799,8 @@ if [ "$HEADLESS_MODE" = true ]; then
     CCY_NO_CONTAINER_PROMPTS=true
 fi
 
-# A menu answered q (1) is the person's choice to stop; one that got no answer (2) is a failure.
+# A menu answered q (1) is the person's choice to stop; one that got no answer, or whose
+# containers could not be listed or stopped (2), is a failure.
 ccy_container_menu_exit() {
     local rc="$1"
     [ "$rc" -eq 0 ] && return 0
@@ -1904,37 +1872,18 @@ auto_update_claude_code() {
     echo "Checking for Claude Code updates (daily, image: $image_name)..."
     mkdir -p "$cache_dir"
 
-    # Bundled version in THIS image. `claude --version` → "X.Y.Z (Claude Code)".
-    #
-    # The `|| echo "unknown"` this replaces never fired. There is no `pipefail`
-    # here, so the pipeline's status is `head`'s — and `head -1` succeeds on
-    # empty input. A container that would not start therefore produced an EMPTY
-    # version, not "unknown", which walked straight past the offline guard below:
-    # two empty versions compare equal and printed "✓ Claude Code is up to date
-    # ()", and one empty version started an in-place npm update against a version
-    # nothing had read. Capture the command's own status, then require a value.
-    local container_version="" version_probe
-    if version_probe=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>&1); then
-        container_version=$(printf '%s\n' "$version_probe" | grep -oP '\d+\.\d+\.\d+' | head -1)
-    fi
-    [ -n "$container_version" ] || container_version="unknown"
-
-    # Latest published version (npm registry API, no npm CLI required).
-    local latest_version="" registry_probe
-    if registry_probe=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>&1); then
-        latest_version=$(printf '%s\n' "$registry_probe" | grep -oP '"version":\s*"\K[^"]+' | head -1)
-    fi
-    [ -n "$latest_version" ] || latest_version="unknown"
-
-    # Could not determine a version (offline / registry hiccup). Stamp so we do
-    # not re-probe every launch today, and proceed on the existing image.
+    # The image's version and the registry's latest, from the Go front, which says on
+    # stderr which could not be read and why. Stamp so we do not re-probe every launch
+    # today, and proceed on the existing image.
     # FAIL-FAST-OK: optional launch-time convenience — auto-update must never
-    # block starting Claude when the network is down.
-    if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
-        echo "⚠ Could not determine Claude Code version (offline?) — skipping update check for today" >&2
+    # block starting Claude; the cause has been said.
+    local versions container_version latest_version
+    if ! versions=$("$SCRIPT_DIR/claude-yolo" --claude-versions "$CONTAINER_ENGINE" "$image_name"); then
+        echo "⚠ Skipping the Claude Code update check for today: the versions could not be read (above)" >&2
         touch "$cache_file"
         return 0
     fi
+    read -r container_version latest_version <<<"$versions"
 
     # Already current → NOOP. Refresh the daily stamp and move on.
     if [ "$container_version" = "$latest_version" ]; then
@@ -1995,7 +1944,7 @@ update_claude_inplace() {
     # Claude Code, so an updated binary is protected the moment it starts and
     # this path no longer has a version-churn failure mode to compensate for.
     if ! container_cmd run \
-        --name "$temp_name" \
+        --name "$temp_name" --pids-limit "$CCY_PIDS_LIMIT" \
         --entrypoint sh \
         "$image_name" \
         -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'; then
@@ -2008,7 +1957,7 @@ update_claude_inplace() {
     # the container is always cleaned up.
     if ! container_cmd commit \
         --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' \
-        --change 'CMD ["claude", "--help"]' \
+        --change 'CMD ["claude", "--help"]' --change "LABEL ccy-version=${CCY_VERSION:?}" \
         "$temp_name" "$image_name" >/dev/null; then
         remove_temp_container "$temp_name"
         print_error "Failed to commit updated image $image_name"
@@ -2175,7 +2124,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             set -o pipefail
             DOCKER_BUILDKIT=1 container_cmd build \
                 --build-arg BUILDKIT_INLINE_CACHE=1 \
-                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
+                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" --label "ccy-version=${CCY_VERSION:?}" \
                 -t "$PROJECT_IMAGE_NAME" \
                 -f "$PROJECT_DOCKERFILE" \
                 . 2>&1 | tee "$build_log" || return
@@ -2466,13 +2415,8 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "SSH agent forwarded: ${SSH_AGENT_FORWARDED:-0}"
     echo "SSH alias stanza: ${SSH_CONFIG_EXTRA_B64:+yes} pins: ${SSH_KNOWN_HOSTS_PINS:-none}"
     echo ""
-    echo "Docker command (simplified):"
-    echo "  $CONTAINER_ENGINE run -it --rm \\"
-    echo "    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\"
-    echo "    -v $PWD:/workspace \\"
-    echo "    ... (other mounts) ..."
-    echo "    $IMAGE_NAME \\"
-    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[*]}"
+    printf 'Docker command (simplified):\n  %s run -it --rm --pids-limit %s \\\n    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\\n    -v %s:/workspace \\\n    ... (other mounts) ...\n    %s \\\n    claude --dangerously-skip-permissions %s\n' \
+        "$CONTAINER_ENGINE" "$CCY_PIDS_LIMIT" "$PWD" "$IMAGE_NAME" "${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
     cat <<EOF
 
@@ -2504,6 +2448,7 @@ fi
 # Mounts:
 # - /workspace: Project directory (includes .claude/ for ALL state)
 # - /tmp/claude-config-import: Git configuration
+# - /var/cache/ccy-go: the project's Go caches (a host directory under ~/.cache/ccy; see below)
 #
 # No credentials mounted - token via environment variable
 
@@ -2525,24 +2470,24 @@ DOCKER_MOUNTS=(
 # tokens exported by helper wrappers (e.g. scripts/desktop-symlinks) that want
 # extra read-only debug mounts. Previously this variable was advertised but never
 # read, so the promised mounts silently never appeared. Split on whitespace into
-# the mount array (mount paths therefore must not contain spaces).
-if [ -n "${CCY_EXTRA_MOUNTS:-}" ]; then
-    read -ra _extra_mounts <<< "$CCY_EXTRA_MOUNTS"
-    DOCKER_MOUNTS+=("${_extra_mounts[@]}")
-    debug "Added ${#_extra_mounts[@]} CCY_EXTRA_MOUNTS token(s) to DOCKER_MOUNTS"
-fi
+# the mount array (mount paths therefore must not contain spaces). Unset, it adds nothing.
+read -ra _extra_mounts <<< "${CCY_EXTRA_MOUNTS:-}"
 
 # Tracked per-project binds from .claude/ccy/mounts. Validated line by line;
 # any problem aborts here, before a container exists (see load_project_mounts).
 load_project_mounts || exit 1
-if [ "${#PROJECT_MOUNTS[@]}" -gt 0 ]; then
-    DOCKER_MOUNTS+=("${PROJECT_MOUNTS[@]}")
-    debug "Added ${#PROJECT_MOUNTS[@]} project mount token(s) to DOCKER_MOUNTS"
-fi
+DOCKER_MOUNTS+=("${_extra_mounts[@]}" "${PROJECT_MOUNTS[@]}")
 
 # This checkout's ccy.env.local is the install's own (placed by its IaC): read-only inside.
 ccy_env_local_mount_args || exit 1
 DOCKER_MOUNTS+=("${CCY_ENV_LOCAL_MOUNT[@]}")
+
+# The project's Go caches live on the host (~/.cache/ccy/<project>/go, bounded there), not in
+# the writable layer that --rm would delete file by file at exit: the bind and the GOCACHE,
+# GOMODCACHE, GOLANGCI_LINT_CACHE and GOQA_TOOLS_DIR it serves, one argument per line
+# (ccy-teams --help, internal go-cache).
+CCY_GO_CACHE_ARGS=$(ccy-teams internal go-cache "$PROJECT_NAME" ${CCY_MOUNT_RELABEL:+"$CCY_MOUNT_RELABEL"}) || exit 1
+mapfile -t _go_cache_args <<< "$CCY_GO_CACHE_ARGS"; DOCKER_MOUNTS+=("${_go_cache_args[@]}")
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
 # This keeps everything project-local and gitignored, while maintaining ephe meral containers
@@ -2662,10 +2607,11 @@ elif [[ "$NO_NETWORK_MODE" = true ]]; then
     # --no-network flag provided
     echo "✓ Skipping network connection (--no-network flag)"
     echo ""
-elif [[ -n "$CCY_RESTART_RELAUNCH_SESSION" ]]; then
-    # A restart with neither flag: the session joined no project network, so the relaunch
-    # joins none either, without the detection and offers below.
-    echo "✓ No project network (the session had none before its restart)"
+elif [[ -n "$CCY_RESTART_RELAUNCH_SESSION" || "${CCY_NO_PROJECT_NETWORK:-}" = true ]]; then
+    # A restart with neither flag, or a headless replay of a saved launch with no network: the
+    # session joined no project network, so this launch joins none either, without the
+    # detection and offers below, and goes on the default network.
+    echo "✓ No project network (the launch this replays had none)"
     echo ""
 else
     # No network flags - check for persisted network preference first
@@ -2818,38 +2764,11 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         case "$prune_choice" in
                             a|A)
-                                echo "Stopping containers and removing project networks..."
-                                # Stop containers on these networks first
-                                for net in "${DOCKER_NETWORKS[@]}"; do
-                                    # Get containers attached to this network.
-                                    # An inspect that fails used to read as "no
-                                    # containers attached", so nothing was
-                                    # stopped and the network removal below then
-                                    # failed for a reason the user never saw.
-                                    if ! containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1); then
-                                        echo "    ⚠ Could not inspect $net — its containers were NOT stopped: $containers"
-                                        containers=""
-                                    fi
-                                    if [[ -n "$containers" ]]; then
-                                        echo "  Stopping containers on $net: $containers"
-                                        read -ra _ctrs <<< "$containers"
-                                        if ! docker stop "${_ctrs[@]}" >/dev/null 2>/dev/null; then
-                                            echo "    ⚠ Some containers could not be stopped (continuing)"
-                                        fi
-                                    fi
-                                    echo "  Removing network: $net"
-                                    docker network rm "$net" 2>/dev/null && echo "    ✓ Removed" || echo "    ⚠ Could not remove (may still have containers)"
-                                done
+                                ccy_docker_network_cleanup project "${DOCKER_NETWORKS[@]}" || exit 1
                                 break
                                 ;;
                             b|B)
-                                echo "Stopping all Docker containers..."
-                                if ! docker ps -q | xargs -r docker stop >/dev/null 2>/dev/null; then
-                                    echo "  ⚠ Some containers could not be stopped (continuing)"
-                                fi
-                                echo "Pruning all unused Docker networks..."
-                                docker network prune -f
-                                echo "✓ Docker networks pruned"
+                                ccy_docker_network_cleanup all || exit 1
                                 break
                                 ;;
                             *)
@@ -2946,7 +2865,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                             echo ""
                             echo "Install with:"
                             echo "  pip install podman-compose"
-                            echo "  # Or: ansible-playbook playbooks/imports/optional/common/play-podman.yml"
+                            echo "  # Or: ansible-playbook playbooks/imports/play-podman.yml"
                             echo ""
                             echo "Then run: podman-compose up -d"
                             COMPOSE_ALREADY_HANDLED=true
@@ -3359,11 +3278,16 @@ if [[ -n "${CCY_SKIP_NETWORK_PREFLIGHT:-}" ]]; then
 elif [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
     echo "Verifying network '$SELECTED_NETWORK' has internet access..."
 
-    # Test with google.com (simpler, more reliable than api.anthropic.com which needs proper TLS)
-    if container_cmd run --rm --network "$SELECTED_NETWORK" alpine wget -q -O- --timeout=10 http://google.com >/dev/null 2>&1; then
+    # The Go front's probe: 0 reached, 4 the network reached nothing, else it could not be run.
+    if "$SCRIPT_DIR/claude-yolo" --check-network "$CONTAINER_ENGINE" "$SELECTED_NETWORK"; then
         echo "✓ Network '$SELECTED_NETWORK' has internet access"
         echo ""
     else
+        network_rc=$?
+        if [ "$network_rc" -ne 4 ]; then
+            print_error "The network check could not be run (above), so nothing is known about '$SELECTED_NETWORK'."
+            exit 1
+        fi
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "❌ NETWORK ERROR: '$SELECTED_NETWORK' has no internet access"
@@ -3445,6 +3369,9 @@ if [[ -n "$SELECTED_TOKEN" ]]; then
 fi
 
 # Save configuration for next launch (the seats are the canonical --teams list, or empty)
+# The remembered roles are those of the teams the summary showed; any other team list forgets them.
+quick_saved_list="${CCY_SEATS:-${quick_kept_team:-}}"
+[ -n "$quick_saved_list" ] && [ "$quick_saved_list" = "${quick_team:-${quick_kept_team:-}}" ] || quick_roles=""
 cat > .claude/ccy/.last-launch.conf <<EOF
 # CCY Launch Configuration
 # Config Version: ${CONFIG_VERSION}
@@ -3458,6 +3385,7 @@ LAST_TOKEN="${TOKEN_NAME_FOR_CONFIG}"
 LAST_SSH_KEYS="${SSH_KEYS[*]}"
 LAST_NETWORK="${AUTO_CONNECT_NETWORK}"
 LAST_TEAMS="${CCY_SEATS:-${quick_kept_team:-}}"
+LAST_TEAM_ROLES="${quick_roles}"
 LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
 EOF
 chmod 600 .claude/ccy/.last-launch.conf
@@ -3861,6 +3789,11 @@ ccy_lifecycle_finalize || exit 1
 # an `export` line in a project's .claude/ccy/ccy.env, which the entrypoint sources after
 # this environment is in place. See docs/ccy.md.
 #
+# CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1 removes the critical-path `rm` prompt
+# that bypassPermissions mode still shows. Always set, and for ccy only: the container is the
+# isolation boundary. Host cc has no such boundary and never sets it (cc-claude, pinned by a
+# test). A container `-e` reaches claude through the entrypoint's exec, so no image change.
+#
 # `set -e` would turn the container's exit status into this script's before the restart
 # check below could look at it, so capture it. Any status other than 75 is passed straight
 # through, as it always was.
@@ -3877,7 +3810,7 @@ container_rc=0
 # BSH-09: the secrets go by env NAME (-e VAR, no '=value'), never in the `podman run` argv
 # (world-readable in /proc/<pid>/cmdline), set in this one command's environment only, as are
 # an opencode launch's provider keys (ccy_agent_container, lib/agent-choice.bash).
-CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm \
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
     --label "ccy-project=$PROJECT_NAME" \
@@ -3910,7 +3843,7 @@ CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_con
     -e "CCY_LIFECYCLE_DEADLINE_EPOCH=${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" \
     -e "CCY_LIFECYCLE_WARN_MINUTES=${CCY_LIFECYCLE_WARN_MINUTES:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
-    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" \
+    -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" -e "CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \

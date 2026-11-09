@@ -31,6 +31,8 @@ type scenario struct {
 	// reboot is the raw value of reboot_before_checks, and whether the key is there at all.
 	reboot    any
 	hasReboot bool
+	// optionalPlays is what a consumer install picks at the optional-app menu, in order.
+	optionalPlays []string
 }
 
 // shape is the manifest as the cross-checks read it.
@@ -91,6 +93,20 @@ func readScenario(id string, raw any, profiles map[string]string) (scenario, err
 		sc.planned = &planned
 	default:
 		return scenario{}, fmt.Errorf("the validator accepted the manifest but scenario %q has planned %v, which is neither an integer nor null", id, planned)
+	}
+	if raw, has := entry["optional_plays"]; has {
+		plays, isList := raw.([]any)
+		for _, p := range plays {
+			name, isName := p.(string)
+			if !isName {
+				isList = false
+				break
+			}
+			sc.optionalPlays = append(sc.optionalPlays, name)
+		}
+		if !isList {
+			return scenario{}, fmt.Errorf("the validator accepted the manifest but scenario %q has optional_plays %v, which is not a list of names", id, raw)
+		}
 	}
 	return sc, nil
 }

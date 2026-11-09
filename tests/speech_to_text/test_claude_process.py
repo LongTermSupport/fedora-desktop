@@ -13,6 +13,7 @@ Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -103,6 +104,15 @@ class ClaudeProcessTest(unittest.TestCase):
         self.assertEqual(result.stdout, "", "the raw text must never stand in for Claude's")
         self.assertIn("Not logged in", result.stderr)
         self.assertIn("as the desktop login", result.stderr)
+
+    def test_no_claude_says_post_processing_needs_the_developer_install(self):
+        """A consumer install (Plan 00228) has no claude and no ccy: the item says so plainly."""
+        self.chooser()
+        (self.bin / "claude").unlink()
+        result = self.run_script()
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("only the developer install has", result.stderr)
+        self.assertIn("plain dictation (Insert) works without it", result.stderr)
 
     def test_an_empty_answer_fails(self):
         self.chooser()
@@ -222,8 +232,12 @@ class ClaudeProcessTest(unittest.TestCase):
         self.chooser(seconds=3)
         result = self.run_script(budget=2)
         self.assertEqual((result.returncode, result.stdout), (1, ""))
-        self.assertRegex(result.stderr, r"choosing the token took [3-9] s of the 2 s this run has; "
-                         r"claude was not run")
+        # No upper bound on the time taken: a stalled or loaded machine stretches the 3 s
+        # chooser, and only "at least the 3 s it slept" is a fact of the code.
+        took = re.search(r"choosing the token took (\d+) s of the 2 s this run has; "
+                         r"claude was not run", result.stderr)
+        self.assertIsNotNone(took, result.stderr)
+        self.assertGreaterEqual(int(took.group(1)), 3, result.stderr)
         self.assertFalse((self.home / "claude-saw-token").exists())
 
 

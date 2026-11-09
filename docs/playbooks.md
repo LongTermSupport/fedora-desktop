@@ -54,9 +54,21 @@ on this machine and needs to run again, asks once whether to go ahead, then runs
 the order `playbook-main.yml` imports them (optional plays last) and stops at the first
 failure. If sudo needs a password, each play asks for it, as it does when run on its own. A
 play needs to run again when its own file, or any file it deploys, has changed since the
-commit it last ran from. It also runs again when its last run failed, or when that run
-came from a checkout with uncommitted changes, so while the checkout stays dirty it
-offers the same plays each time, and it warns about this before it asks. A removed play
+commit it last ran from. For a play that builds a Go command from `src-go/`, that includes
+every Go package the command imports, so a change to a shared package such as
+`src-go/internal/ui` makes every play building a command that uses it run again. Every play
+loads `environment/localhost/group_vars/desktop.yml`, so a change there is judged a variable
+at a time: a variable changed, added or removed (or one whose value uses such a variable)
+makes a play run again only when the variable's name appears, as a whole word, in the play's
+own file or a file it includes, templates, copies or runs (`helpers/play_ledger/group_vars.py`
+has the full rule). Before the
+list, it says why each play runs, one line each: the changed paths, the changed Go
+packages by package with the commands built from them, such as
+`src-go/internal/ui (built into podfreeze)`, and the changed variables it reads. It also runs again when its last run failed, or when one of
+its inputs (or the group_vars file) was uncommitted during that run: each run records which
+paths were uncommitted, so a stray file no play reads makes no play run again. A record
+that cannot name them all (one from before they were recorded, or more than 50) counts as
+any input. It warns about this before it asks. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
@@ -102,6 +114,15 @@ Self-Guard"). On a server, GUI-only plays end via their guard and a handful of
 `general` plays skip their one or two GUI-only tasks (e.g. `play-vpn.yml`'s
 `NetworkManager-openvpn-gnome`, `play-basic-configs.yml`'s USB-audio fix).
 
+**Install audience.** A second, separate axis says who uses the machine:
+`install_audience` is `developer` (the default, every existing machine) or `consumer`
+(chosen once with `./run.bash --consumer` and recorded in `localhost.yml`; see
+[Install for Someone Who Does Not Write Code](installation.md#install-for-someone-who-does-not-write-code)).
+Each play declares `audience: all | developer` beside `scope`; a `developer` play ends
+itself straight away on a consumer box, naming why, and the optional-play menu offers a
+consumer only the `all` plays. The design is in
+[Plan 00228](../CLAUDE/Plan/Completed/00228-consumer-install-without-github/PLAN.md).
+
 ## Core Playbooks (Automatically Run)
 
 These playbooks are executed automatically by `playbook-main.yml` during initial installation. They run in the order listed below. Do **not** run them manually — just run `playbook-main.yml`.
@@ -121,14 +142,18 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Actions**:
 
 - Refreshes DNF metadata
-- Upgrades all installed packages to latest versions
+- Upgrades all installed packages to latest versions (a no-op under `./run.bash` and
+  `./run.bash --consumer`, which upgrade every package before any Ansible process starts, so
+  python3 is never replaced under a running `ansible-playbook`: Plan 00229)
+- Removes half-installed kernels, and says a reboot is due when the running kernel is not the
+  newest installed
 
 ### play-basic-configs.yml
 
 **Purpose**: Essential system configuration\
 **Actions**:
 
-- Installs basic packages (vim, wget, bash-completion, htop, etc.), and removes packages
+- Installs basic packages (vim, wget, bash-completion, htop, btop, etc.), and removes packages
   the repo does not want (Thunar, whose D-Bus file-manager name clashes with Nautilus)
 - Configures passwordless sudo for the user on the **desktop** profile; on the **server**
   profile it removes that grant, because a permanent `NOPASSWD:ALL` on a box reached by
@@ -380,7 +405,9 @@ gh-personal issue list
 - Installs Noto Color Emoji and deploys `/etc/fonts/conf.d/69-colour-emoji-fallback.conf`,
   which makes it the emoji fallback after the text fonts, so a terminal draws colour emoji
   instead of Symbola's or Noto Emoji's monochrome ones, while digits stay in the text font
-- Rebuilds the font caches when that file changes
+- Rebuilds the font caches when that file changes, and keeps every system font cache file
+  readable by every user (0644) on each run
+- Moves Symbola, which Fedora prefers for serif, after the colour font in the serif list
 
 The cost of the fallback: a text symbol such as a check mark that none of the fonts listed
 for the family has, but some other installed text font has, is now drawn from the colour
@@ -440,11 +467,12 @@ open across a font upgrade can draw the wrong emoji (Plan 00185, issue #60).
 - Installs Podman (rootless, daemonless)
 - Installs podman-compose for compose-file workflows
 - Default engine for CCY and all new container work
+- Imports `play-golang.yml`, builds `container-images`, and installs `container-images-prune.timer`, the daily prune of the podman store (see [Containerization Guide](containerization.md#the-daily-prune-of-the-podman-store))
 - See [Containerization Guide](containerization.md) for Podman vs Docker role split
 
 ### play-golang.yml
 
-**Purpose**: Go toolchain, imported by `play-python.yml` and `play-claude-yolo.yml` (not optional)
+**Purpose**: Go toolchain, imported by `play-python.yml`, `play-claude-yolo.yml` and `play-podman.yml` (not optional)
 
 - Golang compiler and standard tools from DNF repositories
 - The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update
@@ -512,6 +540,18 @@ pipx install ruff
 
 > **Note**: `cc` and CCY are one play because `cc` sources CCY's lib at runtime. Deployed
 > separately, a new lib could run under an old `cc`.
+
+### play-claude-code-consumer.yml
+
+**Purpose**: `ccc`, Claude Code in a safe container for someone who does not write code\
+**Actions**:
+
+- Builds CCY's image (`tasks/claude-yolo-image.yml`, shared with `play-claude-yolo.yml`) and
+  the `ccc` command, and adds a "Claude" entry to the app grid
+- `ccc` always works in `~/CCC`, a local git repository with no remote; it mounts only that
+  folder and its own Claude state, signs in once into CCY's token pool, and needs no GitHub
+- Core on every install; imports `play-podman.yml`, which is now for every audience
+- Design and the parity with CCY: `CLAUDE/Plan/00233-ccc-claude-code-for-consumers/PLAN.md`
 
 **What's installed**:
 
@@ -612,6 +652,11 @@ ccy --custom
 ### play-gnome-shell.yml & play-gnome-shell-extensions.yml
 
 **Purpose**: GNOME desktop customization and extensions
+
+**GNOME Text Editor** (`play-gnome-shell.yml`): installs the editor and writes a per-user
+`~/.local/share/applications/org.gnome.TextEditor.desktop` so each file opens in a new
+window on the current workspace. Undoing it is in
+[configuration.md](configuration.md#gnome-text-editor-windows).
 
 **System extensions**:
 
@@ -782,7 +827,8 @@ nmcli connection down vpn-name
 **Purpose**: Desktop settings configuration\
 **Actions**:
 
-- Applies custom GNOME settings via gsettings
+- Applies custom GNOME settings via dconf: Caps Lock off, middle-click paste of the
+  selected text on, and middle-click no longer closes Ptyxis tabs
 
 ### play-ZZ-repo-cleanup.yml
 
@@ -864,6 +910,9 @@ CLI Tools — the one home for small command-line utilities (rule:
   delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
   `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
   so nothing is masked
+- **`randfile [DIR]`** prints one random file of DIR (the current directory by default):
+  regular files only, not hidden ones, not in subdirectories. It composes with `open`:
+  `open "$(randfile)"`, `open "$(randfile ~/Pictures)"`. Plain bash
 - **`convert FILE --to FORMAT[,FORMAT...]`** writes FILE in each format beside it
   (`convert notes.md --to docx` makes `notes.docx`); `convert FILE` lists what FILE can
   become. It calls a proven converter for each pair and converts nothing itself: Markdown
@@ -871,7 +920,8 @@ CLI Tools — the one home for small command-line utilities (rule:
   `--force`, and a failed conversion leaves no half-written file. A Go binary built from
   `src-go/cmd/convert`. In the login user's shells it shadows ImageMagick's legacy
   `/usr/bin/convert` alias; run ImageMagick as `magick`
-- **`reclaim`** is a bash menu that reports what is using disk and runs targeted cleanups
+- **`reclaim`** is a menu (a Go binary built from `src-go/cmd/reclaim`) that reports what is
+  using disk (`reclaim report` prints it non-interactively) and runs targeted cleanups
   (dnf autoremove/clean, old kernels, journal vacuum, container prune,
   flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
   and `trash-cli`, plus the `baobab` GUI analyser on desktops only
@@ -882,7 +932,7 @@ CLI Tools — the one home for small command-line utilities (rule:
   any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
   package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
 
-Run one tool alone with `--tags imgpaste`, `open-command`, `convert-command`,
+Run one tool alone with `--tags imgpaste`, `open-command`, `randfile`, `convert-command`,
 `disk-reclaim`, `mpv` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
 
 #### play-cloudflare-dns.yml
@@ -970,7 +1020,8 @@ below):
 - **Plays that have to run again are exactly the plays `./run.bash --changed` runs**,
   because both use one judgement (`helpers/play_ledger/changed_plays.py`): a play whose
   own file or any file it deploys changed since the commit it last ran from (each finding
-  names up to three changed paths), whose last run failed, or which last ran from a
+  names up to three changed paths, and on a line of its own up to three changed Go
+  packages with the commands built from them), whose last run failed, or which last ran from a
   checkout with uncommitted changes. Below them the report prints the command that runs
   them all, ready to paste: this checkout's full path, found where the code runs, plus
   `run.bash --changed`. Only plays under `playbooks/imports/` are judged, as by
@@ -1013,7 +1064,9 @@ below):
   day powered off must not read as a stale host, but a collector that has stopped must be
   reported well inside the fortnight
 - **After every play run the ledger records**, on both profiles, the play-ledger callback restarts the
-  collector, so fixing a finding clears it without waiting for the timer. If that restart
+  collector and waits for it, so fixing a finding clears it without waiting for the timer,
+  and the run ends with the document describing it (the first shell after a
+  `run.bash --changed` batch reads its last play as run). If that collection fails or
   cannot be requested, the run prints a `HEALTH-REFRESH-FAILED` line: the play itself
   succeeded, but the panel may show the old result until the next scheduled collection
 
@@ -1158,6 +1211,9 @@ Configure fast file manager and optimize file picker performance:
 Install camera FTP server (Sony A7V):
 
 - Deploys an FTP server for tethered shooting from Sony cameras
+- Creates a Wi-Fi hotspot profile (`ftp-camera --hotspot`) for the camera to join. Its
+  password is three random words, made on the first run and saved vault-encrypted;
+  `ftp-camera` shows the network name and password whenever the hotspot is up
 
 #### play-gnome-shell-dev.yml
 
@@ -1263,7 +1319,8 @@ Network discovery tools:
 NordVPN OpenVPN manager:
 
 - Installs openvpn and NetworkManager-openvpn packages
-- Deploys `nord` helper for interactive OpenVPN connection management
+- Builds and installs the `nord` command (Go, `src-go/cmd/nord`) for interactive OpenVPN
+  connection management
 - Uses NordVPN service credentials (stored encrypted in `localhost.yml`)
 - See [docs/nordvpn-installation.md](nordvpn-installation.md) for setup guide
 
@@ -1297,11 +1354,11 @@ below:
   NetworkManager. The freezer stops the DHCP client too, so a freeze longer than the
   one-hour lease would otherwise leave the container unreachable until
   NetworkManager's own retry, minutes later
-- **Thaw therefore needs NetworkManager inside every container it thaws.** One using
-  `dhclient`, `systemd-networkd` or a static address has no `nmcli`, so the renewal
-  fails and `lxcfreeze thaw` exits non-zero — naming the container, and saying it IS
-  thawed. Loud rather than silent, but it is a new way for a successful thaw to report
-  failure
+- **A container with no `nmcli`** (one using `dhclient`, `systemd-networkd` or a static
+  address) has no NetworkManager lease to renew: its thaw is a success, printed as
+  `✓ <name> — thawed; no DHCP lease renewed — the container has no nmcli`. A renewal
+  that fails where `nmcli` IS present still exits non-zero, naming the container and
+  saying it IS thawed
 - **The list carries an `IPV4` column** (`lxc-info -iH`), blank when the container has
   no address. A blank beside `RUNNING` is exactly that expired-lease symptom, so the
   cell is left empty rather than filled with a placeholder word — and a probe that
@@ -1374,12 +1431,22 @@ Photography tools:
 - Enforces darktable 5.6.0+ (native Sony A7V support); pulls it from Fedora's `updates-testing` repo only while the stable repo is still behind
 - Removes any locally built darktable (release tag `.ai`), the retired `darktable-ai` nightly, and the mock chroots and package used to build it
 
+#### play-matrix-clients.yml
+
+Matrix desktop clients, independent of the agent team bus:
+
+- Installs Nheko (Flathub `im.nheko.Nheko`), a plain install with no profiles
+- Installs Element Desktop (Flathub `im.riot.Riot`) and grants it the keyring (secret service),
+  through `tasks/element-desktop.yml`, which `play-agent-bus-element.yml` imports as well because
+  `ccy-teams` runs that play on its own (Plan 00244)
+
 #### play-qobuz.yml
 
 Qobuz apps — gapless HD audio streaming from Qobuz:
 
 - **hifi-rs**: Rust-based Qobuz CLI player
-- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs
+- **rescrobbled**: Last.fm scrobbling systemd service, for hifi-rs (x86_64 only: rescrobbled
+  publishes no aarch64 build, so scrobbling is skipped there)
 
 **Shell functions**:
 
@@ -1480,7 +1547,7 @@ everything it installed.
   moves a clone back only when it has just made it, and otherwise refuses and says how to
   re-clone). It prints where the clone was anchored. Clearing a dirty clone takes a fresh
   clone: see [configuration.md](configuration.md#unattended-server-self-update).
-- It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
+- It runs the allowlisted plays that commit affects, warns the ccy sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.
 - A failed play means no reboot. The host-health report (login snippet and
@@ -1591,6 +1658,11 @@ NVIDIA GPU drivers:
 
 - Installs proprietary NVIDIA drivers
 - Configures kernel modules
+- Installs the CUDA toolkit and cuDNN on x86_64 (`nvidia_install_cuda: false` to skip). NVIDIA
+  publishes no CUDA toolkit for Fedora aarch64, so there the driver is installed alone, and
+  `nvidia_install_cuda: true` fails the play
+- Check the result with `./scripts/nvidia-status.bash` (a read-only report; `--check` gives only
+  the exit status)
 
 ### Experimental
 

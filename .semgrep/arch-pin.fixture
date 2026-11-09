@@ -1,0 +1,76 @@
+# Fixture for arch-pinned-artefact (.semgrep/arch-pin.yml; CLAUDE/QA.md). A `ruleid:` comment
+# marks the line below it as one the rule must report, an `ok:` comment one it must not. The
+# lines are the shapes found in Dockerfiles, bash and Ansible YAML.
+
+# --- one architecture, no selection: reported ---
+
+# ruleid: arch-pinned-artefact
+RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+# ruleid: arch-pinned-artefact
+    "https://github.com/lightpanda-io/browser/releases/download/${LIGHTPANDA_VERSION}/lightpanda-x86_64-linux" \
+# ruleid: arch-pinned-artefact
+    "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+# ruleid: arch-pinned-artefact
+RUN rustup target add x86_64-unknown-linux-musl
+# ruleid: arch-pinned-artefact
+    && chrome_url="$(jq -er '.channels.Stable.downloads.chrome[] | select(.platform == "linux64") | .url' /tmp/cft.json)" \
+# ruleid: arch-pinned-artefact
+    marklessUrl: "https://github.com/x/markless/releases/download/v{{ v }}/markless-x86_64-unknown-linux-gnu.tar.gz"
+# ruleid: arch-pinned-artefact
+        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+# ruleid: arch-pinned-artefact
+        ["dnf", "versionlock", "add", f"kernel-0:{kernel.full_version}.x86_64"],
+# ruleid: arch-pinned-artefact
+    if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then
+# ruleid: arch-pinned-artefact
+const arch = "x86_64"
+# ruleid: arch-pinned-artefact
+    golangci_lint_archive: "golangci-lint-{{ v }}-linux-x86-64.tar.gz"
+# ruleid: arch-pinned-artefact
+curl https://x/tool-x86_64.tar.gz # arm64 later
+# ruleid: arch-pinned-artefact
+	url := "https://x/tool-amd64.tgz" // arm64 later
+
+# --- the literal is the selection: not reported ---
+
+# ok: arch-pinned-artefact
+    case "$(dpkg --print-architecture)" in \
+# ok: arch-pinned-artefact
+      amd64) asset=yq_linux_amd64; sha="${YQ_SHA256_AMD64}" ;; \
+# ok: arch-pinned-artefact
+      x86_64|amd64) target=x86_64-unknown-linux-musl ;;
+# ok: arch-pinned-artefact
+      "x86_64") triple=x86_64-unknown-linux-gnu ;;
+# ok: arch-pinned-artefact
+            tuwunel_sha256_x86_64 | tuwunel_sha256_aarch64) [[ $value =~ ^[0-9a-f]{64}$ ]] ;;
+# ok: arch-pinned-artefact
+      x86_64: "markless-x86_64-unknown-linux-gnu.tar.gz"
+# ok: arch-pinned-artefact
+      "amd64": "yq_linux_amd64",
+# ok: arch-pinned-artefact
+tuwunel_sha256_x86_64: 78628e6d13deda9e4832aeb93f2d10332e3c4e70a8815b45e6ef773404edd5a3
+# ok: arch-pinned-artefact
+    when: ansible_architecture == "x86_64"
+# ok: arch-pinned-artefact
+    when: ansible_facts['architecture'] == 'x86_64'
+# ok: arch-pinned-artefact
+    when: ansible_facts.architecture == "x86_64"
+# ok: arch-pinned-artefact
+    url: "https://example.com/tool-{{ 'x86_64' if ansible_architecture == 'x86_64' else 'aarch64' }}.tar.gz"
+# ok: arch-pinned-artefact
+    for key in tuwunel_version tuwunel_sha256_x86_64 tuwunel_sha256_aarch64; do
+
+# --- prose and look-alikes: not reported ---
+
+# ok: arch-pinned-artefact
+# The pre-built binary is x86_64 only, which is why this layer selects by architecture.
+# ok: arch-pinned-artefact
+    // GOARCH=amd64 is the CI runner's
+# ok: arch-pinned-artefact
+CCY_VERSION="3.1"  # the image builds on arm64 as well as x86_64
+# ok: arch-pinned-artefact
+        *) echo "tool: no build for ${arch} (amd64 and arm64 only)" >&2; exit 1 ;; \
+# ok: arch-pinned-artefact
+RUN apt-get install -y libx64tools mx64 xx86_64y
+# ok: arch-pinned-artefact
+    url: "https://github.com/x/tool/releases/download/v1/tool-{{ ansible_architecture }}-linux.tar.gz"

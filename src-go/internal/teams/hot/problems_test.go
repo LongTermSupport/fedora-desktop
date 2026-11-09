@@ -13,22 +13,23 @@ import (
 func TestStateWordSaysWhatIsWrongFirst(t *testing.T) {
 	boom := errors.New("boom")
 	cases := []struct {
-		name                       string
-		alive                      bool
-		aliveErr, seatsErr, repErr error
-		down, unheld               []string
-		want                       string
+		name                                string
+		alive                               bool
+		aliveErr, seatsErr, repErr, teamErr error
+		down, unheld                        []string
+		want                                string
 	}{
-		{"processes unreadable", true, boom, nil, nil, nil, nil, "its processes cannot be read: boom"},
-		{"keeper stopped", false, nil, boom, boom, []string{"a"}, nil, "unguarded: ccy-teams session repair s"},
-		{"seats unreadable", true, nil, boom, boom, nil, nil, "its seats cannot be read: boom"},
-		{"report unreadable", true, nil, nil, boom, []string{"a"}, nil, "its seat keeper's report cannot be read: boom"},
-		{"teams down", true, nil, nil, nil, []string{"a", "b"}, []string{"3@a"}, "a,b down"},
-		{"seats not held", true, nil, nil, nil, nil, []string{"3@a", "4@b"}, "3@a,4@b not held"},
-		{"nothing wrong", true, nil, nil, nil, nil, nil, "ok"},
+		{"processes unreadable", true, boom, nil, nil, nil, nil, nil, "its processes cannot be read: boom"},
+		{"keeper stopped", false, nil, boom, boom, boom, []string{"a"}, nil, "unguarded: ccy-teams session repair s"},
+		{"seats unreadable", true, nil, boom, boom, boom, nil, nil, "its seats cannot be read: boom"},
+		{"report unreadable", true, nil, nil, boom, boom, []string{"a"}, nil, "its seat keeper's report cannot be read: boom"},
+		{"team state unreadable", true, nil, nil, nil, boom, []string{"a"}, nil, "whether its teams' homeservers are up cannot be read: boom"},
+		{"teams down", true, nil, nil, nil, nil, []string{"a", "b"}, []string{"3@a"}, "a,b down"},
+		{"seats not held", true, nil, nil, nil, nil, nil, []string{"3@a", "4@b"}, "3@a,4@b not held"},
+		{"nothing wrong", true, nil, nil, nil, nil, nil, nil, "ok"},
 	}
 	for _, c := range cases {
-		if got := stateWord("s", c.alive, c.aliveErr, c.seatsErr, c.repErr, c.down, c.unheld); got != c.want {
+		if got := stateWord("s", c.alive, problems{c.aliveErr, c.seatsErr, c.repErr, c.teamErr}, c.down, c.unheld); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}

@@ -1,0 +1,6 @@
+#!/bin/bash
+readonly BIN_DIR=$PREFIX/usr/local/bin
+src=${0%/*}
+ROOT_OWNER=root
+ROOT_GROUP=root
+put_file "writable" "$src/instw" "$BIN_DIR/instw" 0775 "$ROOT_OWNER" "$ROOT_GROUP"

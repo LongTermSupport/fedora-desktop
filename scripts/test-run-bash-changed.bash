@@ -40,6 +40,7 @@ done
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/changed-plays-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
@@ -72,6 +73,8 @@ mkdir -m 700 "$RUNTIME"
 LOCK="$RUNTIME/fedora-desktop-plays.lock"
 LOG="$SCRATCH/calls.log"
 MARKERS="$SCRATCH/markers"
+printf 's3cret' >"$SCRATCH/sudo-pw"
+chmod 600 "$SCRATCH/sudo-pw"
 FAKE_HOME="$SCRATCH/home"
 mkdir -p "$FAKE_HOME/.local/bin"
 
@@ -83,13 +86,20 @@ cat >"$BIN/ansible-playbook" <<'EOF'
 #!/usr/bin/env bash
 play="$1"
 if flock -n "$TEST_LOCK" true; then lock=free; else lock=held; fi
-printf 'play: %s lock=%s\n' "${play##*/}" "$lock" >>"$TEST_LOG"
+pwfile=none
+if [ "${2:-}" = "--become-password-file" ]; then pwfile="$(cat -- "$3")"; fi
+printf 'play: %s lock=%s pwfile=%s\n' "${play##*/}" "$lock" "$pwfile" >>"$TEST_LOG"
 if [ -n "${FAKE_FAIL_PLAY:-}" ] && [ "${play##*/}" = "$FAKE_FAIL_PLAY" ]; then exit 4; fi
 exit 0
 EOF
+# FAKE_SUDO_PW set: sudo needs that password, and takes it only from SUDO_ASKPASS (-A).
 cat >"$BIN/sudo" <<'EOF'
 #!/usr/bin/env bash
-[ "$*" = "-k -n true" ] && exit 0
+if [ -n "${FAKE_SUDO_PW:-}" ]; then
+    [ "$*" = "-k -n true" ] && { echo "sudo: a password is required" >&2; exit 1; }
+    [ "$*" = "-k -A true" ] && [ "$("$SUDO_ASKPASS")" = "$FAKE_SUDO_PW" ] && exit 0
+fi
+[ -z "${FAKE_SUDO_PW:-}" ] && [ "$*" = "-k -n true" ] && exit 0
 echo "fake sudo: unexpected call: $*" >&2
 exit 97
 EOF
@@ -217,8 +227,29 @@ check "with a playbook path: refused" "1" "$rc"
 run_changed 'y\n' -- --changed --optional-only
 check "with --optional-only: refused" "1" "$rc"
 run_changed 'y\n' -- --changed --headless
-check "headless: refused (it asks before running anything)" "1" "$rc"
+check "headless without --yes: refused (nobody can answer its question)" "1" "$rc"
+check "and names the unattended form" "yes" "$(yes_if grep -q -- '--changed --yes' <<<"$out")"
 check "none of those ran anything" "" "$(plays_run)"
+
+# An unattended run of plays on a provisioned box is held to the one-play contract (a sudo
+# credential), never the first-install one (identity, GitHub, vault): meta-deploy's case.
+echo "=== headless --changed --yes: the unattended-play preflight, not the provisioning one ==="
+printf 'RUN %s\nRUN %s\n' "$A" "$B" >"$MARKERS"
+run_changed '' -- --changed --yes --headless
+check "exits 0" "0" "$rc"
+check "runs both" "play-a.yml play-b.yml " "$(plays_run)"
+check "through the unattended-play preflight" "yes" "$(yes_if grep -q 'Unattended play preflight OK' <<<"$out")"
+check "asking for no provisioning input" "no" "$(yes_if grep -q 'RUN_BASH_USER_EMAIL' <<<"$out")"
+run_changed '' RUN_BASH_OFFER_ISSUE=0 -- --changed --yes
+check "headless by auto-detect (no TTY, a RUN_BASH_* set): exits 0" "0" "$rc"
+check "and runs both" "play-a.yml play-b.yml " "$(plays_run)"
+run_changed '' FAKE_SUDO_PW=s3cret RUN_BASH_SUDO_PASSWORD_FILE="$SCRATCH/sudo-pw" -- --changed --yes --headless
+check "a sudo password file: exits 0" "0" "$rc"
+check "and every play gets it as its become password" "2" "$(calls | grep -c 'pwfile=s3cret$')"
+run_changed '' -- --optional-only --headless
+check "headless --optional-only: the unattended-play preflight too" "yes" "$(yes_if grep -q 'Unattended play preflight OK' <<<"$out")"
+check "asking for no provisioning input" "no" "$(yes_if grep -q 'RUN_BASH_USER_EMAIL' <<<"$out")"
+check "and exits 0 with no optional play requested" "0" "$rc"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"

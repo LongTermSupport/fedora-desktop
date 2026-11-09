@@ -31,10 +31,10 @@ func TestEnterOnAPersonWhoHasNeverSignedInOffersSigningInFirst(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	rows := h.menuRows()
-	if len(rows) == 0 || rows[0] != "Sign in: set a password (shown once)   (Ctrl-P)" {
+	if len(rows) == 0 || rows[0] != "Sign in: set a password (shown once)" {
 		t.Fatalf("menu %q", rows)
 	}
-	if !slices.Contains(rows, "Open alpha in Element   (Ctrl-E)") {
+	if !slices.Contains(rows, "Open alpha in Element") {
 		t.Fatalf("menu %q", rows)
 	}
 	h.Script.HeadingAt(1, "Teams › alpha › owner\nhuman owner in team alpha · in room")
@@ -54,8 +54,8 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 	}
 	rows := h.menuRows()
 	want := []string{
-		"Open alpha in Element   (Ctrl-E)",
-		"New password — signs out guest's 2 Element sessions   (Ctrl-P)",
+		"Open alpha in Element",
+		"New password — signs out guest's 2 Element sessions",
 	}
 	if len(rows) < 2 || !slices.Equal(rows[:2], want) {
 		t.Fatalf("menu %q", rows)
@@ -119,7 +119,7 @@ func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, board.NoDescription))
 	at := index(t, labels, "Restart the team's desktop sessions")
-	if update := index(t, labels, "Update every team that is out of date or not built   (Ctrl-U)"); at != update+1 {
+	if update := index(t, labels, "Update every team that is out of date or not built"); at != update+1 {
 		t.Fatalf("restart follows Update: %q", labels)
 	}
 	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown {
@@ -239,30 +239,30 @@ func TestNewPasswordFromTheMenuAsksFirstAndDefaultsToNo(t *testing.T) {
 	}
 }
 
-func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
+func TestEveryActionIsAMenuLineOfTheRowsItActsOn(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	seen := map[string]bool{}
 	for _, row := range r.snap.Rows {
-		keys := map[string]bool{}
+		ids := map[string]bool{}
 		for _, a := range r.actionsFor(row) {
-			keys[a.key] = true
-			seen[a.key] = true
+			ids[a.id] = true
+			seen[a.id] = true
 			if a.label == "" || a.short == "" {
 				t.Fatalf("an action with no words: %+v", a)
 			}
 		}
-		if !keys["ctrl-e"] || !keys["ctrl-n"] || !keys["?"] {
-			t.Fatalf("every row can open Element, start a session and show help: %s %v", row.Member, keys)
+		if !ids[actElement] || !ids[actNew] || !ids[actHelp] {
+			t.Fatalf("every row can open Element, start a session and show help: %s %v", row.Member, ids)
 		}
 	}
-	for _, key := range []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp} {
-		if !seen[key] {
-			t.Fatalf("%s is in no row's menu", key)
+	for _, id := range []string{actNew, actRestore, actRemove, actElement, actPassword, actUpdate, actHelp} {
+		if !seen[id] {
+			t.Fatalf("%s is in no row's menu", id)
 		}
 	}
 	team := h.row(t, r.snap, board.NoDescription)
-	if labels := h.labels(r, team); !slices.Contains(labels, "Take alpha down   (Ctrl-X)") {
+	if labels := h.labels(r, team); !slices.Contains(labels, "Take alpha down") {
 		t.Fatalf("team menu %q", labels)
 	}
 	seat := h.row(t, r.snap, "dev")
@@ -305,7 +305,7 @@ func TestStartingASessionInATeamWhoseHomeserverIsNotUpSaysSo(t *testing.T) {
 		}
 	}
 	line, ok := startLine(h.labels(r, h.row(t, r.snap, "owner")))
-	if !ok || line != "Start a ccy session in alpha: unavailable, alpha's homeserver is not up   (Ctrl-N)" {
+	if !ok || line != "Start a ccy session in alpha: unavailable, alpha's homeserver is not up" {
 		t.Fatalf("start line %q", line)
 	}
 }
@@ -330,7 +330,7 @@ func TestADeferredLxcRowOffersNoParking(t *testing.T) {
 			t.Fatalf("menu offers role action %q", a.ui().Line())
 		}
 	}
-	if !slices.Contains(labels, "Open alpha in Element   (Ctrl-E)") {
+	if !slices.Contains(labels, "Open alpha in Element") {
 		t.Fatalf("menu %q", labels)
 	}
 }
@@ -368,7 +368,7 @@ func startLine(rows []string) (string, bool) {
 	return rows[at], true
 }
 
-// Outside a project the board says Ctrl-N is unavailable, so no menu may offer it as if it ran:
+// Outside a project the board says a new session is unavailable, so no menu may offer it as if it ran:
 // the team menu and the person menu (the host agent's report) say why, as the header does.
 func TestOutsideAProjectTheTeamAndPersonMenusSayStartingASessionIsUnavailable(t *testing.T) {
 	why := "is not a project folder (no git repository)"
@@ -380,12 +380,12 @@ func TestOutsideAProjectTheTeamAndPersonMenusSayStartingASessionIsUnavailable(t 
 				t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 			}
 			line, ok := startLine(h.menuRows())
-			want := "Start a ccy session in alpha: unavailable, " + h.Root + " " + why + "   (Ctrl-N)"
+			want := "Start a ccy session in alpha: unavailable, " + h.Root + " " + why
 			if !ok || line != want {
 				t.Fatalf("start line %q,\nwant %q (menu %q)", line, want, h.menuRows())
 			}
-			if !strings.Contains(h.HeaderOf(0), "Ctrl-N start a session: unavailable") {
-				t.Fatalf("the row's footer still offers Ctrl-N: %q", h.HeaderOf(0))
+			if !strings.Contains(h.HeaderOf(0), "start a session: unavailable") {
+				t.Fatalf("the row's footer still offers a new session: %q", h.HeaderOf(0))
 			}
 		})
 	}
@@ -417,7 +417,7 @@ func TestInAProjectTheMenusOfferStartingASessionInThisFolder(t *testing.T) {
 	h.inProject()
 	r := h.run1(t)
 	for _, row := range r.snap.Rows {
-		if line, ok := startLine(h.labels(r, row)); ok && line != "Start a ccy session in "+row.Team+", in this folder   (Ctrl-N)" {
+		if line, ok := startLine(h.labels(r, row)); ok && line != "Start a ccy session in "+row.Team+", in this folder" {
 			t.Errorf("%s %s: %q", row.Kind, row.Member, line)
 		}
 	}
@@ -446,14 +446,14 @@ func TestTheFooterFollowsTheRowUnderTheCursorInWords(t *testing.T) {
 	}
 	bind := args[i]
 	for _, want := range []string{
-		"This row: Ctrl-E open alpha in Element", "Ctrl-P new password", "Ctrl-P set a password",
-		"Ctrl-X take alpha down", "attach its session via Enter", "Enter lists what can be done to the row",
+		"This row, Enter to: open alpha in Element", ", new password,", "This row, Enter to: set a password,",
+		", take alpha down", "This row, Enter to: attach its session,", "Enter lists what can be done to the row",
 	} {
 		if !strings.Contains(bind+h.HeaderOf(0), want) {
 			t.Fatalf("footer lacks %q: %q", want, bind)
 		}
 	}
-	if !strings.Contains(h.HeaderOf(0), "This row: ") || !strings.Contains(h.HeaderOf(0), "TEAM ") {
+	if !strings.Contains(h.HeaderOf(0), "This row, Enter to: ") || !strings.Contains(h.HeaderOf(0), "TEAM ") {
 		t.Fatalf("the first row's footer and the column heading are shown at once: %q", h.HeaderOf(0))
 	}
 }
@@ -469,7 +469,7 @@ func TestASeatsMenuOffersMakingItTheCoordinatorByName(t *testing.T) {
 		t.Fatalf("a seat that is not the coordinator offers to stop being it: %q", labels)
 	}
 	footer := r.footerFor(h.row(t, r.snap, "1"))
-	if !strings.Contains(footer, "make it the coordinator via Enter") {
+	if !strings.Contains(footer, ", make it the coordinator,") {
 		t.Fatalf("footer %q", footer)
 	}
 }
@@ -481,7 +481,7 @@ func TestTheCoordinatorsSeatMenuOffersToMakeItAWorkerAfterTheOrdinaryChoices(t *
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
 	worker := slices.Index(labels, "Make proj.1+local.podman a worker (alpha then has no coordinator)")
-	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	help := slices.Index(labels, helpLabel)
 	if worker < 0 || worker < help || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
@@ -498,7 +498,7 @@ func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverAfterTheOrdinaryChoic
 	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
-	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	help := slices.Index(labels, helpLabel)
 	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat proj.1+local.podman from alpha") }); remove != len(labels)-1 || at < help || at > remove {
 		t.Fatalf("the takeover is after the ordinary choices and Remove seat is last: %q", labels)
 	}
@@ -525,11 +525,11 @@ func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
 	want := []string{
 		"Make proj.box+role.lxc the coordinator (alpha has none)",
-		"Open alpha in Element   (Ctrl-E)",
-		"Start a ccy session in alpha, in this folder   (Ctrl-N)",
+		"Open alpha in Element",
+		"Start a ccy session in alpha, in this folder",
 		"Add an LXC container's agent to alpha",
-		"What the columns and keys mean   (?)",
-		"Park proj.box+role.lxc   (Ctrl-X)",
+		"What the columns and the menu lines mean",
+		"Park proj.box+role.lxc",
 	}
 	if !slices.Equal(labels, want) {
 		t.Fatalf("menu %q,\nwant %q", labels, want)

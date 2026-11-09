@@ -96,6 +96,11 @@ _AROUND_ITEM = " \t"
 _SHOWABLE_RE = re.compile(r"[\x21-\x7e]{1,64}")
 _FIELD_RE = re.compile(r"[\x21-\x7e]{1,255}")
 _EXAMPLE = "`--teams dev1@dev-team,qa2@other-team`"
+#: The refusals' own words, which Plan 00161's launch acceptance looks for: a seat another live
+#: session holds, a list naming two seats of one team, and an empty item.
+HELD_TEXT = "is held by another session"
+ONE_PER_TEAM_TEXT = "one seat per team per session"
+EMPTY_ITEM_TEXT = "a leading, doubled or trailing comma"
 
 
 class SeatListError(config.UsageError):
@@ -106,7 +111,7 @@ class SeatHeld(inbox.Busy):
     """A seat another live session holds (exit 75)."""
 
     def __init__(self, ref: SeatRef) -> None:
-        Exception.__init__(self, f"seat `{ref.text}` is held by another session")
+        Exception.__init__(self, f"seat `{ref.text}` {HELD_TEXT}")
         self.holder = inbox.SEAT_KIND
         self.ref = ref
 
@@ -181,7 +186,7 @@ def parse_seat_list(text: str, *, one_per_team: bool = True,
             if position == len(items):
                 hint = (f"; an unquoted list with a space after a comma reaches ccy cut short, so "
                         f"write it with no space after a comma ({_EXAMPLE}), or quote it")
-            raise SeatListError(f"item {position} is empty (a leading, doubled or trailing comma){hint}")
+            raise SeatListError(f"item {position} is empty ({EMPTY_ITEM_TEXT}){hint}")
         where = f"item {position}{_show(item)}"
         ref: SeatRef | TeamRef
         if allow_bare and "@" not in item:
@@ -210,7 +215,7 @@ def parse_seat_list(text: str, *, one_per_team: bool = True,
         first = by_team.setdefault(team, ref)
         if one_per_team and first is not ref:
             raise SeatListError(
-                f"one seat per team per session: `{first.text}` and `{ref.text}` both name team `{team}`"
+                f"{ONE_PER_TEAM_TEXT}: `{first.text}` and `{ref.text}` both name team `{team}`"
             )
         refs.append(ref)
     return tuple(refs)

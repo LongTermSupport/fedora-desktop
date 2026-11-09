@@ -3,6 +3,7 @@ package ccylaunch
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func TestUsableUnreadableFailsOpen(t *testing.T) {
 	r := usableRun(t, "000", "", 6)
 	r.front.Args = []string{"--", r.work()}
 	r.usable(t, term.ExitOK, "",
-		"⚠ Could not check the usage left on token work (could not reach the API), so ccy starts on it anyway.\n", 1)
+		"⚠ Could not check the usage left on token work (could not read the API: curl exited 6), so ccy starts on it anyway.\n", 1)
 }
 
 // U3: usage reading turned off asks nothing and does not block.
@@ -124,10 +125,12 @@ func TestUsableLocalFaultFails(t *testing.T) {
 // U3: an odd file elsewhere in the pool (one the reader refuses) does not block this token.
 func TestUsableOddSiblingFailsOpen(t *testing.T) {
 	r := usableRun(t, "200", limitHeaders("1", "1"), 0)
-	r.token(t, "old.token")
+	if err := os.Mkdir(filepath.Join(r.pool(), "odd.2030-06-01.token"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	r.front.Args = []string{"--", r.work()}
 	r.usable(t, term.ExitOK, "",
-		"⚠ Could not check the usage left on token work (a token file name has no date: old.token), so ccy starts on it anyway.\n", 0)
+		"⚠ Could not check the usage left on token work (a token file is not a regular file: odd.2030-06-01.token), so ccy starts on it anyway.\n", 0)
 }
 
 // U3: a relative path to the launch file is the launch file.
@@ -182,6 +185,39 @@ func TestUsableNoResetTime(t *testing.T) {
 	r.front.Args = []string{"--", r.work()}
 	r.usable(t, ExitUsedUp, "",
 		"✗ No usage left on token work: 7-day limit used up; the API gave no time it clears. ccy will not start a session on it.\n", 1)
+}
+
+// U9: on a terminal the refusal is a banner, bold bright white on red and filled to the
+// line's end, so it is not missed before the chooser; NO_COLOR and a pipe keep the plain line.
+func TestUsableUsedUpBannerOnlyOnATerminal(t *testing.T) {
+	text := "✗ No usage left on token work: 7-day limit used up; clears Fri 20:53, in 3d 8h. ccy will not start a session on it."
+	banner := "\x1b[1;97;41m\x1b[K\x1b[0m\n" +
+		"\x1b[1;97;41m " + text + " \x1b[K\x1b[0m\n" +
+		"\x1b[1;97;41m\x1b[K\x1b[0m\n"
+	for name, c := range map[string]struct {
+		terminal bool
+		env      string
+		want     string
+	}{"a terminal": {true, "", banner}, "NO_COLOR": {true, "NO_COLOR=1", text + "\n"}, "a pipe": {false, "", text + "\n"}} {
+		t.Run(name, func(t *testing.T) {
+			r := usableRun(t, "200", limitHeaders("0.25", "1.02"), 0)
+			r.front.IsTerminal = func(any) bool { return c.terminal }
+			if c.env != "" {
+				r.env(c.env)
+			}
+			r.front.Args = []string{"--", r.work()}
+			r.usable(t, ExitUsedUp, "", c.want, 1)
+		})
+	}
+}
+
+// U9: the chooser's mark is captured into the chooser's row, so it is never a banner.
+func TestUsableMarkIsNeverABanner(t *testing.T) {
+	r := usableRun(t, "200", limitHeaders("0", "0"), 0)
+	r.front.IsTerminal = func(any) bool { return true }
+	r.result(t, "work.2030-06-01.token\n429\n1.0\t"+reset5h+"\t0.4\t"+reset7d+"\tfive_hour\n", pinnedNow.Add(-2*time.Hour+time.Minute))
+	r.front.Args = []string{"--mark", "--", r.work()}
+	r.usable(t, term.ExitOK, "   ✗ no usage left: 5-hour limit used up; clears today 13:00, in 1h\n", "", 0)
 }
 
 // U6: anything but [--mark] [--] FILE is exit 64.

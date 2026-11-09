@@ -51,16 +51,16 @@ Options:
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
-                         Put this session in agent team bus teams, one seat in each.
-                         Bare --teams chooses teams from a list with what each is for
-                         (Tab marks several); a team not covering this repository is
-                         widened only on a yes. The launch prints each team's seat, role
-                         and description; the status line shows 👥 A,B. With a team
-                         alone ccy asks the seat (lowest free is the default); name it
-                         (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
-                         to skip the question, as a launch with nobody to ask must. A
-                         seat is created on first use (sudo agent-bus add-member) and held
-                         by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
+                         Join agent team bus teams, one seat each. Bare --teams lists the
+                         teams and what each is for (Tab marks several); one not covering
+                         this repository is widened only on a yes. A team alone: ccy asks
+                         the seat (lowest free is the default), and offers to create a team
+                         this machine lacks. Name seats (--teams 1@dev-team,qa2@other-team;
+                         quote a list with spaces) when nobody can be asked. A seat is made
+                         on first use (sudo agent-bus add-member), held by one session; the
+                         launch prints each seat, role and description (status line 👥 A,B).
+                         Exit 64 list unusable, 75 seat held elsewhere, 78 team or seat not
+                         set up here. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
                          in ccy's tmux is on no team but carries the kit idle (no hooks run,
                          its own status line, no inbox socket; joining a team relaunches it).
@@ -89,6 +89,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
@@ -130,8 +131,7 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --token-usage             # Usage limits of every token, as a table
-  ccy --token-usage --json      # The same, as one JSON document
+  ccy --token-usage [--json]    # Usage limits of every token, as bars or one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 
@@ -155,7 +155,7 @@ Token Management:
   Desktop Claude Code (~/.claude/) is NEVER modified
 
 Token usage report (ccy --token-usage [--json]):
-  One row per token name. A name with two files reports the earliest-dated one, the file
+  One entry per token name. A name with two files reports the earliest-dated one, the file
   'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
   A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
   the token menu shows (over 100 means past the limit). Token values are never printed.
@@ -229,5 +229,5 @@ Note: the image exists, but 'claude --help' would not run inside it.
 === stderr
 === calls
 podman image inspect claude-yolo:latest
-podman run --rm --entrypoint claude claude-yolo:latest --help
+podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --help
 === files

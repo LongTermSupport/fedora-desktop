@@ -389,11 +389,16 @@ m7_write_teams() {
     cat -- "${HOST_VARS_FILE}"
 }
 
+# m7_install_teams — each team installed from the file play-agent-bus.yml would render from the
+# host_vars (the LXC bridge's subnet added), so a later play on the team changes nothing and
+# restarts no homeserver.
 m7_install_teams() {
-    local team
+    local team rendered
     TEAMS_PRESENT=1 # before the call: a half-installed team still needs removing
     for team in "${M7_TEAMS[@]}"; do
-        m7_installer "team-${team}" team --team-file "$(m7_ev "${team}.team.json")" || return 1
+        rendered="$(m7_ev "${team}.rendered-team.json")"
+        "${CHECK[@]}" rendered-team "$(m7_ev "${team}.team.json")" >"${rendered}" || return 1
+        m7_installer "team-${team}" team --team-file "${rendered}" || return 1
     done
 }
 
@@ -878,10 +883,10 @@ m7_purge_teams() {
     m7_remove_teams final
 }
 
-# C1 — after the purge: no firewalld rule the installer recorded, no unit running, no state
-# directory or applied stamp, no seat directory; the Quick Launch record as it was.
-m7_check_gone() {
-    local team zone rule store status state
+# m7_check_teams_gone — after the purge: no firewalld rule the installer recorded, no unit
+# running, no state directory or applied stamp, no seat directory in this checkout.
+m7_check_teams_gone() {
+    local team zone rule store status state unit
     for team in "${M7_TEAMS[@]}"; do
         while IFS=$'\t' read -r zone rule; do
             for store in permanent runtime; do
@@ -893,9 +898,10 @@ m7_check_gone() {
                 fi
             done
         done <"$(m7_ev "${team}.firewalld.rules")"
-        state="$(systemctl show -p ActiveState --value "agent-bus-hs@${team}.service")" || return 1
+        unit="$("${CHECK[@]}" product-value helpers/agent_bus/checkout.py hs_unit "${team}")" || return 1
+        state="$(systemctl show -p ActiveState --value "${unit}")" || return 1
         if [[ "${state}" == active ]]; then
-            printf '[FAIL] agent-bus-hs@%s.service is still active\n' "${team}" >&2
+            printf '[FAIL] %s is still active\n' "${unit}" >&2
             return 1
         fi
         if sudo -n test -e "${M7_STATE}/${team}" || sudo -n test -e "${M7_INSTALL_STATE}/${team}" \
@@ -904,6 +910,11 @@ m7_check_gone() {
             return 1
         fi
     done
+}
+
+# C1 — the teams wholly gone (m7_check_teams_gone), and the Quick Launch record as it was.
+m7_check_gone() {
+    m7_check_teams_gone || return 1
     if ! cmp -s -- "${M7_LAST_LAUNCH_SAVED}" "${M7_LAST_LAUNCH}"; then
         printf '[FAIL] the Quick Launch record differs from the one saved before the launches\n' >&2
         return 1

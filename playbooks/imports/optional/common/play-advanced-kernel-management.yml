@@ -7,8 +7,13 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
 
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
     # PKG-08 (F44): python3-dnf-plugin-versionlock install removed.
     # On DNF5-complete Fedora 44, the dnf4 versionlock plugin (python3-dnf-plugin-versionlock)
     # is inert — locks live in /etc/dnf/versionlock.toml and are managed by the dnf5

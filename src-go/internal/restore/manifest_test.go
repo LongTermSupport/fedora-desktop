@@ -148,7 +148,7 @@ func TestReadIsStrict(t *testing.T) {
 		{"cut short", "ccy-restore-manifest 2\nboot=b\nname=a\nprefix=ccy\ndir=/d\nresume=\nsupervised=yes\ngoing=pending\n", "ends part-way through an entry"},
 		{"out of order", "ccy-restore-manifest 2\nboot=b\nprefix=ccy\nname=a\n", "has 'prefix' where 'name' was expected and is not read"},
 		{"unknown key", "ccy-restore-manifest 2\nboot=b\n" + entry + "extra=x\n", "has 'extra' where 'name' was expected"},
-		{"bad going", "ccy-restore-manifest 2\nboot=b\n" + strings.Replace(entry, "going=pending", "going=maybe", 1), "has going=maybe, which is none of none, pending, compacting, compact, continue or untouched, and is not read"},
+		{"bad going", "ccy-restore-manifest 2\nboot=b\n" + strings.Replace(entry, "going=pending", "going=maybe", 1), "has going=maybe, which is none of none, pending, compacting, compact, continue, untouched or not-started, and is not read"},
 		{"bad supervised", "ccy-restore-manifest 2\nboot=b\n" + strings.Replace(entry, "supervised=yes", "supervised=maybe", 1), "has supervised=maybe, which is neither yes nor no, and is not read"},
 		{"bad at", "ccy-restore-manifest 2\nboot=b\n" + strings.Replace(entry, "at=", "at=soon", 1), "has at=soon, which is not a time in seconds, and is not read"},
 		{"no equals", "ccy-restore-manifest 2\nboot=b\nname", "has a line without '=': name"},
@@ -247,6 +247,43 @@ func TestMergeKeepsAndReplaces(t *testing.T) {
 	wantNew := Entry{Name: "ccy-new", Prefix: "ccy", Dir: "/n", Going: GoingNone}
 	if !slices.Equal(got.Entries, []Entry{moved, wantNew, started}) {
 		t.Fatalf("got %+v", got.Entries)
+	}
+}
+
+// fedora-desktop#108: a session an earlier restore this boot could not start is in the manifest
+// as not-started. Found running by a second restore (a person started it meanwhile), it is no
+// longer not started: it is written as found running, not kept as a failure.
+func TestMergeDoesNotKeepANotStartedEntryForASessionNowRunning(t *testing.T) {
+	s := newStore(t)
+	failed := Entry{Name: "ccy-a", Prefix: "ccy", Dir: "/a", Going: GoingNotStarted, Detail: "no-conversation"}
+	if err := s.Write([]Entry{failed}); err != nil {
+		t.Fatal(err)
+	}
+	if r := merge(s, []Entry{{Name: "ccy-a", Prefix: "ccy", Dir: "/a", Going: GoingKeep}}); r.err != nil {
+		t.Fatal(r.err)
+	}
+	got, err := s.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Entry{Name: "ccy-a", Prefix: "ccy", Dir: "/a", Going: GoingNone}); !slices.Equal(got.Entries, []Entry{want}) {
+		t.Fatalf("got %+v", got.Entries)
+	}
+}
+
+// A not-started entry round-trips, and the bash library reads it too: the format is shared.
+func TestANotStartedEntryRoundTripsAndBashReadsIt(t *testing.T) {
+	s := newStore(t)
+	failed := Entry{Name: "ccy-gone", Prefix: "ccy", Dir: "/g", Going: GoingNotStarted, Detail: "directory-gone"}
+	if err := s.Write([]Entry{failed}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read()
+	if err != nil || !slices.Equal(got.Entries, []Entry{failed}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if out := bash(t, s, `ccy_restore_manifest_read; printf '%s|%s\n' "${RM_GOING[0]}" "${RM_DETAIL[0]}"`); out != "not-started|directory-gone\n" {
+		t.Fatalf("bash saw %q", out)
 	}
 }
 

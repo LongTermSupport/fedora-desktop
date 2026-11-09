@@ -24,10 +24,18 @@ const unwrapped = fallbackColumns - framedMargin
 
 var measuredHeaderWidth = map[int]int{40: 26, 80: 66}
 
+// noTerminal is a runner whose tput cols runs and finds no terminal, so every screen is drawn
+// at the common width; the test scripts the rest.
+func noTerminal() *execx.Fake {
+	f := &execx.Fake{}
+	f.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1})
+	return f
+}
+
 // fakeColumns is a runner whose tput cols answers cols ("" for a tput that fails), and whose
 // fzf leaves and gum answers nothing.
 func fakeColumns(cols string) *execx.Fake {
-	f := &execx.Fake{}
+	f := noTerminal()
 	if cols != "" {
 		f.On([]string{"tput", "cols"}, execx.Result{Stdout: []byte(cols + "\n")})
 	} else {
@@ -295,7 +303,7 @@ func TestEveryScreenRefusesToDrawWithoutAHeading(t *testing.T) {
 
 func TestTheHeadingIsOnTopOfEveryGumQuestion(t *testing.T) {
 	ctx := context.Background()
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"gum"}, execx.Result{Stdout: []byte("a\n")})
 	g := &Gum{Runner: f, Plain: true}
 	head := lxcStep.render(false, unwrapped) + "\n"
@@ -322,7 +330,7 @@ func TestTheHeadingIsOnTopOfEveryGumQuestion(t *testing.T) {
 
 func TestTheHeadingIsOnTopOfEveryFzfHeader(t *testing.T) {
 	ctx := context.Background()
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
 	p := &Picker{Runner: f, Plain: true}
 	head := lxcStep.render(false, unwrapped) + "\n"
@@ -366,7 +374,7 @@ func TestARowMenuIsHeadedByItsOwnHeadingOrTheListsPlusItsTitle(t *testing.T) {
 		{Heading{}, "--header=Teams › team alpha\n"},
 		{Here("Teams", "alpha").About("team alpha · up"), "--header=Teams › alpha\nteam alpha · up\n"},
 	} {
-		f := &execx.Fake{}
+		f := noTerminal()
 		fzfSays(f, "\nalpha\t0\n", "\nShut down alpha\t1\n")
 		spec := teamsSpec()
 		spec.Menus[0].Heading = c.menu
@@ -380,7 +388,7 @@ func TestARowMenuIsHeadedByItsOwnHeadingOrTheListsPlusItsTitle(t *testing.T) {
 }
 
 func TestPickerHeadingIsColouredUnlessPlain(t *testing.T) {
-	f := &execx.Fake{}
+	f := noTerminal()
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), lxcStep, PickSpec{Title: "t", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
 		t.Fatal(err)

@@ -5,6 +5,15 @@
 // the machine, runs a play) shows as ^[[B on the top line of the next screen. Held, the keys are
 // not echoed and stay in the input for the next screen to read.
 //
+// Keeping them is the rule; draining them is the exception. A screen marked DrainInput (execx.Cmd)
+// waits settleTime once the hold is taken, for keys still on their way, then discards what is
+// waiting in the input (tcflush) and runs, so it starts on no key typed just before it drew. A
+// key pressed after that wait and before the screen draws (the screen's own start, some 40 ms
+// for gum) still reaches it: the screen reads its input from its first moment. internal/ui decides which screens (ui.Drain): the screen
+// after one the person left (Esc, Ctrl-C, a No), since a key typed just after Esc would act on a
+// screen not yet seen, and every screen of a destructive flow (a team taken down or deleted, a
+// backup restored over it, a session ended). Every other screen keeps the keys typed ahead.
+//
 // The hold is taken when the first screen runs (an EchoHeld child: ui marks every fzf, gum and
 // tput it runs), so a run that shows no screen (a listing piped to a pager, a job in the
 // background) never touches the terminal; keys typed before the first screen still echo. It is the mode found with only ECHO cleared. A child
@@ -24,6 +33,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -31,10 +41,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// Modes reads and sets a terminal's mode.
+// Modes reads and sets a terminal's mode, and discards what is waiting in its input.
 type Modes interface {
 	Get(fd int) (*unix.Termios, error)
 	Set(fd int, t *unix.Termios) error
+	Flush(fd int) error
 }
 
 // ioctlModes is the terminal's own mode, through the termios ioctls. TCSETS takes effect at
@@ -56,6 +67,40 @@ func (ioctlModes) Set(fd int, t *unix.Termios) error {
 	return nil
 }
 
+// Flush discards the input received and not yet read (tcflush TCIFLUSH).
+func (ioctlModes) Flush(fd int) error {
+	if err := unix.IoctlSetInt(fd, unix.TCFLSH, unix.TCIFLUSH); err != nil {
+		return fmt.Errorf("TCFLSH: %w", err)
+	}
+	return nil
+}
+
+// Off turns off the echo of the terminal on fd for a line read with nothing shown (a password),
+// and gives back the function that puts back the mode it found: ui.Lines.EchoOff.
+func Off(fd int) func() (func() error, error) { return OffVia(ioctlModes{}, fd) }
+
+// OffVia is Off through m, for a test. Only ECHO is cleared: the line is still read whole and
+// Ctrl-C still ends the run.
+func OffVia(m Modes, fd int) func() (func() error, error) {
+	return func() (func() error, error) {
+		found, err := m.Get(fd)
+		if err != nil {
+			return nil, fmt.Errorf("read the terminal's mode: %w", err)
+		}
+		quiet := *found
+		quiet.Lflag &^= unix.ECHO
+		if err := m.Set(fd, &quiet); err != nil {
+			return nil, fmt.Errorf("turn the terminal's echo off: %w", err)
+		}
+		return func() error {
+			if err := m.Set(fd, found); err != nil {
+				return fmt.Errorf("put the terminal's echo back: %w", err)
+			}
+			return nil
+		}, nil
+	}
+}
+
 // Hold is the echo of one terminal, held off from the first screen to the end of the run. A nil
 // Hold holds nothing. Every field is a seam a test replaces.
 type Hold struct {
@@ -70,6 +115,9 @@ type Hold struct {
 	Raise      func(sig os.Signal) error
 	// Stderr is where a mode that could not be put back on a signal or a panic is said.
 	Stderr io.Writer
+	// Settle is the wait before a draining screen discards the input, for the keys still on their
+	// way to arrive (settleTime); nil does not wait.
+	Settle func()
 
 	mu sync.Mutex
 	// found is the mode found when the hold was taken and quiet the same with the echo off; nil
@@ -87,8 +135,21 @@ func New(tty *os.File) *Hold {
 	return &Hold{
 		TTY: tty, IsTerminal: term.FileIsTerminal, Modes: ioctlModes{},
 		Notify: signal.Notify, StopNotify: signal.Stop, Ignored: signal.Ignored, Raise: raise, Stderr: os.Stderr,
+		Settle: settle,
 	}
 }
+
+// settleTime is how long a draining screen waits before it discards the input. A key pressed
+// just after the Esc that ended the last screen reaches the terminal after that screen has
+// exited (gum takes a few ms to go, and a tmux send-keys or a person's next key comes later
+// still), so a flush the moment the screen ends misses it, and the next gum, which reads its
+// input from its first moment and draws some 40 ms later, takes the key before anyone has seen
+// it. The host agent's gaps were 1 to 40 ms after the Esc; 150 ms covers them with room, and is
+// still shorter than anyone reacts to a screen that has not yet drawn.
+const settleTime = 150 * time.Millisecond
+
+// settle is the real Settle.
+func settle() { time.Sleep(settleTime) }
 
 // raise sends sig to this process again, its own handling stopped, so it ends as it would have.
 func raise(sig os.Signal) error {
@@ -161,8 +222,8 @@ type heldRunner struct {
 
 func (x heldRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
 	if c.EchoHeld {
-		if err := x.hold.engage(); err != nil {
-			return execx.Result{}, fmt.Errorf("hold the terminal's echo off for %s: %w", c.Name, err)
+		if err := x.hold.screen(c); err != nil {
+			return execx.Result{}, err
 		}
 		return x.next.Run(ctx, c)
 	}
@@ -219,6 +280,39 @@ func (h *Hold) engage() error {
 	h.found, h.quiet = found, &quiet
 	h.watch()
 	return nil
+}
+
+// screen readies the terminal for an EchoHeld child: the hold taken, then, for a screen marked
+// DrainInput, the keys typed before it discarded.
+func (h *Hold) screen(c execx.Cmd) error {
+	if err := h.engage(); err != nil {
+		return fmt.Errorf("hold the terminal's echo off for %s: %w", c.Name, err)
+	}
+	if !c.DrainInput {
+		return nil
+	}
+	if err := h.drain(); err != nil {
+		return fmt.Errorf("discard the keys typed before %s: %w", c.Name, err)
+	}
+	return nil
+}
+
+// drain lets the keys on their way arrive (Settle), then discards what is waiting in the
+// terminal's input. Not held (no terminal) is nothing to do. The settle runs unlocked, so a
+// signal that ends the process can still put the mode back during it.
+func (h *Hold) drain() error {
+	h.mu.Lock()
+	held := h.found != nil
+	h.mu.Unlock()
+	if held && h.Settle != nil {
+		h.Settle()
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.found == nil {
+		return nil
+	}
+	return h.Modes.Flush(int(h.TTY.Fd()))
 }
 
 // release puts back the mode found and stops watching the signals. Not held is nothing to do.

@@ -25,6 +25,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui/esckey"
 )
 
 // Entry is a directory in a listing, with a note shown beside it ("a git checkout").
@@ -68,7 +69,8 @@ const maxShown = 20
 const defaultWidth = 80
 
 // The keys the line takes as actions, each drawn on the hint line. The rest are line editing.
-// Esc and Ctrl+C both cancel: there is no step to go back to inside the line.
+// Esc and Ctrl+C both cancel: there is no step to go back to inside the line. An Esc joined to
+// the next key (read as that key with Alt) cancels too, or the Esc would be lost.
 var (
 	completeKey = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "completes a directory name"))
 	suggestKey  = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "puts a suggestion in the line"))
@@ -201,7 +203,7 @@ func (m Model) View() tea.View {
 
 func (m Model) press(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
-	case key.Matches(k, cancelKey):
+	case key.Matches(k, cancelKey), esckey.Joined(k):
 		m.err = ui.ErrCancelled
 		return m, tea.Quit
 	case m.listing != "":

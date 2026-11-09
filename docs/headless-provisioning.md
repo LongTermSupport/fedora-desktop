@@ -165,6 +165,18 @@ works without a prompt (NOPASSWD, or `RUN_BASH_SUDO_PASSWORD_FILE`, which may be
 time. A run that finds another in progress exits 75 and says who holds the lock. Details:
 `./run.bash --help-run-headless`, section "ONE PLAY, UNATTENDED".
 
+Every play that changed since it last ran here runs under the same contract:
+
+```bash
+./run.bash --changed --yes
+```
+
+From a shell with no terminal and any `RUN_BASH_*` variable set, run.bash is headless by
+itself, and this still needs only the sudo credential. `--yes` is required there, because
+nobody can answer the question `--changed` asks. `--rerun` is a menu, so it is refused.
+`--optional-only` run headless also needs only the sudo credential (run.bash 1.36.2 and
+later).
+
 ## Fail-fast, fail-loud guarantee
 
 A headless run never hangs and never half-provisions silently:
@@ -172,10 +184,14 @@ A headless run never hangs and never half-provisions silently:
 - Any missing required value or unmet precondition aborts in **preflight**, before any
   provisioning action, with a message naming the exact fix.
 - Any failure **during** provisioning (token rejected, SSH key load, vault mismatch,
-  main playbook failure, a requested optional play missing or failing) aborts with a
+  main playbook failure, a requested optional play missing) aborts with a
   **big red banner** naming the step, the concrete reason, and a debug pointer — then
   exits non-zero. It never reports success on failure and never continues past a
   main-playbook failure.
+- A requested optional play that **fails** does not stop the others (run.bash 1.36.0 and
+  later): the remaining optional plays still run, a summary at the end names every play
+  that failed and every play that installed, and the run exits 1. A play ended by a signal
+  or Ctrl-C stops the run at once.
 
 ## See also
 

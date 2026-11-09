@@ -1,0 +1,33 @@
+---
+# The kernel the next boot runs, for a play that builds a kernel module (akmods, dkms) or an
+# initramfs. Not uname -r: the main playbook upgrades the system first, so the next boot
+# usually runs a newer kernel than the one running, and kernel-devel is installed for that
+# newest kernel only. Sets boot_kernel_version (e.g. 6.17.4-300.fc44.x86_64); fails, saying
+# what grubby printed, when it cannot be read.
+#
+# Usage:
+#   - name: Find the kernel the next boot runs
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
+#   ...
+#     ansible.builtin.shell: akmods --force --kernels "$KVER"
+#     environment:
+#       KVER: "{{ boot_kernel_version }}"
+
+- name: Find the kernel the next boot runs
+  ansible.builtin.command: grubby --default-kernel
+  register: boot_kernel_path
+  changed_when: false
+  become: true
+
+- name: Record the boot kernel version
+  ansible.builtin.set_fact:
+    boot_kernel_version: "{{ boot_kernel_path.stdout | trim | basename | regex_replace('^vmlinuz-', '') }}"
+
+- name: Assert the boot kernel version was read
+  ansible.builtin.assert:
+    that:
+      - boot_kernel_version | length > 0
+      - boot_kernel_version != (boot_kernel_path.stdout | trim | basename)
+    fail_msg: >-
+      Could not tell which kernel the next boot runs: grubby --default-kernel printed
+      "{{ boot_kernel_path.stdout }}", not a /boot/vmlinuz-VERSION path.

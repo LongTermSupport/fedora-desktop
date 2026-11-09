@@ -17,7 +17,8 @@ var RefusalKind = &analysis.Analyzer{
 	Doc: `project_refusal_kind flags a function that recovers a *declare.Error (errors.AsType,
 errors.As, a type assertion or a type switch) and never tells the one kind asking again can fix
 from the rest: it names no declare.ErrUsage (errors.Is(err, declare.ErrUsage), .Is(declare.ErrUsage))
-and does not hand the exit code on whole (a return of .Code, or of .Code converted) whatever the
+and does not hand the exit code on whole (a return of .Code, of .Code converted, or of
+term.FromChild(.Code)) whatever the
 recovery finds. A code handed on counts only where the return is unconditional in the block
 that recovers: a direct statement of the if body whose Init or Cond recovers, when the Cond is
 the bare recovery result (the found result of an Init that is one recovery alone, or the errors.As call) or that && .Code != 0; a later direct statement
@@ -278,9 +279,10 @@ func isRefusalType(t types.Type) bool {
 }
 
 // handsCodeOn is a returned value that is a declare.Error's Code whole, so the caller gets the
-// kind itself: Code, Code converted to another type (an exit code), or either as a field of a
-// returned composite literal or its address (&stop{term.ExitCode(de.Code)}). Code inside any
-// other call (a Printf) is not handed on.
+// kind itself: Code, Code converted to another type (an exit code) or translated by
+// term.FromChild (which keeps 64, 78 and 130), or any of them as a field of a returned composite
+// literal or its address (&stop{term.FromChild(de.Code)}). Code inside any other call (a
+// Printf) is not handed on.
 func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
 	switch n := ast.Unparen(e).(type) {
 	case *ast.UnaryExpr:
@@ -296,8 +298,14 @@ func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
 		}
 		return false
 	case *ast.CallExpr:
+		if len(n.Args) != 1 {
+			return false
+		}
+		if fn := calledFunc(pass, n); fn != nil {
+			return isFromChild(fn) && handsCodeOn(pass, n.Args[0])
+		}
 		tv, found := pass.TypesInfo.Types[n.Fun]
-		return found && tv.IsType() && len(n.Args) == 1 && handsCodeOn(pass, n.Args[0])
+		return found && tv.IsType() && handsCodeOn(pass, n.Args[0])
 	case *ast.SelectorExpr:
 		return isCodeField(pass, n)
 	}
@@ -307,7 +315,7 @@ func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
 // isCodeField is sel the Code field of a declare.Error.
 func isCodeField(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
 	s, found := pass.TypesInfo.Selections[sel]
-	if !found || s.Kind() != types.FieldVal || s.Obj().Name() != "Code" {
+	if !found || s.Kind() != types.FieldVal || s.Obj().Name() != codeField {
 		return false
 	}
 	recv := s.Recv()

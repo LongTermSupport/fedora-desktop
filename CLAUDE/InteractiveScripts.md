@@ -8,7 +8,7 @@ is consistent across every helper.
 
 They apply to any script a **human runs and is prompted by at a terminal**:
 
-- Extensionless executables under `files/home/.local/bin/` (e.g. `ssh-with-key`,
+- Extensionless executables under `files/home/.local/bin/` (e.g. `ssh-with-password`,
   `ssh-keys-rekey`, `clean-paste`).
 - `*.bash` files that are **executed** by a human (not the sourced-library ones).
 

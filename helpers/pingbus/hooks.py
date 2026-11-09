@@ -64,7 +64,8 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, inject, membership, notify, protocol, relay, seat, sentlog, statusline
+from helpers.pingbus import (config, inbox, inject, membership, notify, protocol, relay, seat, sentlog, statusline,
+                             watcherstate)
 
 EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool", "conversation")
 HOOK_EVENT_NAMES = {
@@ -95,7 +96,7 @@ FAILURE_EVERY_S = 600
 INPUT_MAX_BYTES = 1 << 20
 
 #: The only fields a template may carry: counts, and names that passed their grammar.
-COUNT_FIELDS = ("total", "humans", "peers", "pings", "held", "teams", "free")
+COUNT_FIELDS = ("total", "humans", "peers", "pings", "held", "teams", "free", "restarts")
 LOCK_STATES = ("held", "free")
 NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "seat": protocol.is_seat_name,
@@ -131,23 +132,26 @@ TEMPLATES = {
     "record_failed": ("agent-bus: this session's teams could not be recorded for the status line, which "
                       "shows `👥 no record` in red until they are. Tell the human; the reason is in "
                       "the SessionStart hook's stderr."),
-    "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
-                         "on what they tell humans; when a human asks you to get something done, work out "
-                         "how and dispatch it to the workers, then track it."),
+    "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you; when a "
+                         "human asks you to get something done, work out how and dispatch it to the workers, "
+                         "then track it."),
     "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
-                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans. "
-                    "Ask the coordinator, never a human, when you need a decision."),
+                    "(`--to-coordinator` on `pingbus send` and `say`). Ask the coordinator, never a human, "
+                    "when you need a decision."),
     "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
-                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
-                         "copied on what you tell humans. Ask the coordinator, never a human, when you need a "
-                         "decision."),
+                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them). Ask the "
+                         "coordinator, never a human, when you need a decision."),
     "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
     # Said only once this member has joined the side room each names (SPEC §10.2): before the
     # rooms exist the team works in the main room as before.
-    "role_questions": ("agent-bus: in team {team}, questions only a human can answer go to the questions room "
-                       "with `pingbus ask-human`; every human message there is delivered to you. Run "
+    "role_questions": ("agent-bus: in team {team}, the questions room is your two-way channel with the humans: "
+                       "`pingbus ask-human` opens a topic, `pingbus thread Q<n>` replies in one, and every "
+                       "human message there is delivered to you. Never write to a human in the main room. Run "
                        "`pingbus questions` now and pass on any answer not yet passed on."),
-    "role_reports": "agent-bus: in team {team}, report what the humans should know with `pingbus report`.",
+    "role_reports": ("agent-bus: in team {team}, post a short `pingbus report` at each checkpoint (a milestone, "
+                     "a merge, a deploy queued, a phase done, something blocked): pure FYI the humans read and "
+                     "never answer. Anything needing a human goes to the questions room, through the "
+                     "coordinator; never write to a human in the main room."),
     "questions_refused": ("agent-bus: in team {team} you cannot join the questions room: "
                           + inbox.REASON_NO_HUMAN_TEXT + "."),
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
@@ -161,6 +165,14 @@ TEMPLATES = {
                        "repair it from ccy-teams."),
     "watcher_failed": ("agent-bus: the watcher could not be started. Run `pingbus status`; "
                        "meanwhile run `pingbus wait` with run_in_background."),
+    "watcher_stopped": ("agent-bus: this session's watcher stopped on a failure a restart cannot fix, so it "
+                        "is not started again. Run `pingbus status` for the cause and tell the human."),
+    "watcher_stopped_team": ("agent-bus: team {team}'s watcher stopped on a failure a restart cannot fix. Run "
+                             "`pingbus status` for the cause and tell the human; `pingbus history --team "
+                             "{team}` reads the room meanwhile."),
+    "watcher_failing": ("agent-bus: team {team}'s watcher keeps exiting: it was started again {restarts} "
+                        "times without a sync that worked. Run `pingbus status` for the last exit's cause "
+                        "and tell the human."),
     "config": "agent-bus: the pingbus configuration was refused. Run `pingbus config check`.",
     "state": "agent-bus: a pingbus state file is unreadable. Run `pingbus status`.",
     "untrusted": "agent-bus: a team room is not trusted, or not verified yet. Run `pingbus status`.",
@@ -312,6 +324,18 @@ def role_lines(views: tuple[TeamView, ...]) -> list[str]:
 def side_room_lines(views: tuple[TeamView, ...]) -> list[str]:
     """SessionStart's line per team whose questions invite this member must leave pending."""
     return [fill("questions_refused", team=view.team) for view in views if view.questions_refused]
+
+
+def watcher_lines(views: tuple[TeamView, ...]) -> list[str]:
+    """SessionStart's line per team whose watcher keeps exiting, or stopped for good, from its
+    record (issue #116): what was otherwise only in watch.log."""
+    lines: list[str] = []
+    for view in views:
+        if view.watcher_stopped:
+            lines.append(fill("watcher_stopped_team", team=view.team))
+        elif view.watcher is not None and protocol.is_team_name(view.team):
+            lines.append(TEMPLATES["watcher_failing"].format(team=view.team, restarts=view.watcher.restarts))
+    return lines
 
 
 def about_lines(views: tuple[TeamView, ...]) -> list[str]:
@@ -519,10 +543,16 @@ class TeamView:
     questions_refused: bool = False
     #: The side rooms this member has joined, by purpose (empty before the play makes them).
     joined: frozenset[str] = frozenset()
+    #: The team's watcher, as its supervisor or the watcher last recorded it (issue #116).
+    watcher: watcherstate.Record | None = None
 
     @property
     def waker(self) -> bool:
         return inbox.is_waker(self.holder)
+
+    @property
+    def watcher_stopped(self) -> bool:
+        return self.watcher is not None and self.watcher.state == watcherstate.STOPPED
 
 
 @dataclasses.dataclass(frozen=True)
@@ -581,6 +611,7 @@ def _team_view(member: config.Member) -> TeamView:
     state = inbox.TeamState.for_member(member)
     try:
         holder = inbox.probe_lock(state)
+        watcher = watcherstate.read(state.path)
     except inbox.StateError:
         return TeamView(member.team, None, None, "state")
     try:
@@ -588,21 +619,21 @@ def _team_view(member: config.Member) -> TeamView:
         pending = state.pending(record.context(member.server_name), member.user_id,
                                 human_text=member.human_text)
     except protocol.Untrusted:
-        return TeamView(member.team, holder, None, "untrusted")
+        return TeamView(member.team, holder, None, "untrusted", watcher=watcher)
     except inbox.StateError:
-        return TeamView(member.team, holder, None, "state")
+        return TeamView(member.team, holder, None, "state", watcher=watcher)
     handles = tuple(protocol.parse_user_id(user, member.server_name)
                     for user in protocol.coordinators(record.roles))
     try:
         description = state.about()
         side = state.side_rooms()
     except inbox.StateError:
-        return TeamView(member.team, holder, None, "state")
+        return TeamView(member.team, holder, None, "state", watcher=watcher)
     questions = side.get(protocol.PURPOSE_QUESTIONS)
     refused = questions is not None and questions.reason == inbox.REASON_NO_HUMAN_TEXT
     joined = frozenset(purpose for purpose, room in side.items() if room.state == "join")
     return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles,
-                    description, refused, joined)
+                    description, refused, joined, watcher)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:
@@ -639,19 +670,26 @@ def watch_argv(environ: Mapping[str, str]) -> list[str]:
     return [exe, "watch"]
 
 
-def spawn_watcher(environ: Mapping[str, str], log_path: pathlib.Path) -> None:
+def spawn_watcher(environ: Mapping[str, str], log_path: pathlib.Path) -> subprocess.Popen:
     """Start `pingbus watch --supervise` detached, in its own session, with the hook's
     environment (which carries the inbox socket's variables); its stderr is appended to
-    `log_path`. The supervisor restarts the watcher it runs (SPEC-inject E26)."""
+    `log_path`. The supervisor restarts the watcher it runs (SPEC-inject E26).
+
+    A daemon thread waits for it, so it is reaped when it exits while the starter still runs:
+    the seat keeper starts it too, and lives as long as the session, and a supervisor that
+    exits at once (75: the session already has one) would otherwise stay a defunct
+    `[pingbus]` under it (issue #116). A hook ends first, and the supervisor passes to the reaper above it."""
     argv = [*watch_argv(environ), "--supervise"]
     fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
-        subprocess.Popen(  # detached on purpose: it outlives the hook, until the socket goes
+        proc = subprocess.Popen(  # detached on purpose: it outlives the hook, until the socket goes
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=fd,
             env=dict(environ), start_new_session=True, close_fds=True,
         )
     finally:
         os.close(fd)
+    threading.Thread(target=proc.wait, daemon=True, name="pingbus-reap-watcher").start()
+    return proc
 
 
 # ── the Stop guard's memory ──────────────────────────────────────────────────────────────
@@ -811,6 +849,7 @@ class _Hook:
         surveyed = survey(self.environ)
         self._membership_baseline(surveyed)
         lines = self._keeper_lines() + self._session_teams_lines(surveyed)
+        lines += watcher_lines(surveyed.teams)
         lines += [] if surveyed.relaying else self._wake_lines(surveyed)
         if surveyed.injecting:
             lines.append(TEMPLATES["inject_frame"])
@@ -916,8 +955,10 @@ class _Hook:
     def _revive(self, surveyed: Survey) -> str | None:
         """Start this session's watcher again when it is gone (E26): `restarted`; `failed`
         when it could not be started, or died again within `WATCHER_RESPAWN_EVERY_S` of the
-        last start (reported, not restarted in a loop); None when there is nothing to do: no
-        socket, every team woken, the session's watch lock held, or a start in its grace."""
+        last start (reported, not restarted in a loop); `stopped` when every team without a
+        waker had its watcher stopped for a failure a restart cannot fix (issue #116: said,
+        never restarted); None when there is nothing to do: no socket, every team woken, the
+        session's watch lock held, or a start in its grace."""
         if not surveyed.injecting or not surveyed.without_waker():
             return None
         marks = inject.Marks(config.resolve_home(self.environ), surveyed.socket_path)
@@ -927,6 +968,8 @@ class _Hook:
         except inbox.StateError as exc:
             self.err.write(f"pingbus: hook {self.event}: the session's watch lock is unusable: {exc}\n")
             return "failed"
+        if all(view.watcher_stopped for view in surveyed.teams if not view.waker):
+            return "stopped"
         last = marks.spawned_ms()
         since_ms = None if last is None else self.now_ms - last
         if since_ms is not None and 0 <= since_ms < WATCHER_START_GRACE_S * 1000:
@@ -1031,8 +1074,8 @@ class _Hook:
             return self.stop_failure(failure, guard)
         free = 0 if surveyed.relaying else surveyed.without_waker()
         if surveyed.injecting:
-            if revived == "failed" and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
-                return _block(TEMPLATES["watcher_failed"])
+            if revived in ("failed", "stopped") and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
+                return _block(TEMPLATES[f"watcher_{revived}"])
             return {}
         if free and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
             return _block(TEMPLATES["no_waker"].format(free=free, teams=len(surveyed.teams)))

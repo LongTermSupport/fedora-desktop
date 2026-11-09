@@ -342,6 +342,16 @@ class Resources(unittest.TestCase):
         self.assertEqual(hj.size_bytes("512.5M"), int(512.5 * 1024 * 1024))
 
 
+class UnitNames(unittest.TestCase):
+    def test_the_units_are_agent_bus_s(self) -> None:
+        """The units are health.py's, and a homeserver unit's team is what hs_unit put there."""
+        self.assertEqual(hj.units().hs_unit("team-a"), HS)
+        self.assertEqual(hj.units().health_service("team-a"), HEALTH)
+        self.assertEqual(hj.units().backup_service("team-a"), BACKUP)
+        self.assertEqual(hj.team_of(hj.units().hs_unit("acc-m4b")), "acc-m4b")
+        self.assertEqual(hj.team_of(HEALTH), "")
+
+
 class Redaction(unittest.TestCase):
     def test_tokens_are_substituted(self) -> None:
         # The fake Matrix tokens are joined at run time so that no literal in this file looks

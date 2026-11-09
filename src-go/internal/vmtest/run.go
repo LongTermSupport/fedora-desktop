@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,6 +58,9 @@ func (c *cli) cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := c.diskGuard(ctx, l, runNeed); err != nil {
+		return err
+	}
 	return c.runScenario(ctx, l, ra)
 }
 
@@ -106,7 +110,7 @@ func (c *cli) resolveCommit(ctx context.Context, l *lab, given string) (string, 
 	}
 	tip, err := c.git.RemoteBranchTip(ctx, l.repoURL, l.branch)
 	if err != nil {
-		return "", ctxErr(ctx, failf("could not read the tip of %s from %s", l.branch, l.repoURL))
+		return "", ctxErr(ctx, failf("could not read the tip of %s from %s: %v", l.branch, l.repoURL, err))
 	}
 	return tip, nil
 }
@@ -118,11 +122,16 @@ func rawURL(repoURL, commit, path string) string {
 }
 
 // divergences is every known difference between this run and a real install of its profile
-// (§6.6 rule 09), for judge_run.
-func divergences(profile string) string {
+// (§6.6 rule 09), for judge_run. A consumer install is typed at a terminal ssh gives it rather
+// than one in the session, on a checkout the harness pinned, by a user whose passwordless sudo
+// is the lab's (so no password is ever asked).
+func divergences(profile string, consumer bool) string {
 	list := "throwaway-vault-password,lab-ssh-key-baked"
 	if profile == profileDesktop {
 		list += ",luks-unlock-automated,plymouth-disabled,gdm-autologin-enabled-by-harness,session-runner-autostart"
+	}
+	if consumer {
+		list += ",run-bash-attended-over-ssh-terminal,checkout-pinned-by-harness,lab-sudoers-nopasswd"
 	}
 	return list
 }
@@ -167,24 +176,38 @@ func (c *cli) runScenario(ctx context.Context, l *lab, ra runArgs) (err error) {
 		c.p.Print(c.env.Stderr, v.line+"\n")
 		return failf("base %s may not be used (freshness: %s); rebuild it with: vmtest build-base %s", b.Name, v.decision, s.BaseKey)
 	}
-	if err := c.floor(ctx, l.at(runsDir), v.size, "run", b.RAMMiB); err != nil {
-		return ctxErr(ctx, failf("the host cannot carry a run on %s (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
+	if err = c.ramFloor(b.RAMMiB); err != nil {
+		return failf("the host cannot carry a run on %s (stage: clone): %v", b.Name, err)
 	}
 	r := &running{c: c, l: l, s: s, b: b, baseDir: baseDir, commit: commit, cr: ra.cr, verdict: v}
-	r.id = c.env.Now().UTC().Format("20060102T150405Z") + "-" + s.ID
+	r.id = c.env.Now().UTC().Format(runIDLayout) + "-" + s.ID
 	r.dir = l.at(runsDir, r.id)
-	if err := os.MkdirAll(r.dir, 0o755); err != nil {
-		return failf("cannot create %s: %v", r.dir, err)
-	}
-	defer r.teardown(context.WithoutCancel(ctx))
-	if err := r.boot(ctx); err != nil {
+	release, err := r.makeDir()
+	if err != nil {
 		return err
 	}
-	if err := r.provisionAndCheck(ctx, check); err != nil {
+	defer func() { err = errors.Join(err, release()) }()
+	defer r.teardown(context.WithoutCancel(ctx))
+	if err = r.boot(ctx); err != nil {
+		return err
+	}
+	if err = r.provisionAndCheck(ctx, check); err != nil {
 		return err
 	}
 	return r.judge(ctx, v, probeRev)
 }
+
+// makeDir creates the run's directory and takes its lock, which the caller holds to the end of
+// the teardown, so prune-runs never takes a live overlay (E63).
+func (r *running) makeDir() (func() error, error) {
+	if err := os.MkdirAll(r.dir, 0o755); err != nil {
+		return nil, failf("cannot create %s: %v", r.dir, err)
+	}
+	return holdRun(r.dir)
+}
+
+// runDomain is the libvirt domain a run's guest is defined as; prune-runs asks libvirt for it.
+func runDomain(id string) string { return "vmtest-run-" + id }
 
 // boot creates the overlay and boots the guest until it answers SSH (E34).
 func (r *running) boot(ctx context.Context) error {
@@ -193,7 +216,7 @@ func (r *running) boot(ctx context.Context) error {
 	if err != nil {
 		return failf("%v", err)
 	}
-	r.g = &guest{c: c, key: r.l.at(sshKeyFile), domain: "vmtest-run-" + r.id, port: port, dir: r.dir}
+	r.g = &guest{c: c, key: r.l.at(sshKeyFile), domain: runDomain(r.id), port: port, dir: r.dir}
 	overlay := filepath.Join(r.dir, "overlay.qcow2")
 	if err := c.overlay(ctx, filepath.Join(r.baseDir, "base.qcow2"), overlay); err != nil {
 		return err
@@ -250,7 +273,11 @@ func (r *running) provisionAndCheck(ctx context.Context, check string) error {
 	if o := r.overrides(); o != "" {
 		overrides = "; overrides:" + o
 	}
-	c.logf("provisioning (headless run.bash; this is the long part — up to %ds)%s", int(provisionLimit.Seconds()), overrides)
+	mode := "headless run.bash"
+	if r.s.Consumer() {
+		mode = "attended ./run.bash --consumer, then its re-run"
+	}
+	c.logf("provisioning (%s; this is the long part — up to %ds)%s", mode, int(provisionLimit.Seconds()), overrides)
 	rc, err := r.provision(ctx)
 	if err != nil {
 		return err
@@ -362,7 +389,7 @@ func (r *running) judge(ctx context.Context, v verdict, probeRev string) error {
 	// §4.4a: the run was the refresh probe; a passing run can certify the base current.
 	res, err := c.helper(ctx, helperCall{module: "refresh", args: []string{"certify", "--response", response, flagBaseJSON, baseJSON}})
 	if err != nil {
-		return ctxErr(ctx, failf("could not apply the run's refresh outcome to %s", baseJSON))
+		return ctxErr(ctx, failf("could not apply the run's refresh outcome to %s: %v", baseJSON, err))
 	}
 	certified := strings.TrimSpace(string(res.Stdout))
 	c.logf("%s", certified)
@@ -388,7 +415,7 @@ func (r *running) runJudge(ctx context.Context, v verdict, probeRev, response, b
 		"--transcript", r.transcript.Name(), "--transcript-path", "runs/" + r.id + "/transcript.log",
 		flagBaseJSON, baseJSON, "--scenario", r.s.ID, "--planned", r.s.Planned, "--max-skipped", r.s.MaxSkipped,
 		"--run-id", r.id, "--commit", r.commit, "--branch", r.l.branch, "--freshness-decision", v.decision,
-		"--freshness-degraded", v.degraded, "--freshness-divergences", v.divergences, "--divergences", divergences(r.b.Profile),
+		"--freshness-degraded", v.degraded, "--freshness-divergences", v.divergences, "--divergences", divergences(r.b.Profile, r.s.Consumer()),
 		"--started-at", strconv.FormatInt(r.startedAt, 10), "--finished-at", strconv.FormatInt(c.env.Now().Unix(), 10),
 		"--probe-revision", probeRev,
 	}})
@@ -424,5 +451,15 @@ func (r *running) teardown(ctx context.Context) {
 		}
 		return
 	}
-	r.c.logf("overlay and console kept for diagnosis: %s", r.dir)
+	r.c.logf("%s", r.kept())
+}
+
+// kept says what a run that did not pass leaves behind, and how its overlay goes.
+func (r *running) kept() string {
+	files, size, err := overlays(r.dir)
+	if err != nil || len(files) == 0 {
+		return "the run is kept for diagnosis: " + r.dir
+	}
+	return fmt.Sprintf("overlay (%s) and console kept for diagnosis: %s; vmtest prune-runs --yes removes the overlay once a later run of %s passes or it is older than %d days",
+		humanBytes(size), r.dir, r.s.ID, defaultPruneDays)
 }

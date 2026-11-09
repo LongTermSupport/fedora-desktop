@@ -1,0 +1,31 @@
+teamchat delivery 3f9c2a71: 0 messages on myteam (0 from humans, 0 from agents, 0 pings, 0 notices, 0 timeouts): -
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman sent blocked to your review '$ppppppppppppppppppppppppppppppppppppppppppp' (after its TIMEOUT)
+answered: 1 more; see teamchat status --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 from rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.ssssssssssss+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.podman (flood limit), not delivered; read them with teamchat history --team myteam
+held back: 999999999 more from other senders; see teamchat history --team myteam
+not shown: a message from a team human could not be shown; read it with teamchat history --team myteam
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: a message from a team human could not be shown; read it with teamchat verify '$hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+not shown: 1 more; see teamchat history --team myteam
+gap: some messages could not be fetched; read them with teamchat history --team myteam
+stopped: this team stopped on a failure that does not clear by itself; run teamchat status --team myteam and tell a human
+999999991 more pending: they follow in the next delivery

@@ -22,7 +22,11 @@ to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 It is a Go binary (`src-go/cmd/ccy-teams`), built from this checkout and installed by
 `play-claude-yolo.yml`, so a change to its source reaches the desktop on the next run of
-that play.
+that play. A No or a Stop you choose at one of its questions (create, lxc-add, remove,
+shutdown, restart, wind-down) changes nothing and exits 0, a choice and not a failure; Esc or
+Ctrl-C exits 130. A No at the end of a create started from `ccy --teams` goes back to its list
+of teams. The one exception is the `cc --teams` consent question: its No exits 1, so the
+launch does not start.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
    asks a few questions. First, what the team works on: inside a checkout, **this
@@ -53,13 +57,16 @@ that play.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
-   [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (not while Clipboard Indicator is on, see [Limits](#limits)), and then offers to
+   open Element. A copied password stays on the clipboard until you press Enter once you have
+   pasted it (or 45 seconds pass); `ccy-teams` then clears the clipboard if it still holds the
+   password, and leaves it alone if you have copied something else since. Once you are signed in, the first choice is
    "Open `<team>` in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
-   which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
-   it, and the header names the selected row's actions, so no key has to be guessed.
+   which stays on the list. Every choice is a line of the
+   menu Enter opens (there are no shortcut keys), and the header names what Enter on the
+   selected row offers.
    Every screen starts with where you are and what it acts on, for example
    `Teams › alpha › Add LXC member · step 3/4 Checkout` over
    `into team alpha · container container-a · user agent`.
@@ -71,15 +78,17 @@ that play.
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
    asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
    it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
-   excludes it), covering teams first, and a row to create a team. A single covering team is
-   taken without a list. Choosing a team that does not cover the checkout offers to add the
+   excludes it), covering teams first, and a row to create a team. When the machine has only
+   one team and it covers the checkout, it is taken without a list; with two or more teams the
+   list is always shown. Choosing a team that does not cover the checkout offers to add the
    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
    takes them or the highlighted one), each marked team gets its own seat question, headed
    with which team it is (`New session › Team 2 of 3: beta`), and the
-   launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `👥 alpha: fedora-desktop.2 (w), beta: fedora-desktop.1 (c)`, each team in its own
+   launch prints which teams the session is on, with seat, role and what each is for (so does
+   `ccy-teams session add` or `move` on a running session, on its own terminal); the status
+   line shows `👥 alpha: example-repo.2 (w), beta: example-repo.1 (c)`, each team in its own
    colour, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
@@ -90,7 +99,7 @@ that play.
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
-   covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
+   covers, offer to start one; so does Start a ccy session on a row's menu ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
    LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
    running containers, asks for the user, the checkout and the role (the handle's repo, host
@@ -110,14 +119,14 @@ that play.
    [Talking to agents from Element](#talking-to-agents-from-element).
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
-   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
-   it back. Other members keep their bundles, and their sessions are started as before.
+   (`ccy_restore_sessions`, [ccy.md](ccy.md)); the seat's menu in `ccy-teams` keeps one out (after a
+   yes/no, default no), or puts it back. Other members keep their bundles, and their sessions are started as before.
 7. **Back up and restore.** Each team is backed up daily on this machine.
    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
 8. **Keep teams up to date.** After you edit a team's entry, or after this repository's
    software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
-   `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
+   `apply --all` (Update every team on a team row's menu in the picker, which also offers it when it opens), runs
    `play-agent-bus.yml` for those teams and checks the result. Neither ever takes a team
    down or deletes data: a team declared `absent`, or running but no longer declared,
    says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
@@ -127,10 +136,12 @@ that play.
    play run holds it (a `meta-deploy.bash` unit, say), ccy-teams names it and how long it has
    held the lock, and waits up to 30 minutes (with a **Stop waiting** row on a terminal). It
    writes the host_vars only once it has the lock, so stopping the wait changes nothing.
-9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
+9. **Take a team down.** `ccy-teams remove <team>` (or Take `<team>` down on the team's menu), on a terminal
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the
-   team's name typed.
+   team's name typed. A team watched in Element loses its launcher and Element profile too
+   (`play-agent-bus-element.yml` runs after the team's play); its `agent_bus_element_teams`
+   entry is kept, so the team brought back present gets them again.
 
 **Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the
 team, then **Wind down the team's sessions**) types `/goal clear` into each running session's
@@ -141,17 +152,33 @@ idle (up to 300 s, never interrupting a turn) and never types over unsent text. 
 it is your own turn in the session, not a team message. An LXC agent run with `service: true`
 gets the same in its `agent-bus-claude` tmux session in the container, through `sudo lxc-attach` as its user. One whose container is stopped, and sessions elsewhere, are named and
 fail the run, with the text to give them by hand. The ccy supervisor types at the same idle
-moments, so its line and the wind-down's can interleave. Nothing is ended. Spec: Plan 00203
-`SPEC-team-wind-down.md`.
+moments, so its line and the wind-down's can interleave. Once a session has answered (it is
+idle again), it is typed `/compact` with a wind-down instruction if its context is at or above
+the compact floor `ccy-sessions set-going` uses after a reboot (`ccy_restore_compact_floor_tokens`,
+read from `ccy-sessions-set-going.service`), so its resume reloads a small conversation into a
+cold cache. An LXC member's transcript is in its container, so it is compacted whatever its
+size, and its compaction's end is read from its pane. Compactions run one at a time, the
+coordinator first, and the whole wind-down is bounded by a 15-minute window: a session still
+answering or compacting at its end is named, never interrupted. Nothing is ended. Spec: Plan
+00203 `SPEC-team-wind-down.md` sections 1 to 4 and 7.
 
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
-types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). A
-session still running after 60 s is stopped as ccy-sessions' End stops it; each seat must then
-be free. Each member is reported: exited cleanly, stopped, failed, or not shut down (an LXC
+closes each session as you would: `/compact` typed into its tmux pane (Escape first if it is
+busy), and once its transcript records the compaction, `/exit`. Compacting at close, while the
+prompt cache is warm, costs a cache read of the conversation; the next resume then starts from
+the summary instead of writing the whole conversation to the cache again. A session with
+nothing to compact since its last compaction gets `/exit` alone, and so does every session
+with `--no-compact`. A compaction not complete within 600 s fails that session, which is left
+running and named (attach it with `ccy-sessions`); it is never killed. When Claude Code
+answers "Background work is running", it chooses **Exit and stop tasks**. A session still
+running 60 s after `/exit` is stopped as ccy-sessions' End stops it; each seat must then be
+free. The same close is `ccy --stop SESSION...` and a session's **Close it** in
+`ccy-sessions`: one package, `src-go/internal/sessclose`. Each member is reported: exited cleanly, stopped, failed, not shut down (an LXC
 agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
-end those where they run). A session with unsent text in its input box, or whose screen cannot
+end those where they run), or "no session running, nothing to shut down" (a free seat whose
+session has ended already; it never fails the run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
 **Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`
@@ -186,14 +213,20 @@ addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.m
 
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
-restored after a reboot; LXC and other members, active or parked; and the people, in the
-room or not and how many Element sessions they are signed in with. Enter on any row opens a
-menu of what can be done to it, in words, each with its shortcut beside it; a shortcut works
-only on a row whose menu has it. The shortcuts are Ctrl-N (start a session), Ctrl-U (on a
-team row: apply every team out of date), Ctrl-R (toggle a restore), Ctrl-X (remove a seat,
-park a member after a yes/no, or take a team down, as `remove`), Ctrl-P (a person's new
-password), Ctrl-E (open Element), and `?` explains every key. The last row, Running sessions
-(or Tab), lists the running sessions. Enter on one lists, in words, what can be done to it
+restored after a reboot; LXC and other members; and the people, in the room or not and how
+many Element sessions they are signed in with. A member's STATE is whether a session of it is
+listening on the bus now, read each time the list is drawn from the member's `agent_bus.status`
+in the team room, as `pingbus status` reads it (`agent-bus list <team>`'s `LIVE` line): `listening`
+while that status runs past now, `stale` once it has lapsed, `not listening` with none,
+`parked` for a parked member, and `unknown` when it could not be read (the team row says why:
+sudo, a homeserver that is down, or an `agent-bus` older than `LIVE` lines, which
+`play-agent-bus.yml` updates). Not being parked is not liveness, and is never shown as such. Enter on any row opens a
+menu of what can be done to it, in words, and that menu is the only way to an action: there
+are no shortcut keys. Its lines include starting a session, updating every team out of date
+(on a team row), turning a seat's restore off (after a yes/no) or on, removing a seat,
+parking a member (after a yes/no) or taking a team down (as `remove`), a person's new
+password, opening Element, and a help line that explains the columns and the lines. The last
+row, Running sessions, lists the running sessions. Enter on one lists, in words, what can be done to it
 while it runs: Add to a team, Remove from `<team>`, Change role in `<team>`, Move to another
 team, Attach, and Repair when its seat keeper has stopped. Each is the `ccy-teams session`
 command, run for you. Status words are in colour on a terminal, but
@@ -201,6 +234,25 @@ not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped.
 the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
 read-only `agent-bus` commands involved, so no password is asked. Until it has run, the
 picker says why before sudo asks.
+
+`ccy-teams --graph` draws the same as a Mermaid `flowchart` on stdout, for any Mermaid
+renderer (a GitHub comment, a Markdown preview). Each team is a subgraph with what it is
+for, its homeserver and its people; each member shows its kind, seat, role, checkout and
+live state, the same as `--list`'s STATE: listening, offline (stale, no status, parked or
+deferred), or unknown with why. LXC members sit inside their container's
+subgraph, and the coordinator has an edge to each worker. It fails as `--list` does. A
+team with a coordinator and one worker, abridged:
+
+```mermaid
+flowchart TB
+  subgraph t0_team_a["team team-a: what the team is for<br/>homeserver up, applied: up to date<br/>port 6167"]
+    direction TB
+    t0_h0["person person-a<br/>in room, 1 signed in"]
+    t0_m0["repo.dev+local.podman (coordinator)<br/>kind ccy, seat dev, role coordinator<br/>checkout ~/repo<br/>listening: a session of it is listening on the bus<br/>session ccy-repo"]:::listening
+    t0_m1["repo.1+local.podman<br/>kind ccy, seat 1, role worker<br/>checkout ~/repo<br/>offline: its status on the bus has lapsed (stale)<br/>session free"]:::offline
+    t0_m0 -->|dispatches to| t0_m1
+  end
+```
 
 Underneath, three commands do the work, and `ccy-teams` calls them:
 
@@ -216,7 +268,7 @@ are not ccy sessions.
 
 ### Talking to agents from Element
 
-**Only a message that mentions an agent reaches it.** Type `@`, then **pick the agent from
+**Only a message that mentions an agent, or replies under its message, reaches it.** Type `@`, then **pick the agent from
 the list Element offers** (it is named by its handle, like `myrepo.1+local.podman`). A name
 typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
 receives the message. `@room` reaches every agent of the team, and costs each one a turn;
@@ -236,9 +288,14 @@ as plain text mentions nobody, so no agent receives it.
 - **Edits are ignored in the main room.** An agent never sees an edited version there; write a
   new message instead. (The questions room below is the exception.)
   Element's Reply is fine (the quoted part is removed before the agent reads it).
-- **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
-  an Element reply to your message, so two answers to two questions stay apart. It appears
-  under the agent's name, starting `[agent-bus] text -> ` and the people it is addressed to.
+- **Agents answer you in the side rooms, not here.** Once a team has its reports and
+  questions rooms, no agent writes to a human in the main room: pingbus refuses it. A
+  coordinator answers your main-room message in the questions room, and a worker passes its
+  answer to the coordinator. Before the side rooms exist, an agent answers with its `reply:`
+  command, an Element reply to your message starting `[agent-bus] text -> `.
+- **A reply under an agent's message reaches that agent.** Your Element reply, or "Reply in
+  thread", under a message an agent sent in the main room is delivered to that agent with no
+  mention needed.
 - **Long messages are cut.** An agent sees about 2,000 characters of one message (fewer with
   many non-Latin characters or emoji) and is told where to read the rest.
 - **In the agent's terminal** your message shows under Claude Code's label "Another Claude
@@ -250,18 +307,20 @@ as plain text mentions nobody, so no agent receives it.
 Besides its main room, each team has two quieter rooms, which the agent-bus play creates and
 invites you to (Plan 00211):
 
-- **`<team> · reports`** is for you to read. Agents post there what you would want to know: a
-  milestone, a merge, a deploy queued, a decision taken for you, a risk. Reports never notify,
-  nobody is woken by one, and you cannot post there (the composer is disabled).
-- **`<team> · questions`** is between you and the coordinator. Workers ask the coordinator in
-  the main room; the coordinator answers what it can and asks you only what it cannot, one
-  self-contained question per message, numbered `Q1`, `Q2` and so on. Each question notifies
-  you. **Answer with "Reply in thread"** on the question. Every message you post in this room
-  reaches the coordinator, mention or not, and an edit reaches it as a correction. Reactions
-  are switched off here: answer in words.
+- **`<team> · reports`** is read-only status. Agents post a short report at each checkpoint:
+  a milestone, a merge, a deploy queued, a phase done, something blocked. A report is pure
+  FYI and never asks you anything. Reports never notify, nobody is woken by one, and you
+  cannot post there (the composer is disabled).
+- **`<team> · questions`** is the two-way channel between you and the coordinator: anything
+  that needs you is asked here. Workers ask the coordinator in the main room; the coordinator
+  answers what it can and asks you only what it cannot, one self-contained question per
+  message, numbered `Q1`, `Q2` and so on. Each question notifies you. **Answer with "Reply in
+  thread"** on the question, or start a topic of your own. Every message you post in this
+  room reaches the coordinator, mention or not, and an edit reaches it as a correction.
+  Reactions are switched off here: answer in words.
 
-You can mute the main room and follow only these two. A reply you post in the main room
-without a mention reaches no agent, so answer questions in the questions room. The protocol
+You can mute the main room and follow only these two. In the main room a message reaches an
+agent only when it mentions the agent or replies under that agent's own message. The protocol
 is in [agent-bus-protocol.md §8](agent-bus-protocol.md#8-the-team-room-record-status-power-levels).
 
 ## Teams
@@ -295,7 +354,8 @@ Each agent in a team is a **member**: one agent seat, named by a handle such as
 runs). Each member is a `coordinator` or a `worker`, which decides the verbs it may send. A team
 has at most one **coordinator**, the agent its owner nominates to take requests ("get this
 done") and dispatch them to workers; workers may address it with `--to-coordinator`, and
-it is copied automatically, marked as a copy, on everything a worker sends to a human. A
+until the team has its side rooms (when workers stop writing to humans in the main room), it
+is copied automatically, marked as a copy, on everything a worker sends to a human. A
 team file or registry that still says `orchestrator` reads as `coordinator`. Humans can
 still message any worker directly. An agent can be in several teams, with one bundle (its settings and access token) per
 team.
@@ -391,9 +451,12 @@ seat, which the launch creates (see [A ccy session: seats](#a-ccy-session-seats)
 pingbus checks every reference at GitHub with gh's login and has no other credential
 and no anonymous mode: `pingbus config check`, and every command that reaches the forge,
 stops (exit 78) with "gh is required and must be logged in: install gh and run
-`gh auth login --hostname github.com`". Whoever sets the member up provides it; nothing in
-this repository installs gh in a member or logs it in (only Plan 00161's acceptance run
-does, for the throwaway members it makes and removes). A ccy session already has it: the
+`gh auth login --hostname github.com`". Whoever sets the member up provides it. The one
+exception is an LXC member declared in `agent_bus_lxc_members`: `play-agent-bus.yml`
+installs gh in its container when it is missing, and says the command for the login, which
+stays the owner's (gh's one-time device code). Nothing in this repository logs gh in for a
+member (only Plan 00161's acceptance run does, for the throwaway members it makes and
+removes). A ccy session already has it: the
 container logs gh in from its own token at start. gh answers with `GH_TOKEN` or
 `GITHUB_TOKEN` when one is set in the member's environment, so either also meets the
 requirement.
@@ -455,9 +518,13 @@ The play records what it found per team in `/var/lib/agent-bus-applied/lxc/<team
 row, and `ccy-teams lxc-add` to name the team's stopped members before it asks; a team with no
 entry left keeps no record. The full rules are in
 [agent-bus-lxc-members.md](agent-bus-lxc-members.md#containers-that-are-not-running).
-The agent user must have gh logged in to github.com inside the container: the play checks
-it for every running container before it changes anything, and stops naming the container and
-`gh auth login` when it is missing; it never installs gh or supplies a token.
+The agent user must have gh logged in to github.com inside the container. Once every running
+container has passed the play's other checks, the play installs gh in it when missing (GitHub's
+apt or dnf repository, or Alpine's github-cli), then checks every agent user's login before any
+team changes, and stops with one message giving, for each login missing, the command to run on
+the host (`sudo lxc-attach -n <container> -- su - <user> -c 'gh auth login --hostname github.com --web'`).
+It never supplies a token; after the login, `ccy-teams lxc-add <team>` again (or
+`ccy-teams apply <team>`) finishes the join.
 `play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
 `play-lxc-install-config.yml` sets up, by `ip -j -4 addr show`) to every present
 team's `allow_from`, so `allow_from` is only for other machines (WireGuard) or a
@@ -613,8 +680,10 @@ stopped or failed.
 **Running the team.** On the homeserver host:
 
 - `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
-  each is active or parked (no tokens), then a `ROOM` line per account for each of the
-  reports and questions rooms.
+  each is parked (`parked`) or not (`active`, which says nothing of whether it runs), each
+  followed by a `LIVE` line: `listening`, `stale` or `-`, its `agent_bus.status` in the team
+  room judged as `pingbus status` judges it (no tokens); then a `ROOM` line per account for
+  each of the reports and questions rooms.
 - `sudo agent-bus check-rooms <team>` reads the reports and questions rooms and prints a
   `PROBLEM` line for each fault, with its repair: a room missing or changed, a human not in
   one, a worker in questions, a coordinator that left a room, and a coordinator whose session
@@ -694,7 +763,7 @@ dedicated agent user.
 ### A session's status line
 
 Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
-line with `👥 alpha: fedora-desktop.2 (c), beta: fedora-desktop.2 (w)`: the teams it is on,
+line with `👥 alpha: example-repo.2 (c), beta: example-repo.2 (w)`: the teams it is on,
 each with this session's member in it (its handle up to the `+`) and its role, `c` for
 coordinator and `w` for worker (👥 is the team counterpart of the hooks daemon's 👤 account).
 The role is read on every refresh from the same team record the live role notice reads, so a
@@ -887,8 +956,9 @@ These are known and documented rather than engineered around:
   other agents: `pingbus` delivers each human message only to the agents it mentions (all of them for `@room`), but
   the account receives them all. Human text is trusted input, so this is a privacy limit
   between teammates, not a way to inject instructions.
-- An agent can write free text under its own handle to the humans and agents it names
-  (`pingbus say --to <name>[,<name>…]`, never `@room`). `pingbus` refuses text that looks
+- An agent can write free text under its own handle to the agents it names, and to the
+  humans it names until the team has its side rooms (`pingbus say --to <name>[,<name>…]`,
+  never `@room`). `pingbus` refuses text that looks
   like a secret; a named agent receives it as a `PEER` line, information from a colleague
   that carries no authority, and `pingbus` never delivers it to an agent it does not name
   (the account still receives the whole room, as with human text). So one agent's
@@ -906,11 +976,20 @@ These are known and documented rather than engineered around:
 - An agent on a machine where it can `sudo` without a password reaches the root of trust.
 - A human's Matrix session in a browser cannot be detected beside a bare-host agent.
 - Matrix offers no second factor here.
-- `ccy-teams` offers a new password to the clipboard (`wl-copy --paste-once`) only when the
-  Clipboard Indicator extension is off: that extension reads every new selection, which uses
-  up the one paste, and keeps the password in its history (it honours no password-manager
-  hint). With it on, or when GNOME Shell's enabled extensions cannot be read, `ccy-teams`
-  says why and the password is typed from the screen. Its settings are left as they are.
+- A password copied by `ccy-teams` is on the clipboard until it is cleared, and pasteable
+  everywhere until then. No clipboard erases itself after one paste: GNOME reads a new
+  selection at once and goes on serving its own copy after `wl-copy` exits. So `ccy-teams`
+  copies plainly (`wl-copy`, the password on stdin), waits for Enter once you have pasted it
+  (at most 45 seconds), reads the clipboard back (`wl-paste`) and runs `wl-copy --clear` only
+  if it still holds the password; what you copied since is left alone, and a read or clear
+  that fails is reported as the password possibly still being there. The primary selection is
+  never set. GNOME, or any clipboard history, may still keep a copy after the clear; copy
+  something else if in doubt.
+- `ccy-teams` offers the clipboard only when the Clipboard Indicator extension is off: that
+  extension keeps every new selection in its history, past any clear (it honours no
+  password-manager hint). With it on, or when GNOME Shell's enabled extensions cannot be read,
+  `ccy-teams` says why and the password is typed from the screen. Its settings are left as
+  they are.
 - The homeserver limits only password sign-in (per account: three wrong passwords, then one
   every five minutes, so any bus member can lock a human out of signing in on a new device
   this way; existing sessions stay) and enforces no password strength, so change a human's password only

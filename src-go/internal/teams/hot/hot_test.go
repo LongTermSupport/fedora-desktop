@@ -46,6 +46,7 @@ type machine struct {
 	roles     map[string]string // team\thandle -> role, for the checkout's seats and others
 	others    map[string]int    // team -> members of other checkouts, beside roles
 	onPs      func()            // run at each podman ps, when set
+	psErr     string            // podman ps fails with this on stderr, when set
 	onPanes   func()            // run at each tmux list-panes, when set
 	report    string            // the keeper's report file: "" follows the desired file, "-" none, else its bytes
 }
@@ -216,6 +217,9 @@ func (r *rig) podmanPs(t *testing.T) execx.Result {
 	defer r.m.mu.Unlock()
 	if r.m.onPs != nil {
 		r.m.onPs()
+	}
+	if r.m.psErr != "" {
+		return execx.Result{ExitCode: 125, Stderr: []byte(r.m.psErr + "\n")}
 	}
 	request := filepath.Join(r.dir(), membership.RelaunchFile)
 	if _, err := os.Lstat(request); err == nil && r.m.relaunch {
@@ -407,6 +411,25 @@ func wantLines(t *testing.T, got string, want ...string) {
 		if !strings.Contains(got, w+"\n") {
 			t.Errorf("stderr lacks %q:\n%s", w, got)
 		}
+	}
+}
+
+// wantBlock fails unless stderr has the launch block (describe-seats --block) after the outcome:
+// its first line, a seat line for each team, and the authority line.
+func wantBlock(t *testing.T, got, first string, teams ...string) {
+	t.Helper()
+	at := strings.Index(got, first+"\n")
+	if at < 0 {
+		t.Fatalf("stderr lacks the block %q:\n%s", first, got)
+	}
+	block := got[at:]
+	for _, team := range teams {
+		if !strings.Contains(block, "  "+team+" ") {
+			t.Errorf("the block names no seat of %s:\n%s", team, block)
+		}
+	}
+	if !strings.Contains(block, "can direct this session as you can.\n") {
+		t.Errorf("the block lacks its authority line:\n%s", block)
 	}
 }
 

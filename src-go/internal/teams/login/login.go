@@ -5,12 +5,14 @@ package login
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
@@ -34,8 +36,11 @@ type Login struct {
 	Bus     *agentbus.Client
 	Systemd *systemd.Systemd
 	Declare *declare.Client
-	Runner  execx.Runner // wl-copy
+	Runner  execx.Runner // wl-copy, wl-paste
 	Getenv  func(string) string
+
+	// copied is the password this run put on the clipboard, until SettleClipboard clears it.
+	copied string
 
 	Home     string
 	StateDir string
@@ -51,8 +56,9 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops) *Login {
 
 // OpenElement opens the team in Element, setting up its profile first when it has none, and
 // offering a password to the people who have never signed in. Element starts apart from the
-// picker, which goes on.
+// picker, which goes on; a copied password is settled once it has started.
 func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
+	defer l.SettleClipboard(ctx)
 	if res, err := l.ensureProfile(ctx, team); err != nil || res != flow.Done {
 		return res, err
 	}
@@ -88,7 +94,7 @@ func (l *Login) OpenEveryTeam(ctx context.Context, snap *board.Snapshot) (flow.R
 		case statErr == nil:
 			ready = append(ready, team)
 		case errors.Is(statErr, os.ErrNotExist):
-			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (Ctrl-E on its row) sets one up.")
+			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (on its row's menu) sets one up.")
 		default:
 			l.Kit.Term.PrintError("the Element launcher of " + team + " could not be looked for: " + statErr.Error())
 			return flow.Refused, flow.Leave(term.ExitFailure)
@@ -142,13 +148,12 @@ func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board
 		return l.Kit.Note(ctx, "A new Element password is for one of the team's people (KIND human): choose one of their rows.")
 	}
 	set, err := l.passwordFor(ctx, snap, row)
+	if err == nil && set {
+		err = l.offerElement(ctx, row.Team)
+	}
+	l.SettleClipboard(ctx)
 	if err != nil {
 		return flow.Done, err
-	}
-	if set {
-		if err = l.offerElement(ctx, row.Team); err != nil {
-			return flow.Done, err
-		}
 	}
 	l.Kit.BackToList(ctx)
 	return flow.Done, nil
@@ -226,7 +231,8 @@ func (l *Login) IssuePassword(ctx context.Context, snap *board.Snapshot, team, n
 }
 
 // NewPassword is the sign-in offered straight after a team is made, for a person of it: the
-// teams are read again for the homeserver the sign-in is shown for. A leave with success is
+// teams are read again for the homeserver the sign-in is shown for. A copied password is left
+// on the clipboard for the wizard's SettleClipboard, once Element has been offered. A leave with success is
 // success, the cancelled exit is a cancellation, and any other leave is a failure this flow
 // has already explained.
 func (l *Login) NewPassword(ctx context.Context, team, human string) error {
@@ -247,6 +253,7 @@ func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 	if len(teams) == 0 {
 		return nil
 	}
+	defer l.SettleClipboard(ctx)
 	snap, err := l.Board.Collect(ctx)
 	if err != nil {
 		l.Kit.ReportErr(err)
@@ -272,6 +279,44 @@ func howToSignIn(team string) string {
 // Open is Element opened straight after a team is made, with the same answers as NewPassword.
 func (l *Login) Open(ctx context.Context, team string) error {
 	return offerResult(l.LaunchElement(ctx, team))
+}
+
+// SettleClipboard ends a copy: it waits for Enter (at most pasteWait), then clears the
+// clipboard if it still holds the password, and leaves it alone if something else was copied
+// since. A read or a clear that fails is said, with the password possibly still on the
+// clipboard. The read and the clear run even when ctx is done (Ctrl-C), so an interrupted run
+// does not leave the password behind. The primary selection is never set, so it is not touched.
+// It does nothing when no password was copied.
+func (l *Login) SettleClipboard(ctx context.Context) {
+	password := l.copied
+	if password == "" {
+		return
+	}
+	l.copied = ""
+	l.Kit.Tell("Paste the password into Element, then press Enter here (within " + pasteWaitWords + ") to clear it from the clipboard.")
+	waitCtx, cancel := context.WithTimeout(ctx, pasteWait)
+	l.Kit.WaitForEnter(waitCtx)
+	timedOut := errors.Is(waitCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	cancel()
+	if timedOut {
+		l.Kit.Tell("No Enter within " + pasteWaitWords + ".")
+	}
+	const stillThere = "the password may still be on the clipboard; copy something else to replace it."
+	held, err := l.clipboardHolds(context.WithoutCancel(ctx), password)
+	if err != nil {
+		l.Kit.Term.PrintError("the clipboard could not be read back (" + err.Error() + "), so it was not cleared: " + stillThere)
+		return
+	}
+	if !held {
+		l.Kit.Tell("The clipboard no longer holds the password (something else was copied), so it was left as it is.")
+		return
+	}
+	if err = l.clearClipboard(context.WithoutCancel(ctx)); err != nil {
+		l.Kit.Term.PrintError("wl-copy --clear failed (" + err.Error() + "): " + stillThere)
+		return
+	}
+	l.Kit.Tell("The password was cleared from the clipboard. GNOME or a clipboard history may still keep a copy of it: " +
+		"copy something else if in doubt.")
 }
 
 func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team string, ask bool) error {
@@ -313,9 +358,10 @@ func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, nam
 }
 
 // askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
-// "nothing was changed": the apply ran. It says whether a password was set.
+// "nothing was changed": the apply ran. It says whether a password was set. No is the default
+// (decision A12).
 func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
-	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", true)
+	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		return false, nil
 	}
@@ -351,10 +397,10 @@ func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board
 }
 
 // offerElement asks whether to open the team in Element now, setting its profile up first when
-// it has none.
+// it has none. The cursor starts on Exit (decision A12).
 func (l *Login) offerElement(ctx context.Context, team string) error {
 	yes, err := l.Kit.Confirm(ctx, flow.Here(team, "Open in Element").About("team "+team),
-		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", true)
+		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", false)
 	if err != nil || !yes {
 		return err
 	}
@@ -401,9 +447,9 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 // showLogin prints what to sign in to Element with, to the terminal only: it is shown once and
 // kept nowhere.
 func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
-	url := snap.URL[team]
+	url, known := snap.URL[team], true
 	if url == "" {
-		url = "unknown (not declared)"
+		url, known = "unknown: "+missingAddress(snap, team), false
 	}
 	server := snap.Server[team]
 	if server == "" {
@@ -419,20 +465,38 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Username", name))
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Matrix ID", "@"+name+":"+server))
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Password", shown))
-	l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+	if known {
+		l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+	} else {
+		l.Kit.Tell("Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+			"set it in the host_vars, then run ccy-teams apply " + team + ".")
+	}
 	// The homeserver keeps no record of a lockout a tool could read (Plan 00203 gap 10).
 	l.Kit.Tell("A few sign-ins in a row, or a few wrong passwords, and Element says \"Too many login attempts " +
 		"for this account\": wait, it clears by itself within minutes and retrying does not lengthen it " +
 		"(agent-bus health status gives the exact limits).")
 }
 
+// missingAddress is what the declaration lacks for team's homeserver address: the team itself,
+// its port, or a host (its listen address, else agent_bus_address).
+func missingAddress(snap *board.Snapshot, team string) string {
+	switch port, declared := snap.Port[team]; {
+	case !declared:
+		return team + " is not declared present in the host_vars"
+	case port == "-":
+		return team + " declares no port in the host_vars"
+	}
+	return team + " has no listen address and agent_bus_address is not set in the host_vars"
+}
+
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to
-// wl-copy on stdin, never in its arguments, which any process can read, and is served to one
-// paste only (security audit L4): nothing clears the clipboard later, so nothing the person
-// copies afterwards is wiped. Outside Wayland nothing is offered; the password is on screen.
-// Nor is it while the Clipboard Indicator extension is on (or that cannot be read): it reads
-// every new selection, which is the one paste, and keeps it in its history; it honours no
-// password-manager hint.
+// wl-copy on stdin, never in its arguments, which any process can read. GNOME reads a new
+// selection at once and keeps serving its own copy, so nothing erases itself: the password
+// stays on the clipboard until SettleClipboard, which the flow calls once Element is open to
+// paste into, clears it if the clipboard still holds it. Outside Wayland nothing is offered;
+// the password is on screen. Nor is it without wl-paste (the clipboard could not be read back
+// to clear it), or while the Clipboard Indicator extension is on (or that cannot be read): it
+// keeps every new selection in its history, past any clear; it honours no password-manager hint.
 func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password string) error {
 	if l.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
@@ -442,30 +506,66 @@ func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password stri
 			"playbooks/imports/play-claude-yolo.yml installs wl-clipboard.")
 		return nil
 	}
-	switch l.clipboardHistory(ctx) {
+	if !l.Kit.HasTool("wl-paste") {
+		l.Kit.Term.PrintError("wl-paste is not installed, so a copied password could not be cleared from the clipboard; copy it from above. " +
+			"playbooks/imports/play-claude-yolo.yml installs wl-clipboard.")
+		return nil
+	}
+	kept, keptErr := l.clipboardHistory(ctx)
+	switch kept {
 	case historyOff:
 	case historyUnknown:
-		l.Kit.Term.PrintError("whether the Clipboard Indicator extension is on could not be read, so the password is not offered " +
-			"for the clipboard; type it from above.")
+		l.Kit.Term.PrintError("whether the Clipboard Indicator extension is on could not be read (" + keptErr.Error() +
+			"), so the password is not offered for the clipboard; type it from above.")
 		return nil
 	case historyOn:
 		l.Kit.Tell("The password is not offered for the clipboard: the Clipboard Indicator extension is on, " +
-			"and it would use up the one paste and keep the password in its history. Type it from above.")
+			"and it keeps everything copied in its history, past any clear. Type it from above.")
 		return nil
 	}
 	yes, err := l.Kit.Confirm(ctx, h.Push("Copy"),
-		"Copy the password? Put "+name+"'s new password on the clipboard for one paste, into Element; after that it is gone "+
-			"from the clipboard. A clipboard manager may keep a copy.",
+		"Copy the password? Put "+name+"'s new password on the clipboard, to paste into Element. "+
+			"Once you have pasted it, press Enter here: ccy-teams then clears the clipboard if it still holds the password "+
+			"(after "+pasteWaitWords+" it does so without the Enter).",
 		"copy the password", true)
 	if err != nil || !yes {
 		return err
 	}
-	if !l.copyToClipboard(ctx, password) {
-		l.Kit.Term.PrintError("wl-copy failed (above), so the password is not on the clipboard; copy it from above.")
+	if failed := l.copyToClipboard(ctx, password); failed != "" {
+		l.Kit.Term.PrintError("wl-copy failed (" + failed + "), so the password is not on the clipboard; copy it from above.")
 		return nil
 	}
-	l.Kit.Tell("The password is on the clipboard for one paste; after that it is gone from the clipboard.")
+	l.copied = password
+	l.Kit.Tell("The password is on the clipboard.")
 	return nil
+}
+
+// pasteWait is how long SettleClipboard waits for the Enter that says the password was pasted;
+// clipboardBound bounds each read and clear of the clipboard.
+const (
+	pasteWait      = 45 * time.Second
+	pasteWaitWords = "45 seconds"
+	clipboardBound = 10 * time.Second
+)
+
+// clipboardHolds is whether the clipboard holds exactly password. The content is read from
+// wl-paste's output, never shown or logged, and compared in constant time.
+func (l *Login) clipboardHolds(ctx context.Context, password string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, clipboardBound)
+	defer cancel()
+	res, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-paste", Args: []string{"--no-newline"}})
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(res.Stdout, []byte(password)) == 1, nil
+}
+
+// clearClipboard empties the clipboard (not the primary selection).
+func (l *Login) clearClipboard(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, clipboardBound)
+	defer cancel()
+	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Args: []string{"--clear"}, Stderr: l.Kit.Stderr})
+	return err
 }
 
 // clipboardHistoryUUID is the Clipboard Indicator extension vars/gnome-shell-extensions.yml
@@ -481,28 +581,31 @@ const (
 	historyUnknown         // the enabled extensions could not be read (gsettings said why)
 )
 
-// clipboardHistory is whether GNOME Shell's enabled extensions include Clipboard Indicator.
-// With no gsettings there is no GNOME Shell, so it is off.
-func (l *Login) clipboardHistory(ctx context.Context) history {
+// clipboardHistory is whether GNOME Shell's enabled extensions include Clipboard Indicator,
+// and, when that could not be read, why. With no gsettings there is no GNOME Shell, so it is off.
+func (l *Login) clipboardHistory(ctx context.Context) (history, error) {
 	if !l.Kit.HasTool("gsettings") {
-		return historyOff
+		return historyOff, nil
 	}
 	res, err := l.Runner.Run(ctx, execx.Cmd{
 		Name: "gsettings", Args: []string{"get", "org.gnome.shell", "enabled-extensions"}, Stderr: l.Kit.Stderr,
 	})
 	switch {
 	case err != nil:
-		return historyUnknown
+		return historyUnknown, err
 	case strings.Contains(string(res.Stdout), "'"+clipboardHistoryUUID+"'"):
-		return historyOn
+		return historyOn, nil
 	}
-	return historyOff
+	return historyOff, nil
 }
 
-// copyToClipboard puts text on the clipboard for one paste; it says whether wl-copy took it.
-func (l *Login) copyToClipboard(ctx context.Context, text string) bool {
-	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Args: []string{"--paste-once"}, Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
-	return err == nil
+// copyToClipboard puts text on the clipboard; it is how wl-copy failed, or "" when it took it.
+func (l *Login) copyToClipboard(ctx context.Context, text string) string {
+	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func offerResult(err error) error {

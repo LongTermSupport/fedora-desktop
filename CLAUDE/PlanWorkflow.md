@@ -101,7 +101,7 @@ bootstrap, and reference skeletons are in
 > faithfully, which is exactly why fixing the single script would have fixed
 > nothing.
 >
-> **This repo is also routinely checked out INSIDE another one** (lts-infra keeps
+> **This repo is also routinely checked out INSIDE another one** (example-team keeps
 > it at `untracked/repos/fedora-desktop`), and both repos have an `ansible.cfg` at
 > their root — so root resolution must additionally stop at the repository
 > boundary, or it silently resolves to the parent repo and *appears to work*.
@@ -146,9 +146,9 @@ So, for any plan whose remaining work touches the host:
 `CLAUDE/Plan/meta-deploy.list` (one entry per line; `#` comment lines say what the entry
 will do), holds, at every commit, exactly what needs running now: a plan folder (its triage,
 `deploy.bash` and `acceptance.bash` run in order), a playbook path for a change no plan
-owns, or `changed-plays` for every play changed since it ran here. When work needs a host run, the same commit adds it to that file, and the owner is
-told "I have updated meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will
-do. Never hand over individual plays or scripts, and never say `git pull` first (the
+owns, or `changed-plays` for every play changed since it ran here. When work needs a host run, the same commit adds it to that file, and the team's host agent
+is asked to run `./CLAUDE/Plan/meta-deploy.bash` (the owner only where there is no host
+agent), with what it will do. Never hand over individual plays or scripts, and never say `git pull` first (the
 container works in the host's own checkout). Remove an entry once it has run and passed.
 A run that needs a logout before its acceptance can judge it goes in two rounds: the deploy
 now, the plan (deploy again, then acceptance) after the logout. The full standing rule:
@@ -472,7 +472,7 @@ code it tracks.
 
 - **Plan + code in one commit** (preferred when both change together):
   ```bash
-  git add CLAUDE/Plan/00049-full-repo-audit/PLAN.md playbooks/imports/play-docker.yml
+  git add CLAUDE/Plan/00049-full-repo-audit/PLAN.md playbooks/imports/optional/common/play-docker.yml
   git commit -m "Plan 00049: make Docker rootful and core"
   ```
 - **Plan-only commit** (encouraged for new plans, research, decision notes, status

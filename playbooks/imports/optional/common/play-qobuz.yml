@@ -11,18 +11,31 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # hifi-rs configuration
     # Set to "latest" for automatic version detection or specify version like "0.3.8"
     hifiRsVersion: "latest"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
+    # hifi-rs publishes one gnu build per architecture, named by Fedora's arch names.
+    hifiRsArchs: [x86_64, aarch64]
+    hifiRsAsset: "hifi-rs-{{ ansible_facts['architecture'] }}-unknown-linux-gnu.tar.gz"
 
     # Anchored MPRIS-identity regexes for players that scrobble themselves, so
     # Rescrobbled configuration for Last.fm scrobbling
-    # Check https://github.com/InputUsername/rescrobbled/releases for updates
+    # Check https://github.com/InputUsername/rescrobbled/releases for updates. Every release
+    # has one asset, an x86-64 binary: there is no build for any other architecture.
+    rescrobbled_has_build: "{{ ansible_facts['architecture'] == 'x86_64' }}"
     rescrobbledVersion: 0.10.0
     rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
     rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
   tasks:
+    - name: Fail on an architecture hifi-rs publishes no build for
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in hifiRsArchs
+        fail_msg: "hifi-rs: no build for {{ ansible_facts['architecture'] }} (published: {{ hifiRsArchs | join(', ') }})"
+      tags:
+        - hifi-rs
+
     # Version detection for hifi-rs
     - name: Get latest hifi-rs version
       ansible.builtin.shell: |
@@ -41,7 +54,7 @@
 
     - name: Set hifi-rs URL
       ansible.builtin.set_fact:
-        hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
+        hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/{{ hifiRsAsset }}"
 
     # Prints one marker line on stdout as its payload (UNCHANGED / INSTALLED) so
     # changed_when reflects what the script actually did; the human-readable
@@ -61,7 +74,7 @@
         cd /home/{{ user_login }}/Downloads
         rm -rf hifi-rs*
         wget "{{ hifiRsUrl }}"
-        tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
+        tar -xf "{{ hifiRsAsset }}"
         mv -f hifi-rs "{{ hifiRsPath }}"
         echo "HIFIRS_INSTALLED"
       args:
@@ -79,238 +92,200 @@
       tags:
         - hifi-rs
 
-    - name: Install Recsrobbled
-      ansible.builtin.shell: |
-        set -euo pipefail
-        cd /home/{{ user_login }}/Downloads
-        rm -rf rescrobbled*
-        wget "{{ rescrobbledUrl }}"
-        mv rescrobbled "{{ rescrobbledPath }}"
-        chmod u+x "{{ rescrobbledPath }}"
-      args:
-        executable: /bin/bash
-        creates: "{{ rescrobbledPath }}"
+    # Last.fm scrobbling is optional: not everyone uses Last.fm. An empty API key at the
+    # prompt skips the scrobbling setup for this run and the rest of the play carries on;
+    # nothing is saved, so the next run asks again.
+    - name: Say Last.fm scrobbling is skipped on this architecture (rescrobbled publishes no build for it)
+      ansible.builtin.debug:
+        msg: "rescrobbled: no {{ ansible_facts['architecture'] }} build (x86_64 only); Last.fm scrobbling skipped"
+      when: not (rescrobbled_has_build | bool)
 
-    # 0700: this dir holds config.toml (Last.fm API key + secret) and the
-    # session token file, so it must not be group- or world-readable.
-    - name: Create Rescrobbled Config Dir
-      ansible.builtin.file:
-        state: directory
-        path: /home/{{ user_login }}/.config/rescrobbled/
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0700"
-
-    # Needs Last FM API Account
-    # Visit https://www.last.fm/api/account/create
-    - name: Prompt for Last.fm API credentials (one-time setup)
-      when: lastfm_api_key is not defined or lastfm_api_secret is not defined
+    - name: Last.fm scrobbling (rescrobbled has no aarch64 build, skipped there)
+      when: rescrobbled_has_build | bool
       block:
-        - name: Display Last.fm API instructions
-          ansible.builtin.debug:
-            msg: |2
+        - name: Ask for the Last.fm API key when it is missing (optional)
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+          vars:
+            secret_name: lastfm_api_key
+            secret_label: Last.fm API key
+            secret_explain: |2
 
-              ============================================
-              LAST.FM API CREDENTIALS REQUIRED
-              ============================================
+              LAST.FM SCROBBLING (optional)
 
-              Rescrobbled needs Last.fm API credentials.
+              Rescrobbled sends what you play to Last.fm. It needs a Last.fm API key
+              and its shared secret:
 
               1. Go to https://www.last.fm/api/account/create
-              2. Create an API application (any name/description)
-              3. Copy the API Key and Shared Secret
+              2. Create an API application (any name and description)
+              3. Copy the API key, and next the shared secret
 
-              The next two prompts ask for them.
+              Do not use Last.fm, or not now? Leave the key empty and press ENTER:
+              this run skips scrobbling, and the next run asks again.
+            secret_confirm: false
+            secret_optional: true
+          when: lastfm_api_key is not defined
 
-        - name: Prompt for Last.fm API Key
-          ansible.builtin.pause:
-            prompt: "Enter your Last.fm API Key"
-          register: lastfm_key_prompt
+        - name: Ask for the Last.fm shared secret when it is missing
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+          vars:
+            secret_name: lastfm_api_secret
+            secret_label: Last.fm shared secret
+            secret_explain: >-
+              The shared secret shown next to your Last.fm API key, at
+              https://www.last.fm/api/accounts. Rescrobbled needs both to scrobble.
+            secret_confirm: false
+          when:
+            - lastfm_api_key is defined
+            - lastfm_api_secret is not defined
 
-        - name: Fail if API Key is empty
-          ansible.builtin.fail:
-            msg: "Last.fm API Key cannot be empty. Re-run this playbook when you have your credentials."
-          when: lastfm_key_prompt.user_input | length == 0
+    - name: Decide whether this run sets up scrobbling
+      ansible.builtin.set_fact:
+        qobuz_scrobble: "{{ (rescrobbled_has_build | bool) and lastfm_api_key is defined and lastfm_api_secret is defined }}"
 
-        - name: Prompt for Last.fm API Secret
-          ansible.builtin.pause:
-            prompt: "Enter your Last.fm Shared Secret"
-          register: lastfm_secret_prompt
-
-        - name: Fail if API Secret is empty
-          ansible.builtin.fail:
-            msg: "Last.fm API Secret cannot be empty. Re-run this playbook when you have your credentials."
-          when: lastfm_secret_prompt.user_input | length == 0
-
-        - name: Set credentials as facts for this run
-          ansible.builtin.set_fact:
-            lastfm_api_key: "{{ lastfm_key_prompt.user_input }}"
-            lastfm_api_secret: "{{ lastfm_secret_prompt.user_input }}"
-
-        # Pass the secret via stdin (NOT inline-templated into quoted shell):
-        # an apostrophe in the user input would otherwise break the single-quote
-        # context and inject shell. encrypt_string reads the value from stdin and
-        # emits the encrypted YAML block on stdout, which we capture then write
-        # idempotently with blockinfile below. stdin_add_newline is off, or ansible
-        # appends a newline that encrypt_string would vault as part of the secret.
-        - name: Vault-encrypt Last.fm API Key
-          ansible.builtin.command:
-            argv:
-              - ansible-vault
-              - encrypt_string
-              - --stdin-name
-              - lastfm_api_key
-          args:
-            stdin: "{{ lastfm_key_prompt.user_input }}"
-            stdin_add_newline: false
-          register: lastfm_key_encrypted
-          changed_when: false
-          no_log: true
-
-        - name: Vault-encrypt Last.fm API Secret
-          ansible.builtin.command:
-            argv:
-              - ansible-vault
-              - encrypt_string
-              - --stdin-name
-              - lastfm_api_secret
-          args:
-            stdin: "{{ lastfm_secret_prompt.user_input }}"
-            stdin_add_newline: false
-          register: lastfm_secret_encrypted
-          changed_when: false
-          no_log: true
-
-        # blockinfile (markered) converges on re-runs instead of appending
-        # duplicate keys the way a raw `>>` redirect would.
-        - name: Save vault-encrypted Last.fm API Key to localhost.yml
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: lastfm_api_key"
-            block: "{{ lastfm_key_encrypted.stdout }}"
-            create: false
-          no_log: true
-
-        - name: Save vault-encrypted Last.fm API Secret to localhost.yml
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: lastfm_api_secret"
-            block: "{{ lastfm_secret_encrypted.stdout }}"
-            create: false
-          no_log: true
-
-        - name: Confirm credentials saved
-          ansible.builtin.debug:
-            msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
-
-    # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
-    # suppress logging/diff so `--diff` runs never print the credentials.
-    #
-    # rescrobbled scrobbles whatever publishes MPRIS. hifi-rs, the only player
-    # this play installs, has no scrobbler of its own, so rescrobbled must keep
-    # scrobbling it. A player that scrobbles itself has to be ignored here or
-    # every one of its tracks is submitted twice — both submissions fire on
-    # Last.fm's half-duration / 4-minute rule, so the duplicates land seconds
-    # apart with nothing anywhere reporting a problem.
-    #
-    # "^QBZ$" stays even though this repo no longer installs QBZ. The entry is
-    # a defensive guard, not a declaration of ownership: QBZ was withdrawn
-    # upstream, but removing it from this repo does not remove it from a
-    # machine that already had it, and it still publishes MPRIS and still
-    # scrobbles itself. Keeping the entry costs one regex evaluation per
-    # discovered player when QBZ is absent (is_ignorelisted only ever tests
-    # players that exist), and prevents silent double-scrobbling when it is
-    # present. Deleting it is fail-open; keeping it is fail-safe.
-    #
-    # Entries are matched unanchored against identity, bus name and
-    # instance-stripped bus name (player.rs regex_set_contains), so anchor
-    # every entry (^Name$). Do NOT widen this one: a loose pattern would start
-    # swallowing hifi-rs, which must never be ignored. Confirm an identity with
-    # `journalctl --user -u rescrobbled`, which prints it verbatim.
-    - name: Configure Rescrobbled
-      ansible.builtin.copy:
-        content: |
-          lastfm-key = "{{ lastfm_api_key }}"
-          lastfm-secret = "{{ lastfm_api_secret }}"
-          player-ignorelist = [ "^QBZ$" ]
-        dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0600"
-      no_log: true
-      diff: false
-      notify: Restart rescrobbled
-
-    - name: Create Systemd User Dir
-      ansible.builtin.file:
-        state: directory
-        path: /home/{{ user_login }}/.config/systemd/user/
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
-
-    - name: Rescrobbled Systemd Config
-      ansible.builtin.copy:
-        content: |
-          [Unit]
-          Description=An MPRIS scrobbler
-          Documentation=https://github.com/InputUsername/rescrobbled
-          Wants=network-online.target
-          After=network-online.target
-
-          [Service]
-          ExecStart=%h/.local/bin/rescrobbled
-
-          [Install]
-          WantedBy=default.target
-        dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0644"
-      notify: Restart rescrobbled
-
-    - name: Check for Session File For Rescrobbled
-      ansible.builtin.stat:
-        path: /home/{{ user_login }}/.config/rescrobbled/session
-      register: rescrobbled_session_file
-
-    - name: Manual Rescrobbled Setup Required
+    - name: Last.fm scrobbling with rescrobbled
+      when: qobuz_scrobble | bool
       block:
-        # PAUSE-OK: waits while the owner logs rescrobbled in to Last.fm; the next task checks the session file
-        - name: Display Setup Instructions
-          ansible.builtin.pause:
-            prompt: |2
+        - name: Install Rescrobbled
+          ansible.builtin.shell: |
+            set -euo pipefail
+            cd /home/{{ user_login }}/Downloads
+            rm -rf rescrobbled*
+            wget "{{ rescrobbledUrl }}"
+            mv rescrobbled "{{ rescrobbledPath }}"
+            chmod u+x "{{ rescrobbledPath }}"
+          args:
+            executable: /bin/bash
+            creates: "{{ rescrobbledPath }}"
 
-              ============================================
-              RESCROBBLED SETUP REQUIRED
-              ============================================
+        # 0700: this dir holds config.toml (Last.fm API key + secret) and the
+        # session token file, so it must not be group- or world-readable.
+        - name: Create Rescrobbled Config Dir
+          ansible.builtin.file:
+            state: directory
+            path: /home/{{ user_login }}/.config/rescrobbled/
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0700"
 
-              Please do the following in a NEW terminal:
-              1. Run: rescrobbled
-              2. Enter your Last.fm login details
-              3. Confirm it logs in properly
-              4. Press Ctrl+C to exit rescrobbled
+        # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
+        # suppress logging/diff so `--diff` runs never print the credentials.
+        #
+        # rescrobbled scrobbles whatever publishes MPRIS. hifi-rs, the only player
+        # this play installs, has no scrobbler of its own, so rescrobbled must keep
+        # scrobbling it. A player that scrobbles itself has to be ignored here or
+        # every one of its tracks is submitted twice — both submissions fire on
+        # Last.fm's half-duration / 4-minute rule, so the duplicates land seconds
+        # apart with nothing anywhere reporting a problem.
+        #
+        # "^QBZ$" stays even though this repo no longer installs QBZ. The entry is
+        # a defensive guard, not a declaration of ownership: QBZ was withdrawn
+        # upstream, but removing it from this repo does not remove it from a
+        # machine that already had it, and it still publishes MPRIS and still
+        # scrobbles itself. Keeping the entry costs one regex evaluation per
+        # discovered player when QBZ is absent (is_ignorelisted only ever tests
+        # players that exist), and prevents silent double-scrobbling when it is
+        # present. Deleting it is fail-open; keeping it is fail-safe.
+        #
+        # Entries are matched unanchored against identity, bus name and
+        # instance-stripped bus name (player.rs regex_set_contains), so anchor
+        # every entry (^Name$). Do NOT widen this one: a loose pattern would start
+        # swallowing hifi-rs, which must never be ignored. Confirm an identity with
+        # `journalctl --user -u rescrobbled`, which prints it verbatim.
+        - name: Configure Rescrobbled
+          block:
+            - name: Configure Rescrobbled
+              ansible.builtin.copy:
+                content: |
+                  lastfm-key = "{{ lastfm_api_key }}"
+                  lastfm-secret = "{{ lastfm_api_secret }}"
+                  player-ignorelist = [ "^QBZ$" ]
+                dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
+                owner: "{{ user_login }}"
+                group: "{{ user_login }}"
+                mode: "0600"
+              no_log: true
+              diff: false
+              notify: Restart rescrobbled
+          rescue:
+            # Only the module msg: the content and diff hold the Last.fm key and secret.
+            - name: Stop because the rescrobbled config could not be written
+              ansible.builtin.fail:
+                msg: >-
+                  The rescrobbled config (~/.config/rescrobbled/config.toml) could not be
+                  written: {{ ansible_failed_result.msg | default('no reason given') }}.
+                  Scrobbling is not set up. Check that the directory exists and belongs to
+                  you, then run this play again.
 
-              Then press ENTER here to continue...
+        - name: Create Systemd User Dir
+          ansible.builtin.file:
+            state: directory
+            path: /home/{{ user_login }}/.config/systemd/user/
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0755"
 
-        - name: Check if Session File Now Exists
+        - name: Rescrobbled Systemd Config
+          ansible.builtin.copy:
+            content: |
+              [Unit]
+              Description=An MPRIS scrobbler
+              Documentation=https://github.com/InputUsername/rescrobbled
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              ExecStart=%h/.local/bin/rescrobbled
+
+              [Install]
+              WantedBy=default.target
+            dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          notify: Restart rescrobbled
+
+        - name: Check for Session File For Rescrobbled
           ansible.builtin.stat:
             path: /home/{{ user_login }}/.config/rescrobbled/session
-          register: rescrobbled_session_check
+          register: rescrobbled_session_file
 
-        - name: Verify Session File Created
-          ansible.builtin.fail:
-            msg: |
-              Session file still not found at ~/.config/rescrobbled/session
-              Please ensure you completed the rescrobbled login process.
-              Run this playbook again after successfully logging in.
-          when: not rescrobbled_session_check.stat.exists
-      when: not rescrobbled_session_file.stat.exists | default(true)
+        - name: Manual Rescrobbled Setup Required
+          block:
+            # PAUSE-OK: waits while the owner logs rescrobbled in to Last.fm; the next task checks the session file
+            - name: Display Setup Instructions
+              ansible.builtin.pause:
+                prompt: |2
 
-    - name: Reload systemd daemon for user
-      ansible.builtin.systemd:
-        daemon_reload: true
-        scope: user
+                  ============================================
+                  RESCROBBLED SETUP REQUIRED
+                  ============================================
+
+                  Please do the following in a NEW terminal:
+                  1. Run: rescrobbled
+                  2. Enter your Last.fm login details
+                  3. Confirm it logs in properly
+                  4. Press Ctrl+C to exit rescrobbled
+
+                  Then press ENTER here to continue...
+
+            - name: Check if Session File Now Exists
+              ansible.builtin.stat:
+                path: /home/{{ user_login }}/.config/rescrobbled/session
+              register: rescrobbled_session_check
+
+            - name: Verify Session File Created
+              ansible.builtin.fail:
+                msg: |
+                  Session file still not found at ~/.config/rescrobbled/session
+                  Please ensure you completed the rescrobbled login process.
+                  Run this playbook again after successfully logging in.
+              when: not rescrobbled_session_check.stat.exists
+          when: not rescrobbled_session_file.stat.exists | default(true)
+
+        - name: Reload systemd daemon for user
+          ansible.builtin.systemd:
+            daemon_reload: true
+            scope: user
 
     # Flushed here, after the daemon-reload above and before the start below, so
     # that a restart and a first-install start cannot both fire in one run: on a
@@ -320,32 +295,35 @@
     - name: Flush handlers before starting rescrobbled
       ansible.builtin.meta: flush_handlers
 
-    - name: Start and Enable Rescrobbled Service
-      ansible.builtin.systemd:
-        name: rescrobbled
-        state: started
-        enabled: true
-        scope: user
+    - name: Start rescrobbled
+      when: qobuz_scrobble | bool
+      block:
+        - name: Start and Enable Rescrobbled Service
+          ansible.builtin.systemd:
+            name: rescrobbled
+            state: started
+            enabled: true
+            scope: user
 
-    # Queried via the systemd module with no state:, which reports the unit
-    # without touching it. Still fail-fast: a unit that is not active stops
-    # the play rather than letting the success message below lie.
-    - name: Verify Rescrobbled Service is Running
-      ansible.builtin.systemd:
-        name: rescrobbled
-        scope: user
-      register: rescrobbled_status
-      changed_when: false
-      failed_when: rescrobbled_status.status.ActiveState != "active"
+        # Queried via the systemd module with no state:, which reports the unit
+        # without touching it. Still fail-fast: a unit that is not active stops
+        # the play rather than letting the success message below lie.
+        - name: Verify Rescrobbled Service is Running
+          ansible.builtin.systemd:
+            name: rescrobbled
+            scope: user
+          register: rescrobbled_status
+          changed_when: false
+          failed_when: rescrobbled_status.status.ActiveState != "active"
 
-    - name: Display Success Message
-      ansible.builtin.debug:
-        msg: |
-          ✓ Rescrobbled successfully installed and running!
-          ✓ hifi-rs playback will be scrobbled to Last.fm by rescrobbled
+        - name: Display Success Message
+          ansible.builtin.debug:
+            msg: |
+              ✓ Rescrobbled successfully installed and running!
+              ✓ hifi-rs playback will be scrobbled to Last.fm by rescrobbled
 
-          To check status: systemctl --user status rescrobbled
-          To view logs: journalctl --user -u rescrobbled -f
+              To check status: systemctl --user status rescrobbled
+              To view logs: journalctl --user -u rescrobbled -f
 
     - name: Create qobuz-players bashrc include file
       ansible.builtin.copy:
@@ -454,7 +432,7 @@
           - ============================================
           - ""
           - ✓ hifi-rs {{ hifiRsVersionFinal }} installed (CLI player)
-          - ✓ rescrobbled {{ rescrobbledVersion }} installed and running
+          - "{{ ('✓ rescrobbled ' ~ rescrobbledVersion ~ ' installed and running') if (qobuz_scrobble | bool) else ('- Last.fm scrobbling skipped this run (no API details given; the next run asks again)' if (rescrobbled_has_build | bool) else '- Last.fm scrobbling skipped: rescrobbled has no ' ~ ansible_facts['architecture'] ~ ' build') }}"
           - ""
           - "Usage:"
           - play <qobuz_url>     - Play a Qobuz URL with hifi-rs

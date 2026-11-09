@@ -9,8 +9,22 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
 
   tasks:
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
+
+    # Oracle's Fedora repo (rpm/fedora/<release>/aarch64) and RPM Fusion's akmod-VirtualBox
+    # are x86_64 only: VirtualBox has no Linux aarch64 host build.
+    - name: End play on aarch64 (VirtualBox publishes no Linux aarch64 host build; x86_64 hosts only)
+      ansible.builtin.meta: end_play
+      when: ansible_facts['architecture'] != 'x86_64'
+
+    - name: Find the kernel the next boot runs, which the akmod handler builds for
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
+
     - name: Install Virtualbox Dependencies
       become: true
       ansible.builtin.dnf:
@@ -45,4 +59,16 @@
   handlers:
     - name: akmod
       become: true
-      ansible.builtin.shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service
+      # Built for the kernel the next boot runs, the one kernel-devel is installed for; the
+      # driver is reloaded now only when that is the running kernel, else at the reboot.
+      ansible.builtin.shell: |
+        set -euo pipefail
+        akmods --kernels "$KVER"
+        if [ "$KVER" = "$(uname -r)" ]; then
+          systemctl restart vboxdrv.service
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        KVER: "{{ boot_kernel_version }}"
+      changed_when: true

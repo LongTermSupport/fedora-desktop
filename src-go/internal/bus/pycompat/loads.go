@@ -10,9 +10,10 @@ import (
 )
 
 // maxDepth is how deeply arrays and objects may nest before json.loads raises RecursionError.
-// CPython's limit is its recursion limit less the frames already on the stack (python 3.11
-// refuses near 996 at the top level), so this is an approximation of the same refusal.
-const maxDepth = 990
+// The scanner's limit is python 3.13's C recursion limit (10000) less the frames already on
+// the stack; 3.14 bounds the C stack instead and goes deeper. This is an approximation of the
+// 3.13 refusal, the lower of the two pingbus runs on.
+const maxDepth = 9990
 
 // LoadOptions changes json.loads.
 type LoadOptions struct {
@@ -371,8 +372,9 @@ func (d *decoder) member(i int) (string, Value, int, error) {
 }
 
 // afterItem is what follows an item ending at i: the closing bracket (its index, closed), or
-// a ',' and the start of the next item (whitespace skipped; a closing bracket there is the
-// next item's error, as python reports it); anything else is "Expecting ',' delimiter".
+// a ',' and the start of the next item (whitespace skipped; a closing bracket there is an
+// illegal trailing comma, reported at the comma as python 3.13 and later do); anything else
+// is "Expecting ',' delimiter".
 func (d *decoder) afterItem(i int, closing rune) (int, bool, error) {
 	if i = d.skipSpace(i); i < len(d.s) && d.s[i] == closing {
 		return i, true, nil
@@ -380,7 +382,14 @@ func (d *decoder) afterItem(i int, closing rune) (int, bool, error) {
 	if i >= len(d.s) || d.s[i] != ',' {
 		return 0, false, d.decodeError("Expecting ',' delimiter", i)
 	}
-	return d.skipSpace(i + 1), false, nil
+	if next := d.skipSpace(i + 1); next >= len(d.s) || d.s[next] != closing {
+		return next, false, nil
+	}
+	kind := "array"
+	if closing == '}' {
+		kind = "object"
+	}
+	return 0, false, d.decodeError("Illegal trailing comma before end of "+kind, i)
 }
 
 // scanArray is _parse_array_unicode from just after the '['.

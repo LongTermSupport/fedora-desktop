@@ -31,19 +31,19 @@ func (g *gate) requireSemgrep(ctx context.Context) error {
 // worse than a missing tool, so a regression here fails the run and never reports a clean tree.
 // A fixture that disagrees with the rule is exit 1, a test that could not run is exit 2.
 func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
-	fixture, err := os.ReadFile(g.path(fixtureFile))
+	fixture, err := os.ReadFile(g.path(g.spec.fixtureFile))
 	if err != nil {
-		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", fixtureFile, err)
+		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", g.spec.fixtureFile, err)
 	}
 	if len(semgrepreport.Annotated(string(fixture))) == 0 {
-		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixtureFile)
+		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", g.spec.fixtureFile)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag)
+	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(g.spec.ruleFile), g.path(g.spec.fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag)
 	if err != nil {
 		return ExitCannotRun, err
 	}
 	if res.Code != 0 {
-		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n%s%s", ruleName, fixtureFile, res.Stdout, res.Stderr)
+		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n%s%s", g.spec.ruleName, g.spec.fixtureFile, res.Stdout, res.Stderr)
 	}
 	return ExitOK, nil
 }
@@ -103,7 +103,7 @@ type semgrepReport struct {
 // scan hands the files to semgrep by name, never as a directory: a directory scan applies
 // semgrep's default ignore list, which skips tests/ and would hide a copy there.
 func (g *gate) scan(ctx context.Context, files []string) (semgrepReport, error) {
-	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
+	argv := append([]string{"semgrep", "--config", g.path(g.spec.ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {
 		return semgrepReport{}, err
@@ -152,7 +152,7 @@ func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode
 	}
 	if len(skipped) > 0 {
 		slices.Sort(skipped)
-		fmt.Fprintf(&g.stdout, "⚠ gh-scopes: %d file(s) skipped by semgrep\n%s\n", len(skipped), indent(skipped))
+		fmt.Fprintf(&g.stdout, "⚠ %s: %d file(s) skipped by semgrep\n%s\n", g.spec.short, len(skipped), indent(skipped))
 	}
 	return g.verdict(rep), nil
 }
@@ -183,9 +183,9 @@ func (g *gate) verdict(rep semgrepReport) ExitCode {
 		return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(a.line, b.line))
 	})
 	for _, f := range found {
-		fmt.Fprintf(&g.stdout, "%s:%d  %s\n", f.path, f.line, ruleName)
+		fmt.Fprintf(&g.stdout, "%s:%d  %s\n", f.path, f.line, g.spec.ruleName)
 	}
-	fmt.Fprintf(&g.stdout, "%s: %d line(s) in %d file(s) name a GitHub scope outside vars/github-required-scopes.yml. See CLAUDE/QA.md \"%s\".\n", ruleName, len(found), len(byFile), ruleName)
+	fmt.Fprintf(&g.stdout, "%s: %d line(s) in %d file(s) %s. See CLAUDE/QA.md \"%s\".\n", g.spec.ruleName, len(found), len(byFile), g.spec.finding, g.spec.ruleName)
 	fmt.Fprintf(&g.stdout, "passed: %d failed: %d\n", scanned-len(byFile), len(byFile))
 	return ExitFailed
 }

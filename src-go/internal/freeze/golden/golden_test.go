@@ -186,6 +186,12 @@ func jsonString(s string) string {
 }
 
 func (m *machine) run(c execx.Cmd) (execx.Result, error) {
+	if c.Name == "tput" {
+		// The Go reads the terminal's width for a heading, which the bash never asked, so the
+		// worlds do not list tput and no call is logged. Every Fedora host has it (ncurses);
+		// it answers as on a stream with no width, and the screen takes the common one.
+		return execx.Result{}, &execx.ExitError{Name: c.Name, Code: 1}
+	}
 	if !m.hasTool(c.Name) {
 		return execx.Result{}, &execx.NotInstalledError{Name: c.Name}
 	}

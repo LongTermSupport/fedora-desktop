@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,7 +69,7 @@ func TestWireFillsOnlyWhatIsMissing(t *testing.T) {
 		"Getenv": h.Getenv != nil, "Gum": h.Gum != nil, "Picker": h.Picker != nil, "Stdout": h.Stdout != nil,
 		"Stderr": h.Stderr != nil, "Stdin": h.Stdin != nil, "Out": h.Out != nil, "LookPath": h.LookPath != nil,
 		"OpenTTY": h.OpenTTY != nil, "Exec": h.Exec != nil, "InContainer": h.InContainer != nil,
-		"IsTerminal": h.IsTerminal != nil,
+		"IsTerminal": h.IsTerminal != nil, "UserHome": h.UserHome != nil,
 	}
 	for name, ok := range built {
 		if !ok {
@@ -198,6 +199,22 @@ func TestLauncherViaReportsAFailedExec(t *testing.T) {
 	f.ExecError(&execx.NotInstalledError{Name: "ccy"})
 	if err := launcherVia(f, "ccy", nil, t.TempDir()); err == nil || !strings.Contains(err.Error(), "start the launcher") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// The Element acceptance is found where pingbus looks (config._home_of): the passwd home.
+func TestTheUserHomeIsThePasswdDatabases(t *testing.T) {
+	h := New(config.Config{RootDir: "/checkout"})
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := h.UserHome(os.Getuid())
+	if err != nil || home != me.HomeDir {
+		t.Fatalf("UserHome %q, %v; want %q", home, err, me.HomeDir)
+	}
+	if _, err := h.UserHome(-2); err == nil {
+		t.Fatal("a uid with no passwd entry gave a home")
 	}
 }
 

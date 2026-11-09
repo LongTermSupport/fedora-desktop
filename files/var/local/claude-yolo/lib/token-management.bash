@@ -2,7 +2,8 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.15.0 - usage_report: `ccy --token-usage [--json]`. Cache entries carry the
+# Version: 2.0.0 - usage_report removed: `ccy --token-usage` is the Go front's alone.
+#         1.15.0 - usage_report: `ccy --token-usage [--json]`. Cache entries carry the
 #                  file they were read with, in one atomically published <name>.result;
 #                  records split keeping empty fields.
 #         1.14.0 - Expiry colours: red when unusable (expired or expiring today),
@@ -434,9 +435,11 @@ _usage_fetch_one() {
     hdr="$(mktemp)"; body="$(mktemp)"
     printf '' > "$out_prefix.summary"
 
+    # curl's words on a failure (--show-error: "curl: (6) Could not resolve host: ...") are the
+    # entry's fourth line, so a failed read says what failed.
     if code="$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
         | curl --config - \
-               --silent \
+               --silent --show-error \
                --request POST \
                --header 'content-type: application/json' \
                --header 'anthropic-version: 2023-06-01' \
@@ -447,7 +450,7 @@ _usage_fetch_one() {
                --max-time "$CCY_USAGE_TIMEOUT" \
                --output "$body" \
                --write-out '%{http_code}' \
-               "$CCY_USAGE_ENDPOINT")"; then
+               "$CCY_USAGE_ENDPOINT" 2> "$out_prefix.cause")"; then
         :
     else
         # curl itself failed (DNS, TLS, refused, timeout). 000 is curl's own
@@ -468,16 +471,17 @@ _usage_fetch_one() {
 
     printf '%s\n' "$code" > "$out_prefix.status"
     rm -f "$hdr" "$body"
-    chmod 600 "$out_prefix.summary" "$out_prefix.status"
+    chmod 600 "$out_prefix.summary" "$out_prefix.status" "$out_prefix.cause"
     return 0
 }
 
 # Refreshes the cache for every given token file, fanning the fetches out in
 # parallel so N accounts cost roughly one round trip rather than N.
 #
-# One entry per token NAME, `<cache>/<name>.result`, three lines: the token file name it
-# was read with, the HTTP status (000 when no response came back), and the
-# _usage_extract record (empty when the response carried no figures).
+# One entry per token NAME, `<cache>/<name>.result`, four lines: the token file name it
+# was read with, the HTTP status (000 when no response came back), the
+# _usage_extract record (empty when the response carried no figures), and for a 000 what
+# failed (curl's exit code and words). A 000 entry is never fresh: the next read asks again.
 #
 # Args: $1 = token_dir, $2.. = token file paths
 usage_prime_cache() {
@@ -490,8 +494,7 @@ usage_prime_cache() {
     mkdir -p "$cache_dir"
     chmod 700 "$cache_dir"
 
-    local now pids=() token_file filename token_name entry_file mtime age
-    local -a entry=()
+    local now pids=() entry=() token_file filename token_name entry_file mtime age
     now="$(date +%s)"
 
     for token_file in "$@"; do
@@ -504,7 +507,7 @@ usage_prime_cache() {
         # name (an old and a renewed token) are two different credentials.
         if [ -f "$entry_file" ]; then
             mapfile -t entry < "$entry_file"
-            if [ "${entry[0]:-}" = "$filename" ] && mtime="$(stat -c %Y "$entry_file")"; then
+            if [[ "${entry[0]:-}" = "$filename" && "${entry[1]:-}" != 000 ]] && mtime="$(stat -c %Y "$entry_file")"; then
                 age=$(( now - mtime ))
                 if [ "$age" -ge 0 ] && [ "$age" -lt "$CCY_USAGE_TTL" ]; then
                     continue
@@ -527,11 +530,11 @@ usage_prime_cache() {
             if [ -n "$token" ]; then
                 part="$cache_dir/$token_name.$BASHPID"
                 _usage_fetch_one "$token" "$part"
-                printf '%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
-                    "$(cat "$part.summary")" > "$part.result"
+                printf '%s\n%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
+                    "$(cat "$part.summary")" "$(tr -c ' -~' ' ' < "$part.cause")" > "$part.result"
                 chmod 600 "$part.result"
                 mv -f "$part.result" "$cache_dir/$token_name.result"
-                rm -f "$part.status" "$part.summary"
+                rm -f "$part.status" "$part.summary" "$part.cause"
             fi
             exit 0
         ) &
@@ -563,7 +566,7 @@ _usage_split_record() {
 }
 
 # Why a fetch that returned no figures has none, from the HTTP status it recorded.
-# Shared by the menu and `ccy --token-usage`, so both name a failure the same way.
+# The Go front's `ccy --token-usage` words a failure the same way (usageStatusReason).
 _usage_status_reason() {
     case "$1" in
         000)      printf 'could not reach the API' ;;
@@ -616,7 +619,7 @@ usage_render_block() {
     # Real figures win over the status word — a 429 carrying numbers is more
     # useful than being told "rate limited".
     if [ -z "$record" ]; then
-        _usage_note "$(_usage_status_reason "${entry[1]:-000}")"
+        _usage_note "$(_usage_status_reason "${entry[1]:-000}")${entry[3]:+ (${entry[3]})}"
         return 0
     fi
 
@@ -654,387 +657,6 @@ usage_render_block() {
         printf "       ${DIM}binding limit: %s${RESET}\n" "$(_usage_claim_label "$claim")"
     fi
     return 0
-}
-
-# ─── `ccy --token-usage [--json]`: the menu's figures, without the menu ─────
-#
-# Prints every token's usage and exits: no terminal, no container, no repository, and
-# nothing written but the usage cache. Fetching is usage_prime_cache's, so the cost (one
-# small billed request per account) and the cache lifetime (CCY_USAGE_TTL) are the menu's,
-# and percentages go through the same _usage_normalise / _usage_scale_conflict pair.
-#
-# One row per token NAME. A name resolves to the first file `NAME.*.token` matches, the
-# earliest-dated, because that is the file `ccy --token NAME` and Quick Launch launch with.
-# A later file of the same name is reported as shadowed and never fetched: the cache is
-# keyed by name, so fetching both would report one credential's figures under the other.
-#
-# The JSON keys are a contract for scripts and are documented in `ccy --help`; renaming or
-# removing one is a breaking change and bumps "schema".
-
-# A JSON string literal for $1.
-_usage_json_str() {
-    local s="$1" out="" c i
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    if [[ "$s" =~ [[:cntrl:]] ]]; then
-        for (( i = 0; i < ${#s}; i++ )); do
-            c="${s:i:1}"
-            if [[ "$c" =~ [[:cntrl:]] ]]; then
-                printf -v c '\\u%04x' "'$c"
-            fi
-            out+="$c"
-        done
-        s="$out"
-    fi
-    printf '"%s"' "$s"
-}
-
-# $1 as a JSON string, or null when it is empty.
-_usage_json_or_null() {
-    if [ -z "$1" ]; then
-        printf 'null'
-    else
-        _usage_json_str "$1"
-    fi
-}
-
-# An epoch as a JSON ISO-8601 UTC string, or null when $1 is not an epoch.
-_usage_json_time() {
-    if [[ "$1" =~ ^[0-9]+$ ]]; then
-        _usage_json_str "$(date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ)"
-    else
-        printf 'null'
-    fi
-}
-
-# The 0-100 percentage of a raw utilisation value, as the menu would show it, printed as a
-# JSON number with at most two decimals. Fails when there is no number to give:
-#   1 the API did not report it   2 not a number   3 the assumed scale cannot produce it
-_usage_report_pct() {
-    local raw="$1" value
-    [ -n "$raw" ] || return 1
-    [[ "$raw" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 2
-    if _usage_scale_conflict "$raw"; then
-        return 3
-    fi
-    value="$(_usage_normalise "$raw")"
-    [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 2
-    awk -v x="$value" 'BEGIN { s = sprintf("%.2f", x); sub(/0+$/, "", s); sub(/\.$/, "", s); print s }'
-}
-
-# One token's figures as \x1f-separated fields (\x1e between warnings):
-#   expires status reason five_hour_pct seven_day_pct five_hour_reset seven_day_reset
-#   claim http_status fetched_epoch warnings
-# Pure cache read. Args: cache_dir name token_file now today
-_usage_report_row() {
-    local cache_dir="$1" name="$2" file="$3" now="$4" today="$5"
-    local fn expires="" status="unavailable" reason="" p5="" p7="" claim="" http="" fetched=""
-    local warn="" record="" code mtime bucket raw label pct rc
-    local u5="" r5="" u7="" r7=""
-    local -a entry=()
-    local RS=$'\x1e' US=$'\x1f'
-
-    fn="${file##*/}"
-    if [[ "$fn" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-        expires="${BASH_REMATCH[1]}"
-    fi
-
-    if [ -z "$expires" ]; then
-        reason="the token file name has no expiry date, so ccy will not launch with it"
-    elif ! is_token_valid "$file"; then
-        # The launch would refuse this file, so its figures would answer a question nobody
-        # can act on, and the menu does not fetch them either.
-        if [ "$expires" = "$today" ]; then
-            reason="token expires today, so ccy will not launch with it; renew: ccy --update-token=$name"
-        else
-            reason="token expired on $expires; renew: ccy --update-token=$name"
-        fi
-    else
-        if [ -f "$cache_dir/$name.result" ]; then
-            mapfile -t entry < "$cache_dir/$name.result"
-        fi
-    fi
-    if [ -n "$reason" ]; then
-        :
-    elif [ "${entry[0]:-}" != "$fn" ]; then
-        reason="no figures were fetched for this token file"
-    else
-        mtime="$(stat -c %Y "$cache_dir/$name.result")"
-        fetched="$mtime"
-        code="${entry[1]:-}"
-        record="${entry[2]:-}"
-        # 000 is curl's "no response at all": not a status, and not a JSON number either.
-        if [[ "$code" =~ ^[1-9][0-9]{2}$ ]]; then
-            http="$code"
-        fi
-        # `now` was taken before the fetch, so an entry this run wrote is never older than it.
-        # Anything older and past CCY_USAGE_TTL was due a refresh that did not publish.
-        if [ "$mtime" -lt "$now" ] && [ $(( now - mtime )) -ge "$CCY_USAGE_TTL" ]; then
-            reason="this run's fetch did not complete, and the cached figures are out of date"
-        else
-            if [ -z "$record" ]; then
-                reason="$(_usage_status_reason "$code")"
-            else
-                _usage_split_record "$record"
-                for bucket in five_hour seven_day; do
-                    if [ "$bucket" = five_hour ]; then
-                        raw="$u5"; label="5-hour"
-                    else
-                        raw="$u7"; label="7-day"
-                    fi
-                    rc=0
-                    pct="$(_usage_report_pct "$raw")" || rc=$?
-                    case "$rc" in
-                        0) ;;
-                        1) warn+="${warn:+$RS}$label: the API did not report it" ;;
-                        2) warn+="${warn:+$RS}$label: the API sent a value that is not a number ($raw)" ;;
-                        *) warn+="${warn:+$RS}$label: SCALE MISMATCH, the API sent $raw, impossible under CCY_USAGE_SCALE=${CCY_USAGE_SCALE:-fraction}" ;;
-                    esac
-                    if [ "$bucket" = five_hour ]; then
-                        p5="$pct"
-                    else
-                        p7="$pct"
-                    fi
-                done
-                if [ -n "$p5" ] || [ -n "$p7" ]; then
-                    status="ok"
-                else
-                    reason="the API sent no usable figures"
-                fi
-            fi
-        fi
-    fi
-
-    # The API's values are the only text here this library did not write.
-    claim="${claim//$US/}"
-    warn="${warn//$US/}"
-    [[ "$r5" =~ ^[0-9]+$ ]] || r5=""
-    [[ "$r7" =~ ^[0-9]+$ ]] || r7=""
-    printf '%s' "$expires$US$status$US$reason$US$p5$US$p7$US$r5$US$r7$US$claim$US$http$US$fetched$US$warn"
-}
-
-# "in 4 hours (2026-10-10 18:00 UTC)" for a reset epoch, "-" when there is none.
-_usage_report_reset_text() {
-    local epoch="$1" now="$2" rel
-    if ! [[ "$epoch" =~ ^[0-9]+$ ]]; then
-        printf -- '-'
-        return 0
-    fi
-    rel="$(_usage_human_reset "$epoch" "$now")"
-    printf '%s (%s)' "${rel#resets }" "$(date -d "@$epoch" '+%Y-%m-%d %H:%M %Z')"
-}
-
-# usage_report <token_dir> [--json] — the whole of `ccy --token-usage`.
-# stdout is the report (a table, or one JSON document); progress and errors go to stderr.
-# Returns 0 when at least one token's usage was read; 1 when none was (no tokens, every one
-# unavailable, usage turned off, no curl); 64 on an option other than --json.
-usage_report() {
-    local token_dir="$1"; shift
-    local format="human" arg
-    for arg in "$@"; do
-        case "$arg" in
-            --json) format="json" ;;
-            *)
-                printf 'ccy --token-usage: unknown option %s (usage: ccy --token-usage [--json])\n' "$arg" >&2
-                return 64
-                ;;
-        esac
-    done
-
-    local error="" now today
-    now="$(date +%s)"
-    today="$(date +%Y-%m-%d)"
-
-    # Index-aligned per NAME: the file a launch uses, and any later file it shadows.
-    local -a names=() files=() shadows=() fetch=()
-    local -A seen=()
-    local f fn n i
-    if ! usage_enabled; then
-        error="usage reading is turned off (CCY_TOKEN_USAGE=0)"
-    elif ! command -v curl > /dev/null; then
-        error="needs curl (run play-claude-yolo.yml)"
-    elif [ ! -d "$token_dir" ]; then
-        error="no token directory at $token_dir (create a token with: ccy --create-token)"
-    else
-        local at
-        for f in "$token_dir"/*.token; do
-            [ -f "$f" ] || continue
-            fn="${f##*/}"
-            n="${fn%.*.token}"
-            if [ -z "${seen["$n"]+set}" ]; then
-                seen["$n"]="${#names[@]}"
-                names+=("$n")
-                files+=("$f")
-                shadows+=("")
-            else
-                at="${seen["$n"]}"
-                shadows[at]+="$fn"$'\n'
-            fi
-        done
-        if [ "${#names[@]}" -eq 0 ]; then
-            error="no tokens in $token_dir (create one with: ccy --create-token)"
-        fi
-    fi
-
-    for i in "${!names[@]}"; do
-        if is_token_valid "${files[$i]}"; then
-            fetch+=("${files[$i]}")
-        fi
-    done
-    if [ "${#fetch[@]}" -gt 0 ]; then
-        if [ "$format" = "human" ]; then
-            printf 'Reading usage for %d account(s): 1 small API call each, unless read in the last %d seconds...\n' \
-                "${#fetch[@]}" "$CCY_USAGE_TTL" >&2
-        fi
-        usage_prime_cache "$token_dir" "${fetch[@]}"
-    fi
-
-    local cache_dir row ok_count=0
-    cache_dir="$(_usage_cache_dir "$token_dir")"
-    local -a r_exp=() r_status=() r_reason=() r_p5=() r_p7=() r_r5=() r_r7=() r_claim=() r_http=() r_fetched=() r_warn=()
-    local e s rs p5 p7 r5 r7 cl hc fa w
-    for i in "${!names[@]}"; do
-        row="$(_usage_report_row "$cache_dir" "${names[$i]}" "${files[$i]}" "$now" "$today")"
-        IFS=$'\x1f' read -r e s rs p5 p7 r5 r7 cl hc fa w <<< "$row"
-        r_exp+=("$e"); r_status+=("$s"); r_reason+=("$rs"); r_p5+=("$p5"); r_p7+=("$p7")
-        # A later file of the same name is never used while this one exists. Say so loudly
-        # when this one cannot be launched with at all: that is the renewal nobody gets.
-        if [ -n "${shadows[$i]}" ]; then
-            if is_token_valid "${files[$i]}"; then
-                w+="${w:+$'\x1e'}shadows a later file of this name, which ccy never uses: remove the one you do not want"
-            else
-                w+="${w:+$'\x1e'}SHADOWED RENEWAL: ccy launches with this unusable file, not the later one; remove ${files[$i]##*/}"
-            fi
-        fi
-        r_r5+=("$r5"); r_r7+=("$r7"); r_claim+=("$cl"); r_http+=("$hc"); r_fetched+=("$fa"); r_warn+=("$w")
-        if [ "$s" = "ok" ]; then
-            ok_count=$((ok_count + 1))
-        fi
-    done
-    if [ -z "$error" ] && [ "$ok_count" -eq 0 ]; then
-        error="usage could not be read for any token"
-    fi
-
-    if [ "$format" = "json" ]; then
-        _usage_report_print_json
-    else
-        _usage_report_print_table
-        if [ -n "$error" ]; then
-            printf 'ccy --token-usage: %s\n' "$error" >&2
-        fi
-    fi
-
-    if [ "$ok_count" -gt 0 ]; then
-        return 0
-    fi
-    return 1
-}
-
-# Reads usage_report's arrays (bash scoping is dynamic, so they are in reach).
-_usage_report_print_json() {
-    local i sep="" w_json sh_json item
-    printf '{\n  "schema": 1,\n  "generated_at": %s,\n  "scale": %s,\n  "error": %s,\n  "tokens": [' \
-        "$(_usage_json_time "$now")" "$(_usage_json_str "${CCY_USAGE_SCALE:-fraction}")" \
-        "$(_usage_json_or_null "$error")"
-    for i in "${!names[@]}"; do
-        w_json=""
-        if [ -n "${r_warn[$i]}" ]; then
-            while IFS= read -r -d $'\x1e' item; do
-                w_json+="${w_json:+, }$(_usage_json_str "$item")"
-            done <<< "${r_warn[$i]}"$'\x1e'
-        fi
-        sh_json=""
-        while IFS= read -r item; do
-            [ -n "$item" ] || continue
-            sh_json+="${sh_json:+, }$(_usage_json_str "$item")"
-        done <<< "${shadows[$i]}"
-        printf '%s\n    {"name": %s, "file": %s, "expires": %s, "status": %s, "reason": %s, "five_hour_pct": %s, "seven_day_pct": %s, "resets": {"five_hour": %s, "seven_day": %s}, "binding_limit": %s, "http_status": %s, "fetched_at": %s, "warnings": [%s], "shadowed": [%s]}' \
-            "$sep" \
-            "$(_usage_json_str "${names[$i]}")" \
-            "$(_usage_json_str "${files[$i]##*/}")" \
-            "$(_usage_json_or_null "${r_exp[$i]}")" \
-            "$(_usage_json_str "${r_status[$i]}")" \
-            "$(_usage_json_or_null "${r_reason[$i]}")" \
-            "${r_p5[$i]:-null}" \
-            "${r_p7[$i]:-null}" \
-            "$(_usage_json_time "${r_r5[$i]}")" \
-            "$(_usage_json_time "${r_r7[$i]}")" \
-            "$(_usage_json_or_null "${r_claim[$i]}")" \
-            "${r_http[$i]:-null}" \
-            "$(_usage_json_time "${r_fetched[$i]}")" \
-            "$w_json" "$sh_json"
-        sep=","
-    done
-    if [ "${#names[@]}" -gt 0 ]; then
-        printf '\n  ]\n}\n'
-    else
-        printf ']\n}\n'
-    fi
-}
-
-# Reads usage_report's arrays. One aligned row per token, then one per shadowed file.
-_usage_report_print_table() {
-    [ "${#names[@]}" -gt 0 ] || return 0
-    local -a c_name=("NAME") c_exp=("EXPIRES") c_p5=("5-HOUR") c_r5=("RESETS") c_p7=("7-DAY") c_r7=("RESETS") c_st=("STATUS")
-    local i st item sexp
-    for i in "${!names[@]}"; do
-        c_name+=("${names[$i]}")
-        c_exp+=("${r_exp[$i]:--}")
-        if [ -n "${r_p5[$i]}" ]; then
-            c_p5+=("$(_usage_pct_label "${r_p5[$i]}")")
-            c_r5+=("$(_usage_report_reset_text "${r_r5[$i]}" "$now")")
-        else
-            c_p5+=("-"); c_r5+=("-")
-        fi
-        if [ -n "${r_p7[$i]}" ]; then
-            c_p7+=("$(_usage_pct_label "${r_p7[$i]}")")
-            c_r7+=("$(_usage_report_reset_text "${r_r7[$i]}" "$now")")
-        else
-            c_p7+=("-"); c_r7+=("-")
-        fi
-        if [ "${r_status[$i]}" = "ok" ]; then
-            st="ok"
-            if [ -n "${r_claim[$i]}" ]; then
-                st+="; binding: $(_usage_claim_label "${r_claim[$i]}")"
-            fi
-        else
-            st="unavailable: ${r_reason[$i]}"
-        fi
-        if [ -n "${r_warn[$i]}" ]; then
-            st+="; ${r_warn[$i]//$'\x1e'/; }"
-        fi
-        c_st+=("$st")
-        while IFS= read -r item; do
-            [ -n "$item" ] || continue
-            sexp="-"
-            if [[ "$item" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-                sexp="${BASH_REMATCH[1]}"
-            fi
-            c_name+=("${names[$i]}"); c_exp+=("$sexp")
-            c_p5+=("-"); c_r5+=("-"); c_p7+=("-"); c_r7+=("-")
-            c_st+=("shadowed: ccy --token ${names[$i]} launches with ${files[$i]##*/}")
-        done <<< "${shadows[$i]}"
-    done
-
-    local wn=0 we=0 w5=0 wr5=0 w7=0 wr7=0 j
-    for j in "${!c_name[@]}"; do
-        [ "${#c_name[$j]}" -le "$wn" ] || wn="${#c_name[$j]}"
-        [ "${#c_exp[$j]}" -le "$we" ] || we="${#c_exp[$j]}"
-        [ "${#c_p5[$j]}" -le "$w5" ] || w5="${#c_p5[$j]}"
-        [ "${#c_r5[$j]}" -le "$wr5" ] || wr5="${#c_r5[$j]}"
-        [ "${#c_p7[$j]}" -le "$w7" ] || w7="${#c_p7[$j]}"
-        [ "${#c_r7[$j]}" -le "$wr7" ] || wr7="${#c_r7[$j]}"
-    done
-    for j in "${!c_name[@]}"; do
-        printf '%-*s  %-*s  %*s  %-*s  %*s  %-*s  %s\n' \
-            "$wn" "${c_name[$j]}" "$we" "${c_exp[$j]}" \
-            "$w5" "${c_p5[$j]}" "$wr5" "${c_r5[$j]}" \
-            "$w7" "${c_p7[$j]}" "$wr7" "${c_r7[$j]}" \
-            "${c_st[$j]}"
-    done
 }
 
 # Function to list available tokens
@@ -1092,29 +714,12 @@ list_tokens() {
     printf '%s\n\n' "$rule"
 }
 
-# Function to validate a token by testing it against the Claude API
-# Args: $1 = token to validate, $2 = image_name
-# Returns: 0 if valid, 1 if invalid
+# validate_token TOKEN IMAGE — the Go front's --check-token (F17) asks the API from inside the
+# image. 0: accepted. 3: the API refused the token (the one case for recovery). Anything else:
+# the check could not be made, its cause already on stderr; never a verdict on the token.
+# The token goes in that one command's environment, never in an argv (BSH-09).
 validate_token() {
-    local token="$1"
-    local image_name="$2"
-
-    # Test the token by making a simple API call
-    # Claude Code with a valid token should be able to show version.
-    #
-    # BSH-09: pass the token by NAME (-e CLAUDE_CODE_OAUTH_TOKEN, no '=value') so
-    # the secret is taken from this process's environment and never appears in the
-    # container run's argv, which is world-readable via /proc/<pid>/cmdline. It is set
-    # in that one command's environment, so no other program is given it.
-    if CLAUDE_CODE_OAUTH_TOKEN="$token" container_cmd run --rm \
-        -e CLAUDE_CODE_OAUTH_TOKEN \
-        --entrypoint claude \
-        "$image_name" \
-        --version >/dev/null 2>/dev/null; then
-        return 0  # Token works
-    else
-        return 1  # Token invalid
-    fi
+    CLAUDE_CODE_OAUTH_TOKEN="$1" "$SCRIPT_DIR/claude-yolo" --check-token "$CONTAINER_ENGINE" "$2"
 }
 
 # Function to create a new long-lived token
@@ -1125,7 +730,7 @@ create_token() {
     local gh_token="$2"
     local image_name="$3"
     local tool_name="${4:-ccy}"
-    local preset_name="$5"
+    local preset_name="$5" check_rc
 
     # BSH-05: callers and select_token read this to know whether a token was
     # actually created (so they can continue to launch or exit cleanly) versus
@@ -1144,19 +749,10 @@ create_token() {
         return 1
     fi
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Create New Long-Lived Token for YOLO Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "This will create a long-lived OAuth token (sk-ant-oat01-...) for $tool_name."
-    echo "These tokens are designed for container/CI-CD usage and last much longer"
-    echo "than regular OAuth tokens."
-    echo ""
-    echo "Requirements:"
-    echo "  • Active Claude Pro or Max subscription"
-    echo "  • Authentication will happen in a clean container"
-    echo ""
+    printf '\n%s\n%s\n%s\n\n' "════════════════════════════════════════════════════════════════════════════════" "Create New Long-Lived Token for YOLO Mode" "════════════════════════════════════════════════════════════════════════════════"
+    printf '%s\n' "This will create a long-lived OAuth token (sk-ant-oat01-...) for $tool_name." \
+        "These tokens are designed for container/CI-CD usage and last much longer" "than regular OAuth tokens." "" \
+        "Requirements:" "  • Active Claude Pro or Max subscription" "  • Authentication will happen in a clean container" ""
 
     # Prompt for token name (or use preset)
     if [ -n "$preset_name" ]; then
@@ -1214,23 +810,16 @@ create_token() {
     # Create temporary output file for token
     tmp_output=$(mktemp "${TMPDIR:-/tmp}/${tool_name}-token-setup-XXXXXX")
 
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Launching Claude Code container for token setup..."
-    echo ""
-    echo "INSTRUCTIONS:"
-    echo "  1. The container will run 'claude setup-token'"
-    echo "  2. Follow the authentication flow (CLI → Browser → CLI)"
-    echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
-    echo "  4. The process will save it automatically"
-    echo ""
+    printf '%s\n' "════════════════════════════════════════════════════════════════════════════════" "" "Launching Claude Code container for token setup..." "" "INSTRUCTIONS:" \
+        "  1. The container will run 'claude setup-token'" "  2. Follow the authentication flow (CLI → Browser → CLI)" \
+        "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)" "  4. The process will save it automatically" ""
     read -rp "$CCY_PROMPT_TOKEN_SETUP " _unused
     echo ""
 
     # Run setup-token via claude CLI entrypoint
     # GH_TOKEN provided for container's gh CLI (not for Claude auth)
     # Claude auth happens via OAuth flow in browser
-    echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$image_name\" setup-token"
+    echo "Running: $CONTAINER_ENGINE run --rm --pids-limit $CCY_PIDS_LIMIT --entrypoint claude \"$image_name\" setup-token"
     echo ""
 
     # BSH-09: GH_TOKEN by name (not -e VAR=value) keeps it out of the run argv, and
@@ -1239,7 +828,7 @@ create_token() {
     # 0), so the failure diagnostics below were unreachable and a failed
     # setup-token fell through to the success branch. Capture the container's own
     # status via PIPESTATUS[0] and branch on that instead.
-    GH_TOKEN="$gh_token" container_cmd run -it --rm \
+    GH_TOKEN="$gh_token" container_cmd run -it --rm --pids-limit "$CCY_PIDS_LIMIT" \
         --entrypoint claude \
         -e GH_TOKEN \
         "$image_name" \
@@ -1258,8 +847,16 @@ create_token() {
         if [ -n "$token" ]; then
             printf '\nValidating token...\n'
 
-            if validate_token "$token" "$image_name"; then
-                echo "✓ Token validated successfully"
+            # Only the API's refusal (3) discards the new token. A check that could not run
+            # keeps it, as a launch does: nothing is known against it.
+            check_rc=0
+            validate_token "$token" "$image_name" || check_rc=$?
+            if [ "$check_rc" -ne 3 ]; then
+                if [ "$check_rc" -eq 0 ]; then
+                    echo "✓ Token validated successfully"
+                else
+                    print_error "The new token could not be checked (the cause is above); it is saved unchecked."
+                fi
                 echo ""
 
                 # Save token to file
@@ -1280,9 +877,7 @@ create_token() {
                 echo "════════════════════════════════════════════════════════════════════════════"
             else
                 echo ""
-                print_error "Token validation failed"
-                echo "The extracted token does not authenticate properly."
-                echo "Please try creating the token again."
+                print_error "The new token was not saved: the API refused it. Please try creating the token again."
                 rm -f "$tmp_output"
                 return 1
             fi
@@ -1293,25 +888,20 @@ create_token() {
             echo "Or just run '$tool_name' and select it from the menu."
             echo ""
         else
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo "⚠  WARNING: Could not extract token from output"
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "The setup-token command ran, but we couldn't automatically extract the token."
-            echo ""
+            printf '\n%s\n%s\n%s\n\n%s\n\n' "════════════════════════════════════════════════════════════════════════════" "⚠  WARNING: Could not extract token from output" "════════════════════════════════════════════════════════════════════════════" \
+                "The setup-token command ran, but we couldn't automatically extract the token."
 
             # Token paste loop with validation and retry
             while true; do
                 echo "Please manually paste the token (starts with sk-ant-oat01-):"
-                read -r -p "Token: " manual_token
+                read -r -p "Token: " manual_token || [ -n "$manual_token" ] || { echo ""; print_error "No token: the input closed."; rm -f "$tmp_output"; return 1; }
 
                 # Basic validation: format check
                 if [ -z "$manual_token" ]; then
                     echo ""
                     print_error "Token cannot be empty"
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -1326,7 +916,7 @@ create_token() {
                     print_error "Invalid token format"
                     echo "Token must start with 'sk-ant-oat01-'"
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -1344,7 +934,7 @@ create_token() {
                     echo "Length: $token_bytes bytes (expected: 90-120 bytes)"
                     echo "Token appears truncated or has extra characters."
                     echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -1357,8 +947,14 @@ create_token() {
                 # API validation: Test against Claude API
                 printf '\nValidating token against Claude API...\n'
 
-                if validate_token "$manual_token" "$image_name"; then
-                    echo "✓ Token validated successfully"
+                check_rc=0
+                validate_token "$manual_token" "$image_name" || check_rc=$?
+                if [ "$check_rc" -ne 3 ]; then
+                    if [ "$check_rc" -eq 0 ]; then
+                        echo "✓ Token validated successfully"
+                    else
+                        print_error "The token could not be checked (the cause is above); it is saved unchecked."
+                    fi
                     echo ""
 
                     # Save token to file
@@ -1378,15 +974,9 @@ create_token() {
                     break
                 else
                     echo ""
-                    print_error "Token validation failed"
-                    echo "The provided token does not authenticate with Claude API."
+                    print_error "The token was not saved: the API refused it."
                     echo ""
-                    echo "Possible causes:"
-                    echo "  • Token was copied incorrectly (missing characters)"
-                    echo "  • Token has expired or been revoked"
-                    echo "  • Network connectivity issues"
-                    echo ""
-                    read -r -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry || retry=n
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo ""
                         echo "Cancelled. Please verify the token and try again."
@@ -1418,15 +1008,10 @@ create_token() {
             echo ""
             echo "Try rebuilding: $tool_name --rebuild"
         else
-            echo "Claude setup-token command failed (exit code: $docker_exit_code)"
-            echo ""
-            echo "This usually indicates:"
-            echo "  • Authentication flow was cancelled or failed"
-            echo "  • No active Claude Pro/Max subscription"
-            echo "  • Network connectivity issues"
-            echo "  • Browser authentication not completed"
-            echo ""
-            echo "Please try again and ensure you complete the full OAuth flow."
+            printf '%s\n' "Claude setup-token command failed (exit code: $docker_exit_code)" "" "This usually indicates:" \
+                "  • Authentication flow was cancelled or failed" "  • No active Claude Pro/Max subscription" \
+                "  • Network connectivity issues" "  • Browser authentication not completed" "" \
+                "Please try again and ensure you complete the full OAuth flow."
         fi
 
         echo ""

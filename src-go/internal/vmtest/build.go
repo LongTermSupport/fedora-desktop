@@ -15,11 +15,14 @@ import (
 )
 
 const (
-	buildDiskSize      = "20G"
+	// buildDiskGiB is the virtual size of every base disk, so the most a run's overlay can grow to.
+	buildDiskGiB       = 20
 	installWaitMinutes = "90"
 	secretBytes        = 24
 	luksFile           = "luks-passphrase"
 )
+
+var buildDiskSize = strconv.Itoa(buildDiskGiB) + "G"
 
 func (c *cli) cmdBuildBase(ctx context.Context, args []string) error {
 	if len(args) != 1 {
@@ -53,30 +56,36 @@ func (b *building) teardown(ctx context.Context) {
 // dropDomain destroys (unless shut off) and undefines a domain libvirt knows; each failure is
 // logged, never fatal, because it runs on the way out of a step that already failed.
 func (c *cli) dropDomain(ctx context.Context, domain string) {
-	if domain == "" || !c.domainKnown(ctx, domain) {
+	if domain == "" {
 		return
 	}
-	if state, err := c.domstate(ctx, domain); err != nil || state != stateShutOff {
+	listed, err := c.domainListed(ctx, domain)
+	if err != nil {
+		c.logf("could not drop %s: %v", domain, err)
+		return
+	}
+	if !listed {
+		return
+	}
+	state, err := c.domstate(ctx, domain)
+	if err != nil {
+		c.logf("cannot read the state of %s: %v", domain, err)
+	}
+	if err != nil || state != stateShutOff {
 		if err := c.virshShow(ctx, "destroy", domain); err != nil {
-			c.logf("could not destroy %s", domain)
+			c.logf("could not destroy %s: %v", domain, err)
 		}
 	}
 	if err := c.virshShow(ctx, "undefine", "--nvram", domain); err != nil {
-		c.logf("could not undefine %s", domain)
+		c.logf("could not undefine %s: %v", domain, err)
 	}
-}
-
-// domainKnown is whether libvirt answers dominfo for the domain.
-func (c *cli) domainKnown(ctx context.Context, domain string) bool {
-	_, err := c.env.Runner.Run(ctx, execx.Cmd{
-		Name: virshBin, Args: []string{"-c", libvirtURI, "dominfo", domain},
-		Stdout: io.Discard, Stderr: io.Discard,
-	})
-	return err == nil
 }
 
 // buildBase builds a base from its published media (E15-E21).
 func (c *cli) buildBase(ctx context.Context, l *lab, key string) (err error) {
+	if err = c.diskGuard(ctx, l, buildNeed); err != nil {
+		return err
+	}
 	b, err := c.baseFacts(ctx, l, key)
 	if err != nil {
 		return err
@@ -113,11 +122,15 @@ func (c *cli) buildFromProbe(ctx context.Context, l *lab, b baseFacts, p *probe)
 	if err != nil {
 		return err
 	}
-	if err = c.buildFloor(ctx, l, b, arts[0]); err != nil {
+	if err = c.buildFloor(l, b, arts[0]); err != nil {
 		return err
 	}
-	st := &building{c: c, domain: "vmtest-build-" + b.Name, dir: l.at(basesDir, b.Name+".build")}
-	if c.domainKnown(ctx, st.domain) {
+	st := &building{c: c, domain: buildDomain(b.Name), dir: l.at(basesDir, b.Name+".build")}
+	exists, err := c.domainListed(ctx, st.domain)
+	if err != nil {
+		return err
+	}
+	if exists {
 		return failf("a domain named %s already exists; a previous build did not clean up. Inspect it, then: virsh -c %s undefine --nvram %s", st.domain, libvirtURI, st.domain)
 	}
 	if err = os.RemoveAll(st.dir); err != nil {
@@ -158,7 +171,7 @@ func parseWhole(what, raw string) (int64, error) {
 }
 
 // buildFloor refuses a rebuild the disk or the RAM cannot carry (E16, §10).
-func (c *cli) buildFloor(ctx context.Context, l *lab, b baseFacts, first artefact) error {
+func (c *cli) buildFloor(l *lab, b baseFacts, first artefact) error {
 	sizeOf := l.at(imagesDir, first.File)
 	if existing := l.at(basesDir, b.Name, "base.qcow2"); readable(existing) {
 		sizeOf = existing
@@ -167,8 +180,8 @@ func (c *cli) buildFloor(ctx context.Context, l *lab, b baseFacts, first artefac
 	if err != nil {
 		return failf("cannot read %s: %v", sizeOf, err)
 	}
-	if err := c.floor(ctx, l.at(basesDir), info.Size(), "rebuild", b.RAMMiB); err != nil {
-		return ctxErr(ctx, failf("the host cannot carry a rebuild of %s (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above", b.Name))
+	if err := c.rebuildFloor(l.at(basesDir), info.Size(), b.RAMMiB); err != nil {
+		return failf("the host cannot carry a rebuild of %s (stage: base): %v", b.Name, err)
 	}
 	return nil
 }
@@ -225,7 +238,15 @@ func (c *cli) renderKickstart(ctx context.Context, l *lab, b baseFacts, treeURL,
 	if err != nil {
 		return failf("cannot read %s.pub: %v", l.at(sshKeyFile), err)
 	}
-	args := []string{"--template", template, "--set", "SSH_PUBKEY=" + strings.TrimRight(string(pub), "\n"), "--set", "FEDORA_VERSION=" + l.fedora}
+	arch, err := c.guestArch()
+	if err != nil {
+		return err
+	}
+	const set = "--set"
+	args := []string{
+		"--template", template, set, "SSH_PUBKEY=" + strings.TrimRight(string(pub), "\n"), set, "FEDORA_VERSION=" + l.fedora,
+		set, "SERIAL_CONSOLE=" + arch.Console,
+	}
 	var stdin io.Reader
 	if b.Profile == profileDesktop {
 		secrets, serr := c.desktopSecrets(ctx, filepath.Dir(ks))
@@ -235,7 +256,7 @@ func (c *cli) renderKickstart(ctx context.Context, l *lab, b baseFacts, treeURL,
 		stdin = strings.NewReader(secrets)
 		args = append(args, "--set-stdin")
 	} else {
-		args = append(args, "--set", "TREE_URL="+treeURL)
+		args = append(args, set, "TREE_URL="+treeURL)
 	}
 	out, err := os.OpenFile(ks, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -277,6 +298,10 @@ func (c *cli) desktopSecrets(ctx context.Context, dir string) (string, error) {
 // rendered kickstart, powering off when done; then boots the installed system (E19). A
 // desktop's follower, running when it returns, is left in st for the caller to stop.
 func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p *probe, first, disk string, st *building) error {
+	arch, err := c.guestArch()
+	if err != nil {
+		return err
+	}
 	treeURL, err := p.treeURL(b.Tree)
 	if err != nil {
 		return err
@@ -307,8 +332,11 @@ func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p 
 	// instead of Anaconda (the first desktop build). The netinst's volume label pins it.
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "blkid", Args: []string{"-o", "value", "-s", "LABEL", l.at(imagesDir, iso)}, Stderr: c.env.Stderr})
 	label := strings.TrimSpace(string(res.Stdout))
-	if err != nil || label == "" {
-		return ctxErr(ctx, failf("could not read the volume label of %s", iso))
+	if err != nil {
+		return ctxErr(ctx, failf("could not read the volume label of %s: %v", iso, err))
+	}
+	if label == "" {
+		return failf("could not read the volume label of %s: it has none", iso)
 	}
 	c.logf("installing from %s via %s (Anaconda, cmdline mode on the serial console; up to %s min)", treeURL, iso, installWaitMinutes)
 	var f *follower
@@ -321,7 +349,7 @@ func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p 
 	}, extra...)
 	args = append(args,
 		"--location", l.at(imagesDir, iso), "--initrd-inject", ks,
-		"--extra-args", "inst.ks=file:/ks.cfg inst.stage2=hd:LABEL="+label+" console=ttyS0,115200n8 plymouth.enable=0",
+		"--extra-args", "inst.ks=file:/ks.cfg inst.stage2=hd:LABEL="+label+" console="+arch.Console+",115200n8 plymouth.enable=0",
 		"--osinfo", "fedora-unknown", "--memballoon", virtioModel,
 		"--boot", "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no",
 		"--network", passtNetwork(g.port), flagGraphics, displayNone, "--serial", serialSpec(b.Profile, g.dir),
@@ -345,7 +373,7 @@ func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p 
 func (c *cli) installed(ctx context.Context, g *guest, ks string) error {
 	state, err := c.domstate(ctx, g.domain)
 	if err != nil {
-		return failf("cannot read the state of guest %s after the install", g.domain)
+		return failf("cannot read the state of guest %s after the install: %v", g.domain, err)
 	}
 	console := filepath.Join(g.dir, "console.log")
 	if state != stateShutOff {
@@ -440,8 +468,11 @@ func (c *cli) cleanAndPowerOff(ctx context.Context, l *lab, g *guest, st *buildi
 	}
 	out, err := g.output(ctx, "sudo bash /tmp/guest-cleanup.bash")
 	c.p.Print(c.env.Stderr, out)
-	if err != nil || !hasLine(out, "VMTEST-GUEST-CLEANUP-DONE") {
-		return ctxErr(ctx, failf("guest cleanup did not complete"))
+	if err != nil {
+		return ctxErr(ctx, failf("guest cleanup did not complete: %v", err))
+	}
+	if !hasLine(out, "VMTEST-GUEST-CLEANUP-DONE") {
+		return failf("guest cleanup did not complete")
 	}
 	// Scheduled, so the SSH session ends cleanly rather than being severed.
 	if err = g.do(ctx, "sudo systemd-run --quiet --on-active=2 systemctl poweroff"); err != nil {

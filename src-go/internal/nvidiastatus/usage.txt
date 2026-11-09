@@ -1,0 +1,11 @@
+Usage: nvidia-status [--check]
+
+Reports whether the NVIDIA driver installed by play-nvidia.yml is built, loaded and working:
+Secure Boot and the akmods MOK key, the packages, the kernel modules, nvidia-smi, OpenGL,
+Vulkan, VA-API, and the kernel's NVIDIA errors of this boot. It only reads; nothing is changed.
+
+  --check     print nothing; the exit status alone is the verdict
+  -h, --help  show this help
+
+Exit status: 0 the driver is complete and functional; 1 it is not (the summary says what to
+do), or the report could not be written; 64 a bad command line.

@@ -155,6 +155,14 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 		s.T.Fatalf("fzf answer %q has no |", answer)
 	}
 	expects := slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") })
+	// fzf hands back only a key its --expect names; any other key it acts on itself or ignores,
+	// so an answer pressing one is a test of a key the screen does not take.
+	if key != "" && !slices.ContainsFunc(c.Args, func(a string) bool {
+		list, ok := strings.CutPrefix(a, "--expect=")
+		return ok && slices.Contains(strings.Split(list, ","), key)
+	}) {
+		s.T.Fatalf("fzf answer %q presses %s, which fzf call %d does not hand back (args %q)", answer, key, len(s.Rows), c.Args)
+	}
 	if choice == "ABORT" {
 		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: fzfProgram, Code: 130}
 	}
@@ -253,8 +261,9 @@ func Interactive(t *testing.T, w *World) *Console {
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
-	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true}
-	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true}
+	drain := &ui.Drain{}
+	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true, Drain: drain}
+	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true, Drain: drain}
 	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(c.TTY)), nil }
 	h.Exec = func(path string, argv []string, dir string) error {

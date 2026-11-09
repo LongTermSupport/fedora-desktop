@@ -138,11 +138,13 @@ Python and are run from the directory the binary is in.
 - W13. The stop grace is what `<bin dir>/wsi-stop-grace` prints (a whole number of seconds);
   it failing, or printing anything else, is
   `Cannot read the stop grace (<path> failed; re-run play-speech-to-text.yml)`, exit 1, before
-  the microphone opens.
+  the microphone opens. A grace over 30 seconds, the top of the setting's schema range, is
+  `The stop grace is <n>s, more than the 30s the setting allows (<path>; re-run play-speech-to-text.yml)`,
+  exit 1, the same way (project_duration_overflow).
 - W14. Without a server: the language is `--language`, else `$WHISPER_LANGUAGE` if set (even
   empty), else `<bin dir>/wsi-setting language` (`system` means `$LANG`, default
   `en_GB.UTF-8`, up to its first `_`); a failing setting reader is
-  `Cannot read the language setting (<path> failed; reason above)`, exit 1. The model is what
+  `Cannot read the language setting (<error>; reason above)`, exit 1. The model is what
   `<bin dir>/wsi-resolve-model --mode batch --language <lang> <$WHISPER_MODEL or auto>` prints;
   its stderr is a debug line; its exit 3 is the error text after the last
   `wsi-resolve-model: ` in its stderr (exit 1); another failure is
@@ -219,7 +221,9 @@ Python and are run from the directory the binary is in.
   is `Unknown window manager for clipboard: <type>` (W9), exit 1. The ydotool socket missing
   now is `ydotool socket disappeared before paste` (W9), exit 1.
 - W30. The panel's answer: `gdbus call --session --dest org.gnome.Shell --object-path /org/fedoradesktop/SpeechToText/Panel --method org.fedoradesktop.SpeechToText.Panel.PasteKey`,
-  answered within 2 s, stdout `('<wm_class>', <with_shift>, <save_after>[, <focused>, <gone>])`.
+  answered within 2 s, stdout `('<wm_class>', <with_shift>, <save_after>[, <focused>, <gone>[, <tab_changed>]])`.
+  `tab_changed` (issue #106): the pinned Ptyxis window shows another tab than at Insert, so
+  the target is `other-tab` at once, before the paste or before its Enter.
   No answer, a failure or another shape: the key chosen at Insert, no save, and the log line
   `WARN: The panel did not say how to paste into the focused window (<why>); using the key chosen at Insert` (`<why>` is `no answer within 2 s` or the failure). `gone`: the target is
   closed. Focused, or a three-field answer: the key is Ctrl+Shift+V when `with_shift`, the
@@ -228,11 +232,12 @@ Python and are run from the directory the binary is in.
   back, so it is asked again every 0.1 s, up to 20 more times (then the target is
   `unfocused`), and once it is focused again it must stay focused for 5 more answers before the
   paste (any loss starts the settle again); the paste is then marked refocused.
-- W31. A target that is closed or would not take focus back: nothing is pressed;
-  `Nothing was pasted: <why>` (W9) and a notification that stays
+- W31. A target that is closed, would not take focus back or shows another tab: nothing is
+  pressed; `Nothing was pasted: <why>` (W9) and a notification that stays
   `Nothing was pasted: <why>. The text is on the clipboard: Ctrl+V.`, exit 1; `<why>` is
-  `the window this dictation started in was closed` or
-  `the window this dictation started in would not take focus back`.
+  `the window this dictation started in was closed`,
+  `the window this dictation started in would not take focus back` or
+  `the terminal tab this dictation started in is no longer the one showing`.
 - W32. The auto-paste copy and the read-back share a 3 s deadline (a copy still running at it
   is W27's failure). The selection is read back (`wl-paste -n` / `wl-paste -n -p`,
   `xsel -ob` / `xsel -op`) every 0.05 s, at most 60 times, until it holds the text (one
@@ -250,14 +255,17 @@ Python and are run from the directory the binary is in.
   `29:1 42:1 47:1 47:0 42:0 29:0` (Ctrl+Shift+V), or without `--paste-with-shift`
   `42:1 110:1 110:0 42:0` (Shift+Insert), with `YDOTOOL_SOCKET` set to the socket. A failure
   is `ydotool <keys> simulation failed (exit code: <n>)` (W9), exit 1.
-- W33. Before the Enter: a refocused paste with an Enter to send waits 1.0 s (log
-  `Waiting 1.0 s before the Enter: focus was given back for this paste`) and asks the panel
-  again as in W30 (only the target is judged; the keys stay; a panel that cannot answer sends
-  the Enter); a target that is now closed or unfocused is
+- W33. Before the Enter: with an Enter or a save to send, a refocused paste waits 1.0 s (log
+  `Waiting 1.0 s before the Enter: focus was given back for this paste`), any other 0.3 s.
+  Then, with `--paste-with-shift` (a window pinned at Insert) and an Enter or a save to send,
+  the panel is asked again as in W30, whatever happened before the paste (owner sheet A13:
+  focus can move during the wait after any paste, and the key would go to whatever has it).
+  Only the target is judged; the keys stay; a panel that cannot answer sends the key. A
+  target that is now closed, unfocused or another tab is
   `The text was pasted but not sent: <why>` (W9) and a notification that stays
-  `The text was pasted but not sent: <why>. No Enter was pressed.`, exit 1. Otherwise the wait
-  is 0.3 s. Then, unless `--no-auto-enter`, `ydotool key 28:1 28:0`; a failure is a problem
-  (W9) and the paste stands.
+  `The text was pasted but not sent: <why>. No Enter was pressed.`, exit 1, and neither the
+  Enter nor the save is pressed. Then, unless `--no-auto-enter`, `ydotool key 28:1 28:0`; a
+  failure is a problem (W9) and the paste stands.
 - W34. Then, when the panel asked for a save, `ydotool key 29:1 31:1 31:0 29:0` (log
   `Save simulated via Ctrl+S`); a failure is the problem
   `The text was pasted but the save (Ctrl+S) failed (exit code: <n>)`.
@@ -320,8 +328,8 @@ Python and are run from the directory the binary is in.
 - M12. The exiftool command: `exiftool -config <cfg> -overwrite_original -EXIF:Artist=<a> -EXIF:Copyright=<c> -IPTC:By-line=<a> -IPTC:CopyrightNotice=<c> -XMP-dc:Creator=<a> -XMP-dc:Rights=<c> -XMP-xmpRights:Marked=True -XMP-xmpRights:UsageTerms=<summary> -XMP-xmpRights:WebStatement=<url> -XMP-wm:Applied=True -XMP-wm:AppliedAt=<UTC YYYY:MM:DD HH:MM:SSZ> -XMP-wm:AppliedBy=watermark/0.1.0 <output>`.
 - M13. `--dry-run` prints `# magick:`, the magick command, `# exiftool:`, the exiftool
   command (each shell-quoted on one line) and exits 0, after every check above.
-- M14. Otherwise magick runs (failure: `magick failed (visible watermark)`, exit 4), then
-  exiftool (failure: `exiftool failed (metadata write)`, the unmarked output removed, exit 5);
+- M14. Otherwise magick runs (failure: `magick failed (visible watermark): <error>`, exit 4), then
+  exiftool (failure: `exiftool failed (metadata write): <error>`, the unmarked output removed, exit 5);
   both tools' output goes to stderr. `-v` logs each step. Success: the absolute output path on
   stdout, exit 0.
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
@@ -81,7 +80,7 @@ func (c *Collector) readSeats(ctx context.Context, p *pool, s *Snapshot, into ma
 	}
 	var asked []folder
 	for _, dir := range s.Checkouts {
-		info, err := os.Stat(filepath.Join(dir, ".claude", "ccy", "pingbus", "seats"))
+		info, err := os.Stat(seatDir(dir))
 		if err != nil || !info.IsDir() {
 			continue
 		}

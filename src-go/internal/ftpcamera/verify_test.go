@@ -3,8 +3,11 @@ package ftpcamera
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -14,7 +17,17 @@ func have(names ...string) func(string) bool {
 	return func(n string) bool { return slices.Contains(names, n) }
 }
 
+// check is the verdict on a file of name holding data; a check that failed is a test error.
 func check(t *testing.T, f *execx.Fake, onPath func(string) bool, name string, data []byte) verdict {
+	t.Helper()
+	v, why := checkWhy(t, f, onPath, name, data)
+	if why != nil {
+		t.Errorf("%s: unexpected check failure: %v", name, why)
+	}
+	return v
+}
+
+func checkWhy(t *testing.T, f *execx.Fake, onPath func(string) bool, name string, data []byte) (verdict, error) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
 	writeFile(t, path, string(data))
@@ -30,8 +43,8 @@ func TestCompletenessEmptyAndUnknown(t *testing.T) {
 	if v := check(t, f, have(), "a.txt", []byte("x")); v != unverifiable {
 		t.Errorf("unknown: %v", v)
 	}
-	if v := completeness(context.Background(), f, have(), filepath.Join(t.TempDir(), "gone.jpg")); v != truncated {
-		t.Errorf("missing: %v", v)
+	if v, why := completeness(context.Background(), f, have(), filepath.Join(t.TempDir(), "gone.jpg")); v != truncated || !errors.Is(why, fs.ErrNotExist) {
+		t.Errorf("missing: %v %v", v, why)
 	}
 }
 
@@ -78,6 +91,8 @@ func TestCompletenessRawAndVideo(t *testing.T) {
 		validCode  int
 		want       verdict
 		noExiftool bool
+		// wantWhy is in the reason a failed check gives; "" is no failure.
+		wantWhy string
 	}{
 		{name: "no exiftool", noExiftool: true, want: unverifiable},
 		{name: "strip past the end", stripOut: "1000\n100, 600\n200 500\n", want: truncated},
@@ -86,7 +101,8 @@ func TestCompletenessRawAndVideo(t *testing.T) {
 		{name: "strip read fails", stripCode: 1, validOut: "Error: File is truncated\n", want: truncated},
 		{name: "premature end", stripOut: "1000\n", validOut: "Warning: Premature end of file\n", want: truncated},
 		{name: "missing end", stripOut: "1000\n", validOut: "Warning: Missing EOI end of image\n", want: truncated},
-		{name: "validator fails", stripOut: "1000\n", validCode: 2, want: unverifiable},
+		{name: "validator fails", stripOut: "1000\n", validOut: "Error: cannot open\n", validCode: 2, want: unverifiable, wantWhy: "exiftool exited 2: Error: cannot open"},
+		{name: "both fail", stripCode: 3, validCode: 2, want: unverifiable, wantWhy: "exiftool exited 3\nexiftool exited 2"},
 		{name: "blank line before offsets", stripOut: "1000\n\n100\n950\n", want: truncated},
 	}
 	for _, tc := range cases {
@@ -97,8 +113,15 @@ func TestCompletenessRawAndVideo(t *testing.T) {
 		if tc.noExiftool {
 			onPath = have()
 		}
-		if v := check(t, f, onPath, "DSC0001.arw", []byte("raw")); v != tc.want {
+		v, why := checkWhy(t, f, onPath, "DSC0001.arw", []byte("raw"))
+		if v != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, v, tc.want)
+		}
+		switch {
+		case tc.wantWhy == "" && why != nil:
+			t.Errorf("%s: unexpected check failure: %v", tc.name, why)
+		case tc.wantWhy != "" && (why == nil || !strings.Contains(why.Error(), tc.wantWhy)):
+			t.Errorf("%s: reason %v, want it to hold %q", tc.name, why, tc.wantWhy)
 		}
 	}
 }

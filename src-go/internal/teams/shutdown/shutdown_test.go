@@ -73,7 +73,8 @@ func TestEverySessionIsSentExitAndItsSeatReleased(t *testing.T) {
 		"  ccy-proj   seat 1 (proj.1+local.podman) in ~/proj",
 		"Not reachable from here, so not shut down:",
 		"  proj.box+role.lxc   its session runs inside the LXC container, out of reach of this host's tmux; in the container, type /exit in its session",
-		"Each session is sent /exit, as if typed; one that has not ended within 60 s is stopped (its tmux session killed). The homeserver keeps running.",
+		"Each session is compacted (/compact, as if typed) and then sent /exit; one whose compaction has not completed within 600 s "+
+			"is left running and named. One that has not ended within 60 s of /exit is stopped (its tmux session killed). The homeserver keeps running.",
 		"ccy-proj: exited cleanly; seat 1@alpha released",
 		"proj.box+role.lxc: not shut down: its session runs inside the LXC container",
 		"alpha: 1 exited cleanly, 0 stopped, 0 failed; 1 member not reachable from here.",
@@ -156,6 +157,29 @@ func TestAHeldSeatWithNoNamedSessionIsNotShutDown(t *testing.T) {
 		"(a cc session started with --teams <team> alone, or one outside ccy's tmux); attach it (ccy-sessions) and type /exit")
 	if got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
+	}
+}
+
+// Plan 00201 Task 2.29: a cc host seat whose session ended before the shutdown, in a checkout no
+// record names any more, is a seat with no session: nothing to shut down, and no failure.
+func TestASeatWhoseSessionHasEndedIsNothingToShutDown(t *testing.T) {
+	m := newMachine(t)
+	other := filepath.Join(m.Root, "other")
+	m.AddSeat(t, other, "alpha", "1", "other.1+local.host")
+	teamtest.MustWrite(t, filepath.Join(m.Root, "home/.local/state/ccy/seat-checkouts"), other+"\n")
+	m.On(teamtest.SudoBus+"list alpha", "MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n"+
+		"MEMBER\tother.1+local.host\tdev\tjoin\tactive\n", 0)
+	got := m.run("alpha", "--yes")
+	m.errHas(t,
+		"No session running, nothing to shut down:",
+		"  1@alpha (other.1+local.host)   no session running",
+		"ccy-proj: exited cleanly; seat 1@alpha released",
+		"1@alpha (other.1+local.host): no session running, nothing to shut down",
+		"alpha: 1 exited cleanly, 0 stopped, 0 failed.",
+	)
+	m.errLacks(t, "not reachable", "other.1+local.host: not shut down")
+	if got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 }
 

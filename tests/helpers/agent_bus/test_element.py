@@ -311,6 +311,56 @@ class TestApply(HomeCase):
         self.assertFalse(target.exists())
 
 
+class TestPrune(HomeCase):
+    """Plan 00177 Task 11.4: a team no longer declared loses its launcher and its profile."""
+
+    def test_an_undeclared_teams_launcher_and_profile_are_removed(self) -> None:
+        element.apply(self.home, (profile(), profile(team="team-b")))
+        gone_dir = element.profile_dir(self.home, "team-b")
+        gone_launcher = element.launcher_path(self.home, "team-b")
+        changed = element.apply(self.home, (profile(),))
+        self.assertEqual(changed, [gone_launcher, gone_dir])
+        self.assertFalse(gone_launcher.exists() or gone_dir.exists())
+        self.assertTrue(element.launcher_path(self.home, "team-a").is_file())
+        self.assertTrue((element.profile_dir(self.home, "team-a") / "config.json").is_file())
+        self.assertEqual(element.apply(self.home, (profile(),)), [])
+
+    def test_no_profile_left_removes_every_one_of_ours(self) -> None:
+        element.apply(self.home, (profile(),))
+        element.apply(self.home, ())
+        self.assertFalse(element.launcher_path(self.home, "team-a").exists())
+        self.assertFalse(element.profile_dir(self.home, "team-a").exists())
+
+    def test_a_profile_without_our_launcher_is_never_touched(self) -> None:
+        # The human's own Element profiles (Element-work) have no agent-bus launcher.
+        own = element.profile_dir(self.home, "work")
+        own.mkdir(parents=True)
+        (own / "config.json").write_text("{}")
+        apps = self.home / element.APPLICATIONS_DIR
+        apps.mkdir(parents=True)
+        (apps / "agent-bus-notes-element.desktop").write_text("[Desktop Entry]\nExec=something else\n")
+        (apps / "other.desktop").write_text("[Desktop Entry]\n")
+        self.assertEqual(element.apply(self.home, ()), [])
+        self.assertTrue((own / "config.json").is_file())
+        self.assertTrue((apps / "agent-bus-notes-element.desktop").is_file())
+
+    def test_a_declared_team_is_never_pruned(self) -> None:
+        self.assertEqual(element.stale_teams(self.home, ("team-a",)), [])
+        element.apply(self.home, (profile(),))
+        self.assertEqual(element.stale_teams(self.home, ("team-a",)), [])
+        self.assertEqual(element.stale_teams(self.home, ()), ["team-a"])
+
+    def test_a_symlinked_profile_of_a_stale_team_is_refused(self) -> None:
+        element.apply(self.home, (profile(team="team-b"),))
+        pdir = element.profile_dir(self.home, "team-b")
+        target = self.home / "elsewhere"
+        pdir.rename(target)
+        pdir.symlink_to(target)
+        with self.assertRaisesRegex(element.ElementError, "not a directory"):
+            element.apply(self.home, ())
+        self.assertTrue((target / "config.json").is_file())
+
+
 class TestMain(HomeCase):
     def run_main(self, argv: list[str], stdin: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()

@@ -6,12 +6,19 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
     rapidraw_version: "1.6.3"
-    rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
+    # One rpm per architecture, keyed as Fedora names it. The whole file name is mapped: the
+    # arm build is named ubuntu-22.04-arm, not by the arch alone. Bump the digests (each the
+    # release asset's published digest) with the version.
+    rapidraw_builds:
+      x86_64: {rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm", sha256: 1c545cb6f47b28dc570e175ba3de24ca45b80e4b66dbe4995b9618bbd3bb13e9}
+      aarch64: {rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04-arm_aarch64.rpm", sha256: 47786e88af12f2841a9e72a2b3eaf8b1fcd7f9bf6016f4e409f787612ed66421}
+    rapidraw_rpm: "{{ rapidraw_builds[ansible_facts['architecture']].rpm }}"
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
-    rapidraw_sha256: "1c545cb6f47b28dc570e175ba3de24ca45b80e4b66dbe4995b9618bbd3bb13e9"
+    rapidraw_sha256: "{{ rapidraw_builds[ansible_facts['architecture']].sha256 }}"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
     # darktable - Sony A7V (ILCE-7M5) decoding needs the rawspeed bundled with
     # darktable 5.6.0+. Fedora ships 5.6.1 via updates-testing before it reaches
@@ -21,9 +28,13 @@
     # ART - hardcoded version for security and reproducibility
     # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
     art_version: "1.26.6"
-    art_appimage: "ART-{{ art_version }}-x86_64.AppImage"
+    # ART names its AppImage by Fedora's architecture name; one published digest per arch.
+    art_sha256s:
+      x86_64: a467b757cf4a8ce1a9dd5cb8ef0cdb38b7c49ae45953e0b601463f09824dae02
+      aarch64: d71894f6cceb903fcc5b2784881e7082114f68514b03053ddc6e3f588d2bef59
+    art_appimage: "ART-{{ art_version }}-{{ ansible_facts['architecture'] }}.AppImage"
     art_url: "https://github.com/artraweditor/ART/releases/download/{{ art_version }}/{{ art_appimage }}"
-    art_sha256: "a467b757cf4a8ce1a9dd5cb8ef0cdb38b7c49ae45953e0b601463f09824dae02"
+    art_sha256: "{{ art_sha256s[ansible_facts['architecture']] }}"
     art_install_path: "/opt/{{ art_appimage }}"
 
   tasks:
@@ -151,6 +162,12 @@
     # RapidRAW: GPU-accelerated RAW editor (wgpu/Vulkan). Installed as native RPM
     # rather than Flatpak to avoid NVIDIA DMA-buf blank window bug and Vulkan
     # driver version mismatch issues inside the Flatpak sandbox.
+    - name: Fail on an architecture with no pinned RapidRAW build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in rapidraw_builds
+        fail_msg: "RapidRAW: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ rapidraw_builds | list | join(', ') }})"
+      tags: rapidraw
+
     - name: Check if RapidRAW is already installed at target version
       ansible.builtin.shell: |
         rpm -q rapidraw --queryformat '%{VERSION}' 2>/dev/null || echo "not-installed"
@@ -213,7 +230,7 @@
         msg: >-
           RapidRAW update available: {{ rapidraw_latest.json.tag_name | regex_replace('^v', '') }}
           (pinned: {{ rapidraw_version }}).
-          Update rapidraw_version and rapidraw_sha256 in play-photography.yml.
+          Update rapidraw_version and each rapidraw_builds digest in play-photography.yml.
       when:
         - rapidraw_latest is succeeded
         - (rapidraw_latest.json.tag_name | regex_replace('^v', '')) != rapidraw_version
@@ -221,6 +238,12 @@
 
     # ART: Advanced RAW editor (ART fork of RawTherapee) with improved tone mapping
     # and masking. Installed as AppImage since no official RPM is available.
+    - name: Fail on an architecture with no pinned ART build
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in art_sha256s
+        fail_msg: "ART: no build pinned for {{ ansible_facts['architecture'] }} (pinned: {{ art_sha256s | list | join(', ') }})"
+      tags: art
+
     - name: Check if ART is already installed at target version
       ansible.builtin.stat:
         path: "{{ art_install_path }}"
@@ -244,11 +267,12 @@
         state: link
       tags: art
 
-    - name: Download ART icon
-      ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/artraweditor/ART/master/rtdata/images/png/ART-logo-256.png"
-        dest: /usr/share/pixmaps/ART.png
-        mode: "0644"
+    # The desktop entry uses a stock theme icon: the ART logo was fetched from upstream's
+    # default branch, which moved it, and a menu icon is not worth a download that can 404.
+    - name: Remove the ART icon an earlier run downloaded
+      ansible.builtin.file:
+        path: /usr/share/pixmaps/ART.png
+        state: absent
       tags: art
 
     - name: Create ART desktop entry
@@ -260,7 +284,7 @@
           Name=ART
           Comment=Advanced RAW photo editor
           Exec=/usr/local/bin/ART %f
-          Icon=ART
+          Icon=image-x-generic
           Terminal=false
           Type=Application
           Categories=Graphics;Photography;RasterGraphics;
@@ -283,7 +307,7 @@
         msg: >-
           ART update available: {{ art_latest.json.tag_name }}
           (pinned: {{ art_version }}).
-          Update art_version and art_sha256 in play-photography.yml.
+          Update art_version and each art_sha256s digest in play-photography.yml.
       when:
         - art_latest is succeeded
         - art_latest.json.tag_name != art_version

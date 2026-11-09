@@ -103,6 +103,9 @@ func TestSnapshotRunningReadsTheBoardsSeatRows(t *testing.T) {
 	snap := &board.Snapshot{Rows: []board.Row{
 		{Kind: board.KindCcy, Handle: seatOne, Held: true},
 		{Kind: board.KindCcy, Handle: seatTwo},
+		// A member with no seat row here: the board's member row, KIND from its handle.
+		{Kind: board.KindCC, Handle: "proj.3+box.host", Dir: "-"},
+		{Kind: board.KindCcy, Handle: "proj.4+box.podman", Dir: "-"},
 	}}
 	look := SnapshotRunning(snap)
 	for _, tc := range []struct {
@@ -113,6 +116,8 @@ func TestSnapshotRunningReadsTheBoardsSeatRows(t *testing.T) {
 		{agentbus.Member{Handle: seatTwo}, coordinator.Stopped},
 		{agentbus.Member{Handle: seatTwo, Parked: true}, coordinator.Parked},
 		{agentbus.Member{Handle: "box.1+local.lxc"}, coordinator.Unknown},
+		{agentbus.Member{Handle: "proj.3+box.host"}, coordinator.Unknown},
+		{agentbus.Member{Handle: "proj.4+box.podman"}, coordinator.Unknown},
 	} {
 		if got := look(tc.m); got != tc.want {
 			t.Errorf("%+v: got %v, want %v", tc.m, got, tc.want)

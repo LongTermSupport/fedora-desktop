@@ -178,6 +178,10 @@ func (g *gate) judge() (report, error) {
 		return report{}, err
 	}
 	fixtures, fixtureFindings := checkFixtures(m, found)
+	picks, err := g.checkOptionalPlays(m)
+	if err != nil {
+		return report{}, err
+	}
 	prefix := manifestFile + ": "
 	return report{
 		lines: []string{
@@ -185,7 +189,7 @@ func (g *gate) judge() (report, error) {
 			fmt.Sprintf("%s%d scenario(s) agree with their guest checker", prefix, agree),
 			fmt.Sprintf("%s%d scenario fixture(s) run before a declared reboot", prefix, fixtures),
 		},
-		findings: slices.Concat(planned, fixtureFindings, checkOrphans(m, found)),
+		findings: slices.Concat(planned, fixtureFindings, checkOrphans(m, found), picks),
 	}, nil
 }
 

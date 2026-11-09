@@ -23,9 +23,28 @@ type scenarioFacts struct {
 	ID, BaseKey, BaseName, Profile, Planned, MaxSkipped string
 	Runnable, HostOnly, Reboot                          bool
 	RunEnv                                              []envPair
+	// Audience is the install run.bash makes: audienceDeveloper (headless) or
+	// audienceConsumer (./run.bash --consumer, driven attended at a terminal; Plan 00228).
+	Audience string
+	// OptionalPlays are the plays a consumer install picks at the optional-app menu, in order;
+	// none is Enter.
+	OptionalPlays []string
 }
 
-var runEnvRE = regexp.MustCompile(`^(RUN_BASH_[A-Z_]+)=([A-Za-z0-9._,:/=-]+)$`)
+const (
+	audienceDeveloper = "developer"
+	audienceConsumer  = "consumer"
+)
+
+// Consumer reports whether the scenario is a consumer install, which run.bash refuses to make
+// headless.
+func (s scenarioFacts) Consumer() bool { return s.Audience == audienceConsumer }
+
+var (
+	runEnvRE = regexp.MustCompile(`^(RUN_BASH_[A-Z_]+)=([A-Za-z0-9._,:/=-]+)$`)
+	// optionalPlayRE is an optional play's file name, as the validator allows it.
+	optionalPlayRE = regexp.MustCompile(`^play-[a-z0-9]+(-[a-z0-9]+)*\.yml$`)
+)
 
 // markerFields reads the one line `<marker> k=v ...` the validator prints: every key in want
 // exactly once and nothing else.
@@ -98,14 +117,19 @@ func flag(field, value string) (bool, error) {
 func parseScenarioMarker(out string) (scenarioFacts, error) {
 	f, err := markerFields(out, "VMTEST-SCENARIO", []string{
 		"id", "base", "base_name", fieldProfile, "planned",
-		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env",
+		"max_skipped", "runnable", "host_only", "reboot_before_checks", "run_env", "audience", "optional_plays",
 	})
 	if err != nil {
 		return scenarioFacts{}, err
 	}
 	s := scenarioFacts{
 		ID: f["id"], BaseKey: f["base"], BaseName: f["base_name"], Profile: f[fieldProfile],
-		Planned: f["planned"], MaxSkipped: f["max_skipped"],
+		Planned: f["planned"], MaxSkipped: f["max_skipped"], Audience: f["audience"],
+	}
+	// Defaulting either way would decide how run.bash is driven, so a value this CLI does not
+	// know is the validator and the CLI disagreeing (E10).
+	if s.Audience != audienceDeveloper && s.Audience != audienceConsumer {
+		return scenarioFacts{}, failf("validator reported audience='%s', which is neither %s nor %s", s.Audience, audienceDeveloper, audienceConsumer)
 	}
 	if slices.Contains([]string{s.ID, s.BaseKey, s.BaseName, s.Profile, s.Planned, s.MaxSkipped, f["run_env"]}, "") {
 		return scenarioFacts{}, failf("validator marker has an empty field: %s", strings.TrimSpace(out))
@@ -125,6 +149,14 @@ func parseScenarioMarker(out string) (scenarioFacts, error) {
 				return scenarioFacts{}, failf("malformed run_env entry: %s", pair)
 			}
 			s.RunEnv = append(s.RunEnv, envPair{m[1], m[2]})
+		}
+	}
+	if f["optional_plays"] != "-" {
+		for play := range strings.SplitSeq(f["optional_plays"], ",") {
+			if !optionalPlayRE.MatchString(play) {
+				return scenarioFacts{}, failf("malformed optional_plays entry: '%s'", play)
+			}
+			s.OptionalPlays = append(s.OptionalPlays, play)
 		}
 	}
 	return s, nil

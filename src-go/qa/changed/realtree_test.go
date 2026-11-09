@@ -228,7 +228,15 @@ var semgrepReaders = map[string]string{
 	".semgrep/speech-to-text.yml":      "check:stt-rules",
 	".semgrep/speech-to-text.js":       "check:stt-rules",
 	".semgrep/speech-to-text.py":       "check:stt-rules",
+	".semgrep/hook-handlers.yml":       "check:hook-handler-rules",
+	".semgrep/hook-handlers.py":        "check:hook-handler-rules",
 	".semgrep/lxc-attach-streams.bash": "check:lxc-attach-streams",
+	".semgrep/find-race.yml":           "check:find-race",
+	".semgrep/find-race.fixture":       "check:find-race",
+	".semgrep/arch-pin.yml":            "check:arch-pin",
+	".semgrep/arch-pin.fixture":        "check:arch-pin",
+	".semgrep/walk-open.yml":           "check:walk-open",
+	".semgrep/walk-open.py":            "check:walk-open",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {
@@ -293,7 +301,7 @@ func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
 	t.Helper()
 	{
 		s := &session{
-			env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+			env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 			root:    root,
 			scripts: filepath.Join(root, "scripts"),
 			opts:    options{base: "HEAD"},
@@ -347,7 +355,7 @@ func TestEveryRealPinnedFileRunsTheVersionPinsCheck(t *testing.T) {
 		t.Fatalf("found only %d inputs; the manifest read matched nothing: %v", len(inputs), inputs)
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},
@@ -383,7 +391,7 @@ func TestEveryRealDocsGateInputRunsTheDocsCheck(t *testing.T) {
 		t.Fatal("found no document under docs/: the tree walk matched nothing")
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},
@@ -421,7 +429,7 @@ func TestEveryRealActivePlanScriptRunsThePlanScriptLoggingCheck(t *testing.T) {
 		t.Fatalf("found only %d inputs; the tree walk matched nothing: %v", len(inputs), inputs)
 	}
 	s := &session{
-		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    root,
 		scripts: filepath.Join(root, "scripts"),
 		opts:    options{base: "HEAD"},

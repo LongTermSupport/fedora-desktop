@@ -22,12 +22,6 @@ const (
 	langPy language = "python"
 )
 
-// languages is every language the rules must cover, in the order they are proven and scanned.
-var languages = []language{langJS, langPy}
-
-// fixtureOf is the annotated fixture each language's rules are proven against.
-var fixtureOf = map[language]string{langJS: jsFixtureFile, langPy: pyFixtureFile}
-
 // nounOf is a language as a person names it.
 var nounOf = map[language]string{langJS: "JavaScript", langPy: "Python"}
 
@@ -51,9 +45,14 @@ func (g *gate) requireSemgrep(ctx context.Context) error {
 	return nil
 }
 
-// loadRules checks the rule file and both fixtures are regular files and decodes the rules.
+// loadRules checks the rule file and every fixture are regular files and decodes the rules.
 func (g *gate) loadRules() (ruleSet, error) {
-	for _, rel := range []string{ruleFile, jsFixtureFile, pyFixtureFile} {
+	files := make([]string, 0, 1+len(g.spec.languages))
+	files = append(files, g.spec.ruleFile)
+	for _, lang := range g.spec.languages {
+		files = append(files, g.spec.fixtures[lang])
+	}
+	for _, rel := range files {
 		info, err := os.Stat(g.path(rel))
 		if err != nil {
 			return ruleSet{}, fmt.Errorf("cannot read %s: %s", rel, reason(err))
@@ -62,11 +61,20 @@ func (g *gate) loadRules() (ruleSet, error) {
 			return ruleSet{}, fmt.Errorf("%s is not a regular file", rel)
 		}
 	}
-	data, err := os.ReadFile(g.path(ruleFile))
+	data, err := os.ReadFile(g.path(g.spec.ruleFile))
 	if err != nil {
-		return ruleSet{}, fmt.Errorf("cannot read %s: %s", ruleFile, reason(err))
+		return ruleSet{}, fmt.Errorf("cannot read %s: %s", g.spec.ruleFile, reason(err))
 	}
-	return parseRules(data)
+	return g.spec.parseRules(data)
+}
+
+// languageNames is the spec's languages as semgrep names them, joined with "or".
+func (s Spec) languageNames() string {
+	names := make([]string, 0, len(s.languages))
+	for _, lang := range s.languages {
+		names = append(names, string(lang))
+	}
+	return strings.Join(names, " or ")
 }
 
 // reason is the cause of a file error without the checkout path the error also names.
@@ -78,47 +86,47 @@ func reason(err error) string {
 }
 
 // parseRules decodes the rule file into its rules by language. Every rule needs an id and exactly
-// one language, and both languages need a rule, so a rule file cut down to one language's rules
-// cannot stop judging the other.
-func parseRules(data []byte) (ruleSet, error) {
+// one of the spec's languages, and each of them needs a rule, so a rule file cut down to one
+// language's rules cannot stop judging another.
+func (s Spec) parseRules(data []byte) (ruleSet, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return ruleSet{}, fmt.Errorf("cannot decode %s: %w", ruleFile, err)
+		return ruleSet{}, fmt.Errorf("cannot decode %s: %w", s.ruleFile, err)
 	}
-	list, err := rulesList(&doc)
+	list, err := s.rulesList(&doc)
 	if err != nil {
 		return ruleSet{}, err
 	}
 	set := ruleSet{nodes: map[language][]*yaml.Node{}, ids: map[language][]string{}}
 	for i, rule := range list.Content {
-		id, lang, err := identify(rule, i+1)
+		id, lang, err := s.identify(rule, i+1)
 		if err != nil {
 			return ruleSet{}, err
 		}
 		set.nodes[lang] = append(set.nodes[lang], rule)
 		set.ids[lang] = append(set.ids[lang], id)
 	}
-	for _, lang := range languages {
+	for _, lang := range s.languages {
 		if len(set.nodes[lang]) == 0 {
-			return ruleSet{}, fmt.Errorf("%s has no %s rules", ruleFile, lang)
+			return ruleSet{}, fmt.Errorf("%s has no %s rules", s.ruleFile, lang)
 		}
 	}
 	return set, nil
 }
 
 // rulesList is the sequence under the document's rules key.
-func rulesList(doc *yaml.Node) (*yaml.Node, error) {
+func (s Spec) rulesList(doc *yaml.Node) (*yaml.Node, error) {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s has no rules", ruleFile)
+		return nil, fmt.Errorf("%s has no rules", s.ruleFile)
 	}
 	list := mapValue(doc.Content[0], "rules")
 	switch {
 	case list == nil:
-		return nil, fmt.Errorf("%s has no rules", ruleFile)
+		return nil, fmt.Errorf("%s has no rules", s.ruleFile)
 	case list.Kind != yaml.SequenceNode:
-		return nil, fmt.Errorf("%s: rules must be a list", ruleFile)
+		return nil, fmt.Errorf("%s: rules must be a list", s.ruleFile)
 	case len(list.Content) == 0:
-		return nil, fmt.Errorf("%s has no rules", ruleFile)
+		return nil, fmt.Errorf("%s has no rules", s.ruleFile)
 	}
 	return list, nil
 }
@@ -134,22 +142,22 @@ func mapValue(m *yaml.Node, key string) *yaml.Node {
 }
 
 // identify is a rule's id and its one language.
-func identify(rule *yaml.Node, n int) (string, language, error) {
+func (s Spec) identify(rule *yaml.Node, n int) (string, language, error) {
 	if rule.Kind != yaml.MappingNode {
-		return "", "", fmt.Errorf("%s: rule %d is not a mapping", ruleFile, n)
+		return "", "", fmt.Errorf("%s: rule %d is not a mapping", s.ruleFile, n)
 	}
 	idNode := mapValue(rule, "id")
 	if idNode == nil || idNode.Kind != yaml.ScalarNode || idNode.Value == "" {
-		return "", "", fmt.Errorf("%s: rule %d has no id", ruleFile, n)
+		return "", "", fmt.Errorf("%s: rule %d has no id", s.ruleFile, n)
 	}
 	id := idNode.Value
 	langs := mapValue(rule, "languages")
 	if langs == nil || langs.Kind != yaml.SequenceNode || len(langs.Content) != 1 || langs.Content[0].Kind != yaml.ScalarNode {
-		return "", "", fmt.Errorf("%s: rule %s: languages must be exactly one language", ruleFile, id)
+		return "", "", fmt.Errorf("%s: rule %s: languages must be exactly one language", s.ruleFile, id)
 	}
 	lang := language(langs.Content[0].Value)
-	if !slices.Contains(languages, lang) {
-		return "", "", fmt.Errorf("%s: rule %s: language %q is not javascript or python", ruleFile, id, lang)
+	if !slices.Contains(s.languages, lang) {
+		return "", "", fmt.Errorf("%s: rule %s: language %q is not %s", s.ruleFile, id, lang, s.languageNames())
 	}
 	return id, lang, nil
 }
@@ -179,8 +187,8 @@ func (set ruleSet) rulesFor(lang language, dir string) (string, error) {
 // "0 findings". semgrep --test exits 0 on a fixture with no annotations, so the annotations are
 // required first.
 func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
-	for _, lang := range languages {
-		fixture := fixtureOf[lang]
+	for _, lang := range g.spec.languages {
+		fixture := g.spec.fixtures[lang]
 		data, err := os.ReadFile(g.path(fixture))
 		if err != nil {
 			return fmt.Errorf("cannot read %s: %s", fixture, reason(err))
@@ -192,10 +200,10 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 			}
 		}
 	}
-	for _, lang := range languages {
-		fixture := fixtureOf[lang]
+	for _, lang := range g.spec.languages {
+		fixture := g.spec.fixtures[lang]
 		res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check",
-			"--config", g.path(ruleFile), g.path(fixture))
+			"--config", g.path(g.spec.ruleFile), g.path(fixture))
 		if err != nil {
 			return err
 		}
@@ -203,7 +211,7 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 			return fmt.Errorf("semgrep could not run the self-test (exit %d):\n%s%s", res.Code, g.scrub(res.Stdout), g.scrub(res.Stderr))
 		}
 		if res.Code != 0 {
-			return failed("%s failed its fixture %s:\n%s%s", ruleFile, fixture, g.scrub(res.Stdout), g.scrub(res.Stderr))
+			return failed("%s failed its fixture %s:\n%s%s", g.spec.ruleFile, fixture, g.scrub(res.Stdout), g.scrub(res.Stderr))
 		}
 	}
 	return nil

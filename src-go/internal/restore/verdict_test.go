@@ -75,6 +75,23 @@ func TestASessionAtTheConversationPickerIsWaitingNotOK(t *testing.T) {
 	}
 }
 
+// fedora-desktop#108: a session the restore never started is NOT-STARTED with why, whatever
+// tmux says about its name: a session of that name started by hand later is not the restore's.
+func TestASessionTheRestoreNeverStartedIsNotStarted(t *testing.T) {
+	never := GoingOutcome{OutcomeNotStarted, "no-conversation"}
+	for _, c := range []struct {
+		prefix string
+		live   bool
+	}{{"ccy", false}, {"ccy", true}, {"cc", false}, {"", false}} {
+		if got := Judge(c.prefix, c.live, "claude", ContainerUp, never).String(); got != "NOT-STARTED no-conversation" {
+			t.Errorf("%+v: got %q", c, got)
+		}
+	}
+	if got := goingVerdict(never).String(); got != "NOT-STARTED no-conversation" {
+		t.Errorf("goingVerdict: got %q", got)
+	}
+}
+
 func TestVerdictStringRendersStateAndOptionalDetail(t *testing.T) {
 	if got := (Verdict{State: StateOK}).String(); got != "OK" {
 		t.Fatalf("got %q", got)
@@ -108,6 +125,8 @@ func TestGoingStateGoldenCases(t *testing.T) {
 		{"compacting, never taken", GoingCompacting, 100, "300000", 220, 120, TookNo, failed("compact-not-started")},
 		{"compacting, inside window", GoingCompacting, 100, "300000", 219, 120, TookNo, GoingOutcome{Kind: OutcomeSettingGoing}},
 		{"unknown going", Going("keep"), 0, "", 1, 1, TookNA, failed("unknown-going-keep")},
+		{"never started", GoingNotStarted, 0, "no-conversation", 100, 120, TookNA, GoingOutcome{OutcomeNotStarted, "no-conversation"}},
+		{"never started, no reason", GoingNotStarted, 0, "", 100, 120, TookNA, GoingOutcome{OutcomeNotStarted, "no-reason-recorded"}},
 	}
 	for _, c := range cases {
 		if got := GoingState(c.going, c.at, c.detail, c.now, c.window, c.took); got != c.want {
@@ -124,6 +143,7 @@ func TestGoingOutcomeStringIsTheBashWord(t *testing.T) {
 		{Kind: OutcomeSettingGoing}:            "setting-going",
 		{Kind: OutcomeStarted}:                 "started",
 		{OutcomeFailed, "compact-not-started"}: "failed:compact-not-started",
+		{OutcomeNotStarted, "directory-gone"}:  "not-started:directory-gone",
 	}
 	for outcome, want := range cases {
 		if got := outcome.String(); got != want {

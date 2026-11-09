@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/netpolicy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -145,6 +146,55 @@ func TestSessionContainersEngineAndNameParsing(t *testing.T) {
 		got := sessprobe.SessionContainers([]tmuxccy.Pane{{Session: "s", PID: 1}}, procs(t, "1 0 sh\n2 1 "+c.args))
 		if got[0].Container != c.container {
 			t.Errorf("%q: got %q, want %q", c.args, got[0].Container, c.container)
+		}
+	}
+}
+
+// The launcher starts every container through the network policy, which creates it and then
+// attaches to it by name: neither command is a `run --name`.
+func TestSessionContainersThroughTheNetworkPolicy(t *testing.T) {
+	tree := `100 1 bash -c trampoline
+105 100 /bin/bash /var/local/claude-yolo/claude-yolo.bash --continue
+110 105 ccy-network-policy launch --name a_yolo --image claude-yolo:a -- podman run -it --rm --name a_yolo --label ccy=true img claude
+111 110 podman start --attach --interactive a_yolo`
+	got := sessprobe.SessionContainers([]tmuxccy.Pane{{Session: "ccy-a", PID: 100}}, procs(t, tree))
+	if want := (sessprobe.Owner{Session: "ccy-a", Engine: "podman", Container: "a_yolo"}); len(got) != 1 || got[0] != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	// The attach alone, as the policy itself spells it, names the container.
+	attach := "podman " + strings.Join(netpolicy.AttachArgs("b_yolo"), " ")
+	got = sessprobe.SessionContainers([]tmuxccy.Pane{{Session: "s", PID: 1}}, procs(t, "1 0 sh\n2 1 "+attach))
+	if got[0].Container != "b_yolo" || got[0].Engine != "podman" {
+		t.Fatalf("%q: got %+v", attach, got)
+	}
+}
+
+func TestSessionContainersLaunchAndStartParsing(t *testing.T) {
+	cases := []struct{ args, engine, container string }{
+		{"ccy-network-policy launch --name x --image i -- podman run --name x i", "podman", "x"},
+		{"/usr/local/bin/ccy-network-policy launch --name=x --image i -- docker run --name x i", "docker", "x"},
+		{"ccy-network-policy launch --image i --name x -- /usr/bin/podman run --name x i", "podman", "x"},
+		{"ccy-network-policy launch --name x --image i -- other run --name x i", "", ""},
+		{"ccy-network-policy launch --name x --image i", "", ""},
+		{"ccy-network-policy launch --name -- podman run i", "", ""},
+		{"ccy-network-policy launch --name= --image i -- podman run i", "", ""},
+		{"ccy-network-policy refresh --name x -- podman run i", "", ""},
+		{"ccy-network-policy", "", ""},
+		{"podman start x", "podman", "x"},
+		{"docker start -a -i x", "docker", "x"},
+		{"podman start --attach --detach-keys ctrl-q --interactive x", "podman", "x"},
+		{"podman start --detach-keys=ctrl-q --sig-proxy=false x", "podman", "x"},
+		{"docker start --checkpoint cp --checkpoint-dir /d x", "docker", "x"},
+		{"podman start --filter name=x", "", ""},
+		{"podman start --all", "", ""},
+		{"podman start -l", "", ""},
+		{"podman start --attach", "", ""},
+		{"podman start --detach-keys", "", ""},
+	}
+	for _, c := range cases {
+		got := sessprobe.SessionContainers([]tmuxccy.Pane{{Session: "s", PID: 1}}, procs(t, "1 0 sh\n2 1 "+c.args))
+		if got[0].Container != c.container || got[0].Engine != c.engine {
+			t.Errorf("%q: got %+v, want %s %q", c.args, got[0], c.engine, c.container)
 		}
 	}
 }

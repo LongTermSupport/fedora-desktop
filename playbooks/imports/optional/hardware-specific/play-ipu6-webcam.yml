@@ -37,6 +37,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
@@ -54,6 +55,12 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # IPU6 is the image unit of Intel laptop chipsets, and RPM Fusion builds its userspace
+    # stack for x86_64 only: no aarch64 machine has this camera.
+    - name: End play on aarch64 (Intel IPU6 is x86 laptop hardware; no aarch64 build)
+      ansible.builtin.meta: end_play
+      when: ansible_facts['architecture'] != 'x86_64'
 
     - name: Detect IPU6 platform (kernel module loaded)
       ansible.builtin.shell: lsmod

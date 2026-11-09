@@ -1,0 +1,14 @@
+{
+  "flows": [
+    {
+      "type": "m.login.application_service"
+    },
+    {
+      "get_login_token": true,
+      "type": "m.login.token"
+    },
+    {
+      "type": "m.login.password"
+    }
+  ]
+}

@@ -1,16 +1,19 @@
 package sessions
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 )
 
 // pickerRig scripts fzf from a queue of "<key>|<choice>" answers, as the bash suite's fake does:
@@ -21,6 +24,7 @@ type pickerRig struct {
 	answers []string
 	argv    []string
 	shown   []string
+	drains  []bool // whether each screen discarded the keys typed before it drew
 	n       int
 }
 
@@ -38,6 +42,7 @@ func (r *pickerRig) answer(c execx.Cmd) (execx.Result, error) {
 	}
 	r.argv = append(r.argv, strings.Join(c.Args, " "))
 	r.shown = append(r.shown, string(rows))
+	r.drains = append(r.drains, c.DrainInput)
 	if r.n >= len(r.answers) {
 		return execx.Result{ExitCode: 2, Stderr: []byte("no answer queued")}, nil
 	}
@@ -434,6 +439,22 @@ func TestCtrlXEndsASessionAndItsRecordAfterAYesAndCostsNoTry(t *testing.T) {
 		"--header=Sessions › ccy-a › End\nsession ccy-a\n───")
 }
 
+// Plan 00177 Task 12.3: ending a session kills everything in it, so its question starts on no key
+// typed before it drew; the list after a No (a leave) drains too, and the list after a yes keeps
+// the keys typed ahead.
+func TestTheEndQuestionAndTheListAfterALeaveDiscardKeysTypedBeforeThem(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a", "ccy-b")
+	notInProject(h)
+	realDir(t, h, "a")
+	rig := newPickerRig(h, "ctrl-x|ccy-b", "|EXIT", "ctrl-x|ccy-a", "|YES", "|ABORT")
+	exitCodeIs(t, h.run(), 0, h)
+	if want := []bool{false, true, true, true, false}; !slices.Equal(rig.drains, want) {
+		t.Fatalf("drains %v, want %v", rig.drains, want)
+	}
+}
+
 func TestCtrlXOnASessionThatAlreadyEndedRemovesItsRecordAndGoesOn(t *testing.T) {
 	// Spec bug 9.5: a session gone since the list was drawn is not a reason to abort the picker.
 	h := newHarness(t)
@@ -475,6 +496,81 @@ func TestCtrlXStopsWhenTheSessionCannotBeEndedOrItsRecordRemoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	exitCodeIs(t, h.run(), 1, h)
+}
+
+// closingFake stands in for sessclose: it records what it was asked to close and answers.
+type closingFake struct {
+	asked  []sessclose.Target
+	answer sessclose.Result
+}
+
+func (c *closingFake) Close(_ context.Context, targets []sessclose.Target) []sessclose.Result {
+	c.asked = append(c.asked, targets...)
+	out := make([]sessclose.Result, len(targets))
+	for i, t := range targets {
+		out[i] = c.answer
+		out[i].Name = t.Name
+	}
+	return out
+}
+
+func (c *closingFake) Limits() sessclose.Waits { return sessclose.DefaultWaits }
+
+// Plan 00191 Task 4.12: a session's menu closes it through sessclose, compacting first or not,
+// after a yes/no; nothing is killed here, and the list comes back.
+func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
+	for _, tc := range []struct {
+		choice, question string
+		noCompact        bool
+		answer           sessclose.Result
+		said             string
+	}{
+		{
+			"Close it:", "Close ccy-a? It is compacted (/compact), then sent /exit.", false,
+			sessclose.Result{Outcome: sessclose.Exited, Note: "compacted first"},
+			"Closed 'ccy-a': exited cleanly; compacted first.",
+		},
+		{
+			"Close it without", "Close ccy-a? It is sent /exit, without compacting.", true,
+			sessclose.Result{Outcome: sessclose.Failed, Note: "its input box holds unsent text"},
+			"'ccy-a' was not closed: its input box holds unsent text.",
+		},
+	} {
+		h := newHarness(t)
+		s := newServer(h)
+		s.listSessions("/srv/a", "ccy-a")
+		notInProject(h)
+		fake := &closingFake{answer: tc.answer}
+		h.app.Closer = fake
+		rig := newPickerRig(h, "|ccy-a", "|"+tc.choice, "|YES", "|ABORT")
+		exitCodeIs(t, h.run(), 0, h)
+		contains(t, "menu", rig.shown[1], "Close it: /compact, then /exit (it ends cleanly, and its next resume starts small)",
+			"Close it without compacting: /exit only")
+		contains(t, "question", rig.argv[2], tc.question)
+		if want := []sessclose.Target{{Name: "ccy-a", NoCompact: tc.noCompact}}; !slices.Equal(fake.asked, want) {
+			t.Fatalf("%s: asked %+v", tc.choice, fake.asked)
+		}
+		if h.count("tmux -L ccy kill-session") != 0 || rig.n != 4 {
+			t.Fatalf("%s: picks %d ran %v", tc.choice, rig.n, h.ran())
+		}
+		contains(t, "said", h.stderr(), tc.said)
+	}
+}
+
+// A No closes nothing.
+func TestCloseDeclinedClosesNothing(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a")
+	notInProject(h)
+	fake := &closingFake{}
+	h.app.Closer = fake
+	newPickerRig(h, "|ccy-a", "|Close it:", "|EXIT", "|ABORT")
+	exitCodeIs(t, h.run(), 0, h)
+	if len(fake.asked) != 0 {
+		t.Fatalf("asked %+v", fake.asked)
+	}
+	contains(t, "kept", h.stderr(), "Kept 'ccy-a'.")
 }
 
 func TestCtrlNInAProjectStartsCcyHereByReplacingTheProcess(t *testing.T) {

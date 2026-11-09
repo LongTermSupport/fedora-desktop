@@ -3,8 +3,8 @@
 **Status**: In Progress. Everything built is deployed (`play-claude-yolo.yml` last passed on
 the host at F44 cab255ad4; `play-python.yml` at 67033c224). Left for the host agent: Task
 5.1's comparison of `--prevent` and `--export-token` with `CCY_LEGACY=1` (the other flags
-match). Left for workers: Task 3.8's record entries, the `.j2` QA.md line of Task 4.5,
-and Task 5.1's qa-reviewer. Left for the owner: one signature on Task 3.8's record. Launcher
+match). Task 3.8's record is signed (2026-10-28); its switch-on waits on two exclusions added
+after the record (entries, or a fix, and the owner raising `high_water` past 27). Launcher
 phases 3 to 5 are deferred by D4/D10 until the owner hits launcher defects or asks; nothing
 waits on that.
 **Created**: 2026-10-13
@@ -130,7 +130,7 @@ today; rewriting them is out of scope.
   comments. Full gate green, coverage
   included. Report: `subagent-reports/261019-go-qa-ci-pin-opus.md`.
 
-- [ ] ⬜ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
+- [x] ✅ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
   step B2), then `[tools] record` and `suppression` are switched on in `src-go/qa/go-qa.toml`.
   Both are off until then: without a record every `.golangci.yml` exclusion would fail the
   suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
@@ -146,18 +146,84 @@ today; rewriting them is out of scope.
     the writing model to `go-qa.toml`, with `record` and `suppression` still off. Find the
     identifiers from go-qa's own output on a scratch run with both switched on, not by hand.
 
-  - Owner: sign. The text to sign is the `[ratchet]` table, for example:
+    Worker part done 2026-10-27: 27 entries. 26 are one per distinct rule the scratch run
+    printed for `.golangci.yml` (46 findings; disabled linters are not a route at this pin, so
+    none is recorded). The 27th is `go::generated-header` for
+    `internal/pingbus/statusline/widthtable.go`: the file is generated from Python's
+    unicodedata, so its header stays (coordinator's decision). Written by `claude-opus-5-5`,
+    given `claude-opus = "medium"` (the tier go-qa-ci gives a Claude model in its own record):
+    30-day horizon, `review_by = 2026-11-26`. Because the record exceeds the default caps,
+    `go-qa.toml` also sets `max_total = 27` and `[record.trust.medium] max_count = 27`, and
+    `history_base = "origin/F44"` (there is no `origin/main`). With the text below prepended on
+    a scratch copy and both switches on, `go-qa record check` says all 27 valid, and
+    `-t record -t suppression` passes with nothing unrecorded and no entry stale, so switching
+    on after the signature needs no further entry.
+    Report: `subagent-reports/261027-task-3-8-record.md`.
+
+  - Owner: sign. The text to sign is this `[ratchet]` table, put at the top of
+    `src-go/qa/record.toml` with `decided_on` set to the day of signing:
 
     ```toml
     [ratchet]
-    high_water = <the number of entries the worker wrote>
+    high_water = 27
     decided_by = "repository-owner"
     decided_on = <the day of signing>
-    reason = "adopting the ceiling at the configuration exceptions this repository's Go gate has today"
+    reason = "adopting the ceiling at the exceptions this repository's Go gate has today"
     ```
 
-    Signing it accepts each entry's justification and the trust tier given to the writing
-    model. Then a worker switches `record` and `suppression` on.
+    Signing it accepts each entry's justification and the medium tier given to the writing
+    model (choose `high` instead in `go-qa.toml` for a 90-day horizon). If signing falls well
+    after 2026-10-27, re-date the entries' `decided_on` and `review_by` the same day.
+    Then a worker switches `record` and `suppression` on.
+
+    Signed 2026-10-28: the owner answered "all recommended" to the unblocking list (item A3:
+    sign, medium tier). The `[ratchet]` table above is at the top of `src-go/qa/record.toml`
+    with `decided_on = 2026-10-28`; `go-qa.toml`'s tier is unchanged (`claude-opus = "medium"`), and the entries keep their dates (signed one day after writing).
+
+  - [x] ✅ Switch `record` and `suppression` on. Tried at signing: `go-qa record check` says
+    all 27 valid, but `-t record -t suppression` fails on two exclusions added to
+    `.golangci.yml` on 2026-10-27 after the record was written, so both switches stay off:
+    `internal/netpolicy/podman\.go` tagliatelle (rule
+    `golangci.yml::exclusions.rules::tagliatelle/'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'`,
+    Plan 00232) and `cmd/reclaim/main_test\.go` gosec (rule
+    `golangci.yml::exclusions.rules::gosec/G304|G306`, Plan 00192). Each needs an entry (or
+    its code fixed); two entries take the record past the signed `high_water = 27`, which
+    only the owner can raise. Then switch both on and rerun
+    `scripts/qa-go-qa.bash -t record -t suppression`.
+
+    Owner's decision 2026-10-28: `high_water` goes to 28, not 29. Worker part done the same
+    day: `cmd/reclaim/main_test.go` reaches its files through an `os.Root` over its temporary
+    directory and writes the fake du `0o600` before making it executable, so gosec G304/G306
+    no longer fire there and that exclusion is gone from `.golangci.yml`; the netpolicy
+    tagliatelle exclusion is the record's 28th entry, and `go-qa.toml`'s `max_total` and
+    `[record.trust.medium] max_count` are 28. Until the owner signs, `go-qa record check`
+    fails (28 exceptions past `high_water = 27`); `record` is off, so the gate does not run it.
+    With the table below in place and both switches on, on a scratch copy, `record check` said
+    all 28 valid and `-t record -t suppression` passed.
+
+    - Owner: sign the raise. Replace the `[ratchet]` table at the top of
+      `src-go/qa/record.toml` with this (a raise on the day of the previous signature is
+      fresh only with a new `reason`, so the reason must change):
+
+      ```toml
+      [ratchet]
+      high_water = 28
+      decided_by = "repository-owner"
+      decided_on = <the day of signing>
+      reason = "raising the ceiling by one for the tagliatelle exclusion of internal/netpolicy/podman.go, which decodes podman inspect by podman's own field names (Plan 00232)"
+      ```
+
+    - Then a worker sets `record = true` and `suppression = true` in `src-go/qa/go-qa.toml`,
+      runs `scripts/qa-go-qa.bash -t record -t suppression`, and ticks this item when it passes.
+
+    Done 2026-10-29. Plan 00235's old-range triage had added a third exclusion meanwhile
+    (tagliatelle `mapped-layers`, c/storage's own key in its image records), so the owner
+    raised the ceiling to 29 instead ("Raise to 29", 2026-10-29) and asked the coordinator to
+    write the signature in their name ("You write it for me", 2026-10-28). The `[ratchet]`
+    table now says `high_water = 29`, `decided_on = 2026-10-29`, with a reason naming both
+    tagliatelle exclusions; the 29th entry is `tagliatelle/mapped-layers`; `max_total` and
+    `max_count` are 29; `record` and `suppression` are on, and
+    `scripts/qa-go-qa.bash -t record -t suppression` passes (both detectors passed).
 
 - [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
@@ -662,9 +728,9 @@ today; rewriting them is out of scope.
       is `subagent-reports/261022-regex-group-dbf-report.md`. The rule reads YAML only, so
       `.j2` templates (which unescape) are undefended; no tracked `.j2` uses a regex filter
       today (checked at F44 2adb8df38). Decided as a **coordinator default, changeable by the
-      owner**: the rule is extended to `.j2` when the first regex filter appears in one. Left
-      for a worker: one line in CLAUDE/QA.md under `regex-backref-escape` saying so, so the
-      author of that template is told. Known limits, left by the coordinator's decision after review round 1
+      owner**: the rule is extended to `.j2` when the first regex filter appears in one.
+      CLAUDE/QA.md under `regex-backref-escape` says so, so the author of that template is
+      told (review fixes of Task 5.1). Known limits, left by the coordinator's decision after review round 1
       (`subagent-reports/261022-regex-group-review-round1.md`, F2 to F5), none of which occurs
       in the tree today:
       - the free-form and `args:` forms of debug `var` are not read;
@@ -715,11 +781,185 @@ today; rewriting them is out of scope.
   `CLAUDE_PROJECT_DIR` is refused or ignored. The tests run with the working directory in `/etc`
   (red: 3 failed, the host failure among them; green: 127 passed). `play-python.yml` (with `python3-pytest`) passed on the host at F44 67033c224 (commit
   c159e6626). Host gate: `./scripts/qa-hook-handlers.bash` on the host gave rc 0, 127 passed
-  (bus message `$jiyrj2SUIXLv8eFkQqiLmhG7vAfDWoepH7kDf6d5Ewk`, 2026-10-23).
+  (bus message `$jiyrj2SUIXLv8eFkQqiLmhG7vAfDWoepH7kDf6d5Ewk`, 2026-10-23). The rule first
+  sat in the speech-to-text rules; Task 5.1's review moved it to `.semgrep/hook-handlers.yml`
+  (fixture `.semgrep/hook-handlers.py`), a gate of its own, `scripts/qa-hook-handler-rules.bash`
+  (gate `hook-handler-rules`; `qa-changed` checks `hook-handler-rules-files` and
+  `hook-handler-rules`, SPEC-qa-changed B53), on the `src-go/qa/sttrules` engine with a
+  `HookHandlers` spec. Red: the rule fires on all 9 `ruleid:` lines of its fixture and no `ok:`
+  line; green: 368 Python files, 0 findings, and the speech-to-text gate 404, 0.
+
+- [ ] 🔄 **Task 4.7**: The owner's request (2026-10-29): `ccy-token-usable`'s refusal of a
+  token with no usage left, printed before ccy falls back to the token chooser, was plain
+  white text that was easy to miss. No active plan owns F15 (Plan 00223 only depends on it),
+  so it is tracked here. On a terminal without NO_COLOR (D10's rule) the refusal is now a
+  three-line banner of bold bright white on red (`ESC[1;97;41m`), each line filled to its end
+  with `ESC[K` (`Front.alarm`, usable.go); on stderr as before, and unchanged in a pipe. The
+  chooser's `--mark` line is left as it is: it is captured into the chooser's row, not printed
+  before it. Test first (`TestUsableUsedUpBannerOnlyOnATerminal`, `TestUsableMarkIsNeverABanner`).
+  CCY 3.103.1 on merge with Plan 00235's 3.103.0 (front sources; no bash change). Deployed
+  (the host is on 3.104.11). Left: the owner seeing the banner on a used-up token.
+
+- [ ] 🔄 **Task 4.8**: The owner's request (2026-10-29): `ccy --token-usage` printed a table
+  where the token menu draws coloured bars; it should draw the bars. Asked whether to keep the
+  bash fallback, the owner chose "Go only, delete bash". F11 is now the front's own flag, as
+  F14 is (`Front.ownFlag`): only CCY_LEGACY hands it over, and the bash refuses it. The front
+  draws the menu's bars (`usageReport.bars`, colour by D10's rule). What it used to hand over
+  is answered (another bash version, a name or HOME outside ASCII, an undated file, listed as
+  unavailable) or refused with exit 1 naming it. The bash report is deleted (lib 2.0.0). The 7
+  front-answered token-usage difftest scenarios are retired for expectation tests, and
+  `test-ccy-token-usage-command.bash` drives the built front (102 checks). CCY 3.104.0.
+  Deployed (the host is on 3.104.11). Left: the owner seeing the bars.
+
+- [x] ✅ **Task 4.9**: Defence Before Fix for the owner's incident (2026-10-29 ~12:57, triaged
+  by seat 2): every token showed "could not reach the API" for 15 minutes after one failed read.
+  `ask()` kept only whether curl's run failed (status 000, no cause) and the entry was cached
+  for the TTL. Class: a command's failure only tested, never carried. Rule
+  `project_command_failure_dropped` (src-go/qa/rules, wrappers through facts), committed red
+  (e47fc3a04), widened after the independent search (010158bcd); 107 instances in the two
+  modules. Origin fixed (CCY 3.104.1): the cause is the entry's fourth line and in the reason,
+  a 000 entry is never fresh, Go and the bash menu alike. Swept 2026-10-30 in five batches
+  (subagent-reports: the 261030-dbf-cfd-N reports): every instance fixed, none excluded, the
+  rule unnarrowed; probes whose failure is the answer ask `execx.ExitedNonZero` (a program that
+  ran said no), and any other failure is reported. vmtest's run.exit wait no longer reads a lost
+  guest as "not yet" (red first). Catalogued in CLAUDE/GoProjectRules.md. CCY 3.104.3. Full
+  QA green with the rule blocking (2b8b79917, after a false positive was fixed in the rule,
+  83772ce1c). The conformance review reproduced red (108 at 010158bcd) and green; its seven
+  findings are resolved in the report, `dbf-report-command-failure-dropped.md`, which also
+  gives the count as 111, not 110. The owner's answer on the 8 bash instances of the search
+  (2026-10-30, "A7a ... the idea is we push towards go"): they are fixed by porting those
+  ccy launcher paths to Go, where the rule already holds; no bash fix, no ratchet raise. That
+  port is Task 4.10, deployed. The report's other two referrals (A11), decided 2026-10-31 by
+  a Fable review at the owner's direction ("use fable sub agent to try to pick clear
+  winners"): accept, both stay unbuilt. The bash class goes with the bash, which is being
+  retired to Go where the rule holds; the any-error rule cannot tell a dropped cause from a
+  deliberate sentinel branch.
+
+- [ ] 🔄 **Task 4.10**: Port the ccy launch path to Go (the owner's A7a, 2026-10-30), so the
+  DBF report's 8 bash instances arrive defended by `project_command_failure_dropped`. The Go
+  front answers only the token flags today; the launch flow itself is bash
+  (`files/var/local/claude-yolo/claude-yolo` and its `lib/`). One unit per commit, each moving
+  a step into `internal/ccylaunch` behind the front, with its test first and the bash removed,
+  so the bash-limits allowlist entries only shrink. Order, by harm:
+
+  1. ✅ B8: the saved launch configuration. Read it in Go, strictly. A file that cannot be
+     read is reported with its cause and kept, never deleted on a guess. Built (CCY 3.104.5):
+     the front's `--read-launch-config FILE` (F16, `launchconfig.go`); the bash takes its
+     KEY<TAB>value lines with `read` and reconfigures with the file kept
+     (`subagent-reports/261030-task-4.10-unit1-config.md`).
+  2. ✅ B2: `validate_token`. An engine failure is reported as one, not as "token invalid".
+     Built (CCY 3.104.7): the front's `--check-token ENGINE IMAGE` (F17, `checktoken.go`, the
+     run through `engine.RunWithSecret`, E11) asks the API from the image, since the old
+     `claude --version` never asked it: 0 accepted, 3 refused (recovery), 1 not checked, which
+     stops the launch with its cause (`subagent-reports/261030-task-4.10-unit2-validate-token.md`).
+  3. ✅ B3, B5: the network check and the Claude version probes. Each carries its cause.
+     Built (CCY 3.104.8): the front's `--check-network ENGINE NETWORK` (F18: 0 reached, 4
+     the network reached nothing with wget's words, 1 the probe could not run, which stops
+     the launch without the network guide) and `--claude-versions ENGINE IMAGE` (F19:
+     "INSTALLED LATEST", or exit 1 naming the image's or the registry's cause), both in
+     `netcheck.go` over `engine` E12 (`subagent-reports/261030-task-4.10-unit3-network-version.md`).
+  4. ✅ B6, B7, B9: network removal, container stops and listings (`lib/docker-health.bash`).
+     An engine failure is said, not read as "may still have containers", "may already be
+     stopped" or "no containers found". Built (CCY 3.104.9): the front's `--list-containers`,
+     `--stop-containers` and `--remove-network` (F20-F22, `containers.go`, over `engine` E13
+     and `StoreHas`, which now answers networks, and on docker containers and networks):
+     "already gone" only when the store no longer has it, else the engine's words; a failed
+     listing or stop fails the launch or `ccy --top`
+     (`subagent-reports/261030-task-4.10-unit4-engine-housekeeping.md`).
+  5. ✅ B4: `entrypoint.sh`'s GitHub meta fetch, in the image (a container version bump).
+     Fixed in the entrypoint, not ported: the image carries no Go binary of ours. Built (CCY
+     3.104.10, container 2.79.18): `curl -fsS` and `jq -e`, so the warning carries curl's
+     cause (DNS, connection, HTTP status) or "malformed answer"; the start still goes on with
+     accept-new, a declared fallback (`subagent-reports/261030-task-4.10-unit5-entrypoint.md`).
+
+  All 8 instances are fixed; 7 now run in Go behind the rule, and B4 stays bash because it
+  runs in the image (a departure from A7a; the Fable review of 2026-10-31 kept it in bash: a
+  one-fetch Go binary is YAGNI, and A7a is served by porting the entrypoint whole, later). Deployed on the host at
+  8a6396691 (2026-10-31: `ccy --version` 3.104.10, image 2.79.18).
+
+  6. ✅ The qa-reviewer pass over units 1-5 (2026-10-31) found what was left: the play put
+     the new bash in place before it built the Go front it needs; `docs/ccy.md` listed two
+     front flags and still offered `claude-yolo.bash` without the front; the cleanup's option
+     b still said "could not be stopped (continuing)" and went on (B7's class); and
+     `create_token` discarded a new token when the check could not run (B2's class); with
+     three nits (`network inspect 2>&1`, a failed inspect read as "not a zombie", no test of
+     `--remove-network` exit 5). Built (CCY 3.104.11): the play reads `CCY_VERSION`
+     (`tasks/ccy-version.yml`) and builds the front before the image tasks' libs and the bash;
+     the docs list F16-F22 and drop the bash-only fallback; both cleanup options are
+     `lib/docker-network-cleanup.bash` over F20-F22, tested against a fake docker (exit 5, a
+     failed stop, list, removal and prune, an engine warning); `create_token` keeps a token
+     whose check could not run and discards only a refusal, and its paste prompt ends on a
+     closed input; the zombie scan fails with the engine's words when a still-listed
+     container's inspect failed (`subagent-reports/261031-task-4.10-unit6-review-fixes.md`).
+
+  Deployed on the host at 7ebb2b9f9 (2026-10-31: `ccy --version` 3.104.11). Left: the
+  owner's next normal launch, which exercises units 1-4 and 6 for real.
+
+- [x] ✅ **Task 4.11**: Three ccy suites passed in the container and failed in the host's
+  `qa-all`. The host's environment leaked into them: `ccy-session-registry` sorted under
+  `en_GB.UTF-8`, `ccy-token-mode`'s "not installed" case found the installed
+  `ccy-token-usable`, and in `ccy-token-usage-command` Fedora's exported `which` made the front
+  hand `--help` to bash. Defence Before Fix: `suite-env-isolated` (CLAUDE/QA.md). Every
+  `qa-all` and `qa-changed` command now runs in `gates.Isolation`, which sets `C.UTF-8`, drops
+  exported functions and `BASH_ENV`, and hides from PATH the commands this repository ships. The
+  guard is `TestSuiteEnvIsolated*`. The three suites now pin their own environment as well.
+  Left: the host agent's next `qa-all`.
+
+- [ ] 🔄 **Task 4.13**: Compact then exit on close. The owner's request (2026-11-02) began as a
+  `/compact` typed when `ccy --continue` starts. Measured, a compaction of a cold conversation
+  pays the same uncached read its first turn would, so the owner dropped the startup compaction
+  and asked for the cheap moment instead: at close, while the cache is warm. From this
+  container's transcripts (numbers only, `subagent-reports/261102-continue-compacts.md`): a first
+  turn more than an hour after the last re-writes the context to the cache (cache_creation median
+  78,307, max 374,791) and reads only the system prompt (~13,000) from it; a warm turn reads it
+  (cache_read median 245,122, cache_creation median 851). 71 compactions took ~400,000-530,000
+  tokens down to ~9,000-22,000 in ~40-125 s; a compaction's own API usage is recorded nowhere in
+  the transcript. The design: `/compact` typed into the session's pane with tmux send-keys once
+  its prompt is ready, its end waited for by a real signal (the transcript's compact_boundary, or
+  the pane busy then ready again where the transcript is unknown), bounded, then `/exit`; a
+  compaction that does not complete is a loud failure and the session is left running. One
+  neutral package, `internal/sessclose` beside `tmuxccy` and `sessprobe` with no tmux calls of its
+  own, holds it, and three callers use it: `ccy-teams shutdown` (its default), a ccy stop
+  command, and a close action on a `ccy-sessions` row; `--no-compact` is the close path's only
+  escape hatch. Built: `transcript.CompactedLast` (nothing to compact: the last context-recording
+  entry is a compact_boundary, or no turn was taken) and `conversation.Transcript` (a session's
+  own transcript, which winddown now calls instead of its copy), each test first; then
+  `internal/sessclose` (C1-C10 in its package doc), which ccy-teams shutdown's stop logic moved
+  into and whose pane wait (`Quiet`) winddown now uses, and its three callers, each with a test
+  through a fake Closer: `ccy-teams shutdown <team> [--no-compact]`, `ccy --stop SESSION... [--no-compact]` (the Go front's own flag, F23) and a `ccy-sessions` row's **Close it** and
+  **Close it without compacting**; help, `docs/ccy.md`, `docs/agent-bus.md`, the changelog,
+  CCY 3.105.0. Left: the host check, `ccy-teams shutdown <team>` (or `ccy --stop <session>`)
+  on a live session, then its transcript ends in a compact_boundary followed only by the
+  `/exit` entries; and later, set-going's own ready-then-type loop onto sessclose.
+
+- [ ] 🔄 **Task 4.12**: The GitHub QA workflow went red on F44 while local `qa-all` passed:
+  the runner differs from the container. Defence Before Fix for the umask, which Task 4.11's
+  isolation missed: `suite-env-isolated` now also runs every `qa-all` and `qa-changed` command
+  under umask 077 (`gates.SuiteUmask`; the runner sets its own process umask through
+  `Env.Umask` before its first command, and refuses a run without one). The guards are
+  the `TestSuiteEnvIsolated*Umask*` tests in `qa/all` and `qa/changed`, red first (on a
+  machine at 022). The ccy launcher's goldens, recorded under the container's 077, are
+  unchanged; the difftest pins 077 itself and passes from a 022 shell. Sweep: every suite is
+  green under 077 (every container `qa-all`); under 022 (the CI run, a full `qa-all`, and both
+  Go modules locally) only the difftest depended on the umask. The other causes:
+  gitleaks' generic-api-key read two names as secrets (renamed); CI's Python was 3.12, and
+  pycompat reproduces 3.13 (3.14 differs too), so CI sets up 3.13, and the oracle (and seat's
+  v1 parity run) is `python3.13` by name, never `python3` (Fedora 44's is 3.14): a missing
+  `python3.13` fails naming it and why, and one reporting another version fails naming both;
+  `play-python.yml` installs Fedora's `python3.13` on the host (meta-deploy `changed-plays`);
+  the difftest outlasts go test's default package limit on the
+  4-vCPU runner under `-race` (it is CPU-bound), so the Go gate passes `-timeout=30m` through
+  `GOFLAGS` (`qa-go-qa.bash`); the runner image is Ubuntu 26.04, whose multi-call coreutils
+  broke a helper test's `sleep` named `claude`, and whose non-root uid exposed a wrong
+  expectation in `containerimages`' scan test. Report: `subagent-reports/261102-ci-green.md`.
+  Left: CI green on the branch; the owner's decision on the Go v1 readers against Fedora 44's
+  python 3.14; and which 3.13 patch the oracle is: CI's 3.13.17 words one truncated `\u`
+  escape otherwise than the image's 3.13.5, which the Go matches, and 3.13.5 cannot be set
+  up on ubuntu-26.04 (report addendum).
 
 ### Phase 5: Review
 
-- [ ] ⬜ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
+- [x] ✅ **Task 5.1**: qa-reviewer over the whole plan (a worker; it ran once, 7205384c3, and
   runs again over the work since); the host test. The ccy-teams half already has the owner's
   verdict (Success Criteria). The rest is the host agent's: from a terminal on the host,
   `ccy --version`, `--help`, `--list-tokens`, `--token-usage`, `--prevent` and
@@ -727,15 +967,26 @@ today; rewriting them is out of scope.
   `CCY_LEGACY=1 ccy` with the same flag, as the play-claude-yolo.yml meta-deploy entry of
   Task 4.5 asked. Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
   `--version`, `--help`, `--list-tokens` and `--token-usage` byte-identical to `CCY_LEGACY=1`
-  (`--token-usage --json` differs only in `generated_at`); left: `--prevent` and
-  `--export-token NAME`, and the qa-reviewer.
+  (`--token-usage --json` differs only in `generated_at`). Host, 2026-10-30: `--prevent`
+  byte-identical (output, exit 0 and the files written, in a fresh `git init`; outside a git
+  root both refuse the same way), and `--export-token` with a placeholder token file
+  byte-identical both with a future expiry (exit 0) and an expired one (exit 1).
+  - [x] ✅ qa-reviewer part: it ran again over the work since 7205384c3 and found three
+    defects, all fixed on `plan/00191-review-fixes`: the `.j2` line Task 4.5 owed in
+    CLAUDE/QA.md, Success Criterion 2 unticked though qa-all covers it, and
+    `hook-path-resolved-against-cwd` in the speech-to-text gate (moved, Task 4.6).
+  - [x] ✅ Task 4.10, the work since: a qa-reviewer pass over units 1-5 (2026-10-31) found
+    four defects and three nits, all fixed as Task 4.10 unit 6.
 
 ## Success Criteria
 
 - [x] `ccy-teams` on the host is the Go binary, built by the play, and the owner finds it
   works as before or better (owner's host test after meta-deploy: "seems good").
-- [ ] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
-  and race-detector tests.
+- [x] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
+  and race-detector tests. `qa-gates.tsv` runs the parity suite as gate `ccy-teams-command`
+  (`scripts/test-ccy-teams-command.bash`) and both Go modules as gate `go`
+  (`scripts/qa-go-qa.bash`, go-qa-ci). go-qa lints with `src-go/.golangci.yml` (`default: all`, strict) and tests with `go test -race -shuffle=on -count=1`. qa-all on F44 at
+  4e355c5f7 passed: `go: coverage passed`, `ccy-teams-command: passed: 383`.
 - [x] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it (Task 3.3; its
   record and suppression checks follow the owner's record, Task 3.8).
 

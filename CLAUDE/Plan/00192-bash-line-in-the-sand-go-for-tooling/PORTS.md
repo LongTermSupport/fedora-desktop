@@ -257,16 +257,17 @@ owes the docs check (F4); goldmark is v1.8.6 (F9). F3, F6, F8 and F10 were not r
 Shared scaffolding (`go-port/qa-cmdmain`, merged): the command-line and output boilerplate the
 gates had each copied now lives in `src-go/qa/internal/cmdmain` (closed-stdout refusal, report
 writers), `emit` (the two-stream writer and the exit rule) and `rootargs` (the `-h`, `--root`,
-`--scripts` grammar): every one of the 28 `qa/cmd` mains uses `cmdmain`, 16 gate packages use
-`rootargs` (10 of them also `emit`), and 12 use `emit` (counted at F44 1d8bc1037 by the
-packages' non-test imports, after the gates added since the merge). Fable review
+`--scripts` grammar): every one of the 29 `qa/cmd` mains uses `cmdmain` (recounted at F44 fe894347c), 16 gate
+packages use `rootargs` (10 of them also `emit`), and 12 use `emit` (counted at F44 1d8bc1037
+by the packages' non-test imports, after the gates added since the merge). Fable review
 (`subagent-reports/261015-fable-review-cmdmain.md`) found no blocker and no behaviour drift.
 Checked in the merged tree: `rootargs.Lenient` is gone, so `--root ""` is refused as
 `--root needs a directory` instead of silently falling back to another tree, and
 `rootargs_test.go` pins `--root ""` and `--scripts ""`; the `ansible-patterns` routing row for
 `qa/ansible`, `qa/cmd/qa-ansible` and the shared packages is in `scripts/qa-routing.tsv`; the
-cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 28
-`qa/cmd` mains call `cmdmain.RefuseClosedStdout` (28 directories, 28 non-test callers); the departure rows for the Strict move exist
+cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 29
+`qa/cmd` mains call `cmdmain.RefuseClosedStdout` (29 directories, 29 non-test callers, at F44
+fe894347c); the departure rows for the Strict move exist
 (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
 D11).
 `qa-go.bash`, the interim Go gate, was not ported (owner's decision, 2026-10-15): Plan 00191
@@ -319,8 +320,9 @@ and cut over, merged into F44 and deployed (F44 `8c2de08c`); spec [SPEC-open.md]
 `src-go/cmd/open` and `src-go/internal/open` (handlers as an argv table with an optional
 pager over an `os.Pipe`, no shell; the chooser `ui.Picker` with a Cancel row, or a numbered
 menu on `/dev/tty`; desktop apps through `gio` alone); `play-cli-tools.yml` builds it, the bash
-and its allowlist row are gone (it had no suite). Host checks H1-H5 are the
-owner's, done by hand at the desktop, and are not in `meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`. Fable's review
+and its allowlist row are gone (it had no suite). Host checks H1, H4 and H5 are the
+host agent's (terminal steps through tmux), H2 and H3 the owner's (the desktop); none is in
+`meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`. Fable's review
 (`subagent-reports/261019-open-port-review-fable.md`, FIX-FIRST) is fixed on
 `go-port/open-2`, merged too: a handler's own Ctrl-C is a quiet cancel (130), other signals named
 (128 + n), an interrupt before the handler cancels (E29-E31).
@@ -338,8 +340,8 @@ found that way (B10: with no mount the bash printed only the heading and exited 
 `deploy-rclone-cache-status.bash` (the tagged play, then
 `acceptance-rclone-cache-status.bash` for H1) passed; H2 and H3 are the owner's, by hand inside
 a mount.
-`gh-account-setup` (P6, the third tool; chosen in its spec's section 1) ported on its own branch,
-under review, not merged; spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
+`gh-account-setup` (P6, the third tool; chosen in its spec's section 1) ported on its own branch
+and merged into F44 (`9e404ae6b`); spec [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md) (D1-D5,
 E1-E30, B1-B15, H1-H5), `src-go/cmd/gh-account-setup` (the askpass dispatch, else the run) and
 `src-go/internal/ghaccount`. It is not deployed: `scripts/gh-account-setup.bash` is a wrapper that
 builds it from the checkout on each run and execs it, so a signal sent to the wrapper reaches
@@ -380,3 +382,159 @@ terminal Ctrl-C cannot kill an RC call before the run cancels it; a stop ends th
 next line and `--once` still gets its closing snapshot. Round 2 (CHANGES: 1 Low) fixed: a
 second signal during either snapshot ends the run at once (its session groups killed, nothing
 more printed, exit 130), so no `rclone rc` outlives the run. Round 3: MERGE (2 Nits, fixed).
+`setup-rclone` (P6, the fifth tool; chosen in its spec's section 1) ported on
+`go-port/setup-rclone-3` and merged into F44 (`61b70d02d`); spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md)
+(D1-D4, E1-E23, B1-B14, H1-H4), `src-go/cmd/setup-rclone` and `src-go/internal/setuprclone`.
+It is not deployed: `scripts/setup-rclone.bash` is now the wrapper that builds it from the
+checkout and execs it with `SETUP_RCLONE_ROOT` set (as `gh-account-setup`'s); its allowlist
+row is gone, and `scripts/go-binary-suites.tsv` gives it `qa-go` (it had no suite). Both
+embedded Python programs are gone: `host_vars` is read as YAML, its two top-level blocks are
+edited in the text, and the result is read back before an atomic write that keeps the mode
+and writes through a symlink (B3, B4: a mount's other keys such as `rc_port` survive an edit).
+The vault is proven by an `encrypt_string` probe before the wizard (B7), and every rclone call
+names the one configuration file (B10). `ui.Lines` draws a heading two columns wide when its
+`Width` is zero, though its doc says zero is no limit; the command sets a width of 80, and the
+`ui` defect (which `ccylaunch`'s build-lock question also hits) is left for a fix of its own.
+H1-H4 are the owner's, at the desktop.
+`reclaim` (P6, the sixth tool; chosen in its spec's section 1: the most interactive of the four
+left, and the one a fake proves without the owner, since its danger is which commands run after
+which answer) ported and cut over on `go-port/reclaim`, Fable-reviewed and the review's
+findings fixed, merged into F44 at `2e32edc2a`; spec [SPEC-reclaim.md](SPEC-reclaim.md) (D1-D4, E1-E30, B1-B15,
+H1-H5), `src-go/cmd/reclaim` (under `execx.SignalContext`) and `src-go/internal/reclaim` (root
+through `internal/sudo` after a reason and only after a yes, ncdu through
+`execx.Foregrounder`, the biggest-files walk and the removals in Go, sizes by
+`rclonecache.IEC`). `reclaim` joins the owners of `podman` and `docker` in the project rule's
+table. `play-cli-tools.yml` builds it (tag `disk-reclaim`, which now imports `play-golang.yml`
+too); the bash and its allowlist row are gone (it had no suite), and `test-qa-changed.bash`
+takes `nord` as its allowlisted tool. Oracle: one scenario table,
+`internal/reclaim/testdata/scenarios.json` (28 scenarios: exit status, every command that may
+change the machine (any root command, and any with a word of the table's `changingWords`),
+the files left in the home), run against the Go by `TestScenarios` (where a command no
+scenario scripts fails it, unless it only reads) and against both the bash at `842d88ddd` and
+the built Go by `reclaim-parity/parity.py` (fake programs on `PATH`, a pseudo-terminal). Go:
+28 of 28; bash: 15 the same, 13 differing exactly as their `bashDiffers` departure says (B12,
+the root preview, accounts for most). **`parity.py` is a one-off check run by hand, as the
+freeze golden capture was: no gate runs it**, so a change to the table or the Go is judged by
+`TestScenarios` alone until someone reruns it. Bash defects found that way: a failing
+`dnf repoquery` preview read as "nothing to remove" and then ran autoremove and clean on a yes
+(B3), a `du` that could not read every entry ended `reclaim report` with status 1 halfway
+(B7), and a `~/.cache` listing that failed still cleared it on a yes (B3, B14). Review
+dispositions (subagent-reports/261027-reclaim-review-fixes.md): M-1 fixed (Ctrl-C waits for a
+running change, then `Cancelled.` and 130, a half-done clear says so; E30, B15); M-2 fixed (the
+fake fails an unscripted command, the oracle above); L-1 fixed (previews as the user, B12);
+L-2 fixed (a partial du's stderr shown, B6); L-3 fixed (a failed listing stops the clear before
+asking, B3, B14); L-4 noted, as the bash; L-5 fixed by refusing a symlink (B13); L-6 this note;
+L-7 fixed (the unused `styleBlue` removed). Host checks H1-H5 are the host agent's. 2.0.4's
+host recheck passed (H1's Podman section with no summed size, and the dangling count and the
+prune question differing by the stated number kept; option 6 answering No to every question
+ran nothing). 2.0.5 says `Skipped <command>.` after a No to either "Also remove all unused"
+question too, as after the first question of each pair (E22); its recheck passed at
+`071969780` (PLAN.md Task 3.3 has the host results).
+`nord` (P6, the seventh tool; chosen in its spec's section 1: the largest left and the only
+interactive one, whose danger a recorded command list proves) ported and cut over on
+`go-port/nord`, Fable-reviewed and the review's findings fixed, merged into F44 at `075d2418f`; spec
+[SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), `src-go/cmd/nord` (under `execx.SignalContext`) and
+`src-go/internal/nord`. `nord` joins the owners of `nmcli` in the project rule's table; systemd
+is asked through `internal/systemd`, the chooser is `ui.Lines.Choose`. The password is stored in
+the profile, as the bash did, so connecting from GNOME's settings asks for nothing (the lead's
+decision, SPEC-nord D4), but through nmcli's editor (`nmcli connection edit`) fed on its stdin
+(an `execx.Feed`), where the bash put it in `nmcli connection modify`'s argv (B3); a store that
+fails or that nmcli does not say it saved deletes the import, nmcli's words shown with the
+password hidden. The first build fed it to `nmcli connection up ... passwd-file /dev/stdin` at
+each connect and stored none; the lead reversed that. The state file is gone
+(NetworkManager is asked, D2; the play removes the file), every profile is named by UUID (B8),
+a half-made import is deleted (B9), `switch` imports before it disconnects (B12), and a
+connection that will not go down stops the connect (B10). `play-nordvpn-openvpn.yml` builds it
+(importing `play-golang.yml` first); the bash and its allowlist row are gone (it had no suite),
+`scripts/go-binary-suites.tsv` gives it `qa-go`, and `test-qa-changed.bash` takes `lan-scan` as
+its allowlisted tool. No oracle against the bash (SPEC-nord section 6): the expectation tests
+run over a fake NetworkManager (`world_test.go`: the listings from its profiles, each verb
+applied to them, every unscripted command a failure). Not proven here, and so H4 (the owner's):
+that nmcli's editor, fed on stdin, stores the password. The secret-file guard denies a Write or
+a Bash command whose text holds the name of nmcli's VPN secrets setting as one token (it matches
+a protected glob; no file is involved), so the code joins the name from its parts, with a
+one-line comment saying so and a test pinning the parts. Decided 2026-10-28 (part C item 9 of
+the unblocking list the owner answered "all recommended"): the workaround stays, the guard is
+not weakened locally, and an upstream issue is filed (PLAN.md Task 3.12): hooks-daemon
+#145, a feature request, 2026-10-31. Host run: `changed-plays` at `b9fdc8adb` picked nothing, because the play ran on the
+host only before its play ledger was cleared, so `--changed` cannot see it
+(`$pmo505uje_JUY88QP54JD_65CQfD2oK_Vr-OfYdbwvM`), so it was run by name instead, and ran
+at `037892368` (H1-H3 PASS; PLAN.md Task 3.3 has the host results). Before that run its firewalld step was made to ask first
+(`--permanent --query-service openvpn`), so a run finding the rule in place no longer reloads
+firewalld, which drops every runtime-only rule. Review dispositions
+(`subagent-reports/261028-fable-review-nord.md`, no BLOCKER): F1 fixed (a credential nmcli's
+option lists would split, trim or unescape, `,` `=` `\\` or an edge space, is refused at E10,
+B17; the credentials file is the play's, so the fix is the vault's value, not a prompt); F2
+fixed (every changing nmcli runs with `NewSession`, outside the terminal's foreground group, so
+a Ctrl-C cannot kill a half import before its rollback; E24, B16); U2 fixed (the chooser checks
+its terminal before it opens the log); U3 fixed (`cleanup` asks `[y/N]` on the terminal, with
+`--yes`, and refuses without either; E20, B18); U4 fixed (`nordPkg`); U5 fixed (a signal after
+a success keeps exit 0); U6 fixed (H4 names its two unknowns and what their failure looks
+like). U1 left: the credentials are checked for every connect by design (E8: every missing
+piece said before anything acts), and reading the file when the profile already exists costs
+nothing; the reviewer marked it low priority.
+`nvidia-status` (P6) built on `go-port/nvidia-status`; spec
+[SPEC-nvidia-status.md](SPEC-nvidia-status.md) (D1-D4, E1-E26 with E22a and E23a, B1-B19, H1-H6),
+`src-go/cmd/nvidia-status` and `src-go/internal/nvidiastatus` (facts gathered once, rendered,
+and the exit status the verdict over them; every program through `execx` under a fixed 30s
+bound; `/proc/modules` read directly). Run from the checkout as before:
+`scripts/nvidia-status.bash` is now the wrapper that builds and execs it (as
+`gh-account-setup`'s), so no play and no `meta-deploy.list` entry; its allowlist row is gone
+and `go-binary-suites.tsv` gives it `qa-go` (it had no suite). It asks nothing, so the
+interactive rules do not apply. Oracle: the expectation tests alone (a fake world of the
+hybrid laptop's answers, one test per section), 97% coverage. Bash defects found: the VA-API
+package was asked under its pre-Fedora-43 name, so it always read as missing (B1, the cause of
+Plan 029's "side issue"); `journalctl -g` exits 1 when nothing matches, so a healthy machine
+always got `Could not read the kernel journal` (B2); `--check` still printed lines (B3);
+`lsmod | grep ^nvidia` counted `nvidia_drm` as the driver (B5); an unrecognised `--test-key`
+answer led to "enrol the MOK key" (B6); an unknown Secure Boot state was summarised as
+disabled (B7); a missing `akmod-nvidia` read as "still building" (B8). H1-H4 are the host
+agent's (read-only), H5 the owner's, H6 the host agent's (read-only). Fable review
+(`subagent-reports/261028-fable-review-nvidia-status.md`): no blocker; F1 fixed (B14, a key not
+enrolled is a fault only under Secure Boot); F8 fixed (the fixtures name a generic GPU). The
+follow-ups are fixed too (`subagent-reports/261028-nvidia-status-follow-ups.md`): F2 (the
+production timeout, an exit by SIGTERM at the 30s deadline, tested in a synctest bubble, E6);
+F3 (a loaded driver other than the installed one, or NVML's version mismatch, is its own verdict,
+reboot, with both versions: E26, B15; and with no akmods key the MOK verdict names the play
+first, B19); F4 (NVIDIA's VA-API driver asked by name, E22a, B16; H6 checks it on the laptop);
+F5 (rpm failing reads as "could not tell" in section 6, B17); F6 (`nvidia-gpu` i2c timeouts
+counted apart, E23a, B18); F7 (INVENTORY.md no longer marks it interactive).
+The `ssh-with-key` family (P6: `ssh-with-key`, `scp-with-key`, `ssh-copy-id-with-key`) ported
+and cut over on `go-port/ssh-with-key`, Fable-reviewed and its findings fixed; spec
+[SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5), `src-go/internal/sshkey`
+and three thin mains `src-go/cmd/{ssh,scp,ssh-copy-id}-with-key` (not one binary answering to
+its argv\[0\]: `tasks/build-go-command.yml` installs one command per name, and a binary that acts
+on the name it was started by changes when copied or linked). The main finding (B1): with
+`IdentitiesOnly=yes` ssh still offers every `IdentityFile` its configuration gives the host,
+and nothing on the command line clears them, so the bash's "only one key" was false under any
+`Host *` IdentityFile; E11 asks `ssh -G` before connecting and stops, naming the keys (the
+choice was sent to the lead for the owner; H5). Without `-A` the program is exec'd. With `-A`
+the run re-executes itself under `ssh-agent -- <itself>` (command mode: the agent exits when
+its parent goes, even after SIGKILL, where the bash's `eval "$(ssh-agent -s)"` and EXIT trap
+left one), trusts it only when a marker variable holds its own pid and the agent's parent is
+itself (`/proc`), adds the chosen keys with `ssh-add` in the foreground (it asks the passphrase
+itself; none passes through the tool), runs ssh or scp through `execx.Foregrounder`, then
+`ssh-agent -k`. Forwarding is now read from the options only (B3: the bash took `ls -A` in a
+remote command, `-oForwardAgent=no` and `-lAdmin` as asks). `term.ExpandHome` joins
+`term.AbbrevHome` (project_homeabbrev keeps `~` in `internal/term`). The bash files and their
+allowlist rows are gone; `ssh-with-agent.bash` stays for the two password wrappers, and
+`go-binary-suites.tsv` gives the three `qa-go`. No oracle against the bash. Checked in the
+container beyond the fakes: the built binary under a pty with a throwaway key, `HOME` in
+scratch and a `ProxyCommand` standing in for the host: the agent re-exec, the `/proc` check,
+`ssh-add`, the agent reaching ssh's children, `q` giving 130, no `ssh-agent` left after, and
+E11 refusing a `-F` configuration naming a second key. A real login is H2-H5. The host run
+(`changed-plays`, which picked up `play-basic-configs.yml`) ran at `e3d67048d`: H1 and H3
+PASS, H4 in part (PLAN.md Task 3.3 has the host results).
+Review dispositions
+([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)):
+B1 fixed (B11, E20: ssh-copy-id folds every `-o` into its already-installed check, so the login
+key made every new key read as installed; the tool now requires `-i FILE`, logs in offering only
+its private half in batch mode, says "already installed" on a login or `Server accepts key:`,
+and otherwise runs `ssh-copy-id -f`; H2 now needs the dry run's `Would have added` line, the
+key working afterwards and one line of it in `authorized_keys`). F1 fixed (B12: `-o IdentityAgent` refused, and a forwarded run's probe refuses a configured `identityagent` or
+`forwardagent` socket). F2 fixed (the `meta-deploy.list` entry names `play-claude-yolo.yml`).
+F3 fixed (H4 requires one `Will attempt key:` line under `-A`). U1 fixed (`%h %n %r %p`
+expanded from `ssh -G`'s own lines; `%u` and the rest still count), U2 fixed (`none`), U3 fixed
+(a stale `SSH_WITH_KEY_AGENT` is named), U4 fixed (scp `-S` refused), U5 fixed (`-T` in every
+probe), U7 fixed (these lines no longer say "not merged"). U6 left by decision (typed-ahead
+keys between the menu and ssh; spec section 7).

@@ -725,8 +725,9 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
 18. **F. IPv4 parse accepts `999.1.1.1` and `-o -m1` can yield two matches from one line.** Parse
     whitespace-separated fields with `netip.ParseAddr`, first IPv4.
 19. **K. a thaw whose DHCP renewal fails reports `✗` and exits 1**, though the container IS
-    thawed (and every thaw of a container without NetworkManager reports it). Documented
-    behaviour (`docs/playbooks.md` L1237); messages kept verbatim; section 15 D6.
+    thawed. Messages kept verbatim; section 15 D6. **F (Task 3.5).** A container with no
+    `nmcli` (lxc-attach: `No such file or directory - Failed to exec "nmcli"`) is not a
+    failure: `freeze.DoneError` prints `✓ <name> — <note>` and counts it as done.
 20. **K. fixed column widths** (`%-34s`, `%-38s`, `%-22s`, `%-18s`): names or labels wider than the
     column overflow and misalign the effect column. Cosmetic; widths kept, Go pads by rune.
 21. **K. `-n` with no target** enters the interactive menu and previews each pick, though the
@@ -748,6 +749,18 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
     and the drill-down show a key legend only, so the drill-down does not name the group it
     lists. Every `ui` screen now starts with the shared heading (Plan 00204 D4): the tool, then
     the group, and a count (`lxcfreeze › bridge: lxcbr0`, `2 containers`), above the legend.
+28. **F. an Esc typed just before another key is lost** (`FC` L476, L614; Plan 00177 Task 10.4):
+    fzf reads an Esc and the next key inside its 100 ms wait (or in one write from tmux) as that
+    key with Alt, which neither screen binds, so the menu stays open. Every `ui` fzf screen now
+    binds each such key (`alt-down`, `alt-enter`, `ctrl-alt-r`, ...) to abort, as Esc does
+    (`project_esc_joined`, CLAUDE/GoProjectRules.md), except fzf's word editing (`alt-b`,
+    `alt-f`, `alt-d`, `alt-bs`), which keeps its meaning.
+29. **F. the lxc freeze note promises a lease renewal every thaw makes** (`FREEZE_FREEZE_NOTE`
+    above): since Task 3.5 a container with no `nmcli` is thawed with no renewal, so the note now
+    says the lease is renewed where NetworkManager runs inside. Host report of 26-10-26.
+30. **F. a refused sudo is said without why** (`LF`'s two `die "sudo was refused, ..."`): the
+    port's `Load` and `BeforeAct` dropped `sudo.Ready`'s error. The message's second line is
+    now that error in parentheses. Plan 00191 Task 4.9 (`project_command_failure_dropped`).
 
 ---
 
@@ -837,6 +850,8 @@ Because the suites are white-box (9.1), parity has three legs, in this order:
    captures, **before** the cut-over deploy, `podfreeze list`, `podfreeze freeze --all -n` and the
    `lxcfreeze` equivalents into `untracked/`, and diffs them against the Go binaries' output after
    `meta-deploy`; then freezes and thaws one throwaway container per engine with each binary.
+   Parity was shown on the first deploys (PLAN.md Task 3.1); a later run compares the layout only
+   (`freeze-layout.bash`: container rows and counts dropped), since the containers change.
    This also settles what no fake can: that `podman ps --format` and `lxc-info` emit what the
    parsers expect (the gap `TP` and `TX` both state).
 
@@ -913,4 +928,5 @@ cardinality) rule for offering identity rows.
 - **D5. `sudo.Capture`.** Proposed: add it to `internal/sudo` (11.2) rather than reaching around
   the package from the lxc engine.
 - **D6. A successful thaw whose DHCP renewal fails** (bug 19). Proposed keep (documented); option:
-  report it as a warning with exit 0.
+  report it as a warning with exit 0. Owner decision 26-10-26: a container with no `nmcli` is not
+  applicable, not a failure (PLAN.md Task 3.5, built: bug 19's F).

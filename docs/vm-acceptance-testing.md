@@ -50,7 +50,8 @@ re-login is needed; the assertion is there for a host where that is not so.
 What lands:
 
 - packages: `libvirt-daemon-kvm`, `libvirt-daemon-config-network`,
-  `libvirt-client`, `virt-install`, `qemu-kvm`, `qemu-img`, `edk2-ovmf`,
+  `libvirt-client`, `virt-install`, `qemu-kvm`, `qemu-img`, the UEFI firmware
+  (`edk2-ovmf` on x86_64, `edk2-aarch64` on aarch64; any other host architecture fails),
   `guestfs-tools`, `virtiofsd`, `cloud-utils`, `xorriso`, `osinfo-db`, `lorax`,
   `swtpm`, `swtpm-tools`, `passt` (the guest's SSH port forward) and
   `distribution-gpg-keys` (names only, no pinned versions);
@@ -99,9 +100,15 @@ vmtest member-ssh <name> '<command>'    # as the cloud user (passwordless sudo),
 vmtest member-down <name>               # destroy, undefine, remove members/<name>/; nothing there is no error
 ```
 
-A failed `member-up` removes its guest and overlay and keeps `console.log` until
-`member-down`. Members are never swept: the script that made one removes it,
-on its own way out and first if an interrupted run left it.
+A failed or interrupted (Ctrl-C) `member-up` removes its guest and overlay,
+prints the last lines of `console.log` with its error, and keeps
+`members/<name>/` with that log until `member-down`. Members are never swept:
+the script that made one removes it, on its own way out and first if an
+interrupted run left it.
+
+Every wait for a booted guest to answer SSH is bounded by
+`VMTEST_SSH_WAIT_TIMEOUT` seconds (default 600, up to 86400); on a busy host,
+raise it for the call, e.g. `VMTEST_SSH_WAIT_TIMEOUT=1200 vmtest member-up …`.
 
 A `full` base is installed by `fedora-install/ks-vm-server.cfg`, a VM-only,
 non-interactive Fedora Server kickstart: Anaconda runs in cmdline mode on the
@@ -114,10 +121,16 @@ which the Secure Boot firmware refuses, so it runs with that firmware feature
 off; runs of the resulting base boot through shim with the default firmware.
 
 `fetch` locates the artefact by `releases.json`'s structured fields, downloads
-it conditionally, fetches the signed `Fedora-<Variant>-<label>-x86_64-CHECKSUM`
+it conditionally, fetches the signed `Fedora-<Variant>-<label>-<arch>-CHECKSUM`
 from beside it, verifies the clearsignature against the Fedora release key from
 `distribution-gpg-keys` (a hard failure, not best-effort), and requires the
 sha256 to agree with both the CHECKSUM and `releases.json`.
+
+Every guest is the host's architecture, x86_64 or aarch64 (vmtest names it from the host and
+fails on any other): the probe reads that architecture's trees and images, and the installer
+and the installed kernel write their console to its serial device (`ttyS0` on x86_64,
+`ttyAMA0` on aarch64, the kickstarts' `@SERIAL_CONSOLE@`). virt-install picks the machine type
+and the UEFI firmware for the architecture itself.
 
 `build-base` seeds a build disk from the image, boots it with the lab's own SSH
 key injected through cloud-init (then disables cloud-init for good), upgrades
@@ -189,6 +202,33 @@ response lists the divergences from a real install: `luks-unlock-automated`,
 `plymouth-disabled`, `gdm-autologin-enabled-by-harness`,
 `session-runner-autostart`, plus the throwaway vault password and the lab key.
 
+### The consumer install scenario
+
+`desktop-consumer-install` (Plan 00228) proves the install for someone who does not write
+code. Its manifest entry says `audience: consumer` (the default is `developer`), which
+only a desktop scenario with no `run_env` and no `host_only` may say. `./run.bash --consumer` refuses headless, so the CLI does not hand it to the session runner: it waits
+for the autologin session, clones the public repository over HTTPS and pins it at the run's
+commit (run.bash's own `git pull --ff-only` then changes nothing), and runs `~/run.bash --consumer` at a terminal the guest's sshd allocates (`ssh -tt`), with the session's bus
+and display variables. The driver (`src-go/internal/vmtest/attend.go`) answers each
+question when its prompt appears: at the optional-app menu, the numbers of the scenario's
+`optional_plays` (found by the label the menu gives each play; a pick the menu does not
+offer ends the run as a fail), Enter on the re-run, and nothing else. `optional_plays` is
+allowed only on a consumer scenario; a headless one uses `RUN_BASH_OPTIONAL_PLAYBOOKS` in
+`run_env`. A
+password or GitHub credential prompt ends the run at once as a fail. A question it does
+not know (the output stops at a line ending in `:`, `?`, `]`, `)` or `>`) ends the run as a
+fail once nothing more is printed for 60 seconds, and the transcript quotes its last lines;
+a long silent step after a finished line is not affected. It then runs
+`~/Projects/fedora-desktop/run.bash` again, as the update a consumer runs, keeping its
+output in `/var/lib/vmtest/rerun.log`, and reboots. The checker,
+`guest-acceptance-desktop-consumer-install.bash`, asserts no SSH key and no `gh` login, an
+HTTPS origin, no NOPASSWD block from this repo, the everyday apps and Go present, the
+developer tools absent, speech-to-text set up (the panel extension ACTIVE, faster-whisper
+importable, its commands installed) with `post-processing-offered` false, and every `PLAY RECAP` of the second run `changed=0 failed=0`.
+The response adds the divergences `run-bash-attended-over-ssh-terminal`,
+`checkout-pinned-by-harness` and `lab-sudoers-nopasswd` (the lab user's own passwordless
+sudo, so no password is ever asked).
+
 ### The negative scenarios
 
 Three scenarios exist to go red on purpose, so the harness is known to be able
@@ -221,10 +261,11 @@ aborts the run: a half-applied fixture leaves the checker judging a guest nobody
 set up. `qa-vmtest-manifest.bash` refuses a fixture whose scenario does not
 declare the reboot, since the harness would deploy it and never run it.
 
-| Scenario                           | Second boot for                                                                             |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| `desktop-fresh-install`            | GNOME loads extensions at session start, so the shell that installed them never sees them   |
-| `server-host-health-kernel-change` | a status document collected under one kernel, read by a login shell running a different one |
+| Scenario                           | Second boot for                                                                              |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| `desktop-fresh-install`            | GNOME loads extensions at session start, so the shell that installed them never sees them    |
+| `server-host-health-kernel-change` | a status document collected under one kernel, read by a login shell running a different one  |
+| `desktop-consumer-install`         | the restart the consumer install asks for at its end, so the machine is judged as it is used |
 
 `server-host-health-kernel-change` is Plan 00109's server drift-reporting route
 end to end. Its fixture collects a status document on a clean guest, captures
@@ -409,7 +450,7 @@ access:
 
 ```bash
 python3 -c 'import json, sys, yaml; json.dump(yaml.safe_load(open("vars/vm-test-scenarios.yml")), sys.stdout)' > /tmp/manifest.json
-python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --manifest /tmp/manifest.json
+python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --arch "$(uname -m)" --manifest /tmp/manifest.json
 ```
 
 It prints one marker per fact:
@@ -472,6 +513,8 @@ then the retention sweep. Neither rebuilds anything.
 vmtest freshness-status          # one probe; one line per built base into ~/.local/share/vmtest/freshness-status.txt
 vmtest freshness-status --deep   # the same, re-hashing every base disk against its record (the nightly form)
 vmtest sweep                     # apply the retention policy; every eviction goes to ~/.local/share/vmtest/retention.log
+vmtest prune-runs                # dry run: each run's overlay that may go, its size and why, the bases, the total
+vmtest prune-runs --yes          # remove those overlays (logged to retention.log first); --older-than DAYS, default 7
 ```
 
 A run checks a base's size and mtime against its record before booting it and
@@ -480,16 +523,37 @@ hash, so the status line says which (`integrity=quick|deep`).
 
 `freshness-status` exits with the worst verdict it found, so a base that needs
 a rebuild shows up as the nightly unit failing in `systemctl --user list-units --failed`, not as an unattended rebuild on a workstation. The
-sweep keeps the newest ten passing runs and **every** run that did not pass
-(its overlay and console are the diagnosis), removes a leftover fast-base
-build directory but keeps a desktop one, and bounds `quarantine/` and
+sweep never removes a run directory: a run's transcript, console,
+`response.json` and signature are small, and they are the evidence plans cite.
+Nothing in vmtest removes a run directory; delete one yourself when it is no
+longer wanted. The sweep removes only disk images. A passing run past the newest ten loses its
+overlay (`*.qcow2`) if it still holds one (a pass's teardown normally removes
+it), printed as `VMTEST-EVICTED run-overlay <run-id> <files>`; a run that did
+not pass is left for `prune-runs` (its overlay and console are the diagnosis).
+A leftover fast-base build directory loses its disk and keeps its console log
+(`VMTEST-EVICTED build-disk <name> <files>`); a desktop one is kept whole. A
+removal that fails stops the sweep, naming what it had removed. It bounds `quarantine/` and
 `responses/` on the shared mount to their newest two hundred entries, through
 the same pinned descriptors the watcher uses.
 
-Before every run and every base build the CLI refuses when the disk cannot
-carry the step (an overlay may grow to the base's size; a rebuild holds two
-bases until the rename; two gigabytes of headroom on top) or when the guest's
-RAM exceeds three quarters of the host's. It never cleans up and continues.
+A kept run's overlay can be up to the 20 GiB guest disk, so kept runs fill the
+disk. `prune-runs` removes only the overlays (`runs/<run-id>/*.qcow2`), never a
+run's logs, response or check results, and never a base: an overlay may go once
+its run passed, a later run of the same scenario passed, or it is older than
+seven days. A run whose guest libvirt still lists, or that holds its
+`run.lock` (taken from the moment its directory exists to the end of its
+teardown), is reported live and left. The nightly timer does not prune; a run
+that fails says how big an overlay it kept and that `prune-runs` removes it.
+
+Before anything else, `vmtest run` refuses when the lab's filesystem has less
+than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), as does `vmtest member-up`, which boots the same overlay, and a base build
+(`build-base`, or `ensure-base` and `refresh-base` when they build) less than
+26 GiB (the same and 4 GiB of install media); the refusal names both figures
+and what `vmtest prune-runs` would free. Later, before every run and every base
+build, the CLI also refuses when the disk cannot carry the step by the base's
+own size (an overlay may grow to the base's size; a rebuild holds two bases
+until the rename; two gigabytes of headroom on top) or when the guest's RAM
+exceeds three quarters of the host's. It never cleans up and continues.
 
 ## The manifest
 

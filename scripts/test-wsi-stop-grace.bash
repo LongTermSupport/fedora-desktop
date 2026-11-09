@@ -535,7 +535,8 @@ CTRL_S="key 29:1 31:1 31:0 29:0"
 batch_paste "('org.gnome.TextEditor', false, true, true, false)" --paste-with-shift 1
 check "an app the panel says needs Ctrl+V and a save: Ctrl+V, Enter, then Ctrl+S" \
     "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
-check "…the panel was asked" "1" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+# Asked before the paste and again before the Enter (W33, owner sheet A13)
+check "…the panel was asked before the paste and before the Enter" "2" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
 check "…and the text was on the clipboard" "Hello world" "$(cat "$events/wl-copy.text")"
 
 batch_paste "('kitty', true, false, true, false)" --paste-with-shift 0

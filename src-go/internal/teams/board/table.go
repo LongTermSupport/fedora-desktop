@@ -1,6 +1,7 @@
 // Package board is the table of teams, seats and people ccy-teams shows: one pass over the
 // machine (systemd, tmux, the session registry, the declaration, agent-bus) read into a
-// Snapshot of rows, and the --list flow that prints it. It owns what a row says and how it is
+// Snapshot of rows, and the --list flow that prints it and the --graph flow that draws it as a
+// Mermaid flowchart. It owns what a row says and how it is
 // painted; what to do about a row is the picker's.
 package board
 
@@ -21,16 +22,32 @@ const (
 	cRed    = "\x1b[31m"
 )
 
-// The kinds of row: a team, a seat or member run by ccy, a person.
+// The kinds of row: a team, a seat or member run by ccy (a container) or by cc (a session on
+// the desktop host), a person.
 const (
 	KindTeam  Kind = "team"
 	KindCcy   Kind = "ccy"
+	KindCC    Kind = "cc"
 	KindHuman Kind = "human"
 )
 
-// Kind is a row's KIND. A member that is not run by ccy (lxc, docker, vm, host) carries the
-// type word it was listed with.
+// kindLxc is the KIND of an LXC container's agent, one of the type words a member is listed
+// with; untyped, so it is not a fourth case every switch on Kind must take.
+const kindLxc = "lxc"
+
+// wordParked is the STATE of a member that is parked.
+const wordParked = "parked"
+
+// Kind is a row's KIND. A member's is KindOf its handle: ccy, cc, or the type word it was
+// listed with (lxc, docker, vm).
 type Kind string
+
+// KindOf is the kind of the member a handle names (agentbus.KindOf).
+func KindOf(handle string) Kind { return Kind(agentbus.KindOf(handle)) }
+
+// IsSession is whether the kind is a ccy or cc session, the two ccy-teams starts, attaches and
+// records on this host: a seat of a checkout is one or the other.
+func (k Kind) IsSession() bool { return k == KindCcy || k == KindCC }
 
 // Row is one line of the table. Member is the seat (a ccy seat with a checkout), the handle (a
 // member with none) or the person, as keys and flows name it; the MEMBER column shows a member's
@@ -48,6 +65,9 @@ type Row struct {
 	Role string
 	// Held is a seat that a live process holds, whichever session it is.
 	Held bool
+	// Live is whether the member's session is listening on the bus now (its LIVE line), the one
+	// source of a member's STATE besides parked; unreported for a row that is not a listed member.
+	Live agentbus.Liveness
 }
 
 // The columns, in order; a column's index is its place in headings and in Row.cells.
@@ -92,7 +112,7 @@ func (r Row) Label() string {
 func (r Row) Crumb() string {
 	noHandle := r.Handle == "" || r.Handle == "-"
 	switch {
-	case r.Kind == KindCcy && noHandle && r.Dir != "-":
+	case r.Kind.IsSession() && noHandle && r.Dir != "-":
 		return "seat " + r.Member
 	case r.Kind == KindTeam || r.Kind == KindHuman || noHandle:
 		return r.Member
@@ -238,9 +258,10 @@ func (t Table) line(cells [columns]string, dress func(i int, padded string) stri
 // wordColour is the colour a status word is shown in, or "" for none.
 func wordColour(word string) string {
 	switch {
-	case isOneOf(word, "free", "invited", "no", "parked", "deferred", "never signed in"), strings.HasSuffix(word, "(stopped)"):
+	case isOneOf(word, "free", "invited", "no", wordParked, "deferred", "never signed in", string(agentbus.LiveStale), wordNotListening),
+		strings.HasSuffix(word, "(stopped)"):
 		return cYellow
-	case isOneOf(word, "up", "active", "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
+	case isOneOf(word, "up", string(agentbus.LiveListening), "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
 		return cGreen
 	case strings.HasPrefix(word, "out of date"), word == declare.WordNotBuilt:
 		return cYellow

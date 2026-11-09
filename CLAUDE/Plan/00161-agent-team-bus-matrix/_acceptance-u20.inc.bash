@@ -85,6 +85,17 @@ u20_read_names() {
     printf '==> membership mount %s (%s), watcher log %s, named session membership %s\n' \
         "${U20_MOUNT}" "${U20_DESIRED}" "${U20_WATCH_LOG}" "${U20_NAMED_DIR}"
 }
+
+# u20_label <variable> <name> — the label ccy gives the session's container: ccy-teams' hot.go
+# sessionTag (the filter it finds a session's container by) and the name, never copied.
+u20_label() {
+    local tag
+    tag="$("${U20_NAMES_CHECK[@]}" product-value src-go/internal/teams/hot/hot.go sessionTag)" || {
+        printf '[FAIL] m7_check product-value hot.go sessionTag could not read the product (above)\n' >&2
+        return 1
+    }
+    printf -v "$1" '%s%s' "${tag}" "$2"
+}
 readonly U20_CCY_DIR="${PLAN_REPO_ROOT}/.claude/ccy"
 readonly U20_BUS_DIR="${U20_CCY_DIR}/pingbus"
 readonly U20_SEATS_DIR="${U20_BUS_DIR}/seats"
@@ -988,16 +999,21 @@ u20_refused() {
 # M2.5 — while the three run, all three held; a launch on a held seat refused (75), one naming
 # two seats of the team (64), one with a trailing comma (64); nothing changed by any of them.
 u20_check_refused() {
-    local name
+    local name held one_per_team empty_item
+    # Each refusal's words are seat.py's own (HELD_TEXT, ONE_PER_TEAM_TEXT, EMPTY_ITEM_TEXT),
+    # read through m7_check product-value, never copied.
+    held="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py HELD_TEXT)" || return 1
+    one_per_team="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py ONE_PER_TEAM_TEXT)" || return 1
+    empty_item="$("${U20_NAMES_CHECK[@]}" product-value helpers/pingbus/seat.py EMPTY_ITEM_TEXT)" || return 1
     u20_seat_list "$(u20_ev seats-running)" || return 1
     "${U20[@]}" expect-seats "$(u20_ev seats-running)" "${TEAM}" held acca,accb,accc || return 1
     u20_member_list "$(u20_ev members-running)" || return 1
     u20_record_checkout "$(u20_ev refused-before)" || return 1
     u20_seat_label_listing "$(u20_ev refused-before)/containers" || return 1
     u20_refresh_sudo || return 1
-    u20_refused held 75 "is held by another session" "accb@${TEAM}" || return 1
-    u20_refused two-seats 64 "one seat per team per session" "accd@${TEAM},acce@${TEAM}" || return 1
-    u20_refused trailing-comma 64 "trailing comma" "accd@${TEAM}," || return 1
+    u20_refused held 75 "${held}" "accb@${TEAM}" || return 1
+    u20_refused two-seats 64 "${one_per_team}" "accd@${TEAM},acce@${TEAM}" || return 1
+    u20_refused trailing-comma 64 "${empty_item}" "accd@${TEAM}," || return 1
     u20_seat_list "$(u20_ev seats-refused)" || return 1
     u20_member_list "$(u20_ev members-refused)" || return 1
     u20_record_checkout "$(u20_ev refused-after)" || return 1
@@ -1195,13 +1211,14 @@ U20_REPORTS_FOUND=1
 
 # u20_remove_stale_reports — the reports of named sessions an earlier run left.
 u20_remove_stale_reports() {
-    local dir name ids
+    local dir name ids label
     if [[ -d "${U20_REPORTS}" ]]; then
         for dir in "${U20_REPORTS}"/*/; do
             [[ -d "${dir}" ]] || continue
             name="$(basename -- "${dir}")"
             [[ "${name}" =~ ${U20_OWN_NAMES} ]] || continue
-            ids="$(podman ps --filter "label=ccy-session=${name}" --filter status=running --format '{{.ID}}')" || return 1
+            u20_label label "${name}" || return 1
+            ids="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
             if [[ -n "${ids}" ]] || tmux -L ccy has-session -t "=${name}" 2>/dev/null; then
                 printf '==> %s is running, so its report stays: %s\n' "${name}" "${dir}"
                 continue
@@ -1229,7 +1246,7 @@ u20_named_launch() {
     # SIGHUP before ccy writes a byte.
     command="$(printf '%q ' "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
         --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")" || return 1
-    command+="<$(printf '%q' "${ev}/stdin.fifo") >$(printf '%q' "${ev}/session.out") 2>$(printf '%q' "${ev}/session.err")"
+    command+="$(printf '<%q >%q 2>%q' "${ev}/stdin.fifo" "${ev}/session.out" "${ev}/session.err")" || return 1
     command+="; echo \"\$?\" >$(printf '%q' "${ev}/session.status")"
     tmux -L ccy new-session -d -s "${U20_NAMED}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     U20_SEAT_OF[named]=accb
@@ -1238,8 +1255,9 @@ u20_named_launch() {
 
 # u20_named_up — its container, found by the label naming its tmux session; 3 while none.
 u20_named_up() {
-    local id ev status="not written (the pane's shell was killed)"
-    id="$(podman ps --filter "label=ccy-session=${U20_NAMED}" --filter status=running --format '{{.ID}}')" || return 1
+    local id ev status="not written (the pane's shell was killed)" label
+    u20_label label "${U20_NAMED}" || return 1
+    id="$(podman ps --filter "label=${label}" --filter status=running --format '{{.ID}}')" || return 1
     if [[ -n "${id}" ]]; then
         U20_CTR[named]="${id}"
         return 0
@@ -1260,11 +1278,12 @@ u20_named_up() {
 # u20_named_down — its tmux session, container, membership directory, registry record and
 # keeper report gone (and sessions/ when this run made it), whatever state the run left them in.
 u20_named_down() {
-    local id
+    local id label
     if tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
         tmux -L ccy kill-session -t "=${U20_NAMED}" || return 1
     fi
-    for id in $(podman ps -a --filter "label=ccy-session=${U20_NAMED}" --format '{{.ID}}'); do
+    u20_label label "${U20_NAMED}" || return 1
+    for id in $(podman ps -a --filter "label=${label}" --format '{{.ID}}'); do
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
     done
     if [[ -n "${U20_NAMED_DIR}" ]]; then

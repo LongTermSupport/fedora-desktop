@@ -35,8 +35,10 @@ type rig struct {
 	created    string
 	createCode term.ExitCode
 	creates    int
-	applied    [][]string
-	applyErr   error
+	// createNames is the name each run of the wizard was given to offer.
+	createNames []string
+	applied     [][]string
+	applyErr    error
 	// locks is each hold of the play lock asked for; inLock is whether one is held now, and
 	// lockErr, when set, is a lock not taken (fn is not run).
 	locks   []string
@@ -84,8 +86,9 @@ func newRig(t *testing.T, entries string) *rig {
 			}
 			return "1@" + team, term.ExitOK
 		},
-		func(context.Context) (string, term.ExitCode) {
+		func(_ context.Context, name string) (string, term.ExitCode) {
 			r.creates++
+			r.createNames = append(r.createNames, name)
 			if r.createWrites != "" && r.createCode == term.ExitOK {
 				w.WriteHostVars(t, teamsVars(entries+r.createWrites))
 			}
@@ -157,8 +160,8 @@ func TestTheMemberTypeIsRequiredAndKnown(t *testing.T) {
 	r.lacksOutput(t)
 }
 
-// S-B2: one team, covering the checkout and up: taken without a list.
-func TestOneTeamCoveringTheCheckoutIsTakenWithoutAList(t *testing.T) {
+// S-B2: the machine has one team, it covers the checkout and is up: taken without a list.
+func TestTheMachinesOneTeamCoveringTheCheckoutIsTakenWithoutAList(t *testing.T) {
 	r := newRig(t, alphaCovers)
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	if r.payload.String() != "1@alpha\n" {
@@ -466,6 +469,32 @@ func TestAWizardThatFailsEndsTheRunWithItsCode(t *testing.T) {
 	r.createCode = term.ExitFailure
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitFailure, r)
+	r.lacksOutput(t)
+}
+
+func TestAWizardThatNamesNoTeamFailsFast(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden)
+	r.Script.Fzf = []string{"|+ Create a team"}
+	exit(t, r.run("--type=podman"), term.ExitFailure, r)
+	contains(t, "stderr", r.stderr(), "the create wizard finished but named no team")
+	r.lacksOutput(t)
+}
+
+func TestARowTheListDidNotOfferFailsFast(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden)
+	r.Script.Fzf = []string{"|alpha"}
+	r.Script.Rewrite = func(string) string { return "omega  covers nothing\n" }
+	exit(t, r.run("--type=podman"), term.ExitFailure, r)
+	contains(t, "stderr", r.stderr(), "fzf returned a row that was not offered: omega")
+	r.lacksOutput(t)
+}
+
+func TestAListThatReturnsNoRowFailsFast(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden)
+	r.Script.Fzf = []string{"|alpha"}
+	r.Script.Rewrite = func(string) string { return "" }
+	exit(t, r.run("--type=podman"), term.ExitFailure, r)
+	contains(t, "stderr", r.stderr(), "the list returned no row")
 	r.lacksOutput(t)
 }
 

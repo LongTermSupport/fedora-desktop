@@ -656,7 +656,7 @@ check "all $launch_prompts launch-path prompts in the launcher fall inside the c
 
 check "the network chain has a restart branch between --no-network and detection" "yes" \
     "$(awk '/^elif \[\[ "\$NO_NETWORK_MODE" = true \]\]; then$/ {a=NR}
-            /^elif \[\[ -n "\$CCY_RESTART_RELAUNCH_SESSION" \]\]; then$/ {b=NR}
+            /^elif \[\[ -n "\$CCY_RESTART_RELAUNCH_SESSION" \|\| "\$\{CCY_NO_PROJECT_NETWORK:-\}" = true \]\]; then$/ {b=NR}
             /# No network flags - check for persisted network preference first/ {c=NR}
             END {print (a && b && c && a < b && b < c) ? "yes" : "no"}' "$LAUNCHER")"
 check "a restart rejoins its network without the compose-start offer" "1" \

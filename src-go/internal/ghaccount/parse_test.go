@@ -28,47 +28,6 @@ func TestGhVersionFloor(t *testing.T) {
 	}
 }
 
-func TestStatusReadsLoggedInAndActive(t *testing.T) {
-	out := `{"hosts":{"github.com":[` +
-		`{"login":"Alice","active":true,"state":"success"},` +
-		`{"login":"bobby","active":false,"state":"success"},` +
-		`{"login":"carol","active":false,"state":"error"}]}}`
-	st, err := parseStatus([]byte(out))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.active != "Alice" {
-		t.Errorf("active %q", st.active)
-	}
-	for login, want := range map[string]bool{"alice": true, "ALICE": true, "bobby": true, "bob": false, "carol": false} {
-		if got := st.loggedIn(login); got != want {
-			t.Errorf("loggedIn(%s) = %v, want %v", login, got, want)
-		}
-	}
-}
-
-func TestStatusActiveMustBeLoggedIn(t *testing.T) {
-	st, err := parseStatus([]byte(`{"hosts":{"github.com":[{"login":"a","active":true,"state":"error"}]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.active != "" {
-		t.Errorf("active %q", st.active)
-	}
-	st, err = parseStatus([]byte(`{"hosts":{}}`))
-	if err != nil || st.active != "" || st.loggedIn("a") {
-		t.Errorf("empty: %+v %v", st, err)
-	}
-}
-
-func TestStatusRefusesWhatIsNotItsJSON(t *testing.T) {
-	for _, out := range []string{"", "You are not logged in", `[]`, `{"hosts":{"github.com":{}}}`, `{"other":1}`} {
-		if _, err := parseStatus([]byte(out)); err == nil {
-			t.Errorf("%q accepted", out)
-		}
-	}
-}
-
 func TestAuditReadsOneLinePerLoginInOrder(t *testing.T) {
 	out := "SCOPES-OK alice\nSCOPES-MISSING bob alpha,beta\nSCOPES-NOT-AUTHENTICATED carol\nSCOPES-UNREADABLE dave HTTP 401: Bad credentials\n"
 	got, err := parseAudit(out, []string{"alice", "bob", "carol", "dave"})

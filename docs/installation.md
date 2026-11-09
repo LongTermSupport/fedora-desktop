@@ -58,7 +58,8 @@ The bootstrap script (`run.bash`) performs these steps in order:
 
 **Phase 2: Dependencies** (2-5 minutes)
 
-- Installs git, ansible, python3-libdnf5
+- Upgrades every package first (on an older install image this takes longer), then installs
+  git, ansible, python3-libdnf5
 - May prompt for sudo password
 
 **Phase 3: GitHub Setup** (1-2 minutes)
@@ -86,6 +87,49 @@ The bootstrap script (`run.bash`) performs these steps in order:
 - See [Core Playbooks](playbooks.md#core-playbooks-automatically-run) for details
 
 **Expected output:** Ansible task results showing "ok", "changed", or "skipped" for each step. Green text is good, yellow is normal changes, red means errors.
+
+### Install for Someone Who Does Not Write Code
+
+For a family computer, or anyone who wants a well set up Fedora desktop without the
+programming tools, open a terminal and run:
+
+```bash
+(source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)) --consumer)
+```
+
+It asks for your login password once (nothing shows as you type), checks it straight away,
+and then works on its own. It needs a Fedora Workstation desktop: on a computer set up as a
+server it stops before changing anything.
+
+- **No accounts needed.** No GitHub account, no SSH key, no email address, no vault
+  password to choose: one is made at random and stays on this computer. Some apps are
+  downloaded from public GitHub pages, which needs no account.
+- **Claude is included, safely.** "Claude" in the app grid (or `ccc` in a terminal) opens
+  Claude Code in a sealed container that works only in the `~/CCC` folder; you sign in
+  once the first time. It needs no GitHub account. The speech-to-text app's Claude
+  rewrite items (Ctrl+Insert, Alt+Insert and the panel's post-processing items) are not
+  part of this install and are hidden; plain dictation (Insert) works.
+- **Left out:** programming languages and tools, the developer container tools (ccy,
+  podman-compose and the Docker-compatible socket), Slack and the other developer plays.
+  Each ends itself straight away on this kind of install. One exception: Go is installed,
+  because the installer itself is a Go program built on the computer, and some of the
+  everyday tools are built with it too. It is the installer's toolchain, not a language
+  offered to you.
+- **If something fails**, the error is in the output on screen (nothing is saved to a
+  file). Fix what it says and run the same command again, or report it at the project's
+  [issues page](https://github.com/LongTermSupport/fedora-desktop/issues).
+- **At the end** it lists the everyday apps you can add, such as Qobuz, photography and
+  video editing, VPNs and graphics drivers. Type their numbers (for example `1 4`), or
+  press Enter for none. Restart the computer when it says it has finished.
+- **To update, or add apps later:** run `~/Projects/fedora-desktop/run.bash` again (add
+  `--optional-only` to go straight to the apps). The computer remembers it is this kind of
+  install, so the flag is not needed again.
+- **Settings live only on this computer** (`environment/localhost/host_vars/localhost.yml`
+  and the vault password beside it in `~/Projects/fedora-desktop`). Nothing is backed up
+  anywhere else.
+
+On a computer already set up as a developer install, `--consumer` refuses before it changes
+anything; the design is in [Plan 00228](../CLAUDE/Plan/Completed/00228-consumer-install-without-github/PLAN.md).
 
 ## Manual Installation
 
@@ -185,7 +229,7 @@ The main playbook installs and configures:
 **System Setup**
 
 - Preflight sanity checks (Fedora version validation)
-- Basic packages (vim, wget, htop, bash-completion, ripgrep, etc.)
+- Basic packages (vim, wget, htop, btop, bash-completion, ripgrep, etc.)
 - DNF optimization (10 parallel downloads, fastest mirror)
 - Passwordless sudo for your user
 - RPM Fusion repositories
@@ -236,13 +280,10 @@ cd ~/Projects/fedora-desktop
 
 # Distrobox
 ./playbooks/imports/optional/common/play-distrobox.yml
-
-# Python development (pyenv + multiple Python versions)
-./playbooks/imports/optional/common/play-python.yml
-
-# VS Code
-./playbooks/imports/optional/common/play-vscode.yml
 ```
+
+The Python development environment (pyenv and its Python versions, `play-python.yml`) and
+VS Code (`play-vscode.yml`) are not optional: the main playbook installs both.
 
 ## Verifying Installation
 

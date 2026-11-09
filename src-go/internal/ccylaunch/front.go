@@ -29,7 +29,9 @@
 //     tool the bash runs first is not on PATH; the bash launcher or a library it loads
 //     (CCY_LIBS, read from the launcher, common-pure and launcher-path) is missing or unreadable, its text
 //     holds a NUL or is not UTF-8, or it has no CCY_VERSION or CCY_LIBS line; lib/ holds no
-//     .bash file; or an override of lib/host-paths.bash is one ccy_host_dir refuses.
+//     .bash file; an override of lib/host-paths.bash is one ccy_host_dir refuses; or
+//     CCY_PIDS_LIMIT is a value lib/container-limits.bash refuses (pidslimit.go), which the
+//     bash refuses before it answers any flag.
 //   - F5. Where the bash would answer, the front does: either engine, an empty variable, an
 //     override the library accepts.
 //   - F6. A front whose version is not the bash launcher's CCY_VERSION is half of two
@@ -38,9 +40,11 @@
 //   - F7. A hand-over that cannot exec (the bash launcher missing, not executable) fails with
 //     exit 1, naming the path, the error and CCY_LEGACY; it never does nothing.
 //   - F8. `--help` or `-h` prints the bash launcher's help text (help.txt, held to the
-//     launcher's by a test), then asks the engine for the image (engine E10): absent, how to
-//     build it; present, claude --help from the image, or the engine's own words when that
-//     fails ("no output" when it said none). Exit 0, as the bash.
+//     launcher's by a test), then asks the engine for the image (engine E10): an engine that
+//     ran and said no, how to build it; one that could not run, that and its error; present,
+//     claude --help from the image (its container under the --pids-limit the library settles:
+//     CCY_PIDS_LIMIT, else its default), or the engine's own words when that fails ("no
+//     output" and the run's failure when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
 //   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
 //     does (tokens.List), but in the front's own order and colour (D1 to D5); exit 1 for an
@@ -49,18 +53,19 @@
 //     for this flag and every later one, to a bash of another version (F6 refuses only
 //     --version and --help).
 //   - F11. `--token-usage` first, with nothing after it but `--json`, prints every token's usage
-//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document (the one
+//     (tokenusage.go): the token menu's coloured bars, or one JSON document (the one
 //     wsi-claude-token parses); exit 0 when any token's usage was read, 1 when none was, 64 for
-//     another option. A token a launch could use is asked of the API once, by curl with the
+//     another option. It is the front's own flag, as F14 is: only CCY_LEGACY hands it over (and
+//     the bash refuses it). A token a launch could use is asked of the API once, by curl with the
 //     token fed on its stdin (execx.Feed), unless the cache holds a fresh answer from that very
-//     file; the answer is cached in the format and with the TTL the bash uses, so either reads
-//     the other's. It hands over where the bash could read the pool, a setting, a token or a
-//     cache entry otherwise: poolWhy's reasons, an undated file, a name, HOME or setting
-//     outside printable ASCII, a TTL that is not a whole number, an unreadable token or one
-//     holding a NUL, a token curl's argv would hold (a setting holds it, or it is junk such as
-//     `on` that a fixed argument or the start of a temporary name holds: the bash sends it,
-//     execx refuses to), a cache that is not a directory or an entry that is not a regular file
-//     or not printable ASCII. Every hand-over is decided before anything is printed or written.
+//     file; the answer is cached in the format and with the TTL the token menu uses, so either
+//     reads the other's. What it cannot read as it should is refused with exit 1 and one stderr
+//     line naming it, before anything is printed or written: poolWhy's reasons, an undated file,
+//     a setting outside printable ASCII, a TTL that is not a whole number, an unreadable token or
+//     one holding a NUL, a token curl's argv would hold (a setting holds it, or it is junk such
+//     as `on` that a fixed argument or the start of a temporary name holds: execx refuses to
+//     send it), a cache that is not a directory or an entry that is not a regular file or not
+//     printable ASCII. The bars are colour only on a terminal without NO_COLOR (D10's rule).
 //   - F12. `--prevent` alone, and `--export-token NAME`, run first what the bash runs in the
 //     checkout before them (inrepo.go): the .gitignore of .claude/ccy written when it lacks its
 //     ignore-everything line, its two exceptions appended, the tracked ccy.env.local.dist
@@ -98,7 +103,9 @@
 //     F11 states), and a 5-hour or 7-day utilisation at or past 100% whose reset is still ahead
 //     is used up: exit 3, one stderr line naming the token by its name (never its value), each
 //     used-up window, the clock time it clears and the time to go ("7-day limit used up; clears
-//     Fri 20:53, in 3d 8h"). Usage left is exit 0 and silent. Usage that cannot be read (turned
+//     Fri 20:53, in 3d 8h"); on a terminal without NO_COLOR (D10's rule) that line is a
+//     banner, bold bright white on red (`ESC[1;97;41m`), with a red line above and below,
+//     each filled to its end with `ESC[K`. Usage left is exit 0 and silent. Usage that cannot be read (turned
 //     off, offline, a refused or limitless answer, a file that is not a name's launch file in
 //     the pool: a later file of a name, or a path outside it) is exit 0 with one stderr line saying it could not be checked and why: it
 //     fails open on unknown because the reading is only a forecast of a refusal the API makes
@@ -112,6 +119,38 @@
 //     quota on each), and prints the used-up mark on stdout ("   ✗ no usage left: ...", led
 //     by three spaces because the chooser prints it straight after the token's row), nothing
 //     otherwise; exit 0. Anything but `[--mark] [--] FILE` is exit 64.
+//   - F16. `--read-launch-config FILE` (launchconfig.go) reads the bash launcher's saved launch
+//     configuration strictly and hands it back one KEY<TAB>value line per key; a file that
+//     cannot be read or is malformed is exit 1, its path and cause on stderr, and is never
+//     changed. Answered under CCY_LEGACY too: the bash asks it.
+//   - F17. `--check-token ENGINE IMAGE` (checktoken.go) asks the API, from inside the image,
+//     whether it accepts the token in CLAUDE_CODE_OAUTH_TOKEN: exit 0 accepted, 3 refused (the
+//     one case for token recovery), 1 a check that could not be made, its cause on stderr and
+//     never read as an invalid token. Answered under CCY_LEGACY too: the bash asks it.
+//   - F18. `--check-network ENGINE NETWORK` (netcheck.go) runs the launcher's network probe:
+//     exit 0 the internet reached, 4 the probe ran and reached nothing (wget's words on
+//     stderr), 1 the probe could not be run (the engine's or the pull's cause), never read as
+//     the network's fault. Answered under CCY_LEGACY too: the bash asks it.
+//   - F19. `--claude-versions ENGINE IMAGE` (netcheck.go) prints "INSTALLED LATEST", the
+//     Claude Code version in the image and the npm registry's latest; exit 1 with the cause
+//     (the image's run, the registry's reach or answer) when either could not be read. Answered
+//     under CCY_LEGACY too: the bash asks it.
+//   - F17-F19 run their container under the --pids-limit the library settles (CCY_PIDS_LIMIT,
+//     else its default; pidslimit.go, engine E14); a value it refuses runs nothing and is exit
+//     1, naming the variable.
+//   - F20-F22. `--list-containers ENGINE [--all] [FILTER...]`, `--stop-containers ENGINE
+//     NAME...` and `--remove-network ENGINE NETWORK` (containers.go): a listing that failed is
+//     exit 1 with its cause, never "no containers"; a stop or removal that failed is "already
+//     gone" (F22: exit 5) only when the engine's store no longer has the object, else exit 1
+//     with the engine's words. Answered under CCY_LEGACY too: the bash asks them.
+//   - F23. `--stop SESSION... [--no-compact]` (stop.go, Plan 00191 Task 4.12) closes each named
+//     session on ccy's tmux server as a person would, through sessclose: /compact, its
+//     completion waited for, then /exit (only /exit with --no-compact). Every name is checked
+//     against the server first, so one that is not there closes nothing (exit 1); no name or
+//     another option is exit 64. One line per session on stderr; exit 0 only when every one
+//     exited or was stopped, 1 when any failed (a compaction that did not complete leaves its
+//     session running). It is the front's own flag: only CCY_LEGACY hands it over (and the
+//     bash refuses it).
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -171,6 +210,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -236,22 +276,25 @@ type Front struct {
 	ProcRoot string
 	// Signal sends a signal to a process (F14); syscall.Kill when nil.
 	Signal func(pid int, sig syscall.Signal) error
-	// Pause waits between looks at a lock being let go (F14); time.Sleep when nil.
+	// Pause waits between looks at a lock being let go (F14) and at a session being closed
+	// (F23); time.Sleep when nil.
 	Pause func(time.Duration)
+	// Closer closes the sessions --stop names (F23); sessclose over Runner when nil.
+	Closer sessclose.Closing
 }
 
 // launcher is what the front read of the bash launcher beside it.
 type launcher struct {
-	version string
-	hash    string
+	version   string
+	hash      string
+	pidsLimit string // the --pids-limit of every container it runs, as the library settles it
 }
 
 // Run answers the run or hands it to the bash launcher.
 func (f Front) Run(ctx context.Context) term.ExitCode {
 	bash := filepath.Join(filepath.Dir(f.Self), BashName)
-	if len(f.Args) > 0 && f.Args[0] == buildLockFlag && !f.legacy() {
-		// F14: the bash has no answer of its own, so nothing about it decides this one.
-		return f.buildLock(ctx)
+	if code, own := f.ownFlag(ctx); own {
+		return code
 	}
 	kind, l, flag, why := f.plan(bash)
 	if why != "" {
@@ -280,12 +323,50 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 	if f.Args[0] == "--version" || f.Args[0] == "-v" {
 		p.Print(f.Stdout, "ccy version "+f.Version+"\nHash: "+l.hash+"\n")
 	} else {
-		f.help(ctx, &p, kind)
+		f.help(ctx, &p, kind, l.pidsLimit)
 	}
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())
 	}
 	return term.ExitOK
+}
+
+// ownFlag answers the front's own flags, F11 and F14, which nothing about the bash launcher
+// decides: only CCY_LEGACY hands them over. F16 is the bash launcher's own question, answered
+// under CCY_LEGACY too, as are the others of bashQuestions. Its exit code, and false for every
+// other run.
+func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
+	if len(f.Args) > 0 && f.Args[0] == launchConfigFlag {
+		return f.launchConfig(), true
+	}
+	if len(f.Args) > 0 {
+		if answer, ok := bashQuestions[f.Args[0]]; ok {
+			return answer(f, ctx), true
+		}
+	}
+	if len(f.Args) == 0 || f.legacy() {
+		return term.ExitOK, false
+	}
+	switch f.Args[0] {
+	case buildLockFlag:
+		return f.buildLock(ctx), true
+	case usageFlag:
+		return f.tokenUsage(ctx), true
+	case stopFlag:
+		return f.stopSessions(ctx), true
+	}
+	return term.ExitOK, false
+}
+
+// bashQuestions are the questions the bash launcher asks the front (F17-F22), answered under
+// CCY_LEGACY too.
+var bashQuestions = map[string]func(Front, context.Context) term.ExitCode{
+	checkTokenFlag:     Front.checkToken,
+	checkNetworkFlag:   Front.checkNetwork,
+	claudeVersionsFlag: Front.claudeVersions,
+	listContainersFlag: Front.listContainers,
+	stopContainersFlag: Front.stopContainers,
+	removeNetworkFlag:  Front.removeNetwork,
 }
 
 // flagKind is the run the front answers itself, or flagNone.
@@ -296,7 +377,6 @@ const (
 	flagVersion
 	flagHelp
 	flagListTokens
-	flagTokenUsage
 	flagPrevent
 	flagExportToken
 )
@@ -315,8 +395,6 @@ func flagOf(args []string) flagKind {
 		if len(args) == 1 {
 			return flagListTokens
 		}
-	case "--token-usage":
-		return flagTokenUsage
 	case "--prevent":
 		if len(args) == 1 {
 			return flagPrevent
@@ -338,7 +416,6 @@ var inRepoTools = []string{"git", "mkdir", "chmod", "tr", "sed", "awk", "basenam
 // flagTools are the programs the bash launcher runs to answer the flag, beyond bashTools.
 var flagTools = map[flagKind][]string{
 	flagListTokens:  listTools,
-	flagTokenUsage:  slices.Concat(listTools, []string{"stat", "mktemp", "mv", "rm", "chmod", "mkdir", "awk"}),
 	flagPrevent:     inRepoTools,
 	flagExportToken: slices.Concat(inRepoTools, listTools),
 }
@@ -350,8 +427,6 @@ func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string
 	switch flag {
 	case flagListTokens:
 		return f.listTokens()
-	case flagTokenUsage:
-		return f.tokenUsage(ctx)
 	case flagPrevent:
 		return f.prevent(ctx)
 	case flagExportToken:
@@ -385,7 +460,12 @@ func (f Front) plan(bash string) (engine.Kind, launcher, flagKind, string) {
 			return "", launcher{}, flag, d.env + " is refused by the library"
 		}
 	}
+	limit, ok := pidsLimit(f.getenv(pidsLimitEnv))
+	if !ok {
+		return "", launcher{}, flag, pidsLimitEnv + " is refused by the library"
+	}
 	l, why := readLauncher(bash)
+	l.pidsLimit = limit
 	return kind, l, flag, why
 }
 
@@ -466,20 +546,24 @@ func readLauncher(bash string) (launcher, string) {
 }
 
 // help is F8.
-func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
+func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind, pidsLimit string) {
 	p.Print(f.Stdout, helpText)
 	eng, err := engine.New(kind, f.Runner)
 	if err == nil {
 		err = eng.Inspect(ctx, imageName)
 	}
 	if err != nil {
-		p.Print(f.Stdout, helpRule+"Claude Code Help:\n"+helpRule+"\n"+
-			"Container image not built yet. Run 'ccy --rebuild' first to build the container,\n"+
+		p.Print(f.Stdout, helpRule+"Claude Code Help:\n"+helpRule+"\n")
+		if !execx.ExitedNonZero(err) {
+			p.Print(f.Stdout, "Could not ask "+string(kind)+" whether the image is built: "+err.Error()+"\n")
+			return
+		}
+		p.Print(f.Stdout, "Container image not built yet. Run 'ccy --rebuild' first to build the container,\n"+
 			"then run 'ccy --help' again to see Claude Code options.\n")
 		return
 	}
 	p.Print(f.Stdout, helpRule+"Claude Code Help (from container):\n"+helpRule+"\n")
-	out, err := eng.ClaudeHelp(ctx, imageName)
+	out, err := eng.ClaudeHelp(ctx, imageName, pidsLimit)
 	// As a shell's $(...) gives it: NUL bytes dropped, trailing newlines removed.
 	out = strings.TrimRight(strings.ReplaceAll(out, "\x00", ""), "\n")
 	if err == nil {
@@ -487,7 +571,7 @@ func (f Front) help(ctx context.Context, p *term.Printer, kind engine.Kind) {
 		return
 	}
 	if out == "" {
-		out = "no output"
+		out = "no output (" + err.Error() + ")"
 	}
 	p.Print(f.Stdout, "Note: the image exists, but 'claude --help' would not run inside it.\n  "+string(kind)+" said: "+out+"\n")
 }

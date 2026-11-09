@@ -22,6 +22,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -182,7 +183,8 @@
       ansible.builtin.yum_repository:
         name: google-chrome
         description: google-chrome
-        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+        # Google publishes stable/x86_64 and stable/aarch64, named as Fedora names the arch.
+        baseurl: "https://dl.google.com/linux/chrome/rpm/stable/{{ ansible_facts['architecture'] }}"
         enabled: true
         gpgcheck: true
         # The local copy, not the URL: it is the exact bytes the task above checked

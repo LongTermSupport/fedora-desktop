@@ -43,6 +43,13 @@
 // The numbers are in the constants below, and CLAUDE.md states them in prose. When the
 // measure changes, MeasurerVersion rises and the allowlist is rewritten once by --remeasure;
 // that is the only time a record may go up.
+//
+// # The rule assignment-masks-substitution-failure
+//
+// The same scan parses every bash file but the Unjudged (exempt.go), exempt or not, for an
+// assignment that hides a command substitution's failure from errexit (masked.go, and
+// CLAUDE/QA.md#assignment-masks-substitution-failure). It is a defect rule, not a limit: it has
+// no allowlist, and does not touch the measure or MeasurerVersion.
 package bashlimits
 
 import (
@@ -138,12 +145,17 @@ var (
 // MeasureTemplate measures a Jinja template that renders to bash: comments and tags are blanked
 // (keeping their line breaks), and each expression stands in as one word.
 func MeasureTemplate(src []byte) (Measurement, error) {
+	return Measure(untemplate(src))
+}
+
+// untemplate is a template's text with its Jinja set aside, line breaks kept.
+func untemplate(src []byte) []byte {
 	text := jinjaComment.ReplaceAllStringFunc(string(src), keepNewlines)
 	text = jinjaTag.ReplaceAllStringFunc(text, keepNewlines)
 	text = jinjaValue.ReplaceAllStringFunc(text, func(s string) string {
 		return "JINJA" + keepNewlines(s)
 	})
-	return Measure([]byte(text))
+	return []byte(text)
 }
 
 func keepNewlines(s string) string {
@@ -239,7 +251,7 @@ func (w *walker) call(c *syntax.CallExpr) {
 		return
 	}
 	switch name := commandName(ws[0]); name {
-	case "builtin", cmdCommand:
+	case cmdBuiltin, cmdCommand:
 		if rest := ws[1:]; len(rest) > 0 && assocDecl(commandName(rest[0]), rest[1:]) {
 			w.m.Assoc = true
 		}
@@ -269,6 +281,9 @@ func slicesContainsAny(list []string, want ...string) bool {
 // cmdCommand is the "command" builtin, which runs a command and with -v only looks one up.
 const cmdCommand = "command"
 
+// cmdBuiltin is the "builtin" builtin, which runs the builtin it names.
+const cmdBuiltin = "builtin"
+
 var uiCommands = map[string]bool{
 	"gum": true, "fzf": true, "fzf-tmux": true, "sk": true, "fzy": true, "peco": true,
 	"whiptail": true, "dialog": true, "zenity": true, "yad": true, "kdialog": true,
@@ -277,7 +292,7 @@ var uiCommands = map[string]bool{
 
 // wrapperCommands run the command they are given; the command can follow options and values.
 var wrapperCommands = map[string]bool{
-	"sudo": true, "doas": true, "exec": true, "env": true, cmdCommand: true, "builtin": true,
+	"sudo": true, "doas": true, "exec": true, "env": true, cmdCommand: true, cmdBuiltin: true,
 	"time": true, "nohup": true, "timeout": true, "nice": true, "ionice": true, "stdbuf": true,
 	"unbuffer": true, "setsid": true, "xargs": true,
 }

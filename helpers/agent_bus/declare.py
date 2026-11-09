@@ -513,6 +513,8 @@ def read_stamps(applied: pathlib.Path) -> dict[str, dict]:
     if not applied.is_dir():
         return stamps
     for path in sorted(applied.glob("*.json")):
+        if not path.is_file():
+            raise DeclareError(f"{path} is not a regular file, so it is not an applied-team stamp")
         try:
             found = teamfile.parse_stamp(path.read_text(encoding="utf-8"))
         except (ValueError, UnicodeDecodeError):

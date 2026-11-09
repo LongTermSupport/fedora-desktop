@@ -2,16 +2,22 @@
 ---
 # NordVPN OpenVPN Manager
 #
-# Deploys a bash script (nord) to manage NordVPN OpenVPN connections via NetworkManager CLI.
-# User downloads .ovpn files from NordVPN, script handles import/connect/disconnect operations.
+# Deploys the nord command, which manages NordVPN OpenVPN connections through NetworkManager's
+# CLI. The user downloads .ovpn files from NordVPN; nord imports, connects and disconnects them.
 #
-# Usage: ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+# Usage: ./playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+
+# nord is a Go binary built from this checkout (src-go/cmd/nord), so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: NordVPN OpenVPN Manager
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
   pre_tasks:
     - name: Load host vars
       ansible.builtin.include_vars:
@@ -71,111 +77,106 @@
     # Credentials Collection (Encrypted with Vault)
     # =========================================================================
 
-    - name: Check if NordVPN Credentials Already Configured
-      ansible.builtin.set_fact:
-        nordvpn_credentials_exist: "{{ nordvpn_username is defined and nordvpn_password is defined }}"
+    # Asked for once and saved vault-encrypted in localhost.yml; later runs use them.
+    - name: Ask for the NordVPN service username when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: nordvpn_username
+        secret_label: NordVPN service username
+        secret_confirm: false
+        secret_explain: |2
 
-    - block:
-        - name: Prompt for NordVPN Service Username
-          ansible.builtin.pause:
-            prompt: |
+          ========================================================================
+          NORDVPN OPENVPN CREDENTIALS
+          ========================================================================
 
-              ========================================================================
-              NORDVPN OPENVPN CREDENTIALS
-              ========================================================================
+          This needs your NordVPN SERVICE credentials, which are not the email
+          and password you log in to nordvpn.com with. To get them:
+          1. Log in to nordvpn.com
+          2. Go to Dashboard, then Services, then NordVPN
+          3. Click "Set up NordVPN manually"
+          4. Copy the "Service credentials" (a username like aBcD1eF2gH3iJ4kL,
+             and a password)
 
-              You need your NordVPN SERVICE credentials (not your account login).
+          Both are saved vault-encrypted in localhost.yml, and not asked again.
+      when: nordvpn_username is not defined
 
-              To get them:
-              1. Log into nordvpn.com
-              2. Go to Dashboard → Services → NordVPN
-              3. Click "Set up NordVPN manually"
-              4. Copy "Service credentials" (username/password)
-
-              These credentials will be stored in localhost.yml.
-              You should encrypt them with ansible-vault after initial setup.
-
-              Enter NordVPN service username (format: aBcD1eF2gH3iJ4kL)
-          register: vpn_username_prompt
-
-        - name: Prompt for NordVPN Service Password
-          ansible.builtin.pause:
-            prompt: "Enter NordVPN service password"
-            echo: false
-          register: vpn_password_prompt
-
-        - name: Set Credentials Facts
-          ansible.builtin.set_fact:
-            nordvpn_username: "{{ vpn_username_prompt.user_input }}"
-            nordvpn_password: "{{ vpn_password_prompt.user_input }}"
-
-        - name: Append Credentials to localhost.yml
-          become: false
-          ansible.builtin.blockinfile:
-            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-            marker: "# {mark} ANSIBLE MANAGED: NordVPN Credentials"
-            block: |
-              # NordVPN OpenVPN service credentials (not account login)
-              # TODO: Encrypt these with ansible-vault encrypt_string
-              nordvpn_username: {{ nordvpn_username }}
-              nordvpn_password: {{ nordvpn_password }}
-            create: false
-          delegate_to: localhost
-
-        - name: Display Encryption Reminder
-          ansible.builtin.debug:
-            msg:
-              - "⚠️  IMPORTANT: Encrypt your credentials before committing!"
-              - ""
-              - "Run these commands to encrypt the credentials in place:"
-              - ""
-              - "  cd {{ root_dir }}"
-              - "  ./vault.bash replace nordvpn_username"
-              - "  ./vault.bash replace nordvpn_password"
-              - ""
-              - "Use 'replace', NOT 'set': the task above has just written both"
-              - "variables as plaintext, and 'set' refuses when a variable already"
-              - "exists. 'replace' encrypts the existing value in place, in:"
-              - "  {{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-
-      when: not nordvpn_credentials_exist
+    - name: Ask for the NordVPN service password when it is missing
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: nordvpn_password
+        secret_label: NordVPN service password
+        secret_explain: >-
+          The password from the same "Service credentials" box on nordvpn.com (Dashboard,
+          Services, NordVPN, "Set up NordVPN manually").
+      when: nordvpn_password is not defined
 
     # =========================================================================
     # Deploy Credentials File
     # =========================================================================
 
     - name: Create Credentials File
-      ansible.builtin.copy:
-        dest: "/home/{{ user_login }}/.config/nordvpn/.credentials"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0600'
-        content: |
-          {{ nordvpn_username }}
-          {{ nordvpn_password }}
+      block:
+        - name: Write the Credentials File
+          ansible.builtin.copy:
+            dest: "/home/{{ user_login }}/.config/nordvpn/.credentials"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0600'
+            content: |
+              {{ nordvpn_username }}
+              {{ nordvpn_password }}
+          no_log: true
+      rescue:
+        - name: Stop Because the Credentials File Could Not Be Written
+          ansible.builtin.fail:
+            msg: >-
+              The NordVPN credentials file ~/.config/nordvpn/.credentials could not be
+              written: {{ ansible_failed_result.msg | default('no reason given') }}. The nord
+              command cannot connect without it; fix the cause and run this play again.
 
     # =========================================================================
-    # Deploy Script
+    # Deploy the nord Command
     # =========================================================================
 
-    - name: Deploy nord Script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/nord"
-        dest: "/home/{{ user_login }}/.local/bin/nord"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    # The command is a Go binary (src-go/cmd/nord, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the nord Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: nord
+        go_command_dest: "/home/{{ user_login }}/.local/bin/nord"
+        go_command_mode: "0755"
+
+    # The bash nord recorded its last connection here; the Go nord asks NetworkManager instead
+    # (SPEC-nord D2), so the stale record is removed.
+    - name: Remove the Old Connection Record
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/nordvpn/.current-connection"
+        state: absent
 
     # =========================================================================
     # Firewall Configuration
     # =========================================================================
 
+    # With no firewalld running there is no firewall to open, so OpenVPN needs nothing and the
+    # two tasks below are skipped. A firewalld started later gets the rule on the next run.
     - name: Check if Firewalld is Running
       become: true
       ansible.builtin.command: systemctl is-active firewalld
       register: firewalld_status
       failed_when: false  # FAIL-FAST-OK: probe — firewalld may not be running
       changed_when: false
+
+    # Asked first, so a run that finds the rule in place does not reload firewalld: a reload
+    # drops every runtime-only rule, and the VPNs and containers running here may hold some.
+    - name: Check Whether Firewalld Already Allows OpenVPN
+      become: true
+      ansible.builtin.command: firewall-cmd --permanent --query-service openvpn
+      register: firewall_openvpn_query
+      changed_when: false
+      failed_when: firewall_openvpn_query.rc not in [0, 1]
+      when: firewalld_status.rc == 0
 
     - name: Add OpenVPN to Firewalld
       become: true
@@ -185,19 +186,7 @@
         firewall-cmd --reload
       args:
         executable: /bin/bash
-      register: firewall_result
-      changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
-      when: firewalld_status.rc == 0
-
-    - name: Warn if Firewalld is Not Running
-      ansible.builtin.debug:
-        msg:
-          - "WARNING: firewalld is not running — OpenVPN firewall rule was NOT applied."
-          - "VPN connections may fail until you enable the firewall rule."
-          - "To fix, start firewalld and re-run this playbook:"
-          - "  sudo systemctl start firewalld"
-          - "  ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml"
-      when: firewalld_status.rc != 0
+      when: firewalld_status.rc == 0 and firewall_openvpn_query.rc == 1
 
     # =========================================================================
     # Usage Instructions
@@ -226,13 +215,13 @@
           - "    nord list"
           - ""
           - "  Connect to VPN:"
-          - "    nord connect uk-london"
+          - "    nord connect uk1234   (a name nord list shows)"
           - ""
           - "  Check status:"
           - "    nord status"
           - ""
           - "  Switch servers:"
-          - "    nord switch us-newyork"
+          - "    nord switch us5678"
           - ""
           - "  Disconnect:"
           - "    nord disconnect"
@@ -245,11 +234,6 @@
           - "  • Configs auto-import on first connect"
           - "  • Connections persist across reboots"
           - "  • Use GNOME Settings → Network to see connections"
-          - "  • Credentials stored securely (mode 0600)"
-          - ""
-          - "🔒 SECURITY REMINDER"
-          - ""
-          - "  Remember to encrypt your credentials with ansible-vault!"
-          - "  See the instructions displayed above."
+          - "  • Credentials stored securely (mode 0600), and vault-encrypted in localhost.yml"
           - ""
           - "════════════════════════════════════════════════════════════════"

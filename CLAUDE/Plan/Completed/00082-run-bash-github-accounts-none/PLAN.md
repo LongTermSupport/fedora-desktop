@@ -6,13 +6,18 @@
 **Owner**: joseph
 **Priority**: Medium
 
+> **Correction.** This plan is archived and its text stays as written, except the last
+> Non-Goals bullet, which is restated. It had cited another repository's
+> identity decision as settled; this repository holds no record of that decision, so the
+> bullet now leaves it to the consuming repository.
+
 ## Overview
 
 `run.bash`'s headless v1 (Plan 00063) hard-requires a configured GitHub account:
 `RUN_BASH_GITHUB_ACCOUNTS=none` fails preflight naming a "planned follow-up, not
 yet supported." This blocks headless-provisioning a box that has no GitHub
 identity of its own — e.g. a CI runner or a shared dev/marketing box in another
-estate (lts-infra) that would otherwise need a dedicated bot account or a PAT
+estate (example-team) that would otherwise need a dedicated bot account or a PAT
 minted for the operator's personal account just to satisfy this precondition.
 
 This plan implements the GitHub-empty path: `RUN_BASH_GITHUB_ACCOUNTS=none`
@@ -65,10 +70,9 @@ plan's actual deliverable.
   playbook run) — this plan's acceptance coverage is preflight-only, run
   inside the CCY container; live verification is a follow-up the operator runs
   on a real box (Task 4/5).
-- Re-opening the bot-account-vs-owner-account identity question for lts-infra
-  — already decided (lts-infra Plan 00045 Task 2.8: `LTSCommerce`, no bot
-  account). This plan removes the *need* for any GitHub identity at all on
-  boxes that don't want one, which is orthogonal to that decision.
+- Which GitHub identity, if any, a downstream deployment gives its boxes. That
+  is decided in the consuming repository, not here. This plan only removes the
+  *need* for any GitHub identity on a box that does not want one.
 
 ## Scope note: shared QA tooling fix
 

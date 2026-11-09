@@ -33,9 +33,25 @@
 //     included). The uid map is read from stdout only.
 //   - E9. An Engine is built only by New, which refuses any kind but podman or docker; the
 //     zero Engine runs nothing. So the program an Engine runs is always one of the two.
-//   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every failure the
+//   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every refusal the
 //     help reads as "not built yet" as the bash launcher did, since it only says how to build
-//     the image; and claude --help run in the image (ClaudeHelp), its output merged.
+//     the image (an engine that could not run is said with its error); and claude --help run in
+//     the image (ClaudeHelp), its output merged.
+//   - E11. A run in the image given a secret (RunWithSecret, ccy's token check): the secret by
+//     name only (`-e NAME`, an execx.Secret, so a command whose argv holds it is refused), the
+//     image never pulled (`--pull=never`), and a missing image (the engine's exit 125 with its
+//     "no such image" wording) told apart from every other failure, the container's included.
+//   - E12. The launch's network check and version probe: a run on a named network
+//     (RunOnNetwork), `claude --version` in the image (ClaudeVersion, merged), and
+//     ContainerFailed, which tells the container command's own non-zero exit from the
+//     engine's (125, 126, 127, a signal, or no engine started), so a check can say which
+//     failed.
+//   - E13. A container stop (Stop) and a network removal (RemoveNetwork) that fail are the
+//     engine's exit with its words; whether the object is still there is asked of the store
+//     (StoreHas), never read from those words.
+//   - E14. Every container run here (ClaudeHelp, RunWithSecret, RunOnNetwork, ClaudeVersion)
+//     is started with the --pids-limit the caller settled, never the engine's default (the ccy
+//     launcher's lib/container-limits.bash; ccylaunch's pidslimit.go).
 package engine
 
 import (
@@ -128,7 +144,7 @@ func (e Engine) ImageExists(ctx context.Context, image string) (bool, error) {
 }
 
 // Inspect is a bare `image inspect IMAGE`, its output discarded: nil when the engine answered
-// for the image. --help asks only this, and says how to build the image on any failure, as the
+// for the image. --help asks only this, and says how to build the image on any refusal, as the
 // bash launcher did (E10); a launch asks ImageExists, which tells a missing image apart.
 func (e Engine) Inspect(ctx context.Context, image string) error {
 	if _, err := e.run(ctx, "image", "inspect", image); err != nil {
@@ -137,17 +153,73 @@ func (e Engine) Inspect(ctx context.Context, image string) error {
 	return nil
 }
 
-// ClaudeHelp is `claude --help` run in the image, stdout and stderr as one stream: on a failure
-// the text is returned with the error, so the person sees why it would not run (E10).
-func (e Engine) ClaudeHelp(ctx context.Context, image string) (string, error) {
+// ClaudeHelp is `claude --help` run in the image under the pids limit given, stdout and stderr
+// as one stream: on a failure the text is returned with the error, so the person sees why it
+// would not run (E10).
+func (e Engine) ClaudeHelp(ctx context.Context, image, pidsLimit string) (string, error) {
 	if err := e.known(); err != nil {
 		return "", err
 	}
-	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--entrypoint", "claude", image, "--help"))
+	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--pids-limit", pidsLimit, "--entrypoint", "claude", image, "--help"))
 	if err != nil {
 		return out, fmt.Errorf("claude --help in %s: %w", image, err)
 	}
 	return out, nil
+}
+
+// PidsLimitDefault is the --pids-limit a ccy-image container gets when nothing overrides it
+// (E14): the ccy launcher's CCY_PIDS_LIMIT_DEFAULT (lib/container-limits.bash, held to it by
+// ccylaunch's TestPidsLimitIsTheLibrarys), and ccc's limit.
+const PidsLimitDefault = 4096
+
+// engineFailed is the exit code podman and docker give a run they could not start, a missing
+// image among them; the container's own exit codes are passed through as they are.
+const engineFailed = 125
+
+// RunWithSecret is `run --rm --pids-limit LIMIT --pull=never -e NAME --entrypoint ENTRY IMAGE
+// ARGS...`, its output captured (E11, E14): the secret reaches the container by its name only,
+// never in argv, and the image is never pulled, so an image the engine does not have is
+// ErrNoImage. Any other failure is returned as it is: the engine's own (exit 125, or no engine
+// started) or the container's.
+func (e Engine) RunWithSecret(ctx context.Context, image, pidsLimit string, secret execx.Secret, entrypoint string, args ...string) (execx.Result, error) {
+	if err := e.known(); err != nil {
+		return execx.Result{}, err
+	}
+	c := e.cmd(append([]string{"run", "--rm", "--pids-limit", pidsLimit, "--pull=never", "-e", secret.Name(), "--entrypoint", entrypoint, image}, args...)...)
+	c.Secrets = []execx.Secret{secret}
+	res, err := e.runner.Run(ctx, c)
+	if exit, ok := errors.AsType[*execx.ExitError](err); ok && exit != nil && exit.Code == engineFailed && missingImage(res.Stderr) {
+		return res, fmt.Errorf("%s: %w", image, ErrNoImage)
+	}
+	return res, err
+}
+
+// RunOnNetwork is `run --rm --pids-limit LIMIT --network NETWORK IMAGE ARGS...`, its output
+// captured (E12, E14): the image pulled when the engine lacks it, as a plain run does.
+// ContainerFailed tells the container's own failure from the engine's.
+func (e Engine) RunOnNetwork(ctx context.Context, network, image, pidsLimit string, args ...string) (execx.Result, error) {
+	return e.run(ctx, append([]string{"run", "--rm", "--pids-limit", pidsLimit, "--network", network, image}, args...)...)
+}
+
+// ClaudeVersion is `claude --version` run in the image under the pids limit given, stdout and
+// stderr as one stream; on a failure the error carries that text (E12, E14).
+func (e Engine) ClaudeVersion(ctx context.Context, image, pidsLimit string) (string, error) {
+	if err := e.known(); err != nil {
+		return "", err
+	}
+	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--pids-limit", pidsLimit, "--entrypoint", "claude", image, "--version"))
+	if err != nil {
+		return out, fmt.Errorf("claude --version in %s: %w", image, err)
+	}
+	return out, nil
+}
+
+// ContainerFailed reports whether err is a run's container command ending itself non-zero:
+// not the engine failing to run it (125), the command not runnable (126) or not found (127)
+// in the image, a signal, or an engine that did not start (E12).
+func ContainerFailed(err error) bool {
+	exit, ok := errors.AsType[*execx.ExitError](err)
+	return ok && exit != nil && exit.Signal == 0 && exit.Code != 0 && exit.Code < engineFailed
 }
 
 // ContainerQuery is a `ps`: every container (All) or the running ones, narrowed by the
@@ -177,6 +249,22 @@ func (e Engine) Containers(ctx context.Context, q ContainerQuery) ([]string, err
 func (e Engine) Remove(ctx context.Context, name string) error {
 	if _, err := e.run(ctx, "rm", "-f", name); err != nil {
 		return fmt.Errorf("remove container %s: %w", name, err)
+	}
+	return nil
+}
+
+// Stop is `stop NAME` (E13).
+func (e Engine) Stop(ctx context.Context, name string) error {
+	if _, err := e.run(ctx, "stop", name); err != nil {
+		return fmt.Errorf("stop container %s: %w", name, err)
+	}
+	return nil
+}
+
+// RemoveNetwork is `network rm NAME` (E13).
+func (e Engine) RemoveNetwork(ctx context.Context, name string) error {
+	if _, err := e.run(ctx, "network", "rm", name); err != nil {
+		return fmt.Errorf("remove network %s: %w", name, err)
 	}
 	return nil
 }

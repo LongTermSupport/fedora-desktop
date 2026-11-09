@@ -32,6 +32,7 @@ done
 # Fixtures live under the repo's gitignored scratch area rather than /tmp, and mktemp
 # rather than $$ because this repo is bind-mounted into containers with their own PIDs.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-usage-fixtures.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 
