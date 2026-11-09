@@ -419,10 +419,39 @@ only by the default route is refused, naming the CIDR).
 The lab is Plan 00110's (`vars/vm-test-scenarios.yml`, the `vmtest` CLI in
 `src-go/internal/vmtest`). Today every guest, a run's or a `member-up` one, is on its own passt
 user-mode network with one ssh port forward (`passtNetwork`): two guests cannot reach each other
-and no guest has two networks. **The scenario needs a lab capability that does not exist**:
-isolated libvirt networks a guest can join, several per guest. That is a change to the lab (its
-`SPEC-vmtest.md` and the manifest gate), with its own tests, before the scenario. The lab is
+and no guest has two networks. **The scenario needs a lab capability that does not exist**: a
+guest with more than one network, and guests that reach each other. That is a change to the lab
+(`SPEC-vmtest.md` expectations E67 onward), with its own tests, before the scenario. The lab is
 x86_64 only (see above).
+
+The design report is
+[subagent-reports/261109-vmlab-multinet-design-opus.md](subagent-reports/261109-vmlab-multinet-design-opus.md)
+(research, nothing in it tried on a real libvirt). It corrects this section as follows, each
+point awaiting the coordinator's decision where it says so:
+
+- **No libvirt network is needed.** Every segment of the topology below has exactly two
+  endpoints, so each is a point-to-point link: a UDP socket pair between two rootless guests
+  (libvirt's `udp` interface), with no network object, no bridge, no host interface and no
+  privilege change on the owner's host. Plan 00161's system-libvirt question stays open for 00161
+  only. The subnets are an input of the lab with no default (a host_vars mapping the lab play
+  validates and writes into `lab.env`), so the documentation ranges below stay examples.
+- **The manifest gate does not change.** The manifest describes single-guest `run` scenarios;
+  members (`member-up`, `member-ssh`, `member-down`) are not manifest-driven, so X30 is a
+  plan-local script like Plan 00161's U23, run by the host agent through `meta-deploy.list`.
+- **Two-endpoint links cannot carry "move to a second guest"**, which needs three endpoints on
+  one network at once; the rebuild case below can run, and the move is a host run.
+- **The lab's RAM ceiling is per guest, not for all guests together**, though the manifest's
+  comment says otherwise (`retention.go`'s `ramFloor` compares one guest with 75% of the host's
+  memory). An all-guests check is added first, as a defect fixed with its detector.
+- **Running the play from the checkout against lab guests writes a false play-ledger record** on
+  the controller; the ledger is fixed as a defect class (record only plays whose hosts include the
+  local host), and until then the scenario disables the ledger callback and says so.
+- **`ansible.cfg` runs the play locally** (`transport=local`, YAML inventories only), so the
+  scenario's inventory is YAML and sets `ansible_connection: ssh` on every host, and the
+  fact cache is flushed per run.
+- **Not run on stage A:** the host's own `/32` check (the play refuses `teamchat_address`) and
+  `team apply`'s refusal of a permissive zone (not built); the scenario makes the rejecting zone
+  itself on the bus guest, and its verdict says these two were not run.
 
 **One topology.** Three isolated networks and five guests:
 
@@ -472,7 +501,12 @@ name: the play's trim-plus-newline write is judged here, not assumed (decision 1
 by that name and pins its CA, and neither changes when the host does. A move or a rebuild is:
 
 1. On the old host, take a team backup (the CA goes with it, B1) and copy it off the host.
-2. On the new host, run the play with the same declaration, then restore the backup. The
+2. On the new host, run the play with the team left out of the declaration, restore the backup,
+   then run the play with the team. As first written this step ran the play with the team and
+   then restored, but the play's `team approve` and `team apply` make a fresh CA before the
+   restore. A restore never replaces a CA (the cross-network doc), so the documented order should
+   be refused and every bundle would need a reissue; that is read from the docs, not observed.
+   The scenario runs both orders and records what the documented one does. The
    team's CA comes back unchanged and is never replaced; `team apply` then makes a new leaf
    under it, naming the new host's listen addresses and the `url`'s DNS name.
 3. Repoint the DNS name at the new host.
