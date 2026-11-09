@@ -406,8 +406,9 @@ def scan_files(
     for root, dirs, files in os.walk(path, followlinks=follow_symlinks):
         for name in files:
             ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-            if ext in ALL_EXTENSIONS:
-                results.append(pathlib.Path(root) / name)
+            candidate = pathlib.Path(root) / name
+            if ext in ALL_EXTENSIONS and candidate.is_file():
+                results.append(candidate)
     return results
 
 

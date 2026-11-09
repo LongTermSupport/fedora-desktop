@@ -57,7 +57,9 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    `<<<UPGRADE_METADATA` and `UPGRADE_METADATA>>>` sentinels. Fields:
    `from_version`, `to_version`, `python_version`, `python_path`,
    `venv_path`, `host`, `daemon_dir`, `project_root`, `modified_files`,
-   `config_diff_summary`.
+   `config_diff_summary`. `modified_files` names only the paths this
+   upgrade created, modified or deleted; a file that was already
+   uncommitted before it ran and that it did not change is never listed.
 
 3. **Verify daemon RUNNING**:
 

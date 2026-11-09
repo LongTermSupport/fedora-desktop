@@ -337,7 +337,10 @@ def load_ccy_token(checkout: pathlib.Path, home: pathlib.Path, today: datetime.d
         raise tp.ProbeError(f"ccy token {name} ({file_name}) has no expiry date in its name, so ccy treats it as expired: {renew}")
     if not token_usable(expiry, today):
         raise tp.ProbeError(f"ccy token {name} expired {expiry} (ccy counts a token expiring today as expired): {renew}")
-    value = token_value((tokens / file_name).read_text(encoding="utf-8"))
+    token_file = tokens / file_name
+    if not token_file.is_file():
+        raise tp.ProbeError(f"ccy token file {token_file} is not a regular file: {renew}")
+    value = token_value(token_file.read_text(encoding="utf-8"))
     if not value:
         raise tp.ProbeError(f"ccy token file {tokens / file_name} is empty: {renew}")
     return CcyToken(name, expiry, value)

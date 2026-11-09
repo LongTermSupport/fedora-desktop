@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/netip"
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -189,23 +191,37 @@ func (w *world) script() {
 	})
 }
 
+// snapshotState is every file of the session's state directory by name; an entry that is not a
+// regular file is refused, never opened.
+func (w *world) snapshotState() (map[string][]byte, error) {
+	started := map[string][]byte{}
+	entries, err := os.ReadDir(w.stateDir())
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return nil, fmt.Errorf("%s in the state directory is not a regular file", e.Name())
+		}
+		data, err := os.ReadFile(filepath.Join(w.stateDir(), e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		started[e.Name()] = data
+	}
+	return started, nil
+}
+
 func (w *world) scriptEngine() {
 	// The engine's every other command, first: a later, longer rule wins.
 	for _, engine := range []string{"podman", "docker"} {
 		w.fake.OnFunc([]string{engine}, func(c execx.Cmd) (execx.Result, error) {
 			if c.Args[0] == "start" || c.Args[0] == "run" {
-				w.started = map[string][]byte{}
-				entries, err := os.ReadDir(w.stateDir())
+				started, err := w.snapshotState()
 				if err != nil {
 					return execx.Result{}, err
 				}
-				for _, e := range entries {
-					data, err := os.ReadFile(filepath.Join(w.stateDir(), e.Name()))
-					if err != nil {
-						return execx.Result{}, err
-					}
-					w.started[e.Name()] = data
-				}
+				w.started = started
 			}
 			return execx.Result{ExitCode: w.exit}, nil
 		})
@@ -586,6 +602,24 @@ func TestRefreshFailureIsLoud(t *testing.T) {
 	w.run(term.ExitFailure, "refresh")
 	if !strings.Contains(w.stderr.String(), name) {
 		t.Errorf("stderr: %s", w.stderr.String())
+	}
+}
+
+// A session state that is not a regular file is refused by name, never read: a named pipe would
+// block the refresh for ever (#195).
+func TestRefreshRefusesAStateThatIsNotARegularFile(t *testing.T) {
+	w := launched(t)
+	state := filepath.Join(w.stateDir(), "state.json")
+	if err := os.Remove(state); err != nil {
+		t.Fatal(err)
+	}
+	opened := fifotest.Plant(t, state)
+	w.run(term.ExitFailure, "refresh")
+	if !strings.Contains(w.stderr.String(), "state.json is not a regular file") {
+		t.Errorf("stderr: %s", w.stderr.String())
+	}
+	if opened() {
+		t.Error("the pipe was opened")
 	}
 }
 

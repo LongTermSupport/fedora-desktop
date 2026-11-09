@@ -64,6 +64,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
+| `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
+| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1616,6 +1618,133 @@ requests are answered.
   interface, a fake named otherwise, and a literal stored and later called on the test's own
   goroutine (flagged, a false positive the same fix removes).
 
+### project_walk_open
+
+**What it is about.** A directory lists named pipes, sockets and devices as well as files, and
+opening a named pipe for reading blocks until something writes to it. Code that opens whatever a
+walk found hangs, with no error, the first time a pipe is among the entries.
+
+**Why it exists.** The Python `play_text()` read every name `os.walk()` listed under a play's
+inputs, reached the pipes old plan runs left under `untracked/`, and `run.bash --changed` never
+returned (fedora-desktop#191, held by the semgrep rule `walk-opens-non-regular-file`,
+[QA.md](QA.md#walk-opens-non-regular-file)). The Go sweep of the same class found 56 sites in 39
+files (fedora-desktop#195).
+
+**What it flags**: a call of `os.Open`, `os.OpenFile`, `os.ReadFile`, `ioutil.ReadFile`,
+`fs.ReadFile`, an `fs.FS`'s `Open` or `parser.ParseFile` with no source, or of a function of the
+package that opens its parameter or its receiver, whose name argument is built from a walk:
+`os.ReadDir`, `fs.ReadDir`, `filepath.Glob`, `fs.Glob`, the `Readdir` methods, the parameters of
+a `WalkDir`/`Walk` callback, a package function that returns walked names, and any value, field,
+slice or closure built from those. A check is `X.IsRegular()` on the type or mode of a walked
+value (`d.Type()`, `info.Mode()` from `Lstat`/`Stat`/`Info()`). It guards an open in the branch it
+holds (also in an `&&`), in the clause of a tagless `switch` that lists only checks, and after an
+`if` whose failed check leaves the block (`return`, `continue`, `break`, a fatal call; also in an
+`||`). A name assigned where a check guards it carries the check with it, so a lister that keeps
+only regular files returns clean names; a listing taken there is still unchecked. In a summary of
+a function, a check of any of its parameters counts (a helper handed an entry and its path), and a
+parameter opens only what seeding it adds to the body's own opens. What a walked file says is
+not followed: a byte slice (whichever reader returned it, one in another package too), and the
+result of a `ReadFile`, `parser.ParseFile`, `io.ReadAll` or a package function that returns one,
+names no entry the walk found; but a package function that returns a parameter beside content
+(a value built from it on any return) hands a walked name given there back walked. An `os.OpenFile` whose flags name `O_DIRECTORY`
+is not an open. One whose flags name `O_NONBLOCK` cannot wait, but a read of what it opened can:
+a named pipe with no writer reads as empty, one with a silent writer still blocks Go's poller, and
+a device reads without end. So the open file's first use other than `Stat`, `Close`, `Fd`, `Name`
+or `SyscallConn` (a method of it, or a call it is handed to; a package function only if it reads
+the file unchecked) is judged as the open, and the check that guards it is `IsRegular()` on the
+open file's own `Stat()`.
+
+**How to fix a violation.** Check the entry before the open and decide what a non-regular entry
+means there, as [QA.md](QA.md#walk-opens-non-regular-file) says: skip it where a stray entry is
+not this code's business, refuse it naming the path where every entry should have been a file.
+Under `/proc` too: the check costs nothing and the rule cannot tell `/proc` from any other tree.
+A test plants a pipe with `internal/fifotest` (`qa/internal/fifotest` in the `qa` module), whose
+writer releases a reader at once, so a regression fails the test instead of hanging it.
+
+- Red, fixture: `testdata/src/fix/internal/badwalk` (`TestWalkOpen`): each walk source and
+  opener, a helper, a lister, a closure, a record's method, skip-and-warn, a check of another
+  name, a check joined by `||`, a case listed beside another condition, a tagged switch, a
+  listing taken under another check, a flag that can wait; clean: each guarding position, a
+  checking lister, names kept where a check holds, a tagless switch case, a helper that checks
+  its entry, a parameter that is only a label, `O_DIRECTORY`, an `O_NONBLOCK` file only closed,
+  read after its own `Stat()` check or handed to a helper that checks it (declared before or after
+  its caller), names read out of a walked file (through a checking helper, an unguarded read, a
+  reader out of sight). Red too: an `O_NONBLOCK` file read with
+  `io.ReadAll`, by its `Read` method, or by a helper that does not check it, content joined to
+  a walked directory, and a walked name passed through a helper that returns content beside it. Mutation checked:
+  the leaving guard off makes 6 clean cases red, the positive guard off 1, the callee summary off
+  leaves 1 `want` unmet, the switch-case guard off 1 clean case red, the check carried by a
+  guarded assignment off 2 clean cases red, the listing distinction off
+  leaves 1 `want` unmet, the parameter attribution off and the parameter checks off 1 clean case
+  red each; the content-read rule off makes 1 clean case red (also with only its package
+  summary off), the pass-through summary off leaves 1 `want` unmet, the byte-slice rule off 1, the `O_NONBLOCK` read off leaves 3 `want`s unmet, every package helper taken as a reader 1
+  clean case red, and a helper's summary not yet computed taken as a reader 1.
+- Red, real tree: 56 findings in 39 files at the defence commit, over `./...` untagged, with
+  `busfailpoints`, `tuwunel`, `ccyteamstest`, `difftest` and the nested `qa` module. Four shapes
+  among them were false positives, each fixed in the rule with a fixture case before the sweep
+  went on: a tagless switch case (`planscriptlogging`), a lister that checks before it keeps a
+  name (`ccylaunch` `IntegrityHash`), a helper that checks one parameter and opens another
+  (`difftest` `describe`), and the `O_NONBLOCK`/`O_DIRECTORY` opens of `bus/seat`; a parameter
+  was also marked an opener when only the body's own walk opened. A first cut let every
+  `O_NONBLOCK` open pass whatever followed it; narrowed to the read, it found no site it had hidden
+  (`bus/seat`'s `readCapped` checks the open file's `Stat()` before it reads). Seven more were
+  content followed as names: wiring's `gone(pid)` read `/proc/<pid>/stat` for pids parsed out of
+  `keeper.log`, which `session.log` read from a globbed run directory through `testfiles.Try`.
+  That read was the real instance, hidden from the rule in another package, so `testfiles`'
+  `Read`, `Find` and `Try` now refuse what is not a regular file.
+- Green: 0 findings over `./...` untagged, with `busfailpoints`, `tuwunel`, `teamchatrelease`,
+  `ccyteamstest`, `difftest`, and over the nested `qa` module.
+- Not caught: a check in a callee (`readable(p)` returning a bool is not a check), an open
+  through an interface method or another package's function, an `O_NONBLOCK` file returned or
+  stored before it is read, or read through a copy of it (`r := f; r.Read`: only the variable the
+  open assigns is followed), its `Fd()` or its `SyscallConn()`, a name converted to bytes
+  (`[]byte(filepath.Join(dir, e.Name()))`, followed as content), and a time-of-check gap between
+  the check and the open.
+
+
+### project_zombie_exit
+
+**What it is about.** `/proc/<pid>/stat` is the thread-group leader's own entry, and its state
+letter turns `Z` as soon as the leader thread has exited. Every Go program is multi-threaded, and
+a killed one ends thread by thread: the leader can read `Z` while the other threads are still
+exiting and still hold the process's files (a flock, a socket, a pipe end), which are let go only
+when the last of them drops the file table. A test that waits for `Z` and then reads anything
+that depends on the release races those threads.
+
+**Why it exists.** teamchat `wiring` `TestClaudeStatusLine` froze the keeper, killed the link,
+waited for `gone(link)` (true at `Z`) and read the status line once: CI drew the team's normal
+segment, because `link.lock` was still held (fedora-desktop#182). An experiment (a child holding
+a flock with 8 or 32 busy threads, killed and not reaped, polled as `gone` polls) found the lock
+still held at the first `Z` reading in 65 of 300 and 155 of 300 rounds, and never once
+`/proc/<pid>/status` read `State: Z` with `Threads: 1` (0 of 600). The Python side of the class is
+the semgrep rule [`proc-zombie-taken-as-exit`](QA.md#proc-zombie-taken-as-exit).
+
+**What it flags**, in tests and production alike: a string or character literal whose text is
+`Z` (`" Z"`, `"Z"`, `'Z'`) in a function, its function literals included, that also holds a
+string literal naming a `/proc` stat file (`"stat"`, or one ending in `/stat`) and none starting
+with `Threads` (the thread count of `/proc/<pid>/status`, which makes the reading sound).
+
+**How to fix a violation.** Read `/proc/<pid>/status` and require both `State:` `Z` (or `X`) and
+`Threads:` `1`: a non-leader thread is counted until it is released, after it dropped the file
+table, so the pair holds only once the whole group has ended. Better still, wait for the effect
+the test asserts (the lock free, the line drawn) with a bounded wait, as `TestClaudeStatusLine`
+now does.
+
+- Red, fixture: `testdata/src/fix/internal/badzombie` (`TestZombieExit`): the originating
+  `gone`, a `Sprintf` path with a trimmed prefix, a joined path with the first field compared, a
+  byte compared in a function literal, a production function; clean: another state letter from
+  stat, the `status` check, a stat state believed only beside the thread count, a letter range in
+  a function that reads no stat, a stat fixture holding `Z` as data.
+- Red, real tree: 5 findings at the defence commit, over `./...` untagged, with `busfailpoints`,
+  `tuwunel`, `ccyteamstest`, `difftest`, `teamchatrelease` and the nested `qa` module: wiring's
+  `gone`, `execx`'s `living`, the status-line golden's `alive`, `qa/internal/proc`'s `gone` and
+  the ccy launcher's build lock (`ccylaunch/buildlock.go` `procStat`). The first cut judged tests
+  only; the independent search found the build lock, whose "build done" verdict rested on the
+  same reading, so the rule was widened before the sweep.
+- Green: 0 findings over the same builds.
+- Not caught: a stat path built entirely at run time, a state compared through a parameter (a
+  helper `procIs(pid, 'Z')` that takes the letter), and a `Threads` literal read but not
+  required.
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without

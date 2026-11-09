@@ -73,6 +73,8 @@ def _accounted(inputs: ap.Inputs, path: str) -> bool:
         return True
     if ap.affects(inputs, path) or ap.affects(inputs, path + "/"):
         return True
+    if any(path + "/" == local or path.startswith(local) or local.startswith(path + "/") for local in inputs.local):
+        return True
     return any(prefix.startswith(path + "/") for prefix in inputs.prefixes)
 
 

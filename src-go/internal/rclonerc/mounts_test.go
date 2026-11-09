@@ -3,6 +3,7 @@ package rclonerc
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,39 @@ const findmntLine = "findmnt -J -l -o SOURCE,TARGET -t fuse.rclone"
 
 func findmntJSON(f *execx.Fake, body string) {
 	f.On([]string{"findmnt", "-J"}, execx.Result{Stdout: []byte(body)})
+}
+
+// watchedFS records each name opened through it.
+type watchedFS struct {
+	fs.FS
+
+	opened map[string]bool
+}
+
+func (w watchedFS) Open(name string) (fs.File, error) {
+	w.opened[name] = true
+	return w.FS.Open(name)
+}
+
+// Stat answers without opening, as the real /proc's os.DirFS does.
+func (w watchedFS) Stat(name string) (fs.FileInfo, error) { return fs.Stat(w.FS, name) }
+
+// A process's command line that is not a regular file is refused by name, never opened: in a
+// tree that is not /proc a named pipe would block the read for ever (#195).
+func TestMountsRefusesACommandLineThatIsNotARegularFile(t *testing.T) {
+	f := &execx.Fake{}
+	findmntJSON(f, `{"filesystems":[{"source":"lib:/Photos","target":"/home/u/mnt/lib"}]}`)
+	proc := mountProc()
+	proc["60/cmdline"] = &fstest.MapFile{Mode: fs.ModeNamedPipe}
+	watched := watchedFS{FS: proc, opened: map[string]bool{}}
+	c := client(t, f, "", proc)
+	c.Proc = watched
+	if _, err := c.Mounts(context.Background()); err == nil || !strings.Contains(err.Error(), "60/cmdline is not a regular file") {
+		t.Fatalf("err = %v, want the pipe refused by name", err)
+	}
+	if watched.opened["60/cmdline"] {
+		t.Fatal("the pipe was opened")
+	}
 }
 
 // Mounts: findmnt's rclone mounts in its order, each with its name, remote path and the

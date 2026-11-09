@@ -153,7 +153,10 @@ class EndToEnd(unittest.TestCase):
                 if names:
                     name = names[0]
                     (self.bridge / "requests" / name).rename(self.bridge / "processing" / name)
-                    parsed = spool.parse_request(name, (self.bridge / "processing" / name).read_bytes())
+                    taken = self.bridge / "processing" / name
+                    if not taken.is_file():
+                        raise AssertionError(f"{taken} is not a regular file")
+                    parsed = spool.parse_request(name, taken.read_bytes())
                     time.sleep(delay)
                     # Written as the watcher and run scope write it (spool.write_file: a temp name,
                     # then rename): a plain write_text truncates first, and a poll landing between
