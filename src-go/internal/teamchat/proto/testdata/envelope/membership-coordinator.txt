@@ -1,4 +1,4 @@
-teamchat delivery 3f9c2a71: a membership notice from teamchat: this session's teams changed
+teamchat delivery 3f9c2a71: a membership notice from teamchat: the coordinators of teams myteam, otherteam changed
 <<teamchat 3f9c2a71 1/1>>
 kind: MEMBERSHIP (teamchat's own notice: the owner changed this session's teams on the host)
 from: teamchat

@@ -31,7 +31,7 @@ func (w *linkWorld) startedSession(u state.Unusable) state.Session {
 	transcript := w.dir + "/.claude/projects/-work/" + sessA + ".jsonl"
 	s := state.Session{
 		Run: w.run, SessionID: &id, Source: &source, Transcript: &transcript, Socket: &sock,
-		Claude: &state.Process{PID: 101, StartTicks: 1001}, Told: state.Told{Roles: map[paths.TeamID]string{}, Coordinators: map[paths.TeamID]string{}},
+		Claude: &state.Process{PID: 101, StartTicks: 1001}, Told: state.Told{Roles: map[paths.TeamID]string{}, Coordinators: map[paths.TeamID]string{}, NotKnown: []paths.TeamID{}},
 		Unusable: u,
 	}
 	data, err := s.Encode()

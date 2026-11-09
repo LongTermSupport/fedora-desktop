@@ -184,20 +184,28 @@ func (l *link) recordTold(c change) {
 	l.mem.mu.Unlock()
 }
 
+// framedCurrent is whether the frame may state t's role and coordinator: its record was
+// verified current and its server answers. A team that cannot reach its server stays current
+// for the membership notice, so a blip in the network makes no noise, but the frame is a
+// definite claim and the verification it would rest on may predate a handover (issue 192).
+func framedCurrent(t engine.HookTeam) bool { return t.Current && !t.Down }
+
 // tellFrame records SessionStart's frame: frame_told, and told as the roles and a worker's
-// coordinator the frame stated, from teams whose record is current; a team the frame said is
-// not known yet is not told, so its role and coordinator are announced once verified. Nothing
-// is owed after it.
+// coordinator the frame stated, from teams it could state them for; a team the frame said is
+// not known yet is told as not known, so its role and coordinator are announced once verified,
+// as what changed for a team the session has, never as a join. Nothing is owed after it.
 func (l *link) tellFrame(v engine.HookView) error {
 	l.mem.mu.Lock()
 	told := newTold(l.mem.generation)
 	l.mem.mu.Unlock()
 	for _, t := range v.Teams {
-		if t.Current && t.Role != "" {
-			told.Roles[t.Team] = t.Role
-			if t.Role == proto.RoleWorker {
-				told.Coordinators[t.Team] = t.Coordinator
-			}
+		if !framedCurrent(t) || t.Role == "" {
+			told.NotKnown = append(told.NotKnown, t.Team)
+			continue
+		}
+		told.Roles[t.Team] = t.Role
+		if t.Role == proto.RoleWorker {
+			told.Coordinators[t.Team] = t.Coordinator
 		}
 	}
 	err := l.session.Update(func(n *state.Session) bool {
@@ -213,11 +221,16 @@ func (l *link) tellFrame(v engine.HookView) error {
 
 // newTold is an empty told at generation gen.
 func newTold(gen int64) state.Told {
-	return state.Told{Generation: gen, Roles: map[paths.TeamID]string{}, Coordinators: map[paths.TeamID]string{}}
+	return state.Told{Generation: gen, Roles: map[paths.TeamID]string{}, Coordinators: map[paths.TeamID]string{}, NotKnown: []paths.TeamID{}}
 }
 
-// keepTold copies team t's told role and coordinator from told into next.
+// keepTold copies team t's told role and coordinator, or its being told as not known, from
+// told into next.
 func keepTold(next, told state.Told, t paths.TeamID) {
+	if slices.Contains(told.NotKnown, t) {
+		next.NotKnown = append(next.NotKnown, t)
+		return
+	}
 	next.Roles[t] = told.Roles[t]
 	if c, ok := told.Coordinators[t]; ok {
 		next.Coordinators[t] = c
@@ -227,7 +240,9 @@ func keepTold(next, told state.Told, t paths.TeamID) {
 // diffMembership is the notice from told to the held teams, the told to record (its
 // generation the caller's), and whether there is a notice. A held team whose record is current
 // gives its role, and a worker's its coordinator; any other held team keeps what was told, so
-// nothing is announced from a record not verified current (issue 192). A worker whose role is
+// nothing is announced from a record not verified current (issue 192). A team the frame called
+// not known yet is the session's already: once its record is current and its server answers it
+// is told as a role (and a worker's coordinator), never as a join. A worker whose role is
 // unchanged is told its coordinator when it differs from the one told, or none was told. A
 // team told and no longer held has left when a remove was seen for it (with farewells'
 // reason); else it stays told, as an add that has not come back yet. A probe's role is
@@ -238,43 +253,54 @@ func diffMembership(told state.Told, teams []engine.TeamRole, farewells map[path
 	held := map[paths.TeamID]bool{}
 	for _, t := range teams {
 		held[t.Team] = true
-		was, wasTold := told.Roles[t.Team]
-		if !t.Current || t.Role == "" {
-			if wasTold {
+		_, wasTold := told.Roles[t.Team]
+		framed := slices.Contains(told.NotKnown, t.Team)
+		switch {
+		case !t.Current || t.Role == "" || framed && t.Down:
+			if wasTold || framed {
 				keepTold(next, told, t.Team)
 				m.Teams = append(m.Teams, t.Team.String())
 			}
-			continue
-		}
-		role := t.Role
-		next.Roles[t.Team] = role
-		m.Teams = append(m.Teams, t.Team.String())
-		mt := proto.MembershipTeam{Team: t.Team.String(), Handle: t.Handle, Role: role, Description: t.Description, Current: true}
-		if role == proto.RoleWorker {
-			mt.Coordinator = t.Coordinator
-			next.Coordinators[t.Team] = t.Coordinator
-		}
-		switch {
-		case role == proto.RoleProbe:
-		case wasTold && was == role:
-			if c, ok := told.Coordinators[t.Team]; role == proto.RoleWorker && (!ok || c != t.Coordinator) {
-				m.Coordinators = append(m.Coordinators, mt)
-			}
-		case wasTold:
-			m.Roles = append(m.Roles, mt)
 		default:
-			m.Joined = append(m.Joined, mt)
+			m.Teams = append(m.Teams, t.Team.String())
+			tellTeam(&m, next, told, t, wasTold || framed)
 		}
 	}
 	m.Left = diffGone(next, told, held, farewells)
 	return m, next, len(m.Left)+len(m.Joined)+len(m.Roles)+len(m.Coordinators) > 0
 }
 
+// tellTeam records the role of t, a team whose record is current, in next and puts it in the
+// notice under the line it belongs to: a team the session has (inSession: told a role, or
+// framed as not known yet) gets a role line when its role is not the one told, or a
+// coordinator line when only a worker's coordinator differs; any other team is joined.
+func tellTeam(m *proto.Membership, next, told state.Told, t engine.TeamRole, inSession bool) {
+	role := t.Role
+	next.Roles[t.Team] = role
+	mt := proto.MembershipTeam{Team: t.Team.String(), Handle: t.Handle, Role: role, Description: t.Description, Current: true}
+	if role == proto.RoleWorker {
+		mt.Coordinator = t.Coordinator
+		next.Coordinators[t.Team] = t.Coordinator
+	}
+	switch {
+	case role == proto.RoleProbe:
+	case inSession && told.Roles[t.Team] == role:
+		if c, ok := told.Coordinators[t.Team]; role == proto.RoleWorker && (!ok || c != t.Coordinator) {
+			m.Coordinators = append(m.Coordinators, mt)
+		}
+	case inSession:
+		m.Roles = append(m.Roles, mt)
+	default:
+		m.Joined = append(m.Joined, mt)
+	}
+}
+
 // diffGone is the told teams not held now that left (a remove seen, with its reason); every
 // other told team not held stays told in next.
 func diffGone(next, told state.Told, held map[paths.TeamID]bool, farewells map[paths.TeamID]string) []proto.MembershipLeft {
 	var left []proto.MembershipLeft
-	gone := slices.SortedFunc(maps.Keys(told.Roles), func(a, b paths.TeamID) int { return strings.Compare(a.String(), b.String()) })
+	gone := append(slices.Collect(maps.Keys(told.Roles)), told.NotKnown...)
+	slices.SortFunc(gone, func(a, b paths.TeamID) int { return strings.Compare(a.String(), b.String()) })
 	for _, t := range gone {
 		if held[t] {
 			continue

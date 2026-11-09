@@ -63,6 +63,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 
+| `project_coordinator_absence` | an absence clause ("the team has no coordinator") written outside the CoordinatorAbsent case of `proto.ClaimCoordinator`, so a session can be told it from a record not known to be current | teamchat: a seat told "no coordinator" from a stale record, then acting on it (issue 192) |
+
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
 not catch is listed under it, so the catalogue claims no more than the code does.
@@ -1488,6 +1490,41 @@ requests are answered.
   interface, a fake named otherwise, and a literal stored and later called on the test's own
   goroutine (flagged, a false positive the same fix removes).
 
+### project_coordinator_absence
+
+**What it is about.** "The team has no coordinator" is a definite claim, true only of a team
+record verified current. A seat was told it from a record that was not known to be current, after
+a handover had happened, and acted on the absence (issue 192).
+`proto.ClaimCoordinator(current, coordinator)` is the one decision of what a session is told of
+its team's coordinator (named, absent, or not known); every clause a session reads is written in
+the `CoordinatorAbsent` case of a switch on it.
+
+**What it flags**, under `internal/teamchat` in files that are not tests: a string literal
+containing "no coordinator", "without a coordinator" or "coordinator: none" (any case) unless it is
+(a) inside a `case CoordinatorAbsent:` clause of a switch whose tag is a call to `ClaimCoordinator`,
+or (b) the value of a constant or variable that the rule's table `absenceTexts` names with its
+reason. Three are named: the frame's template (`tmplTeamNoCoordinator`, filled only in that case),
+the refusal of a send or a reply (`msgNoCoordinator`, given after the roster was judged verified),
+and the questions room's closed topic (`closedTopic`, room state built from the roster, not a claim
+made to a session).
+
+**How to fix a violation.** Decide the clause with `ClaimCoordinator` and write the text in its
+`CoordinatorAbsent` case. Text that is not a claim to a session is named in `absenceTexts`
+with the reason, which is a decision for review.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/{badabsence,proto,member/hooktext}`: a text
+  in a constant, in a returned literal, in a switch on a claim someone else decided, written
+  before the case, and in the wrong case are flagged; the case of a switch on `ClaimCoordinator`,
+  a named constant, a test file and a package outside `internal/teamchat` are clean. With the rule
+  weakened to exempt any `CoordinatorAbsent` case, the fixture test fails at the switch on a claim
+  decided elsewhere.
+- Red, real tree: with `roleLine`'s tag changed from `ClaimCoordinator(...)` to a variable
+  holding its result, the rule reported `proto/membership.go` at the clause. Reverted.
+- Green: 0 findings over `./internal/teamchat/...` as it stands; the three constants above are
+  the only absence texts outside a case.
+- Not caught: the claim in other words, a wording assembled at run time, and a named constant
+  used outside the case it was allowed for.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -1919,6 +1956,7 @@ bash they replaced and in the Go during review; each instance is in the audit re
   reaches an engine already shut down) is still 1 `internal`; it is not a wait ending and is not
   reachable by load. A new op added to `Serve` is covered by the sink, but the held-goroutine test
   lists its ops by hand.
+
 - **A refusal state set from the answer to a request, without checking that the answer belongs
   to the credential held now** (fedora-desktop#159: `engine`'s sender set the team's send stop
   from a PUT's 401 or 403; a PUT made under the old token and answered after the team's

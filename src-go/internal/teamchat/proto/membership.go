@@ -104,11 +104,28 @@ func (m Membership) Render(nonce string) (string, error) {
 	}
 	marker := nonce + " 1/1>>"
 	out := []string{
-		"teamchat delivery " + nonce + ": a membership notice from teamchat: this session's teams changed",
+		"teamchat delivery " + nonce + ": a membership notice from teamchat: " + m.headline(),
 		"<<teamchat " + marker, "kind: " + kindMembership, "from: teamchat", "to: this session",
 	}
 	out = append(append(out, lines...), "authority: "+authorityMembership, "<<end teamchat "+marker)
 	return strings.Join(out, "\n"), nil
+}
+
+// headline is the first line's last words: H12's "this session's teams changed", or, when the
+// only change is a coordinator's, which team's (or teams') coordinator changed. The slots were
+// checked as team ids by changeLines before it is asked.
+func (m Membership) headline() string {
+	if len(m.Left)+len(m.Joined)+len(m.Roles) > 0 || len(m.Coordinators) == 0 {
+		return "this session's teams changed"
+	}
+	teams := make([]string, 0, len(m.Coordinators))
+	for _, c := range m.Coordinators {
+		teams = append(teams, c.Team)
+	}
+	if len(teams) == 1 {
+		return "the coordinator of team " + teams[0] + " changed"
+	}
+	return "the coordinators of teams " + strings.Join(teams, ", ") + " changed"
 }
 
 // changeLines are the left, joined, role-change and coordinator-change lines, in that order.

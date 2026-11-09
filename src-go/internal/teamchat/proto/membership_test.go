@@ -68,7 +68,8 @@ func TestAWorkersRoleLineNeverClaimsAnAbsenceFromARecordNotCurrent(t *testing.T)
 // Issue 192, class 2: a change of the team's coordinator is its own line, told when the
 // session's role is unchanged: one named, or none now. A change not known is never told.
 func TestMembershipCoordinatorChange(t *testing.T) {
-	wantLines(t, "coordinator", mustMembership(t, coordinatorChanged()), membershipFrame(
+	wantLines(t, "coordinator", mustMembership(t, coordinatorChanged()), membershipHeaded(
+		"the coordinators of teams myteam, otherteam changed",
 		"teamchat: in team myteam the coordinator is now "+envCoord+".",
 		"teamchat: in team otherteam there is no coordinator now.",
 		"teamchat: this session's teams are now: myteam, otherteam.",
@@ -86,6 +87,24 @@ func TestMembershipCoordinatorChange(t *testing.T) {
 		if _, err := m.Render(envNonce); err == nil {
 			t.Errorf("%s: rendered", name)
 		}
+	}
+}
+
+// Review of the fix for issue 192: a notice that only changes a coordinator names the change in
+// its first line, not "this session's teams changed"; any other change keeps H12's line.
+func TestMembershipFirstLineNamesACoordinatorOnlyChange(t *testing.T) {
+	one := coordinatorChanged()
+	one.Coordinators = one.Coordinators[:1]
+	wantLines(t, "one coordinator", mustMembership(t, one), membershipHeaded(
+		"the coordinator of team myteam changed",
+		"teamchat: in team myteam the coordinator is now "+envCoord+".",
+		"teamchat: this session's teams are now: myteam, otherteam.",
+	)...)
+	mixed := coordinatorChanged()
+	mixed.Roles = []MembershipTeam{{Team: "thirdteam", Role: RoleCoordinator, Current: true}}
+	mixed.Teams = append(mixed.Teams, "thirdteam")
+	if first := mustMembership(t, mixed)[0]; !strings.HasSuffix(first, ": this session's teams changed") {
+		t.Errorf("a notice that also changes a role opens %q", first)
 	}
 }
 
@@ -110,9 +129,14 @@ func mustMembership(t *testing.T, m Membership) []string {
 
 // membershipFrame is the notice's lines around the template lines.
 func membershipFrame(lines ...string) []string {
+	return membershipHeaded("this session's teams changed", lines...)
+}
+
+// membershipHeaded is membershipFrame with the first line's last words given.
+func membershipHeaded(head string, lines ...string) []string {
 	out := make([]string, 0, len(lines)+7)
 	out = append(out,
-		"teamchat delivery 3f9c2a71: a membership notice from teamchat: this session's teams changed",
+		"teamchat delivery 3f9c2a71: a membership notice from teamchat: "+head,
 		"<<teamchat 3f9c2a71 1/1>>",
 		"kind: MEMBERSHIP (teamchat's own notice: the owner changed this session's teams on the host)",
 		"from: teamchat",

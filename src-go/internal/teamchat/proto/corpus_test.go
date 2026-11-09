@@ -221,7 +221,8 @@ func templates() []*regexp.Regexp {
 func membershipTemplates(team, handle string) []string {
 	description := `[^\p{Cc}\p{Cf}\x{2028}\x{2029}<>]{1,120}`
 	return []string{
-		`teamchat delivery [0-9a-f]{8}: a membership notice from teamchat: this session's teams changed`,
+		`teamchat delivery [0-9a-f]{8}: a membership notice from teamchat: (?:this session's teams changed|` +
+			`the coordinator of team ` + team + ` changed|the coordinators of teams ` + team + `(?:, ` + team + `)+ changed)`,
 		`kind: MEMBERSHIP \(teamchat's own notice: the owner changed this session's teams on the host\)`,
 		`from: teamchat`, `to: this session`,
 		`authority: the owner's change, made on the host\. A fact about this session's teams; no team member sent it, and none can\.`,

@@ -9,11 +9,11 @@ const (
 	sessionStarted = `{"v":1,"run":"` + sampleRun + `","session_id":"` + sampleSessionID + `","source":"startup",` +
 		`"transcript":"` + sampleTranscript + `","socket":"` + sampleSocket + `","claude":{"pid":4242,"start_ticks":99},` +
 		`"end_reason":null,"stop_guard":{"pending_digest":null,"failure_ms":null,"no_waker_ms":null},` +
-		`"told":{"generation":3,"roles":{"alpha":"worker"},"coordinators":{"alpha":"` + sampleCoordinator + `"}},` +
+		`"told":{"generation":3,"roles":{"alpha":"worker"},"coordinators":{"alpha":"` + sampleCoordinator + `"},"not_known":[]},` +
 		`"frame_told":true,"unusable":{"hook_stdin":0,"render":0}}`
 	sessionFresh = `{"v":1,"run":"` + sampleRun + `","session_id":null,"source":null,"transcript":null,"socket":null,` +
 		`"claude":null,"end_reason":null,"stop_guard":{"pending_digest":null,"failure_ms":null,"no_waker_ms":null},` +
-		`"told":{"generation":0,"roles":{},"coordinators":{}},"frame_told":false,"unusable":{"hook_stdin":0,"render":0}}`
+		`"told":{"generation":0,"roles":{},"coordinators":{},"not_known":[]},"frame_told":false,"unusable":{"hook_stdin":0,"render":0}}`
 	sampleCoordinator = "repo.2+host.podman"
 )
 
@@ -23,11 +23,16 @@ func TestDecodeSession(t *testing.T) {
 		`"pending_digest":"`+strings.Repeat("a", 64)+`","failure_ms":5,"no_waker_ms":6`)
 	noneTold := edit(t, sessionStarted, `"alpha":"`+sampleCoordinator+`"`, `"alpha":""`)
 	notTold := edit(t, sessionStarted, `"coordinators":{"alpha":"`+sampleCoordinator+`"}`, `"coordinators":{}`)
-	accepts(t, DecodeSession, sessionStarted, sessionFresh, ended, guarded, noneTold, notTold)
+	framed := edit(t, sessionStarted, `"not_known":[]`, `"not_known":["bravo","charlie"]`)
+	accepts(t, DecodeSession, sessionStarted, sessionFresh, ended, guarded, noneTold, notTold, framed)
 	s, err := DecodeSession([]byte(sessionStarted))
 	check(t, err)
 	if !s.Started() || s.Claude.PID != 4242 || s.Told.Roles[teamID(t)] != "worker" || s.Told.Coordinators[teamID(t)] != sampleCoordinator {
 		t.Fatalf("DecodeSession = %+v", s)
+	}
+	u, err := DecodeSession([]byte(framed))
+	if err != nil || len(u.Told.NotKnown) != 2 {
+		t.Fatalf("the teams framed as not known = %+v, %v", u.Told.NotKnown, err)
 	}
 	f, err := DecodeSession([]byte(sessionFresh))
 	if err != nil || f.Started() {
@@ -61,6 +66,11 @@ func TestDecodeSession(t *testing.T) {
 		{`"coordinators":{"alpha":"` + sampleCoordinator + `"}`, `"coordinators":{"beta":""}`, CodeSchema},
 		{`"roles":{"alpha":"worker"}`, `"roles":{"alpha":"coordinator"}`, CodeSchema},
 		{`"alpha":"` + sampleCoordinator + `"`, `"alpha":"SECRET"`, CodeSchema},
+		{`"not_known":[]`, `"not_known":null`, CodeSchema},
+		{`"not_known":[]`, `"not_known":["Bravo"]`, CodeSchema},
+		{`"not_known":[]`, `"not_known":["alpha"]`, CodeSchema},
+		{`"not_known":[]`, `"not_known":["bravo","bravo"]`, CodeSchema},
+		{`"not_known":[]`, `"not_known":[` + teamsJSON(maxTeams, `"%s"`) + `]`, CodeSchema},
 		{`"frame_told":true`, `"frame_told":null`, CodeSchema},
 		{`"hook_stdin":0`, `"hook_stdin":-1`, CodeSchema},
 		{`"render":0`, `"render":-1`, CodeSchema},

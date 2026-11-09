@@ -43,11 +43,13 @@ type HookTeam struct {
 // record verified current (issue 192): Health.Verified, a verification of a team not stopped
 // since. A team that cannot reach its server keeps its last verification current; a stopped
 // one (untrusted, its token refused), and one restarted after a stop and not verified again,
-// does not, whatever Health still holds.
+// does not, whatever Health still holds. Down is whether the team cannot reach its server: the
+// notice ignores it for a team already told, so a network blip makes no noise, but a team the
+// frame called not known yet is told only once its server answers.
 type TeamRole struct {
 	Team                                   paths.TeamID
 	Role, Handle, Coordinator, Description string
-	Current                                bool
+	Current, Down                          bool
 }
 
 // hookState is what the engine keeps for the hooks: the desired membership's last read, the
@@ -128,7 +130,7 @@ func count(c *hooktext.Counts, kind string) {
 }
 
 func teamRole(h *held) TeamRole {
-	r := TeamRole{Team: h.id, Role: h.health.Role, Handle: h.handle(), Current: h.health.Verified && h.health.Role != "" && h.health.Stopped == ""}
+	r := TeamRole{Team: h.id, Role: h.health.Role, Handle: h.handle(), Down: h.health.Down, Current: h.health.Verified && h.health.Role != "" && h.health.Stopped == ""}
 	if h.health.Coordinator != nil {
 		r.Coordinator = *h.health.Coordinator
 	}

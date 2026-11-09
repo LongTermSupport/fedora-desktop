@@ -222,6 +222,98 @@ func TestAnUntrustedRecordIsNotKnown(t *testing.T) {
 	}
 }
 
+// Issue 192, review of the fix: a team that cannot reach its server stays current for the
+// notice (a network blip makes no noise), but its frame is not known yet: its verification may
+// predate a handover, so the frame never says "no coordinator" from it.
+func TestADownTeamIsFramedAsNotKnown(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	down := workerUnder("")
+	down.Down = true
+	w.link().eng.SetHealth(a, down)
+	frame := contextOf(t, w.hook(wire.OpHookSessionStart))
+	if !strings.Contains(frame, "your role and the team's coordinator are not known yet: run teamchat status --team alpha.") || strings.Contains(frame, "no coordinator") {
+		t.Fatalf("frame %q", frame)
+	}
+}
+
+// Issue 192, review of the fix: a team that goes down after the frame told its role is no noise.
+func TestADownTeamAfterTheFrameIsQuiet(t *testing.T) {
+	a := tid(t, "alpha")
+	w, in := toldWorld(t, a)
+	down := worker()
+	down.Down = true
+	w.link().eng.SetHealth(a, down)
+	until(t, func() bool {
+		teams := heldTeams(w.link())
+		return len(teams) == 1 && teams[0].Current
+	})
+	if !quiet(t, w, in) {
+		t.Fatalf("a down team was announced: frames %+v", in.Frames())
+	}
+}
+
+// Issue 192, review of the fix: a team the frame said was not known yet is in the session
+// already, so verifying it gives its role and coordinator, never "you joined".
+func TestNotKnownThenKnown(t *testing.T) {
+	for name, framed := range map[string]team.Health{
+		"new":  {},
+		"down": {Role: proto.RoleWorker, Verified: true, Down: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := tid(t, "alpha")
+			w := newHookWorld(t, a)
+			l := w.link()
+			l.eng.SetHealth(a, framed)
+			in := w.inbox()
+			if frame := contextOf(t, w.hook(wire.OpHookSessionStart)); !strings.Contains(frame, "not known yet") {
+				t.Fatalf("frame %q", frame)
+			}
+			until(t, l.eng.Live)
+			if nk := w.sessionFile().Told.NotKnown; len(nk) != 1 || nk[0] != a || len(toldRoles(w)) != 0 {
+				t.Fatalf("the frame told %+v", w.sessionFile().Told)
+			}
+			l.eng.SetHealth(a, workerUnder(coordA))
+			text := w.notice(in)
+			if !strings.Contains(text, "in team alpha you are a worker; the coordinator is "+coordA+".") || strings.Contains(text, "joined") {
+				t.Fatalf("notice %q", text)
+			}
+			until(t, func() bool { return toldRoles(w)[a] == proto.RoleWorker })
+			if nk := w.sessionFile().Told.NotKnown; len(nk) != 0 {
+				t.Fatalf("still told as not known: %+v", nk)
+			}
+			told := len(in.Frames())
+			l.announce(t.Context())
+			if len(in.Frames()) != told {
+				t.Fatalf("told twice: frames %+v", in.Frames())
+			}
+		})
+	}
+}
+
+// Issue 192, review of the fix: a team the frame called not known yet because its server
+// cannot be reached is not told from the record it already holds while it stays down; once the
+// server answers, the role and the coordinator it then holds are told, still not as a join.
+func TestDownFramedStaysNotKnown(t *testing.T) {
+	a := tid(t, "alpha")
+	w := newHookWorld(t, a)
+	l := w.link()
+	down := workerUnder("")
+	down.Down = true
+	l.eng.SetHealth(a, down)
+	in := w.inbox()
+	contextOf(t, w.hook(wire.OpHookSessionStart))
+	until(t, l.eng.Live)
+	l.announce(t.Context())
+	if len(in.Frames()) != 0 {
+		t.Fatalf("a down team was told from its stale record: frames %+v", in.Frames())
+	}
+	l.eng.SetHealth(a, workerUnder(""))
+	if text := w.notice(in); !strings.Contains(text, "in team alpha you are a worker; the team has no coordinator now.") || strings.Contains(text, "joined") {
+		t.Fatalf("notice %q", text)
+	}
+}
+
 // Issue 192 (g): a stop after the session was told announces nothing, and the coordinator found
 // at the recovery is told when it differs.
 func TestAStopIsQuiet(t *testing.T) {
@@ -332,7 +424,7 @@ func TestARestartedLinkTellsNothingTwice(t *testing.T) {
 	s.FrameTold = true
 	s.Told = state.Told{
 		Generation: 1, Roles: map[paths.TeamID]string{a: proto.RoleWorker, c: proto.RoleWorker},
-		Coordinators: map[paths.TeamID]string{a: coordA, c: coordA},
+		Coordinators: map[paths.TeamID]string{a: coordA, c: coordA}, NotKnown: []paths.TeamID{},
 	}
 	data, err := s.Encode()
 	check(t, err)

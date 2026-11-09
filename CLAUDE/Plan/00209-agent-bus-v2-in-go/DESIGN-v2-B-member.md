@@ -741,7 +741,8 @@ being the one on the seat's play line and board row (C 3.9.4). The next start th
 {"v": 1, "run": "<16 hex>", "session_id": "<claude session id>", "source": "startup", "transcript": "/<abs>/<id>.jsonl",
  "socket": "/<abs>/cc-socks/<pid>.sock", "claude": {"pid": 0, "start_ticks": 0}, "end_reason": null,
  "stop_guard": {"pending_digest": "<64 hex>|null", "failure_ms": null, "no_waker_ms": null},
- "told": {"generation": 3, "roles": {"<team>": "worker"}, "coordinators": {"<team>": "<handle>|"}}, "frame_told": true,
+ "told": {"generation": 3, "roles": {"<team>": "worker"}, "coordinators": {"<team>": "<handle>|"}, "not_known": ["<team>"]},
+ "frame_told": true,
  "unusable": {"hook_stdin": 0, "render": 0}}
 ```
 
@@ -751,12 +752,17 @@ the inbox socket's path (its token is never on disk, B11) and the SessionEnd rea
 reads it back and needs nothing handed over but the token. `told` is the one home of what the
 session has been told: the desired generation whose membership NOTICE reached it, each team's
 role last announced (2.10), and for each team where it is a worker the coordinator last announced
-(`""` for none; no entry, none told yet, so the next verified one is told). The store holds none of it, because what was told belongs to the
+(`""` for none; no entry, none told yet, so the next verified one is told), and `not_known`, the
+teams whose frame said the role and the coordinator are not known yet (a record not verified
+current, or a team that cannot reach its server): the session has them, so what is verified later
+is told as a role and a coordinator, never as a join, and a team is in `roles` or in `not_known`,
+not both. `coordinators` and `not_known` are required keys; `v` stays 1 because v2 is deployed
+nowhere, so no file of the older shape exists. The store holds none of it, because what was told belongs to the
 session, and a new session is told afresh by its SessionStart frame. `unusable` counts the inputs
 the link could not use (2.8, 2.7.2), which `status` reports. Until the first SessionStart,
 `session_id`, `source`, `transcript`, `socket` and `claude` are all `null`; afterwards all are set.
 `source` is SessionStart's (`startup`, `resume`, `clear`, `compact`). `socket` is
-`cc-socks/<claude.pid>.sock`, at most 107 bytes. The file is at most 8 KiB.
+`cc-socks/<claude.pid>.sock`, at most 107 bytes. The file is at most 20 KiB.
 
 `status.json` is section 2.9's, link-written. `keeper.json` (keeper-written, tmpfs, strict) is the
 keeper's view of the link, read by the status line and by a client only when the link does not

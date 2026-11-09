@@ -1932,7 +1932,9 @@ a sentence changes how a model treats a message, so the corpus pins each one exa
 
 MEMBERSHIP keeps v1's form, and 00203 H12 is binding for it, less the two cuts below (the role
 lines and the joined line's `seat`): always its own delivery, with H12's
-first line (a membership notice from `teamchat`: this session's teams changed), one entry with
+first line (a membership notice from `teamchat`: this session's teams changed; when the only change
+is a coordinator's, `the coordinator of team X changed`, or `the coordinators of teams X, Y changed`),
+one entry with
 `kind:` the MEMBERSHIP sentence, `from: teamchat` and `to: this session`, then H12's fixed template
 lines. Their slots are team ids and handles (2.2, 2.3), and the team description, which is
 admin-written text (R38) that may hold spaces and non-ASCII: it passes P16's grammar and H76's
