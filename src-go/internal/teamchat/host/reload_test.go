@@ -9,10 +9,13 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// narrowed is the sample input with allow_from narrowed, a reload-set change, approved in w.
-func narrowed(w *world) declare.Input {
+// raised is the sample input with another description, approved in w, whose pin has a higher
+// memory ceiling: a reload-set change of the homeserver's drop-in beside a new declaration. (A
+// network is not one: it is the terminator's, X4.)
+func raised(w *world) declare.Input {
+	w.memory = "1G"
 	doc := teamDoc()
-	docTeam(doc)["allow_from"] = []any{"203.0.113.0/24"}
+	docTeam(doc)["description"] = "The team that runs other things."
 	return approved(w, doc)
 }
 
@@ -51,6 +54,7 @@ func crashed(t *testing.T, w *world, in declare.Input) {
 	t.Helper()
 	other := newWorld(t)
 	other.version = w.version
+	other.memory = w.memory
 	other.approve(in)
 	if _, err := other.apply(in); err != nil {
 		t.Fatal(err)
@@ -63,7 +67,7 @@ func crashed(t *testing.T, w *world, in declare.Input) {
 func TestAFailedReloadIsRetried(t *testing.T) {
 	w := applied(t)
 	was := stampConfig(t, w)
-	in := narrowed(w)
+	in := raised(w)
 	w.faults["daemon-reload"] = errFault
 	failsAtWithoutStamp(t, w, in, StepUnit, was)
 	failsAtWithoutStamp(t, w, in, StepUnit, was)
@@ -86,7 +90,7 @@ func TestAFailedReloadIsRetried(t *testing.T) {
 func TestADropInLeftByACrashIsReloaded(t *testing.T) {
 	w := applied(t)
 	was := stampConfig(t, w)
-	in := narrowed(w)
+	in := raised(w)
 	crashed(t, w, in)
 	w.faults["daemon-reload"] = errFault
 	failsAtWithoutStamp(t, w, in, StepUnit, was)

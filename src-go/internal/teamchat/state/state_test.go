@@ -242,6 +242,48 @@ func TestReadOwnedFileRefusals(t *testing.T) {
 	}
 }
 
+// TestReadPrivateFile is ST4: a private key's file is ReadOwnedFile's and also mode 0600
+// exactly, judged on the file opened; a refusal is a typed error naming the file and what was
+// found, so a caller can say how to put it right.
+func TestReadPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o600)
+	uid := ownerOf(t, good)
+	if got, found, err := ReadPrivateFile(good, 8, uid); err != nil || !found || string(got) != "x" {
+		t.Fatalf("a private file: %q %v %v", got, found, err)
+	}
+	if _, found, err := ReadPrivateFile(filepath.Join(dir, "none"), 8, uid); found || err != nil {
+		t.Fatalf("a missing file: found %v, err %v", found, err)
+	}
+}
+
+// TestReadPrivateFileRefusals is ST4's refusals: every mode but 0600, another owner, a link.
+func TestReadPrivateFileRefusals(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o600)
+	uid := ownerOf(t, good)
+	for _, mode := range []fs.FileMode{0o644, 0o640, 0o620, 0o400, 0o700} {
+		path := ownedFile(t, dir, mode.String(), mode)
+		_, _, err := ReadPrivateFile(path, 8, uid)
+		var me *ModeError
+		if !errors.As(err, &me) || me.Path != path || me.Mode != mode || !strings.Contains(err.Error(), path) {
+			t.Errorf("mode %o: %v, want a ModeError naming %s and the mode", mode, err, path)
+		}
+	}
+	_, _, err := ReadPrivateFile(good, 8, uid+1)
+	var oe *OwnerError
+	if !errors.As(err, &oe) || oe.Path != good || oe.UID != uid || oe.Want != uid+1 {
+		t.Errorf("another owner: %v, want an OwnerError naming the file, its owner and the one wanted", err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(good, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadPrivateFile(link, 8, uid); err == nil {
+		t.Fatal("a link was followed")
+	}
+}
+
 // TestReadOwnedTarget is ST3 for a name the distribution ships as a link: the link is followed
 // and the file it names is held to the same rules.
 func TestReadOwnedTarget(t *testing.T) {

@@ -6,13 +6,14 @@ import "testing"
 // and derivation checks cover these names too.
 func hostNames(t *testing.T) map[string][]string {
 	t.Helper()
-	names := map[string][]string{"ServerUnitTemplateFile": {ServerUnitTemplateFile}}
+	names := map[string][]string{"ServerUnitTemplateFile": {ServerUnitTemplateFile}, "TLSUnitTemplateFile": {TLSUnitTemplateFile}}
 	for _, s := range sampleTeams {
 		team := mustTeam(t, s)
 		for name, value := range map[string]string{
 			"UnitsRecord":               UnitsRecord(team),
 			"ServerNameFile":            ServerNameFile(team),
 			"ServerDropInFile":          ServerDropInFile(team),
+			"TLSDropInFile":             TLSDropInFile(team),
 			"HomeserverDatabase":        HomeserverDatabase(team),
 			"HomeserverBackups":         HomeserverBackups(team),
 			"HomeserverPrivateDatabase": HomeserverPrivateDatabase(team),
@@ -30,6 +31,7 @@ func hostZeroDerivations() map[string]func() string {
 		"UnitsRecord":               func() string { return UnitsRecord(team) },
 		"ServerNameFile":            func() string { return ServerNameFile(team) },
 		"ServerDropInFile":          func() string { return ServerDropInFile(team) },
+		"TLSDropInFile":             func() string { return TLSDropInFile(team) },
 		"HomeserverDatabase":        func() string { return HomeserverDatabase(team) },
 		"HomeserverBackups":         func() string { return HomeserverBackups(team) },
 		"HomeserverPrivateDatabase": func() string { return HomeserverPrivateDatabase(team) },
@@ -43,6 +45,8 @@ func TestHostNames(t *testing.T) {
 		UnitsRecord(team):               "/var/lib/teamchat-admin/ops/units.json",
 		ServerNameFile(team):            "/var/lib/teamchat-admin/ops/server-name",
 		ServerDropInFile(team):          "/etc/systemd/system/teamchat-server@ops.service.d/team.conf",
+		TLSDropInFile(team):             "/etc/systemd/system/teamchat-tls@ops.service.d/team.conf",
+		TLSUnitTemplateFile:             "/etc/systemd/system/teamchat-tls@.service",
 		HomeserverDatabase(team):        "/var/lib/teamchat/ops/db",
 		HomeserverBackups(team):         "/var/lib/teamchat/ops/backups",
 		HomeserverPrivateDatabase(team): "/var/lib/private/teamchat/ops/db",

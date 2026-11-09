@@ -61,9 +61,14 @@ func corpusFiles(t *testing.T, dir, ext string) []string {
 	}
 	var names []string
 	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ext); ok {
-			names = append(names, name)
+		name, ok := strings.CutSuffix(e.Name(), ext)
+		if !ok {
+			continue
 		}
+		if !e.Type().IsRegular() {
+			t.Fatalf("testdata/%s/%s is not a regular file", dir, e.Name())
+		}
+		names = append(names, name)
 	}
 	return names
 }
@@ -287,7 +292,7 @@ func TestTheWorkedAttackStaysOnOneBodyLine(t *testing.T) {
 
 func TestEscapeClassesCorpus(t *testing.T) {
 	type escapeCase struct {
-		CodePoints []rune `json:"codePoints"`
+		CodePoints []rune `json:"code_points"`
 		Rendered   string `json:"rendered"`
 	}
 	all := escapeCases()
@@ -331,7 +336,7 @@ type routingCase struct {
 	Reason   string `json:"reason,omitempty"`
 	Kind     string `json:"kind,omitempty"`
 	// FloodBefore is the admissions of the event's sender in the receive window before it.
-	FloodBefore int `json:"floodBefore,omitempty"`
+	FloodBefore int `json:"flood_before,omitempty"`
 }
 
 var outcomeNames = map[Outcome]string{Deliver: "deliver", Ignore: "ignore", Drop: "drop", Record: "record", Index: "index", Redact: "redact", Fault: "fault"}

@@ -1,12 +1,16 @@
 package declare
 
 import (
+	"strconv"
+
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// teamFileVersion is the `v` of `team.json` and of `approved.json`.
-const teamFileVersion = 1
+// teamFileVersion is the `v` of `team.json` and of `approved.json`. Version 2 holds `networks` where
+// version 1 held `listen` and `allow_from`; v2 of the bus is not deployed, so nothing migrates and a
+// version 1 file is refused.
+const teamFileVersion = 2
 
 // Input is one present team's declaration as `team apply` and `team approve` read it on stdin
 // (DR7): the team, its LXC entries, and the bus address its default URL came from.
@@ -99,9 +103,8 @@ func (t Team) members() []proto.Member {
 	members := []proto.Member{
 		proto.M(keyTeam, proto.Str(t.ID.String())), proto.M(keyName, proto.Str(t.Name)),
 		proto.M(keyServerName, proto.Str(t.ServerName)), proto.M(keyPort, proto.Int(int64(t.Port))),
-		proto.M(keyDescription, proto.Str(t.Description)), proto.M(keyListen, strArray(t.Listen)),
-		proto.M(keyAllowFrom, strArray(t.AllowFrom)), proto.M(keyURL, proto.Str(t.URL)),
-		proto.M(keyHumans, strArray(t.Humans)),
+		proto.M(keyDescription, proto.Str(t.Description)), proto.M(keyNetworks, strArray(t.Networks)),
+		proto.M(keyURL, proto.Str(t.URL)), proto.M(keyHumans, strArray(t.Humans)),
 	}
 	if t.Coordinator != "" {
 		members = append(members, proto.M(keyCoordinator, proto.Str(t.Coordinator)))
@@ -119,8 +122,28 @@ func (t Team) Canonical() []byte {
 }
 
 var teamFileKeys = []string{
-	keyVersion, keyTeam, keyName, keyServerName, keyPort, keyDescription, keyListen, keyAllowFrom,
+	keyVersion, keyTeam, keyName, keyServerName, keyPort, keyDescription, keyNetworks,
 	keyURL, keyHumans, keyTrust,
+}
+
+// fileVersion refuses a file whose `v` is not teamFileVersion, naming the version it has. It
+// reads `v` before the keys are judged, so a version 1 file is refused for its version and not
+// for the keys version 2 dropped. A file with no `v` is left to the key check.
+func fileVersion(n node) error {
+	v, ok := n.v.Get(keyVersion)
+	if !ok {
+		return nil
+	}
+	at := node{path: n.key(keyVersion).path, v: v}
+	ver, err := at.integer()
+	if err != nil {
+		return err
+	}
+	if ver != teamFileVersion {
+		return at.fail("is version " + strconv.FormatInt(ver, 10) + ", and only version " + strconv.Itoa(teamFileVersion) +
+			" is read: it holds networks where version 1 held listen and allow_from")
+	}
+	return nil
 }
 
 // DecodeTeamFile reads a `team.json` strictly (DR8).
@@ -129,12 +152,13 @@ func DecodeTeamFile(raw []byte) (Team, error) {
 	if err != nil {
 		return Team{}, err
 	}
-	f, err := node{path: "team.json", v: v}.object(teamFileKeys, keyCoordinator, keyColour)
-	if err != nil {
+	n := node{path: "team.json", v: v}
+	if err = fileVersion(n); err != nil {
 		return Team{}, err
 	}
-	if ver, verErr := f.at(keyVersion).integer(); verErr != nil || ver != teamFileVersion {
-		return Team{}, f.at(keyVersion).fail("is not 1")
+	f, err := n.object(teamFileKeys, keyCoordinator, keyColour)
+	if err != nil {
+		return Team{}, err
 	}
 	t := Team{State: StatePresent}
 	if t.ID, err = teamID(f.at(keyTeam)); err != nil {

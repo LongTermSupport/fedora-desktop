@@ -381,8 +381,8 @@ func (w *linkWorld) seatWith(id paths.TeamID, fill func(*state.Store)) *lock.Sea
 	check(w.t, err)
 	server := paths.ServerName(id)
 	b, err := seat.Bundle{
-		V: 1, Team: id, ServerName: server, UserID: agent(id), AdminID: "@admin:" + server,
-		MainRoom: mainRoom, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: id, ServerName: server, UserID: agent(id), AdminID: "@admin:" + server,
+		MainRoom: mainRoom, BaseURL: "http://127.0.0.1:8448",
 		DeviceID: paths.SeatDevice, IssuedMS: startWall, Issuer: issuer,
 	}.Encode()
 	check(w.t, err)

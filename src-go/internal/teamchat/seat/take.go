@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -40,6 +41,7 @@ const (
 	StateLost
 	StateNeedsReissue
 	StateRetired
+	StateNoRoster
 )
 
 // Take asks for one pool seat for one session.
@@ -70,6 +72,9 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err != nil {
 		return Taken{}, err
 	}
+	if err = s.pinTaken(bundle); err != nil {
+		return Taken{}, err
+	}
 	if err = s.clearHeld(ctx, t.Seat, pool); err != nil {
 		return Taken{}, err
 	}
@@ -94,13 +99,27 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	return Taken{Claim: claim, Dir: seat.Dir()}, nil
 }
 
+// pinTaken is step 1's homeserver: the pool seat.json must name the homeserver the checkout has
+// the team on (ErrHomeserverClash naming both when it does not), and a team with no record yet,
+// a pool seat that came by another route, is recorded now (Plan 00246 X8). It runs before held/
+// is made, so a refusal leaves nothing.
+func (s *Store) pinTaken(b Bundle) error {
+	p, err := s.pinOf(b)
+	if err != nil {
+		return err
+	}
+	return p.write()
+}
+
 // checkState is step 1's handle state; a retired seat's pool directory goes to quarantine
 // under a fresh claim id, its credential unlinked (n2c-D2), once its held/ is cleared as a take
 // clears it: a live holding is ErrHeld, an ended one is released first, so no live token goes
-// to quarantine.
+// to quarantine. A machine with no roster for the team (a member machine that does not run its
+// homeserver: StateNoRoster) takes like an active seat, and a refused login finds a parked or
+// reissued seat instead (Plan 00246 X11).
 func (s *Store) checkState(ctx context.Context, t Take, pool paths.PoolSeat) error {
 	switch t.State {
-	case StateActive:
+	case StateActive, StateNoRoster:
 		return nil
 	case StateParked, StateLost:
 		return fmt.Errorf("%w: %s", ErrReturn, t.Seat.Name)
@@ -273,7 +292,9 @@ func (s *Store) nextSince(seat Seat, session paths.SessionName) (int64, error) {
 }
 
 // mint is steps 3 and 4: the credential's token, then held/token and held/seat.json. A refused
-// login removes held/; any other failure leaves it naming a session that holds nothing.
+// login removes held/; any other failure leaves it naming a session that holds nothing, a
+// homeserver that gave no answer (ErrUnreachable, naming the URL) among them: the next take
+// clears it as it clears any holding of a session that is over (Plan 00246 X10).
 func (s *Store) mint(ctx context.Context, pool paths.PoolSeat, b Bundle, claim paths.ClaimID) ([]byte, Secret, error) {
 	h := HeldBundle{Bundle: b, Claim: claim}
 	releasedMS, released, err := s.releasedMS(pool)
@@ -294,6 +315,9 @@ func (s *Store) mint(ctx context.Context, pool paths.PoolSeat, b Bundle, claim p
 	token, err := s.credential.Mint(ctx, b, secret)
 	if errors.Is(err, ErrReissue) {
 		return nil, Secret{}, errors.Join(err, s.root.unlink(pool.HeldRecord()), s.root.rmdir(pool.Held()))
+	}
+	if errors.Is(err, matrix.ErrUnreachable) {
+		return nil, Secret{}, unreachable(b, err)
 	}
 	if err != nil {
 		return nil, Secret{}, err

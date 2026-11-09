@@ -2,6 +2,7 @@ package seat
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -25,7 +26,7 @@ func TestHoldingsOfNone(t *testing.T) {
 func TestHoldings(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	writeFile(t, w.store.store.PoolCheckoutRecord(w.key), `{}`)
+	w.writeRecord(fmt.Sprintf(recordFmt, w.hs.URL()))
 	taken := w.take("s1")
 	if err := os.Mkdir(w.pool().Dir()+".new-0123456789abcdef", 0o700); err != nil {
 		t.Fatal(err)

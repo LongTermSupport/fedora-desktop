@@ -24,9 +24,9 @@ teamchat_teams:
     state: present
     port: 8448
     description: "The team that builds the thing."
-    listen: [192.0.2.10]
-    allow_from:
+    networks:
       - 192.0.2.0/24
+      - 198.51.100.7/32
     humans: [alice, 'bob']
     coordinator: myrepo.1+desk.podman
     trust:
@@ -49,6 +49,20 @@ teamchat_element_teams:
   - team: alpha
 `
 
+// X25: the machine's site is a host_vars key, and an entry that names none takes it.
+func TestReadTheMachinesSite(t *testing.T) {
+	d, err := Read([]byte(strings.Replace(valid, "teamchat_address: 192.0.2.10\n", "teamchat_address: 192.0.2.10\nteamchat_site: desk\n", 1)))
+	if err != nil || d.Site != "desk" || d.LXC[0].Site != "desk" {
+		t.Fatalf("site %q, entry site %q, %v; want desk twice", d.Site, d.LXC[0].Site, err)
+	}
+	for _, bad := range []string{"Desk", "host-a.example.net", "true", "7", "''"} {
+		_, err = Read([]byte(strings.Replace(valid, "teamchat_address: 192.0.2.10\n", "teamchat_address: 192.0.2.10\nteamchat_site: "+bad+"\n", 1)))
+		if err == nil || !strings.Contains(err.Error(), "teamchat_site") {
+			t.Errorf("site %s: error %v, want a refusal naming teamchat_site", bad, err)
+		}
+	}
+}
+
 func TestReadValid(t *testing.T) {
 	d, err := Read([]byte(valid))
 	if err != nil {
@@ -58,7 +72,7 @@ func TestReadValid(t *testing.T) {
 		t.Fatalf("decoded %+v", d)
 	}
 	a := d.Teams[0]
-	if a.Port != 8448 || a.Humans[1] != "bob" || a.Listen[0] != "192.0.2.10" || a.URL != "http://192.0.2.10:8448" ||
+	if a.Port != 8448 || a.Humans[1] != "bob" || len(a.Networks) != 2 || a.Networks[1] != "198.51.100.7/32" || a.URL != "https://192.0.2.10:8448" ||
 		a.Trust.Repos[0].Branches[0] != "main" {
 		t.Fatalf("team %+v", a)
 	}

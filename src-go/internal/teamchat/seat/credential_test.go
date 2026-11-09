@@ -54,7 +54,7 @@ func TestATokenCredentialBehindTheSeam(t *testing.T) {
 	a := w.lock()
 	c, err := s.Claim(a, w.seat)
 	if err == nil {
-		err = c.Fill(Issued{Seat: w.bundle(), Kind: KindToken, Secret: mustSecret(t, token)})
+		err = c.Fill(t.Context(), Issued{Seat: w.bundle(), Kind: KindToken, Secret: mustSecret(t, token)})
 	}
 	w.unlock(a)
 	if err != nil {

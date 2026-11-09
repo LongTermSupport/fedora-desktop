@@ -64,6 +64,8 @@ type world struct {
 	statusRec       *status.Record
 	tarErr          error
 	tarServer       string
+	// tarCA is the CA files the tar holds (Plan 00246 X13); none is a backup without a CA.
+	tarCA []host.BackupFile
 
 	// fail names the effect that fails, each time it is called; hooks run after an effect.
 	fail  map[string]error
@@ -93,7 +95,7 @@ func newWorld(t *testing.T) *world {
 		fail: map[string]error{}, hooks: map[string]func(){}, unloadAfter: 2,
 	}
 	in, err := declare.DecodeInput([]byte(`{"team":{"team":"ops","state":"present","port":8448,"description":"d",` +
-		`"listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
+		`"networks":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
 		`"org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},"lxc_members":[],"address":"192.0.2.10"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +436,7 @@ func (w *world) tar(team paths.TeamID, n int64) (Tar, error) {
 	}
 	return Tar{
 		TimeMS: backupMS, ServerName: server, TeamFile: w.decl.Canonical(), Roster: w.backup,
-		Rooms: proto.RoomIDs{Main: "!m:x", Reports: "!r:x", Questions: "!q:x"}, Token: "tok",
+		Rooms: proto.RoomIDs{Main: "!m:x", Reports: "!r:x", Questions: "!q:x"}, Token: "tok", CA: w.tarCA,
 	}, nil
 }
 

@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 )
 
 // world is a directory the test owns, holding file, a link to it inside the directory, and a link
@@ -48,7 +51,7 @@ func TestReadByNameAndByFullPath(t *testing.T) {
 // a link that leads out.
 func TestWhatLeavesTheDirectoryIsRefused(t *testing.T) {
 	w := newWorld(t)
-	for _, name := range []string{"../outside", w.outside, "outlink", "/etc/hostname"} {
+	for _, name := range []string{"../outside", w.outside, "outlink", "/etc/os-release"} {
 		if got, err := readIn(w.dir, name); err == nil {
 			t.Errorf("readIn %s: %q", name, got)
 		}
@@ -121,5 +124,28 @@ func TestExecutableIsTheRunningTestBinary(t *testing.T) {
 	}
 	if !bytes.Equal(head, []byte("\x7fELF")) {
 		t.Errorf("the first bytes are %q", head)
+	}
+}
+
+// A name that is not a regular file is refused, never opened: a test reading what the code under
+// test left in a directory it found (a glob of run directories) must not hang on a named pipe
+// (#195). A link to a regular file inside the directory is still read.
+func TestWhatIsNotARegularFileIsRefused(t *testing.T) {
+	w := newWorld(t)
+	opened := fifotest.Plant(t, filepath.Join(w.dir, "pipe"))
+	linkOpened := fifotest.Plant(t, filepath.Join(w.dir, "linked"))
+	if err := os.Symlink("linked", filepath.Join(w.dir, "pipelink")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"pipe", "pipelink", "."} {
+		if data, err := Try(w.dir, name); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("Try %s: %q %v, want it refused as not a regular file", name, data, err)
+		}
+	}
+	if opened() || linkOpened() {
+		t.Fatal("a named pipe was opened")
+	}
+	if got := Read(t, w.dir, "inlink"); string(got) != "inside" {
+		t.Errorf("Read inlink: %q", got)
 	}
 }

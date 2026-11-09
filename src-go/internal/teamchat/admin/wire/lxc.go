@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -47,6 +48,7 @@ func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lx
 		Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
 		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: restore.Guard(root),
 		Kit: kit, HostKit: root + paths.HostKitDir(kit).String(), HostUIDs: uids, OwnerGID: gid, Bridge: Bridge,
+		BridgeNet: hostnet.Network{Proc: m.proc, BridgeName: Bridge}.Bridge,
 	}, nil
 }
 

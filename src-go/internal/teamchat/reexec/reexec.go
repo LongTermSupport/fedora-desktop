@@ -425,6 +425,11 @@ func (p *Process) kill() error {
 		return fmt.Errorf("reexec: the helper already ended: %s", describe(p.end))
 	}
 	err := unix.Kill(p.Pid, unix.SIGKILL)
+	// ESRCH: the child was reaped (someone else killed it) before its runner closed done, so
+	// its end, read below once done closes, says how it ended.
+	if errors.Is(err, unix.ESRCH) {
+		err = nil
+	}
 	p.once.Do(func() { err = errors.Join(err, p.stdin.Close()) })
 	<-p.done
 	if err != nil {

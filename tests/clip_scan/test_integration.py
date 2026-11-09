@@ -128,7 +128,7 @@ def touch(path: pathlib.Path, content: bytes = b"dummy") -> pathlib.Path:
 
 
 def dir_listing(path: pathlib.Path) -> dict[str, bytes]:
-    return {p.name: p.read_bytes() for p in sorted(path.iterdir())}
+    return {p.name: p.read_bytes() for p in sorted(path.iterdir()) if p.is_file()}
 
 
 def run_main(argv: list[str], capsys) -> tuple[int, str, str]:

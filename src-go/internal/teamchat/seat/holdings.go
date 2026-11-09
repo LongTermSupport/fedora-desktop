@@ -19,7 +19,8 @@ type Holding struct {
 }
 
 // Holdings lists every pool seat of the checkout with a held/, by team and seat name. The pool
-// is the owner's alone, so a name in it the store never makes is ErrInvalid, not skipped.
+// is the owner's alone, so a name in it the store never makes is ErrInvalid, not skipped; the
+// checkout record and the fresh copy its write leaves after a crash are names the store makes.
 func (s *Store) Holdings() ([]Holding, error) {
 	checkout := s.store.PoolCheckout(s.checkout)
 	teams, err := s.root.entries(checkout)
@@ -29,9 +30,10 @@ func (s *Store) Holdings() ([]Holding, error) {
 	if err != nil {
 		return nil, err
 	}
+	record := filepath.Base(s.store.PoolCheckoutRecord(s.checkout))
 	var out []Holding
 	for _, name := range teams {
-		if name == filepath.Base(s.store.PoolCheckoutRecord(s.checkout)) {
+		if name == record || name == record+replaceSuffix {
 			continue
 		}
 		team, err := paths.ParseTeamID(name)

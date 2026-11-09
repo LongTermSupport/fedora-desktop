@@ -219,7 +219,7 @@ func adminOn(t *testing.T, s tuwunelhs.Server, token string) *matrix.Admin {
 // memberOn is a member client of server s with token.
 func memberOn(t *testing.T, s tuwunelhs.Server, token string) *matrix.Client {
 	t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: s.Base, PlainHTTPHosts: []string{tuwunelhs.Loopback}, Token: token, Clock: tuwunelhs.Clock{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: s.Base, Token: token, Clock: tuwunelhs.Clock{}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -96,7 +96,7 @@ func (s *session) oneLink() {
 	s.w.t.Helper()
 	alive := 0
 	for _, pid := range s.links() {
-		if !gone(pid) {
+		if !gone(s.w.t, pid) {
 			alive++
 		}
 	}
@@ -275,7 +275,7 @@ func TestFailpointKeeperLinkWriting(t *testing.T) {
 	if st.Signal != syscall.SIGKILL || len(s.links()) != 1 {
 		t.Fatalf("the keeper ended %+v: %s", st, s.describe())
 	}
-	eventually(t, func() bool { return gone(s.links()[0]) }, s.describe)
+	eventually(t, func() bool { return gone(t, s.links()[0]) }, s.describe)
 	meanwhile := w.say("while no session ran")
 	again := w.seated()
 	if seen := again.receiveAll(map[string]int{}, meanwhile); seen[meanwhile] != 1 {
@@ -297,7 +297,7 @@ func TestFailpointRelaunchWhileTheLinkEnds(t *testing.T) {
 	}
 	link := s.links()[0]
 	again := w.seated()
-	eventually(t, func() bool { return gone(link) }, again.describe)
+	eventually(t, func() bool { return gone(t, link) }, again.describe)
 }
 
 // keeperKilled is a keeper's crash at its armed point: ended by SIGKILL, disconnected posted
@@ -315,7 +315,7 @@ func keeperKilled(t *testing.T, w *world, s *session) {
 		t.Fatalf("disconnected %d times: %s", n, s.describe())
 	}
 	for _, pid := range s.links() {
-		eventually(t, func() bool { return gone(pid) }, s.describe)
+		eventually(t, func() bool { return gone(t, pid) }, s.describe)
 	}
 }
 

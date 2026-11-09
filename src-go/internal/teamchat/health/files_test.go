@@ -40,7 +40,7 @@ func stampDoc(team string, appliedMS string) string {
 func installTeam(t *testing.T, root, team, name string) {
 	t.Helper()
 	doc := `{"team":{"team":"` + team + `","state":"present","name":"` + name + `","port":8448,"description":"d",` +
-		`"listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],"humans":["alice"],` +
+		`"networks":["192.0.2.0/24"],"humans":["alice"],` +
 		`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},` +
 		`"lxc_members":[],"address":"192.0.2.10"}`
 	in, err := declare.DecodeInput([]byte(doc))

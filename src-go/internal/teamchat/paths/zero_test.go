@@ -47,6 +47,8 @@ func zeroDerivations() map[string]func() string {
 		"ServerUnitDropIn":       func() string { return ServerUnitDropIn(team) },
 		"ServerRuntimeDirectory": func() string { return ServerRuntimeDirectory(team) },
 		"FenceUnit":              func() string { return FenceUnit(team) },
+		"TLSUnit":                func() string { return TLSUnit(team) },
+		"TLSUnitDropIn":          func() string { return TLSUnitDropIn(team) },
 		"FenceTable":             func() string { return FenceTable(team) },
 		"SessionUnit":            func() string { return SessionUnit(team, "/srv/checkouts/thing", 1) },
 		"GuestRuntimeDir":        func() string { return GuestRuntimeDir(SeatKey{}) },
@@ -62,6 +64,11 @@ func zeroDerivations() map[string]func() string {
 		"MigrationDir":           func() string { return MigrationDir(team) },
 		"FenceFile":              func() string { return FenceFile(team) },
 		"FirewallRecord":         func() string { return FirewallRecord(team) },
+		"TLSDir":                 func() string { return TLSDir(team) },
+		"CACertFile":             func() string { return CACertFile(team) },
+		"CAKeyFile":              func() string { return CAKeyFile(team) },
+		"LeafCertFile":           func() string { return LeafCertFile(team) },
+		"LeafKeyFile":            func() string { return LeafKeyFile(team) },
 		"CtlState":               func() string { return CtlState(team) },
 		"RosterFile":             func() string { return RosterFile(team) },
 		"RoomsFile":              func() string { return RoomsFile(team) },
@@ -138,6 +145,9 @@ func guardedTakers(t *testing.T) []string {
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 			continue
+		}
+		if !e.Type().IsRegular() {
+			t.Fatalf("%s is not a regular file", e.Name())
 		}
 		file, err := parser.ParseFile(fset, e.Name(), nil, 0)
 		if err != nil {

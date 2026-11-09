@@ -144,8 +144,8 @@ func (w *world) bundle(n int) seat.Bundle {
 	check(w.t, err)
 	server := paths.ServerName(w.team)
 	return seat.Bundle{
-		V: 1, Team: w.team, ServerName: server, UserID: userID(w.team, n), AdminID: "@admin:" + server,
-		MainRoom: room, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
+		V: seat.BundleVersion, Team: w.team, ServerName: server, UserID: userID(w.team, n), AdminID: "@admin:" + server,
+		MainRoom: room, BaseURL: "http://127.0.0.1:8448",
 		DeviceID: paths.SeatDevice, IssuedMS: 1_700_000_000_000, Issuer: issuer,
 	}
 }

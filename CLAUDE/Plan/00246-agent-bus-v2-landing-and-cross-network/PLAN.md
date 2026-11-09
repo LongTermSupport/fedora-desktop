@@ -98,9 +98,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   conflicts resolved by meaning, every gate re-run. Merged; the three branches are contained, and
   are deleted, locally and on GitHub, once F44 holds them (the remote delete is refused until
   then).
-- [ ] 🔄 **Task 8.8**: Cross-network membership (draft pull request 128, stacked on 124), direction 7 of Plan 00209, started on a branch
-  cut from the head of pull request 124 without waiting for its merge (the owner wants
-  cross-network teams as soon as possible): a team declares the networks its members may be on
+- [ ] 🔄 **Task 8.8** (branch `spike/v2-cross-network`, draft pull request 128, based on F44 since 124 merged on 2026-11-05; the
+  spec is [SPEC-cross-network.md](SPEC-cross-network.md), the code it starts from is mapped in
+  [RESEARCH-cross-network-code-map.md](RESEARCH-cross-network-code-map.md)): Cross-network
+  membership, direction 7 of Plan 00209, started on a branch cut from the head of pull request
+  124 without waiting for its merge (the owner wants cross-network teams as soon as possible): a
+  team declares the networks its members may be on
   as a list of CIDRs, the one source for its listen addresses, `allow_from`, the unit's IP
   filter, the firewall rules and the seat URL check; a seat is keyed on the homeserver URL;
   transport is TLS with the team's own CA pinned in the member bundle (plain HTTP only on
@@ -108,6 +111,28 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   hostname. These replace Plan 00209 Task 0.6's "plain HTTP only inside a mesh tunnel".
   The owner's decision 10 on pull request 124 asks for a detector for "a fake process made by
   running a tool under another name", once this task has started: it is issue 126.
+  State: S1 to S6, S7a, S8, S9 (`teamchat seat place-issued`) and S10 are built and committed on
+  the branch. S7b is built: the terminator (package `tlsterm`), its verb `teamchat tls`, the
+  project rule `project_transport_home` with the terminator as its third owner, and the unit
+  `teamchat-tls@` (its drop-in with the IP filter, the socket bind and the leaf as credentials;
+  the homeserver bound to loopback only; apply, serve and remove for the second unit, X18a to
+  X18c). The health tick reads the terminator unit's state and records a problem when it is not
+  active; a probe through the terminator is not built (X18c). S11 is built: Element's check and
+  apply say the CA must be trusted and where it is (X20; whether the Flatpak build honours an added
+  CA is unchecked), `docs/agent-bus-cross-network.md`, and X29's acceptance test. The owner's
+  slices after S11 (SPEC-cross-network.md section 6) are built, each in its own pull request
+  stacked on this one: S12 unattended leaf renewal (X31, #173), S13 a probe through the
+  terminator (X32, #176), S14 rotating the CA (X33, #177) and S15 Element trusts the CA through
+  the play (X34, #172). The coordinator's review of 128 (2026-11-07) found three things the
+  pull request called built that no production path reached, and they are fixed on this
+  branch: B1 the team backup carries the CA and a restore keeps it (backup manifest version 2);
+  B2 (S16) the production System serves the team CA, so https bundles can be issued; B3 both
+  teamchat drop-ins deny what they do not allow (`IPAddressDeny=any`, `SocketBindDeny=any`),
+  judged by `TestEveryUnitTextDeniesWhatItDoesNotAllow` and X29. S2 (the default url is https,
+  plain http only to a loopback address) and S3 (a url's port must be the team's) are fixed
+  too. Still open from that review: S1, S4 to S8 and the nits. Then X30, the second-machine run,
+  a host or VM-lab check that needs the host play and the launcher (the install path, #193
+  item 2), which the coordinator queues.
 
 ## Success Criteria
 
