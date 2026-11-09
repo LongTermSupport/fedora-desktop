@@ -142,7 +142,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   plain http only to a loopback address) and S3 (a url's port must be the team's) are fixed
   too. Still open from that review: S1, S4 to S8 and the nits. Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher (the install path, #193
-  item 2), which the coordinator queues.
+  item 2), which the coordinator queues. The lab's side of it is built on branch
+  `feat/vmtest-links` under fakes (SPEC-vmtest.md E67 to E73: `link-up`, `link-down`,
+  `member-up --link` and `--ram-mib`, the RAM check over every running guest, `member-address`,
+  `member-ssh --as`); `x30-triage.bash` is the read-only host run that shows which spelling of
+  libvirt's `udp` interface the host takes. The lab play's subnet input, the guest fixtures and
+  `x30-lab.bash` are not built.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

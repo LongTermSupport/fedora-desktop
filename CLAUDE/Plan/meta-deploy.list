@@ -44,3 +44,12 @@
 # state tars, media, disk headroom), the measurement the 14-day retention cap is judged against.
 # It changes nothing; this is its first run on the host (it was tried only on a fake tree).
 00249-agent-bus-retention
+
+# Plan 00246 Task 8.8 (the X30 VM lab): read-only host facts for the lab's new point-to-point
+# links, a libvirt `udp` interface between two rootless guests. It prints the domain a member
+# with such a NIC would have (virt-install --print-xml; no guest, disk or network is made),
+# checks it against libvirt's schema, converts it to the QEMU command line, and records the
+# virt-install, libvirt, QEMU and passt versions, the host's memory and the lab's disk, and the
+# routes the lab's subnets must avoid. It needs no sudo. Its report says which spelling of the
+# interface the host accepts, which is what the first `member-up --link` is built on.
+00246-agent-bus-v2-landing-and-cross-network/x30-triage.bash
