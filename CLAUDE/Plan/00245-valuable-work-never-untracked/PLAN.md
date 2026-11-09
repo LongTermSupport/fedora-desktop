@@ -145,6 +145,18 @@ the coordinator runs the full QA over and opens as one PR to F44
   (difftest `launch-go-cache-fails`). F44 with PR #189 merged in after it: ccy 3.113.4,
   container 2.80.1.
 
+The second batch, finished each on its own branch (the branch cap is full)
+([report](subagent-reports/261109-dormant-batch-2.md)):
+
+- [x] ✅ **Task 4.6**: Plan 00225, the team liaison (`plan-team-liaison-role`, plan only):
+  F44 merged in; retargeted to agent bus v2, since v1 is feature-frozen; review round 5's
+  blockers and the owner's Element input folded in; rounds 6-8 (CHANGES) fixed; round 9 MERGE.
+  Lands as a tracked Not Started plan. The same branch carries Task 4.7's plan record.
+- [ ] ⏸ **Task 4.7**: Plan 00194's compact before a cold wake
+  (`review/pingbus-compact-before-wake`): not finished, not wanted as built. It is a v1 feature,
+  and v1 is feature-frozen. Recorded as Plan 00194 Task 2.0j with its spec and reviews kept;
+  dropping the branch, and whether to carry the request into v2, are the owner's.
+
 ## Success Criteria
 
 - [ ] The triage's VALUABLE-UNTRACKED list is empty.
