@@ -181,18 +181,15 @@ while [ $# -gt 0 ]; do
         echo "warns every running ccy session (default 2 minutes, again at 1) and"
         echo "$ENDING"
         printf '%s\n' "" \
-            "On a desktop nothing a session does stops it: a session that cannot be warned" \
-            "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no" \
-            "container (still at ccy's startup prompts) are left out altogether. cc sessions" \
-            "(claude on the host) are named but never shown the warning: only the ccy" \
-            "supervisor shows it, so finish or hand off in those yourself. A failed" \
-            "update step, dnf included, is logged (journalctl -t shutdown-with-update) and" \
-            "the $MODE still happens." \
-            "On a server, or with --strict-sessions, a session that cannot be warned stops it" \
-            "before anything is updated, a failed dnf stops it, and a refused shutdown asks" \
-            "before forcing. A cc session never stops it, on either profile: it is named, not" \
-            "warned. Run it as yourself: it hands itself to sudo, which needs no" \
-            "password for the desktop user and these options."
+            "On a desktop nothing a session does stops it: one that cannot be warned is reported" \
+            "and the $MODE goes ahead, past any inhibitor. ccy sessions with no container (still" \
+            "at ccy's startup prompts) are left out. cc sessions (claude on the host) are named," \
+            "never warned (only the ccy supervisor shows it) and never stop it, on either profile:" \
+            "finish or hand off in those yourself. A failed update step, dnf included, is logged" \
+            "(journalctl -t shutdown-with-update) and the $MODE still happens. On a server, or" \
+            "with --strict-sessions, a session that cannot be warned stops it before anything is" \
+            "updated, a failed dnf stops it, and a refused shutdown asks before forcing. Run it as" \
+            "yourself: it hands itself to sudo, which needs no password for you and these options."
         exit 0
         ;;
     --strict-sessions)
