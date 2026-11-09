@@ -1,8 +1,7 @@
 # Install-path plan for X30: subagent report
 
-Branch `docs/install-path-plan` (from `origin/spike/v2-cross-network`, b3397868e), worktree
-`/workspace/.claude/worktrees/install-path-plan`. Docs only: no Go, Ansible or test change. Not
-pushed, not merged.
+Branch `docs/install-path-plan` (from `origin/spike/v2-cross-network`, b3397868e). Docs only: no
+Go, Ansible or test change.
 
 ## Files
 
