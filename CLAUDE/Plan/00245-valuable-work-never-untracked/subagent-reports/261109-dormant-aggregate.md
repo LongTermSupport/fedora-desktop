@@ -229,3 +229,88 @@ The next agent should run `qa-changed --base origin/F44` first.
   `../x` against the project root, ignoring an earlier `cd` in the same command, and blocked a
   write inside the worktree. The workaround was absolute paths.
 - Already logged: #146 and #215 (vault password in worktrees), #216 (qa-reviewer has no Write).
+
+## Continuation (third agent)
+
+All five branches are now handled: four in the aggregate, branch 2 left out for the owner. CCY at
+the end: **3.113.4, container 2.80.1** (one changelog entry, after F44's 3.113.1).
+
+### 0. QA over bc9b2e004 (the second agent's tip)
+
+`qa-changed --base origin/F44`: every gate passed except ansible-syntax, whose 4 playbooks fail
+only because a linked worktree has no vault password file (#146, #215).
+
+### 1. Branch 4 (ccy Go caches): done
+
+F44 has no `gocache` package and no `internal go-cache` command, so the branch was merged
+(fcc028cca). Its only container-facing code prints run arguments and starts no container, so
+`project_container_pids_limit` has nothing to judge there; the project-rule sweep over
+`internal/teams/...` (plain and `ccyteamstest`), `ccylaunch/...` and `cmd/...` is clean.
+
+- Launcher version line and changelog: folded into one entry.
+- `teams/app.go`: the aggregate's `chosen` chooser kept, `GoCache` added beside it.
+- `bash-limits.allowlist`: re-measured with `--update`; the launcher record went down.
+- 27 difftest goldens re-recorded with `-update`. Each was checked line by line to differ from
+  the aggregate's only by the `ccy-teams internal go-cache difftest-project` call and the bind
+  and `GOCACHE` arguments on the run (`:z` and the `z` argument in the SELinux-enforcing
+  scenario). That is the merged behaviour intended.
+
+Review round 5 (qa-reviewer, the merge's diff; CHANGES, no blocker: 2 medium, 1 low, 1 nit), all
+fixed in a062f10f5:
+
+- The Go-cache bullets landed under 3.105.0. The conflict's HEAD side spanned several entries,
+  so they had been appended at its end. They are now in the single new entry.
+- The `changed-plays` description now covers the Go caches.
+- The launcher's mount comment no longer names a docker volume.
+- `docs/ccy.md` gives a rootless-docker route for a foreign-owned file.
+
+Round 4's non-blocking items:
+
+- **Done:**
+  - N1: the deploy description.
+  - N2: `docs/ccy.md` says a running session can grow the caches past the bound until the
+    next launch.
+  - N4: the lock is tried with `LOCK_NB` first, and a launch that must wait says so on stderr.
+    `TestTheRealLockSaysWhenItMustWait` and `TestAWaitForTheProjectsLockIsSaidOnStderr` were
+    red first.
+  - N5, the launcher's stop: the new difftest scenario `launch-go-cache-fails` pins exit 1
+    with no session container.
+- **Left:**
+  - N3: the "not a cache ccy keeps" wording when a seat refills during a prune; practically
+    unreachable at 8 GiB.
+  - N5's other test gaps: `faultyFS` hides `ReadDirFS`, and the vanished-file test is a unit test.
+  - N6: recovery from a mode-000 directory, which needs a non-root host to verify.
+  - N7: the cost of the walk and of the `:z` relabel, which needs an Enforcing host. Owner or
+    host work.
+
+### 2. F44 merged again (886105eeb)
+
+origin/F44 had moved to 9fd2236ee (PR #189, arm64: CCY 3.113.1, container 2.80.1).
+
+- Conflicts: the launcher version line, the changelog and `meta-deploy.list`.
+- The container is F44's 2.80.1, since the aggregate changes no image file.
+- The changelog keeps F44's 3.113.1 and 3.113.0 below the aggregate's entry.
+- One `changed-plays` keeps both descriptions.
+- The commit hook refused the merge until CCY was bumped, so it is 3.113.4. The commit message
+  says 3.113.3, because it was written before the hook refused; the tree is right.
+
+### QA over the final tree
+
+`qa-changed --base origin/F44` over the final tree (at 886105eeb plus this plan's
+task tick, journal and this report): every gate passed except ansible-syntax, for the same
+missing vault password file. That includes go-qa over both modules in diff mode, docs and
+every suite it routed. `go test` passed for `teams/...`, `ccylaunch/...` (difftest included)
+and `engine`, as did `golangci-lint` on the changed packages (0 issues) and `qa-bash-limits`.
+
+### For the coordinator and the owner
+
+- The coordinator's `qa-all` in the main checkout covers ansible-syntax.
+- Host run: `changed-plays` in `meta-deploy.list` (play-claude-yolo.yml among them) carries all
+  of it; Plan 00177 Task 7.9 is the owner's host test.
+- Task 4.3 (umask pin) is still the owner's decision.
+- **To log (dogfooding):** the secret-path guard blocks a Bash command that merely greps a QA
+  log for the vault password file's *name* (`R-SECRET-BASH-MENTION`), so a check of why
+  ansible-syntax failed has to avoid naming the file. The same false-positive family as the
+  second agent's note.
+- **To log:** the CCY bump hook demands a new version on a merge commit even when the merged
+  version is already above both parents, so each F44 merge burns a version number.

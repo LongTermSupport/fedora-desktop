@@ -138,7 +138,12 @@ the coordinator runs the full QA over and opens as one PR to F44
   `var` local); round 3 (CHANGES, one medium) fixed: the graph asked `Kind == KindCcy`, now a
   class held by the new rule `project_session_kind`, and F44's duplicate `kindWord` is gone.
   The rules met F44's code: `lxccmd.GuestError.Exit` is the guest's own status, an `int`.
-- [ ] ⬜ **Task 4.5**: ccy Go caches on the host (`agent-ad49d4886a70d25db-01b66214`).
+- [x] ✅ **Task 4.5**: ccy Go caches on the host (`agent-ad49d4886a70d25db-01b66214`): F44
+  had no go-cache command, so merged (fcc028cca), the 27 difftest goldens re-recorded and
+  checked to differ only by the go-cache call and its bind. Review round 5 (CHANGES, no
+  blocker) fixed, with round 4's N1, N2, N4 (a wait for the project's lock is said) and N5
+  (difftest `launch-go-cache-fails`). F44 with PR #189 merged in after it: ccy 3.113.4,
+  container 2.80.1.
 
 ## Success Criteria
 
