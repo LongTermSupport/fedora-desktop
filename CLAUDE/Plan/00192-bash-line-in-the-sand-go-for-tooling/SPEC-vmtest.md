@@ -278,7 +278,7 @@ The tests cite these numbers.
   Then comes the RAM ceiling: a guest may have at most 75% of the host's memory (MemTotal of
   `/proc/meminfo`). A refusal is
   `the host cannot carry a run on <name> (stage: clone): guest <ram> MiB exceeds the <ceiling> MiB ceiling of a <host> MiB host`.
-  The disk is the guard's alone (E64).
+  The running lab guests' memory counts as well (E70). The disk is the guard's alone (E64).
 
 - E34. The run id is `<UTC %Y%m%dT%H%M%SZ>-<id>`, the directory is `runs/<run-id>`, and the domain
   is `vmtest-run-<run-id>`. The overlay is `qemu-img create -q -f qcow2 -F qcow2 -b <base>`, and

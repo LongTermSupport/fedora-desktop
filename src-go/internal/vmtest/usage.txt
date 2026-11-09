@@ -57,7 +57,8 @@ pass keeps its overlay (up to 20 GiB) for diagnosis until prune-runs removes it.
 Before anything else, `run` and `member-up` refuse when the lab's filesystem has less
 than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
 ensure-base, refresh-base) less than 26 GiB (the same and 4 GiB of install media),
-saying what `vmtest prune-runs` would free.
+saying what `vmtest prune-runs` would free. They also refuse a guest that, with the memory of every
+running lab guest, would pass 75% of the host's memory.
 
 Every wait for a booted guest to answer SSH (build, run, member-up) is bounded by
 VMTEST_SSH_WAIT_TIMEOUT seconds (default 600, up to 86400); raise it on a busy host.

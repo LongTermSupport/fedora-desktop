@@ -66,3 +66,67 @@ func TestE69MemberRAMUsage(t *testing.T) {
 		}
 	}
 }
+
+// E70: the RAM check of a member and of a run counts every running lab guest beside this one, and
+// a guest whose memory cannot be read is a failure, never zero.
+func TestE70RAMCountsEveryGuest(t *testing.T) {
+	k := memberKit(t)
+	k.hostMiB = 10000 // the ceiling is 7500
+	k.lv.domains = []string{"vmtest-member-x"}
+	k.lv.mem = map[string]int{"vmtest-member-x": 4096}
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("ERROR: the host cannot carry a member on server-fast-44: guests 4096 MiB and this 4096 MiB exceed the 7500 MiB ceiling of a 10000 MiB host")
+	if k.count("virt-install") != 0 || k.exists("members/m1") {
+		t.Fatal("a member past the sum was booted")
+	}
+	if k.count("dominfo vmtest-member-x") != 1 {
+		t.Fatalf("calls %v", k.lines("virsh"))
+	}
+
+	// the sum may reach the ceiling: 4096 and 3404 are 7500
+	k.wantCode(k.run("member-up", "m1", "server-fast", "--ram-mib", "3404"), term.ExitOK)
+
+	// every guest is counted: two of 2048 and this 4096 are 8192
+	k = memberKit(t)
+	k.hostMiB = 10000
+	k.lv.domains = []string{"vmtest-member-x", "vmtest-member-y"}
+	k.lv.mem = map[string]int{"vmtest-member-x": 2048, "vmtest-member-y": 2048}
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("guests 4096 MiB and this 4096 MiB exceed the 7500 MiB ceiling")
+
+	// a domain that is not the lab's is not counted
+	k = memberKit(t)
+	k.hostMiB = 10000
+	k.lv.domains = []string{"other-guest"}
+	k.lv.mem = map[string]int{"other-guest": 8000}
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitOK)
+	if k.count("dominfo") != 0 {
+		t.Fatalf("a domain outside the lab was asked about: %v", k.lines("virsh"))
+	}
+
+	k = memberKit(t)
+	k.lv.domains = []string{"vmtest-member-x"}
+	k.lv.infoFails = true
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("ERROR: the host cannot carry a member on server-fast-44: cannot read the memory of vmtest-member-x:")
+	if k.count("virt-install") != 0 {
+		t.Fatal("a member was booted though a guest's memory could not be read")
+	}
+
+	k = memberKit(t)
+	k.lv.domains = []string{"vmtest-member-x"}
+	k.lv.infoText = "Name: vmtest-member-x\n"
+	k.wantCode(k.run("member-up", "m1", "server-fast"), term.ExitFailure)
+	k.wantErr("cannot read the memory of vmtest-member-x: no 'Max memory' line")
+
+	// a run counts the guests too
+	k = runKit(t, "pass")
+	k.hostMiB = 10000
+	k.lv.domains = []string{"vmtest-member-x"}
+	k.lv.mem = map[string]int{"vmtest-member-x": 4096}
+	k.wantCode(k.run("run", "server-fast-provision"), term.ExitFailure)
+	k.wantErr("ERROR: the host cannot carry a run on server-fast-44 (stage: clone): guests 4096 MiB and this 4096 MiB exceed the 7500 MiB ceiling of a 10000 MiB host")
+	if k.exists("runs/"+runID) || k.count("qemu-img") != 0 {
+		t.Fatal("cloned past the sum")
+	}
+}

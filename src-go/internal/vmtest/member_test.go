@@ -27,6 +27,11 @@ type libvirt struct {
 	state     string
 	virtFails bool
 	console   string
+	// mem is a domain's memory in MiB for dominfo, 4096 when it has no entry; infoText, when set,
+	// is what dominfo prints instead, and infoFails makes it fail.
+	mem       map[string]int
+	infoText  string
+	infoFails bool
 }
 
 func (k *kit) withLibvirt() *libvirt {
@@ -39,6 +44,18 @@ func (k *kit) withLibvirt() *libvirt {
 			return execx.Result{Stdout: []byte(strings.Join(lv.domains, "\n") + "\n")}, nil
 		case "domstate":
 			return execx.Result{Stdout: []byte(lv.state + "\n")}, nil
+		case "dominfo":
+			if lv.infoFails {
+				return execx.Result{Stderr: []byte("error: failed to get domain\n"), ExitCode: 1}, nil
+			}
+			if lv.infoText != "" {
+				return execx.Result{Stdout: []byte(lv.infoText)}, nil
+			}
+			mib, ok := lv.mem[args[len(args)-1]]
+			if !ok {
+				mib = 4096
+			}
+			return execx.Result{Stdout: []byte("Name:           " + args[len(args)-1] + "\nMax memory:     " + strconv.Itoa(mib*1024) + " KiB\nUsed memory:    1024 KiB\n")}, nil
 		case "undefine":
 			lv.domains = slices.DeleteFunc(lv.domains, func(d string) bool { return d == args[len(args)-1] })
 		}

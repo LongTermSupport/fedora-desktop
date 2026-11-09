@@ -319,7 +319,7 @@ func (c *cli) memberUp(ctx context.Context, l *lab, got memberUpArgs, nics []mem
 	if err = os.MkdirAll(l.at(membersDir), 0o755); err != nil {
 		return failf("cannot create %s: %v", l.at(membersDir), err)
 	}
-	if err = c.ramFloor(b.RAMMiB); err != nil {
+	if err = c.ramBudget(ctx, b.RAMMiB); err != nil {
 		return failf("the host cannot carry a member on %s: %v", b.Name, err)
 	}
 	if err = os.MkdirAll(dir, 0o755); err != nil {
