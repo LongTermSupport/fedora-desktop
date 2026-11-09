@@ -346,12 +346,16 @@ func TestThePublicAllowlistRemovesAStoredTerm(t *testing.T) {
 
 const logOut = "\x01aaaaaaaaaaaaaaaa\x1fsubject\n\nbody mentions zebra-billing\n\x02\n" + diff
 
+// A pushed commit is scanned only if the remote being pushed to does not already hold it: a
+// branch's old remote tip is not enough, since a commit F44 published since then is public
+// through F44, and a ref under refs/remotes/ that is not this remote's (a local archive) is no
+// proof of publication.
 func TestPushScansEachNewCommitRange(t *testing.T) {
 	logKey := "git log -p -U0 --no-color --no-ext-diff --format=" + LogFormat + " "
 	answers := map[string]proc.Result{
-		"pingbus status":                {Stdout: status},
-		logKey + "bbbb..cccc":           {Stdout: logOut},
-		logKey + "dddd --not --remotes": {Stdout: ""},
+		"pingbus status": {Stdout: status},
+		logKey + "cccc --not --remotes=origin bbbb": {Stdout: logOut},
+		logKey + "dddd --not --remotes=origin":      {Stdout: ""},
 	}
 	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + zeroID + "\nrefs/heads/gone " + zeroID + " refs/heads/gone eeee\n"
 	r := newRig(true, answers, files{}, stdin)
@@ -362,6 +366,22 @@ func TestPushScansEachNewCommitRange(t *testing.T) {
 		if !strings.Contains(r.text(), want) {
 			t.Errorf("%q missing from %s", want, r.text())
 		}
+	}
+}
+
+// Pushed to a URL rather than a named remote, there are no remote-tracking refs of its own: an
+// existing branch is scanned from its remote tip, and a new one against every remote-tracking ref.
+func TestPushToAURLScansFromTheRemoteTip(t *testing.T) {
+	logKey := "git log -p -U0 --no-color --no-ext-diff --format=" + LogFormat + " "
+	answers := map[string]proc.Result{
+		"pingbus status":                {Stdout: status},
+		logKey + "cccc --not bbbb":      {Stdout: logOut},
+		logKey + "dddd --not --remotes": {Stdout: ""},
+	}
+	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + zeroID + "\n"
+	r := newRig(true, answers, files{}, stdin)
+	if code := r.run("push", "git@example.com:org/repo.git", "git@example.com:org/repo.git"); code != ExitFindings {
+		t.Fatalf("exit %d: %s", code, r.text())
 	}
 }
 
