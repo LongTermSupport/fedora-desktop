@@ -6,7 +6,11 @@ import "testing"
 // and derivation checks cover these names too.
 func hostNames(t *testing.T) map[string][]string {
 	t.Helper()
-	names := map[string][]string{"ServerUnitTemplateFile": {ServerUnitTemplateFile}, "TLSUnitTemplateFile": {TLSUnitTemplateFile}}
+	names := map[string][]string{
+		"ServerUnitTemplateFile": {ServerUnitTemplateFile}, "TLSUnitTemplateFile": {TLSUnitTemplateFile},
+		"HealthServiceFile": {HealthServiceFile}, "HealthTimerFile": {HealthTimerFile},
+		"BackupServiceFile": {BackupServiceFile}, "BackupTimerFile": {BackupTimerFile},
+	}
 	for _, s := range sampleTeams {
 		team := mustTeam(t, s)
 		for name, value := range map[string]string{
@@ -51,6 +55,10 @@ func TestHostNames(t *testing.T) {
 		HomeserverBackups(team):         "/var/lib/teamchat/ops/backups",
 		HomeserverPrivateDatabase(team): "/var/lib/private/teamchat/ops/db",
 		ServerUnitTemplateFile:          "/etc/systemd/system/teamchat-server@.service",
+		HealthServiceFile:               "/etc/systemd/system/teamchat-health.service",
+		HealthTimerFile:                 "/etc/systemd/system/teamchat-health.timer",
+		BackupServiceFile:               "/etc/systemd/system/teamchat-backup.service",
+		BackupTimerFile:                 "/etc/systemd/system/teamchat-backup.timer",
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)

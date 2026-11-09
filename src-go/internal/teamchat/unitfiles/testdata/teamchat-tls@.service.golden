@@ -1,0 +1,44 @@
+[Unit]
+Description=v2 team TLS terminator %i
+StartLimitIntervalSec=0
+After=teamchat-server@%i.service
+Wants=teamchat-server@%i.service
+# stop after the LXC members at shutdown, as the homeserver does: their goodbyes reach it through this unit
+Before=lxc.service
+
+[Service]
+Restart=always
+RestartSec=5s
+RestartSteps=5
+RestartMaxDelaySec=60s
+DynamicUser=yes
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivatePIDs=yes
+PrivateIPC=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAccounting=yes
+IPAddressDeny=any
+SocketBindDeny=any
+LimitNOFILE=576
+InaccessiblePaths=-/run/dbus
+InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
