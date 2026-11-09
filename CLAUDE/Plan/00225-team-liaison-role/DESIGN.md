@@ -382,12 +382,15 @@ human's event, bound to a question the coordinator itself handed over, never fro
     entry Task 0.1 finds are bound `ro` over it from the checkout's copies, which the liaison
     cannot write. The liaison never builds a virtualenv: the daemon's is an editable install of
     `.claude/hooks-daemon/src`, and building it writes into `src/`, which is `ro` for the liaison.
-    If that virtualenv is missing or stale at launch (another seat's launch or the host builds
-    it), the liaison launch is refused, naming it. The per-seat root is created `0700`, since the
-    daemon writes its transcript archives world-writable and the launcher's permission repair
-    covers only the checkout. Directory-level, never per
-    file, so it does not depend on names known only after the container exists or on a daemon
-    upgrade's file list;
+    Which virtualenv to bind, and whether it is usable, is the daemon's own resolver's answer
+    (its stdlib-runnable path module, run under the image's Python with the checkout `ro`): the
+    one it would select without a rebuild. Go never reimplements that rule (the daemon's own word
+    "stale" means something else: safe to remove). If the resolver would build or rebuild, the
+    liaison launch is refused, naming the virtualenv it wants; another seat's launch or the host
+    builds it. The per-seat root is created `0700`, since the daemon writes its transcript
+    archives world-writable and the launcher's permission repair covers only the checkout.
+    Directory-level, never per file, so it does not depend on names known only after the
+    container exists or on a daemon upgrade's file list;
   - **its scratch**: a per-seat directory mounted over `untracked/scratch/`.
 
   At every liaison launch the launcher (in Go, new: `ccy-teams internal launch-mounts`) wipes
@@ -471,8 +474,8 @@ human's event, bound to a question the coordinator itself handed over, never fro
   directory-level shape as LZ17: a per-member state directory bound over the daemon's
   `untracked/` and over `untracked/scratch/` (created `0700` by the apply before the unit
   starts), with `bin/`, the guest's daemon virtualenv and the other executable entries in
-  `BindReadOnlyPaths=` (a missing or stale virtualenv fails the apply, naming it); it removes them otherwise; a role
-  change restarts the unit (the apply reports it). No SSH keys or write token are placed in a
+  `BindReadOnlyPaths=` (a virtualenv the daemon's resolver would build or rebuild fails the
+  apply, naming it, as in LZ17); it removes them otherwise; a role change restarts the unit (the apply reports it). No SSH keys or write token are placed in a
   liaison guest's home (LZ17a). Plus LZ15's guard. The liaison reads the code of its own
   checkout only; other repositories' code is LD7.
 
@@ -513,18 +516,18 @@ reverse that ruling first; LD1 puts it to the owner only in that form.
 
 ## 8. Where each piece lives in v2
 
-| Requirement                                                                  | v2 code                                                                                                                           |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| role `liaison`, at most one, needs a coordinator; sender-class rules (LZ1-4) | `proto` (roster roles, the sender-class table), `declare` and `apply` (`role apply` refusals)                                     |
+| Requirement                                                                  | v2 code                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| role `liaison`, at most one, needs a coordinator; sender-class rules (LZ1-4) | `proto` (roster roles, the sender-class table), `declare` and `apply` (`role apply` refusals)                                                                                                       |
 | questions-room membership and outcomes (LZ4a, LZ9)                           | `proto/rooms.go` (`questionsSpec` gains the liaison), `proto.SyncFilter` (the liaison syncs questions and the reports timeline; unchanged with no liaison), the member's question fold and delivery |
-| `relays`, `handoff`, `handed-off`, `liaison_note`, `mirror` keys (LZ5-LZ7b)  | `proto` content keys and their grammar; `member/cli` verbs `relay`, `ask --handoff/--update/--direct`, `handoffs`, `verify-human` |
-| the receiver's check and the envelope's `relays:` block (LZ6)                | `member/deliver` and the envelope text, built on `verify`'s fetch                                                                 |
-| the quiet store, `liaison.json`, the keeper's relay wake (LZ9-LZ11)          | `member/state`, `member/keeper`, `member/teamsync`                                                                                |
-| reports history for the liaison (LZ12)                                       | `member/cli` (`history --room reports`, liaison only)                                                                             |
-| the guard (LZ15, LZ16)                                                       | the shared `Decide` package (Plan 00222), in the member kit                                                                       |
-| ccy mounts and credentials (LZ17, LZ17a), board and menus (LZ22)             | `ccy-teams internal launch-mounts` (new), the ccy launcher's Go front, `teams` board                                                    |
-| LXC binds (LZ20)                                                             | `host/lxc` apply                                                                                                                  |
-| role and session-start text (LZ23)                                           | `member/hooktext`                                                                                                                 |
+| `relays`, `handoff`, `handed-off`, `liaison_note`, `mirror` keys (LZ5-LZ7b)  | `proto` content keys and their grammar; `member/cli` verbs `relay`, `ask --handoff/--update/--direct`, `handoffs`, `verify-human`                                                                   |
+| the receiver's check and the envelope's `relays:` block (LZ6)                | `member/deliver` and the envelope text, built on `verify`'s fetch                                                                                                                                   |
+| the quiet store, `liaison.json`, the keeper's relay wake (LZ9-LZ11)          | `member/state`, `member/keeper`, `member/teamsync`                                                                                                                                                  |
+| reports history for the liaison (LZ12)                                       | `member/cli` (`history --room reports`, liaison only)                                                                                                                                               |
+| the guard (LZ15, LZ16)                                                       | the shared `Decide` package (Plan 00222), in the member kit                                                                                                                                         |
+| ccy mounts and credentials (LZ17, LZ17a), board and menus (LZ22)             | `ccy-teams internal launch-mounts` (new), the ccy launcher's Go front, `teams` board                                                                                                                |
+| LXC binds (LZ20)                                                             | `host/lxc` apply                                                                                                                                                                                    |
+| role and session-start text (LZ23)                                           | `member/hooktext`                                                                                                                                                                                   |
 
 The exact files are Phase 0's (Task 0.2): this table names the packages as they stand on F44.
 Plan 00209's design documents (A, B, C) describe v2; this plan does not edit them. Task 7.2 sends

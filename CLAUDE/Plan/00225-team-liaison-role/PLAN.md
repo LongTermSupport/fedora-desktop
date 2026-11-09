@@ -1,6 +1,6 @@
 # Plan 00225: team liaison role
 
-**Status**: Not Started (plan only; retargeted to agent bus v2, `teamchat`, since v1 is feature-frozen; the blockers of review rounds 5-7 and the owner's Element input are folded in, review in [subagent-reports/](subagent-reports/); decisions LD1-LD13 carry coordinator defaults the owner may change; no real team can use it before Plan 00209 Phase 6 migrates it to v2)
+**Status**: Not Started (plan only; retargeted to agent bus v2, `teamchat`, since v1 is feature-frozen; review ended MERGE at round 9 with every earlier blocker fixed and the owner's Element input folded in, reports in [subagent-reports/](subagent-reports/); decisions LD1-LD13 carry coordinator defaults the owner may change; no real team can use it before Plan 00209 Phase 6 migrates it to v2)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -103,7 +103,7 @@ Every build task is test first: the failing test is committed or recorded before
     found by launching one with the checkout `ro` and logging each `EROFS`, each classified by
     LZ17's rule (anything executed is configuration even when written at run time): every entry
     of `.claude/ccy/` and of the hooks daemon's `untracked/` (`bin/hooks-relay` and the virtualenvs
-    configuration; sockets, pid and lock files, logs and ledgers state), and the files the
+    configuration; everything else state, as DESIGN LZ17 lists), and the files the
     entrypoint writes at launch listed;
   - that the hooks daemon starts and hooks fire with a per-seat directory mounted over its
     `untracked/` and `bin/` and the container virtualenv bound `ro` over that, that the daemon
@@ -232,7 +232,8 @@ Every build task is test first: the failing test is committed or recorded before
   own session state), with the project's tracked launch files bound `ro` from the checkout over
   it and `ccy.env.local`'s `ro` bind; per-seat daemon state and per-seat scratch, each mounted
   at directory level (root `0700`) with `bin/` and the checkout's container virtualenv bound `ro`
-  over it, and a missing or stale virtualenv refusing the launch (LZ17).
+  over it, chosen by the daemon's own resolver, and a virtualenv the resolver would build or
+  rebuild refusing the launch (LZ17).
   Every per-seat directory is wiped at each liaison launch except its named state allowlist, and
   the launcher's reads of the restart request, `config.json`, `sessions/` and
   `.last-launch.conf` point at the per-seat directory while `mounts`, `ccy.env.local`,
@@ -242,7 +243,8 @@ Every build task is test first: the failing test is committed or recorded before
   `CAP_SYS_ADMIN` from every set and sets `no_new_privs` before `exec`, and the launcher adds
   `--cap-add SYS_ADMIN` for a liaison seat only. Tests first, on a fixture, for a liaison launch:
   each destination and its options are pinned; the hooks daemon starts and hooks fire in a
-  liaison container built this way; no configuration path is writable once the session starts (the
+  liaison container built this way; the per-seat root is `0700`; a virtualenv the resolver would
+  rebuild refuses the launch, naming it; no configuration path is writable once the session starts (the
   project's `.claude/settings*`, hooks and daemon config, `bin/hooks-relay` and the shared
   virtualenvs, the project's `untracked/`, and the tracked `claude-supervise*`, `mounts`,
   `ccy.env`, `Dockerfile` and `allowed-hostnames`); no other seat's transcript or session is
@@ -262,9 +264,9 @@ Every build task is test first: the failing test is committed or recorded before
   in Go with tests.
 - [ ] ⬜ **Task 5.4**: v2's LXC apply: tests on the rendered unit come first. The unit gets
   `BindReadOnlyPaths=` for the checkout and the executables, and directory-level `BindPaths=` of
-  the per-member state directories (created before the unit starts), for a liaison and none
-  otherwise; a role change
-  restarts the unit and the apply says so (LZ20).
+  the per-member state directories (created `0700` before the unit starts), for a liaison and
+  none otherwise; a guest virtualenv the resolver would rebuild fails the apply, naming it; a
+  role change restarts the unit and the apply says so (LZ20).
 - [ ] ⬜ **Task 5.5**: For `cc --teams` launched as the liaison, Go computes
   `--disallowedTools Edit Write NotebookEdit` (LZ19). The launchers do not grow.
 
@@ -395,3 +397,5 @@ Every build task is test first: the failing test is committed or recorded before
   writes into the read-only `src/`. Fixed: the checkout's container virtualenv is bound `ro`, a
   missing or stale one refuses the launch; the daemon's non-executable directories are per-seat
   state; the per-seat root is `0700`.
+- Round 9: **MERGE**, no blocker. Its should-fix (the daemon's own resolver, not Go, decides
+  which virtualenv is usable) and four minor findings are folded in.
