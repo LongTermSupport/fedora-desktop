@@ -3,11 +3,14 @@ package ghscopes
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qatrees"
 )
 
 // excludes are the rule's own paths.exclude globs: files semgrep drops without saying so.
@@ -23,23 +26,42 @@ func (e excludes) matches(path string) bool {
 	return false
 }
 
-// scope is what the gate leaves unread on purpose.
+// scope is what the gate leaves unread on purpose: every file scripts/qa-trees.tsv keeps out of
+// all gates (the daemon-deployed files, vendored trees, the semgrep fixtures), which is never
+// handed to semgrep, and the files the rule's own excludes drop, which semgrep drops itself. The
+// table is the one list of trees that are not ours; a rule's excludes name only what is
+// particular to that rule (qa-trees-drift, issue #217).
 type scope struct {
-	rule excludes
+	repo  fs.FS
+	trees qatrees.Table
+	rule  excludes
 }
 
-// loadScope reads what the gate leaves out.
+// loadScope reads the trees table and the rule's excludes.
 func (g *gate) loadScope() (scope, error) {
+	repo := os.DirFS(g.root)
+	trees, err := qatrees.Load(repo)
+	if err != nil {
+		return scope{}, err
+	}
 	rule, err := g.readRule()
 	if err != nil {
 		return scope{}, err
 	}
-	return scope{rule: rule}, nil
+	return scope{repo: repo, trees: trees, rule: rule}, nil
+}
+
+// notOurs is whether the trees table keeps the published file rel out of every gate.
+func (s scope) notOurs(rel string) (bool, error) {
+	return s.trees.ExcludesFile(s.repo, rel)
 }
 
 // leavesOut is whether the gate leaves the published file rel unread on purpose.
-func (s scope) leavesOut(rel string) bool {
-	return s.rule.matches(rel)
+func (s scope) leavesOut(rel string) (bool, error) {
+	if s.rule.matches(rel) {
+		return true, nil
+	}
+	return s.notOurs(rel)
 }
 
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.

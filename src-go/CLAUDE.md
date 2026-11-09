@@ -466,7 +466,8 @@ the refusal to pass over a script semgrep did not read or parse. git and semgrep
 
 `qa/ghscopes` + `qa/cmd/qa-gh-scopes` (same nested module) are `scripts/qa-gh-scopes.bash`, the
 `gh-scope-outside-ssot` gate: semgrep stays the engine and `.semgrep/gh-scopes.yml` the data; the
-Go owns scope (what git would publish, handed by name), the rule self-test against its fixture and
+Go owns scope (what git would publish, handed by name, minus what `scripts/qa-trees.tsv` keeps
+out of every gate, read through `qa/internal/qatrees`), the rule self-test against its fixture and
 the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
 which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification. The same engine,
 given its `FindRace` spec, is `qa/cmd/qa-find-race` and `scripts/qa-find-race.bash`, the gate for

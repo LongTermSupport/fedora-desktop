@@ -240,6 +240,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		".claude/provision.sh",
 		".claude/skills/hooks-daemon/scripts/x.sh",
 		".claude/skills/docs-qa/scripts/x.sh",
+		".claude/skills/docs-optimise/scripts/footprint.sh",
 		".claude/hooks/status-line",
 		".claude/hooks/pre-tool-use",
 		"src-go/vendor/golang.org/x/sys/unix/mkall.sh",

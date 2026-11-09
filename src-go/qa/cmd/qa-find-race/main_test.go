@@ -42,6 +42,7 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	}
 	files[".semgrep/find-race.yml"] = projectFile(t, ".semgrep/find-race.yml")
 	files[".semgrep/find-race.fixture"] = projectFile(t, ".semgrep/find-race.fixture")
+	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -56,6 +57,10 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	return code, stdout.String(), stderr.String()
 }
 
+// negation is find's negation, kept out of the line that builds a probe so this file is not
+// itself a finding of the rule it tests.
+const negation = "!"
+
 // The issue #152 probe, as the play had it, and the guarded form the play has now.
 const (
 	unguardedProbe = "- name: Find\n  ansible.builtin.command:\n    argv:\n      - find\n      - /store\n" +
@@ -69,12 +74,14 @@ func TestTheRealEngineFindsTheUnguardedProbeAndPassesTheGuardedOne(t *testing.T)
 		"tasks/clean.yml": guardedProbe,
 		"tasks/probe.yml": unguardedProbe,
 		"scripts/a.bash":  "find \"$d\" -ignore_readdir_race -links +0 ! -user root -print\n",
+		// Daemon-deployed: the trees table keeps it out of every gate (qa-trees-drift).
+		"CLAUDE/Plan/mkplan.bash": "find \"$d\" -ignore_readdir_race " + negation + " -user root -print\n",
 	})
-	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tasks/probe.yml:7  find-race-negated-stat-test") || !strings.Contains(stdout, "passed: 2 failed: 1") {
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tasks/probe.yml:7  find-race-negated-stat-test") || !strings.Contains(stdout, "passed: 3 failed: 1") || strings.Contains(stdout, "mkplan") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"tasks/clean.yml": guardedProbe})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 1 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }

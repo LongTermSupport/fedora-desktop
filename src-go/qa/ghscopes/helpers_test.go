@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qatrees"
 )
 
 // rulesText is a rule file shaped like the real one; DSTAR and STAR stand for the glob stars.
@@ -30,6 +31,10 @@ var rulesText = strings.NewReplacer("DSTAR", "**", "STAR", "*").Replace(`rules:
     languages: [generic]
 `)
 
+// treesText is a trees table shaped like scripts/qa-trees.tsv: a daemon-deployed tree for both
+// lists, one for shell only (whose Python is ours), and a single daemon-deployed file.
+const treesText = "# comment\nshell\t.claude/ccy\nshell\t.claude/hooks\nshell\tCLAUDE/Plan/mkplan.bash\npython\t.claude/ccy\n"
+
 // world is a repository on disk plus the fake git and semgrep that look at it.
 type world struct {
 	t    *testing.T
@@ -37,14 +42,17 @@ type world struct {
 	run  *fakeRun
 }
 
-// newWorld writes files (relative path to text) under a fresh root, with the rule and its
-// fixture unless the map overrides them (an empty text removes the file).
+// newWorld writes files (relative path to text) under a fresh root, with the rule, its fixture
+// and the trees table unless the map overrides them (an empty text removes the file). The table
+// is on disk but not in git's listing, so the cases about what is scanned stay about their own
+// files.
 func newWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	all := map[string]string{
-		ruleFile:    rulesText,
-		fixtureFile: "# fixture\n# ruleid: gh-scope-outside-ssot\n",
-		"a.txt":     "nothing\n",
+		ruleFile:     rulesText,
+		fixtureFile:  "# fixture\n# ruleid: gh-scope-outside-ssot\n",
+		"a.txt":      "nothing\n",
+		qatrees.File: treesText,
 	}
 	for k, v := range files {
 		if v == "" {
@@ -57,7 +65,9 @@ func newWorld(t *testing.T, files map[string]string) *world {
 	listed := make([]string, 0, len(all))
 	for rel, text := range all {
 		w.write(rel, text)
-		listed = append(listed, rel)
+		if rel != qatrees.File {
+			listed = append(listed, rel)
+		}
 	}
 	slices.Sort(listed)
 	w.run = &fakeRun{listed: listed}

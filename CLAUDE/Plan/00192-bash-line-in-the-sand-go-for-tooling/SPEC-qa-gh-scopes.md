@@ -56,7 +56,10 @@ through `qa/internal/proc`.
   `ERROR: cannot list the files git would publish under .: <why>`. Of those, only regular files are
   handed to semgrep: a symlink is left out (semgrep refuses it; its target is scanned in its own
   right or is vendored) and a listed file that is gone from the disk (a deleted, unstaged file) is
-  left out. Any other failure to look at a file is exit 2 naming it.
+  left out. Any other failure to look at a file is exit 2 naming it. A file `scripts/qa-trees.tsv`
+  keeps out of every gate (each judged by its language's list, through `qa/internal/qatrees`) is
+  never handed; a table that is missing or malformed is exit 2 (issue #217, CLAUDE/QA.md
+  "qa-trees-drift").
 - G8. No file left to hand over is exit 2, `ERROR: git named no files to scan; nothing was checked`.
 - G9. The files are handed to semgrep **by name**, never as a directory (a directory scan applies
   semgrep's default ignore list, which skips `tests/` and would hide a copy there), run from the root

@@ -42,6 +42,7 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	}
 	files[".semgrep/arch-pin.yml"] = projectFile(t, ".semgrep/arch-pin.yml")
 	files[".semgrep/arch-pin.fixture"] = projectFile(t, ".semgrep/arch-pin.fixture")
+	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -69,12 +70,15 @@ func TestTheRealEngineFindsThePinnedDownloadAndPassesTheSelectedOne(t *testing.T
 		"clean/Dockerfile":  selectedDownload,
 		"pinned/Dockerfile": pinnedDownload,
 		"notes/README.md":   "The x86_64 build is at yq_linux_amd64.\n",
+		// Daemon-deployed: the trees table keeps them out of every gate (qa-trees-drift).
+		".claude/ccy/claude-supervise.py": "URL = 'https://example.com/tool-x86_64.tgz'\n",
+		".claude/init.sh":                 "#!/bin/bash\ncurl -O https://example.com/tool-x86_64.tgz\n",
 	})
-	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "pinned/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 1 failed: 1") {
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "pinned/Dockerfile:2  arch-pinned-artefact") || !strings.Contains(stdout, "passed: 2 failed: 1") || strings.Contains(stdout, ".claude/") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"clean/Dockerfile": selectedDownload})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 1 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }

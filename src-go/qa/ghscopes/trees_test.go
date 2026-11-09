@@ -4,12 +4,53 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qatrees"
 )
+
+// The trees table is read and every file it keeps out of all gates is never handed to semgrep:
+// a daemon-deployed tree, a single daemon-deployed file, and a shell-only tree's scripts, but
+// not that tree's Python, which is ours.
+func TestFilesTheTreesTableExcludesAreNeverHandedOver(t *testing.T) {
+	w := newWorld(t, map[string]string{
+		".claude/ccy/claude-supervise.py":  "x = 1\n",
+		".claude/hooks/pre-tool-use":       "#!/bin/bash\n",
+		".claude/hooks/handlers/h.py":      "x = 1\n",
+		".claude/hooks/handlers/README.md": "# r\n",
+		"CLAUDE/Plan/mkplan.bash":          "#!/usr/bin/env bash\n",
+		"CLAUDE/Plan/other.bash":           "#!/usr/bin/env bash\n",
+	})
+	wantExit(t, w.main(), ExitOK)
+	files := handed(w.run.scanArgv)
+	for _, gone := range []string{".claude/ccy/claude-supervise.py", ".claude/hooks/pre-tool-use", ".claude/hooks/handlers/README.md", "CLAUDE/Plan/mkplan.bash"} {
+		if slices.Contains(files, gone) {
+			t.Errorf("%s was handed over: %v", gone, files)
+		}
+	}
+	for _, kept := range []string{".claude/hooks/handlers/h.py", "CLAUDE/Plan/other.bash", "a.txt"} {
+		if !slices.Contains(files, kept) {
+			t.Errorf("%s was not handed over: %v", kept, files)
+		}
+	}
+}
+
+func TestAMissingOrBrokenTreesTableIsExitTwoAndNothingIsScanned(t *testing.T) {
+	for name, text := range map[string]string{"missing": "", "no python row": "shell\tx\n"} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, map[string]string{qatrees.File: text})
+			got := w.main()
+			wantExit(t, got, ExitCannotRun)
+			wantIn(t, "stderr", got.stderr, "ERROR:", qatrees.File)
+			if w.run.scanArgv != nil {
+				t.Fatalf("semgrep scanned %v", w.run.scanArgv)
+			}
+		})
+	}
+}
 
 // tableExcluded is every file git tracks in this repository that scripts/qa-trees.tsv keeps out
 // of every gate, and the repository root.
@@ -65,7 +106,11 @@ func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 			}
 			var opened []string
 			for _, rel := range excluded {
-				if !s.leavesOut(rel) {
+				out, leaveErr := s.leavesOut(rel)
+				if leaveErr != nil {
+					t.Fatal(leaveErr)
+				}
+				if !out {
 					opened = append(opened, rel)
 				}
 			}

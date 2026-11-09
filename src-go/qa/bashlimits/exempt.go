@@ -23,6 +23,11 @@ type Exemption struct {
 	Unjudged bool
 }
 
+// daemonSkillReason is why a skill the hooks daemon deploys is exempt. Each daemon skill is
+// named on its own, so a project skill's script is still measured; the qa-trees-drift test
+// (trees_test.go) fails when the daemon ships a skill script this list does not name.
+const daemonSkillReason = "daemon-owned skill scripts, replaced on every hooks-daemon upgrade"
+
 // IsTestCode reports whether p is exempt as test code (an Exemption with Tests set).
 func IsTestCode(p string) bool {
 	for _, e := range Exemptions {
@@ -58,8 +63,9 @@ var Exemptions = []Exemption{
 	{".claude/init.sh", "daemon-owned file, replaced on every hooks-daemon upgrade", false, true},
 	{".claude/provision.sh", "daemon-owned file, replaced on every hooks-daemon upgrade", false, true},
 	{".claude/hooks/*", "daemon-generated hook scripts (one per event, and status-line), replaced on every hooks-daemon upgrade; the project handlers under .claude/hooks/handlers/ are Python and not matched", false, true},
-	{".claude/skills/hooks-daemon/", "daemon-owned skill scripts, replaced on every hooks-daemon upgrade", false, true},
-	{".claude/skills/docs-qa/", "daemon-owned skill scripts, replaced on every hooks-daemon upgrade", false, true},
+	{".claude/skills/hooks-daemon/", daemonSkillReason, false, true},
+	{".claude/skills/docs-qa/", daemonSkillReason, false, true},
+	{".claude/skills/docs-optimise/", daemonSkillReason, false, true},
 }
 
 // IsUnjudged reports whether p is bash no rule of this gate judges: an Exemption with Unjudged

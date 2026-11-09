@@ -219,14 +219,14 @@ func (g *gate) run() (ExitCode, error) {
 	if err := g.requireSemgrep(ctx); err != nil {
 		return ExitCannotRun, err
 	}
-	dropped, err := g.readRule()
+	within, err := g.loadScope()
 	if err != nil {
 		return ExitCannotRun, err
 	}
 	if code, proveErr := g.proveRule(ctx); proveErr != nil {
 		return code, proveErr
 	}
-	files, err := g.handOver(ctx)
+	files, err := g.handOver(ctx, within)
 	if err != nil {
 		return ExitCannotRun, err
 	}
@@ -234,7 +234,7 @@ func (g *gate) run() (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, err
 	}
-	return g.judge(files, dropped, rep)
+	return g.judge(files, within.rule, rep)
 }
 
 // runTool runs one process with a time limit. A command that could not start or timed out is an

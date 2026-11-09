@@ -42,6 +42,7 @@ func realRun(t *testing.T, files map[string]string) (ghscopes.ExitCode, string, 
 	}
 	files[".semgrep/gh-scopes.yml"] = projectFile(t, ".semgrep/gh-scopes.yml")
 	files[".semgrep/gh-scopes.fixture"] = projectFile(t, ".semgrep/gh-scopes.fixture")
+	files["scripts/qa-trees.tsv"] = projectFile(t, "scripts/qa-trees.tsv")
 	for rel, text := range files {
 		path := filepath.Join(root, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(path), 0o750); mkErr != nil {
@@ -60,12 +61,15 @@ func TestTheRealEngineFindsAScopeAndPassesACleanTree(t *testing.T) {
 	code, stdout, stderr := realRun(t, map[string]string{
 		"docs/clean.md":  "nothing to see\n",
 		"tests/leak.txt": "line one\nneeds " + "admin:" + "public_key here\n",
+		// Daemon-deployed: the trees table keeps them out of every gate (qa-trees-drift).
+		".claude/hooks/pre-tool-use":      "#!/bin/bash\n# needs " + "admin:" + "public_key\n",
+		".claude/ccy/claude-supervise.py": "# needs " + "admin:" + "public_key\n",
 	})
-	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tests/leak.txt:2  gh-scope-outside-ssot") || !strings.Contains(stdout, "passed: 1 failed: 1") {
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "tests/leak.txt:2  gh-scope-outside-ssot") || !strings.Contains(stdout, "passed: 2 failed: 1") || strings.Contains(stdout, ".claude/") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	code, stdout, stderr = realRun(t, map[string]string{"docs/clean.md": "nothing to see\n"})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 1 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
@@ -79,7 +83,7 @@ func TestTheRealEngineDropsExcludedNamesAtAnyDepth(t *testing.T) {
 		"sub/vars/github-required-scopes.yml": leak,
 		"x/CLAUDE/Plan/deep.md":               leak,
 	})
-	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 1 failed: 0") {
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 2 failed: 0") {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
