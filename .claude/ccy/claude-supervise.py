@@ -233,7 +233,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.73.0"
+__version__ = "3.73.1"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -1824,6 +1824,27 @@ def _proc_stat_ppid(stat_line: str) -> int | None:
         return None
 
 
+def _read_regular_text(path: Path, *, errors: str = "strict") -> str:
+    """Read ``path`` as UTF-8 text only when it is a regular file.
+
+    A walked signal directory can hold a FIFO, socket or device. A plain open of
+    a FIFO blocks until a writer appears, hanging the tick for ever, so the open
+    is non-blocking and the descriptor's own ``fstat`` decides (no race between
+    a check and the open). Anything not regular raises ``OSError``, which every
+    caller already treats as an unreadable entry. A missing path is
+    ``FileNotFoundError``.
+    """
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+        os.set_blocking(descriptor, True)
+        with os.fdopen(descriptor, encoding="utf-8", errors=errors, closefd=False) as handle:
+            return handle.read()
+    finally:
+        os.close(descriptor)
+
+
 def _proc_parent_map(root: Path) -> dict[int, int]:
     """Map every readable pid under ``root`` to its ppid."""
     parents: dict[int, int] = {}
@@ -1831,7 +1852,7 @@ def _proc_parent_map(root: Path) -> dict[int, int]:
         if not entry.name.isdigit():
             continue
         try:
-            stat_line = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+            stat_line = _read_regular_text(entry / "stat", errors="replace")
         except OSError:
             # The process exited between listdir and read: it is in no tree.
             continue
@@ -2821,7 +2842,7 @@ def _live_warning_present(message_path: Path, *, now: float) -> bool:
     cannot even read elapsed.
     """
     try:
-        raw = message_path.read_text(encoding="utf-8")
+        raw = _read_regular_text(message_path)
     except OSError:
         return False
     try:
@@ -3109,7 +3130,7 @@ def _scan_sidecars(
     results: list[tuple[dict[str, object], float]] = []
     for path in directory.glob(_CONTEXT_SIDECAR_GLOB):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict):
@@ -3166,7 +3187,7 @@ def load_compaction_signal(
         return None
     for path in directory.glob(_COMPACTION_SIGNAL_GLOB):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict):
@@ -3187,7 +3208,7 @@ def load_compaction_origin(path: Path) -> str:
     under way, which ``load_compaction_signal`` alone decides.
     """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_read_regular_text(path))
     except (OSError, ValueError):
         return ""
     if not isinstance(data, dict):
@@ -3293,7 +3314,7 @@ def load_usage_pause(
     best: UsagePauseRecord | None = None
     for path in directory.glob(_USAGE_PAUSE_GLOB):
         try:
-            record = _parse_usage_pause(json.loads(path.read_text(encoding="utf-8")))
+            record = _parse_usage_pause(json.loads(_read_regular_text(path)))
         except (OSError, ValueError):
             continue
         if record is None or not record.is_live(now):
@@ -3474,7 +3495,7 @@ def _parse_session_modes_file(
         _SessionModesError: the file is unreadable or not a valid record.
     """
     try:
-        text = path.read_text(encoding="utf-8")
+        text = _read_regular_text(path)
     except FileNotFoundError:
         return ()
     except (OSError, UnicodeDecodeError) as error:
@@ -3711,7 +3732,7 @@ def load_goal_clear_signal(
         return None
     for path in sorted(directory.glob(_GOAL_CLEAR_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             data = {}
         if not isinstance(data, dict):
@@ -3773,7 +3794,7 @@ def load_goal_signal(
         return None, None, None
     for path in sorted(directory.glob(_GOAL_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             return None, None, f"unreadable/malformed goal signal {path.name}"
         if not isinstance(data, dict):
@@ -3868,7 +3889,7 @@ def load_standing_auth_signal(
         return None, None, None
     for path in sorted(directory.glob(_STANDING_AUTH_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             return None, None, f"unreadable/malformed standing-auth signal {path.name}"
         if not isinstance(data, dict):
@@ -3982,7 +4003,7 @@ def _cron_records_all_expired(
     """
     path = directory.parent / _CRON_RECORDS_FILENAME
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(_read_regular_text(path))
     except (OSError, ValueError):
         return False
     entries = raw.get(_CRON_RECORDS_KEY) if isinstance(raw, dict) else None
@@ -4044,7 +4065,7 @@ def load_session_actions_signal(
         return None, None, None
     for path in sorted(directory.glob(_SESSION_ACTIONS_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             return None, None, f"unreadable/malformed session-actions signal {path.name}"
         if not isinstance(data, dict):
@@ -4122,7 +4143,7 @@ def load_model_switch_signal(
         return None, None, None
     for path in sorted(directory.glob(_MODEL_SWITCH_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             return None, None, f"unreadable/malformed model-switch signal {path.name}"
         if not isinstance(data, dict):
@@ -4278,7 +4299,7 @@ def load_model_downgrade_signal(
         return None
     for path in sorted(directory.glob(_MODEL_DOWNGRADE_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict):
@@ -4429,7 +4450,7 @@ def load_operator_signal(
         return None, None, None, None
     for path in sorted(directory.glob(_OPERATOR_SIGNAL_GLOB)):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_regular_text(path))
         except (OSError, ValueError):
             return None, None, None, f"unreadable/malformed operator signal {path.name}"
         if not isinstance(data, dict):
@@ -10321,7 +10342,7 @@ def consume_restarted_marker(path: Path, resumed_session_id: str | None, *, now:
     this launch is not a resume, is left alone.
     """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_read_regular_text(path))
     except FileNotFoundError:
         return False
     except (OSError, ValueError):
