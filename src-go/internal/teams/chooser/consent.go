@@ -18,7 +18,7 @@ import (
 )
 
 // exitConfig is the launcher's code for a state that stops the launch (agent-bus's own 78).
-const exitConfig term.ExitCode = 78
+const exitConfig = term.ExitConfig
 
 // Where the owner's acceptance lives, under their passwd home (never HOME, PINGBUS_HOME or
 // XDG_CONFIG_HOME): the path pingbus reads (helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR and

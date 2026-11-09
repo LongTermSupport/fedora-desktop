@@ -229,7 +229,7 @@ func TestGuestErrors(t *testing.T) {
 			if !errors.As(err, &ge) {
 				t.Fatalf("got %v", err)
 			}
-			if int(ge.Exit) != c.exit || ge.Code != c.code || ge.Undecodable != c.undeco || ge.Op != c.op.Verb {
+			if ge.Exit != c.exit || ge.Code != c.code || ge.Undecodable != c.undeco || ge.Op != c.op.Verb {
 				t.Fatalf("%+v", ge)
 			}
 			if !strings.Contains(err.Error(), c.op.Verb) || strings.Contains(err.Error(), "diagnostic") || strings.Contains(err.Error(), token) {

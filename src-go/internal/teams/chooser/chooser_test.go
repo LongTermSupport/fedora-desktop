@@ -35,8 +35,10 @@ type rig struct {
 	created    string
 	createCode term.ExitCode
 	creates    int
-	applied    [][]string
-	applyErr   error
+	// createNames is the name each run of the wizard was given to offer.
+	createNames []string
+	applied     [][]string
+	applyErr    error
 	// locks is each hold of the play lock asked for; inLock is whether one is held now, and
 	// lockErr, when set, is a lock not taken (fn is not run).
 	locks   []string
@@ -84,8 +86,9 @@ func newRig(t *testing.T, entries string) *rig {
 			}
 			return "1@" + team, term.ExitOK
 		},
-		func(context.Context) (string, term.ExitCode) {
+		func(_ context.Context, name string) (string, term.ExitCode) {
 			r.creates++
+			r.createNames = append(r.createNames, name)
 			if r.createWrites != "" && r.createCode == term.ExitOK {
 				w.WriteHostVars(t, teamsVars(entries+r.createWrites))
 			}

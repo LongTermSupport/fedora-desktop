@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.113.1 — container 2.79.27
+## 3.113.2 — container 2.79.27
 
-Follows 3.112.5 (container 2.79.27; 3.113.0 was this change's earlier commit and never
-shipped). The image does not change.
+Follows 3.112.5 (container 2.79.27; 3.113.0 and 3.113.1 were this release's earlier commits
+and never shipped). The image does not change.
 
 - **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
@@ -41,6 +41,23 @@ shipped). The image does not change.
   and the Go project rule `project_container_pids_limit` each Go run or create whose argument
   list shows a container flag (what it cannot see is listed in `CLAUDE/GoProjectRules.md`);
   `ccc` passes the default too.
+- **`ccy --teams <team>` with a team this machine does not have asks what to do instead of
+  only failing.** On a terminal it asks: create the team now (the create wizard, offering the
+  name typed), choose one of this machine's teams that is up instead, start the rest of the list
+  without it, or start nothing. The question is about the list as it stands: a team already
+  left out is not offered to start on, and a team swapped in is not offered again. Leaving the
+  wizard, or a No at its review, comes back to the question, three times at most. A name the
+  team file would refuse is a usage mistake (64) with its reason, and nothing is asked. With no
+  terminal the list is still refused, with agent-bus's reason. `ccy --help` says so, and which
+  codes a `--teams` launch ends with (64, 75, 78).
+- **`ccy-teams` exits only with codes it documents.** Another program's code is handed on only
+  when the tools document it (64, 75, 77, 78, 130); any other is 1. A 75, 77 or 78 is said in
+  words as the last line (`ccy-teams: exit 78: something it needs is not set up on this host.`), as a shell does not name them: `ccy --teams` with a team the host does not have
+  ended in "Unknown error code". `ccy-sessions reboot` exits 1 when `systemctl reboot` fails,
+  naming systemctl's code. Defence Before Fix rule `project_child_exit`.
+- **The `ccy-teams` board's KIND of a host seat is `cc`**, not `ccy` (a
+  `<repo>.<seat>+<host>.host` handle); a ccy container's stays `ccy`, and the role change reads
+  a member with no seat here as "not known here". Defence Before Fix rule `project_row_kind`.
 
 ## 3.112.5 — container 2.79.27
 

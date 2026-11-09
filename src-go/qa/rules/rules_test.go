@@ -157,12 +157,20 @@ func TestZombieExit(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), ZombieExit, "fix/internal/badzombie")
 }
 
+func TestRowKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RowKind, "fix/internal/teams/board", "fix/internal/badrowkind")
+}
+
+func TestChildExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ChildExit, "fix/internal/term", "fix/internal/badexit")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 32 {
-		t.Fatalf("want 32 rules, got %d", got)
+	if got := len(All()); got != 34 {
+		t.Fatalf("want 34 rules, got %d", got)
 	}
 }
 

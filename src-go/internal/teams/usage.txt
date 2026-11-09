@@ -208,7 +208,10 @@ Usage:
                                    the launcher's team chooser, on a terminal only. With a
                                    <list> (SEAT@TEAM or a team alone, comma-separated) it
                                    chooses the seat of each team named alone and prints the
-                                   canonical list. With none, it shows every team on this
+                                   canonical list; a team this machine does not have is
+                                   offered: create it, choose one of this machine's teams
+                                   instead, start the rest without it, or start nothing.
+                                   With none, it shows every team on this
                                    machine with what it is for and whether it covers this
                                    checkout (covers, would add, excludes), and offers
                                    creating one. A team that does not cover the checkout is
@@ -321,6 +324,9 @@ The APPLIED column, from `declare.py status` against the installer's stamps (rea
 without sudo): up to date, out of date (config, software or both), not built, removed,
 or needs your decision (declared absent but still built, or built but not declared).
 Exit 64 for a usage mistake, 130 when cancelled (Esc, Ctrl-C), 1 for a refusal or a failure;
-a No or Stop you choose at a question changes nothing and exits 0.
+a No or Stop you choose at a question changes nothing and exits 0. 75 when something it
+needs is held by another run (a seat, the play lock), 77 when permission was refused, 78 when
+something it needs is not set up on this host (a team, a seat, a tool), each of those three
+said in words as the last line. Another program's other codes are 1.
 
 Runs on the HOST, as the desktop user.

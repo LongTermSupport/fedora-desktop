@@ -50,12 +50,12 @@ func sample() []Row {
 	}
 }
 
-// A seat in a checkout is a ccy row to every flow (KindCcy), but its KIND column says what runs
-// it: a cc session's host seat reads "host", as the same member's roster row does (host run at
-// fe894347c: the board said "ccy"), a ccy session's "ccy", and a seat with no handle yet "ccy".
+// A row given KindCcy still has its KIND column say what runs it: a cc session's host seat reads
+// "cc", as the same member's roster row does (agentbus.KindOf; host run at fe894347c: the board
+// said "ccy"), a ccy session's "ccy", and a seat with no handle yet "ccy".
 func TestASeatsKindColumnIsWhatItsHandleSays(t *testing.T) {
 	cases := map[string]string{
-		"proj.1+local.host":   "host",
+		"proj.1+local.host":   "cc",
 		"proj.1+local.podman": "ccy",
 		"-":                   "ccy",
 		"":                    "ccy",

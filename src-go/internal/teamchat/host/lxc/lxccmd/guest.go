@@ -15,7 +15,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // GuestWait bounds one guest op, the attach included.
@@ -50,11 +49,12 @@ type GuestResult struct {
 // GuestError is a guest op that failed with its error object as stderr's last line: its exit
 // and the object's code. Undecodable is an object the op may not give: an exit outside 1, 64,
 // 78 and (from an op that takes a seat lock) 75, or an object whose exit is not the process's;
-// Code is then empty.
+// Code is then empty. Exit is the guest process's own status, as AttachError's is: data about
+// another program, never this tool's exit code.
 type GuestError struct {
 	Op          string
 	Container   string
-	Exit        term.ExitCode
+	Exit        int
 	Code        string
 	Undecodable bool
 }
@@ -187,8 +187,8 @@ func failed(op guest.Op, c string, stderr []byte, err error) error {
 	if decErr != nil || ee.Signal != 0 {
 		return &AttachError{Op: op.Verb, Container: c, Exit: ee.Code, Signal: ee.Signal}
 	}
-	ge := &GuestError{Op: op.Verb, Container: c, Exit: term.ExitCode(ee.Code)}
-	if !mayExit(op, ge.Exit) || obj.Exit != ge.Exit {
+	ge := &GuestError{Op: op.Verb, Container: c, Exit: ee.Code}
+	if !mayExit(op, ge.Exit) || int(obj.Exit) != ge.Exit {
 		ge.Undecodable = true
 		return ge
 	}
@@ -196,11 +196,11 @@ func failed(op guest.Op, c string, stderr []byte, err error) error {
 	return ge
 }
 
-func mayExit(op guest.Op, e term.ExitCode) bool {
-	if e == exits.ExitBusy {
+func mayExit(op guest.Op, e int) bool {
+	if e == int(exits.ExitBusy) {
 		return op.Busy
 	}
-	return e == exits.ExitInternal || e == exits.ExitUsage || e == exits.ExitConfig
+	return e == int(exits.ExitInternal) || e == int(exits.ExitUsage) || e == int(exits.ExitConfig)
 }
 
 func lastLine(b []byte) []byte {
