@@ -2,9 +2,11 @@ package matrix
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -245,6 +247,49 @@ func TestTLSPlainServerUnderAnHTTPSURLFails(t *testing.T) {
 	_, err = c.Versions(t.Context())
 	wantErr(t, err, ErrUnreachable, "TLS verification of "+strings.TrimPrefix(base, "https://")+
 		" failed against the pinned CA sha256:"+fingerprintOf(t, ca)+": not a TLS server")
+}
+
+// routeTo is a Dial that reaches srv whatever address it is asked for, and the addresses it was
+// asked for.
+func routeTo(srv *fakehs.Server, asked *[]string) func(context.Context, string, string) (net.Conn, error) {
+	at := strings.TrimPrefix(srv.URL(), "https://")
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		*asked = append(*asked, addr)
+		return (&net.Dialer{}).DialContext(ctx, network, at)
+	}
+}
+
+// A Dial in the Config is the route to the URL's host and port, for a test whose server cannot bind
+// the address the URL names; the name the leaf must carry is still the URL's host, and the CA the
+// only root.
+func TestTLSADialRoutesTheConnectionButTheNameIsStillTheURLHost(t *testing.T) {
+	w := newTLSWorld()
+	ca := w.ca(t, "team-a")
+	srv := serveTLS(t, w.leaf(t, ca, "192.0.2.10"), nil)
+	port := srv.URL()[strings.LastIndex(srv.URL(), ":")+1:]
+	var asked []string
+	cfg := w.config("https://192.0.2.10:"+port, ca)
+	cfg.Dial = routeTo(srv, &asked)
+	c, err := NewMember(cfg)
+	if err != nil {
+		t.Fatalf("NewMember: %v", err)
+	}
+	t.Cleanup(c.Close)
+	if _, err = c.Versions(t.Context()); err != nil {
+		t.Fatalf("versions through the route: %v", err)
+	}
+	if len(asked) != 1 || asked[0] != "192.0.2.10:"+port {
+		t.Errorf("the route was asked for %q, want the URL's host and port once", asked)
+	}
+	cfg.BaseURL = "https://198.51.100.7:" + port
+	other, err := NewMember(cfg)
+	if err != nil {
+		t.Fatalf("NewMember: %v", err)
+	}
+	t.Cleanup(other.Close)
+	_, err = other.Versions(t.Context())
+	wantErr(t, err, ErrUnreachable, "TLS verification of 198.51.100.7:"+port+
+		" failed against the pinned CA sha256:"+fingerprintOf(t, ca)+": name mismatch")
 }
 
 func TestTLSHTTPSWithoutACAIsRefusedAtConstruction(t *testing.T) {

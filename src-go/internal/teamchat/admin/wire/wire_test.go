@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -32,6 +33,7 @@ type fakeMachine struct {
 	pinErr                     error
 	noCtl                      bool
 	kitOwner                   int
+	owner                      uint32 // the uid the state's root-owned files are given
 	proven                     bool
 	conn                       units.Conn
 	n                          counts
@@ -59,7 +61,23 @@ func (f *fakeMachine) machine() machine {
 			return nil, errors.New("no bus here")
 		},
 		restoreProven: f.proven,
+		stateOwnerUID: f.owner,
 	}
+}
+
+// ownerOf is the uid that owns dir: a fixture is its test user's, where root's own files on a
+// host are root's (production).
+func ownerOf(t *testing.T, dir string) uint32 {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("no owner in a stat")
+	}
+	return st.Uid
 }
 
 func build(t *testing.T, f *fakeMachine) *admin.System {
@@ -211,7 +229,7 @@ func plantCA(t *testing.T, root string, team paths.TeamID) []byte {
 // the team's CA, and a team with none issues nothing instead of a bundle without it.
 func TestTeamCAIsTheHostsCA(t *testing.T) {
 	root := t.TempDir()
-	sys := build(t, &fakeMachine{root: root})
+	sys := build(t, &fakeMachine{root: root, owner: ownerOf(t, root)})
 	bundles, ok := sys.Bundles.(admin.SeatBundles)
 	if !ok {
 		t.Fatalf("Bundles is a %T, want the seat side's", sys.Bundles)
@@ -250,6 +268,9 @@ func TestNewIsTheHostsWiring(t *testing.T) {
 	}
 	if sys.Host.Root != "" || sys.Host.LockDir != paths.AdminRunDir {
 		t.Fatalf("host paths %+v", sys.Host)
+	}
+	if sys.Host.StateOwnerUID != 0 {
+		t.Fatalf("the host's state is owned by uid %d, want root's", sys.Host.StateOwnerUID)
 	}
 	if _, err := New("not a digest")(); err == nil {
 		t.Fatal("New without a digest wired")
