@@ -106,7 +106,9 @@ Every build task is test first: the failing test is committed or recorded before
     configuration; sockets, pid and lock files, logs and ledgers state), and the files the
     entrypoint writes at launch listed;
   - that the hooks daemon starts and hooks fire with a per-seat directory mounted over its
-    `untracked/` and `bin/` bound `ro` over that (LZ17), and in an LXC unit of the same shape;
+    `untracked/` and `bin/` and the container virtualenv bound `ro` over that, that the daemon
+    accepts the `ro` virtualenv without a rebuild and runs with no bytecode writes (LZ17), and the
+    same in an LXC unit of that shape;
   - every file the host launcher reads at the checkout's `.claude/ccy/` (`mounts` and
     `ccy.env.local` among them), and which are per-seat for a liaison (LZ17);
   - whether `git status` and `git log` work on a `ro` checkout, and that a host commit shows
@@ -228,8 +230,9 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 5.1**: `ccy-teams internal launch-mounts` (Go, new): the `ro` workspace; the
   liaison's per-seat directory mounted over `/workspace/.claude/ccy` (user-level files and its
   own session state), with the project's tracked launch files bound `ro` from the checkout over
-  it and `ccy.env.local`'s `ro` bind ordered after it; per-seat daemon state and virtualenv and
-  per-seat scratch, each mounted at directory level with the executables `ro` over it (LZ17).
+  it and `ccy.env.local`'s `ro` bind; per-seat daemon state and per-seat scratch, each mounted
+  at directory level (root `0700`) with `bin/` and the checkout's container virtualenv bound `ro`
+  over it, and a missing or stale virtualenv refusing the launch (LZ17).
   Every per-seat directory is wiped at each liaison launch except its named state allowlist, and
   the launcher's reads of the restart request, `config.json`, `sessions/` and
   `.last-launch.conf` point at the per-seat directory while `mounts`, `ccy.env.local`,
@@ -388,3 +391,7 @@ Every build task is test first: the failing test is committed or recorded before
   `untracked/`, which the daemon cannot start on. Fixed with directory-level per-seat mounts and
   the executables `ro` over them, in ccy and LXC alike; with the launch wipe inverted to a state
   allowlist, the bash reads redirected at net zero, and `SyncFilter` named.
+- Round 8 (CHANGES): one blocker, a liaison rebuilding the daemon's editable virtualenv, which
+  writes into the read-only `src/`. Fixed: the checkout's container virtualenv is bound `ro`, a
+  missing or stale one refuses the launch; the daemon's non-executable directories are per-seat
+  state; the per-seat root is `0700`.

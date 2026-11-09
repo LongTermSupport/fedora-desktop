@@ -355,8 +355,10 @@ human's event, bound to a question the coordinator itself handed over, never fro
     `ccy.env.local`, read on the host and bound `ro` into the container today.
   - The hooks daemon's `untracked/` holds the `hooks-relay` executable every hook call runs, the
     daemon's virtualenvs (the container's one is named after `/workspace`, so every ccy seat of
-    the checkout shares it, and the host's sits beside it), and its upgrade and supervisor
-    directories: all configuration. Its sockets, pid and lock files, logs and ledgers are state.
+    the checkout shares it, and the host's sits beside it): configuration. Everything else there
+    is state, the supervisor's status files (`supervise/`), the upgrade gate and approvals, the
+    transcript archives, sockets, pid and lock files, logs and ledgers among it; Task 0.1's
+    classification is the list.
   - The project's `untracked/` is read by other agents (reference clones) and holds scratch
     scripts they run, so it is configuration too; the liaison gets a per-seat scratch directory
     instead.
@@ -375,19 +377,25 @@ human's event, bound to a question the coordinator itself handed over, never fro
   - **its daemon directory**: a per-seat directory mounted over the whole of
     `.claude/hooks-daemon/untracked/`, so the daemon finds it writable (its bootstrap requires
     that), names its sockets, pid and lock files after the container's hostname as it does today,
-    writes its ledgers by rename, and builds its own virtualenv there, all reaching only the
-    liaison's own session. `bin/` and every other executable entry Task 0.1 finds are bound `ro`
-    over it from the checkout's copy, which the liaison cannot write. Directory-level, never per
+    writes its ledgers by rename, all reaching only the liaison's own session. `bin/`, the
+    checkout's container virtualenv (the one named after `/workspace`) and every other executable
+    entry Task 0.1 finds are bound `ro` over it from the checkout's copies, which the liaison
+    cannot write. The liaison never builds a virtualenv: the daemon's is an editable install of
+    `.claude/hooks-daemon/src`, and building it writes into `src/`, which is `ro` for the liaison.
+    If that virtualenv is missing or stale at launch (another seat's launch or the host builds
+    it), the liaison launch is refused, naming it. The per-seat root is created `0700`, since the
+    daemon writes its transcript archives world-writable and the launcher's permission repair
+    covers only the checkout. Directory-level, never per
     file, so it does not depend on names known only after the container exists or on a daemon
     upgrade's file list;
   - **its scratch**: a per-seat directory mounted over `untracked/scratch/`.
 
   At every liaison launch the launcher (in Go, new: `ccy-teams internal launch-mounts`) wipes
   each per-seat directory except a named state allowlist (in `.claude/ccy/`: `projects/`, todos,
-  `sessions/`, `state/`; in the daemon directory: logs and ledgers, never `bin/` or a
-  virtualenv), so nothing executable the liaison wrote carries over: not a `disableAllHooks`, not
-  `shell-snapshots/` the Bash tool sources, not a stale `__pycache__/` of the wrapper, not a
-  planted virtualenv. The entrypoint then rewrites the user-level files from its usual sources.
+  `sessions/`, `state/`; in the daemon directory: the state entries Task 0.1 classifies, never
+  `bin/` or a virtualenv, which are bound in, not kept), so nothing executable the liaison wrote
+  carries over: not a `disableAllHooks`, not `shell-snapshots/` the Bash tool sources, not a
+  stale `__pycache__/` of the wrapper. The entrypoint then rewrites the user-level files from its usual sources.
   Task 0.1's classification covers the per-seat copies too. Within a session the liaison can still change its own `settings.json`; that reaches
   only itself, its checkout stays `ro` and it holds no write credentials (LZ17a), so the guard is
   then a control against mistakes, as on `cc` (LZ19). The host reads the launcher makes at the
@@ -461,8 +469,9 @@ human's event, bound to a question the coordinator itself handed over, never fro
 - **LZ20. LXC: a read-only bind in the unit.** v2's LXC apply (`host/lxc`) writes, into the
   member's unit when the member's role is `liaison`, `BindReadOnlyPaths=<checkout>` and the same
   directory-level shape as LZ17: a per-member state directory bound over the daemon's
-  `untracked/` and over `untracked/scratch/` (created by the apply before the unit starts), with
-  `bin/` and the other executable entries in `BindReadOnlyPaths=`; it removes them otherwise; a role
+  `untracked/` and over `untracked/scratch/` (created `0700` by the apply before the unit
+  starts), with `bin/`, the guest's daemon virtualenv and the other executable entries in
+  `BindReadOnlyPaths=` (a missing or stale virtualenv fails the apply, naming it); it removes them otherwise; a role
   change restarts the unit (the apply reports it). No SSH keys or write token are placed in a
   liaison guest's home (LZ17a). Plus LZ15's guard. The liaison reads the code of its own
   checkout only; other repositories' code is LD7.
