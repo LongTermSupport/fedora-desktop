@@ -23,7 +23,7 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
   flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
   engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
-- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E73; of the links, E67 and E71 are built and E68-E70, E72 and E73 are specified only): every verb,
+- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E73; of the links, E67, E68's `--link` and E71 are built and E68's `--ram-mib`, E69, E70, E72 and E73 are specified only): every verb,
   through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
   (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python. The
   lab's own retention (the disk and RAM floors, the run and build sweep, the overlay prune rule)

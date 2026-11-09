@@ -44,6 +44,8 @@ type guest struct {
 	port   int
 	// dir holds the domain's console.log, which every boot failure points at.
 	dir string
+	// nets are the --network values of the NICs after the passt one, in order (E68).
+	nets []string
 }
 
 func (g *guest) sshArgs(extra []string, remote string) []string {

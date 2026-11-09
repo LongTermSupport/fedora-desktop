@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
@@ -97,8 +99,11 @@ func (c *cli) cmdLinkUp(_ context.Context, args []string) error {
 	return nil
 }
 
-// linkHolders is the members that record an end of the link, in name order.
-func (c *cli) linkHolders(link string) ([]string, error) {
+// nicRecord is one line of a member's links file: an end of a link and the MAC of the NIC on it.
+type nicRecord struct{ member, link, end, mac string }
+
+// recordedNICs is every NIC any member's record holds, in member name order and then record order.
+func (c *cli) recordedNICs() ([]nicRecord, error) {
 	entries, err := os.ReadDir(c.paths.at(membersDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -106,9 +111,10 @@ func (c *cli) linkHolders(link string) ([]string, error) {
 	if err != nil {
 		return nil, failf("cannot read %s: %v", c.paths.at(membersDir), err)
 	}
-	var holders []string
+	var out []nicRecord
 	for _, e := range entries {
-		data, rerr := os.ReadFile(c.paths.at(membersDir, e.Name(), memberLinksFile))
+		path := c.paths.at(membersDir, e.Name(), memberLinksFile)
+		data, rerr := os.ReadFile(path)
 		if errors.Is(rerr, os.ErrNotExist) {
 			continue
 		}
@@ -116,13 +122,202 @@ func (c *cli) linkHolders(link string) ([]string, error) {
 			return nil, failf("cannot read the links of member %s: %v", e.Name(), rerr)
 		}
 		for line := range strings.SplitSeq(string(data), "\n") {
-			if fields := strings.Fields(line); len(fields) > 0 && fields[0] == link {
-				holders = append(holders, e.Name())
-				break
+			if strings.TrimSpace(line) == "" {
+				continue
 			}
+			f := strings.Fields(line)
+			if len(f) != 3 {
+				return nil, failf("%s holds a line that is not '<link> <end> <mac>': '%s'", path, line)
+			}
+			out = append(out, nicRecord{member: e.Name(), link: f[0], end: f[1], mac: f[2]})
+		}
+	}
+	return out, nil
+}
+
+// linkHolders is the members that record an end of the link, in name order.
+func (c *cli) linkHolders(link string) ([]string, error) {
+	recorded, err := c.recordedNICs()
+	if err != nil {
+		return nil, err
+	}
+	var holders []string
+	for _, r := range recorded {
+		if r.link == link && !slices.Contains(holders, r.member) {
+			holders = append(holders, r.member)
 		}
 	}
 	return holders, nil
+}
+
+// maxMemberLinks is how many links one member may join: its NICs after the passt one.
+const maxMemberLinks = 4
+
+// memberUpUsage is the command line member-up takes.
+const memberUpUsage = "usage: vmtest member-up <name> <base-key> [--link <link>:<a|b>]..."
+
+// linkRef is one --link option: an end of a link.
+type linkRef struct{ link, end string }
+
+// parseLinkOption reads <link>:<a|b> (E68).
+func parseLinkOption(v string) (linkRef, error) {
+	link, end, ok := strings.Cut(v, ":")
+	if !ok || linkName(link) != nil || (end != "a" && end != "b") {
+		return linkRef{}, usagef("--link wants <link>:<a|b>; got '%s'", v)
+	}
+	return linkRef{link: link, end: end}, nil
+}
+
+// memberUpArgs is what member-up was asked: a member, its base and the link ends it joins.
+type memberUpArgs struct {
+	name, key string
+	refs      []linkRef
+}
+
+// parseMemberUp splits member-up's arguments; what cannot be run is a usage error (E68).
+func parseMemberUp(args []string) (memberUpArgs, error) {
+	var got memberUpArgs
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--link":
+			v := ""
+			if i+1 < len(args) {
+				i++
+				v = args[i]
+			}
+			ref, err := parseLinkOption(v)
+			if err != nil {
+				return memberUpArgs{}, err
+			}
+			if slices.Contains(got.refs, ref) {
+				return memberUpArgs{}, usagef("the link end %s:%s is given twice", ref.link, ref.end)
+			}
+			got.refs = append(got.refs, ref)
+		case strings.HasPrefix(args[i], "-"):
+			return memberUpArgs{}, usagef("unknown option %s", args[i])
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+	if len(positional) != 2 {
+		return memberUpArgs{}, usagef("%s", memberUpUsage)
+	}
+	if len(got.refs) > maxMemberLinks {
+		return memberUpArgs{}, usagef("at most %d --link options; got %d", maxMemberLinks, len(got.refs))
+	}
+	got.name, got.key = positional[0], positional[1]
+	return got, nil
+}
+
+// memberNIC is one NIC of a member on a link (E68): the end it holds, its socket pair's ports,
+// its own and the other end's, and its MAC.
+type memberNIC struct {
+	link, end string
+	own, peer int
+	mac       string
+}
+
+// network is the virt-install --network value of the NIC: libvirt's udp interface, a socket
+// pair on the loopback. The option names are the design's and unverified until a host boots one.
+func (n memberNIC) network() string {
+	return fmt.Sprintf("type=udp,source.address=127.0.0.1,source.port=%d,source.local.address=127.0.0.1,source.local.port=%d,model.type=virtio,mac.address=%s",
+		n.peer, n.own, n.mac)
+}
+
+func networksOfNICs(nics []memberNIC) []string {
+	out := make([]string, 0, len(nics))
+	for _, n := range nics {
+		out = append(out, n.network())
+	}
+	return out
+}
+
+// linkNICs is a NIC for each link end asked for; a link nobody made is a usage error (E68).
+func (c *cli) linkNICs(refs []linkRef) ([]memberNIC, error) {
+	nics := make([]memberNIC, 0, len(refs))
+	for _, r := range refs {
+		ports, err := c.readLinkPorts(r.link)
+		if err != nil {
+			return nil, err
+		}
+		own, peer := ports.a, ports.b
+		if r.end == "b" {
+			own, peer = ports.b, ports.a
+		}
+		nics = append(nics, memberNIC{link: r.link, end: r.end, own: own, peer: peer})
+	}
+	return nics, nil
+}
+
+// linkPorts are the two ports of a link: the sockets of its ends a and b.
+type linkPorts struct{ a, b int }
+
+// readLinkPorts is the two ports link-up recorded for the link.
+func (c *cli) readLinkPorts(link string) (linkPorts, error) {
+	path := c.paths.at(linksDir, link, linkPortsFile)
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return linkPorts{}, usagef("no link %s; make it with: vmtest link-up %s", link, link)
+	}
+	if err != nil {
+		return linkPorts{}, failf("cannot read %s: %v", path, err)
+	}
+	var p linkPorts
+	if _, err = fmt.Sscanf(string(body), linkPortsFormat, &p.a, &p.b); err != nil || p.a <= 0 || p.b <= 0 {
+		return linkPorts{}, failf("%s does not hold the two ports of a link", path)
+	}
+	return p, nil
+}
+
+// planNICs refuses an end another member holds and gives each NIC a MAC no record holds (E68).
+// A member asking again for its own end is not refused here: that it exists is the better answer.
+func (c *cli) planNICs(name string, nics []memberNIC) error {
+	if len(nics) == 0 {
+		return nil
+	}
+	recorded, err := c.recordedNICs()
+	if err != nil {
+		return err
+	}
+	taken := map[string]string{}
+	for _, r := range recorded {
+		taken[r.mac] = r.member
+		for _, n := range nics {
+			if r.link == n.link && r.end == n.end && r.member != name {
+				return failf("link %s end %s is held by %s; remove it with: vmtest member-down %s", r.link, r.end, r.member, r.member)
+			}
+		}
+	}
+	for i := range nics {
+		var b [3]byte
+		if _, rerr := io.ReadFull(c.env.Random, b[:]); rerr != nil {
+			return failf("cannot draw a MAC address: %v", rerr)
+		}
+		mac := fmt.Sprintf("52:54:00:%02x:%02x:%02x", b[0], b[1], b[2])
+		if owner, dup := taken[mac]; dup {
+			return failf("the MAC %s is already recorded by %s", mac, owner)
+		}
+		taken[mac] = name
+		nics[i].mac = mac
+	}
+	return nil
+}
+
+// recordNICs writes the member's links file, one line per NIC in the order given: the record
+// that holds the link ends and the MACs until member-down (E68).
+func (c *cli) recordNICs(dir string, nics []memberNIC) error {
+	if len(nics) == 0 {
+		return nil
+	}
+	var body strings.Builder
+	for _, n := range nics {
+		fmt.Fprintf(&body, "%s %s %s\n", n.link, n.end, n.mac)
+	}
+	if err := fsx.WriteAtomic(filepath.Join(dir, memberLinksFile), "member links", []byte(body.String()), 0o644); err != nil {
+		return failf("%v", err)
+	}
+	return nil
 }
 
 // cmdLinkDown removes a link no member holds; nothing there is no error (E71).

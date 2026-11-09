@@ -52,6 +52,8 @@ type kit struct {
 	// udp is the next free loopback UDP port the fake hands out, and udpErr what asking fails with.
 	udp    int
 	udpErr error
+	// random is what the lab draws its secrets and MAC addresses from; zeroReader when nil.
+	random io.Reader
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -223,6 +225,10 @@ func argAfter(args []string, flag string) string {
 }
 
 func (k *kit) environment() Env {
+	var random io.Reader = zeroReader{}
+	if k.random != nil {
+		random = k.random
+	}
 	return Env{
 		Runner: k.runner(),
 		Stdin:  strings.NewReader(k.stdin),
@@ -258,7 +264,7 @@ func (k *kit) environment() Env {
 			return k.free, k.freeErr
 		},
 		HostMiB:   func() (int, error) { return k.hostMiB, k.hostErr },
-		Random:    zeroReader{},
+		Random:    random,
 		GPGKeyDir: k.gpg,
 		TempDir:   k.t.TempDir(),
 	}

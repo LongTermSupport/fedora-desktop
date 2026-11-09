@@ -166,6 +166,9 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 		flagCPU, "host-passthrough", flagImport, flagDisk, disk,
 		"--osinfo", "fedora-unknown", "--boot", "uefi", "--memballoon", virtioModel, "--network", passtNetwork(g.port),
 	}
+	for _, n := range g.nets {
+		args = append(args, "--network", n)
+	}
 	args = append(append(args, tail...), "--noautoconsole")
 	if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virtInstallBin, Args: args, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
 		return ctxErr(ctx, failf("virt-install could not boot %s: %v", g.domain, err))
@@ -174,11 +177,15 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 }
 
 func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
-	if len(args) != 2 {
-		return usagef("usage: vmtest member-up <name> <base-key>")
+	got, err := parseMemberUp(args)
+	if err != nil {
+		return err
 	}
-	name, key := args[0], args[1]
-	if err := memberName(name); err != nil {
+	if err = memberName(got.name); err != nil {
+		return err
+	}
+	nics, err := c.linkNICs(got.refs)
+	if err != nil {
 		return err
 	}
 	l, err := c.loadLab()
@@ -188,12 +195,25 @@ func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	if err := c.diskGuard(ctx, l, memberNeed); err != nil {
 		return err
 	}
-	return c.memberUp(ctx, l, name, key)
+	return c.memberUp(ctx, l, got.name, got.key, nics)
+}
+
+// checkMemberFree refuses a member that exists already (E56) and NICs that cannot be given (E68).
+func (c *cli) checkMemberFree(ctx context.Context, name, dir string, nics []memberNIC) error {
+	domain := memberDomain(name)
+	listed, err := c.domainListed(ctx, domain)
+	if err != nil {
+		return err
+	}
+	if _, serr := os.Lstat(dir); serr == nil || listed {
+		return failf("member %s already exists (%s or guest %s); remove it with: vmtest member-down %s", name, dir, domain, name)
+	}
+	return c.planNICs(name, nics)
 }
 
 // memberUp boots a member and leaves it running (E56); one that does not finish is torn
-// down (E57).
-func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
+// down (E57). nics are the links it joins (E68).
+func (c *cli) memberUp(ctx context.Context, l *lab, name, key string, nics []memberNIC) error {
 	b, err := c.baseFacts(ctx, l, key)
 	if err != nil {
 		return err
@@ -205,12 +225,8 @@ func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
 	if !readable(filepath.Join(baseDir, "base.qcow2")) || !readable(filepath.Join(baseDir, "base.json")) {
 		return failf("base %s is absent; build it with: vmtest ensure-base %s", b.Name, key)
 	}
-	listed, err := c.domainListed(ctx, domain)
-	if err != nil {
+	if err = c.checkMemberFree(ctx, name, dir, nics); err != nil {
 		return err
-	}
-	if _, serr := os.Lstat(dir); serr == nil || listed {
-		return failf("member %s already exists (%s or guest %s); remove it with: vmtest member-down %s", name, dir, domain, name)
 	}
 	v, err := c.verdictOnce(ctx, l, baseDir)
 	if err != nil {
@@ -229,21 +245,28 @@ func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
 	if err = os.MkdirAll(dir, 0o755); err != nil {
 		return failf("cannot create %s: %v", dir, err)
 	}
-	if err = c.startMember(ctx, l, b, name, dir); err != nil {
+	if err = c.startMember(ctx, l, b, name, dir, nics); err != nil {
 		c.memberTeardown(context.WithoutCancel(ctx), name, dir, domain)
 		return err
 	}
 	c.sayf("VMTEST-MEMBER-UP %s domain=%s", name, domain)
+	for _, n := range nics {
+		c.sayf("VMTEST-MEMBER-NIC %s link=%s end=%s mac=%s", name, n.link, n.end, n.mac)
+	}
 	return nil
 }
 
-// startMember boots the member's overlay of its base and waits for its SSH.
-func (c *cli) startMember(ctx context.Context, l *lab, b baseFacts, name, dir string) error {
+// startMember records the member's link ends, boots the member's overlay of its base with a NIC
+// for each and waits for its SSH.
+func (c *cli) startMember(ctx context.Context, l *lab, b baseFacts, name, dir string, nics []memberNIC) error {
 	port, err := c.env.FreePort()
 	if err != nil {
 		return failf("%v", err)
 	}
-	g := &guest{c: c, key: l.at(sshKeyFile), domain: memberDomain(name), port: port, dir: dir}
+	if err = c.recordNICs(dir, nics); err != nil {
+		return err
+	}
+	g := &guest{c: c, key: l.at(sshKeyFile), domain: memberDomain(name), port: port, dir: dir, nets: networksOfNICs(nics)}
 	overlay := filepath.Join(dir, "overlay.qcow2")
 	if err = c.overlay(ctx, l.at(basesDir, b.Name, "base.qcow2"), overlay); err != nil {
 		return err
@@ -265,7 +288,7 @@ func (c *cli) memberTeardown(ctx context.Context, name, dir, domain string) {
 	if err := c.removeListedDomain(ctx, domain); err != nil {
 		c.logf("could not remove guest %s: %v", domain, err)
 	}
-	for _, f := range []string{"overlay.qcow2", memberPortFile} {
+	for _, f := range []string{"overlay.qcow2", memberPortFile, memberLinksFile} {
 		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			c.logf("could not remove %s: %v", filepath.Join(dir, f), err)
 		}
