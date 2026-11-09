@@ -89,17 +89,20 @@ So stage A's play makes these changes to the design, and says so:
    `GOFLAGS=-mod=vendor`, into a controller-side temporary directory removed at the end of the
    run. (Both commands cross-build for `amd64` and `arm64` from one host, checked in the
    container.) A sha256 of each output is taken on the controller; the kit directory
-   `kit/<digest>/` is named from it. The files are copied to the target as root into
-   `/var/lib/teamchat-admin/stage/` (0700, created by the play), and the play compares the target's
-   sha256 of each with the controller's before anything is installed.
-3. **`declare check` runs as root from the staging directory**, not as an unprivileged user.
-   The design ran it unprivileged so root never executed an owner-built artefact before the
-   check; but steps 10 to 13 run that same artefact as root, and on a remote host there is no
-   second account whose home may hold it. The check is read-only, and the play still runs it
-   before anything is installed. The copy's integrity check replaces step 03's `O_NOFOLLOW`
-   hand-over, which guarded a root copy out of a user-writable directory; the transfer now lands
-   in a root-only one. K9's boundary moves from "the owner's checkout" to "the controller's
-   checkout", and stays stated, not solved.
+   `kit/<digest>/` is named from it. The files are copied to the target as root straight to their
+   digest-named homes (`/usr/local/lib/teamchat/teamchat-admin-<digest>` and
+   `kit/<digest>/teamchat`, 0755 root; nothing links to them yet), and the play compares the
+   target's sha256 of each with the controller's before anything uses it.
+3. **`declare check` runs unprivileged, as it must, and not as the login user.** The verb is
+   refused to root and to the `teamchat-ctl` account (`ClassOther`, `admin/class.go`), so the
+   play runs the copied binary as `nobody` with `setpriv` (`--reuid`, `--regid`, `--groups` of
+   `teamchat_owner_group`, so it can read the set records the v1-name rule needs), from the
+   digest-named file. The design had the login user run it; a remote host's login user may be
+   root, and `nobody` is the unprivileged account every Fedora host has. Nothing is linked,
+   rendered or installed before it passes. The copy's integrity check replaces step 03's
+   `O_NOFOLLOW` hand-over, which guarded a root copy out of a user-writable directory; the
+   transfer now lands in a root-owned one. K9's boundary moves from "the owner's checkout" to "the
+   controller's checkout", and stays stated, not solved.
 4. **No login user on the target.** Where the design reads one (`/etc/teamchat/owner-group`, the
    owner-readable group of `/var/lib/teamchat-status`, step 05; the user units `teamchat-seats.*`,
    step 07), the play takes the group from a variable, `teamchat_owner_group`, with no default
@@ -184,10 +187,11 @@ do not care:
 1. **Go renders every base unit text the play installs**, so the bytes on the host are the bytes
    the gate judges: `teamchat-server@.service` (from `baseSandbox` plus the per-unit lifecycle
    lines of C 3.2.3), `teamchat-tls@.service`, `teamchat-health.service` and `.timer`, and the
-   existing backup units. A root-free `teamchat-admin` verb prints a named unit (its name is the
-   builder's; the design has none), and the play writes its output. The resolver stub is a file,
-   not a unit, and is installed the same way. The verb runs on the target from the copied
-   binary, so the play needs no unit text of its own.
+   existing backup units. A root-free `teamchat-admin` verb (any caller; the design has none)
+   prints a named unit: `units print <name>` writes the text and `units list` writes one line
+   per unit, its name and its install path, so the play holds neither a text nor a path of its
+   own and the Go `paths` stay the one source. The resolver stub is a file, not a unit, and is
+   listed and printed the same way. The verb runs on the target from the copied binary.
 2. **`teamchat-tls@.service` carries X18a's lines itself**: no `ExecStart=` and no `User=`;
    `DynamicUser=yes`; `After=` and `Wants=` `teamchat-server@%i.service`, not bound to it;
    `Restart=always`; the bus server's hardening lines; `RestrictAddressFamilies=AF_INET AF_INET6`;
@@ -453,4 +457,4 @@ Answered by the coordinator on #193 (the recommendation taken, except where note
    stage C.
 
 Open for review: whether the controller build task merges into `build-go-command.yml` (a
-`go_command_goarch` input) or stays its own file; and the name of the unit-printing verb.
+`go_command_goarch` input) or stays its own file.
