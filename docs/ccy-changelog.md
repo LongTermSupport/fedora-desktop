@@ -17,6 +17,69 @@ Two version numbers move independently — see
 
 ---
 
+## 3.113.4 — container 2.80.1
+
+Follows 3.113.1 (container 2.80.1). 3.113.2, 3.113.3 and an earlier 3.113.0 and 3.113.1 were
+this release's commits on its own branch and never shipped, as were 3.100.19 to 3.100.22 on the
+Go-cache branch. The image does not change.
+
+- **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
+  default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
+  session ran at podman's default of 2048 (docker's is none), and a pid there is a thread. A
+  fork bomb inside a session (a test fixture that recursed into itself) climbed to 2048 in
+  about ten seconds; the limit stopped it, claude aborted (exit 134), and the host was
+  untouched. Every ccy run now passes `--pids-limit "$CCY_PIDS_LIMIT"` from the new
+  `lib/container-limits.bash`: the session, the in-place update's `npm install`,
+  `setup-token`, the token check and the `--help`, `--version` and network probes, and the Go
+  front's `--help`. 4096 by default (room for heavier parallel builds), or `CCY_PIDS_LIMIT`
+  exported on the host, a whole number from 256 to 32768. 0, -1, `max` and anything else stop
+  every run at once, `--version` and `--help` included. The value goes to the session's tmux
+  pane on the pane's command, and tmux is started without it, so an export reaches that
+  session and no later one; a session restored after a reboot or restarted by `ccy-teams`
+  takes the default. A running session keeps its old limit until it is relaunched.
+  `--debug`'s simplified run command shows the flag too. The Semgrep rule
+  `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it,
+  and the Go project rule `project_container_pids_limit` each Go run or create whose argument
+  list shows a container flag (what it cannot see is listed in `CLAUDE/GoProjectRules.md`);
+  `ccc` passes the default too.
+- **`ccy --teams <team>` with a team this machine does not have asks what to do instead of
+  only failing.** On a terminal it asks: create the team now (the create wizard, offering the
+  name typed), choose one of this machine's teams that is up instead, start the rest of the list
+  without it, or start nothing. The question is about the list as it stands: a team already
+  left out is not offered to start on, and a team swapped in is not offered again. Leaving the
+  wizard, or a No at its review, comes back to the question, three times at most. A name the
+  team file would refuse is a usage mistake (64) with its reason, and nothing is asked. With no
+  terminal the list is still refused, with agent-bus's reason. `ccy --help` says so, and which
+  codes a `--teams` launch ends with (64, 75, 78).
+- **`ccy-teams` exits only with codes it documents.** Another program's code is handed on only
+  when the tools document it (64, 75, 77, 78, 130); any other is 1. A 75, 77 or 78 is said in
+  words as the last line (`ccy-teams: exit 78: something it needs is not set up on this host.`), as a shell does not name them: `ccy --teams` with a team the host does not have
+  ended in "Unknown error code". `ccy-sessions reboot` exits 1 when `systemctl reboot` fails,
+  naming systemctl's code. Defence Before Fix rule `project_child_exit`.
+- **The `ccy-teams` board's KIND of a host seat is `cc`**, not `ccy` (a
+  `<repo>.<seat>+<host>.host` handle); a ccy container's stays `ccy`, and the role change reads
+  a member with no seat here as "not known here". Defence Before Fix rule `project_row_kind`.
+- **The Go caches leave the container's writable layer.** Ending a long QA-heavy session
+  waited 12 to 56 s after the container had died. That time went into `podman run --rm`
+  deleting the writable layer, which the Go caches had filled with tens of thousands of files
+  (the build cache alone held 2 GB in 30k files after 40 minutes). The launcher now calls
+  `ccy-teams internal go-cache <project> [z]` and appends what it prints. That is a bind of
+  `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` (shared relabel `:z` on SELinux hosts),
+  plus `GOCACHE`, `GOMODCACHE`, `GOLANGCI_LINT_CACHE` and `GOQA_TOOLS_DIR` pointing into it.
+  The caches persist, warm the next session, and are shared by every seat of the project.
+  go's caches are built for concurrent use, and go-qa installs its tools by rename.
+- **Bounded at launch:** over 8 GiB on disk, `go-build` and `golangci-lint` are cleared,
+  then `mod` and `go-qa-tools` if the total is still over. Still over after that, the launch
+  fails and names the directory. This runs under an flock on `~/.cache/ccy/<project>/go.lock`,
+  beside the bind where the container cannot reach it. Every step inside the bind goes
+  through an `os.Root`, so a link the container plants is never followed. Each cache is
+  renamed aside before it is removed, so its path always holds either the whole old cache
+  or a fresh one. Files that another seat removes during the walk are ignored.
+- **Docker** gets the same bind and bound: the launcher refuses a rootful engine first, so
+  under either engine the files in the bind belong to the user.
+- The `CCY_EXTRA_MOUNTS` and `.claude/ccy/mounts` tokens are appended without their debug
+  lines. This makes room under the launcher's bash-limits record.
+
 ## 3.113.1 — container 2.80.1
 
 The arm64 build of 3.113.0 and the fixes of 3.112.3, 3.112.4 and 3.112.5 in one release: each

@@ -193,8 +193,7 @@ table with a heading on stdout and exits, opening nothing and needing no termina
 Arrow keys choose, and Enter on a session lists what can be done to it: attach it here,
 take it over (Ctrl-T), close it (`/compact`, then `/exit`, as you would type them: it ends
 cleanly and its next resume starts from the summary; or without compacting, `/exit` only), or
-end it (Ctrl-X, which kills it and everything in it). Each asks first. `ccy --stop SESSION...
-[--no-compact]` is the same close from the command line, and `ccy-teams shutdown` closes a
+end it (Ctrl-X, which kills it and everything in it). Each asks first. `ccy --stop SESSION... [--no-compact]` is the same close from the command line, and `ccy-teams shutdown` closes a
 team's sessions the same way. A compaction not complete within 600 s fails the close and
 leaves the session running, named. A row of its own starts a new
 `ccy` session in the current directory (Ctrl-N), and the last row is always Exit (Esc or
@@ -479,7 +478,14 @@ The CLI is run where the project's daemon has its venv. For a project with a ccy
 that is inside the session's container (`podman exec`, against `/workspace`): most projects
 run only ccy, and their daemon has no venv on the host. A project with only `cc` sessions
 is reached on the host. The signal is a file in the project's own tree, so one delivery
-reaches every session of that project.
+reaches every `ccy` session of that project.
+
+**A `cc` session is never shown the warning.** The ccy supervisor is what reads the signal
+and puts the text in front of the agent, and `cc` runs `claude` on the host with no
+supervisor; a `claude` started outside `cc` is not on CCY's tmux server at all. Every
+warning names each `cc` session on stderr as one it is not shown in, so finish or hand
+off in those yourself before the countdown ends. A `cc` session never stops a reboot or
+shutdown, on either profile, including an unattended server self-update.
 
 Before it warns anyone, the helper checks everything that would stop the reboot, and
 reports all of it at once (since CCY 3.82.0):
@@ -1067,6 +1073,64 @@ are forwarded unchanged.
 | `--version`, `-v` | Show the CCY version                                               |
 | `--help`, `-h`    | Full help                                                          |
 
+### Container limits
+
+Every container ccy runs is started with an explicit, bounded pids limit, never the engine's
+default (podman's is 2048; docker sets none): the session, the in-place Claude Code update's
+`npm install`, `--create-token`'s `setup-token`, the token check, and the `claude --help` /
+`--version` and network probes, whether the bash or the Go front runs them. A pid in the pids cgroup is
+a thread. The limit is the session's fork-bomb guard: a
+test fixture that recursed into itself inside a session climbed from 40 to 2048 tasks in about
+ten seconds, and podman's default of 2048 stopped it there, with the host untouched. Without a
+limit it would have run on into the user slice's own task limit, which the desktop shares.
+
+| Variable         | CCY default | Takes                            |
+| ---------------- | ----------- | -------------------------------- |
+| `CCY_PIDS_LIMIT` | `4096`      | a whole number from 256 to 32768 |
+
+Why 4096: busy sessions doing real parallel work (Go builds and tests, linters, Ansible forks,
+background waiters) were seen with `pids.peak` at 1160 and 1503 of 2048, so twice the default
+leaves room for a heavier build, while a runaway climbing at a few hundred tasks a second still
+stops within seconds. Every session at its cap together must stay under the user slice's own
+limit; how many fit:
+
+```bash
+echo $(( $(systemctl show "user-$(id -u).slice" -p TasksMax --value) / ${CCY_PIDS_LIMIT:-4096} ))
+```
+
+(`TasksMax` is by default 33% of the kernel's task limit; `infinity` means the slice has none,
+and the arithmetic then fails.) The limit cannot be turned off: 0, -1, `max` and values past
+32768 stop the run before anything starts, `ccy --version` and `ccy --help` included, as does
+anything that is not a whole number in range.
+
+Export it on the host before launching to override it for that launch. The launcher hands it
+to the session's tmux pane on the pane's command and starts tmux without it, so it reaches
+that session and no later one. A project's `ccy.env` cannot set it, because that file is read
+inside the container. A session restored after a reboot (`ccy-sessions restore`) or restarted
+by `ccy-teams` is not given a launch's export: it takes the variable from its own environment,
+normally unset, so the default. A running session keeps the limit it was started with until
+it is relaunched. Image builds (`podman build`) are not given the limit: `docker build` has no
+such flag, and a build's steps are the Dockerfile's, not a session's.
+
+The setting lives in `lib/container-limits.bash` (the Go front holds the same bounds, tested
+against it); the rule that holds every ccy run and create to it is
+[ccy-container-default-pids-limit](../CLAUDE/QA.md#ccy-container-default-pids-limit).
+
+To see a session's use against its limit, from the host:
+
+```bash
+podman exec <container> cat /sys/fs/cgroup/pids.current /sys/fs/cgroup/pids.peak /sys/fs/cgroup/pids.max | cat
+```
+
+Nothing warns yet when a session climbs. The tool for it is `container-watch`, which already
+finds every container's cgroup. Proposed: a finding on a fast climb in `pids.current` (for
+example 500 tasks within 5 seconds), on `pids.current` past about 80% of `pids.max`, or on a
+refused fork counted in `pids.events`, naming the deepest chain of processes running the same
+command (the runaway's command line, home and checkout paths shortened); and an advisory when
+`pids.peak` passed 80%. It is not built yet because `container-watch` is a standalone Python
+tool, which this repository ports to Go when it is next reworked; the finding belongs in that
+port.
+
 ### Claude Code environment CCY sets
 
 CCY forwards a few Claude Code environment defaults into the container. Each uses the
@@ -1261,10 +1325,14 @@ line, which prints the checkout's own status line first (see
 [A session's status line](agent-bus.md#a-sessions-status-line)). The chooser's rules are step 3 of
 [Getting started in agent-bus.md](agent-bus.md#getting-started).
 
-The launcher checks the list on the host (`agent-bus seat check`, exit 64 for a malformed
-list, 78 for a team whose homeserver is not running on this machine) before anything else
-runs. For a team named alone it then asks, in a chooser, which of this checkout's seats in
-the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
+On a terminal, a team named alone that this machine does not have is asked about first, in
+the chooser: create it now (the create wizard, with the name you typed), choose one of this
+machine's teams instead, start the rest of the list without it, or start nothing. The
+launcher then checks the resolved list on the host (`agent-bus seat check`, exit 64 for a
+malformed list, 78 for a team whose homeserver is not running on this machine) before
+anything else runs; with no terminal that check refuses the list at once. For a team named
+alone it then asks, in a chooser, which of this checkout's seats in the team to take. Each
+row shows the member's full handle, `ccy (podman)`, and whether the
 seat is free or held by a running session. The default is the lowest free seat, else a new
 number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
 into the launch's arguments. With several teams, every question is headed by its team and
@@ -1818,6 +1886,30 @@ ccy
 
 These tokens are passed through unvalidated and split on whitespace. Full details and
 the `scripts/desktop-symlinks` wrapper: [ccy-debug-mounts.md](ccy-debug-mounts.md).
+
+### Always: the project's Go caches
+
+Every launch binds `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` and points `GOCACHE`,
+`GOMODCACHE`, `GOLANGCI_LINT_CACHE` and `GOQA_TOOLS_DIR` there. The caches stay warm between
+sessions, every seat of the project shares them, and `--rm` no longer deletes tens of
+thousands of cache files when a session ends (which held up the exit for up to a minute).
+Each launch bounds them at 8 GiB on disk; between launches a running session can grow them
+past that, and the next launch clears them. A launch that finds another launch of the project
+clearing them says so and waits. Over the bound, the build caches are cleared, and if
+the total is still over, the module cache and go-qa's tools are cleared too. If it is still
+over after that, the launch stops and names the directory, because what remains is not a
+cache ccy keeps. Clearing the module cache can fail a download that another running seat
+has in flight, and clearing the tools makes its next go-qa run install them again. The
+bound is per project name, so each worktree launched as its own project has its own 8 GiB,
+and nothing removes the cache of a project that is gone: delete its `~/.cache/ccy/<project>`.
+A file the container gave to another user (a `chown` as root inside) cannot be removed by
+you, and every launch then fails on it. Under podman, remove it with
+`podman unshare rm -rf <path>`. Under rootless docker, remove it as the container's root:
+`docker run --rm --pids-limit 4096 -v ~/.cache/ccy/<project>/go:/c <image> rm -rf /c/<name>`.
+Rootless docker gets the same bind and bound. The `-e` values replace any `ENV` of the same
+name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
+`GOPATH` would have put elsewhere. A project's `ccy.env` can point them elsewhere. Details:
+`ccy-teams --help`, `internal go-cache`.
 
 ---
 

@@ -20,6 +20,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/unit"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	memberstate "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -1057,7 +1058,7 @@ func (r *run) recordJoins(team paths.TeamID, joined []*member) error {
 // place is step 07 for one joined seat: its bundle placed; a held seat (75) is deferred.
 func (r *run) place(ctx context.Context, m *member) {
 	_, err := r.d.LXC.Guest(ctx, r.attach(m), guest.OpPlaceBundle, nil, m.bundle)
-	if ge, ok := errors.AsType[*lxccmd.GuestError](err); ok && ge.Exit == 75 {
+	if ge, ok := errors.AsType[*lxccmd.GuestError](err); ok && ge.Exit == int(exits.ExitBusy) {
 		m.done, m.heldSeat, m.status, m.why = true, true, lxcstate.StatusDeferred, whySeatHeld
 		r.line(m, Deferred, whySeatHeld)
 		return

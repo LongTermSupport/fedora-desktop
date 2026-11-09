@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccclaude"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 )
 
 const (
@@ -49,7 +50,7 @@ func sessionArgs(s session) []string {
 		termName = "xterm"
 	}
 	args := []string{
-		"run", "--rm", "--interactive", "--tty",
+		"run", "--rm", "--interactive", "--tty", "--pids-limit", pidsLimit,
 		"--name", s.Name,
 		"--label", "ccc=true", "--label", "ccc-agent=" + s.Agent.Name,
 	}
@@ -75,9 +76,13 @@ func sessionArgs(s session) []string {
 	return append(args, s.Agent.Command(s.Continue)...)
 }
 
+// pidsLimit is every ccc container's --pids-limit: ccy's default, so a fork bomb inside a
+// session stops at a bound ccy chose and not at the engine's (project_container_pids_limit).
+var pidsLimit = strconv.Itoa(engine.PidsLimitDefault)
+
 // signInArgs is the podman argv of a sign-in: a throwaway container with nothing mounted.
 func signInArgs(a Agent) []string {
-	args := []string{"run", "--rm", "--interactive", "--tty"}
+	args := []string{"run", "--rm", "--interactive", "--tty", "--pids-limit", pidsLimit}
 	args = append(args, networkArgs()...)
 	args = append(args, "--entrypoint", a.Entrypoint, image)
 	return append(args, a.SignIn...)

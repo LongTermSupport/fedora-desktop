@@ -1,0 +1,9 @@
+## 19:55 · handoff · —
+
+Task 4.5, the ccy Go caches (branch agent-ad49d4886a70d25db-01b66214), done by the third aggregate agent.
+
+- qa-changed --base origin/F44 over bc9b2e004 (before this work): every gate passed except ansible-syntax, which fails in a linked worktree for want of the vault password file (issues #146, #215).
+- F44 has no go-cache command, so the branch was merged (fcc028cca). Conflicts: the launcher's version line, the changelog (folded into one entry), the bash-limits record (re-measured with --update), teams/app.go (the aggregate's chooser wiring kept, GoCache added) and 27 difftest goldens. The goldens were re-recorded with -update and each checked to differ from the aggregate's only by the go-cache call and its bind and GOCACHE arguments.
+- Review round 5 (qa-reviewer): CHANGES, no blocker; 2 medium, 1 low, 1 nit, all fixed in a062f10f5. The medium ones were the changelog bullets landing under 3.105.0 (the merge's HEAD side spanned several entries) and the deploy description.
+- Round 4's non-blocking items: N1 (deploy description), N2 (docs: a running session can grow the caches past the bound until the next launch), N4 (the lock is tried without blocking first; a wait is said on stderr; two tests red first) and N5's unpinned stop (difftest launch-go-cache-fails) done. Left: N3 (the "not a cache ccy keeps" wording when a running seat refills during the prune; practically unreachable at 8 GiB), N5's other test gaps (faultyFS hides ReadDirFS; vanished-file test is a unit test), N6 (mode-000 directory recovery, needs a non-root host) and N7 (the cost of the walk and the :z relabel, needs an Enforcing host).
+- F44 moved (PR #189, arm64, CCY 3.113.1, container 2.80.1) and was merged in (886105eeb). The commit hook required a bump on the merge commit, so CCY is 3.113.4 (the commit message says 3.113.3, written before the hook's refusal); container 2.80.1, as the aggregate changes no image file.

@@ -172,7 +172,7 @@ Use these Unicode icons in plan documents:
 
 - [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. One tooling folder per language, each with its own QA pipeline; first consumer is Plan 00155's Rust mapper.
 
-- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
+- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (Phase 3 host deploy; whether cc sessions should be shown the warning). Evening run accepted. On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
 
 - [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - In Progress (triage done). A Bluetooth headset chosen as input still left dictation on the laptop mic; fix in `play-hd-audio.yml`.
 

@@ -157,12 +157,27 @@ func TestZombieExit(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), ZombieExit, "fix/internal/badzombie")
 }
 
+func TestRowKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RowKind, "fix/internal/teams/board", "fix/internal/badrowkind")
+}
+
+func TestChildExit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ChildExit, "fix/internal/term", "fix/internal/badexit")
+}
+
+// A seat session asked as Kind == KindCcy misses a cc seat: the fixture compares both ways
+// round and with !=, beside IsSession, another kind and a plain string; an IsSession method,
+// which defines the question, is not judged.
+func TestSessionKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SessionKind, "fix/internal/badsessionkind")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 31 {
-		t.Fatalf("want 31 rules, got %d", got)
+	if got := len(All()); got != 35 {
+		t.Fatalf("want 35 rules, got %d", got)
 	}
 }
 
@@ -214,4 +229,8 @@ func TestOwnedBy(t *testing.T) {
 
 func TestRawConnProbe(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), RawConnProbe, "fix/internal/badraw")
+}
+
+func TestContainerPidsLimit(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), ContainerPidsLimit, "fix/internal/badpids")
 }

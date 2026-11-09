@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/guest"
 	memberstate "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -342,7 +343,7 @@ func (r *run) removeGuest(ctx context.Context, g *guestBox, m *member, parked bo
 		return
 	}
 	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpRemove, []string{"--team", m.team.ID.String()}, nil)
-	if ge, ok := errors.AsType[*lxccmd.GuestError](err); ok && ge.Exit == 75 {
+	if ge, ok := errors.AsType[*lxccmd.GuestError](err); ok && ge.Exit == int(exits.ExitBusy) {
 		r.heldSeat(m, "")
 		return
 	}

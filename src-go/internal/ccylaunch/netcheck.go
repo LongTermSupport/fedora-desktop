@@ -75,11 +75,15 @@ func (f Front) checkNetwork(ctx context.Context) term.ExitCode {
 	}
 	network := f.Args[2]
 	unchecked := "ccy: the network " + network + " could not be checked: "
+	limit, why := f.settledPidsLimit()
+	if why != "" {
+		return f.fail(unchecked + why)
+	}
 	eng, err := engine.New(engine.Kind(f.Args[1]), f.Runner)
 	if err != nil {
 		return f.fail(unchecked + err.Error())
 	}
-	res, err := eng.RunOnNetwork(ctx, network, networkProbe[0], networkProbe[1:]...)
+	res, err := eng.RunOnNetwork(ctx, network, networkProbe[0], limit, networkProbe[1:]...)
 	switch {
 	case err == nil:
 		return term.ExitOK
@@ -99,11 +103,15 @@ func (f Front) claudeVersions(ctx context.Context) term.ExitCode {
 	if len(f.Args) != 3 {
 		return f.usage(versionsUsage)
 	}
+	limit, why := f.settledPidsLimit()
+	if why != "" {
+		return f.fail(versionsUnread + why)
+	}
 	eng, err := engine.New(engine.Kind(f.Args[1]), f.Runner)
 	if err != nil {
 		return f.fail(versionsUnread + err.Error())
 	}
-	installed, why := installedVersion(ctx, eng, f.Args[2])
+	installed, why := installedVersion(ctx, eng, f.Args[2], limit)
 	if why != "" {
 		return f.fail(versionsUnread + why)
 	}
@@ -120,8 +128,8 @@ func (f Front) claudeVersions(ctx context.Context) term.ExitCode {
 }
 
 // installedVersion is the version `claude --version` prints in the image, or why there is none.
-func installedVersion(ctx context.Context, eng engine.Engine, image string) (string, string) {
-	out, err := eng.ClaudeVersion(ctx, image)
+func installedVersion(ctx context.Context, eng engine.Engine, image, pidsLimit string) (string, string) {
+	out, err := eng.ClaudeVersion(ctx, image, pidsLimit)
 	if err != nil {
 		return "", strings.TrimSpace(err.Error())
 	}

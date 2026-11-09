@@ -237,6 +237,111 @@ some_cmd || grep -q 'needle' file
 # ok: pipe-into-grep-q-under-pipefail
 some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed
 
+# --- ccy-container-default-pids-limit ---
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --rm --name "$NAME" --label ccy=true "$IMAGE" claude
+
+# ruleid: ccy-container-default-pids-limit
+CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm \
+    --name "$CONTAINER_NAME" \
+    --label ccy=true \
+    "$IMAGE_NAME" \
+    "${CCY_AGENT_CMD[@]}" || container_rc=$?
+
+# ruleid: ccy-container-default-pids-limit
+"$CONTAINER_ENGINE" run -d "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+${ENGINE} create "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+exec docker container run -it \
+    "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+if claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE" --help 2>&1); then :; fi
+
+# ruleid: ccy-container-default-pids-limit
+if ! container_cmd run \
+    --name "$temp_name" \
+    --entrypoint sh "$IMAGE" -c 'npm install -g x'; then :; fi
+
+# ruleid: ccy-container-default-pids-limit
+GH_TOKEN="$gh_token" container_cmd run -it --rm \
+    --entrypoint claude "$IMAGE" setup-token 2>&1 | tee "$out"
+
+# ruleid: ccy-container-default-pids-limit
+probe="$(container_cmd run --rm --entrypoint claude "$1" --version 2>&1)"
+
+# ruleid: ccy-container-default-pids-limit
+echo hi && podman run -i "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE"; podman run --pids-limit 10 x
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE" && podman run --pids-limit 10 x
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it "$IMAGE"  # TODO add --pids-limit
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit -1 "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit "-1" "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit=0 \
+    "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit 00 "$IMAGE"
+
+# ruleid: ccy-container-default-pids-limit
+podman run -it --pids-limit max "$IMAGE"
+
+# ok: ccy-container-default-pids-limit
+CLAUDE_CODE_OAUTH_TOKEN="$T" ccy_agent_container run $DOCKER_FLAGS --rm --pids-limit "$CCY_PIDS_LIMIT" \
+    --name "$CONTAINER_NAME" \
+    "$IMAGE_NAME" || container_rc=$?
+
+# ok: ccy-container-default-pids-limit
+podman run -it --rm \
+    --pids-limit=16384 "$IMAGE"
+
+# ok: ccy-container-default-pids-limit
+if claude_help=$(container_cmd run --rm --pids-limit "$CCY_PIDS_LIMIT" --entrypoint claude "$IMAGE" --help 2>&1); then :; fi
+
+# ok: ccy-container-default-pids-limit
+GH_TOKEN="$gh_token" container_cmd run -it --rm --pids-limit "$CCY_PIDS_LIMIT" \
+    --entrypoint claude "$IMAGE" setup-token 2>&1 | tee "$out"
+
+# ok: ccy-container-default-pids-limit
+podman ps --filter label=ccy=true --format '{{.Names}}'
+
+# ok: ccy-container-default-pids-limit
+podman-compose up -d
+
+# ok: ccy-container-default-pids-limit
+echo "podman run --rm --network $NET alpine wget -q -O- http://example.com"
+
+# ok: ccy-container-default-pids-limit
+echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$IMAGE\" setup-token"
+
+# ok: ccy-container-default-pids-limit
+if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${name}$" >/dev/null; then :; fi
+
+# ok: ccy-container-default-pids-limit
+# a comment that says (podman run x) is not a run
+
+# ok: ccy-container-default-pids-limit
+podman run -d --pids-limit 4096 "$IMAGE"
+
+# ok: ccy-container-default-pids-limit
+podman run -d --pids-limit 100 "$IMAGE"
+
 # --- bash-self-erasing-clipboard ---
 
 # ruleid: bash-self-erasing-clipboard

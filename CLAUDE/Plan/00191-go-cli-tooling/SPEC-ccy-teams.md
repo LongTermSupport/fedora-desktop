@@ -110,14 +110,14 @@ Then, for every mode except `--help` (L142-149): if `${CCY_LIB}/tmux-session.bas
 
 Actual behaviour, which the port must reproduce (TC asserts the ones marked T):
 
-| code  | when                                                                                                                                                 |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | success; Esc/q/Exit in the picker; "no" to offer_create; `restore` picker or confirm declined ("Nothing restored.")                                  |
-| 1     | failures and refusals (T many); picker without a terminal (T L618); no at create summary (T L1260); remove wrong name (T L1209)                      |
-| 64    | usage errors (T L503, L505, L838, L844, L847, L850, L865, L1189, L1192, L1194, L1196)                                                                |
-| 130   | `cancelled` (Esc/Ctrl-C in a gum question, T L1250, L1255); Ctrl-C (SIGINT trap) in the picker; a 130 from in_picker                                 |
-| 78    | **leaks from declare.py** under `set -e`: e.g. `create --yes` with no bus address (T L1029 asserts 78)                                               |
-| other | any non-zero from a child run unguarded under `set -e` propagates: declare.py (64/78), `agent-bus-install backup-now`/`restore` (1/64/77/78), `sudo` |
+| code  | when                                                                                                                                                                                                                                                                                                                              |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | success; Esc/q/Exit in the picker; "no" to offer_create; `restore` picker or confirm declined ("Nothing restored.")                                                                                                                                                                                                               |
+| 1     | failures and refusals (T many); picker without a terminal (T L618); no at create summary (T L1260); remove wrong name (T L1209)                                                                                                                                                                                                   |
+| 64    | usage errors (T L503, L505, L838, L844, L847, L850, L865, L1189, L1192, L1194, L1196)                                                                                                                                                                                                                                             |
+| 130   | `cancelled` (Esc/Ctrl-C in a gum question, T L1250, L1255); Ctrl-C (SIGINT trap) in the picker; a 130 from in_picker                                                                                                                                                                                                              |
+| 78    | **leaks from declare.py** under `set -e`: e.g. `create --yes` with no bus address (T L1029 asserts 78)                                                                                                                                                                                                                            |
+| other | any non-zero from a child run unguarded under `set -e` propagates: declare.py (64/78), `agent-bus-install backup-now`/`restore` (1/64/77/78), `sudo`. Departure: the Go hands on only 64, 75, 77, 78 and 130 (`term.FromChild`), any other child code is 1, and the 75, 77 and 78 it ends with are said in words (`term.Explain`) |
 
 Unguarded call sites whose status is the process exit status: L629 (`address`, `|| exit`), L722
 (`create --dry-run`, `|| exit`), L741 (`create`), L744 (`element`), L1017 (`remove`), L1040
@@ -763,7 +763,8 @@ it is out of scope for behaviour parity.
   (team file rendered from the entry) and software digest (admin zipapp + pinned Tuwunel + installer
   hash) with the checkout.
 - **Member** (`agent-bus list`): handle `<repo>.<seat>+<host>.<type>` (type podman, lxc, docker, vm,
-  host), role, room membership, active/parked. KIND = type with podman shown as `ccy`.
+  host), role, room membership, active/parked. KIND = type with podman shown as `ccy` and host
+  as `cc` (`agentbus.KindOf`), for a member row and a seat row alike.
 - **Seat** (`agent-bus seat list` per checkout): team, seat (`[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}`),
   held/free, self/-, handle. Checkouts considered: dirs of live `ccy-*` tmux sessions, dirs of `ccy`
   registry records, and the cwd's work tree.
@@ -935,7 +936,9 @@ Keep the Exit-code and stderr conventions in one place (`internal/term` or `inte
     seat, not a member.
 06. **cc sessions and host seats**: records with prefix `cc` are skipped (L1263) and only `ccy-*` tmux
     sessions add checkouts (L1253), so `cc --teams` (Task 4.10) sessions never show as holding their
-    seat; every seat row's KIND is hard-coded `ccy` (L1436) even for a `.host` handle.
+    seat; every seat row's KIND is hard-coded `ccy` (L1436) even for a `.host` handle. The KIND
+    half is fixed in the Go board (Plan 00177 Task 7.8): a seat row's KIND comes from its handle,
+    `cc` for `.host`, held by the project rule `project_row_kind`.
 07. **Nondeterministic order** from bash associative arrays: `apply --all`'s "Left alone" and broken
     lists (L923-935), `offer_update`'s "Not as declared" list (L1543), the `--installed` flags. Sort.
 08. **Exit codes leak** from declare.py (64, 78) and from agent-bus-install through `set -e`, though the

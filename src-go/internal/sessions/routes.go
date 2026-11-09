@@ -37,7 +37,9 @@ func daemonCLI(dir string) string { return dir + "/.claude/hooks-daemon/bin/hook
 // inside the container: most projects run only ccy, and their daemon has no venv on the host
 // at all. A project with only cc sessions is reached on the host. A signal is a file in the
 // project's own tree, which the container and the host share, so one delivery per project
-// reaches every session in it, ccy and cc alike.
+// reaches every ccy session in it. Only the ccy supervisor reads that file and shows the
+// warning; cc runs claude with no supervisor, so a cc session is never shown it, and a warning
+// names every cc session as such (checkProjects).
 func (p projectInfo) route() route {
 	if p.Container != "" {
 		return route{
@@ -120,6 +122,18 @@ func groupProjects(sessions []tmuxccy.Session, owners []sessprobe.Owner) ([]proj
 	return projects, idle
 }
 
+// ccSessions names each live cc session: cc runs claude on the host with no ccy supervisor,
+// and only the supervisor reads the daemon's signal and shows the warning.
+func ccSessions(sessions []tmuxccy.Session) []string {
+	var named []string
+	for _, s := range sessions {
+		if s.Name != "" && s.Path != "" && strings.HasPrefix(s.Name, "cc-") {
+			named = append(named, "  not shown: "+s.Name+"  in "+s.Path)
+		}
+	}
+	return named
+}
+
 // brokenProject is a project whose CLI exists but cannot run, with what it said.
 type brokenProject struct {
 	project projectInfo
@@ -152,6 +166,10 @@ func (a *App) checkProjects(ctx context.Context, kind string) ([]projectInfo, er
 	if len(idle) > 0 {
 		a.sayf("Left out: no container was found in these ccy sessions' process trees (still at ccy's startup prompts, or the container has exited), so there is no agent in them to warn:\n%s\n",
 			strings.Join(idle, "\n"))
+	}
+	if unshown := ccSessions(sessions); kind != kindCancelled && len(unshown) > 0 {
+		a.sayf("Not shown the warning: these cc sessions run claude on the host with no ccy supervisor, and the supervisor is what puts the warning in front of an agent. Their project is still signalled (any ccy session in it is told); finish or hand off in these yourself:\n%s\n",
+			strings.Join(unshown, "\n"))
 	}
 	missing, broken := a.probeProjects(ctx, kind, projects)
 	if len(missing) == 0 && len(broken) == 0 {

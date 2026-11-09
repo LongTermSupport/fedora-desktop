@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and built 28-10-26; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26)
+**Status**: In Progress (host run 26-10-26: 6.4, 10.4 and 10.5 passed; 7.5 and 9.5 still open; 10.6, the restore toggle's confirm, decided 2026-10-28 and built 28-10-26; Phase 11 passed on the host; Phase 12 passed on the host, 12.5's fix included, on 27-10-26; 12.6, the flaky test, fixed in the test on 27-10-26; 7.6 to 7.8, the unknown team, merged through Plan 00245's dormant-branch aggregate, host test 7.9 open)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -90,6 +90,7 @@ started apart from the board; host PASS 26-10-26.
   calls, and brought cc onto the same flow. Deployed. The owner's test of it is Plan 00201's
   [ACCEPTANCE-owner.md](../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/ACCEPTANCE-owner.md)
   step 5 (Task 7.5).
+
 - [x] ✅ **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
   it launches into the same team; an explicit `--teams` overrides it. Only a person's yes to
@@ -97,6 +98,7 @@ started apart from the board; host PASS 26-10-26.
   Plan 00161 M2.9 defect). Deployed; the unattended half passed on the host in Plan 00161's
   acceptance (M2.9, M2.10 at F44 6affbfec). The person's yes is the owner's test: Plan
   00201's ACCEPTANCE-owner.md steps 3 and 6 (Task 7.5).
+
 - [x] ✅ **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
   after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
   pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
@@ -104,6 +106,7 @@ started apart from the board; host PASS 26-10-26.
   `helpers/agent_bus/element.py` now passes a folder that holds only the acceptance record,
   valid by pingbus's own `config.element_accepted`. Anything else there still refuses.
   Built test first. The owner's run of the Element play on the host passed (26-10-15).
+
 - [x] ✅ **Task 7.4**: A person is never left with an account they cannot sign in to. After an
   apply (from `ccy-teams create` or `ccy-teams apply <team>`), passed or failed, every person
   of the team who has no Element session (the picker's check) is offered the sign-in on a
@@ -113,6 +116,7 @@ started apart from the board; host PASS 26-10-26.
   Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
   `261015-create-signin-gap-sonnet.md`. Built test first and deployed; the owner's test is
   Task 7.5.
+
 - [x] ✅ **Task 7.5**: The host agent tests Phase 7 on the host, in tmux. Nothing to deploy (all of it is in
   the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
   3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
@@ -123,6 +127,28 @@ started apart from the board; host PASS 26-10-26.
   Host run 27-10-27 (throwaway teams, after 11.1 and 11.2): steps 3, 5 and 6 PASS (the Quick
   Launch Team line, the seat and role questions with Keep as is, the launch block and the
   status line naming both seats).
+
+- [x] ✅ **Task 7.6**: An unknown team never just ends the run (owner: `ccy --teams <team-a>,<team-b>` with an unknown team "should have taken me to somewhere to create the
+  team"). On a terminal, a team named alone that has no homeserver up and no host_vars entry
+  is asked about (`chooser/unknown.go`): create it (the create wizard, offering the typed name
+  as the Team name), choose one of this machine's teams that is up in its place, start the rest of the
+  list without it, or start nothing. Leaving the wizard or the choice comes back to the
+  question, three rounds at most, then exit 1; a No at the wizard's review is a leave (F44's
+  `declined`, exit 130 to the chooser). Without a terminal it stays fail-fast:
+  `agent-bus seat check --resolved` refuses the list with its reason. Built test first
+  (`unknown_test.go`) on a branch that stopped at review round 2, then finished and merged over
+  F44 through Plan 00245 Task 4.4 (CCY 3.113.2).
+
+- [x] ✅ **Task 7.7**: Exit codes from other programs keep their meaning: `term.FromChild`
+  keeps 64, 75, 77, 78 and 130 and turns any other code into 1, and `ccy-teams` names 75, 77
+  and 78 in its last line (before this the shell's prompt said "Unknown error code" for
+  agent-bus's 78). Defence Before Fix rule `project_child_exit` (red `1824f6ed5`).
+
+- [x] ✅ **Task 7.8**: The board shows a host seat's KIND as `cc`, from the seat's handle, not
+  `ccy` for every seat of a checkout. Defence Before Fix rule `project_row_kind`.
+
+- [ ] ⬜ **Task 7.9**: The host run (meta-deploy `play-claude-yolo.yml`, CCY 3.113.2), then
+  the owner's test: `ccy --teams <unknown-team>` in a checkout offers to create it.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 
@@ -439,6 +465,7 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   container, the coordinator's edges to its workers; it fails as `--list` does. A pure
   formatter (`board.Mermaid`) with a golden test; usage, help and `docs/agent-bus.md`.
   Red then green in the journal.
+
 - [ ] 🔄 **Task 15.2**: Host check, once `changed-plays` has rebuilt ccy-teams
   (`play-claude-yolo.yml`): `ccy-teams --graph` on the host renders in a Mermaid viewer, every
   member of `ccy-teams --list` is in it, and its exit code matches `--list`'s. Host agent,
@@ -454,6 +481,7 @@ are Phase 12. [Full text](DONE-phases.md#phase-11-findings-of-the-host-run-of-26
   `pingbus status` judges it); `--list`, the picker and `--graph` show listening, stale, not
   listening, parked, or unknown with why. CCY 3.104.17. Report:
   [subagent-reports/261102-active-state.md](subagent-reports/261102-active-state.md).
+
 - [ ] 🔄 **Task 15.4**: Host check, once `changed-plays` has run `play-agent-bus.yml` and
   `play-claude-yolo.yml`: `ccy-teams --list` calls a member whose `pingbus status` is stale
   "stale" and a running one "listening", and `--graph` draws the same.

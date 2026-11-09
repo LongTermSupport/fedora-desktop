@@ -293,3 +293,29 @@ func TestSignalProjectsChecksBeforeItSignals(t *testing.T) {
 		t.Fatalf("%d %v", n, err)
 	}
 }
+
+// A cc session runs claude on the host with no ccy supervisor, and only the supervisor shows
+// the daemon's warning, so a warning names every cc session as not shown it; its project is
+// still signalled. A cancellation, which nobody acts on, names none.
+func TestACcSessionIsNamedAsNotShownTheWarning(t *testing.T) {
+	for _, kind := range []string{"reboot-warning", "shutdown-warning", kindCancelled} {
+		h := newHarness(t)
+		a, b := h.project("a", true), h.project("b", true)
+		h.okCLI(a)
+		h.okCLI(b)
+		h.sessions("cc-a 1 "+a, "ccy-c 0 "+b)
+		containerRoute(h)
+		h.fake.On([]string{"podman", "exec"}, execx.Result{})
+		projects, err := h.app.checkProjects(context.Background(), kind)
+		if err != nil || len(projects) != 2 {
+			t.Fatalf("%s: %+v %v", kind, projects, err)
+		}
+		named := strings.Contains(h.stderr(), "  not shown: cc-a  in "+a)
+		if named != (kind != kindCancelled) || strings.Contains(h.stderr(), "not shown: ccy-c") {
+			t.Fatalf("%s: stderr %q", kind, h.stderr())
+		}
+		if kind != kindCancelled {
+			contains(t, "not shown", h.stderr(), "Not shown the warning: these cc sessions run claude on the host with no ccy supervisor")
+		}
+	}
+}

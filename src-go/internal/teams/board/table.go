@@ -22,10 +22,12 @@ const (
 	cRed    = "\x1b[31m"
 )
 
-// The kinds of row: a team, a seat or member run by ccy, a person.
+// The kinds of row: a team, a seat or member run by ccy (a container) or by cc (a session on
+// the desktop host), a person.
 const (
 	KindTeam  Kind = "team"
 	KindCcy   Kind = "ccy"
+	KindCC    Kind = "cc"
 	KindHuman Kind = "human"
 )
 
@@ -36,9 +38,16 @@ const kindLxc = "lxc"
 // wordParked is the STATE of a member that is parked.
 const wordParked = "parked"
 
-// Kind is a row's KIND. A member that is not run by ccy (lxc, docker, vm, host) carries the
-// type word it was listed with.
+// Kind is a row's KIND. A member's is KindOf its handle: ccy, cc, or the type word it was
+// listed with (lxc, docker, vm).
 type Kind string
+
+// KindOf is the kind of the member a handle names (agentbus.KindOf).
+func KindOf(handle string) Kind { return Kind(agentbus.KindOf(handle)) }
+
+// IsSession is whether the kind is a ccy or cc session, the two ccy-teams starts, attaches and
+// records on this host: a seat of a checkout is one or the other.
+func (k Kind) IsSession() bool { return k == KindCcy || k == KindCC }
 
 // Row is one line of the table. Member is the seat (a ccy seat with a checkout), the handle (a
 // member with none) or the person, as keys and flows name it; the MEMBER column shows a member's
@@ -103,7 +112,7 @@ func (r Row) Label() string {
 func (r Row) Crumb() string {
 	noHandle := r.Handle == "" || r.Handle == "-"
 	switch {
-	case r.Kind == KindCcy && noHandle && r.Dir != "-":
+	case r.Kind.IsSession() && noHandle && r.Dir != "-":
 		return "seat " + r.Member
 	case r.Kind == KindTeam || r.Kind == KindHuman || noHandle:
 		return r.Member
@@ -113,17 +122,7 @@ func (r Row) Crumb() string {
 
 // cells are the row's columns as words.
 func (r Row) cells() [columns]string {
-	return [columns]string{r.Team, r.Label(), r.kindWord(), r.State, r.Applied, r.Session, r.Restore, r.Where}
-}
-
-// kindWord is the KIND column. A seat in a checkout is KindCcy to every flow, ccy's or a cc
-// session's; the column says what runs it, by its handle's type (agentbus.Member.Kind), as the
-// member's roster row would: "host" for a cc session's seat. A seat with no handle yet is ccy's.
-func (r Row) kindWord() string {
-	if r.Kind != KindCcy || r.Handle == "" || r.Handle == "-" {
-		return string(r.Kind)
-	}
-	return agentbus.Member{Handle: r.Handle}.Kind()
+	return [columns]string{r.Team, r.Label(), string(r.Kind), r.State, r.Applied, r.Session, r.Restore, r.Where}
 }
 
 // Table is a set of rows laid out together: each column as wide as its longest value, measured

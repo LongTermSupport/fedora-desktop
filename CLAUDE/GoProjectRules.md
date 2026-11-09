@@ -65,7 +65,11 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
-| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182) |
+| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files                                                | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182)                                    |
+| `project_container_pids_limit`    | a container run with no `--pids-limit`, so a fork bomb inside a session runs to the engine's default (podman 2048, docker none)                                | `ccc`'s session and sign-in runs, after the ccy launcher's Go probes had taken the limit (the Go counterpart of the Semgrep rule `ccy-container-default-pids-limit`)      |
+| `project_child_exit`              | another program's exit code handed on as the tool's own, which no usage documents and no shell names                                                           | `ccy --teams`: agent-bus seat choose's 78, "Unknown error code" (Plan 00177)                                                                                              |
+| `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                               | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
+| `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                              | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -610,8 +614,9 @@ A function (each function literal judged on its own) that recovers a `*declare.E
 `internal/declare` by its type (`errors.AsType`, `errors.As`, a type assertion, a type switch
 case) and never tells the one kind asking again can fix from the rest: it names no
 `declare.ErrUsage` (`errors.Is(err, declare.ErrUsage)`, `.Is(declare.ErrUsage)`) and does not
-hand the exit code on whole (a returned `.Code`, converted or not, alone or as a field of a
-returned literal such as `&stop{term.ExitCode(de.Code)}`) whatever the recovery finds. `ErrUsage`
+hand the exit code on whole (a returned `.Code`, converted or not or through `term.FromChild`,
+alone or as a field of a returned literal such as `&stop{term.FromChild(de.Code)}`) whatever
+the recovery finds. `ErrUsage`
 named anywhere in the function clears every recovery in it; a code handed on clears only the
 recovery whose block returns it unconditionally: a direct statement of the `if` body whose Init
 or Cond recovers (`if de, ok := ...; ok { return de.Code }`, the real tree's `create.Wizard.run`,
@@ -1701,7 +1706,6 @@ writer releases a reader at once, so a regression fails the test instead of hang
   (`[]byte(filepath.Join(dir, e.Name()))`, followed as content), and a time-of-check gap between
   the check and the open.
 
-
 ### project_zombie_exit
 
 **What it is about.** `/proc/<pid>/stat` is the thread-group leader's own entry, and its state
@@ -1745,6 +1749,125 @@ now does.
 - Not caught: a stat path built entirely at run time, a state compared through a parameter (a
   helper `procIs(pid, 'Z')` that takes the letter), and a `Threads` literal read but not
   required.
+
+### project_child_exit
+
+A conversion to `term.ExitCode` (through an alias too) whose operand reads the `Code` field of
+an error type (a struct whose value or pointer implements `error`: `execx.ExitError`,
+`agentbus.CommandError`, `declare.Error`), directly, inside an expression, or through a local
+assigned or declared (`var c = ee.Code`) from such a read in the same function. `internal/term`, which owns the translation, and
+test files are not judged. A child's code means what the child's documentation says, not the
+tool's: `ccy --teams` with a team the host does not have exited 78, `agent-bus seat choose`'s own
+code, which no ccy usage text named, and the owner's prompt reported "Unknown error code".
+
+The fix is `term.FromChild(code)`: the codes the tools document (64, 75, 77, 78, 130) are kept
+and any other is 1; say the child's own code in the message. `ccy-teams` then says a 75, 77 or
+78 it ends with in words as its last line (`term.Explain`, from `App.Run`), since a shell names
+none of them. `project_refusal_kind` counts a code handed on through `term.FromChild` as handed
+on whole.
+
+- Red, fixture: `testdata/src/fix/internal/badexit` (`bad.go`: `choose.listFailed`'s original,
+  a code carried in a `&stop{...}`, through a local, through a local declared with `var` (review
+  round 2 of the unknown-team branch found it missed: red, then green), inside arithmetic, through an alias of the
+  type, in parentheses; `good.go`: `term.FromChild`, the code only printed, the tool's own
+  `128 + signal`, a code from a struct that is not an error, a constant, a code only compared).
+  The stub `fix/internal/term` has `ExitCode` and `FromChild`.
+- Red, real tree: 14 (teams `choose.listFailed`, `chooser.failed`, `ops.playExit` and the three
+  of `ops.childExit`, `create` three, `lxcadd` four; sessions `systemctlReboot`).
+- Green: each through `term.FromChild`, except `ops.playExit`, which never was the tool's exit
+  (it is said and compared with run.bash's 75: now `playStatus`, an int), and ccy-sessions'
+  reboot, which exits 1 as its usage says and names systemctl's code in the message (a departure
+  in Plan 00191 `SPEC-ccy-sessions.md` 1.3).
+- Red, real tree after the rule met F44 (Plan 00245 Task 4.4): `lxccmd.failed`, which typed a
+  guest op's status as `term.ExitCode` in `GuestError.Exit`. It was never the tool's exit (it is
+  compared with the op's allowed codes and printed), and `FromChild` would have hidden an
+  undocumented guest code from the "may not give" check. Green: `GuestError.Exit` is an `int`,
+  the guest's own status, as `AttachError.Exit` already was.
+- Not caught: a code returned by a helper function as an int, a `Code` read in another function
+  and passed in as an int, a field named other than `Code`. The independent search found three
+  such sites in the real tree. Each hands on a code its spec says is handed on as it is, so the
+  hazard (a code the tool's documentation does not name) cannot arise there:
+  - `vmtest` `member-ssh` (`member.go`, through `statusOf`) exits with the remote command's
+    status, as `ssh` does, and 124 at its time bound (Plan 00192 `SPEC-vmtest.md` E58).
+  - `vmtest` `verify` (`verify.go`, through `helperExitCode`): "`verify_response`'s exit is the
+    command's exit" (the same spec, E60).
+  - `open`'s `handlerResult` (`launch.go`): `128 + n` for a handler killed by signal n is the
+    tool's own code, the shell's convention (Plan 00192 `SPEC-open.md` E30, B20).
+- `FromChild` keeps 78 and hands it to the shell on purpose: the launcher and its tests read it
+  as "a team not running here". The words for it are `term.Explain`'s last line and the usage
+  text, not a different number.
+
+**The next wider rule, not built:** every conversion to `term.ExitCode` of a value known only at
+run time. Not built because the tools' own codes (a signal's `128 + n`, `pingbus status-line`'s
+own statuses) are most of them and carry no hazard; telling a child's code from the tool's own
+needs to know where the int came from, which is what the `Code` field of an error says. The
+three pass-throughs above are the only sites the search found that the rule does not judge.
+Whether to widen the rule to an int helper that returns an error's `Code` is the owner's
+decision; the default is not to, as each of the three is a pass-through its spec requires.
+
+### project_row_kind
+
+A composite literal of the teams board's `Row` (`internal/teams/board`, through an alias, or with
+its type elided in a slice literal) that gives `Handle` a value known only at run time and gives
+`Kind` a compile-time constant (`board.KindCcy`, `board.Kind("lxc")`, an untyped `"ccy"`, a named
+constant) or no `Kind`; a `Row` with unkeyed fields is flagged too. A member's handle is
+`<repo>.<seat>+<host>.<type>`, and its type word says what runs it: `podman` a ccy container,
+`host` a cc session on the desktop, `lxc`, `docker`, `vm`. The board called every seat of a
+checkout ccy, so a host cc session on seat `<team>.2+local.host` showed as ccy. A row with no
+member (a team, a person, an LXC member that has not joined: `Handle: "-"`) has no handle to read.
+
+The fix is `Kind: board.KindOf(handle)`, which is `agentbus.KindOf`, the one reading of the type
+word for a person (`podman` is ccy, `host` is cc). `Kind.IsSession` is "a ccy or cc session",
+which the flows that act on a checkout's seats ask, where they asked `Kind == KindCcy`.
+
+- Red, fixture: `testdata/src/fix/internal/badrowkind` (`bad.go`: the board's original
+  `seatRow`, `board.Kind("lxc")`, an untyped constant, no `Kind`, an alias with a named
+  constant, a slice literal, unkeyed fields; `good.go`: `KindOf(handle)`, a team, a person, a
+  deferred LXC member, a kind passed in, the zero row) and the stub
+  `fix/internal/teams/board` (a constant kind inside the owner's own package is judged too).
+- Red, real tree: `board.seatRow` (1).
+- Green: `seatRow` takes `KindOf(sa.seat.Handle)`; `agentbus.KindOf` shows `host` as cc.
+- Not caught: an assignment to a row's `Kind` or `Handle` after the literal, and a `Kind`
+  computed by a function that ignores the handle.
+
+**The next wider rule, not built:** any reading of a handle's type word outside
+`agentbus.KindOf`. Not built because the other readers do other jobs where the hazard (a wrong
+kind shown) cannot arise: `roles.parseHandle` checks a handle's grammar and shows no kind;
+`seats.nextSeat` numbers a new podman seat (its pattern matches only the roster's `.podman`
+members, and this checkout's own seats of every type are counted from the seat list; a host seat
+with the same number is a different handle, `.host`, so nothing clashes); `lxcadd` matches the
+LXC member it added by its whole handle. The sweep for both rules was `src-go` and the nested
+`qa` module, test files and fixtures excluded. The 13 `Kind == KindCcy` checks became
+`Kind.IsSession` by pattern, then each was read again for the board's member rows (a roster
+member with no seat row here, `Dir: "-"`), whose KIND also comes from the handle: a host member
+there was `host` and is now `cc`. Most checks also ask for a folder (`Dir`) or a recorded
+session, so a member row is not one of theirs. `seats.SnapshotRunning` now asks for a folder
+too, so a host or podman member with no seat row here reads "not known here", not "not
+running". The two left (`picker.seatOwnActions`, the `Incomplete` case of `seats.RemoveOrPark`)
+treat a cc member row as they always treated a podman one: its menu has the Attach line,
+unavailable, and its Park is refused while the seat list could not be read. That conversion
+was by hand, and code written after it (`ccy-teams --graph`) asked `Kind == KindCcy` again:
+`project_session_kind` now holds the class.
+
+### project_session_kind
+
+An `==` or `!=` comparison with the teams board's `KindCcy` (matched through `types.Info`)
+anywhere but an `IsSession` method, which defines the question. A checkout's seat is held by a
+ccy container (KIND `ccy`) or a cc session on the desktop (KIND `cc`, `project_row_kind`), so a
+flow that acts on a seat's session and asks `Kind == KindCcy` treats a cc seat as no seat.
+
+- Red, fixture: `testdata/src/fix/internal/badsessionkind` (`bad.go`: the graph's original,
+  `!=`, the constant on the left; `good.go`: `IsSession`, another kind, a plain string, an
+  `IsSession` method of its own).
+- Red, real tree, after the unknown-team branch met F44 (Plan 00245 Task 4.4):
+  `board/graph.go`'s session line and `seatOf` (F44 wrote them after the hand conversion above)
+  and F44's `board.kindWord`, which re-read a `KindCcy` row's handle for the KIND column.
+- Green: the graph asks `Kind.IsSession` (`TestMermaidDrawsACcSeatWithItsSession`, red first);
+  `kindWord` is gone, as every seat row's `Kind` is already `KindOf` its handle
+  (`project_row_kind`), so the column is `string(r.Kind)`. The sweep over both modules and
+  every tag set is clean.
+- Not caught: a `switch` whose `case` lists `KindCcy`, and a comparison with the string `"ccy"`.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -2206,6 +2329,40 @@ error or status thrown away (the bash's `|| true`, unchecked process substitutio
 Go, and the hooks' `R-ERROR-HIDING`; a path joined from a name the user gave (nord's
 `connect ../x`, B2) is gosec's G304, and nord matches the name against the listing instead; a
 shell template (open's `bash -c` handlers, B8) is `project_seam_commands`' `sh -c` finding.
+
+### project_container_pids_limit
+
+**What it is.** An argument list (a `[]string` literal, or the arguments of one call) whose
+verb is `"run"` or `"create"` and which holds a container flag but no `--pids-limit`. The verb
+is the first constant after any leading non-constant arguments (a context, a program chosen
+at run time) and any `"podman"`, `"docker"` or `"container"`, so `e.run(ctx, "run", …)`,
+`{"podman", "run", …}` and docker's `container run` are all read. Flags are read by name:
+`-dit` is `-d`, `-i` and `-t`; `--rm=true` is `--rm`; `--pids-limit=N` is the limit. The
+container flags are the attach and detach flags (`--rm`, `-i`, `-t`, `-d`, `--interactive`,
+`--tty`, `--detach`) and the long flags only a container takes (`--name`, `--entrypoint`,
+`--volume`, `--mount`, `--network`, `--env`, `--userns`, `--security-opt` and the rest the doc
+string lists). The Go counterpart of the Semgrep rule
+[ccy-container-default-pids-limit](QA.md#ccy-container-default-pids-limit), which reads only
+bash; the class and its hazard are described there.
+
+**Not caught.** A run whose only flags are short ones outside that set (`-v`, `-e`, `-p`,
+`-w`, `-u`: `go run -v` takes them too); a run assembled from several lists where no literal
+holding a container flag starts with the verb (`netpolicy`'s `create`, whose options and
+limit come from the bash launcher, is one); a `--pids-limit` after the image, which is the
+contained program's argument and not the engine's; and a limit that turns the bound off
+(`-1`, `0`, `max`) given as a value, as the value is not read.
+
+**Proof.** Fixture `fix/internal/badpids` (`TestContainerPidsLimit`). Real tree: red on
+`ccc`'s session and sign-in runs as they were (`git show 0ad400860^:src-go/internal/ccc/run.go`
+put back, then `go vet -vettool=<driver> -project_container_pids_limit ./internal/ccc/`:
+`run.go:51` and `run.go:80`), and nothing else over both modules (the ccy engine runs already
+passed the limit). Review round 4 widened it (the engine package's `e.run(ctx, "run", …)`,
+an engine word before the verb, `create`, the long container flags, `-dit` and `--rm=true`):
+seven fixture cases red, then green, and the sweep over both modules with the default,
+`difftest`, `ccyteamstest`, `busfailpoints` and `tuwunel` tags is clean.
+
+**How to fix.** Pass `"--pids-limit"` and the limit: the one the ccy launcher settles
+(`ccylaunch`'s `settledPidsLimit`), or `engine.PidsLimitDefault` where nothing overrides it.
 
 ## Control
 

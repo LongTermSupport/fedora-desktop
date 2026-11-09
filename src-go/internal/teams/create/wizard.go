@@ -94,10 +94,12 @@ type Wizard struct {
 	asked int
 	said  []string
 	// forChooser is a run for `choose-teams`; created is the team that run made; declined is a
-	// run the person said No to at the review.
+	// run the person said No to at the review; named is the name the person gave on
+	// `ccy --teams`, offered as the Team name.
 	forChooser bool
 	created    string
 	declined   bool
+	named      string
 }
 
 // New is the Wizard over a host and the flows it hands the work after the entry is written to:
@@ -156,16 +158,17 @@ func nonEmpty(in []string) []string {
 // 0 done or declined, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal
 // code.
 func (c *Wizard) Run(ctx context.Context, args []string) term.ExitCode {
-	c.forChooser, c.created, c.declined = false, "", false
+	c.forChooser, c.created, c.declined, c.named = false, "", false, ""
 	return c.run(ctx, args)
 }
 
 // RunForChooser is the wizard for `ccy-teams choose-teams`, with this checkout's repository as
 // the scope's default: it offers no session of its own and prints nothing on stdout (the
 // chooser's payload), and returns the team it made, empty when it made none. A No at the review
-// is the chooser's cancel of the wizard, so it goes back to the chooser's list as Esc does.
-func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
-	c.forChooser, c.created, c.declined = true, "", false
+// is the chooser's cancel of the wizard, so it goes back to the chooser's list as Esc does. A
+// name not empty is the team the person named on `ccy --teams`, offered as the Team name.
+func (c *Wizard) RunForChooser(ctx context.Context, name string) (string, term.ExitCode) {
+	c.forChooser, c.created, c.declined, c.named = true, "", false, name
 	code := c.run(ctx, nil)
 	if c.declined {
 		return "", term.ExitCancelled
@@ -185,7 +188,7 @@ func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		c.term.Printf("%s\n", de.Error())
-		return term.ExitCode(de.Code)
+		return term.FromChild(de.Code)
 	}
 	c.term.PrintError(err.Error())
 	return term.ExitFailure
@@ -609,8 +612,8 @@ func (c *Wizard) askTeam(ctx context.Context, o *createOpts) error {
 	case len(o.repos) > 0:
 		name = repoPart(o.repos[0])
 	}
-	suggestion := ""
-	if name != "" {
+	suggestion := c.named
+	if suggestion == "" && name != "" {
 		var err error
 		if suggestion, err = c.Declare.SuggestTeam(ctx, name); err != nil {
 			return err
@@ -794,13 +797,13 @@ func (c *Wizard) unanswerable(err error) (string, error) {
 		return "", c.cancelled()
 	case !errors.Is(err, declare.ErrRefused):
 		c.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
-		return "", &stop{term.ExitCode(de.Code)}
+		return "", &stop{term.FromChild(de.Code)}
 	}
 	file := term.AbbrevHome(c.HostVars, c.Home)
 	c.problem(de.Error(), false)
 	c.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix what it names in %s, "+
 		"then run ccy-teams create again; nothing was changed.\n", file, file)
-	return "", &stop{term.ExitCode(de.Code)}
+	return "", &stop{term.FromChild(de.Code)}
 }
 
 // splitCommas is one name per comma-separated part, the spaces around each dropped. A

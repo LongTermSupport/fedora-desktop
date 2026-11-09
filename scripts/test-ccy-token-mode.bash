@@ -339,6 +339,7 @@ echo "=== create_token: only a refused token is discarded ==="
 # would (SETUP_OUT); its check is the real front through the fake podman above. A check that
 # could not run (1) keeps the new token, saying why; only the API's refusal (3) discards it.
 # Run under a hard timeout: the paste loop reads stdin, and a read at its end must end it.
+# The pids limit is settled first, as the launcher settles it before any token is made.
 NEW_TOKEN="sk-ant-oat01-$(printf 'x%.0s' $(seq 90))"
 # create_case <desc> <want-rc> <want-saved yes|no> <output-word> <setup out> <stdin> <podman stdout> <podman stderr> <podman exit>
 create_case() {
@@ -349,6 +350,8 @@ create_case() {
         set -uo pipefail
         source '$PURE_LIB'
         source '$TOKEN_LIB'
+        source '$LIB_DIR/container-limits.bash'
+        ccy_container_limits
         container_cmd() { printf '%s\n' \"\$SETUP_OUT\"; }
         create_token '$dir' placeholder-gh claude-yolo:latest ccy work
     " 2>&1) || rc=$?

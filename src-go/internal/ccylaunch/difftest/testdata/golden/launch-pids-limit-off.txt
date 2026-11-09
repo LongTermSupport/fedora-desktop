@@ -1,0 +1,11 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m CCY_PIDS_LIMIT=0 is not a pids limit: a whole number from 256 to 32768; it cannot be turned off (the default is 4096; docs/ccy.md, "Container limits").
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}

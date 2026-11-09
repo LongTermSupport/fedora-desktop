@@ -216,6 +216,24 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 	}
 }
 
+// The launcher's exit 78 is said in words: the owner's prompt names no sysexits code and
+// called agent-bus's 78 "Unknown error code".
+func TestAnExitThePromptCannotNameIsSaidInWords(t *testing.T) {
+	h := world(t)
+	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
+	h.OnErr("agent-bus seat choose alpha", "agent-bus: there is no team alpha on this host", 78)
+	if code := h.app.Run([]string{"choose-seat", "alpha"}); code != term.ExitConfig {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasSuffix(h.ErrOut.String(), "ccy-teams: exit 78: something it needs is not set up on this host.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	h = newHarness(t)
+	if code := h.app.Run([]string{"--nonsense"}); code != term.ExitUsage || strings.Contains(h.ErrOut.String(), "ccy-teams: exit") {
+		t.Fatalf("a usage mistake needs no words for its code: exit %d: %s", code, h.ErrOut.String())
+	}
+}
+
 func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
 	h := newHarness(t)
 	runtime := t.TempDir()
@@ -251,6 +269,16 @@ func TestDispatchInternalClaimContainerNameIsTheClaimCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"internal", "go-cache", "proj", "z"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.Out.String(), "-v\n"+filepath.Join(h.Env["HOME"], ".cache", "ccy", "proj", "go")+":/var/cache/ccy-go:z\n") {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
 func TestDispatchSessionIsTheHotCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"session", "frob"}); code != term.ExitUsage ||
@@ -271,7 +299,8 @@ func TestInternalNeedsOneOfItsCommands(t *testing.T) {
 			t.Fatalf("%v: exit %d", args, code)
 		}
 		if !strings.Contains(h.ErrOut.String(), "internal membership-init") ||
-			!strings.Contains(h.ErrOut.String(), "internal claim-container-name") {
+			!strings.Contains(h.ErrOut.String(), "internal claim-container-name") ||
+			!strings.Contains(h.ErrOut.String(), "internal go-cache <project> [z]") {
 			t.Fatalf("%v: stderr %q", args, h.ErrOut.String())
 		}
 	}
@@ -286,6 +315,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
 		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
+		"ccy-teams internal go-cache <project> [z]",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",

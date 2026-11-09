@@ -347,12 +347,12 @@ func TestHelpQuestions(t *testing.T) {
 	ctx := context.Background()
 	e, f := engineOn(t, Docker)
 	f.On([]string{"docker", "image", "inspect", "claude-yolo:latest"}, execx.Result{Stdout: []byte("[]\n")})
-	f.On([]string{"docker", "run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"},
+	f.On([]string{"docker", "run", "--rm", "--pids-limit", "512", "--entrypoint", "claude", "claude-yolo:latest", "--help"},
 		execx.Result{Stdout: []byte("Usage: claude\n"), Stderr: []byte("warn\n")})
 	if err := e.Inspect(ctx, "claude-yolo:latest"); err != nil {
 		t.Fatalf("Inspect: %v", err)
 	}
-	out, err := e.ClaudeHelp(ctx, "claude-yolo:latest")
+	out, err := e.ClaudeHelp(ctx, "claude-yolo:latest", "512")
 	if err != nil || out != "Usage: claude\nwarn\n" {
 		t.Fatalf("ClaudeHelp = %q, %v", out, err)
 	}
@@ -366,7 +366,7 @@ func TestHelpQuestions(t *testing.T) {
 	if inspectErr := e.Inspect(ctx, "claude-yolo:latest"); inspectErr == nil {
 		t.Fatal("a failed inspect succeeded")
 	}
-	out, err = e.ClaudeHelp(ctx, "claude-yolo:latest")
+	out, err = e.ClaudeHelp(ctx, "claude-yolo:latest", "4096")
 	if err == nil || out != "Error: no such entrypoint\n" {
 		t.Fatalf("a failed claude --help = %q, %v; want its output and an error", out, err)
 	}
@@ -375,7 +375,7 @@ func TestHelpQuestions(t *testing.T) {
 	if err = zero.Inspect(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine Inspect = %v", err)
 	}
-	if _, err = zero.ClaudeHelp(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+	if _, err = zero.ClaudeHelp(ctx, "x", "4096"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine ClaudeHelp = %v", err)
 	}
 }
@@ -389,13 +389,13 @@ func TestRunWithSecretHandsTheSecretByNameAndNeverPulls(t *testing.T) {
 	}
 	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("200")})
-	res, err := e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh", "-c", "script")
+	res, err := e.RunWithSecret(ctx, "claude-yolo:latest", "512", secret, "sh", "-c", "script")
 	if err != nil || string(res.Stdout) != "200" {
 		t.Fatalf("RunWithSecret = %q, %v", res.Stdout, err)
 	}
 	c := f.Calls()[0]
 	want := []string{
-		"run", "--rm", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh",
+		"run", "--rm", "--pids-limit", "512", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh",
 		"claude-yolo:latest", "-c", "script",
 	}
 	if !slices.Equal(c.Args, want) {
@@ -404,22 +404,22 @@ func TestRunWithSecretHandsTheSecretByNameAndNeverPulls(t *testing.T) {
 	if len(c.Secrets) != 1 || !c.Secrets[0].Is(token) || c.Secrets[0].Name() != "CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Fatalf("secrets %v: the token goes by name in the child's environment", c.Secrets)
 	}
-	if _, err = e.RunWithSecret(ctx, "img", secret, "sh", "-c", token); !errors.Is(err, execx.ErrSecretInArgv) {
+	if _, err = e.RunWithSecret(ctx, "img", "4096", secret, "sh", "-c", token); !errors.Is(err, execx.ErrSecretInArgv) {
 		t.Fatalf("a secret in argv = %v, want ErrSecretInArgv", err)
 	}
 
 	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: claude-yolo:latest: image not known\n")})
-	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh"); !errors.Is(err, ErrNoImage) {
+	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", "4096", secret, "sh"); !errors.Is(err, ErrNoImage) {
 		t.Fatalf("a missing image = %v, want ErrNoImage", err)
 	}
 	// The container's own exit (here 1, with the same words) is not the engine's missing image.
 	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 1, Stderr: []byte("image not known")})
-	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", secret, "sh"); err == nil || errors.Is(err, ErrNoImage) {
+	if _, err = e.RunWithSecret(ctx, "claude-yolo:latest", "4096", secret, "sh"); err == nil || errors.Is(err, ErrNoImage) {
 		t.Fatalf("the container's exit 1 = %v, want an exit error that is not ErrNoImage", err)
 	}
 
 	var zero Engine
-	if _, err = zero.RunWithSecret(ctx, "x", secret, "sh"); !errors.Is(err, ErrUnknownKind) {
+	if _, err = zero.RunWithSecret(ctx, "x", "4096", secret, "sh"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine RunWithSecret = %v", err)
 	}
 }
@@ -428,16 +428,16 @@ func TestRunOnNetworkRunsTheImageOnTheNetworkAsGiven(t *testing.T) {
 	ctx := context.Background()
 	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("<html></html>")})
-	res, err := e.RunOnNetwork(ctx, "appnet", "alpine", "wget", "-q")
+	res, err := e.RunOnNetwork(ctx, "appnet", "alpine", "512", "wget", "-q")
 	if err != nil || string(res.Stdout) != "<html></html>" {
 		t.Fatalf("RunOnNetwork = %q, %v", res.Stdout, err)
 	}
-	want := []string{"run", "--rm", "--network", "appnet", "alpine", "wget", "-q"}
+	want := []string{"run", "--rm", "--pids-limit", "512", "--network", "appnet", "alpine", "wget", "-q"}
 	if c := f.Calls()[0]; !slices.Equal(c.Args, want) {
 		t.Fatalf("ran %q, want %q", c.Args, want)
 	}
 	var zero Engine
-	if _, err = zero.RunOnNetwork(ctx, "n", "x"); !errors.Is(err, ErrUnknownKind) {
+	if _, err = zero.RunOnNetwork(ctx, "n", "x", "4096"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine RunOnNetwork = %v", err)
 	}
 }
@@ -446,20 +446,20 @@ func TestClaudeVersionIsTheImagesOwnAnswerMerged(t *testing.T) {
 	ctx := context.Background()
 	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "run"}, execx.Result{Stdout: []byte("2.0.0 (Claude Code)\n")})
-	out, err := e.ClaudeVersion(ctx, "claude-yolo:latest")
+	out, err := e.ClaudeVersion(ctx, "claude-yolo:latest", "512")
 	if err != nil || out != "2.0.0 (Claude Code)\n" {
 		t.Fatalf("ClaudeVersion = %q, %v", out, err)
 	}
-	want := []string{"run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"}
+	want := []string{"run", "--rm", "--pids-limit", "512", "--entrypoint", "claude", "claude-yolo:latest", "--version"}
 	if c := f.Calls()[0]; !slices.Equal(c.Args, want) {
 		t.Fatalf("ran %q, want %q", c.Args, want)
 	}
 	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 127, Stderr: []byte("claude: not found")})
-	if _, err = e.ClaudeVersion(ctx, "img"); err == nil || !strings.Contains(err.Error(), "claude: not found") {
+	if _, err = e.ClaudeVersion(ctx, "img", "4096"); err == nil || !strings.Contains(err.Error(), "claude: not found") {
 		t.Fatalf("a failed probe = %v, want its words", err)
 	}
 	var zero Engine
-	if _, err = zero.ClaudeVersion(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+	if _, err = zero.ClaudeVersion(ctx, "x", "4096"); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("zero Engine ClaudeVersion = %v", err)
 	}
 }

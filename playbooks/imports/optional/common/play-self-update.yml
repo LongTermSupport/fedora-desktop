@@ -5,7 +5,7 @@
 # A nightly system timer runs /usr/local/sbin/fedora-desktop-self-update. The cycle
 # fast-forwards a root-owned deploy clone to the newest signed release tag of the branch's
 # Fedora major (Plan 00153; `self_update_channel: branch` opts into the newest commit signed
-# by one of the owner's pinned keys instead), runs the allowlisted plays that commit affects, warns the ccy/cc sessions,
+# by one of the owner's pinned keys instead), runs the allowlisted plays that commit affects, warns the ccy sessions,
 # and reboots. The sessions come back through Plan 00135's boot-time restore, and a
 # post-boot unit checks they did. The contract between this play and the entry point is
 # CLAUDE/Plan/00137-unattended-server-self-update/DESIGN-cycle.md.

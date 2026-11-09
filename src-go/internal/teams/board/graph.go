@@ -140,8 +140,8 @@ func (g *teamGraph) node(depth int, r Row, item *lxcrecord.Item) string {
 		where = "checkout " + r.Where
 	}
 	state, why := stateOf(g.s, r, item)
-	lines := []string{name, "kind " + r.kindWord() + ", seat " + g.seatOf(r) + ", role " + g.roleOf(r), where, state + ": " + why}
-	if r.Kind == KindCcy && r.Dir != "-" && r.Dir != "" {
+	lines := []string{name, "kind " + string(r.Kind) + ", seat " + g.seatOf(r) + ", role " + g.roleOf(r), where, state + ": " + why}
+	if r.Kind.IsSession() && r.Dir != "-" && r.Dir != "" {
 		lines = append(lines, "session "+r.Session)
 	}
 	g.line(depth, id+label(lines...)+":::"+state)
@@ -190,7 +190,7 @@ func (g *teamGraph) lxcItem(r Row) (lxcrecord.Item, bool) {
 
 // seatOf is a seat row's seat, or the seat in a member's handle (<repo>.<seat>+<host>.<type>).
 func (g *teamGraph) seatOf(r Row) string {
-	if r.Kind == KindCcy && r.Dir != "-" && r.Dir != "" {
+	if r.Kind.IsSession() && r.Dir != "-" && r.Dir != "" {
 		return r.Member
 	}
 	_, rest, ok := strings.Cut(r.Handle, ".")

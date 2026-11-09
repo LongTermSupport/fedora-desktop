@@ -40,7 +40,7 @@ func TestANetworkThatReachesTheInternetIsExitZeroAndSilent(t *testing.T) {
 	if r.stderr.Len() != 0 {
 		t.Fatalf("stderr %q", r.stderr)
 	}
-	want := []string{"run", "--rm", "--network", "appnet", "alpine", "wget", "-q", "-O-", "--timeout=10", "http://google.com"}
+	want := []string{"run", "--rm", "--pids-limit", "4096", "--network", "appnet", "alpine", "wget", "-q", "-O-", "--timeout=10", "http://google.com"}
 	if c := r.runner.Calls()[0]; !slices.Equal(c.Args, want) {
 		t.Fatalf("ran %q, want %q", c.Args, want)
 	}
@@ -122,7 +122,7 @@ func TestBothVersionsKnownArePrintedInstalledThenLatest(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, r.stdout, r.stderr)
 	}
 	calls := r.runner.Calls()
-	if want := []string{"run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"}; !slices.Equal(calls[0].Args, want) {
+	if want := []string{"run", "--rm", "--pids-limit", "4096", "--entrypoint", "claude", "claude-yolo:latest", "--version"}; !slices.Equal(calls[0].Args, want) {
 		t.Fatalf("ran %q, want %q", calls[0].Args, want)
 	}
 	if want := []string{"-fsSL", npmLatestURL}; !slices.Equal(calls[1].Args, want) {

@@ -422,8 +422,10 @@ ccy_tmux_insulate() {
     # so it reaches this session's launcher and not tmux's environment, which every later
     # session would inherit. So does a harness's CCY_TEAMS_HOST_VARS, which the ccy-teams calls
     # of the launch inside the session (the launch block) read: a server already running would
-    # not give it to the pane.
-    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} ${CCY_TEAMS_HOST_VARS:+env "CCY_TEAMS_HOST_VARS=$CCY_TEAMS_HOST_VARS"} "$launcher" "${launch[@]}"; then
+    # not give it to the pane. The settled pids limit (lib/container-limits.bash) goes the same
+    # way, and ccy_tmux_start_detached starts tmux without it, so a host export reaches this
+    # session and no later one.
+    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} ${CCY_TEAMS_HOST_VARS:+env "CCY_TEAMS_HOST_VARS=$CCY_TEAMS_HOST_VARS"} ${CCY_PIDS_LIMIT:+env "CCY_PIDS_LIMIT=$CCY_PIDS_LIMIT"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
     fi
@@ -464,7 +466,7 @@ ccy_tmux_start_detached() {
     # several sessions from one process, and two scopes may not share a name.
     systemd-run --user --scope --quiet --collect \
         --unit "ccy-tmux-$$-$(systemd-escape -- "$name")" --description "CCY tmux session $name" \
-        -- tmux -L "$CCY_TMUX_SOCKET" \
+        -- env -u CCY_PIDS_LIMIT tmux -L "$CCY_TMUX_SOCKET" \
         new-session -d -s "$name" -c "$dir" -- bash -c "$trampoline" ccy-tmux "$launcher" "$@" \; \
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }

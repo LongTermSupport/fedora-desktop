@@ -67,6 +67,10 @@ func (f Front) checkToken(ctx context.Context) term.ExitCode {
 	if why != "" {
 		return f.fail(checkUnchecked + why)
 	}
+	limit, why := f.settledPidsLimit()
+	if why != "" {
+		return f.fail(checkUnchecked + why)
+	}
 	eng, err := engine.New(kind, f.Runner)
 	if err != nil {
 		return f.fail(checkUnchecked + err.Error())
@@ -75,7 +79,7 @@ func (f Front) checkToken(ctx context.Context) term.ExitCode {
 	if err != nil {
 		return f.fail(checkUnchecked + err.Error())
 	}
-	res, err := eng.RunWithSecret(ctx, image, secret, "sh", checkArgs(settings)...)
+	res, err := eng.RunWithSecret(ctx, image, limit, secret, "sh", checkArgs(settings)...)
 	switch {
 	case errors.Is(err, engine.ErrNoImage):
 		return f.fail(fmt.Sprintf("%sthe image %s is not built (%s has no such image)", checkUnchecked, image, kind))

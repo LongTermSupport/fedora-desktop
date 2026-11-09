@@ -108,7 +108,7 @@ func (r *run) kindActions(row board.Row) []action {
 		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
-	case board.KindCcy:
+	case board.KindCcy, board.KindCC:
 	}
 	return r.memberActions(row, open, start, help)
 }
@@ -161,7 +161,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 	return []action{open, password, start, help}
 }
 
-// memberActions are an agent member's, whatever its kind (ccy, cc, LXC, host, docker, vm): a
+// memberActions are an agent member's, whatever its kind (ccy, cc, LXC, docker, vm): a
 // ccy seat's own first (attaching its session, restore), then its role, Element, a session of
 // the team, help, and taking it away. Every kind gets the same role action in the same words
 // (Plan 00203 Task 3.8), and one path changes it (seats.ToggleCoordinator). A member with no
@@ -169,7 +169,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 // nothing to park: only a ccy seat's own actions and its Remove seat, which go by its folder.
 func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	handleless := row.Handle == "" || row.Handle == "-"
-	seat := row.Kind == board.KindCcy && row.Dir != "-"
+	seat := row.Kind.IsSession() && row.Dir != "-"
 	acts := r.seatOwnActions(row)
 	if !handleless {
 		acts = append(acts, r.roleAction(row))
@@ -187,7 +187,7 @@ func (r *run) memberActions(row board.Row, open, start, help action) []action {
 // seatOwnActions are what only a ccy seat has, first in its menu: attaching its session, and
 // whether it is started again after a reboot.
 func (r *run) seatOwnActions(row board.Row) []action {
-	if row.Kind != board.KindCcy {
+	if !row.Kind.IsSession() {
 		return nil
 	}
 	acts := []action{{actAttach, unavailable("Attach this terminal to the seat's session", r.attachRefusal(row)), "attach its session"}}
