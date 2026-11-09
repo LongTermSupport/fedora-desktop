@@ -383,3 +383,38 @@ func TestOwnNetworkOnTheDefaultRouteIsAccepted(t *testing.T) {
 		t.Errorf("terminator drop-in: %s", got)
 	}
 }
+
+// X3: a host with one NIC on its own segment reaches a member network through the segment's
+// gateway by an explicit route on that NIC, which also holds the default route. The network is
+// routed by the explicit route, so it is served, by the NIC's address, though that address is not
+// inside the network; the same network with no explicit route is covered by the default route
+// alone and is refused, naming the CIDR.
+func TestAMemberNetworkRoutedThroughTheDefaultInterfaceIsServedByIt(t *testing.T) {
+	const member = "203.0.113.0/24"
+	routes := func(explicit bool) []fakeRoute {
+		table := []fakeRoute{{netip.MustParsePrefix("192.0.2.0/24"), "eth0"}}
+		if explicit {
+			table = append(table, fakeRoute{netip.MustParsePrefix(member), "eth0"})
+		}
+		return append(table, fakeRoute{netip.MustParsePrefix("0.0.0.0/0"), "eth0"})
+	}
+	applied := func(w *world, table []fakeRoute) error {
+		w.net.routes = table
+		doc := teamDoc()
+		docTeam(doc)["networks"] = []any{member}
+		_, err := w.apply(approved(w, doc))
+		return err
+	}
+	w := newWorld(t)
+	if err := applied(w, routes(true)); err != nil {
+		t.Fatalf("a member network with an explicit route through the default route's interface: %v", err)
+	}
+	want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10"
+	if got := lineWith(t, w.read(paths.TLSDropInFile(ops(t))), "ExecStart="); got != want {
+		t.Errorf("terminator drop-in: %s, want %s", got, want)
+	}
+	err := applied(newWorld(t), routes(false))
+	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), member+": only the default route covers it") {
+		t.Errorf("with no explicit route: got %v, want a refusal naming %s", err, member)
+	}
+}

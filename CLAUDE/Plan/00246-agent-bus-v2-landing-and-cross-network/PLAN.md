@@ -160,8 +160,10 @@ v2 kit in the ccy image with the CCY version bump (Plan 00209 Task 4.1); stage C
 a specific route to the member network, and a three-network VM-lab scenario with one prober
 topology, which needs a lab capability not yet built. Gate A is met; gate B binds only Task
 4.4's host run. Detail, proofs and the coordinator's answers to its four decisions:
-[INSTALL-PATH.md](INSTALL-PATH.md). The plan is reviewed and ready; stage A is built next, and
-none of it is built yet.
+[INSTALL-PATH.md](INSTALL-PATH.md). The plan is reviewed and ready. Stage A is built on its
+branch (the play, the Go unit texts, the `units` verb, the tmpfiles entry, the TLS state root) and
+has never run: the container runs neither Ansible nor systemd, so its first run is the VM-lab
+scenario. Stages B and C and the lab capability are not built.
 
 ## Success Criteria
 

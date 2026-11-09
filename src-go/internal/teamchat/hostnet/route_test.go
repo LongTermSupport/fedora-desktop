@@ -44,6 +44,18 @@ func TestRouteIsTheInterfaceThatRoutesTheNetwork(t *testing.T) {
 	wantRoute(t, n, "203.0.113.0/24", host.Route{Interface: "eth0", Default: true})
 }
 
+// X3: a host with one NIC on its own segment has the default route and an explicit route per
+// member network, all through that NIC. A member network is routed by its explicit route, so it is
+// not marked as the default route's though the interface is the same; a network with no explicit
+// route is.
+func TestAnExplicitRouteThroughTheDefaultInterfaceIsNotTheDefaultRoute(t *testing.T) {
+	n := routeWorld(t, routeHeader+
+		route4("eth0", mask0, "0003", "100", mask0)+
+		route4("eth0", dest198, "0003", "100", mask24), "")
+	wantRoute(t, n, "198.51.100.0/24", host.Route{Interface: "eth0"})
+	wantRoute(t, n, "192.0.2.0/24", host.Route{Interface: "eth0", Default: true})
+}
+
 func TestRouteOfAnIPv6Network(t *testing.T) {
 	n := routeWorld(t, routeHeader,
 		route6(dest2001, "20", "00000400", "00000001", "eth2")+

@@ -449,8 +449,12 @@ observable: the prober's connection fails at once with the reject, not after its
 
 Asserted:
 
-- the member joins: the owner's pipe `teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued ...` places the seat (X21, X22), and the member sends and
-  receives a message over TLS with the CA pinned (X16);
+- the member joins by X21's relay form, with the bus guest's outbound ssh blocked (its egress
+  to port 22 dropped, as the first real host's is) and a password sudo on the guest, no
+  NOPASSWD: `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued ...` places the seat (X22), and the
+  member sends and receives a message over TLS with the CA pinned (X16). The guest-prepare
+  fixture gives the issuing user a throwaway sudo password. The pull form runs the same way from
+  the member guest;
 - the prober's TCP connection to the team port is refused at the firewall, with the time it took
   bounded well below the connect timeout. The terminator's unit filter is not what refuses it
   (the firewall answers first); the filter is proven from `systemctl show` of the instance, as
@@ -558,15 +562,32 @@ Raised while building the play, answered by the coordinator on #193:
 Answered by the coordinator on #193 after the units were built:
 
 12. **`Before=lxc.service` on the terminator**: kept, with the reason in the unit's comment.
+
 13. **The health unit writes the leaves' root alone**: the TLS leaves move to
     `/var/lib/teamchat-tls/<team>/` and the CA stays in the admin state, read-only to the tick
     (deliverable 3). Neither whole-admin-state write access nor per-team drop-ins.
+
 14. **The lock directory at boot**: a tmpfiles entry, rendered by Go and installed by the play,
     with no `-` on the units' paths; the backup unit shares it.
+
 15. **`deadcode -test`**: go-qa's built-in stage runs it; `ExecBinaries` is exported with its
     consumer in the same change (Defence Before Fix classes).
+
 16. **The first real team's `url` is a DNS name**, so that a host move or rebuild does not mean
     reissuing seats; the lab scenario carries the move procedure (item 3, "A host move").
+
+17. **X3 stays as written** for the first real host, which has one NIC on its own segment and
+    reaches its member networks by one explicit route each, through the gateway, on the NIC that
+    also holds the default route. Such a network is routed by its explicit route and is served by
+    the NIC's address (`TestAMemberNetworkRoutedThroughTheDefaultInterfaceIsServedByIt`, and
+    `TestAnExplicitRouteThroughTheDefaultInterfaceIsNotTheDefaultRoute` for the route reader),
+    each red against a mutation that marks the whole interface as the default's.
+
+18. **X21 is inverted**: nothing ssh-es out of the bus server's host (egress is DNS, NTP and
+    web), and its owner allows no standing NOPASSWD. The issue is `member add`'s stdout through
+    an ssh into the host from the member machine or the owner's machine, with the sudo password
+    on the ssh's stdin (`sudo -S`), no tty. SPEC X21, the cross-network doc and the lab scenario
+    carry the forms; the scenario proves the relay form with the bus guest's outbound ssh blocked.
 
 Open for review: whether the controller build task merges into `build-go-command.yml` (a
 `go_command_goarch` input) or stays its own file.

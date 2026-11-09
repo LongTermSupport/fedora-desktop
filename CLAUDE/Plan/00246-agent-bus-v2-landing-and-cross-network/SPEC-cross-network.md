@@ -184,17 +184,34 @@ install are listed last, under "Owner questions".
 
 ## 4. A remote seat's token is issued over ssh
 
-- **X21** The owner issues from the homeserver host with the existing root verb and sends the
-  document on: `sudo teamchat-admin member add ... | ssh <alias> teamchat seat place-issued ...`.
-  The ssh runs as the owner, with the owner's own keys and agent; the member machine holds no
-  credential for the homeserver host, and no ssh runs as root. The alias is the owner's own ssh
-  configuration; no hostname is in a declaration, a file of this repository or a handle.
+- **X21** Nothing ssh-es out of the bus server's host: its egress is DNS, NTP and web only, by
+  design, because a bus host that can ssh into every member is a pivot. The issued document is
+  still `teamchat-admin member add`'s stdout, and it reaches the member machine through an ssh
+  run from the member machine or from the owner's machine, into the bus host, never out of it.
+  The sudo is a password sudo read from the ssh's stdin (`sudo -S -p ''`), so there is no tty
+  and no NOPASSWD rule; `member add` reads no stdin, so the password line is all the pipe
+  carries in. The password is read once with `read -rs`, goes in through the `printf` builtin
+  and so never in an argument list, and is unset afterwards. Two forms:
+
+  - **Pull from the member:**
+    `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... | teamchat seat place-issued ...; unset pw`
+  - **Relay from the owner's machine:**
+    `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... | ssh <member> teamchat seat place-issued ...; unset pw`
+
+  No `ssh -t`: a pty would carry the document through a terminal's line discipline. Each ssh
+  runs as the person issuing, with their own keys and agent; nothing is installed on the member
+  machine for it, and no ssh runs as root. The aliases are that person's own ssh configuration;
+  no hostname is in a declaration, a file of this repository or a handle. A sudoers rule for the
+  verb is the bus host's own configuration to make or not; the play installs none.
+
 - **X22** `teamchat seat place-issued` reads one issued document on stdin (strict, capped),
   checks it as `seat.DecodeIssued` does, applies X8, takes the allocation lock, and writes the pool
   seat: the password only in the pool, mode 0600, `seat.json` beside it. Nothing of the secret
   is in argv or in output.
+
 - **X23** The credential kind for a remote seat is the owner's choice at issue time
   (`--credential password|token`), as for any seat.
+
 - **X24** Removing a network and running `team apply` cuts that network's reach (the filter and
   the firewall); `member park` and `member retire` revoke a seat on the homeserver as today.
 
@@ -381,6 +398,10 @@ directly, and said that every connection that leaves loopback is TLS.
    **Answer: confirmed.** A root-run ssh would give root on the homeserver host a credential
    that reaches other machines. With the pipe, sudo is needed only on the homeserver side, and
    the ssh uses the owner's own keys and agent. The secret travels on stdin and never in argv.
+   **Revised on 2026-11-09 (X21):** the first real bus host's egress is DNS, NTP and web only, so
+   the ssh runs into the bus host from the member machine or the owner's machine, never out of
+   it, and its owner allows no standing NOPASSWD, so the sudo password goes in on the ssh's
+   stdin (`sudo -S`).
 
 ## Owner questions
 
