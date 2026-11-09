@@ -215,3 +215,18 @@ func TestGraphWriteFailureIsAnError(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 }
+
+// A cc session seat (a host seat, KIND cc from its handle) is drawn as a seat, as a ccy one is:
+// its own seat and its session line.
+func TestMermaidDrawsACcSeatWithItsSession(t *testing.T) {
+	s := graphSnapshot()
+	s.Rows = append(s.Rows, Row{
+		Team: graphTeam, Member: "3", Kind: KindOf("proj.3+local.host"), State: "listening", Applied: "-", Session: "cc-proj", Restore: "-",
+		Where: "~/proj", Handle: "proj.3+local.host", Dir: "/home/user/proj", Record: "cc-proj", Role: agentbus.RoleWorker, Live: agentbus.LiveListening,
+	})
+	got := Mermaid(s)
+	want := `proj.3+local.host<br/>kind cc, seat 3, role worker<br/>checkout ~/proj<br/>`
+	if !strings.Contains(got, want) || !strings.Contains(got, `<br/>session cc-proj"]`) {
+		t.Fatalf("missing the cc seat %q with its session line in:\n%s", want, got)
+	}
+}

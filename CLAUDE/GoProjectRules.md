@@ -69,6 +69,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_container_pids_limit`    | a container run with no `--pids-limit`, so a fork bomb inside a session runs to the engine's default (podman 2048, docker none)                                | `ccc`'s session and sign-in runs, after the ccy launcher's Go probes had taken the limit (the Go counterpart of the Semgrep rule `ccy-container-default-pids-limit`)      |
 | `project_child_exit`              | another program's exit code handed on as the tool's own, which no usage documents and no shell names                                                           | `ccy --teams`: agent-bus seat choose's 78, "Unknown error code" (Plan 00177)                                                                                              |
 | `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                               | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
+| `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                              | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1844,7 +1845,28 @@ session, so a member row is not one of theirs. `seats.SnapshotRunning` now asks 
 too, so a host or podman member with no seat row here reads "not known here", not "not
 running". The two left (`picker.seatOwnActions`, the `Incomplete` case of `seats.RemoveOrPark`)
 treat a cc member row as they always treated a podman one: its menu has the Attach line,
-unavailable, and its Park is refused while the seat list could not be read.
+unavailable, and its Park is refused while the seat list could not be read. That conversion
+was by hand, and code written after it (`ccy-teams --graph`) asked `Kind == KindCcy` again:
+`project_session_kind` now holds the class.
+
+### project_session_kind
+
+An `==` or `!=` comparison with the teams board's `KindCcy` (matched through `types.Info`)
+anywhere but an `IsSession` method, which defines the question. A checkout's seat is held by a
+ccy container (KIND `ccy`) or a cc session on the desktop (KIND `cc`, `project_row_kind`), so a
+flow that acts on a seat's session and asks `Kind == KindCcy` treats a cc seat as no seat.
+
+- Red, fixture: `testdata/src/fix/internal/badsessionkind` (`bad.go`: the graph's original,
+  `!=`, the constant on the left; `good.go`: `IsSession`, another kind, a plain string, an
+  `IsSession` method of its own).
+- Red, real tree, after the unknown-team branch met F44 (Plan 00245 Task 4.4):
+  `board/graph.go`'s session line and `seatOf` (F44 wrote them after the hand conversion above)
+  and F44's `board.kindWord`, which re-read a `KindCcy` row's handle for the KIND column.
+- Green: the graph asks `Kind.IsSession` (`TestMermaidDrawsACcSeatWithItsSession`, red first);
+  `kindWord` is gone, as every seat row's `Kind` is already `KindOf` its handle
+  (`project_row_kind`), so the column is `string(r.Kind)`. The sweep over both modules and
+  every tag set is clean.
+- Not caught: a `switch` whose `case` lists `KindCcy`, and a comparison with the string `"ccy"`.
 
 ## Defect classes that cannot be a rule
 

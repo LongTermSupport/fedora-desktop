@@ -50,18 +50,16 @@ func sample() []Row {
 	}
 }
 
-// A row given KindCcy still has its KIND column say what runs it: a cc session's host seat reads
-// "cc", as the same member's roster row does (agentbus.KindOf; host run at fe894347c: the board
-// said "ccy"), a ccy session's "ccy", and a seat with no handle yet "ccy".
+// The KIND column is the row's Kind, which a seat row takes from its handle (KindOf, as collect
+// builds it): a cc session's host seat reads "cc", as the same member's roster row does (host
+// run at fe894347c: the board said "ccy"), a ccy session's "ccy".
 func TestASeatsKindColumnIsWhatItsHandleSays(t *testing.T) {
 	cases := map[string]string{
 		"proj.1+local.host":   "cc",
 		"proj.1+local.podman": "ccy",
-		"-":                   "ccy",
-		"":                    "ccy",
 	}
 	for handle, want := range cases {
-		r := Row{Team: "alpha", Member: "1", Kind: KindCcy, Handle: handle, Dir: "/proj"}
+		r := Row{Team: "alpha", Member: "1", Kind: KindOf(handle), Handle: handle, Dir: "/proj"}
 		if got := r.cells()[colKind]; got != want {
 			t.Errorf("handle %q: KIND %q, want %q", handle, got, want)
 		}

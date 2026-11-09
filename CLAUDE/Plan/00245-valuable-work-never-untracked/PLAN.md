@@ -132,7 +132,12 @@ the coordinator runs the full QA over and opens as one PR to F44
   for the owner. F44 fixed the same defect another way after the branch stopped (05ad1442c:
   rule `root-umask`, 7 sites, Plan 00185 Complete); the branch's global pin to 022 is an
   alternative or a complement to it, which is the owner's call.
-- [ ] ⬜ **Task 4.4**: Plan 00177 Task 7.6, the unknown team (`agent-a8c69aa67110156ce-c48195fd`).
+- [x] ✅ **Task 4.4**: Plan 00177 Task 7.6, the unknown team (`agent-a8c69aa67110156ce-c48195fd`):
+  merged over F44 as ccy 3.113.2 (Plan 00177 Tasks 7.6-7.8; host test 7.9 open). Review round
+  2 fixed (F44's `declined` already settled its medium finding; `project_child_exit` follows a
+  `var` local); round 3 (CHANGES, one medium) fixed: the graph asked `Kind == KindCcy`, now a
+  class held by the new rule `project_session_kind`, and F44's duplicate `kindWord` is gone.
+  The rules met F44's code: `lxccmd.GuestError.Exit` is the guest's own status, an `int`.
 - [ ] ⬜ **Task 4.5**: ccy Go caches on the host (`agent-ad49d4886a70d25db-01b66214`).
 
 ## Success Criteria

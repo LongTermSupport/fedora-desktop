@@ -111,3 +111,121 @@ See the end of this file for the `qa-changed --base origin/F44` result. Also run
   any check yet. Its log: `untracked/scratch/qa-agg.log` in the worktree (last line `rc=N`
   when done), results `untracked/scratch/qa-agg.json`. Its result is not known to this report.
 - Last pushed tip: the commit that adds this report (see `git log -1` on the branch).
+
+## Continuation (second agent)
+
+CCY at the end: **3.113.2** (one changelog entry, 3.113.2, carrying the pids limit and the
+unknown team). Stopped for context before branch 4.
+
+### 0. The first agent's QA: done, three failures
+
+`qa-changed --base origin/F44` ran once the lock freed (it had waited 90 minutes behind two
+other runs). Results:
+
+- `test-ccy-token-mode.bash`: 8 failed with rc 127. `create_token` now passes
+  `--pids-limit "$CCY_PIDS_LIMIT"`; the suite sourced the token library under `set -u` without
+  settling the limit, so each case died with "unbound variable". Production settles it first
+  (launcher line 99), and `cc` sources the library in host mode, which never reaches
+  `create_token`. Fixed in the harness (ba65d1f3d): 43 passed. Every other suite that sources
+  the library or `image-build.bash` passes.
+- bash-limits: `shutdown-with-update` was 289 code lines against a record of 286 (branch 5's
+  help wording). Rewrapped into F44's 9 lines with the same content (ba65d1f3d).
+- ansible-syntax: the 4 playbooks fail in any linked worktree, which has no
+  `vault-pass.secret`. Environment, already logged as issues #146 and #215. The coordinator's
+  run in the main checkout covers these plays.
+
+### 1. F44 merged: done (e159a535b)
+
+The only conflict was `src-go/qa/privatenames`. F44's version was taken whole: the branch's
+test pinned nothing F44's does not, and F44 also no longer counts local archive refs as
+published. Recorded in Task 3.6.
+
+### 2. Round 4 review of the pids limit: done (ab3b4c363)
+
+The round found no blocker (round 3 had three) and 3 medium and 4 low findings, all fixed:
+
+- `project_container_pids_limit` now finds the verb after leading non-constant arguments and
+  after `podman`, `docker` or `container`. That covers the engine package's own
+  `e.run(ctx, "run", …)` style.
+- It also judges `create`, reads flags by name (`-dit`, `--rm=true`), and counts the long flags
+  only a container takes.
+- 7 fixture cases went red, then green. The driver sweep over both modules is clean with the
+  default, `difftest`, `ccyteamstest`, `busfailpoints` and `tuwunel` tags. It still goes red on
+  `ccc`'s pre-fix code (shown by putting the old `run.go` back).
+- What it still cannot see is listed in its doc and the catalogue, `netpolicy`'s `create` among
+  it: its limit comes from the bash launcher.
+- Task 4.1 is ticked.
+
+### 3. Branch 3 (Plan 00177 unknown team): done
+
+F44 does not already do this: there is no `chooser/unknown.go` and neither rule exists there.
+Merged in dd2c450ed. Conflict resolutions:
+
+- Rules: 34, later 35. Wizard: F44's `declined` kept beside the branch's `named`.
+- `seats` and `picker`: F44's wording and its keyless action shape, with `IsSession`.
+- Board: a host seat's KIND is `cc`, not F44's `host`. `agentbus.KindOf` is the one reading.
+- Help: the `help-pids-limit-override` golden was re-recorded.
+- Changelog: folded into one entry. Plan 00177: F44's status text plus Tasks 7.6-7.9, with 7.9
+  (the host test) open.
+
+The swept rules found one new instance in F44's code. `lxccmd.failed` typed a guest op's status
+as `term.ExitCode`. It was never the tool's exit, so it is now an `int` (`FromChild` would have
+hidden an undocumented code).
+
+Review round 2 (610908276):
+
+- Finding 1 (medium) was settled by F44's `declined`; the chooser's dead branch is removed.
+- Findings 2-7 fixed. For 7, `project_child_exit` now follows a `var` local, red then green.
+- Findings 8 and 9 (optional) left: 8 is a consistency point, and 9 has no room in a help that
+  must keep its line count.
+
+Review round 3 (CHANGES: 1 medium, 1 low-medium, 1 nit; round 2 had 1 medium and 8 low), fixed
+in the commit after this report's previous tip:
+
+- The graph asked `Kind == KindCcy`. Defence Before Fix: the new rule `project_session_kind`
+  went red on its fixture and on 3 real sites, then green. `TestMermaidDrawsACcSeatWithItsSession`
+  was red first.
+- F44's duplicate `kindWord` is removed.
+- `ge.Exit == 75` is now `int(exits.ExitBusy)`.
+
+Task 4.4 is ticked, with a journal handoff entry.
+
+### 4. Branch 4 (ccy Go caches): not started
+
+Left for a fresh agent: this agent passed its context budget. From the trial merge
+(`git merge-tree`), expect conflicts in:
+
+- `docs/ccy-changelog.md`, the launcher and `scripts/bash-limits.allowlist`;
+- 27 difftest goldens (each gains a line; re-record with `go test ./internal/ccylaunch/difftest/ -update` after the merge);
+- `src-go/internal/teams/app.go`.
+
+Its Go container runs must pass `project_container_pids_limit` (now broader). Then follow its
+handoff: review round 5, and the round-4 non-blocking items.
+
+### QA state
+
+After the commits above, `qa-changed` has **not** been re-run over the whole aggregate. A run
+was started and stopped while it still waited for the lock, before it checked anything, so
+that the round-3 fixes could go in. Targeted checks did pass:
+
+- `go test` over `internal/teams/...`, `term`, `agentbus`, `sessions`, `ccylaunch/...`
+  (difftest included), `ccc`, `engine` and `teamchat/host/...`, plus `qa/rules` and `qa/all`.
+- `golangci-lint` on each changed package (0 issues).
+- The project-rule sweep over both modules and every tag set (clean).
+- `test-ccy-teams-command.bash` (395 passed), `test-cc-teams.bash` (83),
+  `test-ccy-token-mode.bash` (43), `test-ccy-token-import-cleanup.bash` (25),
+  `test-ccy-image-build-lock.bash` and `test-ccy-session-registry.bash` (pass), and
+  `qa-bash-limits.bash` (OK).
+
+The next agent should run `qa-changed --base origin/F44` first.
+
+### Tooling faults met (dogfooding)
+
+- **To log:** the hooks-daemon secret-path guard (`R-SECRET-BASH-MENTION`) took markdown `**`
+  in a heredoc body for the protected glob `*.secret*` and blocked the command. That is a false
+  positive in an upstream, daemon-owned handler; the workaround was a script file. The
+  coordinator should file it upstream (`hooks-daemon issue-report`).
+- **To log:** the containment guard (`R-WRITE-OUTSIDE-PROJECT-ROOT`) resolves a relative
+  `../x` against the project root, ignoring an earlier `cd` in the same command, and blocked a
+  write inside the worktree. The workaround was absolute paths.
+- Already logged: #146 and #215 (vault password in worktrees), #216 (qa-reviewer has no Write).

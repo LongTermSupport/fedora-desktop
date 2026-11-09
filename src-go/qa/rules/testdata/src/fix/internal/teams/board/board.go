@@ -12,7 +12,12 @@ const (
 	KindTeam  Kind = "team"
 	KindHuman Kind = "human"
 	KindCcy   Kind = "ccy"
+	KindCC    Kind = "cc"
 )
+
+// IsSession is whether the kind is a ccy or cc session: the one place that compares with
+// KindCcy (project_session_kind).
+func (k Kind) IsSession() bool { return k == KindCcy || k == KindCC }
 
 // Row is one line of the board.
 type Row struct {
