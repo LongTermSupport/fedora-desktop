@@ -23,6 +23,25 @@ func (e excludes) matches(path string) bool {
 	return false
 }
 
+// scope is what the gate leaves unread on purpose.
+type scope struct {
+	rule excludes
+}
+
+// loadScope reads what the gate leaves out.
+func (g *gate) loadScope() (scope, error) {
+	rule, err := g.readRule()
+	if err != nil {
+		return scope{}, err
+	}
+	return scope{rule: rule}, nil
+}
+
+// leavesOut is whether the gate leaves the published file rel unread on purpose.
+func (s scope) leavesOut(rel string) bool {
+	return s.rule.matches(rel)
+}
+
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.
 func (g *gate) readRule() (excludes, error) {
 	for _, rel := range []string{g.spec.ruleFile, g.spec.fixtureFile} {
