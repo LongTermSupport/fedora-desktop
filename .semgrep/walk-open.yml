@@ -189,12 +189,17 @@ rules:
       - pattern: $X.read_bytes(...)
       - pattern: $M.imread(...)
       - pattern: zipfile.ZipFile(...)
-      # A function of the module's own whose name says it opens what it is given.
+      # A function of the module's own whose name says it opens what it is given. One named for
+      # regular files (_read_regular...) is the check itself, not a sink: its own body is judged
+      # by regular-read-helper-unchecked below, so the name exempts nothing it does not do.
       - patterns:
           - pattern: $FN(...)
           - metavariable-regex:
               metavariable: $FN
               regex: '^_?(read|load|slurp|open)(_\w*)?$'
+          - metavariable-regex:
+              metavariable: $FN
+              regex: '^(?!_?read_regular(_|$))'
     message: >
       walk-opens-non-regular-file: this opens an entry a directory walk found without checking
       it is a regular file, and opening a named pipe blocks for ever. Skip any entry that
@@ -203,3 +208,37 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a walked directory entry opened without a regular-file check
+
+  # Rule: a reader named for regular files does what its name promises, since that name exempts
+  # its callers from walk-opens-non-regular-file. Its body opens non-blocking (a FIFO cannot hang
+  # the open) and refuses anything its descriptor's fstat says is not a regular file.
+  #
+  # WRONG: def _read_regular_text(path):
+  #            with open(path) as handle: ...                    (blocks on a FIFO)
+  # RIGHT: def _read_regular_text(path):
+  #            descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+  #            if not stat.S_ISREG(os.fstat(descriptor).st_mode): raise OSError(...)
+  - id: regular-read-helper-unchecked
+    languages: [python]
+    patterns:
+      - pattern: |
+          def $FN(...):
+            ...
+      - metavariable-regex:
+          metavariable: $FN
+          regex: '^_?read_regular(_\w*)?$'
+      - pattern-not: |
+          def $FN(...):
+            ...
+            <... os.open(..., <... os.O_NONBLOCK ...>) ...>
+            ...
+            <... stat.S_ISREG(os.fstat(...).st_mode) ...>
+            ...
+    message: >
+      regular-read-helper-unchecked: a reader named for regular files must open non-blocking
+      and refuse what its descriptor's fstat says is not a regular file, because its name
+      exempts its callers from walk-opens-non-regular-file. See CLAUDE/QA.md
+      "walk-opens-non-regular-file".
+    severity: ERROR
+    metadata:
+      dbf-class: a regular-file reader that does not check what it opened

@@ -326,3 +326,78 @@ class Refused:
             self.assertTrue(path.is_file(), f"{path.name} is not a regular file")
             # ok: walk-opens-non-regular-file
             yield path.read_text()
+
+
+# A reader named for regular files (the hooks-daemon supervisor's pattern, issue #191's class):
+# the open is non-blocking, so a FIFO cannot hang it, and the descriptor's own fstat refuses
+# anything that is not a regular file. Its callers are no sink; its own body is judged by
+# regular-read-helper-unchecked.
+def _read_regular_text(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError("not a regular file")
+        os.set_blocking(descriptor, True)
+        with os.fdopen(descriptor, closefd=False) as handle:
+            return handle.read()
+    finally:
+        os.close(descriptor)
+
+
+def read_through_the_regular_helper(top):
+    for path in Path(top).iterdir():
+        # ok: walk-opens-non-regular-file
+        yield _read_regular_text(path)
+
+
+# ruleid: regular-read-helper-unchecked
+def _read_regular_bytes(path):
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+# A blocking open checked afterwards is too late: the open itself hangs on a FIFO.
+# ruleid: regular-read-helper-unchecked
+def _read_regular_late(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError("not a regular file")
+        return os.read(descriptor, 4096)
+    finally:
+        os.close(descriptor)
+
+
+# Non-blocking, but nothing checks the kind: a socket or device is read as if it were a file.
+# ruleid: regular-read-helper-unchecked
+def _read_regular_unchecked(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        return os.read(descriptor, 4096)
+    finally:
+        os.close(descriptor)
+
+
+def read_through_a_helper_named_regular(top):
+    for path in Path(top).iterdir():
+        # The name exempts the call; regular-read-helper-unchecked judges the body.
+        # ok: walk-opens-non-regular-file
+        yield _read_regular_bytes(path)
+
+
+# The open inside a try, and fstat on the handle's descriptor (pingbus's inbox reader).
+def _read_regular_capped(path, max_bytes):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise OSError("not a regular file")
+        return handle.read(max_bytes)
+
+
+def read_through_the_capped_helper(top):
+    for path in Path(top).iterdir():
+        # ok: walk-opens-non-regular-file
+        yield _read_regular_capped(path, 4096)
