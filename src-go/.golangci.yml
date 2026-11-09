@@ -377,6 +377,9 @@ linters:
           - pkg: internal/teamchat/member/forge
             rules:
               json: snake
+          - pkg: internal/teamchat/proto
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:

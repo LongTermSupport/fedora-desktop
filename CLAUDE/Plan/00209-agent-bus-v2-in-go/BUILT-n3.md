@@ -81,6 +81,105 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   reviewer's 180 isolated runs and 12 full-suite copies, none failing, are recorded, and the
   decision to keep the seed in the gate is stated with its one-line alternative).
 
+- **n3f-a built in part** on `feat/bus-v2-n3f-a` (SPEC-n3f section 10's row n3f-a;
+  `subagent-reports/261105-n3f-a-sonnet.md`). Built: G7 (exit 20's set gains `not-ready`, exit
+  10's gains `open-limit`, row 20's meaning and next step as SPEC-n3f 12.5 words them; the
+  skill's four class lines are unchanged because the classes are) and G6 (`proto.SeedWindow`,
+  `Window.Oldest`, `Window.Within`, and `proto.DetailReportPerHour`, the detail by which a caller
+  tells the report window's `rate` refusal, 14 `report-rate`, from the bucket's, 14 `rate`).
+  Coverage of the touched packages: see the report. Not built: G1 (the question index), G2 (the
+  store's keys and `MaxStore` at 4 MiB), G4 (records), G5 (the filter's argument), section 6's
+  codecs. Nothing of n3f-b to n3f-e is built.
+
+- **n3f-a, G4 and G5 built** on `feat/bus-v2-n3f-a-records` (from `feat/bus-v2-n3f-a`;
+  `subagent-reports/261105-n3f-a-records-sonnet.md`).
+
+  - G5: `proto.SyncFilter(r, a, questionsReady)` and `SyncFilterReAdd(r, a, questionsReady)`; the
+    questions room is in the filter only when the roster names this member the coordinator and
+    the argument is true. A coordinator with `false` is the worker's filter byte for byte (tested
+    for both forms). `teamsync` passes `true` (nothing there yet knows whether the room is ready,
+    QS3, which is n3f-b's).
+  - G4 (`member/records`), each record's bytes pinned with its key order: `Question` gains
+    `headline`, `re`, `asked_ms`, `remind_after_s`, `unanswered_more`, `redacted` (last), `id` and
+    `asked_ms` nullable; the new kind `unattached`; `Human.Question` a nullable string (`Q<n>`,
+    `none`, null) and `Human.Headline` after it; `Room.Check` and `Room.Uncounted`;
+    `Timeout.Question` after `silent`, `Timeout.Verb` nullable. The encoders refuse a redacted
+    question that holds anything but its number, a question label that is not null, `none` (a
+    human's only) or A 2.2's `Q<n>`, and a headline with no question holding the post.
+    `engine/render.go`'s timeout gives a verb only when the outbox holds the ping. The skill names
+    `unattached` (a minimal line; n3f-e writes the section).
+  - Coverage: records 100.0, proto 98.3, teamsync 95.3, engine 92.7, kit 93.3, matrix 98.9, cli 98.9.
+  - Not done here: nothing sets `Human.Question`, `Human.Headline`, `Timeout.Question`,
+    `Room.Check` or `Room.Uncounted` yet (the index, the reminders and the status rooms are
+    n3f-b to n3f-d), so a questions-room human is still rendered with a null `question`; the
+    encoder does not tie `question` to `room`, to leave that to the slice that builds the
+    questions-room delivery. Findings against the spec's section 6 are in the report.
+
+- **n3f-a, G1 in part** on `feat/bus-v2-n3f-a-index` (`subagent-reports/261105-n3f-a-index-sonnet.md`):
+  `proto.QuestionIndex` now folds idempotently by event id (`Feed`, `Attach(event, human)`);
+  attaches a human post whatever its delivery verdict and answers `AttachmentOf` read-only;
+  tracks unattached posts and the agent plain replies that clear them (`Unattached`); keeps
+  `asked_by`, `re`, `remind_after_s`, `asked_ms` and the `Question:` section as its SHA-256
+  (`OpenDuplicate` hashes what it is given); `Unanswered` as ids (16 kept, a count past them,
+  reset by an agent thread post); the caps of QX6 in the fold (64 open with the evicted counted,
+  128 closed, 1024 posts, 64 unattached; OW5 (b) since split the posts into 1024 human posts and
+  256 agent thread posts and slots, see the n3f-a OW5 entry below); redacted slots (`Slot`, `Next()` past them, held
+  numbers as closed redacted entries); provisional own entries (`PlaceQuestion`, `PlaceThread`,
+  `TakeDropped`); `State()` and `Copy()`; `Reminder.DueMs`. Not built yet: the strict codec of
+  the state with the build record, `RedactedSlot` over the raw event.
+
+- **n3f-a, the rest of G1** on `feat/bus-v2-n3f-a-codec` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261105-n3f-a-codec-sonnet.md`): `proto.QuestionsState` (the store's
+  `questions` key: `index`, `token`, `last`, `build`) with `Encode(server)`,
+  `DecodeQuestionsState(data, server)` (strict as `member/state`'s files: repeated keys and
+  integers past 2^53 refused, unknown keys refused, a round trip that must equal the parsed
+  value, then `Check(server)`; at most `MaxQuestionsStateBytes`, 1 101 056 then, 1 125 888 with
+  OW5 (b)), `IndexState.Check`
+  and `LoadQuestionIndex(server, floor, state)`; the build record (`BuildRecord`: no record with
+  an index, a build owed with none of the three and `after` set, a build under way with the
+  three and `start` set; the engine's use of it is n3f-c's); `RedactedSlot(raw, server)`; and
+  the two property tests (live equals restarted over 3 seeds of 2600 events, every cap fired;
+  QX6's worst case, 1 001 559 bytes, 1 020 775 with OW5 (b)). `proto` 98.3% of statements. The fold's `State()` and
+  `IndexedQuestion.clone()` now give `[]`, never `null`, for an empty list. Not built: the
+  store (`member/state`, G2) that embeds `QuestionsState`; the engine's use of the build record.
+
+- **n3f-a, G2 (the store's new keys)** on `feat/bus-v2-n3f-a-store` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261105-n3f-a-store-sonnet.md`): with this part n3f-a is built whole (G1, G2,
+  G4, G5, G6, G7), pending its review. The seven keys of SPEC-n3f 12.6, strictly decoded and
+  always present in an encoded store: in `outbox` after `last_sent`, `reports` (at most 60
+  times), `questions_unechoed` (an event id or null), `questions_uncounted`
+  (`{"count","said"}`, `said` at most `count`), `questions_handover`; at the top level after
+  `outbox`, `questions` (`*proto.QuestionsState`, null for no index; the store runs the codec's
+  `Check` with the team's server, `paths.ServerName`), `reminded_ms` and `remind_late` (at
+  most 64 distinct numbers from 1). `MaxStore` is 16 x 256 KiB, 4 MiB; `TestStoreFullFitsTheFileCap`
+  holds a store with every cap full at its widest (3 428 163 bytes, its `questions` key
+  1 001 559 of at most 1 101 056; with OW5 (b) 3 447 379, its key 1 020 775 of at most
+  1 125 888), the caps' sum counted as written (4 110 165 bytes, 4 134 997 with OW5 (b): every
+  fixed field a row of `fixedWritten`, the questions room's lists and key among them) and the
+  round-up to 4 MiB; the compact-form sums the test once pinned (3 001 136 and 4 104 600) went
+  with n3d's store sizing (#164), which counts as written.
+  `Version` stays 1: a store written before this change has none of the keys and is refused by
+  the strict decoder (the engine's refused-store path), never read with them defaulted; a new
+  store (`NewStore`) writes all seven. The item id grammar takes `~humans`, the reminder's key
+  (`proto.ReminderKey`, A 10.5), which it refused: only on a TIMEOUT in the questions room, in
+  pending and in the ledger. Coverage: `member/state` 99.8% of statements (`engine` 92.7,
+  `teamsync` 95.2, `keeper` 91.2, `link` 92.3 pass unchanged under `-race`). Not built: what
+  writes the keys (n3f-b, n3f-c), their drop at a demotion (n3f-c), the verbs, the skill.
+  Open for the owner (the report's finding 1): `outbox.sending[].content` is sized in A's
+  compact form but written HTML-escaped, so an entry can be written at up to about 98 KiB
+  against its 20 KiB size.
+
+- **n3f-a, OW5 (b)** on `feat/bus-v2-n3f-a-ow5b` (from `feat/bus-v2-n3f-a-int`;
+  `subagent-reports/261106-n3f-a-ow5b-opus.md`; OW5: (b), coordinator, 2026-11-05): the index's
+  folded events are two lists (SPEC-n3f QX6). `IndexState.Posts` holds the 1024 most recent
+  human posts, `{"id","q","t"}` with `t` 0 or 1 (a post in its question's thread); the new
+  `IndexState.AgentPosts` (`agent_posts`, `proto.AgentPost`, cap `MaxAgentPosts` 256) holds
+  agent thread posts and slots, `{"id","q"}`, `q` 0 for a slot. Each evicts its own oldest; the
+  fold looks in both before it applies an event, the codec refuses an id in both, a kind of 2 or
+  3 in `posts`, a null `agent_posts` and a 257th entry. `MaxQuestionsStateBytes` 1 125 888; the
+  store at its widest 3 447 379 bytes, the caps' sum as written 4 134 997, `MaxStore` 4 MiB.
+  The live-equals-rebuilt property now feeds events again across both lists while each evicts.
+
 - **n3d's caps measured as written** on `fix/store-size-as-written`
   (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
   `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,
