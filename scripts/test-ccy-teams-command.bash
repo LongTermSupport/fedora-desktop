@@ -59,6 +59,7 @@ check_lacks() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-teams-command-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 # Every seat lock holder (seat_hold) is ended before the scratch directory goes.
 cleanup() {
     local pid
@@ -177,6 +178,10 @@ YES) row="$(awk '/^Yes, / { print; exit }' <<<"$rows")" ;;
 esac
 if [[ "$*" == *--expect* ]]; then
     printf '%s\n' "$key"
+elif [ -n "$key" ]; then
+    # fzf hands back only a key its --expect names; a queued key here is a key the screen does not take
+    echo "fake fzf: answer '$answer' presses $key, which call $n does not hand back" >&2
+    exit 2
 fi
 printf '%s\n' "$row"
 EOF
@@ -309,7 +314,22 @@ if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
     echo "wl-copy: failed to connect to a Wayland server" >&2
     exit 1
 fi
+if [ "${1:-}" = "--clear" ]; then
+    : >"$TEST_STATE/clipboard"
+    exit 0
+fi
 cat >"$TEST_STATE/clipboard"
+cp "$TEST_STATE/clipboard" "$TEST_STATE/copied"
+EOF
+# wl-paste: the fake clipboard; TEST_CLIPBOARD_NOW stands for something the person copied since.
+cat >"$BIN/wl-paste" <<'EOF'
+#!/usr/bin/env bash
+printf 'wl-paste %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_CLIPBOARD_NOW:-}" ]; then
+    printf '%s' "$TEST_CLIPBOARD_NOW"
+    exit 0
+fi
+cat "$TEST_STATE/clipboard"
 EOF
 # gsettings: GNOME Shell's enabled extensions, without Clipboard Indicator unless the test says.
 cat >"$BIN/gsettings" <<'EOF'
@@ -336,14 +356,17 @@ cat >"$BIN/id" <<'EOF'
 exec /usr/bin/id "$@"
 EOF
 
-# gh: logged in unless TEST_GH_NOAUTH; example-org is the one owner GitHub has.
+# gh: one login, account-a, unless TEST_GH_NOAUTH; example-org is the one owner GitHub has.
+# ccy-teams lists the logins as JSON and asks GitHub as each through its own token.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'gh %s\n' "$*" >>"$TEST_LOG"
 case "$1 ${2:-}" in
 "auth status")
-    if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
+    if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi
+    echo '{"hosts":{"github.com":[{"login":"account-a","active":true,"state":"success"}]}}' ;;
+"auth token") echo placeholder-token-account-a ;;
 "api users/example-org") ;;
 # A repository's permissions.push for the login: example-org/readonly is read-only.
 "api repos/example-org/proj" | "api repos/example-org/alpha" | "api repos/other/tool")
@@ -368,16 +391,22 @@ if (cd "$TEST_REPO_ROOT" && python3 -m helpers.play_lock.lock held --user "$(com
 else
     echo "play-lock NOT handed down" >>"$TEST_LOG"
 fi
-[ "$1" = -e ] || { echo "fake play: expected -e JSON" >&2; exit 97; }
+named="{\"agent_bus_host_vars_file\":\"$CCY_TEAMS_HOST_VARS\"}"
+[ "$#" = 6 ] && [ "$1" = -e ] && [ "$2" = "@$CCY_TEAMS_HOST_VARS" ] && [ "$3" = -e ] && [ "$4" = "$named" ] && [ "$5" = -e ] ||
+    { echo "fake play: expected -e @$CCY_TEAMS_HOST_VARS -e $named -e JSON" >&2; exit 97; }
 if [ -n "${TEST_PLAY_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
-cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$2" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
+cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$6" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
 EOF
 # play-agent-bus-element.yml: logs its run; unless TEST_ELEMENT_FAIL, writes a launcher for
-# every agent_bus_element_teams entry, as the real play's helper does.
+# every agent_bus_element_teams entry, as the real play's helper does. Like the play, it must
+# be handed the host_vars ccy-teams reads (CCY_TEAMS_HOST_VARS), as an extra-vars file.
 cat >"$BIN/element-play" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'element-profiles %s\n' "$*" >>"$TEST_LOG"
+named="{\"agent_bus_host_vars_file\":\"$CCY_TEAMS_HOST_VARS\"}"
+[ "$#" = 4 ] && [ "$1" = -e ] && [ "$2" = "@$CCY_TEAMS_HOST_VARS" ] && [ "$3" = -e ] && [ "$4" = "$named" ] ||
+    { echo "fake element play: expected -e @$CCY_TEAMS_HOST_VARS -e $named" >&2; exit 97; }
 if [ -n "${TEST_ELEMENT_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
 lines="$(cd "$TEST_REPO_ROOT" && python3 -m helpers.agent_bus.declare element-teams --file "$CCY_TEAMS_HOST_VARS")"
 mkdir -p "$HOME/.local/share/applications"
@@ -597,14 +626,14 @@ reset() {
     : >"$TEST_FZF_RAW"
     printf '0\n' >"$STATE/fzf-calls"
     touch "$STATE/sudo-cached"
-    rm -f "$STATE/clipboard"
+    rm -f "$STATE/clipboard" "$STATE/copied"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
     rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/typed-"*
     rm -rf "$STATE/panes"
     mkdir -p "$STATE/panes"
     touch "$STATE/active/agent-bus-hs@alpha.service"
-    printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\n' \
+    printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nLIVE\tproj.1+local.podman\tlistening\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nLIVE\tproj.2+local.podman\tstale\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\nLIVE\tproj.box+role.lxc\tstale\n' \
         >"$STATE/members/alpha"
     "$SCRATCH/free-seats"
     rm -rf "$SEATS"
@@ -620,6 +649,14 @@ reset() {
 }
 rc_of() { awk '/^rc=/ { print }' <<<"$1"; }
 logged() { if grep -qF -- "$1" "$LOG"; then echo yes; else echo no; fi; }
+# played_for <host_vars> <team>: the fake play's log line for a run of <team> alone, handed
+# <host_vars> as an extra-vars file and named to the play.
+played_for() {
+    printf 'play -e @%s -e {"agent_bus_host_vars_file":"%s"} -e {"agent_bus_only_teams": ["%s"]}' "$1" "$1" "$2"
+}
+# logged_command <name>: whether a command called <name> ran, by the word at the head of a call
+# or after a slash; a substring would match a checkout path that contains the name.
+logged_command() { if grep -qE -- "(^|[ /])$1( |\$)" "$LOG"; then echo yes; else echo no; fi; }
 # The installer is called as root after sudo_ready, with `sudo -n` so a terminal-less run
 # fails instead of stopping to prompt (spec section 8 bug 11).
 SUDO_INSTALL="sudo -n /usr/local/sbin/agent-bus-install"
@@ -670,7 +707,7 @@ check_has "  on its declared port" "port 6167" "$alpha"
 check_has "  applied as declared (D65)" "up to date" "$alpha"
 check_has "  with what the team is for in the MEMBER column, whole when piped" "Builds the example site" "$alpha"
 seat="$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
-check_has "seat 1 is an active ccy seat, shown by its whole handle" "active" "$seat"
+check_has "seat 1 is a ccy seat listening on the bus, shown by its whole handle" "listening" "$seat"
 check_has "  held by ccy-proj" "ccy-proj" "$seat"
 check_has "  which is restored after a reboot" " yes " "$seat"
 check_has "  in its checkout" "$CHECKOUT" "$seat"
@@ -678,7 +715,7 @@ check_has "a free seat says free" "free" "$(grep -E '^alpha +proj\.dev\+local\.p
 check_has "a ccy member whose checkout is not known is listed by handle, parked" "parked" \
     "$(grep -E '^alpha +proj\.2\+local\.podman +ccy' <<<"$out")"
 check "  and seat 1's handle is listed once" "1" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
-check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
+check_has "the LXC member, not parked but its status lapsed, is stale, not active" "stale" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
 human="$(grep -E '^alpha +owner +human' <<<"$out")"
 check_has "the person, in the room in words" "in room" "$human"
 check_has "  never signed in to Element (no device)" "never signed in" "$human"
@@ -725,7 +762,7 @@ check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +
 reset
 rm -f "$STATE/sudo-cached"
 out="$(cd "$OUTSIDE" && TEST_SUDO_RULE=1 "$TOOL" --list 2>"$SCRATCH/err")"
-check_has "with the sudoers rule and no credential, the members are read" "active" \
+check_has "with the sudoers rule and no credential, the members are read" "listening" \
     "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
@@ -758,11 +795,11 @@ check "a seat that cannot be read: the checkout's other seats are still listed" 
     "$(grep -cE '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_has "  and every team row says something is unreadable" "a seat is unreadable" \
     "$(grep -E '^alpha +.+ +team ' <<<"$out")"
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|ABORT")"
-check "  so Ctrl-X parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
+out="$(run_picker "$OUTSIDE" "|proj.2+local.podman" "|Park" "|ABORT")"
+check "  so Park parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
 check_has "  saying why" "could not be read" "$out"
-out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|ABORT")"
-check "  and Ctrl-N in that checkout offers no seat" "no" "$(logged 'launcher')"
+out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|ABORT")"
+check "  and Start a ccy session in that checkout offers no seat" "no" "$(logged 'launcher')"
 check_has "  saying why" "Not every seat" "$out"
 
 # ── the picker ───────────────────────────────────────────────────────────────────────────
@@ -789,7 +826,7 @@ check "no credential: sudo asks, once the reason is given" "yes" "$(logged 'sudo
 check_has "  the reason comes first" "done as root" "$out"
 check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
 check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
-check_has "    seat 1 active" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
+check_has "    seat 1 listening" "listening" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check "  and the credential is dropped as ccy-teams ends (an agent may start here next)" "sudo -k" \
     "$(grep '^sudo ' "$TEST_LOG" | awk 'END { print }')"
 check "    so none is left cached" "no" "$([ -e "$STATE/sudo-cached" ] && echo yes || echo no)"
@@ -807,7 +844,7 @@ reset
 rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
 check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
-check_has "  and the members are shown" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
+check_has "  and the members are shown" "listening" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check_has "  and whether the person is signed in, through the rule's second command" "never signed in" \
     "$(grep -E '^alpha +owner +human' "$TEST_FZF_ROWS")"
 check "  which ccy-teams called as the rule names it" "yes" \
@@ -817,8 +854,11 @@ reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Attach this terminal")"
 check "Enter on a seat, then Attach, attaches its session" "yes" "$(logged 'tmux attach-session -t =ccy-proj')"
 check "  and exits 0" "rc=0" "$(rc_of "$out")"
-check_has "  Enter lists the seat's choices, with their shortcuts" "Stop starting its session again after a reboot   (Ctrl-R)" \
+check_has "  Enter lists the seat's choices, in words" "Stop starting its session again after a reboot" \
     "$(cat "$TEST_FZF_RAW")"
+check_lacks "  with no shortcut key beside them" "   (Ctrl-" "$(cat "$TEST_FZF_RAW")"
+check_lacks "  and the list hands back no shortcut key (the owner wants none)" "ctrl-" \
+    "$(grep -o -- '--expect=[^ ]*' "$TEST_FZF_RAW")"
 
 reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj" "|EXIT" "|ABORT")"
@@ -832,69 +872,70 @@ check "a session open elsewhere is not attached" "no" "$(logged 'attach-session'
 check_has "  ccy-sessions is named for taking it over" "Ctrl-T" "$out"
 
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
+# Turning restore off asks first, default No (Plan 00177 Task 10.6): Esc keeps it on.
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Stop starting its session" "|ABORT" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
-check "Ctrl-R turns the seat's session's restore off" "no" "$REC_RESTORE"
+check "Restore off then Esc at its question keeps the seat's session's restore on" "yes" "$REC_RESTORE"
+check_has "  the question names the seat and the reboot" "will not come back after a reboot" "$(cat "$TEST_FZF_RAW")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Stop starting its session" "|YES" "|ABORT")"
+ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
+check "Restore off then yes turns the seat's session's restore off" "no" "$REC_RESTORE"
 check "  keeping its seats" "--teams 1@alpha" "${REC_ARGS[*]}"
 check_has "  and the refreshed list shows it" " no " \
-    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'NR == 2')"
-out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
+    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'END { print }')"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Start its session again" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "  and on again" "yes" "$REC_RESTORE"
 
 reset
-# A key acts only on a row whose menu shows it (CLAUDE/InteractiveScripts.md rule 14).
-out="$(run_picker "$OUTSIDE" "ctrl-r|proj.box+role.lxc" "|ABORT")"
-check_has "Ctrl-R on a row whose menu has no restore does nothing, saying so" "That key does nothing on this row" "$out"
-
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Remove seat" "|YES" "|ABORT")"
+check "Remove seat then yes removes the seat, in its checkout" "yes" "$(logged 'agent-bus seat remove 1@alpha (in proj)')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|ccy-proj" "|YES" "|ABORT")"
-check "Ctrl-X then yes removes the seat, in its checkout" "yes" "$(logged 'agent-bus seat remove 1@alpha (in proj)')"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Remove seat" "|EXIT" "|ABORT")"
+check "Remove seat then no removes nothing" "no" "$(logged 'seat remove')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|ccy-proj" "|EXIT" "|ABORT")"
-check "Ctrl-X then no removes nothing" "no" "$(logged 'seat remove')"
-reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.box+role.lxc" "|YES" "|ABORT")"
-check "Ctrl-X then yes on an LXC member parks it" "yes" \
+out="$(run_picker "$OUTSIDE" "|proj.box+role.lxc" "|Park" "|YES" "|ABORT")"
+check "Park then yes on an LXC member parks it" "yes" \
     "$(logged 'sudo -n /usr/local/bin/agent-bus park-member alpha proj.box+role.lxc')"
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|YES" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|proj.2+local.podman" "|Park" "|YES" "|ABORT")"
 check "  as it does a ccy member whose checkout is not known" "yes" \
     "$(logged 'agent-bus park-member alpha proj.2+local.podman')"
 reset
 printf '%s\n' NO "=Leave it running" >"$TEST_GUM_ANSWERS"
 printf '0\n' >"$STATE/gum-calls"
-out="$(run_picker "$OUTSIDE" "ctrl-x|port 6167" "|ABORT")"
-check_has "Ctrl-X on a team starts its removal, saying what is lost" "history" "$out"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Take alpha down" "|ABORT")"
+check_has "Take alpha down starts its removal, saying what is lost" "history" "$out"
 check "  and leaving it running changes nothing" "no" "$(logged 'play ')"
 
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-n|port 6167" "|ABORT")"
-check_has "Ctrl-N outside a project says so" "not a project folder" "$out"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Start a ccy session" "|ABORT")"
+check_has "Start a ccy session outside a project says so" "not a project folder" "$out"
 check "  and starts nothing" "no" "$(logged 'launcher')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|new")"
-check "Ctrl-N offers the free seat, and a new one numbered after every numbered seat" "yes" \
+out="$(run_picker "$CHECKOUT" "|port 6167" "|Start a ccy session" "|new")"
+check "Start a ccy session offers the free seat, and a new one numbered after every numbered seat" "yes" \
     "$(grep -q 'proj\.dev+local\.podman   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
 check "  and starts ccy --teams in the new one" "yes" "$(logged 'launcher --teams 3@alpha')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|owner" "|free")"
+out="$(run_picker "$CHECKOUT" "|owner" "|Start a ccy session" "|free")"
 check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher --teams dev@alpha')"
 reset
-out="$(run_picker "$CHECKOUT" "ctrl-n|extra" "|ABORT")"
-check_has "Ctrl-N on a team whose homeserver is down says so" "homeserver is down" "$out"
+out="$(run_picker "$CHECKOUT" "|extra" "|Start a ccy session" "|ABORT")"
+# The refusal uses the words the team menu's unavailable line uses (Plan 00177 Task 10.1).
+check_has "Start a ccy session on a team whose homeserver is down says so" "homeserver is not up" "$out"
 reset
 mkdir -p "$CHECKOUT/sub/dir"
-out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"
-check "Ctrl-N from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
+out="$(run_picker "$CHECKOUT/sub/dir" "|port 6167" "|Start a ccy session" "|new")"
+check "Start a ccy session from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
     "$(logged 'launcher --teams 3@alpha (in proj)')"
 # A checkout in an LXC container's files, seen from the host, is the container's: no host or
 # podman session is offered or started there, whatever its origin covers.
 reset
-out="$(run_picker "$IN_CONTAINER" "ctrl-n|port 6167" "|ABORT")"
-check_has "in an LXC container's checkout the header says Ctrl-N is unavailable, and why" \
-    "Ctrl-N unavailable: $IN_CONTAINER is LXC container box's checkout" "$(cat "$TEST_FZF_RAW")"
-check_has "  Ctrl-N there says so" "is LXC container box's checkout" "$out"
+out="$(run_picker "$IN_CONTAINER" "|port 6167" "|Start a ccy session" "|ABORT")"
+check_has "in an LXC container's checkout the header says a new session is unavailable, and why" \
+    "A new ccy session is unavailable: $IN_CONTAINER is LXC container box's checkout" "$(cat "$TEST_FZF_RAW")"
+check_has "  Start a ccy session there says so" "is LXC container box's checkout" "$out"
 check_has "  and points to lxc-add" "ccy-teams lxc-add" "$out"
 check "  and starts nothing" "no" "$(logged 'launcher')"
 out="$(cd "$IN_CONTAINER" && "$TOOL" for-checkout 2>&1)"
@@ -910,15 +951,15 @@ gum_queue() {
 reset
 cp "$HOST_VARS" "$SCRATCH/element.yml"
 gum_queue NO
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
-check_has "Ctrl-E with no Element profile says so" "has no Element profile on this desktop yet" "$out"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
+check_has "Open alpha in Element with no Element profile says so" "has no Element profile on this desktop yet" "$out"
 check_lacks "  never telling you to edit the host_vars" "agent_bus_element_teams" "$out"
 check "  offering to set it up; no opens nothing" "no" "$(logged 'gio')"
 check "  and changes nothing" "$(cat "$HOST_VARS")" "$(cat "$SCRATCH/element.yml")"
 reset
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 gum_queue YES
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
 check_has "  yes declares the team's Element profile" 'base_url: "http://192.0.2.10:6167"' \
     "$(cat "$SCRATCH/element.yml")"
 check "  runs play-agent-bus-element.yml" "yes" "$(logged 'element-profiles')"
@@ -926,17 +967,17 @@ check "  then opens it" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 reset
 cp "$HOST_VARS" "$SCRATCH/element.yml"
 gum_queue YES
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" TEST_ELEMENT_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" TEST_ELEMENT_FAIL=1 run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
 check_has "  a failed Element play is said" "play-agent-bus-element.yml failed" "$out"
 check "  and nothing is opened" "no" "$(logged 'gio')"
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
-out="$(run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
-check "Ctrl-E opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
+out="$(run_picker "$OUTSIDE" "|owner" "|Open alpha in Element" "|ABORT")"
+check "Open alpha in Element opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 check "  asking no password of a human who has a session" "no" "$(logged 'human password')"
 check "  and returns to the list, which Esc then leaves with 0" "rc=0" "$(rc_of "$out")"
-check "  the list is drawn again after Element is started" "2" "$(cat "$STATE/fzf-calls")"
+check "  the list is drawn again after Element is started" "3" "$(cat "$STATE/fzf-calls")"
 check "  and the person's Element sessions are read again for it" "2" \
     "$(grep -c '^sudo -n /usr/local/bin/agent-bus human devices alpha owner' "$LOG")"
 check_has "  in its own user scope, so closing the terminal tab does not end it" \
@@ -948,18 +989,18 @@ check_has "  and holds both its streams" $'electron chatter on stdout\nelectron 
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
-out="$(TEST_GIO_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner")"
+out="$(TEST_GIO_FAIL=1 run_picker "$OUTSIDE" "|owner" "|Open alpha in Element")"
 check_has "a failed Element launch is said, with the log's tail" "Element did not start" "$out"
 check_has "  showing what it said" "electron chatter on stderr" "$out"
 check "  and is a failure" "rc=1" "$(rc_of "$out")"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|EXIT" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Open alpha in Element" "|EXIT" "|ABORT")"
 check "a human with no session is offered a password; no sets none" "no" "$(logged 'human password')"
 check "  and Element still opens" "yes" "$(logged 'gio launch')"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Open alpha in Element" "|YES" "|ABORT")"
 check "  yes sets one, through sudo agent-bus" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password alpha owner')"
 check_has "  printed once, here" "a-new-password" "$out"
 
@@ -968,7 +1009,7 @@ reset
 out="$(run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
 check "Enter on a person who never signed in offers signing in first, asking nothing" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
-check_has "  the menu says so in words, with the shortcut" "Sign in: set a password (shown once)   (Ctrl-P)" \
+check_has "  the menu says so in words" "Sign in: set a password (shown once)" \
     "$(cat "$TEST_FZF_RAW")"
 check_has "  the login shows the homeserver" "http://192.0.2.10:6167" "$out"
 check_has "  the username" "Username" "$out"
@@ -988,7 +1029,7 @@ out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|YES" "|EXIT" "|ABORT")"
 check "Enter on a person with a session offers Element first, and a password only on request" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
 check_has "  the menu names the sessions the password signs out" \
-    "New password — signs out owner's 1 Element session   (Ctrl-P)" "$(cat "$TEST_FZF_RAW")"
+    "New password — signs out owner's 1 Element session" "$(cat "$TEST_FZF_RAW")"
 check_has "  and the question says it again" "This signs out owner's 1 Element session." "$(cat "$TEST_FZF_RAW")"
 check_has "  while the reset itself defaults to Exit" "start:last" \
     "$(awk '/This signs out owner/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
@@ -997,23 +1038,28 @@ printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|EXIT" "|ABORT")"
 check "  no sets none" "no" "$(logged 'human password')"
 reset
-out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
-check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
-    "$(cat "$STATE/clipboard" 2>&1)"
+out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
+check "Sign in offers the clipboard where wl-copy can reach it" "a-new-password" \
+    "$(cat "$STATE/copied" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
-check "  and served to one paste only" "yes" "$(logged 'wl-copy --paste-once')"
+check "  read back after the Enter" "yes" "$(logged 'wl-paste --no-newline')"
+check "  and cleared, as it still held the password" "" "$(cat "$STATE/clipboard" 2>&1)"
 check "    with no timer that could wipe a later copy" "no" "$(logged 'systemd-run --user --quiet --collect --on-active')"
-check_has "    which the person is told" "for one paste; after that it is gone from the clipboard" "$out"
+check_has "    which the person is told" "The password was cleared from the clipboard." "$out"
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
 reset
-out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|EXIT" "|ABORT")"
+out="$(TEST_CLIPBOARD_NOW="a link copied since" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
+check "a clipboard holding something copied since is not cleared" "no" "$(logged 'wl-copy --clear')"
+check_has "  and the person is told it was left" "so it was left as it is" "$out"
+reset
+out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
 check "with Clipboard Indicator on, the clipboard is not offered" "no" "$(logged 'wl-copy')"
 check_has "  and the person is told why" "the Clipboard Indicator extension is on" "$out"
 check_lacks "  and never that it is on the clipboard" "The password is on the clipboard" "$out"
 reset
-out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
+out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|EXIT" "|ABORT")"
 check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
 check_lacks "  and never that it is" "The password is on the clipboard." "$out"
 reset
@@ -1021,21 +1067,17 @@ rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|Sign in" "|ABORT")"
 check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus human password')"
 check_has "  saying so" "No password was set for owner." "$out"
-reset
-out="$(run_picker "$OUTSIDE" "ctrl-p|ccy-proj" "|ABORT")"
-check_has "Ctrl-P on a row whose menu has no password does nothing, saying so" "That key does nothing on this row" "$out"
 
 echo "== help and repositories"
 reset
-out="$(run_picker "$OUTSIDE" "?|port 6167" "|ABORT")"
-check_has "? shows every key, explained" "Ctrl-U" "$out"
-check_has "  and the APPLIED words" "decide: absent" "$out"
-check_has "  and the status words" "need sudo" "$out"
-reset
 out="$(run_picker "$OUTSIDE" "|port 6167" "|What the columns" "|ABORT")"
 check_has "Enter on a team lists its choices; the help is one of them" "Colours:" "$out"
-check_has "  with Element, a session, an update and taking the team down, each with its shortcut" \
-    "Take alpha down   (Ctrl-X)" "$(cat "$TEST_FZF_RAW")"
+check_has "  explaining the menu lines" "Update every team" "$out"
+check_has "  and that there are no shortcut keys" "There are no shortcut keys." "$out"
+check_has "  and the APPLIED words" "decide: absent" "$out"
+check_has "  and the status words" "need sudo" "$out"
+check_has "  with Element, a session, an update and taking the team down, in words" \
+    "Take alpha down" "$(cat "$TEST_FZF_RAW")"
 
 # ── applied or not (D65), apply and remove ──────────────────────────────────────────────
 echo "== backup and restore"
@@ -1079,18 +1121,24 @@ check_has "  after showing the session" "ccy-proj   seat 1 (proj.1+local.podman)
 check "  and types nothing" "no" "$(logged 'send-keys')"
 reset
 "$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "shutdown --yes fails while a member is out of reach (the LXC agent)" "1" "$?"
+check "shutdown compacts first: with no recorded conversation the session fails" "1" "$?"
+check "  and nothing is typed into it" "no" "$(logged 'send-keys')"
+check "  nor is it killed" "no" "$(logged 'kill-session')"
+check_has "  naming --no-compact as the way to end it" "close it with --no-compact" "$(cat "$SCRATCH/err")"
+reset
+"$TOOL" shutdown alpha --yes --no-compact </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "shutdown --yes --no-compact fails while a member is out of reach (the LXC agent)" "1" "$?"
 check "  having typed /exit into the session's pane" "yes" "$(logged 'tmux send-keys -t =ccy-proj: -l /exit')"
 check "  then Enter" "yes" "$(logged 'tmux send-keys -t =ccy-proj: Enter')"
 check "  and not killed it, since it ended" "no" "$(logged 'kill-session')"
 check_has "  saying it exited and its seat is free" "ccy-proj: exited cleanly; seat 1@alpha released" "$(cat "$SCRATCH/err")"
 check_has "  and that the LXC agent was not shut down" "proj.box+role.lxc: not shut down: its session runs inside the LXC container" \
     "$(cat "$SCRATCH/err")"
-check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged 'pingbus')"
+check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged_command 'pingbus')"
 check "  stdout stays empty" "" "$(cat "$SCRATCH/out")"
 reset
 printf '%s\n' "──────────────" "❯ half a thought" "──────────────" >"$STATE/panes/ccy-proj"
-"$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+"$TOOL" shutdown alpha --yes --no-compact </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "unsent text in the input box fails the session" "1" "$?"
 check "  and nothing is typed over it" "no" "$(logged 'send-keys')"
 check "  nor is it killed" "no" "$(logged 'kill-session')"
@@ -1113,7 +1161,7 @@ out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --de
     --org example-org --yes </dev/null 2>"$SCRATCH/err")"
 check "create with every value adds the entry" "0" "$?"
 check_has "  saying so on stdout, on a port neither declared nor listening" $'CHANGED\tteam beta, port 6169' "$out"
-check "  and installs it: the play for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check "  and installs it: the play for beta alone" "yes" "$(logged "$(played_for "$SCRATCH/create.yml" beta)")"
 check_has "  then the next steps" "ccy --teams beta" "$(cat "$SCRATCH/err")"
 check_lacks "  never meta-deploy" "meta-deploy" "$(cat "$SCRATCH/err")"
 check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'kept at' "$SCRATCH/err")"
@@ -1141,7 +1189,10 @@ check "create --repo --yes: a read-only, a missing and a malformed repository fa
 check_has "  the read-only one named with its reason" "example-org/readonly: read-only" "$(cat "$SCRATCH/err")"
 check_has "  the missing one named with its reason" "other/missing: not found" "$(cat "$SCRATCH/err")"
 check_has "  the malformed one named with its reason" "bad: not OWNER/REPO" "$(cat "$SCRATCH/err")"
-check_lacks "  the good one is not blamed" "example-org/proj:" "$(cat "$SCRATCH/err")"
+# A good repository is said with the gh login that can push to it, so it has a line, not a blame.
+check_has "  the good one says which gh login pushes" "example-org/proj: push access through account-a." "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed as missing" "example-org/proj: not" "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed as read-only" "example-org/proj: read-only" "$(cat "$SCRATCH/err")"
 check "  nothing is written" "" "$(diff "$SCRATCH/create.before" "$SCRATCH/create.yml")"
 check "  nothing is installed" "no" "$(logged 'play ')"
 reset
@@ -1203,7 +1254,7 @@ check_has "  and no other machine" 'allow_from: []' "$written"
 check_has "  what the team is for is asked after its name, and written" 'description: "Builds the example site"' "$written"
 check_has "  the summary says what it is for" "For       Builds the example site" "$out"
 check_has "  its Element profile is declared with it" $'agent_bus_element_teams:\n  - team: proj' "$written"
-check "  the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["proj"]}')"
+check "  the team is installed at once" "yes" "$(logged "$(played_for "$NO_TEAMS" proj)")"
 check "  and its Element profile written" "yes" "$(logged 'element-profiles')"
 inputs="$(grep -F 'gum input' "$LOG")"
 check_has "  the scope is asked first, listed repositories selected, this one first" \
@@ -1228,8 +1279,8 @@ check_has "  and says Element is set up" "a profile for the team, set up on this
 check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams proj" "$out"
 check_lacks "  never meta-deploy" "meta-deploy" "$out"
 check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
-check_has "  sign-in is offered straight after" "gum confirm --default=true Sign owner in to Element now?" "$(cat "$LOG")"
-check_has "  then Element opened" "gum confirm --default=true Open proj in Element now?" "$(cat "$LOG")"
+check_has "  sign-in is offered straight after, default No (decision A12)" "gum confirm --default=false Sign owner in to Element now?" "$(cat "$LOG")"
+check_has "  then Element opened, default No" "gum confirm --default=false Open proj in Element now?" "$(cat "$LOG")"
 check "  declined, no password is set" "no" "$(logged 'human password')"
 check "  in a checkout of the team, a session is offered, and started in it with no seat" "yes" \
     "$(logged 'launcher --teams proj (in proj)')"
@@ -1322,7 +1373,7 @@ check_has "  naming what the team covers" "Team legacy (for any repository of ex
 check_has "  and that it is about a team already here, not this checkout" "a team already on this machine" "$out"
 check_lacks "  and never claiming it was the default" "was the default" "$out"
 check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
-check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
+check "  then applied" "yes" "$(logged "$(played_for "$NO_TEAMS" legacy)")"
 fresh_no_teams
 cat >"$NO_TEAMS" <<'EOF'
 agent_bus_address: 192.0.2.10
@@ -1384,7 +1435,7 @@ printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
 check "a team not built is offered its update at start-up; yes applies it" "yes" \
-    "$(logged 'play -e {"agent_bus_only_teams": ["elsewhere"]}')"
+    "$(logged "$(played_for "$NO_TEAMS" elsewhere)")"
 check_has "  then waits before the list is drawn" "Press Enter to go back to the list." "$out"
 check_lacks "  every step it takes is defined by then" "command not found" "$out"
 check "  and the picker opens" "rc=0" "$(rc_of "$out")"
@@ -1446,7 +1497,7 @@ check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +.+ +
 
 fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "apply <team> runs the play for that team" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["delta"]}')"
+check "apply <team> runs the play for that team" "yes" "$(logged "$(played_for "$STATES" delta)")"
 check "  inside ccy-teams' hold of the play lock, handed down as run.bash proves it" "yes" "$(logged 'play-lock handed down')"
 check "  and never outside it" "no" "$(logged 'play-lock NOT handed down')"
 fresh_states
@@ -1470,7 +1521,7 @@ check "remove: a backup first by default, then down with the data kept" "rc=0" "
 check "  the backup is taken first" "yes" "$(logged "$SUDO_INSTALL backup-now --team beta")"
 check_has "  the backup is offered, default yes" "gum confirm --default=true Back beta up first?" "$(cat "$LOG")"
 check_has "  beta is declared absent, its data kept" "purge: false" "$(cat "$STATES")"
-check "  the play runs for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check "  the play runs for beta alone" "yes" "$(logged "$(played_for "$STATES" beta)")"
 check_has "  and says the data is kept" "its data is kept" "$out"
 
 fresh_states
@@ -1526,7 +1577,8 @@ check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
 out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ENTER '=gamma' '=Builds gamma' ENTER ENTER NO)" create)"
-check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
+# A person's No is a decline, not a failure (Plan 00201 Task 2.29): exit 0.
+check "no at the summary adds nothing" "rc=0" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"
 

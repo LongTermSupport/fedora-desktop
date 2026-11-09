@@ -15,16 +15,17 @@ import (
 )
 
 const (
-	cloudUser     = "fedora"
-	guestHost     = cloudUser + "@127.0.0.1"
-	libvirtURI    = "qemu:///session"
-	stateShutOff  = "shut off"
-	stateCrashed  = "crashed"
-	sshWait       = 600 * time.Second
-	shutdownWait  = 300 * time.Second
-	poll          = 5 * time.Second
-	followerLimit = "86400"
-	sigtermStatus = 143
+	cloudUser      = "fedora"
+	guestHost      = cloudUser + "@127.0.0.1"
+	libvirtURI     = "qemu:///session"
+	stateShutOff   = "shut off"
+	stateCrashed   = "crashed"
+	sshWaitDefault = 600 * time.Second
+	sshWaitSetting = "VMTEST_SSH_WAIT_TIMEOUT"
+	shutdownWait   = 300 * time.Second
+	poll           = 5 * time.Second
+	followerLimit  = "86400"
+	sigtermStatus  = 143
 )
 
 // guestOpts are the ssh options every guest connection carries (E22). IdentitiesOnly: without
@@ -80,12 +81,11 @@ func (g *guest) doWith(ctx context.Context, remote string, stdin io.Reader) erro
 	return nil
 }
 
-// answers reports whether `ssh true` succeeds; its noise is dropped, as a failed try is expected.
-func (g *guest) answers(ctx context.Context) bool {
-	cmd := g.sshCmd("true")
-	cmd.Stderr = io.Discard
-	_, err := g.c.env.Runner.Run(ctx, cmd)
-	return err == nil
+// answers is nil when `ssh true` succeeds, else why it did not; its stderr is kept in that error
+// rather than shown, as a failed try is expected.
+func (g *guest) answers(ctx context.Context) error {
+	_, err := g.c.env.Runner.Run(ctx, g.sshCmd("true"))
+	return err
 }
 
 // stream runs remote with keepalives, bounded by limit, its output merged into w. It returns
@@ -141,7 +141,7 @@ func (c *cli) domstate(ctx context.Context, domain string) (string, error) {
 func (g *guest) mustBeUp(ctx context.Context, what string) error {
 	state, err := g.c.domstate(ctx, g.domain)
 	if err != nil {
-		return ctxErr(ctx, failf("cannot read the state of guest %s while waiting for %s", g.domain, what))
+		return ctxErr(ctx, failf("cannot read the state of guest %s while waiting for %s: %v", g.domain, what, err))
 	}
 	if state == stateShutOff || state == stateCrashed {
 		return failf("guest %s is %s while waiting for %s; see %s", g.domain, state, what, filepath.Join(g.dir, "console.log"))
@@ -151,20 +151,22 @@ func (g *guest) mustBeUp(ctx context.Context, what string) error {
 
 // waitSSH waits for the guest to answer SSH, by the clock (E24, B12).
 func (g *guest) waitSSH(ctx context.Context) error {
-	g.c.logf("waiting for SSH on 127.0.0.1:%d (up to %ds)", g.port, int(sshWait.Seconds()))
+	wait := g.c.sshWait
+	g.c.logf("waiting for SSH on 127.0.0.1:%d (up to %ds)", g.port, int(wait.Seconds()))
 	start := g.c.env.Now()
 	for {
 		if err := g.mustBeUp(ctx, "SSH"); err != nil {
 			return err
 		}
-		if g.answers(ctx) {
+		last := g.answers(ctx)
+		if last == nil {
 			break
 		}
 		if err := g.c.env.Sleep(ctx, poll); err != nil {
 			return ctxErr(ctx, err)
 		}
-		if g.c.env.Now().Sub(start) >= sshWait {
-			return failf("guest did not answer SSH within %ds; see %s", int(sshWait.Seconds()), filepath.Join(g.dir, "console.log"))
+		if g.c.env.Now().Sub(start) >= wait {
+			return failf("guest did not answer SSH within %ds (%s): %v; see %s", int(wait.Seconds()), sshWaitSetting, last, filepath.Join(g.dir, "console.log"))
 		}
 	}
 	g.c.logf("guest answered SSH after ~%ds", int(g.c.env.Now().Sub(start).Seconds()))
@@ -177,7 +179,7 @@ func (g *guest) waitShutoff(ctx context.Context) error {
 	for {
 		state, err := g.c.domstate(ctx, g.domain)
 		if err != nil {
-			return ctxErr(ctx, failf("cannot read the state of guest %s while waiting for it to shut off", g.domain))
+			return ctxErr(ctx, failf("cannot read the state of guest %s while waiting for it to shut off: %v", g.domain, err))
 		}
 		if state == stateShutOff {
 			return nil
@@ -250,7 +252,7 @@ func (f *follower) stop() {
 func (g *guest) unlock(ctx context.Context, dir, passphraseFile string) (*follower, error) {
 	res, err := g.c.helper(ctx, helperCall{module: "serial_console", args: []string{
 		"--socket", filepath.Join(dir, "serial.sock"), flagLog, filepath.Join(dir, "console.log"),
-		"--unlock-with", passphraseFile, "--until", "login: ", "--timeout", strconv.Itoa(int(sshWait.Seconds())),
+		"--unlock-with", passphraseFile, "--until", "login: ", "--timeout", strconv.Itoa(int(g.c.sshWait.Seconds())),
 		"--connect-wait", "60", "--domain", g.domain, "--libvirt-uri", libvirtURI,
 	}})
 	reason := ""

@@ -428,7 +428,7 @@ discover_and_select_ssh_keys() {
 
     # These keys are managed by play-github-cli-multi.yml which creates keys with
     # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
-    # See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
+    # See: playbooks/imports/play-github-cli-multi.yml
     mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 
     local alias_rc=0
@@ -476,7 +476,7 @@ discover_and_select_ssh_keys() {
         echo "Git push operations will NOT work without SSH keys."
         echo ""
         echo "To set up GitHub SSH keys, run:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+        echo "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
         echo ""
         echo "Or specify a key manually:"
         echo "  $tool_name --ssh-key ~/.ssh/<your-key>"
@@ -1554,7 +1554,7 @@ build_ssh_mounts_and_validate() {
             echo "  3. Add the public key from: $key.pub"
             echo ""
             echo "Or set up GitHub keys with:"
-            echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+            echo "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
             return 1
         fi
 
@@ -1634,7 +1634,7 @@ build_ssh_mounts_and_validate() {
                 echo "Required: gh-token-<alias> functions from play-github-cli-multi.yml"
                 echo ""
                 echo "To fix:"
-                echo "  1. Run: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+                echo "  1. Run: ansible-playbook playbooks/imports/play-github-cli-multi.yml"
                 echo "  2. Verify: ls -la ~/.bashrc-includes/gh-aliases.inc.bash"
                 echo "  3. Verify: grep $token_func ~/.bashrc-includes/gh-aliases.inc.bash"
                 return 1
@@ -1661,7 +1661,7 @@ build_ssh_mounts_and_validate() {
                 fi
                 echo "Account is not authenticated with gh CLI."
                 echo ""
-                echo "Fix: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+                echo "Fix: ansible-playbook playbooks/imports/play-github-cli-multi.yml"
                 return 1
             fi
 
@@ -1789,7 +1789,7 @@ build_ssh_mounts_and_validate() {
             echo "                            export GH_TOKEN=…   then re-run ccy"
             echo ""
             echo "For multi-account setup with github_ SSH keys, run:"
-            echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+            echo "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
             return 1
         fi
     fi

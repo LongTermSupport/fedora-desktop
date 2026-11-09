@@ -106,9 +106,27 @@ User-specific includes in `~/.bashrc-includes/`:
   fzf, keep stock bash, where both see everything.
   Ctrl+R lists commands run in the current directory first, then the current git repository, then
   everything else. The chosen command is put on the prompt for review, never run straight
-  away. The directory each command ran in is kept in `~/.local/state/bash/context`, which is
+  away. Enter takes exactly what you typed; arrow to a match and Enter takes that match
+  instead (the prompt says which), and typing again goes back to what you typed. With
+  nothing typed, Enter takes the highlighted match. Esc leaves the search, also when the next key follows it within fzf's 100 ms wait
+  (Esc then an arrow, Enter or a letter); Esc then b, f, d or Backspace that quickly stays
+  fzf's word editing of the query (Alt-B, Alt-F, Alt-D, Alt-Backspace) and does not leave.
+  The directory each command ran in is kept in `~/.local/state/bash/context`, which is
   private to the user like the history file. A command removed from history with
   `history -d` stays in that file until it is edited out.
+- `nohist=1` prefix (every account, set by `HISTIGNORE` in the history block): a command line
+  that starts with `nohist=1`, in any case (`NOHIST=1`, `NoHIst=1`), is never kept in history or
+  in the Ctrl+R search: `nohist=1 some command` or `nohist=1; some command`. The prefix must be
+  the very first thing on the line: a leading space, or a misspelling such as `nohist=0`, and
+  the line is recorded. Ctrl+R shows a one-line reminder of this and of `histclean`.
+- `histclean` (desktop user only, installed in `~/.local/bin`): `histclean 'text'` lists every
+  history and Ctrl+R entry whose command contains the text (a fixed substring; `-e` makes it
+  a Go regular expression), numbered, and asks `Remove N entries? [y/N]` once. Only on `y`
+  does it rewrite `~/.local/state/bash/history` and `~/.local/state/bash/context`, each
+  replaced whole through a private temporary file. A multi-line command goes whole. With
+  `--yes` it asks nothing, and off a terminal it refuses to remove without `--yes`. A terminal
+  that is already open keeps the removed lines in memory: its up-arrow shows them until it is
+  closed, or until `history -d <number>` drops them there.
 - `terminal-modes.bash` (desktop user only): at every prompt, switches off the mouse
   reporting, focus events and keyboard modes a full-screen program left on, as when an SSH
   session drops because the server went away. Without it, moving the mouse prints escape
@@ -188,7 +206,21 @@ See the full guide for the complete workflow, commands, and troubleshooting:
 `play-gsettings.yml` applies:
 
 - Disable the Caps Lock key (via xkb-options)
+- Enable middle-click paste of the selected text (`gtk-enable-primary-paste`; a fresh
+  Fedora 44 profile has it off)
 - Disable middle-click closing tabs in the Ptyxis terminal
+
+### GNOME Text Editor Windows
+
+`play-gnome-shell.yml` makes GNOME Text Editor open every file in a new window on the
+current workspace, instead of as a tab in an existing window on another workspace. It
+writes `~/.local/share/applications/org.gnome.TextEditor.desktop`, a copy of the system
+file with D-Bus activation off and `--new-window` added, regenerated on every run so
+editor upgrades are kept. A file already open in a window still raises that window.
+
+To undo it, remove the override tasks from `play-gnome-shell.yml` and delete that file
+(the system file then applies again); deleting the file alone lasts only until the play
+next runs.
 
 ### Crash Reporting (ABRT)
 

@@ -1,8 +1,8 @@
 // Package vmtest is the host CLI of the VM lifecycle acceptance lab (Plan 00110): it fetches and
 // verifies published Fedora media, builds base images, boots throwaway guests from them, drives
 // run.bash and the in-guest checks over SSH, and hands every decision (the manifest, freshness,
-// the base record, the verdict, retention) to the Python helpers the lab play deploys, through
-// one seam (Lab.helper). The specification is CLAUDE/Plan/00192-.../SPEC-vmtest.md; the
+// the base record, the verdict, the bridge spool's retention) to the Python helpers the lab play
+// deploys, through one seam (Lab.helper); the lab's own retention is retention.go. The specification is CLAUDE/Plan/00192-.../SPEC-vmtest.md; the
 // expectation numbers (E1...) and departures from the bash (B1...) the comments cite are its.
 package vmtest
 
@@ -43,6 +43,10 @@ type Env struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	// FreePort is a loopback TCP port nothing listens on at the moment of asking.
 	FreePort func() (int, error)
+	// FreeBytes is the space an unprivileged user can still write on the filesystem holding path.
+	FreeBytes func(path string) (int64, error)
+	// HostMiB is the host's memory in MiB.
+	HostMiB func() (int, error)
 	// Random is the source of the throwaway secrets a desktop base is built with.
 	Random    io.Reader
 	GPGKeyDir string
@@ -62,6 +66,8 @@ func NewEnv() Env {
 		Now:       time.Now,
 		Sleep:     sleepContext,
 		FreePort:  freeLoopbackPort,
+		FreeBytes: freeBytes,
+		HostMiB:   hostMiB,
 		Random:    rand.Reader,
 		GPGKeyDir: DefaultGPGKeyDir,
 	}
@@ -103,11 +109,14 @@ type InterruptError struct {
 func (i InterruptError) Error() string { return "interrupted by " + i.Signal.String() }
 
 // WithSignals is ctx cancelled with an InterruptError when sigs delivers a signal (E4), so
-// every running step stops and its teardown runs. release ends the watch and the context.
+// every running step stops and its teardown runs. release ends the watch, waits for it and
+// ends the context.
 func WithSignals(ctx context.Context, sigs <-chan os.Signal) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	done := make(chan struct{})
+	ended := make(chan struct{})
 	go func() {
+		defer close(ended)
 		select {
 		case sig := <-sigs:
 			if s, ok := sig.(syscall.Signal); ok {
@@ -120,6 +129,7 @@ func WithSignals(ctx context.Context, sigs <-chan os.Signal) (context.Context, c
 	}()
 	return ctx, func() {
 		close(done)
+		<-ended
 		cancel(context.Canceled)
 	}
 }
@@ -176,6 +186,7 @@ var commands = map[string]command{
 	"member-up":        (*cli).cmdMemberUp,
 	"member-ssh":       (*cli).cmdMemberSSH,
 	"member-down":      (*cli).cmdMemberDown,
+	"prune-runs":       (*cli).cmdPruneRuns,
 }
 
 func (c *cli) dispatch(ctx context.Context, args []string) error {
@@ -229,10 +240,12 @@ type cli struct {
 	build func(ctx context.Context, l *lab, key string) error
 	// bound is the deadline put on a bounded remote command (timeout(1) in the bash).
 	bound func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc)
+	// sshWait bounds every wait for a booted guest (E24); the lab load reads its setting.
+	sshWait time.Duration
 }
 
 func newCLI(env Env) *cli {
-	c := &cli{env: env, paths: newPaths(env), git: gitx.New(env.Runner), bound: context.WithTimeout}
+	c := &cli{env: env, paths: newPaths(env), git: gitx.New(env.Runner), bound: context.WithTimeout, sshWait: sshWaitDefault}
 	c.build = c.buildBase
 	return c
 }

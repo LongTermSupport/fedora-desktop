@@ -49,27 +49,9 @@ func runFront() int {
 	return int(front.Run(context.Background()))
 }
 
-// installFront lays a launcher directory out as the play does with the front: this test binary
-// as claude-yolo, the checkout's bash launcher (changed by edit, when not nil) beside it as
-// claude-yolo.bash, and lib/. It returns the front's path.
+// installFront is installBash's launcher directory (the checkout's bash launcher changed by
+// edit, when not nil), and returns the front's path.
 func installFront(t *testing.T, edit func(string) string) string {
 	t.Helper()
-	bash := installBash(t, edit)
-	dir := filepath.Dir(bash)
-	if err := os.Rename(bash, filepath.Join(dir, ccylaunch.BashName)); err != nil {
-		t.Fatal(err)
-	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	front := filepath.Join(dir, frontName)
-	if err := os.WriteFile(front, raw, dirMode); err != nil {
-		t.Fatal(err)
-	}
-	return front
+	return filepath.Join(filepath.Dir(installBash(t, edit)), frontName)
 }

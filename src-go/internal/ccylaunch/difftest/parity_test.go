@@ -53,6 +53,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
@@ -77,8 +78,16 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(code)
 	}
+	// The goldens record the modes of what the launcher creates, which its umask decides: the
+	// scenarios run under the one they were recorded under (sandboxUmask), as they run under
+	// their own HOME, whatever umask started the test (suite-env-isolated in CLAUDE/QA.md).
+	syscall.Umask(sandboxUmask)
 	os.Exit(m.Run())
 }
+
+// sandboxUmask is the umask the goldens were recorded under, owner-only; the same as
+// gates.SuiteUmask, which every QA command runs under.
+const sandboxUmask = 0o077
 
 func goldenPath(name string) string {
 	return filepath.Join("testdata", "golden", name+".txt")
@@ -213,8 +222,6 @@ func TestFrontParity(t *testing.T) {
 var frontAnswers = []string{
 	"version", "version-short", "help-no-image", "help-image", "help-short-image-broken",
 	"list-tokens-bare", "list-tokens-one", "list-tokens-states",
-	"token-usage-no-tokens", "token-usage-expired-only", "token-usage-disabled", "token-usage-bad-option",
-	"token-usage-table", "token-usage-json", "token-usage-api-down",
 	"prevent", "export-token-named", "export-token-missing",
 }
 
@@ -224,7 +231,6 @@ var frontAnswerLines = []string{
 	`printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"`,
 	"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
 	"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--list-tokens\" ]; then\n    list_tokens \"$TOKEN_DIR\" \"ccy\"",
-	`usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?`,
 	`echo "never" >> "$allowed_file"`,
 	`export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"`,
 }
@@ -342,7 +348,7 @@ func TestLaunchHandsTokensOn(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, scenarioNamed(t, m, name))
 			idx := slices.IndexFunc(got.calls, func(c call) bool {
-				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "--dangerously-skip-permissions")
+				return sessionRun(c) && slices.Contains(c.Args, "--dangerously-skip-permissions")
 			})
 			if idx < 0 {
 				t.Fatalf("scenario %s started no session container", name)
@@ -373,7 +379,7 @@ func TestOpencodeLaunchHandsKeyOn(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, scenarioNamed(t, m, name))
 			idx := slices.IndexFunc(got.calls, func(c call) bool {
-				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "opencode")
+				return sessionRun(c) && slices.Contains(c.Args, "opencode")
 			})
 			if idx < 0 {
 				t.Fatalf("scenario %s started no opencode container", name)
@@ -381,6 +387,12 @@ func TestOpencodeLaunchHandsKeyOn(t *testing.T) {
 			checkKeyOnlyTo(t, name, got.calls, idx)
 		})
 	}
+}
+
+// sessionRun is the session's container run: the engine's run, handed to ccy-network-policy
+// launch, which holds the session's network policy around it (Plan 00232).
+func sessionRun(c call) bool {
+	return c.Tool == "ccy-network-policy" && len(c.Args) > 0 && c.Args[0] == "launch"
 }
 
 // checkKeyOnlyTo holds the provider key, and both tokens, to calls[idx] by name, and the key to

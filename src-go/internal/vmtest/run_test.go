@@ -50,7 +50,6 @@ func TestE28ServerRunPasses(t *testing.T) {
 	assertInOrder(t, k, []string{
 		"git ls-remote " + testRepoURL + " refs/heads/" + testBranch,
 		"helpers.vmtest.probe_upstream",
-		"retention floor --path " + k.path("runs") + " --base-size 4 --step run --guest-mib 4096",
 		"qemu-img create -q -f qcow2 -F qcow2 -b " + k.path("bases/server-fast-44/base.qcow2") + " " + dir + "/overlay.qcow2",
 		"--name vmtest-run-" + runID,
 		"fedora@127.0.0.1 curl -fsSL -o ~/run.bash 'https://raw.githubusercontent.com/example/fedora-desktop/" + testCommit + "/run.bash' && chmod 0755 ~/run.bash",
@@ -99,7 +98,7 @@ func TestE46VerdictAndJudge(t *testing.T) {
 	if !strings.HasSuffix(k.out.String(), "verdict=fail response="+k.path("runs/"+runID)+"/response.json\n") || !k.exists("runs/"+runID+"/overlay.qcow2") {
 		t.Fatalf("stdout %q", k.out.String())
 	}
-	k.wantErr("==> overlay and console kept for diagnosis: " + k.path("runs/"+runID))
+	k.wantErr(") and console kept for diagnosis: " + k.path("runs/"+runID) + "; vmtest prune-runs --yes removes")
 
 	k = runKit(t, "pass")
 	k.fake.On(helperArgv("judge_run"), execx.Result{ExitCode: 2})
@@ -122,7 +121,7 @@ func TestE46VerdictAndJudge(t *testing.T) {
 	k = runKit(t, "pass")
 	k.fake.On(append(helperArgv("refresh"), "certify"), execx.Result{ExitCode: 2})
 	k.wantCode(k.run("run", "server-fast-provision"), term.ExitFailure)
-	k.wantErr("ERROR: could not apply the run's refresh outcome to " + k.path("bases/server-fast-44/base.json"))
+	k.wantErr("ERROR: could not apply the run's refresh outcome to " + k.path("bases/server-fast-44/base.json") + ": python3 exited 2\n")
 }
 
 // E28-E33: every refusal comes before anything boots.
@@ -171,10 +170,6 @@ func TestE28RunRefusals(t *testing.T) {
 		{
 			"a refused base", func(k *kit) { k.gate(1, "reinstall") }, nil,
 			"base server-fast-44 may not be used (freshness: reinstall); rebuild it with: vmtest build-base server-fast",
-		},
-		{
-			"no room for the clone", func(k *kit) { k.fake.On(helperArgv("retention"), execx.Result{ExitCode: 1}) }, nil,
-			"the host cannot carry a run on server-fast-44 (stage: clone); see the VMTEST-DISK/VMTEST-RAM lines above",
 		},
 	}
 	for _, tc := range cases {
@@ -338,7 +333,7 @@ func TestE44HostOnlyRun(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	k.wantCode(k.run("run", hostOnlyID, "--github-account", "throwaway-lab-user", "--github-token-file", token, "--github-ssh-passphrase-file", pp), term.ExitFailure)
-	k.wantErr("ERROR: a supplied secret survived redaction in " + k.path("runs/"+id) + "/transcript.log; the run's artefacts are NOT safe to share (they remain under " + k.path("runs/"+id) + ")")
+	k.wantErr("ERROR: a supplied secret survived redaction in " + k.path("runs/"+id) + "/transcript.log (verify: bash exited 1); the run's artefacts are NOT safe to share (they remain under " + k.path("runs/"+id) + ")")
 }
 
 // E45: the redaction replaces the transcript's inode; the run's transcript is reopened on the

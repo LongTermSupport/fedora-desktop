@@ -9,14 +9,33 @@
  * if need be) and the recorder asks again; or it was closed, so nothing is pasted. With
  * no pin (nothing was focused at Insert, or the recorder was started by hand) the
  * focused window is the target, as it always was.
+ *
+ * A Ptyxis window holds tabs, and nothing outside Ptyxis can read or choose its active
+ * tab, so the tab cannot be given back. Its window title is the active tab's title, so
+ * the title at Insert is kept, and a different title before a paste says another tab is
+ * showing: tabChanged, nothing is pasted and the window is not activated. The reliable
+ * answer is upstream: Ptyxis exposing the active tab's UUID for its focus-tab-by-uuid.
  */
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+const PTYXIS_WM_CLASS = 'org.gnome.Ptyxis';
+
+/** A tab title without the glyphs and spaces before it (Claude Code puts a spinner there). */
+export function normaliseTabTitle(title) {
+    return (title ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+}
+
+/** The active tab's title of a Ptyxis window, or null for any other window. */
+function tabTitle(window) {
+    return window.get_wm_class() === PTYXIS_WM_CLASS ? normaliseTabTitle(window.get_title()) : null;
+}
 
 export class PasteTargetPin {
     constructor(activate = window => Main.activateWindow(window)) {
         this._activate = activate;
         this._window = null;
+        this._tabTitle = null;
         this._unmanagedId = null;
         this._gone = false;
     }
@@ -31,6 +50,7 @@ export class PasteTargetPin {
         if (!window)
             return;
         this._window = window;
+        this._tabTitle = tabTitle(window);
         this._unmanagedId = window.connect('unmanaged', () => {
             // A closed window's signals are gone with it
             this._unmanagedId = null;
@@ -44,18 +64,21 @@ export class PasteTargetPin {
             this._window.disconnect(this._unmanagedId);
         this._unmanagedId = null;
         this._window = null;
+        this._tabTitle = null;
         this._gone = false;
     }
 
-    /** {window, focused, gone} for a paste about to happen, given the focused window. */
+    /** {window, focused, gone, tabChanged} for a paste about to happen, given the focused window. */
     answer(focusWindow) {
         if (this._gone)
-            return {window: null, focused: false, gone: true};
+            return {window: null, focused: false, gone: true, tabChanged: false};
         if (!this._window)
-            return {window: focusWindow, focused: true, gone: false};
-        if (focusWindow === this._window)
-            return {window: this._window, focused: true, gone: false};
-        this._activate(this._window);
-        return {window: this._window, focused: false, gone: false};
+            return {window: focusWindow, focused: true, gone: false, tabChanged: false};
+        const focused = focusWindow === this._window;
+        if (this._tabTitle !== null && tabTitle(this._window) !== this._tabTitle)
+            return {window: this._window, focused, gone: false, tabChanged: true};
+        if (!focused)
+            this._activate(this._window);
+        return {window: this._window, focused, gone: false, tabChanged: false};
     }
 }

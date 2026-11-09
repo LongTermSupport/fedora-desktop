@@ -7,6 +7,7 @@ package ftpcamera
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed" // usage.txt is embedded verbatim
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 //go:embed usage.txt
@@ -36,6 +38,7 @@ const (
 	firewallCmd = "firewall-cmd"
 	exifShort   = "-s3"
 	nmShow      = "show"
+	nmConn      = "connection"
 	extARW      = "arw"
 	extJPG      = "jpg"
 	extJPEG     = "jpeg"
@@ -68,6 +71,11 @@ type Env struct {
 	// OpenTTY opens the controlling terminal, where sudo asks for a password.
 	OpenTTY    func() (io.ReadCloser, error)
 	ConfigPath string
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. NewEnv runs Runner and Execer under it.
+	Echo *ttyecho.Hold
+	// Random is the cryptographically secure source a new hotspot password is drawn from (E67).
+	Random io.Reader
 }
 
 // NewEnv is the production environment on the process's own streams.
@@ -76,9 +84,11 @@ func NewEnv() Env {
 	if err != nil {
 		self = os.Args[0]
 	}
+	echo := ttyecho.New(os.Stdin)
 	return Env{
-		Runner:     execx.OS{},
-		Execer:     execx.OS{},
+		Echo:       echo,
+		Runner:     echo.Runner(execx.OS{}),
+		Execer:     echo.Execer(execx.OS{}),
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
@@ -92,6 +102,7 @@ func NewEnv() Env {
 		IsTerminal: term.FileIsTerminal,
 		OpenTTY:    openTTY,
 		ConfigPath: DefaultConfigPath,
+		Random:     rand.Reader,
 	}
 }
 
@@ -117,11 +128,39 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 // errFailed is a failure whose message has already been printed: exit 1.
 var errFailed = errors.New("failed")
 
+// printed is a failure whose message has already been printed, keeping its cause: it is
+// errFailed to errors.Is, and its text is the cause's.
+type printed struct{ cause error }
+
+func (p *printed) Error() string        { return p.cause.Error() }
+func (p *printed) Unwrap() error        { return p.cause }
+func (p *printed) Is(target error) bool { return target == errFailed }
+
+// report prints err as ERROR: <err> unless its message has already been printed (E64).
+func (c *cli) report(err error) {
+	if !errors.Is(err, errFailed) {
+		c.err.f("ERROR: %v\n", err)
+	}
+}
+
+// unprinted is ": <err>" for a message, or "" when err's message has already been printed.
+func unprinted(err error) string {
+	if errors.Is(err, errFailed) {
+		return ""
+	}
+	return ": " + err.Error()
+}
+
 // advice is a failure explained for the person who has to fix it, over several lines, printed
-// after "ERROR: " as written.
-type advice struct{ text string }
+// after "ERROR: " as written; cause, when set, is the command failure it explains.
+type advice struct {
+	text  string
+	cause error
+}
 
 func (a *advice) Error() string { return a.text }
+
+func (a *advice) Unwrap() error { return a.cause }
 
 func advise(format string, args ...any) error { return &advice{text: fmt.Sprintf(format, args...)} }
 
@@ -161,10 +200,19 @@ func newCLI(env Env) *cli {
 	return c
 }
 
-// Run executes args (without the program name) and returns the exit status.
+// Run executes args (without the program name) and returns the exit status. The terminal's echo
+// is held off from the first screen (Env.Echo) and its mode put back at the end, a panic included.
 func (a *App) Run(ctx context.Context, args []string) term.ExitCode {
 	c := newCLI(a.Env)
-	code := c.run(ctx, args)
+	var code term.ExitCode
+	if err := a.Env.Echo.Held(func() { code = c.run(ctx, args) }); err != nil {
+		// Said whatever the run's own end; a run that already failed or was cancelled keeps its code.
+		c.err.f("ERROR: %s; run reset to see what you type.\n", err)
+		if code == term.ExitOK {
+			return term.ExitFailure
+		}
+		return code
+	}
 	if code == term.ExitOK && c.failed != nil {
 		return term.ExitFailure
 	}
@@ -181,6 +229,9 @@ func (c *cli) run(ctx context.Context, args []string) term.ExitCode {
 		c.out.f("%s", usageText)
 		return term.ExitOK
 	}
+	if opts.newPassword {
+		return c.newHotspotPasswordMode()
+	}
 	tun, problems := readTunables(c.env.Getenv)
 	if len(problems) > 0 {
 		c.err.f("%s\n", strings.Join(problems, "\n"))
@@ -188,6 +239,7 @@ func (c *cli) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	c.tun = tun
 	if err := c.findUploadDir(ctx); err != nil {
+		c.report(err)
 		return term.ExitFailure
 	}
 	if len(args) == 0 {
@@ -232,7 +284,7 @@ func (c *cli) ready(ctx context.Context) error {
 		return err
 	}
 	if err := c.root.Ready(ctx, rootWhy); err != nil {
-		return errFailed
+		return &printed{cause: err}
 	}
 	return nil
 }
@@ -282,15 +334,20 @@ func (c *cli) onPath(name string) bool {
 	return err == nil
 }
 
+// getentNotFound is getent's exit status for a key the database does not hold.
+const getentNotFound = 2
+
 // findUploadDir is the camera account's home (E7).
 func (c *cli) findUploadDir(ctx context.Context) error {
 	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "getent", Args: []string{"passwd", "camera"}})
-	if err == nil {
-		fields := strings.Split(strings.TrimSpace(string(res.Stdout)), ":")
-		if len(fields) >= 6 && fields[5] != "" {
-			c.upload = fields[5]
-			return nil
+	if err != nil {
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != getentNotFound {
+			return c.failErr("could not look up the 'camera' user: %v", err)
 		}
+	}
+	if fields := strings.Split(strings.TrimSpace(string(res.Stdout)), ":"); err == nil && len(fields) >= 6 && fields[5] != "" {
+		c.upload = fields[5]
+		return nil
 	}
 	c.err.f("ERROR: 'camera' user not found — run play-ftp-camera.yml first\n")
 	return errFailed
@@ -343,6 +400,7 @@ func (c *cli) dispatch(ctx context.Context) term.ExitCode {
 	case ctx.Err() != nil:
 		return term.ExitCancelled
 	default:
+		c.report(err)
 		return term.ExitFailure
 	}
 }

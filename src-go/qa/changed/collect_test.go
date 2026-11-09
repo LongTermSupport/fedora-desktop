@@ -47,7 +47,7 @@ func scratchRepo(t *testing.T) string {
 
 func sessionAt(t *testing.T, root string) *session {
 	t.Helper()
-	return &session{env: Env{Runner: proc.OS{}, Stderr: &strings.Builder{}}, root: root, scripts: filepath.Join(root, "scripts")}
+	return &session{env: Env{Getenv: noEnv, Umask: keepUmask, Runner: proc.OS{}, Stderr: &strings.Builder{}}, root: root, scripts: filepath.Join(root, "scripts")}
 }
 
 func TestCollectGitFindsModifiedUntrackedAndDeletedButNotIgnored(t *testing.T) {
@@ -120,12 +120,12 @@ func TestCollectGitNotesWhatIsNotARegularFile(t *testing.T) {
 func TestCollectGitReportsEachGitFailure(t *testing.T) {
 	for _, failing := range []string{"git diff --name-only -z --diff-filter=d", "git diff --name-only -z --diff-filter=D", "git ls-files"} {
 		runner := &scriptedRunner{replies: map[string]proc.Result{failing: {Stderr: "fatal: boom", Code: 128}}}
-		s := &session{env: Env{Runner: runner}, root: t.TempDir()}
+		s := &session{env: Env{Getenv: noEnv, Umask: keepUmask, Runner: runner}, root: t.TempDir()}
 		if _, err := s.collectGit(context.Background(), "HEAD"); err == nil || !strings.Contains(err.Error(), "fatal: boom") {
 			t.Errorf("%s: %v", failing, err)
 		}
 	}
-	s := &session{env: Env{Runner: failingRunner{}}, root: t.TempDir()}
+	s := &session{env: Env{Getenv: noEnv, Umask: keepUmask, Runner: failingRunner{}}, root: t.TempDir()}
 	if _, err := s.collectGit(context.Background(), "HEAD"); err == nil {
 		t.Fatal("a git that cannot start must be an error")
 	}

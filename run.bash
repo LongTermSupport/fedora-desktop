@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.32.1"
+RUN_BASH_VERSION="1.36.2"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -460,14 +460,15 @@ hl_sudo_credential() {
   fi
 }
 
-# headless_play_preflight — the preflight for ONE play run unattended (`--headless
-# <play>.yml`, Plan 00137 T2.1). A single play needs none of the provisioning contract: no
-# identity, no GitHub, no vault secret (the checkout already holds its vault password file,
-# as it does for an interactive single play), and none of the first-install steps. It needs
-# exactly one thing, a sudo credential that works without a prompt, so that is all this
-# checks. RUN_BASH_SUDO_PASSWORD_FILE may name /dev/fd/N: a root caller that opened a
-# root-only password file hands it over as an inherited descriptor, and the bytes are read
-# once, here, into the same 0600 temp copy the full headless run uses.
+# headless_play_preflight — the preflight for plays run unattended on a provisioned box:
+# one play (`--headless <play>.yml`, Plan 00137 T2.1), `--changed --yes` or
+# `--optional-only`. They need none of the provisioning contract: no identity, no GitHub,
+# no vault secret (the checkout already holds its vault password file, as it does for an
+# interactive play), and none of the first-install steps. They need exactly one thing, a
+# sudo credential that works without a prompt, so that is all this checks. One play takes
+# a sudo password on a pipe; a batch goes through the shared runner, which needs the 0600
+# password file. RUN_BASH_SUDO_PASSWORD_FILE may name /dev/fd/N: a root caller that opened
+# a root-only password file hands it over as an inherited descriptor, read once, here.
 headless_play_preflight() {
   if [[ "$(whoami)" == "root" ]]; then
     headless_fail "An unattended play is executing as root." \
@@ -476,7 +477,7 @@ headless_play_preflight() {
   hl_resolve_secret SUDO_PASSWORD HL_SUDO_PASSWORD
   unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
     RUN_BASH_SUDO_PASSWORD
-  hl_sudo_credential single-play
+  hl_sudo_credential "${PLAY_PATH:+single-play}"
   echo -e "${GREEN}${CHECK} Unattended play preflight OK${NC} — sudo=${HL_SUDO_CRED}" >&2
 }
 
@@ -829,7 +830,8 @@ hl_checkout_ref() {
 # play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. The
 # reserved token 'server-recommended' expands to the curated, generic dev/server bundle in
 # playbooks/imports/optional/server-recommended.bundle (composes with explicit tokens).
-# Any unknown name or failing play aborts LOUD (a server run must not silently under-provision).
+# An unknown name aborts LOUD before anything runs; a failing play is recorded and the next
+# runs, and optional_summary then names it and fails the run (no silent under-provisioning).
 hl_run_optional_playbooks() {
   local spec="${RUN_BASH_OPTIONAL_PLAYBOOKS:-none}"
   if [[ -z "$spec" || "$spec" == "none" ]]; then
@@ -884,9 +886,10 @@ hl_run_optional_playbooks() {
   done
   _reqs=("${_reqs_deduped[@]}")
 
-  local pb base found name
+  # Every name is resolved before any play runs, so a typo provisions nothing. (_reqs holds no
+  # empty name: the bundle expansion above skips them.)
+  local pb base found _resolved=()
   for req in "${_reqs[@]}"; do
-    [[ -z "$req" ]] && continue
     found=""
     for pb in "${_all_optional[@]}"; do
       base="$(basename "$pb")"
@@ -898,22 +901,11 @@ hl_run_optional_playbooks() {
       hl_abort "optional playbooks" "requested optional playbook '${req}' not found under playbooks/imports/optional/" \
         "use an exact name like play-docker.yml (or docker), or set RUN_BASH_OPTIONAL_PLAYBOOKS=none"
     fi
-    name="$(basename "$found" .yml)"
-    info "Headless: running optional playbook ${name}"
-    # Same become contract as the main playbook: a headless run that resolved a sudo
-    # password in preflight hands Ansible the 0600 file. Nothing on the box grants
-    # NOPASSWD under the server profile, so an optional play run bare here fails at its
-    # first `become` with "a password is required".
-    local -a _optional_become=()
-    if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
-      _optional_become=(--become-password-file "$HL_SUDO_PW_FILE")
-    fi
-    # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
-    if ! ansible-playbook "$found" "${_optional_become[@]}"; then
-      hl_abort "optional playbook ${name}" "${found} FAILED" \
-        "scroll up for the Ansible output; fix it, drop it from RUN_BASH_OPTIONAL_PLAYBOOKS, or set =none"
-    fi
-    success "Headless: optional playbook ${name} complete"
+    _resolved+=("$found")
+  done
+  # The runner hands Ansible the preflight's 0600 password file, as for the main playbook.
+  for found in "${_resolved[@]}"; do
+    run_playbook "$found"
   done
 }
 
@@ -948,10 +940,13 @@ main() {
   HL_SUDO_OPTS=()
   HL_SUDO_PW_FILE=""    # set by hl_sudo_askpass_start; also Ansible's --become-password-file
   HL_SUDO_BY_PASSWORD=false  # true when the proven credential is a password, not NOPASSWD
+  OPTIONAL_RESULTS=()   # "<exit status> <play>" per optional play run_playbook ran, for optional_summary
   trap hl_cleanup EXIT
 
 # Flags
 OPTIONAL_ONLY=false
+# --consumer (Plan 00228): the install for someone who does not write code, run by the Go tool.
+CONSUMER=false
 # Headless / unattended mode (Plan 00063) — provision a Fedora Server or Cloud box
 # with no interactive prompts, driven by RUN_BASH_* env vars. Tri-state:
 #   HEADLESS=""     -> not yet decided (auto-detect below)
@@ -981,6 +976,8 @@ Fedora Desktop / Server / Cloud Configuration Installer
 
 Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
+  --consumer           Install for someone who does not write code: no GitHub, no
+                       dev tools. Later, plain ./run.bash or --optional-only does too.
   --changed            Run every play that has run here and has to run again: its
                        inputs (its own file, or anything it deploys) changed since,
                        its last run failed, or that run was from a checkout with
@@ -989,8 +986,8 @@ Options:
                        the first failure. Names any play it cannot judge, and any
                        that is gone, rather than skip it.
   --yes                With --changed: run the list without asking, and do not
-                       offer a GitHub issue if a play fails. For a caller that
-                       runs it unattended, such as meta-deploy.
+                       offer an issue if a play fails, skip a missing optional
+                       secret and fail a required one. For meta-deploy and such.
   --rerun              List every play that has run here as a numbered menu, the
                        ones that have to run again marked * (changed since, or
                        last run failed). Pick one or more ("3", "1 4"), "a" for
@@ -1003,7 +1000,7 @@ Options:
                        ansible-playbook (e.g. -vvv, --check). With --headless
                        it runs unattended (see --help-run-headless). Every
                        play's shebang calls this, so
-                       ./playbooks/imports/play-x.yml is the same thing.
+                       ./playbooks/imports/play-<name>.yml is the same thing.
                        One play at a time per host: a second run while one is
                        going exits 75 and names the holder.
   --headless           Force unattended mode (no prompts); config from RUN_BASH_* env
@@ -1181,8 +1178,8 @@ CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
   a commit SHA (not HEAD) when fetching it, and inspect before running.
 
 ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
-       RUN_BASH_HEADLESS=1 ./playbooks/imports/play-x.yml [ansible-playbook args…]
-       ./run.bash --headless playbooks/imports/play-x.yml [ansible-playbook args…]
+       RUN_BASH_HEADLESS=1 ./playbooks/imports/play-<name>.yml [ansible-playbook args…]
+       ./run.bash --headless playbooks/imports/play-<name>.yml [ansible-playbook args…]
   Runs that one play from this checkout and exits with its status. None of the
   provisioning contract above applies: no RUN_BASH_* identity, GitHub or vault input,
   no self-update, no dnf, no main playbook. It needs only a sudo credential that works
@@ -1196,8 +1193,12 @@ ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
   75. A caller holding the lock itself passes it down with FEDORA_DESKTOP_PLAY_LOCK_FD
   and the inherited descriptor (helpers/play_lock/lock.py).
 
+CHANGED PLAYS, UNATTENDED (meta-deploy)   ./run.bash --changed --yes
+  Every changed play, needing only the sudo credential above (as does --optional-only).
+  Headless, --changed needs --yes, as nobody can answer it; --rerun is a menu: refused.
+
 ONE PLAY IN A BATCH
-       RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-x.yml
+       RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-<name>.yml
   An attended play that fails offers to file a GitHub issue. RUN_BASH_OFFER_ISSUE=0
   leaves the offer out and still exits with the play's status, so a batch (meta-deploy)
   goes on to its next unit instead of waiting at the question.
@@ -1218,6 +1219,9 @@ USAGE
     --optional-only)
       OPTIONAL_ONLY=true
       ;;
+    --consumer)
+      CONSUMER=true
+      ;;
     --changed)
       CHANGED_PLAYS=true
       ;;
@@ -1225,7 +1229,8 @@ USAGE
       RERUN_PLAYS=true
       ;;
     --yes)
-      ASSUME_YES=true
+      # Exported: tasks/ask-and-save-secret.yml reads it, as nobody answers a prompt here.
+      export ASSUME_YES=true
       ;;
     *.yml)
       # A playbook path is the only positional run.bash takes; everything after it is
@@ -1273,19 +1278,46 @@ if [[ -z "$HEADLESS" ]]; then
   esac
 fi
 
+# Consumer install (Plan 00228): chosen by --consumer, or by the host_vars a consumer install
+# wrote (CONSUMER_BOX, which also keeps a failed play from offering a GitHub issue). A
+# developer box asked for --consumer is refused before anything runs. Otherwise git and Go
+# (the Go tool's build toolchain) first, then the checkout, then the Go tool
+# (scripts/consumer-install.bash) replaces this process. Root falls through to the refusal below.
+_rb_host_vars=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+CONSUMER_BOX=false
+if grep -qsx 'install_audience: consumer' "$_rb_host_vars"; then
+  CONSUMER_BOX=true
+elif [[ "$CONSUMER" == "true" && -e "$_rb_host_vars" ]]; then
+  echo -e "${RED}${CROSS} $_rb_host_vars has no 'install_audience: consumer' line: this is a developer install. Run ./run.bash without --consumer${NC}" >&2
+  exit 1
+fi
+if [[ -z "$PLAY_PATH" && "$CHANGED_PLAYS" != "true" && "$RERUN_PLAYS" != "true" && "$(whoami)" != root ]] &&
+  [[ "$CONSUMER" == "true" || "$CONSUMER_BOX" == "true" ]]; then
+  if [[ "$HEADLESS" == "true" ]]; then
+    headless_fail "a consumer install is attended: it asks for your password and which apps to add" "run ./run.bash --consumer at the desktop, without --headless"
+  fi
+  echo -e "${CYAN}${INFO} Consumer install: installing git and Go (the installer is built with Go), then fetching fedora-desktop${NC}" >&2
+  _sudo dnf -y install git golang
+  [[ -d ~/Projects/fedora-desktop ]] || command git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
+  command git -C ~/Projects/fedora-desktop pull --ff-only
+  exec ~/Projects/fedora-desktop/scripts/consumer-install.bash --optional-only="$OPTIONAL_ONLY"
+fi
 # Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never hang)
 # BEFORE any provisioning action. On success the run then flows through the SAME body
 # as the interactive path — every interactive point below has a headless branch that
 # uses the resolved HL_*/RUN_BASH_* values, and the shared prompt helpers hard-fail
 # LOUD (hl_abort) if a headless run ever reaches an un-neutralised prompt.
-# A single play run headless is an UNATTENDED PLAY, not a provisioning run: it gets the
-# sudo-only preflight and none of the provisioning contract. (The mode's other exclusions
-# live at the dispatch block below: the `error` helper fatal() needs is not defined yet here.)
+# Plays run headless on a provisioned box (one play, --changed --yes, --optional-only) are
+# UNATTENDED PLAYS, not a provisioning run: they get the sudo-only preflight and none of
+# the provisioning contract. --rerun and an unanswered --changed ask, so they are refused.
+# (Other exclusions live at the dispatch blocks below: fatal() is not defined yet here.)
 if [[ -n "${RUN_BASH_ANSIBLE_PLAYBOOK:-}" && ! (-n "$PLAY_PATH" && "$HEADLESS" == "true") ]]; then
   echo "RUN_BASH_ANSIBLE_PLAYBOOK applies only to an unattended single play (--headless <play>.yml); unset it." >&2
   exit 1
+elif [[ "$HEADLESS" == "true" && ("$RERUN_PLAYS" == "true" || ("$CHANGED_PLAYS" == "true" && "$ASSUME_YES" != "true")) ]]; then
+  headless_fail "--rerun and --changed ask which plays to run, and an unattended run cannot answer." "Run ./run.bash --changed --yes: it runs every changed play without asking."
 fi
-if [[ -n "$PLAY_PATH" && "$HEADLESS" == "true" ]]; then
+if [[ (-n "$PLAY_PATH" || "$CHANGED_PLAYS" == "true" || "$OPTIONAL_ONLY" == "true") && "$HEADLESS" == "true" ]]; then
   headless_play_preflight
 elif [[ "$HEADLESS" == "true" ]]; then
   headless_preflight
@@ -1300,16 +1332,11 @@ fi
 # cannot be re-read, so we fall back to the known count.
 STEP_CURRENT=0
 STEP_TOTAL=17  # fallback for the streamed (curl) install path
-_run_bash_self="${BASH_SOURCE[0]:-}"
-if [[ -f "$_run_bash_self" && -r "$_run_bash_self" ]]; then
-  if _run_bash_steps=$(grep -cE '^[[:space:]]*title[[:space:]]+"' "$_run_bash_self"); then
-    if [[ "$_run_bash_steps" =~ ^[0-9]+$ ]] && (( _run_bash_steps > 0 )); then
-      STEP_TOTAL="$_run_bash_steps"
-    fi
-  fi
-  unset _run_bash_steps
+# grep -c prints a count and exits non-zero on none, so a success here is a count above 0.
+if [[ -f "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]}" ]] && _run_bash_steps=$(grep -cE '^[[:space:]]*title[[:space:]]+"' "${BASH_SOURCE[0]}"); then
+  STEP_TOTAL="$_run_bash_steps"
 fi
-unset _run_bash_self
+unset _run_bash_steps
 
 # M4: under --optional-only only ONE title() is reachable ("System Reboot") — the
 # whole core-setup block (every other title) is skipped. Show [1/1], not [1/17].
@@ -1318,8 +1345,7 @@ if [[ "${OPTIONAL_ONLY:-}" == "true" ]]; then
 fi
 
 ## Assertions
-if [[ "$(whoami)" == "root" ]];
-then
+if [[ "$(whoami)" == "root" ]]; then
   echo -e "\n${RED}${BOLD}${CROSS} ERROR${NC}"
   echo -e "${RED}Please do not run this as root${NC}\n"
   echo -e "Simply run as your normal user\n"
@@ -1704,15 +1730,6 @@ sanitize_error_log(){
   echo "$sanitized"
 }
 
-# Function to check if Claude Code is available for enhanced sanitization
-check_claude_code(){
-  if command -v claude &> /dev/null; then
-    return 0
-  else
-    return 1
-  fi
-}
-
 # Function to create GitHub issue for failed playbook
 create_github_issue(){
   local playbook_name="$1"
@@ -1761,7 +1778,7 @@ create_github_issue(){
   # issue-creation flow rather than silently downgrading to regex-only output.
   # The regex-only path is taken ONLY when `claude` is genuinely not installed,
   # and even then the explicit confirmation below still gates the post.
-  if check_claude_code; then
+  if command -v claude >/dev/null; then
     info "Using Claude Code for enhanced sensitive data removal..."
     local temp_file
     temp_file=$(mktemp)
@@ -1878,14 +1895,14 @@ _Generated by fedora-desktop automated error reporting_"
 }
 
 # play_lock_take <what> — take the one lock every play run on this host shares
-# (helpers/play_lock/lock.py, Plan 00137 T1.4), or refuse with exit 75 if another run holds
-# it. Held on a descriptor this shell keeps open, so it lasts exactly as long as this run.
+# (helpers/play_lock/lock.py, Plan 00137 T1.4), waiting up to 30 minutes for another run that
+# holds it and exiting 75 if it is still held (Plan 00201 Task 2.19). Held on a descriptor this shell keeps open, so it lasts exactly as long as this run.
 # A caller that already holds it (the unattended cycle) delegates it through
 # FEDORA_DESKTOP_PLAY_LOCK_FD and an inherited descriptor; that claim is PROVEN before it is
 # trusted, and a claim that fails is an error rather than a reason to take a second lock.
 # Must run from the checkout root: the helper is `python3 -m helpers.play_lock.lock`.
 play_lock_take(){
-  local _what="$1" _path _note _self
+  local _what="$1" _path _self
   _self="$(id -un)"
   if [[ -n "${FEDORA_DESKTOP_PLAY_LOCK_FD:-}" ]]; then
     if python3 -m helpers.play_lock.lock held --user "$_self"; then
@@ -1899,14 +1916,7 @@ play_lock_take(){
       "it lives in this user's runtime directory (\$XDG_RUNTIME_DIR, else /run/user/\$UID); log in, or enable linger"
   fi
   exec {PLAY_LOCK_FD}<>"$_path"
-  if ! flock -n "$PLAY_LOCK_FD"; then
-    _note="$(cat -- "$_path")"
-    {
-      error "play lock: another play run is in progress on this host (${_note:-no holder recorded})"
-      echo -e "${YELLOW}${ARROW} Wait for it to finish, then run this again.${NC}"
-    } >&2
-    exit 75
-  fi
+  python3 -m helpers.play_lock.lock wait --fd "$PLAY_LOCK_FD" --user "$_self" || exit $?
   printf 'pid=%s what=%s since=%s\n' "$BASHPID" "$_what" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_path"
 }
 
@@ -1937,7 +1947,6 @@ run_playbook_with_issue_option(){
   # TTY). Checked before the probe so `sudo -k` never runs on that path and never discards
   # the timestamp the preflight probe just established.
   local _sudo_probe=""
-  exit_code=0
   # ansible-playbook explicitly, never the play file: its shebang re-enters run.bash.
   if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
     ansible-playbook "$playbook" --become-password-file "$HL_SUDO_PW_FILE" "${extra_args[@]}" || exit_code=$?
@@ -1957,14 +1966,53 @@ run_playbook_with_issue_option(){
     # Offer to create GitHub issue (posts to the PUBLIC tracker — default No). --yes means
     # nobody is there to answer, and RUN_BASH_OFFER_ISSUE=0 means a batch runs this play
     # (CLAUDE/Plan/meta-deploy.bash), where a prompt would hold every later unit; neither
-    # is offered.
-    if [[ "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
+    # is offered. A consumer box has no GitHub account, so it is told where the log is instead.
+    if [[ "$CONSUMER_BOX" == "true" ]]; then
+      echo -e "${YELLOW}${ARROW} The log of this run is the output above (it is not saved to a file); it names the task that failed. Fix what it says and run this again, or report it at https://github.com/LongTermSupport/fedora-desktop/issues${NC}" >&2
+    elif [[ "$HEADLESS" != "true" && "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
         && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
 
     return $exit_code
   fi
+}
+
+# run_playbook <play> — one optional play (the menus, the headless list, --rerun's and
+# --changed's optional part). The plays are independent, so a failure (already reported by the
+# runner) is recorded for optional_summary and the next one runs. A play ended by a signal, or
+# by Ctrl-C (Ansible's exit 99, "User interrupted execution"), stops the run at once.
+run_playbook() {
+  local _rc=0
+  run_playbook_with_issue_option "$1" "$(basename "$1" .yml)" || _rc=$?
+  OPTIONAL_RESULTS+=("${_rc} ${1#"$PWD"/}")
+  if [[ $_rc -eq 99 || $_rc -gt 128 ]]; then
+    optional_summary "$_rc"
+  fi
+}
+
+# optional_summary [stop-status] — on stderr, what happened to every optional play run_playbook
+# ran, and how to retry those that did not install. Exits with the stop status when given, else
+# 1 when any failed; returns when every play installed (or none ran).
+optional_summary() {
+  local _entry _rc _play _failed=0
+  [[ ${#OPTIONAL_RESULTS[@]} -gt 0 ]] || return 0
+  echo -e "\n${BOLD}Optional plays: what happened${NC}" >&2
+  for _entry in "${OPTIONAL_RESULTS[@]}"; do
+    _rc="${_entry%% *}" _play="${_entry#* }"
+    if [[ "$_rc" -eq 0 ]]; then
+      echo -e "  ${GREEN}${CHECK}${NC} ${_play}: installed" >&2
+    elif [[ "$_rc" -eq 99 || "$_rc" -gt 128 ]]; then
+      echo -e "  ${RED}${CROSS}${NC} ${_play}: stopped part way (exit ${_rc}); nothing after it was run" >&2
+    else
+      _failed=$((_failed + 1))
+      echo -e "  ${RED}${CROSS}${NC} ${_play}: failed (exit ${_rc}); its output is above, and retry it alone from ${PWD}: ./run.bash ${_play}" >&2
+    fi
+  done
+  [[ -z "${1:-}" ]] || exit "$1"
+  [[ "$_failed" -eq 0 ]] && return 0
+  error "${_failed} of ${#OPTIONAL_RESULTS[@]} optional play(s) failed; or choose them again from the menu: ./run.bash --optional-only" >&2
+  exit 1
 }
 
 # ── changed plays: every play whose inputs changed since it ran here, then exit ───────
@@ -1982,10 +2030,6 @@ play_batch_preflight(){
     fatal "${_flag#--} plays" "${_flag} takes no playbook path and no --optional-only" \
       "run ./run.bash ${_flag} on its own"
   fi
-  if [[ "$HEADLESS" == "true" ]]; then
-    fatal "${_flag#--} plays" "${_flag} asks before it runs anything, so it cannot run unattended" \
-      "run it from a terminal; on a server the self-update timer is the unattended path"
-  fi
   if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "${BASH_SOURCE[0]}" ]]; then
     fatal "${_flag#--} plays" "run.bash is being streamed, not run from a checkout" \
       "cd into the fedora-desktop checkout and run ./run.bash ${_flag}"
@@ -1998,9 +2042,9 @@ play_batch_preflight(){
   fi
 }
 
-# play_batch_warn_dirty <flag> — a run from a dirty checkout is recorded as dirty, and the
-# helper offers a dirty run again because no diff can show what it deployed. Say so now,
-# not on the next run.
+# play_batch_warn_dirty <flag> — a run records the checkout's uncommitted paths, and the
+# helper offers a play again when one of them was its input, because no diff can show what
+# it deployed. Say so now, not on the next run.
 play_batch_warn_dirty(){
   local _flag="$1" _dirty
   if ! _dirty="$(git -C "$_play_repo" status --porcelain)"; then
@@ -2008,13 +2052,13 @@ play_batch_warn_dirty(){
       "fix the checkout, then run ./run.bash ${_flag} again"
   fi
   if [[ -n "$_dirty" ]]; then
-    warning "The checkout has uncommitted changes. These plays will be recorded as run from a dirty checkout, and --changed will offer them again until they run from a clean one."
+    warning "The checkout has uncommitted changes. A play that reads one of them will be recorded as run with it uncommitted, and --changed will offer them again until they run with it committed."
   fi
 }
 
 # play_batch_run <what> <adjective> <play>… — under one play lock, each play through the
-# single-play runner in the order given; the first failure stops the run and is its exit
-# status. Always exits.
+# single-play runner in the order given; the first failed main play stops the run and is its
+# exit status, while an optional play runs as the menus run one (run_playbook). Always exits.
 play_batch_run(){
   local _what="$1" _adjective="$2"
   shift 2
@@ -2023,6 +2067,10 @@ play_batch_run(){
   play_lock_take "$_what"
   for _i in "${!_plays[@]}"; do
     _play="${_plays[$_i]}"
+    if [[ "$_play" == playbooks/imports/optional/* ]]; then
+      run_playbook "$_play"
+      continue
+    fi
     _rc=0
     run_playbook_with_issue_option "$_play_repo/$_play" "$(basename "$_play" .yml)" || _rc=$?
     if [[ "$_rc" -ne 0 ]]; then
@@ -2033,6 +2081,7 @@ play_batch_run(){
       exit "$_rc"
     fi
   done
+  optional_summary
   success "All ${#_plays[@]} ${_adjective} play(s) ran"
   exit 0
 }
@@ -2537,22 +2586,18 @@ wait_for_network
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
 # L1: list every package actually installed below (python3-pip was missing).
-info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx, golang"
+info "Upgrading every package, then installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx, golang"
 # H3: do NOT swallow dnf output. Under set -e a dnf failure here used to abort the
 # run in total silence (output went to /dev/null). Let dnf print so a failure has
 # a visible cause; set -e then stops the run with the error on screen.
+# The upgrade comes before any Ansible process starts (Plan 00229 Task 2.2): one that
+# replaced python3 under a running ansible-playbook broke its later imports of C
+# extensions. play-AB-dnf-upgrade.yml still runs in the main playbook, as a no-op.
 # golang: scripts/gh-account-setup.bash builds its Go command from this checkout, and the
 # GitHub step below runs it before any play has installed Go (play-golang.yml still owns
-# the version floor). It shares the pipx line so the line count stays on its ratchet record.
-_sudo dnf -y install \
-  git \
-  python3 \
-  python3-pip \
-  python3-libdnf5 \
-  grubby \
-  jq \
-  openssl \
-  pipx golang
+# the version floor).
+_sudo dnf -y upgrade --refresh
+_sudo dnf -y install git python3 python3-pip python3-libdnf5 grubby jq openssl pipx golang
 completed
 
 title "Checking for Legacy Grub Configurations"
@@ -3596,7 +3641,6 @@ else
   echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password; sudo: ${_main_sudo_probe:-a password is required})${NC}"
   ansible-playbook playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
 fi
-unset _main_sudo_probe
 
 if [[ $main_exit_code -eq 0 ]]; then
   completed
@@ -3655,23 +3699,6 @@ fi # end: OPTIONAL_ONLY skip block
 
 ## Optional Playbooks Menu System
 
-# Function to run a playbook (wrapper for backward compatibility).
-# The optional-menu call sites invoke this as a bare statement inside loops under
-# set -e. run_playbook_with_issue_option already surfaces any failure (error
-# message + offer to file an issue), so a non-zero return here must NOT abort the
-# whole optional menu — the user stays in control and can pick the next item.
-# Handle the failure explicitly (it is already reported) and return 0 so set -e
-# lets the menu continue. (B2: the issue-reporting UX runs AND the installer keeps
-# going instead of dying mid-menu.)
-run_playbook() {
-  local _rc=0
-  run_playbook_with_issue_option "$1" "$2" || _rc=$?
-  if [[ $_rc -ne 0 ]]; then
-    warning "Continuing the optional menu after a failure in: $2 (exit $_rc)"
-  fi
-  return 0
-}
-
 # Parse a space/comma-separated list of numbers; print valid ones (one per line)
 _parse_number_list() {
   local input="$1"
@@ -3725,10 +3752,7 @@ show_menu() {
     case "$choice" in
       [1-9]|[1-9][0-9])
         if [[ $choice -le ${#playbooks[@]} ]]; then
-          local selected="${playbooks[$((choice-1))]}"
-          local name
-          name=$(basename "$selected" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          run_playbook "$selected" "$name"
+          run_playbook "${playbooks[$((choice-1))]}"
         else
           error "Invalid selection: $choice (choose 1-${#playbooks[@]})"
           echo -e "${YELLOW}${ARROW} Please try again${NC}\n"
@@ -3737,9 +3761,7 @@ show_menu() {
         ;;
       [Aa])
         for pb in "${playbooks[@]}"; do
-          local name
-          name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          run_playbook "$pb" "$name"
+          run_playbook "$pb"
         done
         break
         ;;
@@ -3754,10 +3776,7 @@ show_menu() {
           warning "No valid numbers entered — try again"
         else
           for n in "${_wl_nums[@]}"; do
-            local pb="${playbooks[$((n-1))]}"
-            local name
-            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-            run_playbook "$pb" "$name"
+            run_playbook "${playbooks[$((n-1))]}"
           done
           break
         fi
@@ -3779,9 +3798,7 @@ show_menu() {
             fi
           done
           if [[ "$_skip" == "false" ]]; then
-            local name
-            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-            run_playbook "$pb" "$name"
+            run_playbook "$pb"
           fi
           ((_idx++))
         done
@@ -3856,41 +3873,13 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
   fi
   cd ~/Projects/fedora-desktop || { error "Cannot cd into ~/Projects/fedora-desktop"; exit 1; }
 
-  # Playbooks that always run without prompting (auto-run before the interactive menu)
-  # NOTE: play-speech-to-text.yml removed pending GPU/CPU split — see issue #11
-  auto_run_common=()
-
   # Common optional playbooks
   if [[ -d playbooks/imports/optional/common ]]; then
     mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
     if [[ ${#common_playbooks[@]} -gt 0 ]]; then
-
-      # Auto-run whitelisted playbooks first (no prompt)
-      menu_playbooks=()
-      for pb in "${common_playbooks[@]}"; do
-        pb_base=$(basename "$pb")
-        _is_auto=false
-        for _auto_name in "${auto_run_common[@]}"; do
-          if [[ "$pb_base" == "$_auto_name" ]]; then
-            _is_auto=true
-            break
-          fi
-        done
-        if [[ "$_is_auto" == "true" ]]; then
-          name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-          info "Auto-running: $name"
-          run_playbook "$pb" "$name"
-        else
-          menu_playbooks+=("$pb")
-        fi
-      done
-
-      # Interactive menu for the rest
-      if [[ ${#menu_playbooks[@]} -gt 0 ]]; then
-        info "Found ${#menu_playbooks[@]} common optional playbooks"
-        if ! show_menu "Common Optional" "${menu_playbooks[@]}"; then
-          info "Skipping remaining optional installations"
-        fi
+      info "Found ${#common_playbooks[@]} common optional playbooks"
+      if ! show_menu "Common Optional" "${common_playbooks[@]}"; then
+        info "Skipping remaining optional installations"
       fi
     fi
   fi
@@ -3921,8 +3910,7 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
 
       # Auto-run recommended hardware playbooks
       for pb in "${hw_auto[@]}"; do
-        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-        run_playbook "$pb" "$name"
+        run_playbook "$pb"
       done
 
       # Prompt for uncertain hardware playbooks
@@ -3979,6 +3967,8 @@ elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install opti
     fi
   fi
 fi
+# Exits 1, before the setup marker, when any optional play failed.
+optional_summary
 
 # Final completion message
 echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -3989,8 +3979,6 @@ echo -e "${CYAN}${BOLD}Optional next steps${NC} (run after reboot):"
 echo -e "  ${ARROW} Optional setup scripts (rclone cloud storage, etc.):"
 echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
 echo -e "    ${BOLD}./scripts/setup.bash${NC}"
-echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
-echo -e "    ${BOLD}./playbooks/imports/optional/common/play-python.yml${NC}"
 echo
 
 # Mark setup complete so the GNOME autostart doesn't re-fire after reboot

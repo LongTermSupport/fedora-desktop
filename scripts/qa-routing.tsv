@@ -51,6 +51,10 @@ also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patt
 also	.semgrep/gh-scopes.yml,.semgrep/gh-scopes.fixture	gh-scopes	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-gh-scopes/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	gh-scopes	-
 also	scripts/qa-gh-scopes.bash,scripts/lib/go-tool.bash	gh-scopes	-
+# The find-race gate runs whole when its rule, the rule's fixture, its wrapper or its tool change.
+also	.semgrep/find-race.yml,.semgrep/find-race.fixture	find-race	covered
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-find-race/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	find-race	-
+also	scripts/qa-find-race.bash,scripts/lib/go-tool.bash	find-race	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
@@ -82,6 +86,11 @@ also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
 also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	nokill-containerwatch	-
+# The teamchat-keeps-off-v1 gate (Plan 00209 D 4.1) runs whole when a file v2 owns changes or is
+# deleted, or its own wrapper, Go package or command; its name list and allowlist are its own data
+# and count as covered.
+also	src-go/qa/teamchatseparate/v1-names.txt,src-go/qa/teamchatseparate/v1-names-corpus.tsv,src-go/qa/teamchatseparate/allowed.tsv	teamchat-keeps-off-v1	covered
+also	src-go/internal/teamchat/*,src-go/cmd/teamchat*,files/*teamchat*,tasks/*teamchat*,vars/*teamchat*,playbooks/imports/*play-teamchat*.yml,playbooks/imports/*play-teamchat*.yaml,scripts/qa-teamchat-separate.bash,src-go/qa/teamchatseparate/*,src-go/qa/cmd/qa-teamchat-separate/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	teamchat-keeps-off-v1	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
 # its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of
@@ -134,6 +143,7 @@ also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa
 # its controls are Go tests, which the go check runs for a src-go change.
 also	vars/version-pins.yml	version-pins	covered
 also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
+also	vars/fzf-pin.yml	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
 # to it runs the go check.
@@ -153,13 +163,25 @@ also	scripts/qa-go-deps.bash,scripts/qa-go-vuln.bash,src-go/qa/godeps/*,src-go/q
 # .semgrep files are its own data and count as covered.
 also	.semgrep/speech-to-text.yml,.semgrep/speech-to-text.js,.semgrep/speech-to-text.py	stt-rules	covered
 also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-speech-to-text-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	stt-rules	-
+# The hook handler rules gate runs over each changed Python file by name (the @py row below), and
+# runs whole over every published Python file when its rules, fixture, wrapper, the Go package it
+# shares with the speech-to-text gate, its command, the shared discovery or the trees table
+# change; the .semgrep files are its own data and count as covered.
+also	.semgrep/hook-handlers.yml,.semgrep/hook-handlers.py	hook-handler-rules	covered
+also	scripts/qa-hook-handler-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-hook-handler-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	hook-handler-rules	-
+# The walk-open gate runs over each changed Python file by name (the @py row below), and runs
+# whole when its rule, the rule's fixture, its wrapper, the Go package it
+# shares with the speech-to-text gate, its command, the shared discovery or the trees table change;
+# the .semgrep files are its own data and count as covered.
+also	.semgrep/walk-open.yml,.semgrep/walk-open.py	walk-open	covered
+also	scripts/qa-walk-open.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-walk-open/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/cmdmain/*	walk-open	-
 # The VM-test manifest gate judges the manifest (which it covers), the Fedora version it composes
 # base names with, the host's validator (the three helpers it imports), the guest scripts it
 # counts and resolves, and runs whole when one changes or is deleted, or its own wrapper, Go
 # package, command, the shared discovery that lists the guest scripts, or the trees table change.
 # The guest scripts and the validator are code other checks cover; this row adds the gate.
 also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
-also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
+also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*,playbooks/imports/optional/common/*,playbooks/imports/optional/hardware-specific/*	vmtest-manifest	-
 also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	vmtest-manifest	-
 # The project-owned hooks-daemon handlers and their tests run whole (it is fast) when one changes
 # or is deleted, or the gate's wrapper, Go package or command does. It needs the daemon's
@@ -183,12 +205,21 @@ also	scripts/qa-plan-tests.bash,src-go/qa/plantests/*,src-go/qa/cmd/qa-plan-test
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # The regex-backref-escape fixtures of qa-ansible are read only by the Go tests of the rule.
 also	tests/fixtures/ansible-regex-backref/*	go	covered
+# The regex-class-escape fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-regex-class-escape/*	go	covered
+# The root-umask fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-root-umask/*	go	covered
+# The sudoers-rule fixtures of qa-ansible are read only by the Go tests of the rule.
+also	tests/fixtures/ansible-sudoers/*	go	covered
+# The sudoers-rule check of qa-ansible reads the sudoers sources the plays install and the root
+# installers' put_file lines, so a change to one runs the gate.
+also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -197,11 +228,11 @@ first	src-go/*	go	covered,closure
 first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
-first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files	covered,tree:python
+first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files,hook-handler-rules-files,walk-open-files	covered,tree:python
 first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

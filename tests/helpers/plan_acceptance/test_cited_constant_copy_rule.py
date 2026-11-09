@@ -23,8 +23,10 @@ Code's environment names and deployed install paths, which the product does not 
 Its second clause needs no comment. OWNED names product constants a checker must never hold
 as a literal: the session home, the membership mount, variable and file names, the status line's
 inner-only variable, the checkout's seat directory, the team-name grammar, the agent-bus state
-roots, the Tuwunel pin, ccy-teams' step marks and STATE words, and the message texts the product
-names for its checkers. Each value is read from the product source when the rule runs. A finding
+roots, the Tuwunel pin, ccy-teams' step marks and STATE words, the label it finds a session's
+container by, the message texts the product names for its checkers, and the team units agent-bus's
+functions name (a function whose body is one `return f"..."` is read as that text, each argument a
+placeholder). Each value is read from the product source when the rule runs. A finding
 is a line of a checker in an active plan folder whose code (not a comment or docstring) holds the
 value in the form its kind says: anywhere, as a file name after a `/`, as a directory between
 two, as a mark a pattern anchors to a line start (`^✓`), or as a whole path (`/var/lib/agent-bus`
@@ -184,7 +186,7 @@ def _walk(root: str) -> list[pathlib.Path]:
         if rel == PLAN_DIR:
             dirnames[:] = [d for d in dirnames if ACTIVE_PLAN.match(d)]
         dirnames[:] = [d for d in dirnames if d not in SKIPPED_DIRS]
-        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink())
+        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink() and p.is_file())
     return files
 
 
@@ -231,6 +233,23 @@ def checker_files() -> dict[str, str]:
 #: (after a `^`); or as a whole path, not the head of a longer name (`/var/lib/agent-bus`, and
 #: under it, but not `/var/lib/agent-bus-applied`).
 ANYWHERE, FILE_NAME, DIRECTORY, LINE_START, PATH = "anywhere", "file name", "directory", "line start", "path"
+#: ccy-teams' hot step lines and messages (src-go/internal/teams/hot/texts.go) Plan 00203's M3,
+#: M4 and M6 judge; each is matched anywhere, by its fixed parts.
+HOT_TEXTS = (
+    "recordNoTeamsCC", "membershipRemoved", "hotControlled", "sessionBusy", "notOnBusText", "startedCC",
+    "againCC", "againCcy", "teamDown", "seatFree", "endedDuringAdd", "namedByOther", "namedByRecord",
+    "relaunchesOnce", "relaunchedOnce", "alreadyIn", "doneJoinedNothingRestarted", "routeReaches",
+    "ccNoInboundText", "ccRepairText", "movedText", "keeperRunningAgain", "stateUnguarded", "rebaselined",
+)
+#: pingbus cli.py's refusal head and the words its watcher's log lines end with, which Plan
+#: 00201's m7_check and Plan 00203's homeserver triage read; each is matched anywhere.
+PINGBUS_CLI_TEXTS = (
+    "CHOICES_HEAD", "WATCHER_EXITS", "WATCHER_ENDED", "WATCHER_REFUSED", "WATCHER_RESTARTED",
+    "TEAM_NOT_WATCHED", "HOMESERVER_SILENT", "TEAM_SYNCS_AGAIN",
+)
+#: The functions of health.py that name a team's backup and health check units, beside
+#: checkout.py's hs_unit; each is matched anywhere, by its fixed parts (`agent-bus-backup@`).
+AGENT_BUS_UNITS = ("backup_service", "backup_timer", "health_timer", "health_service")
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/seat.py", "SESSION_HOME", ANYWHERE),
@@ -248,13 +267,31 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ANYWHERE),
     ("helpers/pingbus/seat.py", "CHECKOUT_SEATS", ANYWHERE),
     ("helpers/pingbus/protocol.py", "TEAM_NAME_PATTERN", ANYWHERE),
+    *(("helpers/pingbus/cli.py", name, ANYWHERE) for name in PINGBUS_CLI_TEXTS),
+    ("helpers/pingbus/inbox.py", "NO_RECORD_YET", ANYWHERE),
+    ("helpers/pingbus/seat.py", "HELD_TEXT", ANYWHERE),
+    ("helpers/pingbus/seat.py", "ONE_PER_TEAM_TEXT", ANYWHERE),
+    ("helpers/pingbus/seat.py", "EMPTY_ITEM_TEXT", ANYWHERE),
+    ("helpers/pingbus/config.py", "ELEMENT_REFUSAL", ANYWHERE),
+    ("helpers/pingbus/config.py", "DEFAULT_HOME_DIR", ANYWHERE),
+    ("helpers/pingbus/statusline.py", "DOWN_MARK", ANYWHERE),
     ("helpers/agent_bus/render.py", "STATE_ROOT", PATH),
     ("helpers/agent_bus/checkout.py", "APPLIED_DIR", PATH),
     ("helpers/agent_bus/health.py", "INSTALL_STATE_ROOT", PATH),
     ("helpers/agent_bus/declare.py", "PIN_FILE", ANYWHERE),
+    ("helpers/agent_bus/health.py", "RESTARTED_TEXT", ANYWHERE),
+    ("helpers/agent_bus/health.py", "NEWEST_BACKUP_TEXT", ANYWHERE),
+    ("helpers/agent_bus/health.py", "BACKUP_TAR_PREFIX", ANYWHERE),
+    ("helpers/agent_bus/checkout.py", "STARTING_TEXT", ANYWHERE),
+    ("helpers/agent_bus/checkout.py", "UP_AFTER_TEXT", ANYWHERE),
     ("src-go/internal/teams/hot/cc.go", "ccUnguarded", ANYWHERE),
     ("src-go/internal/teams/hot/remove.go", "removedHomeserverDown", ANYWHERE),
+    *(("src-go/internal/teams/hot/texts.go", name, ANYWHERE) for name in HOT_TEXTS),
+    ("src-go/internal/teams/choose/choose.go", "blockHead", ANYWHERE),
     ("helpers/pingbus/cli.py", "QUESTION_DUPLICATE", ANYWHERE),
+    *(("helpers/agent_bus/health.py", name, ANYWHERE) for name in AGENT_BUS_UNITS),
+    ("helpers/agent_bus/checkout.py", "hs_unit", ANYWHERE),
+    ("src-go/internal/teams/hot/hot.go", "sessionTag", ANYWHERE),
 )
 #: A text constant with placeholders (`{name}` or a `%` verb) is matched by each fixed part
 #: between them, its ends stripped; a part shorter than this is not distinctive enough.
@@ -262,9 +299,30 @@ MIN_TEXT_HEAD = 12
 _PLACEHOLDER = re.compile(r"\{[a-z_]*\}|%[-+ #0-9.*]*[a-zA-Z]")
 
 
+def _function_template(function: ast.FunctionDef) -> str | None:
+    """The text a function whose body (past a docstring) is one `return f"..."` names, each
+    plain `{argument}` kept as its placeholder (checkout.py's `hs_unit`: `agent-bus-hs@{team}.service`)."""
+    body = function.body[1:] if ast.get_docstring(function) is not None else function.body
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or not isinstance(body[0].value, ast.JoinedStr):
+        return None
+    parts = []
+    for part in body[0].value.values:
+        if isinstance(part, ast.Constant):
+            parts.append(str(part.value))
+        elif (isinstance(part, ast.FormattedValue) and isinstance(part.value, ast.Name) and part.conversion == -1
+              and part.format_spec is None):
+            parts.append("{" + part.value.id + "}")
+        else:
+            return None
+    return "".join(parts)
+
+
 def python_constant_value(source: str, name: str) -> str | None:
-    """The string a module-level `name = "..."` (or `name = pathlib.Path("...")`) assigns."""
+    """The string a module-level `name = "..."` (or `name = pathlib.Path("...")`) assigns, or the
+    text a module-level function `name` names from its arguments (_function_template)."""
     for statement in ast.parse(source).body:
+        if isinstance(statement, ast.FunctionDef) and statement.name == name:
+            return _function_template(statement)
         if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
                 and isinstance(statement.targets[0], ast.Name) and statement.targets[0].id == name):
             value = statement.value
@@ -403,7 +461,8 @@ FIXTURE_OWNED = [("/tmp/pingbus-home", ANYWHERE), ("membership.json", FILE_NAME)
                  ("pingbus/membership", DIRECTORY), ("/var/lib/agent-bus", PATH),
                  ("PINGBUS_STATUS_LINE_INNER", ANYWHERE),
                  ("several teams are active and --to/--re fit more than one", ANYWHERE),
-                 ("{unit} is starting ({state})", ANYWHERE), ("{n} ok", ANYWHERE)]
+                 ("{unit} is starting ({state})", ANYWHERE), ("{n} ok", ANYWHERE),
+                 ("agent-bus-hs@{team}.service", ANYWHERE)]
 
 #: Plan 00203's M4, m2-check.bash and _triage-hs.inc.bash as the Task 2.22 sweep found them.
 FIXTURE_OWNED_BASH = textwrap.dedent('''\
@@ -425,6 +484,9 @@ FIXTURE_OWNED_BASH = textwrap.dedent('''\
     readonly STATE_ROOT=/var/lib/agent-bus  # ruleid
     sudo ls "/var/lib/agent-bus/${team}"  # ruleid: a path under it
     sudo ls /var/lib/agent-bus-applied  # ok: another name, which has its own entry
+    state="$(systemctl show -P ActiveState "agent-bus-hs@${team}.service")"  # ruleid: a unit a function names
+    jexport units.json -u 'agent-bus-hs@*'  # ruleid: the same unit's head, as a glob
+    systemctl show "agent-bus-hs-health@${team}.service"  # ok: another unit, which has its own entry
 ''')
 
 FIXTURE_OWNED_PYTHON = textwrap.dedent('''\
@@ -475,6 +537,11 @@ class RuleProof(unittest.TestCase):
         self.assertIn("/tmp/pingbus-home", values)
         self.assertEqual(values["✓"], LINE_START)
         self.assertEqual(python_constant_value('import pathlib\nH = pathlib.Path("/x/y")\n', "H"), "/x/y")
+        unit = 'def u(team: str) -> str:\n    """Its unit."""\n    return f"hs@{team}.service"\n'
+        self.assertEqual(python_constant_value(unit, "u"), "hs@{team}.service")
+        self.assertIsNone(python_constant_value('def u(team):\n    x = 1\n    return f"hs@{team}"\n', "u"))
+        self.assertIsNone(python_constant_value('def u(team):\n    return f"hs@{team!r}"\n', "u"))
+        self.assertIn("agent-bus-hs@{team}.service", values)
         self.assertEqual(go_constant_value('const (\n\tmarkDone   = "✓"\n)\n', "markDone"), "✓")
         self.assertIsNone(go_constant_value('const (\n\ta = "1"\n)\nconst a = "2"\n', "a"))
 

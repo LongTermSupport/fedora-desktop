@@ -1,11 +1,17 @@
 package sessions
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 func TestHelpPrintsTheHeaderTextOnStdoutBeforeAnyGuard(t *testing.T) {
@@ -88,7 +94,7 @@ func TestConfigReadsTheKnobs(t *testing.T) {
 	}
 	want := Config{
 		CcyLib: defaultLib, Minute: 0, Poll: 500 * time.Millisecond, SetGoingWait: 7 * time.Second, StartWindow: time.Hour,
-		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: ParseTokenFloor("150000"), PassphraseFile: "/p", BootIDFile: "/b",
+		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: compactfloor.Parse("150000"), PassphraseFile: "/p", BootIDFile: "/b",
 	}
 	if cfg != want {
 		t.Fatalf("config %+v, want %+v", cfg, want)
@@ -107,6 +113,19 @@ func TestConfigDefaults(t *testing.T) {
 }
 
 func TestConfigRefusesWhatIsNotANumber(t *testing.T) {
+	// 1e300 seconds is past a time.Duration, and so is anything over a day of seconds as far as
+	// these knobs go (project_duration_overflow).
+	for _, big := range []string{"86401", "1e300"} {
+		_, err := loadConfig(func(k string) string {
+			if k == "CCY_SESSIONS_POLL_SECONDS" {
+				return big
+			}
+			return ""
+		})
+		if err == nil || !strings.Contains(err.Error(), "CCY_SESSIONS_POLL_SECONDS is '"+big+"', more than 86400 seconds") {
+			t.Fatalf("%q: %v", big, err)
+		}
+	}
 	for _, bad := range []string{"soon", "-1", "NaN", "Inf"} {
 		_, err := loadConfig(func(k string) string {
 			if k == "CCY_SESSIONS_POLL_SECONDS" {
@@ -157,6 +176,57 @@ func TestWireFillsEverySeam(t *testing.T) {
 	if NewApp() == nil {
 		t.Fatal("NewApp")
 	}
+}
+
+// ccy-sessions holds the echo of the terminal it reads keys from, and runs every command and
+// the launcher's exec under the hold: keys typed between two screens are not echoed.
+func TestNewAppHoldsTheEchoOfItsTerminal(t *testing.T) {
+	a := NewApp()
+	if a.Echo == nil || a.Echo.TTY != os.Stdin {
+		t.Fatalf("hold %+v", a.Echo)
+	}
+	if _, bare := a.Runner.(execx.OS); bare {
+		t.Fatal("the commands run outside the hold")
+	}
+	if _, bare := a.Execer.(execx.OS); bare {
+		t.Fatal("the exec is outside the hold")
+	}
+}
+
+// heldTerminal gives the app a hold over a fake terminal.
+func heldTerminal(t *testing.T, a *App) *ttyecho.FakeModes {
+	t.Helper()
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tty.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	a.Echo, modes = ttyecho.Fake(tty)
+	return modes
+}
+
+// The run's end puts back the mode a screen held, and a mode that cannot be put back fails it.
+func TestARunPutsBackTheModeAScreenHeld(t *testing.T) {
+	h := newHarness(t)
+	modes := heldTerminal(t, h.app)
+	if err := ttyecho.Screen(h.app.Echo); err != nil || modes.Echo() {
+		t.Fatalf("screen %v, echo %v", err, modes.Echo())
+	}
+	exitCodeIs(t, h.run("-h"), 0, h)
+	if !modes.Echo() || modes.Sets != 2 {
+		t.Fatalf("echo after %v, %d sets", modes.Echo(), modes.Sets)
+	}
+	if err := ttyecho.Screen(h.app.Echo); err != nil {
+		t.Fatal(err)
+	}
+	modes.SetErr = errors.New("EIO")
+	exitCodeIs(t, h.run("-h"), 1, h)
+	contains(t, "stderr", h.stderr(), "put the terminal's mode back: EIO")
 }
 
 func TestWireKeepsWhatWasAlreadySet(t *testing.T) {
@@ -230,17 +300,13 @@ func TestStdoutIsFedByOutAndStderrByTheTerm(t *testing.T) {
 	}
 }
 
-func TestParseTokenFloor(t *testing.T) {
-	if n, ok := ParseTokenFloor("150000").Tokens(); !ok || n != 150000 {
-		t.Fatalf("got %d, %v", n, ok)
+// A failure reported where it happened is not printed again; any other is printed.
+func TestFailedPrintsOnlyAnUnreportedError(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.failed(errReported); code != term.ExitFailure || h.stderr() != "" {
+		t.Fatalf("reported: exit %d stderr %q", code, h.stderr())
 	}
-	for _, bad := range []string{"", "0", "-5", "012", "1.5", "lots", "99999999999999999999"} {
-		f := ParseTokenFloor(bad)
-		if _, ok := f.Tokens(); ok {
-			t.Errorf("%q should not be a floor", bad)
-		}
-		if f.String() != bad {
-			t.Errorf("%q is reported as %q", bad, f.String())
-		}
+	if code := h.app.failed(errBoom); code != term.ExitFailure || h.stderr() != "ERROR: boom\n" {
+		t.Fatalf("unreported: exit %d stderr %q", code, h.stderr())
 	}
 }

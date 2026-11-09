@@ -19,7 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.play_ledger import collector
+from helpers.play_ledger import collector, repo
 
 COMMIT = "b07092eb1f4d8c3a9e2f07a1b5c6d7e8f9012345"
 PLAY = "playbooks/imports/play-gnome-shell-extensions.yml"
@@ -29,7 +29,7 @@ OTHER = "playbooks/imports/play-python.yml"
 def _collector(**overrides):
     fields = {
         "commit": COMMIT,
-        "dirty": False,
+        "dirty": repo.DirtyState(paths=(), truncated=False),
         "hash_play": lambda path: "a" * 64,
         "repo_root": "/repo",
     }
@@ -231,11 +231,13 @@ class TestMultiplePlays(unittest.TestCase):
 
 class TestRecordContents(unittest.TestCase):
     def test_the_commit_and_dirty_flag_are_carried_through(self):
-        rc = _collector(dirty=True)
+        rc = _collector(dirty=repo.DirtyState(paths=("CLAUDE/Plan/stray", PLAY), truncated=True))
         rc.on_play_start(play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z")
         record = rc.on_end(at="2026-09-14T10:01:00Z")[0]
         self.assertEqual(record["commit"], COMMIT)
         self.assertTrue(record["dirty"])
+        self.assertEqual(record["dirty_paths"], ["CLAUDE/Plan/stray", PLAY])
+        self.assertIs(record["dirty_paths_truncated"], True)
 
     def test_the_play_is_hashed_at_its_absolute_path(self):
         seen = []

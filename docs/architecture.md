@@ -77,7 +77,7 @@ The bootstrap script:
 
 - Validates system requirements
 - Checks Fedora version against `vars/fedora-version.yml`
-- Installs core dependencies
+- Upgrades every package, then installs core dependencies (before any Ansible process starts)
 - Configures GitHub CLI authentication
 - Generates SSH keys
 - Clones the repository
@@ -105,7 +105,7 @@ The bootstrap script:
 11. **play-git-hooks-security.yml**: Security pre-commit hooks
 12. **play-firefox.yml**: Firefox browser configuration
 13. **play-github-cli-multi.yml**: GitHub CLI multi-account support
-14. **play-ms-fonts.yml**: Microsoft fonts installation
+14. **play-fonts.yml**: Microsoft core fonts, and Noto Color Emoji as the emoji fallback
 15. **play-rpm-fusion.yml**: Third-party repository setup
 16. **play-browsers.yml**: Additional browser setup
 17. **play-toolbox-install.yml**: JetBrains Toolbox
@@ -121,6 +121,9 @@ The bootstrap script:
 21. **play-claude-yolo.yml**: Claude Code on the host (`cc`) and in a container (CCY)
     - One play for both, because `cc` sources CCY's lib at runtime: deployed
       separately, a new lib could run under an old `cc`.
+    - Followed by **play-claude-code-consumer.yml**: `ccc`, Claude Code in rootless
+      podman in `~/CCC` with CCY's image and none of its GitHub setup, for every install
+      (a consumer install gets no CCY). Both import `tasks/claude-yolo-image.yml`.
 22. **play-comms.yml**: Communication applications
 23. **play-gnome-shell.yml**: GNOME Shell configuration
 24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions

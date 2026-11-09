@@ -379,10 +379,11 @@ fi
 # Deliberately NOT `exec`: the EXIT trap set in the named-token branch must run
 # after the session to restore the Desktop credential. A lingering parent shell
 # is a negligible cost for guaranteed cleanup. `set -e` still propagates claude's
-# exit status (the trap's mv does not overwrite it).
+# exit status (the trap's mv does not overwrite it). cc-claude (Go) becomes claude with
+# ccy's auto-compact window on both paths.
 if [ "$CC_TEAMS_GIVEN" = true ]; then
-    # pingbus claims the seat and becomes claude; the hooks run the kit's pingbus.
+    # pingbus claims the seat and becomes cc-claude; the hooks run the kit's pingbus.
     PATH="$CC_TEAMS_KIT:$PATH" "${CC_TEAMS_CMD[@]}"
 else
-    claude "$@"
+    /var/local/claude-code/cc-claude "$@"
 fi

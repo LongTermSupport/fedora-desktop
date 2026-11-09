@@ -1,6 +1,7 @@
 package ccylaunch
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 )
@@ -32,4 +33,16 @@ func pidsLimit(value string) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+// settledPidsLimit is the --pids-limit of a container the bash launcher asks the front to run
+// (F17-F19), or why there is none. The bash has settled the limit before it asks, so a refused
+// value here is one exported between the two, and is refused as the library refuses it.
+func (f Front) settledPidsLimit() (string, string) {
+	value := f.getenv(pidsLimitEnv)
+	limit, ok := pidsLimit(value)
+	if !ok {
+		return "", fmt.Sprintf("%s=%s is not a pids limit: a whole number from %d to %d", pidsLimitEnv, value, pidsLimitMin, pidsLimitMax)
+	}
+	return limit, ""
 }

@@ -1,0 +1,288 @@
+---
+# Fixture for the four play-UX rules of src-go/qa/ansible: none of these may be reported. Each
+# is the right spelling of a case flagged.yml reports, or a near miss the rules must not read as
+# the hazard. The plays are valid for ansible-playbook --syntax-check.
+
+# Settings checked before the first change; probes, facts and the play's own results after it.
+- hosts: localhost
+  vars:
+    play_var: x
+  tasks:
+    - name: A probe changes nothing
+      ansible.builtin.command:
+        argv: [mokutil, --sb-state]
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture probe; read by the fail below
+
+    - name: Fail readably on the probe
+      ansible.builtin.fail:
+        msg: "mokutil could not run: {{ secure_boot_state.stderr }}"
+      when: secure_boot_state.rc not in [0, 1]
+
+    - name: A setting checked first
+      ansible.builtin.assert:
+        that:
+          - api_key is defined
+          - (hotspot_password | default('') | length) >= 8
+        fail_msg: api_key is not set; run play-other.yml first, which creates it
+
+    - name: Ask for a missing secret with the shared task file, which saves it
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: mok_password
+      when: mok_password is not defined
+
+    - name: Install
+      ansible.builtin.dnf:
+        name: x
+        state: present
+
+    - name: A registered result after a change is no setting
+      ansible.builtin.assert:
+        that: secure_boot_state.stdout is defined
+
+    - name: A fact after a change is no setting
+      ansible.builtin.assert:
+        that: ansible_facts['getent_passwd'][user_login] is defined
+
+    - name: Set a value
+      ansible.builtin.set_fact:
+        made_here: 1
+
+    - name: A value the play set is no setting
+      ansible.builtin.assert:
+        that:
+          - made_here is defined
+          - play_var is defined
+
+    - name: A loop variable is no setting
+      ansible.builtin.assert:
+        that: entry is defined
+      loop: [1]
+      loop_control:
+        loop_var: entry
+
+    - name: A task var is no setting
+      ansible.builtin.assert:
+        that: local_thing is defined
+      vars:
+        local_thing: 1
+
+    - name: A check that is not of definedness is no setting check
+      ansible.builtin.assert:
+        that: user_login | length > 0
+
+# The Ansible command-line tools run from the checkout; a word that is not a command is not one.
+- hosts: localhost
+  tasks:
+    - name: Vault-encrypt from the checkout
+      ansible.builtin.command:
+        argv: [ansible-vault, encrypt_string, --stdin-name, mok_password]
+        chdir: "{{ root_dir }}"
+        stdin: "{{ value }}"
+      register: encrypted
+      changed_when: false
+
+    - name: The args form of chdir
+      ansible.builtin.command: ansible-galaxy collection list
+      args:
+        chdir: "{{ root_dir }}"
+      changed_when: false
+
+    - name: A shell that changes to the checkout first
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ root_dir }}"
+        ansible-playbook play.yml
+      changed_when: true
+
+    - name: Installing the ansible package is not running it
+      ansible.builtin.command: pipx install ansible-core
+      changed_when: true
+
+    - name: A path that names ansible is not running it
+      ansible.builtin.command: cat /etc/ansible/hosts
+      changed_when: false
+
+# no_log with a readable failure: a probe read by a fail, and modules that cannot fail on the
+# machine.
+- hosts: localhost
+  tasks:
+    - name: Prompt for a secret
+      ansible.builtin.pause:
+        prompt: Secret
+        echo: false
+      register: secret_prompt
+      no_log: true
+
+    - name: Use it
+      ansible.builtin.set_fact:
+        secret: "{{ secret_prompt.user_input }}"
+      no_log: true
+
+    - name: Vault-encrypt as a probe
+      ansible.builtin.command:
+        argv: [ansible-vault, encrypt_string, --stdin-name, secret]
+        chdir: "{{ root_dir }}"
+        stdin: "{{ secret }}"
+      register: secret_encrypted
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: no_log probe; the fail below gives the reason
+      no_log: true
+
+    - name: Fail with the non-secret reason
+      ansible.builtin.fail:
+        msg: "ansible-vault could not encrypt it: {{ secret_encrypted.stderr }}"
+      when: secret_encrypted.rc != 0
+
+    - name: A block of probes and their reader
+      no_log: true
+      block:
+        - name: Hash it
+          ansible.builtin.command:
+            argv: [openssl, passwd, -6, -stdin]
+            stdin: "{{ secret }}"
+          register: hashed
+          changed_when: false
+          failed_when: false  # FAIL-FAST-OK: no_log probe; the assert below gives the reason
+
+        - name: Assert readably
+          ansible.builtin.assert:
+            that: hashed.rc == 0
+            fail_msg: "openssl could not hash it: {{ hashed.stderr }}"
+          no_log: false
+
+    - name: A no_log that is off
+      ansible.builtin.copy:
+        content: x
+        dest: /tmp/x
+        mode: "0644"
+      no_log: false
+
+    - name: Debug cannot fail on the machine
+      ansible.builtin.debug:
+        msg: hidden
+      no_log: true
+
+# A skip whose message names the play that makes the setting, and one on a non-secret; a probe
+# after the install of its program, or of a program the play does not install.
+- hosts: localhost
+  tasks:
+    - name: Install mokutil for the Secure Boot check
+      ansible.builtin.dnf:
+        name: mokutil
+        state: present
+
+    - name: Probe after the install
+      ansible.builtin.command:
+        argv: [mokutil, --sb-state]
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture probe; read by the assert below
+
+    - name: Read it
+      ansible.builtin.assert:
+        that: secure_boot_state.rc in [0, 1]
+        fail_msg: "mokutil could not run: {{ secure_boot_state.stderr }}"
+
+    - name: Installed again later, as play-nvidia's MOK prerequisites do
+      ansible.builtin.dnf:
+        name: [mokutil, dkms]
+        state: present
+
+    - name: Probe a program no task here installs
+      ansible.builtin.command: podman --version
+      register: podman_version
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: fixture probe; read by the assert below
+
+    - name: Read that
+      ansible.builtin.assert:
+        that: podman_version.rc == 0
+        fail_msg: podman is missing; run play-podman.yml first
+
+- hosts: localhost
+  tasks:
+    - name: Skip a non-secret setting, the remedy run.bash
+      when: github_accounts is not defined
+      block:
+        - name: Say why
+          ansible.builtin.debug:
+            msg: github_accounts is not set; re-run run.bash, which asks for it
+        - name: End play
+          ansible.builtin.meta: end_play
+
+# The shared asker supplies the secret its vars name, and is no change; a flag read through
+# its default is its value, not a presence check.
+- hosts: localhost
+  tasks:
+    - name: Install
+      ansible.builtin.dnf:
+        name: vsftpd
+        state: present
+
+    - name: An opt-in flag read through its default after a change
+      ansible.builtin.fail:
+        msg: the restore unit does not match the opt-in
+      when: (restore_sessions | default(false) | bool) and probe_result.rc != 0
+
+- hosts: localhost
+  tasks:
+    - name: Ask for the FTP password, empty skips the play this run
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
+      vars:
+        secret_name: ftp_password
+        secret_label: Camera FTP password
+        secret_explain: The password the camera logs in with.
+        secret_optional: true
+      when: ftp_password is not defined
+
+    - name: Skip this run when none was given
+      when: ftp_password is not defined
+      block:
+        - name: Say so
+          ansible.builtin.debug:
+            msg: Camera FTP skipped this run; no password was given. The next run asks again.
+        - name: End play
+          ansible.builtin.meta: end_play
+
+# A no_log task in a block whose rescue explains the failure readably.
+- hosts: localhost
+  tasks:
+    - name: Write a secret file
+      block:
+        - name: Write it
+          ansible.builtin.copy:
+            content: "{{ secret }}"
+            dest: /tmp/s
+            mode: "0600"
+          no_log: true
+      rescue:
+        - name: Stop because it could not be written
+          ansible.builtin.fail:
+            msg: "It could not be written: {{ ansible_failed_result.msg | default('no reason given') }}"
+
+# Kernel module builds that name the boot kernel.
+- hosts: localhost
+  tasks:
+    - name: Rebuild for the boot kernel
+      ansible.builtin.shell: |
+        set -euo pipefail
+        akmods --force --kernels "$KVER"
+        dracut --force --kver "$KVER"
+      environment:
+        KVER: "{{ boot_kernel_version }}"
+      changed_when: true
+
+    - name: DKMS for the boot kernel
+      ansible.builtin.command: dkms autoinstall -k {{ boot_kernel_version }}
+      changed_when: true
+
+    - name: Every initramfs
+      ansible.builtin.command: dracut --force --regenerate-all
+      changed_when: true
+
+    - name: Status is not a build
+      ansible.builtin.command: dkms status
+      changed_when: false

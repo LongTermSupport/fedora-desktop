@@ -137,6 +137,33 @@ class TeamFileTest(TempDir):
         status, _, _ = run("host-vars")
         self.assertEqual(status, 64)
 
+    def rendered(self, path: str, cidr: str | None) -> dict:
+        bridge = mc._checkout_module("helpers.agent_bus.bridge")
+        with mock.patch.object(bridge, "live_subnet", return_value=cidr):
+            status, out, err = run("rendered-team", path)
+        self.assertEqual(status, 0, err)
+        return json.loads(out)
+
+    def test_the_installed_team_is_the_team_the_play_renders_bridge_subnet_included(self) -> None:
+        # The play adds the LXC bridge's subnet to every team's allow_from before it installs
+        # it; a fixture team installed without it is "out of date: config" and its first play
+        # changes the unit drop-in, restarting the homeserver (host run at fe894347c).
+        path = self.team_file(TEAM_A, "6201", DESC_A)
+        status, hv_text, err = run("host-vars", path)
+        self.assertEqual(status, 0, err)
+        declared = declare.parse(hv_text).teams[0]
+        cidr = "198.51.100.0/24"
+        rendered = self.rendered(path, cidr)
+        self.assertEqual(rendered["allow_from"], [mc.ALLOW_FROM_EXAMPLE, cidr])
+        self.assertEqual(
+            teamfile.config_digest(teamfile.parse_team_file(rendered)),
+            declare.declared_config(declared, cidr),
+        )
+
+    def test_with_no_bridge_the_rendered_team_admits_only_its_declared_list(self) -> None:
+        path = self.team_file(TEAM_A, "6201", DESC_A)
+        self.assertEqual(self.rendered(path, None)["allow_from"], [mc.ALLOW_FROM_EXAMPLE])
+
 
 class SmallValuesTest(TempDir):
     def test_github_owner_of_each_remote_form(self) -> None:
@@ -373,6 +400,20 @@ class BlockTest(TempDir):
     def test_arguments_come_in_threes(self) -> None:
         self.assertEqual(run("expect-block", self.stderr(), "1", TEAM_A)[0], 64)
 
+    def test_the_head_and_seat_line_are_read_from_choose_go(self) -> None:
+        """The block's head, nouns and seat line are choose.go's named texts: a changed one is
+        followed, and a source that names none fails."""
+        choose = ('const (\n\tblockHead     = "On %d %s:"\n\tblockNounOne  = "team"\n\tblockNounMany = "teams"\n'
+                  '\tblockLine     = "- %s seat %s [%s] %s"\n)\n')
+        stderr = f"On 2 teams:\n- {TEAM_A} seat 1 [worker] {DESC_A}\n- {TEAM_B} seat 1 [coordinator] {DESC_B}\n"
+        seats = [("1", TEAM_A, DESC_A), ("1", TEAM_B, DESC_B)]
+        mc.expect_block(stderr, seats, choose)
+        with self.assertRaises(mc.Failed):
+            mc.expect_block(stderr.replace("On 2", "This session is on 2"), seats, choose)
+        with self.assertRaises(mc.Failed):
+            mc.expect_block(stderr, seats, choose.replace("blockLine", "line"))
+        mc.expect_block(pathlib.Path(self.stderr()).read_text(), seats)
+
 
 class StatusTest(TempDir):
     def status(self, *, b_trusted: bool = True, b_about: bool = True) -> str:
@@ -543,6 +584,13 @@ class SegmentTest(TempDir):
             with self.assertRaises(mc.Failed):
                 mc.membership_dirs(bad_dirs, bad_relaunch)
 
+    def test_the_say_refusal_texts_are_the_products(self) -> None:
+        """F7 and the choices read pingbus's own words: cli.py CHOICES_HEAD, inbox.py NO_RECORD_YET."""
+        cli = mc._checkout_module("helpers.pingbus.cli")
+        inbox = mc._checkout_module("helpers.pingbus.inbox")
+        self.assertEqual(mc.choices_head(), cli.CHOICES_HEAD)
+        self.assertEqual(mc.no_record_yet(), inbox.NO_RECORD_YET)
+
     def test_a_product_value_is_read_by_name(self) -> None:
         """Any named string of this checkout's helpers/ or Go package, its placeholders filled;
         a missing, doubled, non-text or badly filled one fails."""
@@ -572,6 +620,44 @@ class SegmentTest(TempDir):
                                          ("docs/x.md", "A", [], None)):
             with self.subTest(rel=rel, name=name), self.assertRaises(mc.Failed):
                 mc.product_value(rel, name, fills, source)
+
+    def test_a_product_function_names_the_text_of_its_arguments(self) -> None:
+        """A helpers/ function that names a text (checkout.py's hs_unit, health.py's timers) is
+        called with the fills in order, as product-value and product-pattern; a wrong count of
+        arguments, a class or a function that names no text fails."""
+        checkout = mc._checkout_module("helpers.agent_bus.checkout")
+        health = mc._checkout_module("helpers.agent_bus.health")
+        self.assertEqual(mc.product_value("helpers/agent_bus/checkout.py", "hs_unit", ["t1"]), checkout.hs_unit("t1"))
+        self.assertEqual(mc.product_value("helpers/agent_bus/health.py", "backup_timer", ["t1"]), health.backup_timer("t1"))
+        status, out, _ = run("product-value", "helpers/agent_bus/health.py", "health_service", "t2")
+        self.assertEqual((status, out), (0, health.health_service("t2") + "\n"))
+        pattern = mc.product_pattern("helpers/agent_bus/checkout.py", "hs_unit", ["[a-z0-9-]+"])
+        for text, matches in ((checkout.hs_unit("team-a"), 0), (checkout.hs_unit("team-a") + "x", 1),
+                              (health.health_service("team-a"), 1)):
+            grep = subprocess.run(["grep", "-qxP", pattern], input=text, text=True, check=False)
+            self.assertEqual(grep.returncode, matches, text)
+        for name, fills in (("hs_unit", []), ("hs_unit", ["a", "b"]), ("Choice", ["a"]), ("handle_type", ["?"])):
+            with self.subTest(name=name, fills=fills), self.assertRaises(mc.Failed):
+                mc.product_value("helpers/agent_bus/checkout.py", name, fills)
+
+    def test_a_product_pattern_quotes_the_text_and_fills_each_placeholder_with_a_pattern(self) -> None:
+        """product-pattern: the named text as a Perl pattern (grep -P), its fixed parts quoted and
+        each placeholder the pattern given; a wrong count of patterns fails as product-value does."""
+        go = 'package x\nconst One = "a.b %s (c) %d"\nconst two = "x+y"\n'
+        pattern = mc.product_pattern("src-go/x.go", "One", ["[a-z]+", "[0-9]+"], go)
+        self.assertEqual(pattern, r"\Qa.b \E[a-z]+\Q (c) \E[0-9]+")
+        for text, matches in (("a.b qq (c) 12", 0), ("axb qq (c) 12", 1), ("a.b qq c 12", 1)):
+            grep = subprocess.run(["grep", "-qxP", pattern], input=text, text=True, check=False)
+            self.assertEqual(grep.returncode, matches, text)
+        self.assertEqual(mc.product_pattern("src-go/x.go", "two", source=go), r"\Qx+y\E")
+        status, out, _ = run("product-pattern", "src-go/internal/teams/hot/texts.go", "stepLine", "a", "b")
+        self.assertEqual((status, out), (0, "a\\Q: \\Eb\n"))
+        status, out, _ = run("product-pattern", "helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", "uid=[0-9]+")
+        self.assertEqual(status, 0)
+        self.assertTrue(out.endswith(r"\E[0-9]+" + "\n"), out)
+        for fills, source in ((["p"], go), (["p", "q", "r"], go), ([], 'const One = "a \\E b"\n')):
+            with self.subTest(fills=fills), self.assertRaises(mc.Failed):
+                mc.product_pattern("src-go/x.go", "One", fills, source)
 
     def test_the_label_is_read_from_the_go_drawer(self) -> None:
         """The label is the Go statusline's `label` constant and the indent its display width:
@@ -788,7 +874,7 @@ class ReviewFixesTest(TempDir):
     def test_f7_say_waiting_on_an_unverified_record_is_not_yet(self) -> None:
         unverified = self.write(
             "u.err",
-            f"pingbus: {mc.CHOICES_TEXT}\n  {TEAM_A}  (no verified team record yet: run pingbus recv "
+            f"pingbus: {mc.choices_head()}\n  {TEAM_A}  (no verified team record yet: run pingbus recv "
             "or name it with --team)\n",
         )
         other = self.write("o.err", "pingbus: refused: target\n")
@@ -816,7 +902,8 @@ m7_sudo_alive() { :; }
 lock="${XDG_RUNTIME_DIR}/ccy/image-builds/claude-yolo_latest.lock"
 case "${kind}" in
     live)
-        bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 5 && : >"$2"' \
+        # Its self-prune (lib/image-build-prune.bash) is `true`: it records and removes nothing.
+        CCY_CONTAINER_IMAGES=true bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 5 && : >"$2"' \
             _ "${repo}/files/var/local/claude-yolo/lib/image-build-lock.bash" "${tmp}/built" &
         for _ in 1 2 3 4 5 6 7 8 9 10; do
             [[ -s "${lock}" ]] && break

@@ -63,9 +63,12 @@ func (x *Hot) panePID(ctx context.Context, session string) (int, error) {
 }
 
 // ccEnded is whether a cc session's pane is gone, or another runs in its place.
-func (x *Hot) ccEnded(ctx context.Context, t *target) bool {
+func (x *Hot) ccEnded(ctx context.Context, t *target) (bool, error) {
 	pid, err := x.panePID(ctx, t.session)
-	return err == nil && pid != t.pane
+	if err != nil {
+		return false, err
+	}
+	return pid != t.pane, nil
 }
 
 // sessionKeeper is whether a listed session's seat keeper runs: in its container, or (it has
@@ -78,11 +81,11 @@ func (x *Hot) sessionKeeper(ctx context.Context, container string, pane int) (bo
 }
 
 // rowState is a listed session's STATE: a cc session with no keeper cannot be repaired.
-func rowState(name, kind string, alive bool, aliveErr, seatsErr, reportErr error, down, unheld []string) string {
-	if kind == membership.KindCC && aliveErr == nil && !alive {
+func rowState(name, kind string, alive bool, p problems, down, unheld []string) string {
+	if kind == membership.KindCC && p.alive == nil && !alive {
 		return ccUnguarded
 	}
-	return stateWord(name, alive, aliveErr, seatsErr, reportErr, down, unheld)
+	return stateWord(name, alive, p, down, unheld)
 }
 
 // ccKeeperAlive is whether a seat keeper runs in the process tree under the cc session's pane.
@@ -117,7 +120,7 @@ func keeperLine(line string) bool {
 // ccReach is H22 step 5 for a cc session: the session's route is the host's, so the host's
 // pingbus probes the team's homeserver from the checkout's seats.
 func (x *Hot) ccReach(ctx context.Context, t *target, team string) (term.ExitCode, bool) {
-	if !x.pingbus(ctx, "route", "this host reaches "+team+"'s homeserver", "reach", "--team", team, "--root", t.seatsRoot()) {
+	if !x.pingbus(ctx, stepRoute, fmt.Sprintf(routeReaches, team), "reach", "--team", team, "--root", t.seatsRoot()) {
 		return term.ExitFailure, false
 	}
 	return term.ExitOK, true
@@ -127,9 +130,7 @@ func (x *Hot) ccReach(ctx context.Context, t *target, team string) (term.ExitCod
 // read its settings once, refusing team messages, and cc has no supervisor to relaunch it, so the
 // seat and the record stay and the owner is told to start cc again, which starts it in the seat.
 func (x *Hot) ccNoInbound(t *target, team, seat string) term.ExitCode {
-	x.mark(markFailed, "session: "+t.session+" is in "+team+" as seat "+seat+", but it started on no team (cc --bus), "+
-		"so team messages cannot reach it until cc is started again, and cc has nothing that can restart it: "+
-		"end it (/exit) and start it again from ccy-sessions, which starts it in seat "+seat)
+	x.step(markFailed, stepSession, fmt.Sprintf(ccNoInboundText, t.session, team, seat, seat))
 	return term.ExitFailure
 }
 
@@ -142,8 +143,7 @@ func ccRefusing(t *target, rep membership.Report) bool {
 // ccRepair is repair for a cc session: its keeper ends with its claude (it watches its parent),
 // and one the host started would outlive the session holding its seats, so it is refused.
 func (x *Hot) ccRepair(t *target) term.ExitCode {
-	x.mark(markFailed, "keeper: "+t.session+" is a cc session: its seat keeper ends with its claude, so it cannot be "+
-		"started again from outside; end the session (/exit) and start it again from ccy-sessions, which takes its seats")
+	x.step(markFailed, stepKeeper, fmt.Sprintf(ccRepairText, t.session))
 	return exitConfig
 }
 

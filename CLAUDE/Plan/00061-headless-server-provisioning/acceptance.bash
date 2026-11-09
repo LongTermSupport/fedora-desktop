@@ -44,7 +44,7 @@ fi
 GNOME_SAMPLES=(
     playbooks/imports/play-firefox.yml
     playbooks/imports/play-vscode.yml
-    playbooks/imports/play-ms-fonts.yml
+    playbooks/imports/play-fonts.yml
 )
 DESKTOP_CHECK_PLAY=playbooks/imports/play-firefox.yml
 

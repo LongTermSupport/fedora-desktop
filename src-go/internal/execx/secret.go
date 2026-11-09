@@ -66,6 +66,26 @@ func (s Secret) Renamed(name string) (Secret, error) { return NewSecret(name, s.
 // Is reports whether the secret's value is v, for a test or a comparison that must not copy it.
 func (s Secret) Is(v string) bool { return s.value == v }
 
+// WriteFile writes the value alone to a new file of mode 0600, name in dir, for a program that
+// reads a secret from a file it is named (ansible-playbook --become-password-file). The name
+// cannot leave dir, and a file already there is an error, never written over; the caller
+// removes the file.
+func (s Secret) WriteFile(dir, name string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open the directory for %s: %w", s.name, err)
+	}
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errors.Join(fmt.Errorf("make the file for %s: %w", s.name, err), root.Close())
+	}
+	_, werr := f.WriteString(s.value)
+	if werr != nil {
+		werr = fmt.Errorf("write the file for %s: %w", s.name, werr)
+	}
+	return errors.Join(werr, f.Close(), root.Close())
+}
+
 // String is the secret as it may be shown: its name, never its value.
 func (s Secret) String() string { return s.name + "=<redacted>" }
 
@@ -120,16 +140,20 @@ func (c Cmd) checkSecrets() error {
 	return nil
 }
 
-// childEnv is the child's environment when the command changes it (Env, Unset, Secrets); false
-// when the child simply inherits this process's. A secret is added last, and ChildEnv drops
-// every other copy of its name, so the child sees the secret's value and only that.
+// childEnv is the child's environment when the command changes it (Env, Unset, Secrets,
+// CleanEnv); false when the child simply inherits this process's. A secret is added last, and
+// ChildEnv drops every other copy of its name, so the child sees the secret's value and only
+// that. With CleanEnv nothing of this process's environment is the base.
 func (c Cmd) childEnv() ([]string, bool) {
-	if len(c.Env) == 0 && len(c.Unset) == 0 && len(c.Secrets) == 0 {
+	if !c.CleanEnv && len(c.Env) == 0 && len(c.Unset) == 0 && len(c.Secrets) == 0 {
 		return nil, false
 	}
 	add := append([]string(nil), c.Env...)
 	for _, s := range c.Secrets {
 		add = append(add, s.name+"="+s.value)
+	}
+	if c.CleanEnv {
+		return ChildEnv(nil, add, nil), true
 	}
 	return ChildEnv(os.Environ(), add, c.Unset), true
 }

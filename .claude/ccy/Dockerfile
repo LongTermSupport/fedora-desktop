@@ -29,7 +29,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         tmux \
         gcc \
         libc6-dev \
+        fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# fontconfig serves scripts/test-colour-emoji-fallback.bash, which runs fc-cache, fc-match
+# and fc-list against fixture fonts; play-fonts.yml installs it on the host.
 
 # tmux serves scripts/test-ccy-tmux-targets.bash, which checks the session targets ccy and
 # ccy-sessions name against a real tmux server; the other ccy-sessions suites use a fake
@@ -226,4 +230,5 @@ RUN ansible --version && \
     golangci-lint version && \
     rg --version && \
     gawk --version && \
+    fc-match --version && \
     magick --version

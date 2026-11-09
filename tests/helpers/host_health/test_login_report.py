@@ -24,6 +24,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -733,6 +734,36 @@ class TestTheDocumentNamesAHandoffThatEXISTS(unittest.TestCase):
             document = self._record(root, [])
             self.assertEqual(document["handoff"], "")
             self.assertEqual(self.out, [])
+
+    def test_a_clean_host_REMOVES_the_last_collections_handoff(self) -> None:
+        """Plan 00141: after the last stale play was run, the status document and the
+        banner were clean while the handoff still said, collected before that run, that
+        the play was stale. A healthy host has nothing to hand off, and a file left from
+        a broken one is a confident description of a machine that has moved on."""
+        with tempfile.TemporaryDirectory() as root:
+            stale = self._record(root, found("evdi: no DKMS module"))["handoff"]
+            document = self._record(root, [])
+            self.assertFalse(os.path.exists(stale))
+            self.assertEqual(document["handoff"], "")
+            self.assertEqual(self.out, [])
+
+    def test_a_handoff_that_could_not_be_written_leaves_no_older_one(self) -> None:
+        """The failed write is reported; the earlier file must not stand in for it."""
+        with tempfile.TemporaryDirectory() as root:
+            stale = self._record(root, found("evdi: no DKMS module"))["handoff"]
+            with mock.patch.object(login_report.handoff, "write", side_effect=OSError("disk full")):
+                document = self._record(root, found("evdi: no DKMS module"))
+            self.assertFalse(os.path.exists(stale))
+            self.assertEqual(document["handoff"], "")
+
+    def test_a_handoff_that_could_not_be_removed_is_REPORTED(self) -> None:
+        """Reported the way a failed write is: the file is still there and still offered."""
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(login_report.handoff, "clear", side_effect=PermissionError("denied")):
+                document = self._record(root, [])
+        self.assertEqual(document["handoff"], "")
+        self.assertEqual(len(self.out), 1)
+        self.assertIn("the previous handoff file could not be removed: denied", self.out[0])
 
     def test_a_handoff_that_could_not_be_written_is_NOT_named(self) -> None:
         """The failure this ordering exists to prevent. The handoff directory is a

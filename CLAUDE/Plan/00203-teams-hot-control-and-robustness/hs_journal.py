@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import functools
+import importlib
 import json
 import os
 import pathlib
@@ -36,7 +38,6 @@ import time
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
-HS_RE = re.compile(r"^agent-bus-hs@(?P<team>[^.]+)\.service$")
 STAMP_RE = re.compile(r"^\d{8}-\d{6}$")
 STAMP_FMT = "%Y%m%d-%H%M%S"
 
@@ -77,6 +78,29 @@ _LEAK_RE = re.compile(r"syt_[A-Za-z0-9]{4}|access_token=(?!<redacted>)")
 
 class Failed(Exception):
     """The analysis cannot run; the message says why."""
+
+
+@functools.cache
+def units() -> object:
+    """agent-bus's health.py from this checkout (the first directory above this file holding
+    ansible.cfg), whose hs_unit, health_service and backup_service name a team's units: the
+    names are the product's, never copied. Imported on first use."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, *here.parents):
+        if (candidate / "ansible.cfg").exists():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            return importlib.import_module("helpers.agent_bus.health")
+        if (candidate / ".git").exists():
+            break
+    raise Failed(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
+
+
+@functools.cache
+def hs_re() -> re.Pattern[str]:
+    """A homeserver unit's name, its team captured: hs_unit's text around the team."""
+    head, _, tail = units().hs_unit("\0").partition("\0")
+    return re.compile(rf"^{re.escape(head)}(?P<team>[^.]+){re.escape(tail)}$")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -241,7 +265,7 @@ def size_bytes(text: str) -> int:
 
 
 def team_of(unit: str) -> str:
-    m = HS_RE.match(unit)
+    m = hs_re().match(unit)
     return m.group("team") if m else ""
 
 
@@ -350,7 +374,7 @@ def _categorise(stop: Stop, near: Sequence[Entry], boots: Sequence[Boot]) -> str
         ):
             return "exit-code"
         return "exited on its own"
-    health = f"agent-bus-hs-health@{team}.service"
+    health = units().health_service(team)
     if any(
         e.unit == health and "restarting" in e.msg
         for e in _between(near, stop.at - HEALTH_BEFORE, stop.at)
@@ -417,7 +441,7 @@ def _context(stop: Stop, entries: Sequence[Entry]) -> list[str]:
 
 
 def _backup_near(stop: Stop, entries: Sequence[Entry]) -> str:
-    unit = f"agent-bus-backup@{team_of(stop.unit)}.service"
+    unit = units().backup_service(team_of(stop.unit))
     runs = [
         e
         for e in _between(entries, stop.at - BACKUP_BEFORE, stop.at)
@@ -475,9 +499,9 @@ def _team_report(
     windows: Sequence[Window],
     out: list[str],
 ) -> tuple[list[Stop], int]:
-    unit = f"agent-bus-hs@{team}.service"
-    health = f"agent-bus-hs-health@{team}.service"
-    backup = f"agent-bus-backup@{team}.service"
+    unit = units().hs_unit(team)
+    health = units().health_service(team)
+    backup = units().backup_service(team)
     boot_index = {b.boot_id: i - len(boots) + 1 for i, b in enumerate(boots)}
     stops = stops_of(unit, entries, boots, windows)
     starts = _unit_lines(unit, entries, "Started ")
@@ -561,7 +585,7 @@ def analyse(
     found = sorted({team_of(e.unit) for e in entries if team_of(e.unit)} | set(teams))
     if not found:
         raise Failed(
-            "no agent-bus-hs@ unit in the journal export and none installed: nothing to analyse"
+            f"no {units().hs_unit('<team>')} unit in the journal export and none installed: nothing to analyse"
         )
     report = [
         "Plan 00203 homeserver stop analysis (triage-hs.bash, hs_journal.py). Facts only; no verdict.",
@@ -579,7 +603,7 @@ def analyse(
         }
         for s in stops:
             kinds[CATEGORY_KIND[s.category]][s.category] += 1
-        peak = max(_peaks(f"agent-bus-hs@{team}.service", entries), default=None)
+        peak = max(_peaks(units().hs_unit(team), entries), default=None)
         summary.append(
             f"team {team}: {len(stops)} stops; "
             + "; ".join(

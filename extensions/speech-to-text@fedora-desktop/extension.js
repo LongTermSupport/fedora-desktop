@@ -23,9 +23,9 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
-import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
+import { spawnWatched, killArgv, discardRecorder } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
-import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
+import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings, postProcessingOffered, recordKeys } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
 import { LOWER_MEDIA_KEY, migratePauseMediaKey, startMediaHold } from './mediaHold.js';
 
@@ -35,7 +35,8 @@ const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
 
 // The panel's own object, which the recorders call (on org.gnome.Shell) before each
 // paste. focused false: the pinned window was given focus back, ask again; gone true:
-// it was closed, paste nothing.
+// it was closed, paste nothing; tab_changed true: another Ptyxis tab is showing, paste
+// nothing.
 const PANEL_DBUS_PATH = '/org/fedoradesktop/SpeechToText/Panel';
 const PANEL_DBUS_XML = `
 <node>
@@ -46,6 +47,7 @@ const PANEL_DBUS_XML = `
       <arg type="b" direction="out" name="save_after"/>
       <arg type="b" direction="out" name="focused"/>
       <arg type="b" direction="out" name="gone"/>
+      <arg type="b" direction="out" name="tab_changed"/>
     </method>
   </interface>
 </node>`;
@@ -80,6 +82,9 @@ export default class SpeechToTextExtension extends Extension {
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
         this._claudeEnabled = false;  // Enable Claude Code post-processing
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
+        // Whether this install offers Claude post-processing, and the record keys bound
+        this._postProcessingOffered = false;
+        this._recordKeys = [];
         // The one recorder the panel follows, and what each key does (panelSession.js)
         this._panel = null;
         this._hourglassIcon = null;
@@ -116,23 +121,24 @@ export default class SpeechToTextExtension extends Extension {
         this._isArticleMode = false;  // Track if article mode window is open
         this._elapsedSeconds = 0;  // Elapsed seconds shown in article mode indicator
 
-        // Whisper model definitions (name, label, size, description, englishOnly)
+        // Whisper model definitions (name, label, description, englishOnly). A model's
+        // size lives only in wsi-resolve-model (SIZE_MB), which the model manager shows.
         this._whisperModels = [
-            ['auto', 'Auto (optimized per mode)', 'varies', 'GPU: Distil Large v3.5 (English) or Large v3 Turbo; CPU: base streaming, small batch', false],
+            ['auto', 'Auto (optimized per mode)', 'GPU: Distil Large v3.5 (English) or Large v3 Turbo; CPU: base streaming, small batch', false],
             // Multilingual models
-            ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy', false],
-            ['base', 'Base', '~142MB', 'Fast, good accuracy', false],
-            ['small', 'Small', '~466MB', 'Balanced speed/accuracy', false],
-            ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy', false],
-            ['large-v2', 'Large v2', '~3GB', 'Very high accuracy', false],
-            ['large-v3', 'Large v3', '~3GB', 'Best quality', false],
-            ['large-v3-turbo', 'Large v3 Turbo', '~1.6GB', 'Distilled, fast + accurate', false],
-            // English-only models (smaller and faster — no multilingual capability)
-            ['tiny.en', 'Tiny English', '~41MB', 'Fastest, English only', true],
-            ['base.en', 'Base English', '~77MB', 'Fast, good accuracy, English only', true],
-            ['small.en', 'Small English', '~252MB', 'Balanced, English only', true],
-            ['medium.en', 'Medium English', '~789MB', 'Great accuracy, English only', true],
-            ['distil-large-v3.5', 'Distil Large v3.5', '~1.5GB', 'Fewer errors than Turbo, faster, English only', true],
+            ['tiny', 'Tiny', 'Fastest, basic accuracy', false],
+            ['base', 'Base', 'Fast, good accuracy', false],
+            ['small', 'Small', 'Balanced speed/accuracy', false],
+            ['medium', 'Medium', 'Slow, great accuracy', false],
+            ['large-v2', 'Large v2', 'Very high accuracy', false],
+            ['large-v3', 'Large v3', 'Best quality', false],
+            ['large-v3-turbo', 'Large v3 Turbo', 'Distilled, fast + accurate', false],
+            // English-only models (no multilingual capability)
+            ['tiny.en', 'Tiny English', 'Fastest, English only', true],
+            ['base.en', 'Base English', 'Fast, good accuracy, English only', true],
+            ['small.en', 'Small English', 'Balanced, English only', true],
+            ['medium.en', 'Medium English', 'Great accuracy, English only', true],
+            ['distil-large-v3.5', 'Distil Large v3.5', 'Fewer errors than Turbo, faster, English only', true],
         ];
 
         // Claude model definitions (name, label, description)
@@ -205,53 +211,28 @@ export default class SpeechToTextExtension extends Extension {
                 if (migratePauseMediaKey(this._settings))
                     this._log('The Pause Media switch carried over to Lower Media Volume');
 
-                this._log('Attempting to add keybinding...');
-                const bindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('INSERT KEY PRESSED - callback fired!');
-                        this._onRecordKey('dictation');
-                    }
-                );
-                this._log(`Keybinding registration result: ${bindingAdded}`);
-
-                // Add Ctrl+Insert keybinding for Claude processing (corporate style)
-                const claudeBindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording-claude',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('CTRL+INSERT PRESSED - Claude processing (corporate)!');
-                        this._onRecordKey('claude', 'corporate');
-                    }
-                );
-                this._log(`Claude keybinding registration result: ${claudeBindingAdded}`);
-
-                // Add Alt+Insert keybinding for Claude processing (natural style)
-                const claudeNaturalBindingAdded = Main.wm.addKeybinding(
-                    'toggle-recording-claude-natural',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._log('ALT+INSERT PRESSED - Claude processing (natural)!');
-                        this._onRecordKey('claude', 'natural');
-                    }
-                );
-                this._log(`Claude natural keybinding registration result: ${claudeNaturalBindingAdded}`);
+                // Insert records dictation; Ctrl+Insert (corporate) and Alt+Insert (natural)
+                // record for Claude post-processing, bound only where the install offers it
+                this._postProcessingOffered = postProcessingOffered(this._settings);
+                this._recordKeys = recordKeys(this._postProcessingOffered);
+                const results = this._recordKeys.map(({name, kind, style}) => {
+                    const action = Main.wm.addKeybinding(
+                        name,
+                        this._settings,
+                        Meta.KeyBindingFlags.NONE,
+                        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                        () => {
+                            this._log(`${name} pressed (${kind}${style ? `, ${style}` : ''})`);
+                            this._onRecordKey(kind, style ?? undefined);
+                        }
+                    );
+                    this._log(`Keybinding ${name} registration result: ${action}`);
+                    return {name, action, accels: this._settings.get_strv(name)};
+                });
 
                 // A key the shell refused, or with no key set, does nothing when pressed;
                 // the debug log above is off by default, so say it where it is seen
-                const unusable = unusableKeybindings([
-                    ['toggle-recording', bindingAdded],
-                    ['toggle-recording-claude', claudeBindingAdded],
-                    ['toggle-recording-claude-natural', claudeNaturalBindingAdded],
-                ].map(([name, action]) => ({name, action, accels: this._settings.get_strv(name)})),
-                Meta.KeyBindingAction.NONE);
+                const unusable = unusableKeybindings(results, Meta.KeyBindingAction.NONE);
                 if (unusable.length > 0) {
                     this._log(`Unusable record keys: ${unusable.join('; ')}`);
                     Main.notify('STT Error', `These record keys do nothing: ${unusable.join('; ')}. ` +
@@ -330,9 +311,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Remove keybindings
         try {
-            Main.wm.removeKeybinding('toggle-recording');
-            Main.wm.removeKeybinding('toggle-recording-claude');
-            Main.wm.removeKeybinding('toggle-recording-claude-natural');
+            for (const {name} of this._recordKeys)
+                Main.wm.removeKeybinding(name);
+            this._recordKeys = [];
             this._removeAbortKeybinding();
         } catch (e) {
             // A keybinding may not have been registered; surface it rather than swallow it.
@@ -482,8 +463,10 @@ export default class SpeechToTextExtension extends Extension {
         copyItem.connect('activate', () => { this._copyLastTranscription(); });
         menu.addMenuItem(copyItem);
 
-        // Claude post-processing after the fact, one item per Ctrl/Alt+Insert style
-        for (const {style, label} of POST_PROCESS_STYLES) {
+        // Claude post-processing after the fact, one item per Ctrl/Alt+Insert style, and
+        // Create Article (Claude writes it): only where the install offers post-processing
+        const styles = this._postProcessingOffered ? POST_PROCESS_STYLES : [];
+        for (const {style, label} of styles) {
             const item = new PopupMenu.PopupMenuItem(label);
             item.connect('activate', () => { this._postProcessLast(style); });
             menu.addMenuItem(item);
@@ -493,9 +476,11 @@ export default class SpeechToTextExtension extends Extension {
         viewLogItem.connect('activate', () => { this._openLogViewer(); });
         menu.addMenuItem(viewLogItem);
 
-        const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
-        articleItem.connect('activate', () => { this._onArticleItem(); });
-        menu.addMenuItem(articleItem);
+        if (this._postProcessingOffered) {
+            const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
+            articleItem.connect('activate', () => { this._onArticleItem(); });
+            menu.addMenuItem(articleItem);
+        }
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -713,6 +698,11 @@ export default class SpeechToTextExtension extends Extension {
         if (filesRunning !== this._filesRunning) {
             this._filesRunning = filesRunning;
             this._log(`File transcription ${filesRunning ? 'started' : 'ended'}`);
+            if (this._settings?.get_boolean('notify-file-jobs')) {
+                Main.notify('Speech to Text', filesRunning
+                    ? 'Transcribing recorded files…'
+                    : 'Recorded files transcribed');
+            }
             if (this._icon && this._iconState === 'IDLE')
                 this._showLook('IDLE');
         }
@@ -1222,15 +1212,17 @@ export default class SpeechToTextExtension extends Extension {
     _exportPanelDBus() {
         this._panelDBus = Gio.DBusExportedObject.wrapJSObject(PANEL_DBUS_XML, {
             PasteKey: () => {
-                const { window, focused, gone } = this._pasteTarget.answer(global.display.focus_window);
+                const { window, focused, gone, tabChanged } = this._pasteTarget.answer(global.display.focus_window);
                 if (gone) {
                     this._log('The window this dictation started in was closed: nothing is pasted');
-                    return ['', false, false, false, true];
+                    return ['', false, false, false, true, false];
                 }
                 const { wmClass, withShift, saveAfter } = this._pasteTargetFor(window);
-                if (!focused)
+                if (tabChanged)
+                    this._log(`"${wmClass}" shows another tab than at Insert ("${window.get_title()}"): nothing is pasted`);
+                else if (!focused)
                     this._log(`"${wmClass}" lost focus during the dictation; giving it focus back`);
-                return [wmClass, withShift, saveAfter, focused, false];
+                return [wmClass, withShift, saveAfter, focused, false, tabChanged];
             },
         });
         this._panelDBus.export(Gio.DBus.session, PANEL_DBUS_PATH);
@@ -1245,22 +1237,58 @@ export default class SpeechToTextExtension extends Extension {
 
     /** Send `signalName` to recorder `pid`, or to its whole process group with `group`. */
     _signalProcess(pid, signalName, group = false) {
-        const argv = killArgv(pid, signalName, group);
+        this._spawnArgv(killArgv(pid, signalName, group));
+    }
+
+    /** Run `argv` (a kill(1) command line) without waiting for it. */
+    _spawnArgv(argv) {
         this._log(argv.join(' '));
         GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     }
 
-    /** Escape: throw the dictation away (recorderLaunch.js discardSignal says how). */
+    /** Escape: throw the dictation away (recorderLaunch.js discardRecorder says how).
+     * Returns what panelSession.js runs once the recorder has exited: the files the
+     * killed recorder leaves are removed, its PID file among them. */
     _discardRecording(pid, launch) {
-        const {signal, group} = discardSignal(launch);
-        this._signalProcess(pid, signal, group);
-        if (launch.serverMode)
-            return;
-        // A killed recorder cannot remove its own PID file
-        if (this._readPidFile(RECORDER_PID_FILE) === String(pid)) {
-            Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
-            this._log(`Removed the PID file of the discarded recorder ${pid}`);
+        const removeLeftovers = discardRecorder(pid, launch, {
+            user: GLib.get_user_name(),
+            home: GLib.get_home_dir(),
+            send: argv => this._spawnArgv(argv),
+            remove: path => this._removeLeftover(path),
+        });
+        return () => {
+            const failed = [];
+            for (const remove of [
+                removeLeftovers,
+                // A killed recorder cannot remove its own PID file
+                () => {
+                    if (!launch.serverMode && this._readPidFile(RECORDER_PID_FILE) === String(pid))
+                        this._removeLeftover(RECORDER_PID_FILE);
+                },
+            ]) {
+                try {
+                    remove();
+                } catch (e) {
+                    failed.push(e.message);
+                }
+            }
+            if (failed.length > 0)
+                throw new Error(failed.join('; '));
+        };
+    }
+
+    /** Remove `path`, left by a discarded recorder, before the panel is ready again (so it
+     * is synchronous: the files are small, in /dev/shm or the cache). One already gone is
+     * nothing left; any other failure throws, and panelSession.js reports it. */
+    _removeLeftover(path) {
+        try {
+            Gio.File.new_for_path(path).delete(null);
+        } catch (e) {
+            if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                return;  // the recorder never wrote it: nothing was left
+            throw new Error(`${path}: ${e.message}`);
         }
+        this._log(`Removed ${path}, left by the discarded recorder`);
     }
 
     /** The PID the file at `path` holds, or null with no file. */

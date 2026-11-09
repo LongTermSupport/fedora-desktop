@@ -66,6 +66,8 @@ func (o *Ops) Remove(ctx context.Context, args []string) term.ExitCode {
 	if !o.interactive() {
 		return o.usageError("'remove' asks on a terminal, always: taking a team down is a human's decision.")
 	}
+	// Destructive: every question starts on no key typed before it drew (ui.Drain).
+	defer o.Gum.Destructive()()
 	if _, err := o.LookPath("gum"); err != nil {
 		o.Term.PrintError("gum is not installed, and ccy-teams needs it here. playbooks/imports/play-claude-yolo.yml installs it; run that play and try again.")
 		return term.ExitFailure
@@ -124,8 +126,9 @@ func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool
 		return o.questionFailed(err), false
 	}
 	if !yes {
+		// A person's No is a decline, not a failure (Plan 00201 Task 2.29).
 		o.Term.Printf("Nothing was changed: a team is taken down once no running session is in it.\n")
-		return term.ExitFailure, false
+		return term.ExitOK, false
 	}
 	for _, session := range in {
 		if !o.TakeOut(ctx, session, team) {
@@ -208,8 +211,9 @@ func (o *Ops) chooseFate(ctx context.Context, team string) (bool, term.ExitCode,
 		}
 		return true, 0, true
 	default:
+		// Leaving it running is a decline, not a failure (Plan 00201 Task 2.29).
 		o.Term.Printf("Nothing was changed.\n")
-		return false, term.ExitFailure, false
+		return false, term.ExitOK, false
 	}
 }
 
@@ -263,6 +267,15 @@ func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.E
 			" but is still running; once the cause above is fixed, ccy-teams remove " + team + " runs the play again.")
 		return term.ExitFailure, false
 	}
+	watched, werr := o.elementTeams(ctx, []string{team})
+	if werr != nil {
+		return o.childExit(werr), false
+	}
+	if len(watched) > 0 && o.pruneElement(ctx, team) != nil {
+		o.Term.PrintError(team + " is down, but its Element launcher is not removed; once the cause above is fixed, " +
+			"ccy-teams remove " + team + " runs both plays again.")
+		return term.ExitFailure, false
+	}
 	return term.ExitOK, true
 }
 
@@ -308,6 +321,8 @@ func (o *Ops) Restore(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return code
 	}
+	// Destructive: every screen starts on no key typed before it drew (ui.Drain).
+	defer o.Picker.Destructive()()
 	if o.Sudo.Ready(ctx, whyBackups) != nil {
 		return term.ExitFailure
 	}

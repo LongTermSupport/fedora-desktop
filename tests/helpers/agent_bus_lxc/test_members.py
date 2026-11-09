@@ -170,6 +170,12 @@ class FakeGuest:
         self.source, self.suggest, self.users, self.config_ok = source, suggest, users, config_ok
         self.gh_ok = True
         self.gh_checks: list[tuple[str, str]] = []
+        #: gh is on the container's PATH; when it is not, GH_INSTALL_SH installs it (with
+        #: gh_manager), or fails with gh_install_error.
+        self.gh_installed = True
+        self.gh_manager = "apt"
+        self.gh_install_error: str | None = None
+        self.gh_installs = 0
         self.agent_runs: list[tuple[str, str, tuple[str, ...]]] = []
         # systemd inside the container, for a member's supervised session (Plan 00203 gap 9).
         self.unit_dir = str(root / "etc" / "systemd" / "system")
@@ -226,6 +232,14 @@ class FakeGuest:
             if self.tmux is None:
                 raise members.MemberError(f"{what} failed (exit 4): no tmux")
             return f"{self.tmux}\n".encode()
+        if list(argv) == ["sh", "-c", members.GH_INSTALL_SH]:
+            self.gh_installs += 1
+            if self.gh_installed:
+                return b""
+            if self.gh_install_error is not None:
+                raise members.MemberError(f"{what} failed (exit 5): {self.gh_install_error}")
+            self.gh_installed = True
+            return f"{self.gh_manager}\n".encode()
         if list(argv[:3]) == ["sh", "-c", members.PYTHON_FIND_SH]:
             # The real search, over this container's root: what it prints is said as the
             # container sees it.
@@ -241,10 +255,11 @@ class FakeGuest:
               stdin: bytes = b"", env: Sequence[str] = ()) -> bytes:
         assert argv[3:4] not in ([s] for s in ROOT_SCRIPTS), f"{what} ran as the agent"
         if list(argv) == ["sh", "-c", members.GH_CHECK_SH]:
+            assert self.gh_installed, "gh's login was checked before gh was installed"
             self.gh_checks.append((user, argv[2]))
             if not self.gh_ok:
-                raise members.MemberError(f"{what} failed (exit 1): no oauth token found for github.com")
-            return b""
+                return b"logged-out no oauth token found for github.com\n"
+            return b"logged-in\n"
         self.agent_runs.append((user, cwd, tuple(env)))
         return self._run(argv, what, stdin, env)
 
@@ -389,6 +404,13 @@ class ParseMembersTest(unittest.TestCase):
             members.parse_members([entry(role="coordinator", human_text=False)])
         (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
         self.assertEqual(member.state, "absent")
+
+    def test_root_is_never_the_agent_user(self) -> None:
+        # Plan 00177 Task 11.3: the agent runs as an ordinary user with no sudo, never as the
+        # container's root, whatever the state (an absent entry is refused too: it was never valid).
+        for state in ("present", "absent"):
+            with self.subTest(state=state), self.assertRaisesRegex(members.MemberError, "entry 1: user must not be root"):
+                members.parse_members([entry(user="root", state=state)])
 
     def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
         (member,) = members.parse_members([entry(role="orchestrator")])
@@ -706,21 +728,153 @@ class PresentPhaseTest(Fixture):
         with self.assertRaisesRegex(members.MemberError, "bundle unreadable"):
             self.run_phase("present", [entry()])
 
-    def test_gh_is_checked_as_the_agent_user_before_any_change(self) -> None:
-        """README.lxc: gh is required and logged in. The play checks it, never provides it."""
+    def test_gh_login_is_checked_as_the_agent_user_before_any_team_change(self) -> None:
+        """README.lxc: gh is required and logged in. The play installs gh; the login is the owner's."""
         self.run_phase("present", [entry()])
         self.assertEqual(self.guest.gh_checks, [("agent", members.GH_CHECK_SH)])
 
-    def test_gh_missing_or_logged_out_refused_naming_the_container(self) -> None:
+    def test_gh_logged_out_stops_with_the_one_command_the_owner_runs(self) -> None:
         self.guest.gh_ok = False
         with self.assertRaises(members.MemberError) as caught:
             self.run_phase("present", [entry()])
         message = str(caught.exception)
-        self.assertIn("LXC container devbox", message)
-        self.assertIn("gh auth login --hostname github.com", message)
+        self.assertIn("LXC container devbox: gh is required and must be logged in", message)
         self.assertIn("no oauth token", message)
+        self.assertIn("  sudo lxc-attach -n devbox -- su - agent -c 'gh auth login --hostname github.com --web'",
+                      message)
+        self.assertIn("device code", message)
+        self.assertIn(f"ccy-teams lxc-add {TEAM} again, or ccy-teams apply {TEAM}", message)
+        self.assertNotIn("install gh", message)
         self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
         self.assertEqual(self.bus.calls, [])
+
+    def test_once_logged_in_a_rerun_joins_with_no_other_step(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh auth login"):
+            self.run_phase("present", [entry()])
+        self.guest.gh_ok = True  # the owner's device-code login, and nothing else
+        changed = self.run_phase("present", [entry()])
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
+        self.assertEqual(self.guest.gh_installs, 2)
+        self.assertFalse(any("gh installed" in line for line in changed))
+
+    def test_gh_missing_is_installed_as_root_then_its_login_checked(self) -> None:
+        self.guest.gh_installed = False
+        changed = self.run_phase("present", [entry()])
+        self.assertIn("container devbox: gh installed (apt, from cli.github.com)", changed)
+        self.assertEqual(self.guest.gh_checks, [("agent", members.GH_CHECK_SH)])
+        self.assertEqual(self.run_phase("present", [entry()]), [])
+        self.assertEqual(self.guest.gh_installs, 2)
+
+    def test_gh_from_alpine_is_said_as_its_own_package(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_manager = "apk"
+        self.assertIn("container devbox: gh installed (apk, the distribution's github-cli)",
+                      self.run_phase("present", [entry()]))
+
+    def test_gh_that_cannot_be_installed_fails_before_any_team_change(self) -> None:
+        self.guest.gh_installed = False
+        self.guest.gh_install_error = "this container has none of apt-get, dnf or apk"
+        with self.assertRaises(members.MemberError) as caught:
+            self.run_phase("present", [entry()])
+        self.assertIn("LXC container devbox: installing gh", str(caught.exception))
+        self.assertIn("none of apt-get, dnf or apk", str(caught.exception))
+        self.assertEqual(self.guest.gh_checks, [])
+        self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
+        self.assertEqual(self.bus.calls, [])
+
+    def test_gh_is_not_installed_when_another_check_fails_first(self) -> None:
+        self.guest.gh_installed = False
+        self.bridge = False
+        with self.assertRaisesRegex(members.MemberError, "not a bridge"):
+            self.run_phase("present", [entry()])
+        self.assertEqual(self.guest.gh_installs, 0)
+
+
+class GhLoginRefusalTest(unittest.TestCase):
+    """Every member whose gh is not logged in is named in one message, each with its command."""
+
+    def test_two_members_one_message(self) -> None:
+        found = members.parse_members([entry(), entry(container="box2", user="bot", team=OTHER_TEAM)])
+        message = members.gh_login_refusal([(found[0], "no oauth token"), (found[1], "")])
+        self.assertIn("sudo lxc-attach -n devbox -- su - agent -c 'gh auth login --hostname github.com --web'", message)
+        self.assertIn("sudo lxc-attach -n box2 -- su - bot -c 'gh auth login --hostname github.com --web'", message)
+        self.assertIn(f"ccy-teams lxc-add {TEAM} again, or ccy-teams apply {TEAM}", message)
+        self.assertIn(f"ccy-teams lxc-add {OTHER_TEAM} again, or ccy-teams apply {OTHER_TEAM}", message)
+        self.assertEqual(message.count("gh is required and must be logged in"), 2)
+
+
+class GhScriptsTest(unittest.TestCase):
+    """GH_INSTALL_SH and GH_CHECK_SH run for real by sh, with stand-ins for gh and the package
+    managers on a PATH that holds nothing else (the apt and dnf branches write under /etc, so
+    only their choice is reached here, by the branches that stop first)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.bin = pathlib.Path(self._tmp.name) / "bin"
+        self.bin.mkdir()
+        self.home = pathlib.Path(self._tmp.name) / "home"
+        self.home.mkdir()
+
+    def tool(self, name: str, body: str) -> None:
+        path = self.bin / name
+        path.write_text(f"#!/bin/sh\n{body}\n")
+        path.chmod(0o755)
+
+    def sh(self, script: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True, check=False,
+                              env={"PATH": str(self.bin), "HOME": str(self.home)})
+
+    def test_gh_present_changes_nothing(self) -> None:
+        self.tool("gh", "exit 0")
+        self.tool("apk", "echo apk ran >&2; exit 9")
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, ""), run.stderr)
+
+    def test_no_package_manager_fails_naming_them(self) -> None:
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("none of apt-get, dnf or apk", run.stderr)
+        self.assertEqual(run.stdout, "")
+
+    def test_alpine_installs_github_cli_and_says_apk(self) -> None:
+        chmod = shutil.which("chmod")
+        self.tool("apk", f'[ "$*" = "add --no-cache github-cli" ] || exit 9\n'
+                         f'printf "#!/bin/sh\\nexit 0\\n" > "{self.bin}/gh"; {chmod} 755 "{self.bin}/gh"\n'
+                         'echo "OK: installed"')
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, "apk\n"), run.stderr)
+        self.assertIn("OK: installed", run.stderr)
+
+    def test_a_failing_package_manager_fails(self) -> None:
+        self.tool("apk", "echo 'ERROR: unable to select packages' >&2; exit 1")
+        run = self.sh(members.GH_INSTALL_SH)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stdout, "")
+
+    def test_the_check_says_logged_in_and_never_prints_the_token(self) -> None:
+        self.tool("gh", '[ "$*" = "auth token --hostname github.com" ] || exit 9\necho gho_SECRETVALUE')
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "logged-in\n", ""))
+
+    def test_the_check_says_logged_out_with_what_gh_said(self) -> None:
+        self.tool("gh", "echo 'no oauth token found for github.com' >&2; exit 1")
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual((run.returncode, run.stdout), (0, "logged-out no oauth token found for github.com\n"))
+
+    def test_the_check_reads_the_env_file(self) -> None:
+        env = self.home / members.PINGBUS_DIR
+        env.mkdir(parents=True)
+        (env / "env").write_text("MARK=from-env\n")
+        self.tool("gh", '[ "$MARK" = from-env ] || exit 1\necho t')
+        self.assertEqual(self.sh(members.GH_CHECK_SH).stdout, "logged-in\n")
+
+    def test_the_check_without_gh_says_logged_out_not_a_crash(self) -> None:
+        run = self.sh(members.GH_CHECK_SH)
+        self.assertEqual(run.returncode, 0)
+        self.assertTrue(run.stdout.startswith("logged-out "), run.stdout)
 
 
 class ResolveMembersTest(unittest.TestCase):
@@ -1344,6 +1498,125 @@ class StoppedAbsentTest(StoppedFixture):
         self.assertFalse(self.bus.members[HANDLE][1])
         self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
         self.assertIn("not parked", self.reports[0].why)
+
+
+class NeverJoinedAbsentTest(Fixture):
+    """Plan 00177 Task 9.9: an entry `ccy-teams lxc-add` wrote (no host, no seat) whose member
+    never joined (gh missing, so no bundle was made) is taken off by `state: absent`. With no
+    bundle and no record, its handle is looked for in the team: nothing to park when no active
+    member of its `<repo>+<host>.lxc` is unheld; refused, naming the handle, when one may be its."""
+
+    def derived(self, **overrides: object) -> dict:
+        return entry(**{"host": None, "seat": None, **overrides})
+
+    def never_joined(self) -> None:
+        self.guest.gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh is required"):
+            self.run_phase("present", [self.derived()])
+        self.guest.gh_ok = True
+
+    def test_a_member_that_never_joined_leaves_with_nothing_parked(self) -> None:
+        self.never_joined()
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent")]), [])
+        self.assertNotIn("park-member", [call[0] for call in self.bus.calls])
+        self.assertEqual(self.bus.members, {})
+        self.assertEqual((self.item()["status"], self.item()["handle"]), ("left", None))
+        self.assertEqual(self.reports, [])
+        self.assertEqual(self.reads, [("devbox", "agent", CHECKOUT)])
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent")]), [])
+
+    def test_its_team_listed_in_the_env_file_is_still_taken_out(self) -> None:
+        self.never_joined()
+        self.env_file().parent.mkdir(parents=True)
+        self.env_file().write_text(f"PINGBUS_TEAMS={TEAM},{OTHER_TEAM}\n")
+        changed = self.run_phase("absent", [self.derived(state="absent")])
+        self.assertIn(f"agent@devbox: {members.ENV_PATH} no longer lists {TEAM}", changed)
+        self.assertEqual(self.env_file().read_text(), f"PINGBUS_TEAMS={OTHER_TEAM}\n")
+
+    def test_a_parked_member_or_another_repo_or_host_is_not_its_handle(self) -> None:
+        self.bus.members.update({"proj.1+box.lxc": ["worker", True], "other.1+box.lxc": ["worker", False],
+                                 "proj.1+elsewhere.lxc": ["worker", False], "proj.1+box.podman": ["worker", False]})
+        self.never_joined()
+        self.run_phase("absent", [self.derived(state="absent")])
+        self.assertNotIn("park-member", [call[0] for call in self.bus.calls])
+
+    def test_an_active_member_no_entry_holds_may_be_its_own_so_it_is_refused(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        self.never_joined()
+        with self.assertRaisesRegex(members.MemberError,
+                                    r"agent@devbox: no bundle.*proj\.1\+box\.lxc is an active member.*seat: 1"):
+            self.run_phase("absent", [self.derived(state="absent")])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_the_seat_the_refusal_names_parks_it_with_the_host_derived(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        changed = self.run_phase("absent", [self.derived(state="absent", seat="1")])
+        self.assertEqual(changed, [f"parked proj.1+box.lxc in team {TEAM}"])
+        self.assertTrue(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_a_lost_bundle_is_parked_by_the_handle_the_record_holds(self) -> None:
+        # The present phase's refusal says: set state: absent and run the play, which parks it.
+        self.run_phase("present", [self.derived()])
+        shutil.rmtree(self.bundle_dir())
+        with self.assertRaisesRegex(members.MemberError, "state: absent"):
+            self.run_phase("present", [self.derived()])
+        changed = self.run_phase("absent", [self.derived(state="absent")])
+        self.assertEqual(changed[0], f"parked proj.1+box.lxc in team {TEAM}")
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+    def test_a_checkout_that_cannot_be_read_fails(self) -> None:
+        self.never_joined()
+        self.unreadable = "container devbox is unprivileged"
+        with self.assertRaisesRegex(members.MemberError, "unprivileged"):
+            self.run_phase("absent", [self.derived(state="absent")])
+
+    def test_a_destroyed_container_is_judged_by_its_repo(self) -> None:
+        self.never_joined()
+        self.state = None
+        with self.assertRaisesRegex(members.MemberError, "repo"):
+            self.run_phase("absent", [self.derived(state="absent")])
+        self.assertEqual(self.run_phase("absent", [self.derived(state="absent", repo="proj")]), [])
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        with self.assertRaisesRegex(members.MemberError, r"proj\.1\+box\.lxc is an active member.*host: box"):
+            self.run_phase("absent", [self.derived(state="absent", repo="proj")])
+        self.assertFalse(self.bus.members["proj.1+box.lxc"][1])
+
+
+class NeverJoinedBesideAJoinedOneTest(Fixture):
+    """Task 9.9: the seat another entry's record holds is that entry's, never the leaver's."""
+
+    ENTRIES = SecondContainerTest.ENTRIES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.guests = {"container-a": FakeGuest(self.tmp / "guest-a"),
+                       "container-b": FakeGuest(self.tmp / "guest-b")}
+        for guest in self.guests.values():
+            guest.suggest = "--repo=proj-a --host=box --type=lxc"
+        self.remote_config = '[remote "origin"]\n\turl = https://github.com/example-org/proj-a.git\n'
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def test_the_other_containers_seat_is_left_alone(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        self.guests["container-b"].gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "gh is required"):
+            self.run_phase("present", self.ENTRIES)
+        leaving = [self.ENTRIES[0], {**self.ENTRIES[1], "state": "absent"}]
+        self.assertEqual(self.run_phase("absent", leaving), [])
+        self.assertEqual(self.bus.members, {"proj-a.1+box.lxc": ["worker", False]})
+        self.assertEqual(self.run_phase("present", leaving), [])
+
+    def test_without_the_record_the_other_containers_seat_is_refused_not_parked(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        self.records.clear()
+        leaving = [self.ENTRIES[0], {**self.ENTRIES[1], "state": "absent"}]
+        with self.assertRaisesRegex(members.MemberError, r"proj-a\.1\+box\.lxc is an active member"):
+            self.run_phase("absent", leaving)
+        self.assertFalse(self.bus.members["proj-a.1+box.lxc"][1])
 
 
 class MemberRecordTest(StoppedFixture):

@@ -24,6 +24,25 @@ func TestSignInGapOffersAPasswordToAPersonWithNoSessions(t *testing.T) {
 	if strings.Contains(got, "guest") {
 		t.Fatalf("a person with a session was offered a password: %q", got)
 	}
+	// Decision A12: an offer that starts something starts on No.
+	if want := "gum confirm --default=false Sign owner in to Element now? A password is set and shown here once."; len(h.Script.GumLog) == 0 || h.Script.GumLog[0] != want {
+		t.Fatalf("gum %q, want %q first", h.Script.GumLog, want)
+	}
+}
+
+// A password copied during the sign-in after an apply is cleared before SignInGap returns.
+func TestSignInGapClearsACopiedPassword(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.copiable("a-new-password")
+	h.Script.Gum = []string{"YES"}
+	h.Script.Fzf = []string{"|YES"}
+	if err := h.l.SignInGap(t.Context(), []string{"alpha"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called("wl-copy --clear") || !strings.Contains(h.ErrOut.String(), clearedLine) {
+		t.Fatalf("calls %v stderr %q", h.Fake.Calls(), h.ErrOut.String())
+	}
 }
 
 func TestSignInGapDeclinedSaysHowToSignInLater(t *testing.T) {

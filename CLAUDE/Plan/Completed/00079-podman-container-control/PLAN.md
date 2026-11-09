@@ -7,6 +7,14 @@ closed the plan; a real `freeze --ccy` / `thaw --ccy` passed; the sixth confirmi
 **Owner**: joseph
 **Priority**: Medium
 
+> **Attribution correction.** This plan is archived and its text stays as written. The
+> record (`JOURNAL/00079-Journal-26-09-25.md:27-30`) shows the owner reporting "podfreeze is
+> all good" and closing the plan. It does not show the owner accepting the fallback menu
+> without fzf, so `PLAN.md:244-245` ("the owner accepted the picker as it stands") and
+> `PLAN.md:295-296` ("accepted by the owner without a separate run") overstate it: that fallback
+> was never run and no test covers it (`pick_target` needs a TTY), an open gap, not an
+> accepted one. The Status line (`PLAN.md:3`) likewise rests on that general report.
+
 > The full pre-slimming document, with every fact and decision inline, is kept
 > verbatim in [PLAN_archive.md](PLAN_archive.md). Facts, findings and risks now
 > live in [RESEARCH-facts.md](RESEARCH-facts.md) (F-numbers) and decisions in

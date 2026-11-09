@@ -12,7 +12,7 @@
 #   Before any play, while the bash freeze tools are still installed, it saves what they print
 #   for `list` and `freeze --all -n` under untracked/freeze-acceptance/before-*; the plays then
 #   replace them. It ends by running acceptance.bash, which runs the Go tools through the same
-#   four commands and compares stdout with that baseline. Skipped under --check.
+#   four commands and checks they keep that baseline's layout. Skipped under --check.
 #
 # Usage: ./deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail
@@ -39,7 +39,7 @@ PLAN_USAGE="usage: deploy.bash [--check] [-y|--yes] [-h|--help]
 
 Saves what the bash podfreeze and lxcfreeze print (while they are still installed), runs
 play-claude-yolo.yml, play-podfreeze.yml and play-lxcfreeze.yml on the HOST, then runs
-acceptance.bash to compare the Go tools with that baseline. Then follow ACCEPTANCE-freeze.md."
+acceptance.bash to check the Go tools keep that baseline's layout. Then follow ACCEPTANCE-freeze.md."
 
 plan_mode deploy
 plan_parse_common_flags "$@"

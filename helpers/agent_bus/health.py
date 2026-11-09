@@ -50,6 +50,13 @@ STAMP_GROUP_FILE = pathlib.Path("/etc/agent-bus/stamp-group")
 INSTALL_STATE_ROOT = pathlib.Path("/var/lib/agent-bus-install")
 STATE_ROOT = pathlib.Path(render.STATE_ROOT)
 RECORD_VERSION = 1
+#: The words Plan 00203's robustness acceptance looks for: the status line's problem mark, the
+#: head of a systemd restart event and of a stale backup problem, and a state backup's file
+#: name before its number (agent-bus-install writes `agent-bus-state-<id>.tar`).
+PROBLEM_MARK = "PROBLEM"
+RESTARTED_TEXT = "systemd restarted the homeserver"
+NEWEST_BACKUP_TEXT = "the newest backup is"
+BACKUP_TAR_PREFIX = "agent-bus-state-"
 DIR_MODE = 0o750
 FILE_MODE = 0o640
 
@@ -182,7 +189,7 @@ def backup_problems(team: str, newest: Backup | None, service: Mapping[str, str]
             problems.append(Problem("no backup exists, though the daily backup has run", retry))
     elif now - newest.time > BACKUP_MAX_AGE:
         problems.append(Problem(
-            f"the newest backup is {age_words(now - newest.time)} old (#{newest.id}, {when_words(newest.time)})",
+            f"{NEWEST_BACKUP_TEXT} {age_words(now - newest.time)} old (#{newest.id}, {when_words(newest.time)})",
             retry))
     return problems
 
@@ -195,7 +202,7 @@ def restart_events(previous: Mapping | None, hs: Mapping[str, str], now: float) 
     before = (previous or {}).get("nrestarts", 0)
     if count > before:
         times = "once" if count == 1 else f"{count} times"
-        events.append({"at": int(now), "what": f"systemd restarted the homeserver {times} since it was last "
+        events.append({"at": int(now), "what": f"{RESTARTED_TEXT} {times} since it was last "
                                               f"started by hand (last cause: {hs['Result']})"})
     return events, count
 
@@ -253,7 +260,7 @@ def status_report(team: str, hs: Mapping[str, str], record: Mapping | None, now:
         elif record["backup_due"] is not None:
             lines.append(f"{team}: no backup yet; the first is due {when_words(record['backup_due'])}")
     for problem in problems:
-        lines += [f"{team}: PROBLEM {problem.what}", f"{team}:   do: {problem.fix}"]
+        lines += [f"{team}: {PROBLEM_MARK} {problem.what}", f"{team}:   do: {problem.fix}"]
     lines.append(f"{team}: {login_limits_text()}")
     return lines, len(problems)
 
@@ -328,8 +335,8 @@ def _tar_times(team: str, system: HealthSystem) -> dict[int, float]:
     tars = system.install_root / team / "backups"
     found = {}
     if tars.is_dir():
-        for path in tars.glob("agent-bus-state-*.tar"):
-            number = path.name.removeprefix("agent-bus-state-").removesuffix(".tar")
+        for path in tars.glob(f"{BACKUP_TAR_PREFIX}*.tar"):
+            number = path.name.removeprefix(BACKUP_TAR_PREFIX).removesuffix(".tar")
             if number.isdigit():
                 found[int(number)] = path.stat().st_mtime
     return found

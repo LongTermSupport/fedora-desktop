@@ -79,8 +79,9 @@ and the working tree, and asks whether any of them is one of that play's inputs.
 
 ### Phase 4: `--rerun` and the one-row panel
 
-The owner's call: a per-play listing in the panel drop-down is bloated and almost never
-clicked. Instead one row opens a menu of the plays, where a person picks.
+Design choice: one row opens a menu of the plays, where a person picks, instead of a
+per-play listing in the panel drop-down, which is bloated and almost never clicked. No
+record of an owner decision on it is kept.
 
 - [x] ✅ **Task 4.1**: `changed_plays.py --all` prints every play run here as
   `PLAY <state> <play>` (states `stale`, `failed`, `unresolved`, `current`), from the same
@@ -99,6 +100,28 @@ clicked. Instead one row opens a menu of the plays, where a person picks.
   container, and the menu needs a person. Both plays ran in meta-deploy
   `20261002-094803`, `failed=0` (`changed=0`: already in place); the logout and the row
   itself remain.
+
+### Phase 5: a dirty run is judged per input
+
+One stray untracked file under `CLAUDE/Plan/`, which no play reads, made every run record
+`dirty: true`, and every such play read stale whatever commit it ran at.
+
+- [x] ✅ **Task 5.1**: Each run records `dirty_paths` (modified, staged or untracked, at most
+  50\) and `dirty_paths_truncated`; `judge` stales a play for dirtiness only when a dirty path
+  is among its inputs or is the group_vars file, or when the record cannot name them all (cut,
+  unreadable, or written before the fields existed). The reason names the dirty inputs.
+  Defence Before Fix: `tests/helpers/play_ledger/test_dirty_judged_per_input.py` fails a
+  `git status` collapsed to one boolean and any read of a record's `dirty` outside
+  `ledger.recorded_dirty_paths`; it was red on `repo.is_dirty` and two reads in `judge`.
+  Records written before the change keep their old meaning until each play runs again.
+  Design: [DESIGN-play-ledger.md](../00109-desktop-drift-detection-and-fedora-desktop-panel/DESIGN-play-ledger.md).
+- [x] ✅ **Task 5.2**: A play's helper inputs are the modules it runs, not their packages.
+  The gnome plays were stale on a change to the ledger's code, through
+  `helpers/gnome/check_panel_contract.py`, a QA module beside the one they run. Defence
+  Before Fix: rule play-helper-input-unreachable (`CLAUDE/QA.md`), red on ten plays.
+- [x] ✅ **Task 5.3**: A clean collection removes the last handoff file, which named a play
+  already run as stale. No static detector separates the class from an ordinary
+  conditional write, so it is fixed conventionally, with regression tests.
 
 ## Success Criteria
 

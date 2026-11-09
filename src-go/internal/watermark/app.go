@@ -232,7 +232,7 @@ func (r *run) mark(ctx context.Context, s Settings, input string) error {
 	}
 	r.verbose("compose visible watermark → " + output)
 	if err := r.tool(ctx, execx.Cmd{Name: magickBin, Args: magick[1:]}); err != nil {
-		return fail(exitMagick, "magick failed (visible watermark)")
+		return fail(exitMagick, "magick failed (visible watermark): %v", err)
 	}
 	r.verbose("write metadata (EXIF/IPTC/XMP + XMP-wm sentinel)")
 	if err := r.tool(ctx, execx.Cmd{Name: exiftoolBin, Args: exif[1:]}); err != nil {
@@ -240,7 +240,7 @@ func (r *run) mark(ctx context.Context, s Settings, input string) error {
 		if rmErr := os.Remove(output); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 			r.say("could not remove the unmarked output: " + rmErr.Error())
 		}
-		return fail(exitExiftool, "exiftool failed (metadata write)")
+		return fail(exitExiftool, "exiftool failed (metadata write): %v", err)
 	}
 	r.out.Print(r.env.Stdout, outputReal+"\n")
 	return nil

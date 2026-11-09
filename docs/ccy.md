@@ -191,7 +191,11 @@ CPU used by everything it runs, container and host side, over a one-second sampl
 is one whole core (so the list takes a second to appear). `ccy-sessions --list` (or `-l`) prints the same
 table with a heading on stdout and exits, opening nothing and needing no terminal.
 Arrow keys choose, and Enter on a session lists what can be done to it: attach it here,
-take it over (Ctrl-T) or end it (Ctrl-X, which asks first). A row of its own starts a new
+take it over (Ctrl-T), close it (`/compact`, then `/exit`, as you would type them: it ends
+cleanly and its next resume starts from the summary; or without compacting, `/exit` only), or
+end it (Ctrl-X, which kills it and everything in it). Each asks first. `ccy --stop SESSION... [--no-compact]` is the same close from the command line, and `ccy-teams shutdown` closes a
+team's sessions the same way. A compaction not complete within 600 s fails the close and
+leaves the session running, named. A row of its own starts a new
 `ccy` session in the current directory (Ctrl-N), and the last row is always Exit (Esc or
 `q` do the same). Each key is a shortcut, printed beside the line it chooses. Every yes/no
 question is the same picker, starting on Exit so Enter alone is the safe answer. A session
@@ -224,6 +228,14 @@ it with a message saying to `cd` into a project or run `claude`, which starts an
 check is `cc-project-dir`, a Go binary beside `cc` that `play-claude-yolo.yml` builds with the
 checkout baked in (Plan 00167).
 
+`cc` sessions compact at the same size as `ccy` sessions: claude is started through
+`cc-claude`, a Go binary beside `cc`, on both the plain and the `--teams`/`--bus` paths, and it
+sets [`CLAUDE_CODE_AUTO_COMPACT_WINDOW`](#claude_code_auto_compact_window--the-auto-compact-ceiling)
+to `600000` unless the shell `cc` runs in already exports a value. A project's `ccy.env` is
+never read on the host, so it does not change a `cc` session's window, and `claude` run
+directly (the way out `cc` names) gets no default at all. A test pins
+`cc-claude`'s default to the launcher's, so the two cannot drift.
+
 | Event                                              | Result                                                                                                                           |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal emulator crashes or is closed             | Session keeps running, detached                                                                                                  |
@@ -251,6 +263,13 @@ behind when the session is killed: a reboot, a power cut, Ctrl-X in `ccy-session
 removes it itself). So a record still present at boot means exactly "this was running when
 the machine went down", with no shutdown hook and no timing to get wrong.
 
+Beside the records, `~/.local/state/ccy/seat-checkouts` lists the checkouts that hold agent
+team seats, one path a line. A record names its checkout only while the session runs, so this
+list is how `ccy-teams` still finds a seat once its session has ended: the board shows it as
+free and `ccy-teams shutdown` says it has no session running. The launch block adds the
+checkout after every seat is taken, and every pass of the `ccy-teams` board adds the checkouts
+it sees with seats; an add drops a listed checkout that is no longer on the disk.
+
 **Restore is opt-in per machine, and off by default.** A laptop rebooted daily does not want
 four agents resuming at login. Declare it in `host_vars`:
 
@@ -277,6 +296,22 @@ conversation is not restored** (Plan 00203 Decision 10): `ccy --no-bus`, a plain
 session that ended before its first prompt. The restore names it as a failure and keeps its
 record; bring it back with `ccy --resume` in its folder, whose picker lists the
 conversations.
+
+**A record resumes by its recorded id only.** A restore always appends `--resume <id>`, so
+a session launched without `--continue` (a fresh start) comes back on the conversation it
+recorded, not fresh; a record cannot ask for a fresh start. This is intended (fedora-desktop#108).
+
+**A record that cannot be restored is said, never dropped.** Each one the restore could not
+start (no conversation recorded, its directory gone, an unreadable record, a start that
+failed) is written into the boot's manifest as not started, so `verify-restore` reports it
+`NOT-STARTED <why>` and exits 1, even when no session came back at all.
+`ccy-sessions restore --check` judges every record the next boot would restore, live
+sessions included, and starts nothing: `<name> RESTORABLE` or `<name> UNRESTORABLE <why>`,
+exit 1 if any cannot be restored. The unattended self-update cycle runs it after its plays
+and before it warns anyone: on exit 1 it reboots nothing, records and announces
+`unrestorable-sessions` (Slack, when configured), and asks again at its next run, with the
+reboot still owed. A session started before the restore recorded conversations has to be
+restarted (or ended) before the machine reboots.
 
 What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
 `--prompt "text"` and a bare opening instruction, `--connect`, `--disconnect`, `--debug`, `--ssh-agent`
@@ -404,8 +439,10 @@ If the restore wrote no manifest for the boot, set-going says so and fails rathe
 
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
-`STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>` or
-`DEAD <reason>`. A session at Claude Code's conversation picker (a restore of a `--resume`
+`STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>`,
+`DEAD <reason>` or `NOT-STARTED <reason>` (a record the restore could not start:
+`no-conversation`, `directory-gone`, `record-unreadable`, `arguments-unworkable`,
+`start-failed`). A session at Claude Code's conversation picker (a restore of a `--resume`
 launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
 input within two minutes of the keys being typed (`compact-not-started`,
 `continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
@@ -418,13 +455,14 @@ twice running. It also stops when the time runs out.
 | Session with that name already running    | Skips it and says so                                                                                                              |
 | Launched with `--no-restore`              | Skips it: the record says so                                                                                                      |
 | Record's directory has since been deleted | Fails loudly, keeps the record for you, carries on with the others; the unit ends `failed`                                        |
+| No conversation recorded for the session  | The same; `verify-restore` reports it `NOT-STARTED no-conversation`                                                               |
 | Live session list cannot be read          | Starts nothing — restoring blind could double every session                                                                       |
 | Registry path is not a readable directory | Fails: an unreadable registry is not "nothing to restore"                                                                         |
 | Server's SSH passphrase file is unusable  | Starts nothing: every `ccy` session would stop at its passphrase prompt; the unit ends `failed`                                   |
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
 `ccy --no-restore` marks a one-off session as not worth bringing back; for a session in an
-agent team, `ccy-teams` (Ctrl-R) turns that mark off or on while it runs. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
+agent team, `ccy-teams` (the seat's menu) turns that mark off or on while it runs. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
 
 ### Warning sessions before a reboot
 
@@ -448,9 +486,8 @@ reports all of it at once (since CCY 3.82.0):
 - **Whether this account may reboot unattended.** It asks logind (`CanReboot`). Only
   `yes` goes ahead. `challenge` means polkit wants a password, which any login outside the
   machine's own desktop session gets, over SSH included; with no terminal it refuses
-  `systemctl reboot` outright. Reboot as root instead with
-  `sudo /usr/local/bin/reboot-with-update --in N` (sudo's default path leaves out
-  `/usr/local/bin`; the shell alias `reboot-with-update` adds both), or run the helper from
+  `systemctl reboot` outright. Reboot as root instead with `reboot-with-update --in N`,
+  which hands itself to sudo (no password for the desktop user), or run the helper from
   the desktop session.
 - **Every live session that cannot be warned**: its project has no daemon CLI, or the CLI
   cannot run (each is asked for `signal --help` first). Each such session is named with its
@@ -486,8 +523,20 @@ after one; the sessions simply were not told.
 **`reboot-with-update [--in N]`** and **`shutdown-with-update [--in N]`** are the
 patch-cycle versions: the firmware, dnf, Flatpak, pipx and Rust updates, then the warning
 and countdown above (N defaults to 2), then the reboot or the shutdown — as root, since
-either over SSH is refused to a plain user. The warning is `going-down`, so its kind
-follows the restore opt-in as above. How much the sessions can hold the machine up
+either over SSH is refused to a plain user. Run either as yourself, bare: it hands itself
+to sudo by its installed path, and `/etc/sudoers.d/fedora-desktop-shutdown-with-update`
+(`play-basic-configs.yml`, every profile and audience) lets the desktop user, and only that
+user, through without a password for exactly the argument lists the script accepts (none,
+`--help`, `-h`, `--strict-sessions`, `--in 1` to `--in 9999`, and `--in N` with
+`--strict-sessions` in either order). That is unless `host_vars` sets
+`shutdown_with_update_sudoers: false`: then the rule is removed and sudo asks for the
+password instead. Anything else is refused by sudo before the script
+runs, and the script, its link and the directories above them are root's alone (Plan
+00231). On a consumer install there is no ccy, so there are no sessions to warn: it says
+so in one line and still updates, counts down and goes down. Which install it is comes from
+`/etc/fedora-desktop/install-audience`, which the same play writes. The warning is
+`going-down`, so its kind follows the restore opt-in as above. How much the sessions can
+hold the machine up
 follows the provisioning profile (auto-detected: desktop on a graphical machine), which
 `play-basic-configs.yml` records in `/etc/fedora-desktop/provisioning-profile`. With no
 such file, or an unknown value in it, both commands refuse before updating.
@@ -536,7 +585,7 @@ risks are bounded and named below, not eliminated.
 | Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                                                             |
 | Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md))                                         |
 | The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                                                                |
-| The network                             | Normal outbound; optionally a named container network                                                                                                                                                                   |
+| The network                             | The public internet, under the [network policy](#network-policy): the private and LAN ranges and the host itself are refused unless you allow them; optionally a named container network                                |
 | The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                                                               |
 | The host's time zone                    | `TZ`, the host's IANA zone name (timedatectl, else the `/etc/localtime` link); the launch stops rather than run on UTC if neither gives one. An `export TZ=...` in `ccy.env` or `ccy.env.local` overrides it            |
 | Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                                                               |
@@ -585,9 +634,10 @@ The residual risks worth naming honestly:
   this design accepts: a signature proves the commit came from you or your machine, not
   which of your agents made it. A `user.signingkey` set in the project's own config is
   refused outright.
-- **Your Claude and GitHub tokens are live inside the container.** Combined with
-  unrestricted network access, a misled or compromised agent process could exfiltrate
-  them, not merely misuse them locally.
+- **Your Claude and GitHub tokens are live inside the container.** The
+  [network policy](#network-policy) keeps the session off your LAN and the host, not off the
+  public internet, so a misled or compromised agent process could still exfiltrate them,
+  not merely misuse them locally.
 - **Uncommitted work in the project can be destroyed.** Commit before long unattended
   runs.
 - **The display socket is not confined the way the filesystem is.** A process with it
@@ -788,12 +838,12 @@ shown above it is not the allowance being reported against. Unknown bucket names
 verbatim rather than being dropped, so a bucket the API adds later is visible instead of
 silently missing.
 
-**It is never fetched automatically, and the reason is the cost.** These figures are only
-available as rate-limit headers on a real API response, so reading them means making a
-genuine billed request per account — one that consumes a sliver of the very allowance it
-reports. A launch-time fetch would spend quota you never asked to spend, so it is a
-keypress instead. The request uses Haiku with a one-character prompt, and the weekly
-buckets are per-model, so it does not touch your Opus or Sonnet allowances.
+**The menu never fetches every account by itself, and the reason is the cost.** These
+figures are only available as rate-limit headers on a real API response, so reading them
+means making a genuine billed request per account — one that consumes a sliver of the very
+allowance it reports. So the whole view is a keypress; a launch reads only the one token it
+is about to start on (below). The request uses Haiku with a one-character prompt, and the
+weekly buckets are per-model, so it does not touch your Opus or Sonnet allowances.
 
 The result is cached for 15 minutes, so pressing `u` again in the same sitting costs
 nothing. An account that cannot be read says so on its own row and the others still
@@ -827,6 +877,37 @@ CCY_USAGE_SCALE=percent ccy # override, if the API ever changes to 0-100
 Nothing else in the display depends on it, and the switch applies to values already
 cached — flipping it costs no extra request.
 
+### No session on a token with no usage left
+
+Before a session starts, ccy reads the usage of the token it is about to use: the one
+`--token` names, the one a Quick Launch replays when you answer `Y`, and the one you pick
+in the menu. If its 5-hour or 7-day limit is used up, it is refused before anything
+starts, with one line saying which limit and when it clears:
+
+```
+✗ No usage left on token work: 7-day limit used up; clears Fri 20:53, in 3d 8h. ccy will not start a session on it.
+```
+
+Then the token menu opens so you can pick another. A used-up token stays listed, marked
+`✗ no usage left: ...` from the usage cache (so drawing the menu sends nothing); picking it
+again is refused the same way, and three refused or invalid picks end the launch (exit 1).
+A token created or renewed from the menu is checked too: usage is per account, so a new
+token on a used-up account stops the launch. A launch nobody attends (`--headless`, a
+session restore, a restart, or no terminal) has no one to pick, so it stops with exit 1 and
+the same line; a restart also names the session to resume by hand.
+
+The check costs one small request for that token, unless it was read in the last 15
+minutes. **If the usage cannot be read** (offline, `CCY_TOKEN_USAGE=0`, the API sent no
+figures, an odd file in the token pool, or a token file that is not the one its name
+launches with), ccy says it could not
+check and starts anyway: the figures only forecast a refusal the API makes itself on the
+first request, and blocking on a missing forecast would stop work the API would allow. A
+known used-up limit is different: that refusal is certain until the reset. A fault on this
+machine (no curl, a bad `CCY_USAGE_*` setting, an unwritable usage cache) stops the launch
+and names it. The check is the `ccy-token-usable` command (from `play-claude-yolo.yml`); if
+it is missing, ccy stops and names the play. The host `cc` launcher shares the menu but does
+not run the check.
+
 ### Reading usage without the menu: `ccy --token-usage`
 
 The same figures, for a script or a quick look, with no menu, terminal, repository or
@@ -834,11 +915,19 @@ container:
 
 ```
 $ ccy --token-usage
-NAME      EXPIRES     5-HOUR  RESETS                             7-DAY  RESETS                            STATUS
-personal  2027-10-10       -  -                                      -  -                                 unavailable: this token was not authorised to read it
-work      2027-10-10     34%  in 4 hours (2026-10-10 13:13 UTC)     8%  in 6 days (2026-10-16 09:13 UTC)  ok; binding: 5-hour limit; shadows a later file of this name, which ccy never uses: remove the one you do not want
-work      2028-02-22       -  -                                      -  -                                 shadowed: ccy --token work launches with work.2027-10-10.token
+personal   expires 2027-10-10
+       usage unavailable — this token was not authorised to read it
+
+work       expires 2027-10-10
+       5-hour limit   ███████░░░░░░░░░░░░░  34%   resets in 4 hours (2026-10-10 13:13 UTC)
+       weekly limit   ██░░░░░░░░░░░░░░░░░░   8%   resets in 6 days (2026-10-16 09:13 UTC)
+       binding limit: 5-hour limit
+       warning: shadows a later file of this name, which ccy never uses: remove the one you do not want
+       shadowed: work.2028-02-22.token is never used; ccy --token work launches with work.2027-10-10.token
 ```
+
+The bars are the token menu's: on a terminal the filled part is green below 50%, orange below
+85% and red from there, and `NO_COLOR` or output that is not a terminal leaves out the colour.
 
 `ccy --token-usage --json` prints one JSON object instead; `ccy --help` lists every key.
 `--token-usage` must be the first option, and `--json` is the only one it takes. Given later
@@ -850,16 +939,19 @@ repository check every launch makes first.
 - **Percentages are the menu's**, normalised to 0-100 under `CCY_USAGE_SCALE`. A value the
   scale cannot produce is reported as `null` with a `SCALE MISMATCH` warning, never as a
   number.
-- **One row per token name.** When a name has two files (an old token and its renewal), the
-  row is the earliest-dated file, because that is the one `ccy --token NAME` launches with.
-  The other is listed as `shadowed` and is never sent. An expired token is reported as
-  unavailable and is not sent either. When the file a launch uses is expired and a later one
-  is not, the row carries a `SHADOWED RENEWAL` warning naming the file to remove, and
-  `ccy --token NAME` warns too whenever a name has more than one dated file.
+- **One entry per token name.** When a name has two files (an old token and its renewal),
+  the entry is the earliest-dated file, because that is the one `ccy --token NAME` launches
+  with. The other is listed as `shadowed` and is never sent. An expired token, or a file with
+  no date in its name, is reported as unavailable and is not sent either. When the file a
+  launch uses is expired and a later one is not, the entry carries a `SHADOWED RENEWAL`
+  warning naming the file to remove, and `ccy --token NAME` warns too whenever a name has
+  more than one dated file.
 - **Exit status**: 0 when at least one token's usage was read; 1 when none was (no tokens,
   every one unavailable, `CCY_TOKEN_USAGE=0`, no curl), with the reason in the JSON's
-  `error`, or on stderr for the table; 64 on any other option. A token that cannot be read on its own is
-  `"status": "unavailable"` with a `reason`, and does not fail the command.
+  `error`, or on stderr for the bars; 64 on any other option. A token that cannot be read on its own is
+  `"status": "unavailable"` with a `reason`, and does not fail the command. Something it
+  cannot read safely (a setting it refuses, a token curl's arguments would hold, a pool or
+  cache entry that is not a plain file) is exit 1 with one line naming it, and nothing on stdout.
 
 `ccy` is a shell alias, which a script does not see. From a script, cron job or systemd
 unit, call the launcher by its path: `/var/local/claude-yolo/claude-yolo --token-usage --json`.
@@ -919,21 +1011,21 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag                                        | Effect                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ccy`                                       | Start a session in the current directory                                                                                                                                                                                                                                                                                                   |
-| `ccy "task"`                                | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                                                   |
-| `--prompt "text"`                           | Start with a preseeded prompt                                                                                                                                                                                                                                                                                                              |
-| `--headless`                                | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
-| `--teams`, `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: bare, choose the teams from a list with their descriptions; a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team             |
-| `--supervise`                               | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                                               |
-| `--opencode`, `-oc`                         | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                            |
-| `--no-restore`                              | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                  |
-| `--top`                                     | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                    |
-| `--build-lock`                              | Show the image build in progress (a launch waits for another's build of the same image) and stop a hung one after asking                                                                                                                                                                                                                   |
-| `ccy-sessions`                              | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                        |
-| `--debug`                                   | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                                           |
-| `--`                                        | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                                          |
+| Flag                                        | Effect                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy`                                       | Start a session in the current directory                                                                                                                                                                                                                                                                                                                                                                            |
+| `ccy "task"`                                | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                                                                                                                            |
+| `--prompt "text"`                           | Start with a preseeded prompt                                                                                                                                                                                                                                                                                                                                                                                       |
+| `--headless`                                | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none (no saved network is the default `podman` network, never `--no-network`); a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
+| `--teams`, `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: bare, choose the teams from a list with their descriptions; a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                                                      |
+| `--supervise`                               | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                                                                                                                        |
+| `--opencode`, `-oc`                         | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                                                                                                     |
+| `--no-restore`                              | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                                                                                           |
+| `--top`                                     | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                                                                                             |
+| `--build-lock`                              | Show the image build in progress (a launch waits for another's build of the same image) and stop a hung one after asking                                                                                                                                                                                                                                                                                            |
+| `ccy-sessions`                              | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                                                                                                 |
+| `--debug`                                   | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                                                                                                                    |
+| `--`                                        | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Image and updates
 
@@ -979,7 +1071,7 @@ are forwarded unchanged.
 Every container ccy runs is started with an explicit, bounded pids limit, never the engine's
 default (podman's is 2048; docker sets none): the session, the in-place Claude Code update's
 `npm install`, `--create-token`'s `setup-token`, the token check, and the `claude --help` /
-`--version` and network probes, from the Go front's `--help` too. A pid in the pids cgroup is
+`--version` and network probes, whether the bash or the Go front runs them. A pid in the pids cgroup is
 a thread. The limit is the session's fork-bomb guard: a
 test fixture that recursed into itself inside a session climbed from 40 to 2048 tasks in about
 ten seconds, and podman's default of 2048 stopped it there, with the host untouched. Without a
@@ -1039,13 +1131,14 @@ CCY forwards a few Claude Code environment defaults into the container. Each use
 it; a project `ccy.env` that sets it explicitly overrides both, because the entrypoint
 sources that file after this environment is forwarded.
 
-| Variable                               | CCY default | Why                                                          |
-| -------------------------------------- | ----------- | ------------------------------------------------------------ |
-| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1`         | Enables the agent-teams features CCY sessions use            |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`      | `600000`    | Caps session size before auto-compaction; see below          |
-| `MAX_THINKING_TOKENS`                  | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
-| `TERM` / `COLORTERM`                   | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
-| `FORCE_COLOR`                          | `1`         | Keeps colour output intact inside the container              |
+| Variable                                             | CCY default | Why                                                                                                                         |
+| ---------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`               | `1`         | Enables the agent-teams features CCY sessions use                                                                           |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW`                    | `600000`    | Caps session size before auto-compaction; see below                                                                         |
+| `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS` | `1`         | Always set; drops the critical-path `rm` prompt. ccy only: the container is the isolation boundary, host `cc` never sets it |
+| `MAX_THINKING_TOKENS`                                | *(unset)*   | Forwarded only if you export it; CCY does not impose a value                                                                |
+| `TERM` / `COLORTERM`                                 | inherited   | Falls back to `xterm` / `truecolor` if unset on the host                                                                    |
+| `FORCE_COLOR`                                        | `1`         | Keeps colour output intact inside the container                                                                             |
 
 CCY deliberately sets **no** sub-agent fan-out limits — the section below explains why.
 
@@ -1241,7 +1334,10 @@ No. `ccy-teams session add --role=coordinator` and `session role` ask the same t
 with no terminal (or with `--yes`) a takeover needs `--demote-current`. Sudo runs only when
 the role changes, and the role is kept in
 the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
-summary. Quick Launch reuses the seat only when you answer yes to that summary (end of input
+summary. At a terminal, Quick Launch is one summary of the token, key, network and every team's
+seat and role: Enter launches with all of them, and a line picked changes only that one (a team
+whose seat is now held, whose scope no longer covers the checkout or whose role changed is
+marked and must be answered). Without a terminal it is the Y/n prompt: it reuses the seat only when you answer yes to that summary (end of input
 is not a yes): a headless launch, a launch with no terminal and a restore take the saved token,
 keys and network but never the saved team, and the summary shows their team as none. A restore
 takes `--teams` from the session's own registry record instead, so a restored team session
@@ -1541,6 +1637,43 @@ A network comes back on a later launch from three places:
 - If the container engine cannot list its containers or networks, nothing is changed and
   the engine's error is shown. That goes for `--connect` too.
 
+### Network policy
+
+Every session runs under a network policy (Plan 00232), held as an nftables table in the
+container's own network namespace by `ccy-network-policy` (a Go binary from
+`src-go/cmd/ccy-network-policy`, built by `play-claude-yolo.yml`, which also installs
+`nftables`). It is applied from the host after the container is created and before its first
+instruction runs, read back, and nothing inside the container can change it.
+
+- **By default** the session reaches the public internet and is refused the private and LAN
+  ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, fe80::/10, fc00::/7) and every
+  address of the host itself. A refused connection fails at once ("No route to host"). IPv6
+  neighbour discovery to link-local addresses still passes, so a link-local IPv6 gateway
+  (`--no-network`'s pasta) keeps working.
+- **Always open**: loopback, the container's own nameservers, the agent team bus address, and
+  every project network the session joins (`--network`, the saved default, `--connect`).
+  Other ccy sessions on the shared `podman` network stay refused. `--connect` and
+  `--disconnect` join or leave the networks of the project they run in only, then refresh
+  every live session's policy, in every project: each is recomputed from that session's own
+  networks, so a session whose networks did not change keeps the same allow set. A
+  `Network policy of <session> refreshed` line for another project's session is that, and
+  changes nothing.
+- **Widening it** is the owner's, on the host: `ccy-network-policy where`, run in the
+  checkout, prints the checkout's policy file (under `~/.config/claude-yolo/network/`, which
+  no container sees). It holds `CCY_NETWORK_ALLOW=<entries>` lines and `#` comments; a
+  `CCY_NETWORK_ALLOW` set in the host shell adds to it for one launch. An entry is an address,
+  a prefix or a host name (resolved on the host at launch), any of them with `:port`
+  (`[addr]:port` for IPv6), `lxc` for the LXC dev sites in the host's `/etc/hosts`, or `off`
+  for no policy at all. Anything else, or a name that does not resolve, stops the launch.
+- **The session is told.** A `CCY NETWORK POLICY` block is added to Claude Code's system
+  prompt, and the same text is mounted read-only at `/run/ccy/network-policy`, so the agent
+  knows what is refused and how the owner can open it.
+- **Where it cannot be held** (the Docker engine, or no `nft` on the host) the session runs
+  unprotected with a warning, and is told so; `off` runs it unprotected on the owner's word.
+  If the policy cannot be applied or read back, the container is removed and the launch stops,
+  naming the way out: `CCY_NETWORK_ALLOW=off` in the policy file or the host shell.
+- `ccy-network-policy` missing from `~/.local/bin` stops the launch: run `play-claude-yolo.yml`.
+
 ---
 
 ## Container Labels
@@ -1777,10 +1910,17 @@ banner prints it verbatim, so it must stay short.
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own),
-`--token-usage [--json]`, `--prevent`, `--export-token NAME` and `--build-lock` (the Go
-program's own flag: the bash refuses it, so `CCY_LEGACY` cannot run it) itself, with the bash launcher's
-output (and the same JSON document, usage cache and API call, the token fed to curl on its
-stdin; for the last two, the same `.claude/ccy/` set-up first), and runs the bash launcher,
+`--prevent`, `--export-token NAME`, and its own two flags, `--token-usage [--json]` and
+`--build-lock` (the bash refuses both, so `CCY_LEGACY` cannot run them) itself. The first
+three print the bash launcher's output (for the last two, after the same `.claude/ccy/`
+set-up), and `--token-usage` reads the usage cache the token menu reads, the token fed to
+curl on its stdin. It also answers the questions the bash launcher and its libraries ask it,
+under `CCY_LEGACY` too, which are not for typing at a prompt: `--read-launch-config FILE`
+(the saved launch configuration), `--check-token ENGINE IMAGE` (whether the API accepts a
+token: refused, or the check could not be made, with its cause), `--check-network ENGINE NETWORK` (the network probe), `--claude-versions ENGINE IMAGE` (the Claude Code versions in
+the image and on npm), and `--list-containers`, `--stop-containers` and `--remove-network`
+(the container listings, stops and network removals, each saying what failed in the engine's
+words). The package doc of `src-go/internal/ccylaunch` defines each (F16 to F22). It runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine
@@ -1800,14 +1940,11 @@ difference (D1 to D11).
 If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
 `CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes
 straight to the bash launcher. If `claude-yolo.bash` is missing, `ccy` stops with an error
-naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, so if the
-Go program itself will not start, run `/var/local/claude-yolo/claude-yolo.bash` directly, with
-the same arguments. Started that way, with no `CCY_LAUNCHER_FRONT`, the bash names itself: the
-tmux pane, the session record, a restart and the custom-Dockerfile modes all run
-`claude-yolo.bash`, never the Go program. A session started earlier through the Go program
-still has a record naming it, so restoring that session needs the Go program to start. Going back to a bash-only install is running
-`play-claude-yolo.yml` from a checkout before this change: it copies the bash launcher over
-`claude-yolo` again.
+naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, and the
+bash launcher needs the Go program beside it for those questions, so there is no running
+`claude-yolo.bash` without it: if the Go program itself will not start, re-run
+`play-claude-yolo.yml`, which builds and installs it before the bash launcher and its
+libraries, so a build that fails leaves the installed pair as it was.
 
 ### Claude Code auto-update
 
@@ -1892,29 +2029,29 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 
 ## Troubleshooting
 
-| Symptom                                       | Cause / fix                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ccy: command not found`                      | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                                                                                                                                                                                                                                                                                                                          |
-| Refuses to start, mentions hostname           | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                                                                                                                                                                                                                                                                                                                               |
-| Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                                                                                                                                                                                                        |
-| Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                                                                                                                                                                                                        |
-| Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                                                                                                                                                                                         |
-| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`. A deploy key is read-only unless it was registered read/write: push from an `ssh -A` session with `--ssh-agent` instead.                                                                                                                                                                                                           |
-| "No github\_ SSH key" on a box that has none  | Expected: such a box has no account. In a project whose remote is `git@<alias>:…` the alias's deploy key is used; anywhere else, `--ssh-agent` from an `ssh -A` session, and `export GH_TOKEN=…` for `gh`.                                                                                                                                                                                                                  |
-| Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                                                                                                                                                                                                   |
-| `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`.                                                                                                                                                                          |
-| Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                                                                                                                                                                                                        |
-| Connected to the wrong network                | `ccy --disconnect <net>` from another terminal. It also clears `<net>` from the saved default, Quick Launch and restore records, any of which would otherwise rejoin it on a later launch. If `<net>` is the session's only network it is not detached; end the session and start it again. See [Networking](#networking).                                                                                                  |
-| `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                                                                                                                                                                                   |
-| Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                                                                                                                                                                      |
-| Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                                                                                                                          |
-| Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                                                                                                                    |
-| `ccy` offers a session I do not want          | Choose `Start a new session here`, or end the old one from `ccy-sessions` (choose it, then End it).                                                                                                                                                                                                                                                                                                                         |
-| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Take it over here).                                                                                                                                                                                                                                                                   |
-| "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                                                                                                                       |
-| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                                                                                                                             |
-| `ccy-sessions reboot` refuses                 | logind does not let this account reboot unattended (`CanReboot: challenge`, any login outside the desktop session): use `sudo /usr/local/bin/reboot-with-update --in N`. Or a live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc): every such session is named; end it or install the daemon there. Nothing was signalled or rebooted. |
-| Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                                                                                                                                                                        |
+| Symptom                                       | Cause / fix                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ccy: command not found`                      | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                                                                                                                                                                                                                                                                                                                             |
+| Refuses to start, mentions hostname           | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                                                                                                                                                                                                                                                                                                                                  |
+| Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                                                                                                                                                                                                           |
+| Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                                                                                                                                                                                                           |
+| Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                                                                                                                                                                                            |
+| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`. A deploy key is read-only unless it was registered read/write: push from an `ssh -A` session with `--ssh-agent` instead.                                                                                                                                                                                                              |
+| "No github\_ SSH key" on a box that has none  | Expected: such a box has no account. In a project whose remote is `git@<alias>:…` the alias's deploy key is used; anywhere else, `--ssh-agent` from an `ssh -A` session, and `export GH_TOKEN=…` for `gh`.                                                                                                                                                                                                                     |
+| Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`.                                                                                                                                                                             |
+| Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                                                                                                                                                                                                           |
+| Connected to the wrong network                | `ccy --disconnect <net>` from another terminal. It also clears `<net>` from the saved default, Quick Launch and restore records, any of which would otherwise rejoin it on a later launch. If `<net>` is the session's only network it is not detached; end the session and start it again. See [Networking](#networking).                                                                                                     |
+| `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                                                                                                                                                                                      |
+| Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                                                                                                                                                                         |
+| Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                                                                                                                             |
+| Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                                                                                                                       |
+| `ccy` offers a session I do not want          | Choose `Start a new session here`, or end the old one from `ccy-sessions` (choose it, then End it).                                                                                                                                                                                                                                                                                                                            |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Take it over here).                                                                                                                                                                                                                                                                      |
+| "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                                                                                                                          |
+| Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                                                                                                                                |
+| `ccy-sessions reboot` refuses                 | logind does not let this account reboot unattended (`CanReboot: challenge`, any login outside the desktop session): use `reboot-with-update --in N`, which elevates itself. Or a live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc): every such session is named; end it or install the daemon there. Nothing was signalled or rebooted. |
+| Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                                                                                                                                                                                                           |
 
 ---
 

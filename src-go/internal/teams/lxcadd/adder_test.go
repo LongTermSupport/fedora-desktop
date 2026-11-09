@@ -332,7 +332,7 @@ func TestTheCheckoutIsReadFromTheHostSideNeverByEnteringTheContainer(t *testing.
 func TestTheDerivedHandleIsShownInTheSummaryBeforeTheYes(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	shown := strings.Join(r.Script.Styled, "\n")
@@ -618,6 +618,29 @@ func TestATakeoverWhoseEntryCannotBeWrittenPutsTheCoordinatorBack(t *testing.T) 
 	}
 }
 
+// Plan 00177 Task 11.3: root typed at the user question is refused by declare.py's lxc-check
+// (64, members.py ROOT_USER_REFUSAL) and asked again; the add names the user typed next.
+func TestRootAtTheUserQuestionIsRefusedAndAskedAgain(t *testing.T) {
+	r := newRig(t)
+	r.lxc.users = []string{"agent"}
+	r.answers(choose("container-a"), choose("root"), choose("agent"), choose("worker"), "YES")
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Args, "root") {
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: user must not be root: the agent runs as an ordinary user of the container\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !strings.Contains(r.ErrOut.String(), "user must not be root: the agent runs as an ordinary user of the container. Try again.") {
+		t.Fatalf("stderr:\n%s", r.ErrOut.String())
+	}
+	if !strings.Contains(r.addLine(), "--user agent") {
+		t.Fatalf("add %q", r.addLine())
+	}
+}
+
 func TestTheUserIsSuggestedFromTheContainerAndAskedAgainWhenRefused(t *testing.T) {
 	r := newRig(t)
 	r.lxc.users = []string{"agent", "other"}
@@ -696,7 +719,8 @@ func TestARefusedAnswerIsAskedThreeTimesThenTheRunEndsWithNothingWritten(t *test
 func TestDecliningTheSummaryWritesNothing(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	// A person's No is a decline, not a failure (Plan 00201 Task 2.29).
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if r.addLine() != "" || len(r.applied) != 0 || !strings.Contains(r.ErrOut.String(), "Nothing was added.") {
@@ -729,10 +753,18 @@ func TestAFailedApplyKeepsTheEntryAndSaysHowToGoOn(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	said := r.ErrOut.String()
-	for _, want := range []string{"is declared in", "ccy-teams apply alpha", "gh auth login", "lxc-attach -P /var/lib/lxc -n container-a", "agent"} {
+	wants := []string{
+		"is declared in", "but not joined", "gh's login", "run the command it gives",
+		"ccy-teams lxc-add alpha again, or ccy-teams apply alpha",
+	}
+	for _, want := range wants {
 		if !strings.Contains(said, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, said)
 		}
+	}
+	// The play's message carries the one login command; a second, different one here would compete.
+	if strings.Contains(said, "lxc-attach") || strings.Contains(said, "gh auth login") {
+		t.Fatalf("a login command of its own is given beside the play's:\n%s", said)
 	}
 	if strings.Contains(said, "agent-bus-claude") || slices.Contains(r.lxc.reads, "sessions container-a agent -") {
 		t.Fatalf("the sessions step is offered before the member is applied:\n%s", said)
@@ -938,7 +970,7 @@ func TestSeveralNewMembersMeanTheHandleCannotBeTold(t *testing.T) {
 func TestTheSummaryCallsTheHandleExpectedBecauseThePlayMintsIt(t *testing.T) {
 	r := newRig(t)
 	r.answers(choose("container-a"), choose("agent"), choose("worker"), "NO")
-	if code := r.run("alpha"); code != term.ExitFailure {
+	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if shown := strings.Join(r.Script.Styled, "\n"); !strings.Contains(shown, "Handle (expected)") ||

@@ -178,6 +178,21 @@ func (t *Term) Answered(value string) {
 	t.Printf("     %s %s\n", mark, value)
 }
 
+// ExpandHome is AbbrevHome undone: a path that is "~" or begins "~/" put under home, as a
+// shell or ssh's configuration reads it. "~user" forms and an unknown home are left as given.
+func ExpandHome(path, home string) string {
+	if home == "" {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return home + "/" + rest
+	}
+	return path
+}
+
 // AbbrevHome shows a path under home as "~/...".
 func AbbrevHome(path, home string) string {
 	if home == "" {

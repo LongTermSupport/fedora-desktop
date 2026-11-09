@@ -66,6 +66,8 @@ var checkDefs = []checkDef{
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
 	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
 	{id: "stt-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRulesFiles},
+	{id: "hook-handler-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRulesFiles},
+	{id: "walk-open-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runWalkOpenFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -79,13 +81,17 @@ var checkDefs = []checkDef{
 	{id: "go", fixed: "go-qa, both modules (diff mode on a git change)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
+	{id: "teamchat-keeps-off-v1", fixed: "whole gate (no file v2 of the agent-team bus owns holds a v1 name)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runTeamchatKeepsOffV1},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
+	{id: "find-race", fixed: "find-race-negated-stat-test rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runFindRace},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
 	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself, no job end published before its cleanup)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
+	{id: "walk-open", fixed: "walk-opens-non-regular-file rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runWalkOpen},
+	{id: "hook-handler-rules", fixed: "whole gate (no code the hooks daemon loads resolves a path against the daemon's working directory)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runHookHandlerRules},
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
 	{id: "go-deps", fixed: "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoDeps},
 	{id: "go-vuln", fixed: "whole gate (govulncheck finds no vulnerability src-go reaches)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoVuln},
@@ -160,12 +166,20 @@ func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (che
 	return s.script(ctx, nil, "qa-nokill-containerwatch.bash")
 }
 
+func runTeamchatKeepsOffV1(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-teamchat-separate.bash")
+}
+
 func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-ansible-pause.bash")
 }
 
 func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-gh-scopes.bash")
+}
+
+func runFindRace(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-find-race.bash")
 }
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.
@@ -196,6 +210,24 @@ func runSttRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResu
 
 func runSttRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-speech-to-text-rules.bash")
+}
+
+// runHookHandlerRulesFiles runs the hook handler rules gate over the changed Python files only.
+func runHookHandlerRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.scriptOver(ctx, "qa-hook-handler-rules.bash", cp.items)
+}
+
+func runHookHandlerRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-hook-handler-rules.bash")
+}
+
+// runWalkOpenFiles runs the walk-open gate over the changed Python files only.
+func runWalkOpenFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.scriptOver(ctx, "qa-walk-open.bash", cp.items)
+}
+
+func runWalkOpen(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-walk-open.bash")
 }
 
 func runVersionPins(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

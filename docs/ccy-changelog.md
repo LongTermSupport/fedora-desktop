@@ -17,10 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.18 — container 2.79.9
+## 3.113.0 — container 2.79.27
 
-Follows 3.100.15 (container 2.79.9; 3.100.16 and 3.100.17 were this change's earlier commits
-and never shipped). The image does not change.
+Follows 3.112.5 (container 2.79.27). The image does not change.
 
 - **Every container ccy runs has an explicit, bounded pids limit: 4096, never the engine's
   default and never off** (Defence Before Fix). ccy passed no `--pids-limit`, so every
@@ -38,6 +37,710 @@ and never shipped). The image does not change.
   takes the default. A running session keeps its old limit until it is relaunched.
   `--debug`'s simplified run command shows the flag too. The Semgrep rule
   `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it.
+
+## 3.112.5 — container 2.79.27
+
+`--build-lock` no longer takes a process whose leader thread is a zombie for gone while its
+other threads are still exiting (issue 182): such a process may still hold its files, so it
+counts as exited only once `/proc/<pid>/status` lists no thread but the leader. A zombie status
+with no thread count is refused, named.
+
+## 3.112.4 — container 2.79.27
+
+The Go front never opens an entry a directory listing found unless it is a regular file
+(issue 195): `--build-lock` refuses a process `stat` that is not one, `--export-token` refuses
+such a token file, the session registry counts such a record unreadable, the team seats are
+listed with a directory-only open, and the status key enters such a stamp as its error. A
+named pipe in any of those places would have blocked the launcher for ever. The image is
+unchanged.
+
+## 3.112.3 — container 2.79.27
+
+The image is rebuilt for an agent-bus fix (issue 191): the declare helper refuses an
+applied-team stamp that is not a regular file, naming it, instead of opening it (a named pipe
+would block it for ever).
+
+## 3.112.2 — container 2.79.26
+
+The image is rebuilt for a pingbus fix (issue 137): a usage error prints its `pingbus:` prefix
+once, not twice, and `pingbus say`, `report`, `ask-human` and `thread` refuse a text argument
+with a hint that the text goes on stdin, instead of a bare usage error.
+
+## 3.112.1 — container 2.79.25
+
+The image is rebuilt for a status-line fix (issue 138): the baked status line runs its inner
+command with `CLAUDE_PROJECT_DIR` set to the project it resolved, and says in red which
+variable to set when it finds no project.
+
+## 3.112.0 — container 2.79.24
+
+The image is rebuilt: this branch's launcher now requires 2.79.24, the image 3.110.0 made.
+
+- **3.110.0 reaches the agent bus v2 branch.** The image installs the pinned, checksum-verified
+  upstream fzf (see 3.110.0), and the pickers hide fzf's gutter (`--gutter=' '`, in
+  `lib/tmux-session.bash` and `internal/ui`). 3.111.0's adapters are as they were, and nothing
+  else changed.
+
+---
+
+## 3.111.0 — container 2.79.23
+
+The image is unchanged, so there is no rebuild.
+
+- **The shared `execx` and `ui` adapters carry the agent bus v2 merge.** This release lands
+  the v2 agent bus (teamchat, Plan 00209) onto the mainline; the launcher itself behaves as
+  3.109.0 does. What changed in `execx` for it: `Start`, a child started beside its parent and
+  waited for later (the teamchat keeper's link and session); a test-only `UserNamespace` field,
+  which runs a child as root of its own user and mount namespace for a real-kernel mount test;
+  and `SignalContext`'s stop waits for its signal listener to end, so no goroutine outlives it.
+  Nothing in the launcher calls any of them.
+
+---
+
+## 3.110.0 — container 2.79.24
+
+The image is rebuilt: fzf is the upstream release, not the Debian package.
+
+- **fzf is pinned and checksum-verified.** The image installs the `junegunn/fzf` release named
+  in `vars/fzf-pin.yml` (the pin the host plays use), for amd64 or arm64, and the build fails
+  if the tarball's sha256 differs from the one the project publishes. The pickers' gutter,
+  which newer fzf draws as a visible bar, is hidden with `--gutter=' '`.
+
+---
+
+## 3.109.0 — container 2.79.23
+
+The image is rebuilt: the status-line helper baked into it carries a placeholder in place of an install-specific name in its fixture constant. No behaviour changes.
+
+---
+
+## 3.108.0 — container 2.79.22
+
+The image is unchanged, so there is no rebuild.
+
+- **Quick Launch is one summary of every default.** At a terminal (with gum and ccy-teams),
+  the `Use same configuration? [Y/n]` prompt is replaced by `ccy-teams launch-summary`: the
+  token, SSH key, network, and each team with its seat and role, one line each. Enter on
+  "Launch with these choices" accepts all, with no further screens. Any other line changes
+  only itself: the token and SSH key are asked there and the summary comes back; a team is
+  asked its scope (when it no longer covers the checkout), then its seat and role; the
+  network is asked at its usual step of the launch. A team whose remembered seat is now
+  held, whose scope no longer covers the checkout, whose role changed since, or that cannot
+  be taken is marked NEEDS AN ANSWER, Enter lands on it, and the launch is refused until it
+  is answered. With no terminal the old Y/n prompt is unchanged. The roles are remembered in
+  the new `LAST_TEAM_ROLES` line of `.last-launch.conf` (the format version is unchanged: a
+  file without it is read). Nothing of the bus is touched: the seat and role are read the
+  way `ccy-teams choose-seat` reads them. Addresses #125.
+
+## 3.107.1 — container 2.79.22 (unchanged)
+
+Launcher only; the image is not rebuilt.
+
+- **Every ccy session starts claude with
+  `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1`.** It removes the critical-path `rm`
+  prompt that bypassPermissions mode still shows. The container is the isolation boundary, so
+  ccy sets it always; host `cc` has no such boundary and does not set it (a test pins both).
+
+## 3.105.2 — container 2.79.22
+
+- **3.105.1 together with 3.104.18** (Plan 00191, Plan 00211): compact then exit on close, the
+  listening state, and the side-rooms routing in one build.
+
+## 3.105.1 — container 2.79.21
+
+- **Compact-then-exit together with the listening state** (Plan 00191, Plan 00177): 3.105.0 and
+  3.104.17 in one build; ccy-teams shows each member as listening and closes a session by
+  compacting it first.
+
+## 3.105.0 — container 2.79.21
+
+- **Closing a session compacts it first, then exits** (Plan 00191 Task 4.12). A compaction at
+  close reads the conversation from a warm prompt cache; the next resume then writes only the
+  summary to the cache instead of the whole conversation. `/compact` is typed into the
+  session's tmux pane, its completion is read from the transcript (a `compact_boundary` after
+  the time it was typed; a session that records no conversation is read from its pane), then
+  `/exit`. A session with nothing to compact since its last compaction goes straight to
+  `/exit`. A compaction not complete within 600 s, or a transcript that cannot be read, fails
+  the close loudly, names the session and leaves it running; it is never killed.
+  `--no-compact` sends `/exit` alone.
+- Three callers, one package (`src-go/internal/sessclose`, which ccy-teams shutdown's stop logic
+  moved into): `ccy-teams shutdown <team>` (compacting is now the default), the new
+  `ccy --stop SESSION... [--no-compact]` (the Go front's own flag), and **Close it** /
+  **Close it without compacting** on a `ccy-sessions` row, beside End (Ctrl-X), which still
+  kills.
+- `ccy-teams wind-down` waits for a pane to be idle again with the same code.
+
+## Host cc — compacts at ccy's auto-compact window
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` sessions compact at 600,000 tokens, as `ccy` sessions do.** `cc` ran bare `claude`
+  with no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so on a 1M-context model a session compacted
+  only near the whole window. claude is now started through `cc-claude` (Go, beside `cc`) on
+  the plain and the `--teams`/`--bus` paths; it sets the variable to `600000` unless it is
+  already exported, then becomes claude. `play-claude-yolo.yml` builds it.
+
+## 3.104.18 — container 2.79.22
+
+The image's pingbus and its skill change, so the image is rebuilt once.
+
+- **Agents write to the humans in the side rooms, never in the main room.** Once a team has
+  its reports and questions rooms, `pingbus say` and `pingbus send` refuse a human among the
+  addressees (exit 4), naming the way that works: for the coordinator `ask-human` and
+  `thread Q<n>` in the questions room, for a worker `--to-coordinator` and `report`. The
+  coordinator's `say --all` names the agents only, and the `REPLY` command of a human's
+  main-room message points the same way. Teams without the side rooms work as before.
+- **A human's reply under an agent's main-room message reaches that agent.** Element's
+  "Reply in thread" carries no mention, so it reached no one. pingbus now asks the
+  homeserver who sent the message it answers, and delivers it to that agent, also under
+  messages sent before this release; one under another agent's message is that agent's and
+  is no longer logged as unheard.
+- **Reports are read-only status, posted at each checkpoint.** The skill and the message
+  style ask for a short FYI report at each milestone, merge, queued deploy or finished phase,
+  and move "Needs you" to the questions room.
+
+## 3.104.17 — container 2.79.20
+
+The image is unchanged, so there is no rebuild.
+
+- **ccy-teams shows whether a member is running, from the bus.** A member's STATE was
+  "active", in green, for every member that was not parked: that came from the team
+  registry's park state, so members whose sessions had stopped hours before looked alive
+  while `pingbus status` called them stale. STATE is now the member's own status in the team
+  room, read as `pingbus status` reads it, each time the list is drawn: `listening`, `stale`
+  (its status lapsed), `not listening` (none), `parked`, or `unknown` with the reason on the
+  team row. `--graph` draws the same (listening, offline, unknown with why), for members of
+  every kind and machine. `agent-bus list` gains a `LIVE` line per member, so
+  `play-agent-bus.yml` must run too; until it has, ccy-teams says the liveness is unknown.
+  A new project rule, `project_liveness_word`, keeps liveness words to the code that reads
+  liveness.
+
+## 3.104.16 — container 2.79.20
+
+The image is unchanged, so there is no rebuild.
+
+- **ccy-teams clears a copied password from the clipboard, and no longer promises one
+  paste.** The copy used `wl-copy --paste-once` and said the password was gone after one
+  paste; on GNOME the desktop reads a new selection at once and goes on serving its copy, so
+  the password stayed pasteable until the next copy. The copy is now plain `wl-copy`. Once
+  Element has been offered, ccy-teams asks you to press Enter when you have pasted the
+  password (at most 45 seconds), reads the clipboard back and clears it only if it still
+  holds the password; what you copied since is left alone. A read or clear that fails says
+  the password may still be on the clipboard. GNOME or a clipboard history may still keep a
+  copy after the clear. With Clipboard Indicator on, no copy is offered, as before. The
+  earlier entries' "serves one paste" no longer holds. New project rules,
+  `project_self_erasing_clipboard` (Go) and `bash-self-erasing-clipboard` (semgrep), keep
+  the claim and the flag out.
+- **The sign-in block says what a team lacks for its homeserver address.** It said
+  "Homeserver unknown (not declared)" and then that the Element profile had the homeserver.
+  It now names the gap (the team not declared present, no port, or no listen address and no
+  `agent_bus_address`) and says to set it in the host_vars and run `ccy-teams apply <team>`.
+
+## 3.104.15 — container 2.79.20
+
+No image file changed since 3.104.14.
+
+- **A session the restore cannot start is reported, not dropped** (issue #108). A record the
+  boot's restore could not start (no conversation recorded, its directory gone, an unreadable
+  record, a start that failed) is written into the restore manifest as `not-started`, so
+  `ccy-sessions verify-restore` prints `<name> NOT-STARTED <why>` and exits 1. A restore where
+  every record failed wrote an empty manifest, which verify read as "nothing to verify" and
+  passed. set-going leaves such a session alone.
+- **`ccy-sessions restore --check`** judges every record the next boot would restore, live
+  sessions included, by the restore's own rules, and starts nothing: `<name> RESTORABLE` or
+  `<name> UNRESTORABLE <why>`, exit 1 if any cannot be restored. With restore off it has
+  nothing to judge. The unattended self-update cycle runs it after its plays and before any
+  warning; on exit 1 it reboots nothing, records and announces `unrestorable-sessions` (exit
+  26), and asks again at its next run.
+- A restore resumes each record by its recorded conversation id only; a record cannot ask for
+  a fresh start. Documented in docs/ccy.md "Sessions Survive a Reboot".
+
+## 3.104.14 — container 2.79.20
+
+- **The playbook paths ccy prints are the ones the repository has** (issue #109). The hints
+  to set up GitHub keys and to install podman-compose put `play-github-cli-multi.yml` and
+  `play-podman.yml` under `optional/common/`; both plays live in `playbooks/imports/`.
+  `entrypoint.sh` prints one of them, so the image rebuilds.
+
+## 3.104.13 — container 2.79.19
+
+- **A pingbus watcher that keeps exiting is said, not only logged** (issue #116). Its
+  supervisor records each exit beside the team's state (`watcher.json`): `pingbus status`
+  prints a `WATCHER` line with the cause and the restart count, and the session start names
+  the team. A team the watcher stopped for a failure a restart cannot fix is recorded
+  `stopped`; once every team is, the supervisor exits instead of restarting it every 60 s,
+  and the hooks name it instead of starting it again. A supervisor the seat keeper started
+  is reaped when it exits, so no defunct `[pingbus]` stays behind. `pingbus recv` whose sync
+  fails still delivers what the inbox holds and names `pingbus history`. The image changes:
+  the pingbus zipapp, built from helpers/pingbus.
+
+## 3.104.12 — container 2.79.18
+
+No image file changed, but the version bump rebuilds the ccy base image, so project images
+rebuild at their next launch.
+
+- **ccy-sessions judges a restored session's input box by what it shows** (issue #117). A box
+  that looked empty but held a non-SGR escape, or a placeholder under the cursor, was read as
+  typed, so set-going left the session alone and `verify-restore` exited 1 for ever. A box
+  left alone as typed now has its raw line printed, escapes made visible.
+
+- **ccy-teams' offers to start or open something default to No.** After `ccy-teams create`,
+  "Sign <person> in to Element now?", "Open <team> in Element now?" and "Start a ccy session
+  in <checkout> as a member of <team>?" started on Yes, so a stray Enter set a password, opened
+  Element or started ccy. These, the sign-in offer after an apply, "Open <team> in Element
+  now?" after a new password, and the picker's "Start a ccy session in <checkout>?" and
+  "Update them now (play-agent-bus.yml)?" now start on No, as "Create a team for ... now?"
+  already did. The review question of the command you ran ("Create team", lxc-add's "Add")
+  still starts on Yes.
+
+## 3.104.11 — container 2.79.18
+
+The image is unchanged, so there is no rebuild.
+
+- **The cross-engine cleanup's option b stops on a failed stop.** "Remove ALL unused Docker
+  networks" stopped every Docker container with `docker stop`, discarding its words, and on
+  a failure said "Some containers could not be stopped (continuing)" and pruned anyway. Both
+  options are now `lib/docker-network-cleanup.bash`: the Go front lists and stops the
+  containers ("✗" with the engine's words), and a listing, stop or prune that failed stops
+  the launch. Option a lists a network's containers with `--list-containers` too, so an
+  engine warning is no longer read as a container name.
+- **A new token is discarded only when the API refuses it.** `--create-token` (and a renew)
+  threw the new OAuth token away whenever its check failed, even when the check could not
+  run (the engine, the image, the network). It is now kept, saying it was not checked and
+  why; only the API's refusal discards it. The paste prompt ends when its input closes,
+  instead of asking again for ever.
+- **The orphan scan says when an inspect failed.** A container whose inspect failed was read
+  as "not orphaned". When the container is still listed, the scan now stops with the
+  engine's words; one that exited in between is skipped, as before.
+- **The play builds the Go front first.** `play-claude-yolo.yml` builds and installs the Go
+  front before the libraries and the bash launcher that ask it questions, so a failed build
+  leaves the installed launcher working.
+
+## 3.104.10 — container 2.79.18
+
+The image is rebuilt: `entrypoint.sh` changes.
+
+- **The GitHub host-key fetch says what failed.** At start the entrypoint fetches GitHub's
+  SSH host keys from `api.github.com/meta`; any failure was reported as "(offline?)". The
+  warning now carries the cause: curl's own message for a DNS, connection or timeout
+  failure or an HTTP error status (a rate-limit 403 included), or "malformed answer" with
+  jq's words when the answer holds no keys. The start still goes on, with
+  `StrictHostKeyChecking=accept-new` for GitHub, as before.
+
+## 3.104.9 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **Container stops say what happened.** The orphaned- and existing-container menus and
+  `ccy --top` said "✗ (may already be stopped)" or a bare "✗" for any failed stop, and the
+  orphan menu then said "All orphaned containers stopped". Stops are now the Go front's
+  `--stop-containers`: "✓", "already gone" (the engine's store no longer has it, asked of
+  the engine, never read from the error), or "✗" with the engine's words. A stop that
+  really failed stops the launch (or `ccy --top`) instead of starting beside it.
+- **Container listings say when they failed.** The orphan scan, the stale-container cleanup,
+  both menus and `ccy --top` read an engine that could not list as "no containers found".
+  They are now the Go front's `--list-containers`; a listing that failed stops the launch
+  (or `ccy --top`) with the engine's cause.
+- **The Docker-network cleanup says why a removal failed.** Option 1 of the cross-engine
+  mismatch said "Could not remove (may still have containers)" for any failure and went
+  on. It is now `--remove-network`: a network already gone goes on, any other failure stops
+  with the engine's words. In its option a, a container stop or a network inspect that
+  failed there also stops, instead of "(continuing)" into a removal that could not work;
+  option b's stop still went on until 3.104.11.
+
+## 3.104.8 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The network check says what failed.** It read any failed `alpine wget` run as "no
+  internet access", so a podman failure or an `alpine` pull that failed showed the
+  network-debugging guide for a network that was never tested. It is now the Go front's
+  `--check-network`: a probe that ran and reached nothing shows the guide as before, now
+  with wget's own words above it (a name that would not resolve, a timeout); a probe the
+  engine could not run (the engine, the pull, the image) stops the launch with that cause
+  and no guide.
+- **The daily update check says why it was skipped.** When the image's Claude Code version
+  or the npm registry's latest could not be read it said "offline?" and dropped the cause.
+  It is now the Go front's `--claude-versions`, which names which one failed and why (the
+  image's run and its words, the registry not reached, or its error answer). The launch
+  still goes on and the check is still skipped for the day.
+
+## 3.104.7 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **A token check that could not run is said, never read as an invalid token.** The check
+  ran `claude --version` in the image, which never asks the API, and read any failure as
+  "token invalid", so a podman failure, a missing image or a network fault sent you to token
+  recovery. It is now the Go front's `--check-token`: from inside the image (the token by
+  name only, the image never pulled) it sends the usage reader's one small API request.
+  Accepted (HTTP 200 or 429) goes on; refused (401 or 403) is the only case for token
+  recovery; anything else (the engine, the image, the network, an API fault) stops the launch
+  with its cause and keeps the token, since nothing is known about it and the session would
+  need the same engine, image and API. A new token whose check fails is still not saved, and
+  the message now points at the cause above it instead of saying it does not authenticate.
+
+## 3.104.6 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The shared container-engine adapter can ask podman whether it has an image, volume or
+  container** (`podman ... exists`; Plan 00235). `container-images` uses it so an old-range
+  removal of something already gone is done, not a failure. The launcher's behaviour is
+  unchanged.
+
+## 3.104.5 — container 2.79.17
+
+The image is unchanged, so there is no rebuild.
+
+- **The saved launch configuration is never deleted on a guess** (Plan 00191 Task 4.10).
+  The launcher sourced `.claude/ccy/.last-launch.conf` and deleted it on any failure (a
+  permissions error, a read error, a bad line), calling it corrupt. The Go front now reads it
+  strictly (`claude-yolo --read-launch-config FILE`: only the keys ccy writes, in the form it
+  writes them) and hands the values back as data, never as code to run. A file it cannot read
+  is named on stderr with its cause and kept; the launch asks again, and a headless launch is
+  refused for want of saved choices, as with no file.
+
+## 3.104.4 — container 2.79.17
+
+- **Reports and questions are drawn formatted in Element** (Plan 00241). pingbus sends the
+  markdown of `report`, `ask-human` and the thread posts both as the plain body and as the
+  HTML Element renders: headings, lists, bold, italics, code, quotes and links. Messages
+  between agents (`say`) stay plain.
+- **The pingbus skill gives the house style:** a headline with one of nine kinds and its
+  emoji for a human, and a terse line protocol between agents.
+- The image changes because the member kit (the pingbus zipapp and its plugin) is in it.
+
+## 3.104.3 — container 2.79.16
+
+The image is unchanged, so there is no rebuild.
+
+- **`ccy --help` says why it could not ask the engine.** The help read every failure of
+  `<engine> image inspect` as "Container image not built yet", so an engine that could not run
+  at all (not installed, killed) was reported as a missing image. An engine that ran and said no
+  still gets the build hint; one that could not run is named with its error. When `claude --help`
+  fails in the image without a word, the note now says how it failed:
+  `no output (claude --help in claude-yolo:latest: podman exited 1)`. Held by the Go gate's rule
+  `project_command_failure_dropped`.
+
+## 3.104.2 — container 2.79.16
+
+- 3.104.0 and 3.104.1 (below) joined with 3.103.2's image, whose pingbus reads a long sync
+  gap from its newest end. Nothing else changes.
+
+## 3.104.1 — container 2.79.16
+
+The image is unchanged, so there is no rebuild.
+
+- **A failed usage read says what failed, and is not cached.** Every token showed "could not
+  reach the API" for 15 minutes after one failed read (2026-10-29), because any failure of
+  curl was recorded as status 000 with no cause and served from the cache like an answer. Now
+  curl runs with `--show-error`, and its exit code and words (or why it could not run) are a
+  fourth line of the cache entry: `ccy --token-usage`, `ccy-token-usable` and the token menu
+  say `could not read the API: curl exited 6: curl: (6) Could not resolve host: ...`. An entry
+  with no response is never fresh, so the next read asks again. Held by the Go gate's new rule
+  `project_command_failure_dropped` (CLAUDE/GoProjectRules.md).
+
+## 3.104.0 — container 2.79.16
+
+The image is unchanged, so there is no rebuild.
+
+- **`ccy --token-usage` draws the token menu's coloured bars.** Each token name is a heading
+  with its expiry, then a bar per limit with its percentage and reset, the binding limit, and
+  any warning or shadowed file; the table is gone. On a terminal the bars are coloured as the
+  menu's are (green, orange from 50%, red from 85%); `NO_COLOR` or output that is not a
+  terminal leaves out the colour. `--json` is unchanged.
+- **`--token-usage` is the Go front's alone.** It no longer hands over to the bash launcher,
+  whose report is deleted (`lib/token-management.bash` 2.0.0); under `CCY_LEGACY` the bash
+  refuses the flag. What the front used to hand over is now answered (another version of the
+  bash beside it, a name or `HOME` outside ASCII, a file with no date in its name, which is
+  listed as unavailable) or refused with exit 1 and one line naming it (a setting it refuses,
+  a token curl's arguments would hold, a pool or cache entry that is not a plain file).
+
+## 3.103.2 — container 2.79.16
+
+- **A seat whose sync position is days old hears its team again** (issue #115). Its watcher
+  exited 7 every minute, "the gap runs past 20 pages", and it never moved on, because the seat
+  state outlives every restart. pingbus now reads such a gap from its newest end, within the
+  same bound, and drops the older messages as `gap`, which the session sees as a `DROPPED` line.
+  The image changes: the pingbus zipapp, built from helpers/pingbus.
+
+## 3.103.1 — container 2.79.15
+
+- **A token with no usage left is refused in a red banner.** On a terminal, the `✗ No usage left on token <name>: ...` line printed before ccy falls back to the token chooser is a
+  three-line block of bold bright white on a red background, filled to the width of the
+  terminal, so it cannot be missed. With `NO_COLOR`, or when stderr is not a terminal, it is
+  the plain line it was. The chooser's own `✗ no usage left:` mark beside a token is
+  unchanged. Built into `ccy-token-usable` by `play-claude-yolo.yml`.
+
+## 3.103.0 — container 2.79.15
+
+- **Every image ccy makes says which ccy made it.** The builds of `claude-yolo:base`,
+  `:latest` and a project image, the in-place Claude Code update and the play's build label
+  the image `ccy-version=<CCY_VERSION>`.
+- **A build removes the project images an older ccy built.** After each build the lock runs
+  `container-images stale` (Plan 00235 Q7): a `claude-yolo:<project>` image whose
+  `ccy-version` is older than this ccy, or that has none, is removed once no container uses
+  it and no image is built on it; its next launch rebuilds it. `:base` and `:latest` are never
+  removed. A stopped container keeping a stale image is named on stderr and logged to
+  `~/.local/state/fedora-desktop/container-images.log` (`held`); ccy never removes a
+  container. A failure is reported and never fails the launch.
+
+## 3.102.2 — container 2.79.15
+
+- **No change to what ccy does.** The shared engine package gained the volume listing, each
+  container's volume mounts, and the unforced container and volume removals that
+  `container-images old-range` uses (Plan 00235 Task 4.7); the launcher calls none of them.
+
+## 3.102.1 — container 2.79.15
+
+- **A failed self-prune never fails a launch, and none runs beside another build.** The
+  review fixes of 3.102.0's self-prune, which was never released alone: the behaviour is the
+  3.102.0 entry below. `container-images replaced` is given the build's own lock (`--lock`)
+  and removes nothing while another ccy image build lock is held. It also removes nothing, saying
+  so once, until `play-podman.yml` has confirmed the store holds no file of an old subuid range
+  (`~/.local/state/fedora-desktop/container-images.store-clean`, Plan 00235 Q6).
+
+## 3.102.0 — container 2.79.15
+
+- **An image build removes the images it replaced (Plan 00235).** Every build and in-place
+  update under the build lock, the launcher's and the play's, records the `claude-yolo`
+  repository's tags before it (`container-images before`) and, after a build that succeeded,
+  removes each recorded image no tag now names and no container, running or stopped, uses
+  (`container-images replaced`, through `lib/image-build-prune.bash`), naming each removal and
+  kept image on stderr and logging removals to `~/.local/state/fedora-desktop/container-images.log`.
+  A failed cleanup is reported on stderr and never fails a launch, a restart or an update: a
+  removal the engine refuses (an old `:latest` a project image is built on), or a cleanup that
+  cannot list the containers or open its log, leaves the images to the daily prune. While
+  another image of the repository is being built (each image has its own build lock), the
+  cleanup removes nothing and says so. On docker, an in-place update's old `:latest` is the
+  new one's parent, so docker refuses to remove it and it stays until the next full rebuild.
+
+## 3.101.3 — container 2.79.15
+
+- **No change to what ccy does.** The Go `engine` package the launcher's front is built from
+  gains the store questions (images and containers as podman lists them, image and external
+  container removal) that `container-images`, the daily prune of the podman store, asks (Plan
+  00235); the bump is the launcher's code changing, not its behaviour.
+
+## 3.101.2 — container 2.79.15
+
+- **No change to what ccy does.** The Go `term` package the launcher's front is built from
+  gains `ExpandHome` (the inverse of `AbbrevHome`), for the `ssh-with-key` family's port (Plan
+  00192); the bump is the launcher's code changing, not its behaviour.
+
+## 3.101.1 — container 2.79.15
+
+Follows 3.101.0. Plan 00232. The image does not change.
+
+- **`ccy --connect` says plainly when a session cannot join a network.** A session started
+  without a network (`--no-network`, or a headless launch replaying a Quick Launch record
+  with no saved network) runs on pasta, which the engine can attach no network to. It used
+  to print the engine's `"pasta" is not supported: invalid network mode`, then "no network
+  connections ... This is unusual. The container may need to be restarted". It now says the
+  session was started without a network, so it cannot join one, and to relaunch it with
+  `--network <network>`; asked for several sessions, the others are still connected. Any
+  other failed connect still prints the engine's error and the session's networks, or
+  `(none)`, without the restart advice.
+- **A headless replay of a saved launch with no network joins the default network.** It
+  used to replay the empty choice as `--no-network`, so the session ran on pasta and could
+  never `--connect`, though an interactive yes to the same record joins `podman`. It now
+  goes on `podman` with no project network, skipping the detection and its offers, as a
+  restart with no network does.
+
+## 3.101.0 — container 2.79.15
+
+Follows 3.100.36 (container 2.79.15). Plan 00232 Task 3.3. The image does not change.
+
+- **Every session runs under a network policy.** The launch goes through
+  `ccy-network-policy launch` (a Go binary, `src-go/cmd/ccy-network-policy`), which creates the
+  container, holds an nftables table in its own network namespace, reads it back, and only
+  then starts it. The default refuses the private and LAN ranges and the host's own
+  addresses, with ICMP admin-prohibited so a refusal fails at once; the public internet, the
+  container's nameservers, the agent bus address and the session's project networks stay
+  open, and so does IPv6 neighbour discovery to link-local addresses. The owner widens it in a host file no container sees (`ccy-network-policy where`), with
+  addresses, prefixes, host names, `:port`, `lxc` or `off` ([Network policy](ccy.md#network-policy)).
+- **The session is told its limits**, in a `CCY NETWORK POLICY` block on Claude Code's system
+  prompt and at `/run/ccy/network-policy`.
+- **Where the policy cannot be held** (Docker, no `nft` on the host) the session runs
+  unprotected with a loud warning; a policy that fails to apply or read back removes the
+  container and stops the launch, naming `CCY_NETWORK_ALLOW=off` as the way out. A missing
+  `ccy-network-policy` stops it too.
+- **`--connect` and `--disconnect` refresh** every live session's allow sets after changing
+  its networks; an unprotected session is skipped.
+- **The tokens go to the container alone**: `ccy-network-policy` takes each `-e NAME` token out
+  of its environment and gives it to the container's create or run, not to the podman and nft
+  calls around it.
+- `play-claude-yolo.yml` installs `nftables` and builds `ccy-network-policy` into `~/.local/bin`.
+
+## 3.100.36 — container 2.79.15
+
+- **No change to ccy's behaviour.** `internal/gitx`, which the launcher's Go front builds
+  from, gains four methods for `ccc` (Plan 00233): start a repository, set a key in its own
+  config, ask whether the work tree has changed, and stage and commit everything unsigned.
+  The front calls none of them; the bump is the gate's rule for its build closure.
+
+## 3.100.35 — container 2.79.15
+
+Follows 3.100.34 (container 2.79.15). Plan 00228 Task 2.7. The image does not change, and
+ccy's behaviour does not change.
+
+- **Shared Go packages gain two additions** that the consumer install uses: `ui.Lines.Secret`
+  (a line read with the terminal's echo off) and `execx.Secret.WriteFile` (a secret written
+  alone to a new 0600 file). The launcher's Go front is built from these packages, so it is
+  rebuilt; nothing in ccy calls them.
+
+## 3.100.34 — container 2.79.15
+
+Follows 3.100.33 (container 2.79.15). Plan 00201 Task 2.31. The image does not change.
+
+- **`CCY_TEAMS_HOST_VARS` reaches the session's launcher.** A test harness that points
+  ccy-teams at a host_vars of its own exports it; ccy's move into tmux carried only the GitHub
+  token hand-off, so the launcher inside the session ran `ccy-teams describe-seats --block`
+  against the default host_vars and lost the harness teams' descriptions from the launch
+  block. The pane's command now carries it, as it carries the hand-off.
+
+## 3.100.33 — container 2.79.15
+
+Follows 3.100.32 (container 2.79.14). Plan 00201 Task 2.27. The image changes: the pingbus
+zipapp, built from helpers/pingbus.
+
+- **No change you can see.** pingbus names the line its watcher writes once a team it could not
+  sync syncs again (`the team syncs again`) as a constant, and prints the same bytes as before;
+  Plan 00194's delivery acceptance reads it from this checkout instead of copying it.
+
+## 3.100.32 — container 2.79.14
+
+Follows 3.100.31 (container 2.79.13). Plan 00201 Task 2.24. The image changes: the agent_bus
+helpers the pingbus zipapp is built with.
+
+- **No change you can see.** agent-bus names the words its plan checkers look for (the health
+  check's restart and stale backup problems and `PROBLEM` mark, a state backup's file name, and
+  the seat check's wait for a starting homeserver) as constants, and prints the same bytes as
+  before; the checkers read them from this checkout instead of copying them.
+
+## 3.100.31 — container 2.79.13
+
+Follows 3.100.30 (container 2.79.12). Plan 00201 Task 2.24. The image changes: the pingbus
+helper.
+
+- **No change you can see.** pingbus names the words its plan checkers look for (the
+  several-teams refusal, the seat refusals, the Element refusal, the watcher's log endings,
+  the `(down)` mark, the default home `.config/pingbus`) as constants, and prints the same
+  bytes as before; the checkers read them from this checkout instead of copying them.
+
+## 3.100.30 — container 2.79.12
+
+Plan 00177 Task 12.3.
+
+- **A key typed just after Esc no longer acts on the next screen.** In ccy-teams and
+  ccy-sessions, the screen after one you left (Esc, Ctrl-C, a No), and every question of
+  `ccy-teams remove`, `ccy-teams restore` and ccy-sessions' End, start on no key typed before
+  they drew. Other screens still keep what you type ahead. The launcher's Go front builds from
+  the same `execx` and `ui`, hence the version.
+
+## 3.100.29 — container 2.79.12
+
+Plan 00177 Phase 12, the findings of the Phase 11 host run.
+
+- **No "earlier room version" on a new team.** The image's copy of
+  `helpers/agent_bus/admin.py` (container 2.79.12) names only the joined rooms of an earlier
+  room version that the team admin made. Tuwunel's own server admin room, which every team
+  admin is joined to, is no longer counted.
+- **`ccy-teams session add` and `move` name existing seats by their role.** The block read
+  the seats of the ccy-teams terminal's checkout instead of the session's, and called every
+  seat new.
+
+## 3.100.28 — container 2.79.11
+
+Plan 00177 Phase 11, the host run of 26-10-26.
+
+- **A removed team leaves no Element launcher behind.** The image's copy of
+  `helpers/agent_bus/element.py` (container 2.79.11) now also removes the launcher and
+  profile of a team it made one for that is no longer named. `ccy-teams remove` runs the
+  Element play after taking a watched team down.
+- **`ccy-teams session add` and `move` print the launch block** (`This session is on N teams:`), as a launch does.
+- **`ccy-teams lxc-add` refuses `root` as the agent's user** and asks again.
+- The chooser's texts say the list is skipped only when the machine has one team.
+
+## 3.100.27 — container 2.79.10
+
+Follows 3.100.26 (container 2.79.9). The image changes: the pingbus helper and its plugin
+(1.5.0).
+
+- **A coordinator can write to the whole team in one message.** `pingbus say --all` names
+  every member of the team but the coordinator itself, read from the team record when it is
+  sent. It stands alone (no `--to` or `--to-coordinator`), and a worker is refused it, so no
+  single worker can reach every agent at once.
+
+## 3.100.26 — container 2.79.9
+
+Follows 3.100.25 (container 2.79.9). The image does not change.
+
+- **fzf's word editing works again in the ccy fzf screens.** 3.100.24 bound every key fzf
+  reads an Esc and the next key as to abort, which took fzf's Alt-B, Alt-F, Alt-D and
+  Alt-Backspace (move and delete by word) and threw the typed filter away. Those four keep
+  their meaning; only an Esc typed within fzf's 100 ms wait before b, f, d or Backspace is
+  still lost.
+
+## 3.100.25 — container 2.79.9
+
+Follows 3.100.24 (container 2.79.9). The image does not change. It joins the two lines of
+work below into one release: 3.100.24, an Esc typed just before another key, and 3.100.19,
+the compose project name. Nothing else changes.
+
+## 3.100.24 — container 2.79.9
+
+Follows 3.100.19 (container 2.79.9; 3.100.20 to 3.100.23 are taken by concurrent branches). The
+image does not change.
+
+- **An Esc typed just before another key is no longer lost.** fzf reads an Esc and the key
+  typed within 100 ms after it (or both in one write from tmux) as that key with Alt, which no
+  screen bound, so the menu stayed open. The session picker (`ccy_tmux_pick`) and every
+  `ccy-teams` and `ccy-sessions` screen now leave on all of them, as on Esc; in a `ccy-teams`
+  row menu, Esc then an arrow closes the menu and moves the list's cursor from that row.
+  tmux's `escape-time` is now 10 ms (`/etc/tmux.conf`), so tmux no longer holds an Esc for
+  half a second and joins it to the next key.
+
+## 3.100.19 — container 2.79.9
+
+Follows 3.100.18 (container 2.79.9). The image does not change.
+
+- **The compose project name defaults to the directory's own name without running
+  `basename`** (`lib/network-management.bash`, `check_and_start_compose_services` and
+  `offer_compose_start`): `${PWD##*/}` replaces `$(basename "$PWD")`, whose failure a `local`
+  declaration hid (Plan 00201 Task 2.26, rule
+  [assignment-masks-substitution-failure](../CLAUDE/QA.md#assignment-masks-substitution-failure)).
+  The name is the same in every directory but `/`.
+
+## 3.100.18 — container 2.79.9
+
+Follows 3.100.17 (container 2.79.9). The image does not change.
+
+- **No session starts on a token with no usage left.** The token a launch is about to use
+  (`--token`, a Quick Launch's `Y`, or a pick in the token menu) has its usage read first;
+  a used-up 5-hour or 7-day limit refuses it with one line naming the limit, the clock time
+  it clears and the time to go, and the token menu opens with used-up tokens marked. A
+  headless launch, a restore or a restart stops with exit 1 instead. Usage that cannot be
+  read is said and does not block. The check is the new Go command `ccy-token-usable`
+  (built by `play-claude-yolo.yml`), which reads usage as `ccy --token-usage` does; see
+  [No session on a token with no usage left](ccy.md#no-session-on-a-token-with-no-usage-left).
+
+## 3.100.17 — container 2.79.9
+
+Follows 3.100.15 (container 2.79.9; 3.100.16 is taken by a concurrent branch). The image does
+not change.
+
+- **Keys typed between two screens are no longer echoed** (Plan 00177 Task 10.2): `ccy-teams`
+  (every subcommand, the `ccy --teams` chooser among them) and `ccy-sessions` hold the
+  terminal's echo off from their first screen to the end of the run (`src-go/internal/ttyecho`),
+  so an arrow pressed while the next screen is being prepared no longer shows as `^[[B` on it; a
+  run that shows no screen (a listing piped to a pager) leaves the terminal alone. A program given the terminal
+  for its own input (a play, `tmux attach`, sudo's prompt, the launcher) runs in the mode found;
+  `execx.Cmd` gains `EchoHeld`, set on every fzf, gum and tput run in `internal/ui`.
+- **ccy-teams menus never offer what the board calls unavailable** (Plan 00177 Task 10.1):
+  outside a project, on a team that is not up, or for a session with nothing to attach, the
+  line says "unavailable" and why.
 
 ## 3.100.15 — container 2.79.9
 
@@ -88,7 +791,7 @@ Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never r
 branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
-  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  00217). A team piece reads `alpha: example-repo.2 (c)`: the team, this session's member in
   it and its role, in the team's colour. The colour comes from the team's name, in a palette
   legible on dark terminals, unless the team's `colour:` overrides it.
 

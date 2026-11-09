@@ -130,6 +130,16 @@ func (s PickSpec) keys() []string {
 	return keys
 }
 
+// expected is the keys fzf hands back rather than acts on: the Action keys, and in a row's
+// menu Esc then an arrow, which leaves the menu for the list (navigation, never an action).
+func (s PickSpec) expected() []string {
+	keys := s.keys()
+	if s.escMoves {
+		keys = append(keys, escThenUp, escThenDown)
+	}
+	return keys
+}
+
 // expectArg is fzf's --expect for keys: the one place it is built, from Action keys only
 // (project_hidden_bindings allows it nowhere else).
 func expectArg(keys []string) string {

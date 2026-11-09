@@ -33,6 +33,7 @@ type session struct {
 	reports      []namedReport
 	temps        []string
 	writeErr     error
+	iso          *gates.Isolation
 }
 
 // Main is the qa-all command: it returns the exit status. Diagnostics go to env.Stderr, the
@@ -57,7 +58,34 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 		return ExitCannotRun
 	}
 	defer s.cleanup()
-	return s.settle(s.run(ctx))
+	release, code, held := s.lock(ctx)
+	if !held {
+		return code
+	}
+	code = s.run(ctx)
+	if err := release(); err != nil {
+		s.errf(abortPrefix+"cannot release the QA lock: %v\n", err)
+		return ExitCannotRun
+	}
+	return s.settle(code)
+}
+
+// lock takes the QA lock for the whole run; held is false when the run must end with code.
+func (s *session) lock(ctx context.Context) (func() error, ExitCode, bool) {
+	if s.env.Lock == nil {
+		s.errf(abortPrefix + "no QA lock is wired into this command\n")
+		return nil, ExitCannotRun, false
+	}
+	release, err := s.env.Lock(ctx, s.root, s.opts.noWait)
+	if err == nil {
+		return release, ExitOK, true
+	}
+	if ctx.Err() != nil {
+		s.outf("✗ qa-all interrupted\n")
+		return nil, ExitInterrupted, false
+	}
+	s.errf(abortPrefix+"%v\n", err)
+	return nil, ExitCannotRun, false
 }
 
 // outf and errf write to the two streams, remembering the first write that failed.
@@ -110,6 +138,9 @@ func reportPath(getenv func(string) string) string {
 }
 
 func newSession(env Env, opts options) (*session, error) {
+	if env.Umask == nil {
+		return nil, errors.New("no umask control is wired into this command")
+	}
 	root, scripts := resolvePaths(opts, env.Cwd)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("root %s is not a directory", root)
@@ -220,7 +251,7 @@ func (s *session) tempFile() (string, error) {
 
 func (s *session) cleanup() {
 	for _, path := range s.temps {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(path); err != nil {
 			s.errf("qa-all: cannot remove %s: %v\n", path, err)
 		}
 	}

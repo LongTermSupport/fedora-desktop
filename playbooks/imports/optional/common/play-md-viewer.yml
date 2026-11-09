@@ -18,6 +18,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     # md-viewer publishes no tags yet, so the pin is a full commit hash on its main. Its
     # pseudo-version, which `md-viewer --version` prints, carries the first 12 characters.
     md_viewer_version: 22a55582735d5c20dc0667b8d4dc079eac9aae8c
@@ -40,6 +41,10 @@
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    - name: Audience guard — end play on a consumer install
+      ansible.builtin.meta: end_play
+      when: install_audience != 'developer'
 
     # Gio's window code is cgo. Each -devel package below provides a pkg-config module that a
     # `#cgo linux pkg-config:` line in Gio v0.10.3 names, or headers it includes; installing

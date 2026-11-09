@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 )
 
 // checkPlan is what one check will be given.
@@ -70,6 +72,7 @@ type session struct {
 
 	temps    []string
 	writeErr error
+	iso      *gates.Isolation
 }
 
 // load reads the routing tables.

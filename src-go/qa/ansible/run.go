@@ -26,7 +26,7 @@ const defaultReportPath = "/tmp/qa-ansible-results.json"
 
 // SearchDirs are the Ansible source trees, in the order they are searched. roles/ is an
 // ansible-galaxy install target and is legitimately absent on a clean checkout.
-var SearchDirs = []string{"playbooks", "tasks", "vars", "environment", "roles"}
+var SearchDirs = []string{"playbooks", tasksKey, "vars", "environment", "roles"}
 
 // Env is everything the command touches outside the repository tree: the environment, the two
 // streams, the working directory, how a root directory is opened and how the report is written.
@@ -51,7 +51,16 @@ Static Ansible QA over playbooks/ tasks/ vars/ environment/ roles/: error-hiding
 without FAIL-FAST-OK, playbook shebang and execute bit, self-default variables, vars.scope and
 the canonical scope guard, deprecated top-level ansible_<fact> variables, a guessed uid in
 a /run/user path, and a regex backreference with the wrong backslash count for its YAML style
-and Jinja context (CLAUDE/QA.md, regex-backref-escape).
+and Jinja context (CLAUDE/QA.md, regex-backref-escape), and a regex letter escape (\d, \s,
+\w ...) that reaches the regex as a literal backslash or a backspace (CLAUDE/QA.md,
+regex-class-escape), and a file users read created as root
+under the inherited umask (CLAUDE/QA.md, root-umask), and the play-UX rules: a setting
+checked after the play has changed the system, a secret demanded by hand, an Ansible CLI run
+outside the checkout, a failure no_log hides, a probe of a program installed only later, and
+a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late,
+vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
+module-built-for-running-kernel), and a sudoers rule whose target its user can modify or
+steer (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -144,7 +153,7 @@ func finish(findings Findings, path string, write func(string, []byte) error, ou
 	return ExitOK
 }
 
-// Scan runs the seven checks over the tree and returns what they found. An error is a run that
+// Scan runs the eight checks over the tree and returns what they found. An error is a run that
 // could not complete: no search directory, no playbooks directory, a file that cannot be read.
 func Scan(fsys fs.FS, root string) (Findings, error) {
 	var dirs []string
@@ -197,10 +206,24 @@ func scanPatterns(fsys fs.FS, root string, dirs []string, f *Findings) error {
 	}
 	sc := scope(playbooks, root)
 	f.Out, f.Scope = append(f.Out, sc.out...), sc.entries
+	au := audience(playbooks, root)
+	f.Out, f.Scope = append(f.Out, au.out...), append(f.Scope, au.entries...)
 	if err := scanFacts(fsys, dirs, f); err != nil {
 		return err
 	}
-	return scanRegexBackrefs(fsys, dirs, f)
+	if err := scanRegexBackrefs(fsys, dirs, f); err != nil {
+		return err
+	}
+	if err := scanRegexEscapes(fsys, dirs, f); err != nil {
+		return err
+	}
+	if err := scanRootUmask(fsys, dirs, f); err != nil {
+		return err
+	}
+	if err := scanPlayUX(fsys, dirs, f); err != nil {
+		return err
+	}
+	return scanSudoers(fsys, dirs, f)
 }
 
 // scanFacts runs checks 5 and 6: deprecated fact variables, then guessed uids in runtime paths.

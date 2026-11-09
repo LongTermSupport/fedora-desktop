@@ -145,6 +145,7 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 | 23   | the verify found a session not OK           |
 | 24   | the reboot was refused                      |
 | 25   | verify passed; its unit stays marked failed |
+| 26   | a recorded session cannot be restored       |
 | 77   | not run as root                             |
 | 130  | the warning countdown was cancelled         |
 
@@ -170,7 +171,9 @@ source and fails on one that is not classified):
 - ok: `nothing`, `deployed`;
 - in progress: `rebooting`;
 - failed: `refused`, `config-invalid`, `play-failed`, `unwarnable`, `cancelled`,
-  `reboot-failed`, `verify-failed`.
+  `reboot-failed`, `verify-failed`, `unrestorable-sessions` (fedora-desktop#108: before
+  anyone is warned, `ccy-sessions restore --check` found a recorded session the restore after
+  the reboot could not start; no reboot, it stays owed and the next cycle asks again).
 
 ## The published copy (Task 4.3)
 

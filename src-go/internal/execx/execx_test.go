@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,25 @@ func TestOSRunnerNamesTheSignalThatEndedTheCommand(t *testing.T) {
 	}
 	if exit.Error() != "sh killed by SIGTERM" {
 		t.Fatalf("error text %q", exit.Error())
+	}
+}
+
+func TestExitedNonZeroIsOnlyAProgramThatEndedItself(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"exit 1", &ExitError{Name: "x", Code: 1}, true},
+		{"wrapped exit", fmt.Errorf("probe: %w", &ExitError{Name: "x", Code: 2}), true},
+		{"killed", &ExitError{Name: "x", Code: -1, Signal: syscall.SIGKILL}, false},
+		{"not started", os.ErrNotExist, false},
+		{"no error", nil, false},
+	}
+	for _, c := range cases {
+		if got := ExitedNonZero(c.err); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

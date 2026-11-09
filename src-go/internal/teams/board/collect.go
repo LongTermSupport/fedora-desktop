@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatcheckouts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -230,7 +232,7 @@ func (c *Collector) readTeams(ctx context.Context) (*teamsRead, error) {
 	}
 	units, err := c.Systemd.HomeserverUnits(ctx)
 	if err != nil {
-		c.Term.PrintError("systemctl could not list the agent-bus homeserver units.")
+		c.Term.PrintError(err.Error())
 		return nil, errReported
 	}
 	installed := make([]string, 0, len(units))
@@ -299,8 +301,45 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 	}
 	c.addDesired(s, listing.Records)
 	c.addWorkTree(ctx, s)
+	c.addSeatCheckouts(s, seatcheckouts.Of(store))
 	return nil
 }
+
+// wordSeatListUnread is the board's note when the list of seat checkouts cannot be read or added
+// to: a seat whose session has ended may be left out.
+const wordSeatListUnread = "the list of seat checkouts is unreadable"
+
+// addSeatCheckouts adds each checkout seen now that has a seat directory to the list of seat
+// checkouts, then notes every checkout the list names: a seat is read in its checkout after its
+// session has ended and no record names the checkout any more (Plan 00201 Task 2.29).
+func (c *Collector) addSeatCheckouts(s *Snapshot, list *seatcheckouts.List) {
+	listed, err := list.Read()
+	if err != nil {
+		c.Term.PrintError(err.Error() + "; a seat whose session has ended may be left out.")
+		s.Incomplete = wordSeatListUnread
+		return
+	}
+	for _, dir := range s.Checkouts {
+		if slices.Contains(listed, dir) || !hasSeatDir(dir) {
+			continue
+		}
+		if err := list.Add(dir); err != nil {
+			c.Term.PrintError(err.Error() + "; its seats are left out once its session ends.")
+			s.Incomplete = wordSeatListUnread
+		}
+	}
+	for _, dir := range listed {
+		s.addCheckout(dir)
+	}
+}
+
+// hasSeatDir reports whether dir has a seat directory (what agent-bus seat list reads).
+func hasSeatDir(dir string) bool {
+	info, err := os.Stat(seatDir(dir))
+	return err == nil && info.IsDir()
+}
+
+func seatDir(dir string) string { return filepath.Join(dir, ".claude", "ccy", "pingbus", "seats") }
 
 // addDesired notes the seats live sessions' desired memberships name (a hot add's, before or
 // beside its record), each only while its session's own launch wrote it (records: B1 of the M6
@@ -451,6 +490,10 @@ func (c *Collector) addTeamRows(s *Snapshot, team string, seats []seatAt, r read
 	if err != nil {
 		where += ", " + err.Error()
 	}
+	s.LXC[team] = lxc
+	if s.livenessUnreported(team) {
+		where += ", " + unreportedLiveness
+	}
 	s.Rows = append(s.Rows, Row{
 		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",
@@ -496,7 +539,7 @@ func restoreWord(s *Snapshot, key string) string {
 
 // seatRow is a ccy seat's row: its session and RESTORE when a registry record names it, else
 // the seat's own state.
-func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]string, unknown string) Row {
+func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, members map[string]agentbus.Member, unknown string) Row {
 	key := sa.dir + "|" + sa.seat.Seat + "@" + team
 	record, restore := s.SeatSession[key], restoreWord(s, key)
 	session := record
@@ -508,13 +551,13 @@ func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[st
 	} else if _, live := s.Live[record]; !live {
 		session += "(stopped)"
 	}
-	state := activity[sa.seat.Handle]
-	if state == "" {
-		state = unknown
+	state, live := unknown, agentbus.LiveUnreported
+	if m, ok := members[sa.seat.Handle]; ok {
+		state, live = memberState(m), m.Live
 	}
 	return Row{
 		Team: team, Member: sa.seat.Seat, Kind: KindCcy, State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, c.Home), Handle: sa.seat.Handle, Dir: sa.dir,
-		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held,
+		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held, Live: live,
 	}
 }

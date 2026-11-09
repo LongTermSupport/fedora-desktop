@@ -67,6 +67,13 @@ func recipeDigest(l *lab, kind, profile string) (string, error) {
 		return "", fmt.Errorf("hash the recipe: %w", err)
 	}
 	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil {
+			return "", failf("no %s; deploy the lab first", f)
+		}
+		if !info.Mode().IsRegular() {
+			return "", failf("%s is not a regular file; deploy the lab again", f)
+		}
 		body, err := os.ReadFile(f)
 		if err != nil {
 			return "", failf("no %s; deploy the lab first", f)
@@ -80,6 +87,13 @@ func recipeDigest(l *lab, kind, profile string) (string, error) {
 
 // fileSHA256 hashes a file whole.
 func fileSHA256(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", failf("cannot read %s: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", failf("cannot read %s: not a regular file", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", failf("cannot read %s: %v", path, err)
@@ -198,7 +212,7 @@ func (c *cli) baseRecord(ctx context.Context, l *lab, p *probe, baseJSON string)
 		args:   append(c.gateArgs(l, p, baseJSON, fast, zeroSHA256), "--record-only"),
 	})
 	if err != nil {
-		return nil, ctxErr(ctx, failf("could not read %s", baseJSON))
+		return nil, ctxErr(ctx, failf("could not read %s: %v", baseJSON, err))
 	}
 	line, ok := oneLine(string(res.Stdout), "VMTEST-BASE-RECORD")
 	if !ok {
@@ -317,21 +331,6 @@ func (c *cli) cmdSweep(ctx context.Context, args []string) error {
 		return err
 	}
 	return c.sweep(ctx, l)
-}
-
-// sweep applies the retention policy; the evictions it prints are its payload (E51).
-func (c *cli) sweep(ctx context.Context, l *lab) error {
-	checkout, err := l.needCheckout()
-	if err != nil {
-		return err
-	}
-	if _, err := c.helper(ctx, helperCall{module: "retention", stdout: c.env.Stdout, args: []string{
-		"sweep", "--lab-dir", l.home, "--checkout", checkout, flagLog, l.at(retentionLog),
-	}}); err != nil {
-		return ctxErr(ctx, failf("the retention sweep failed: %v", err))
-	}
-	c.logf("every eviction is recorded in %s", l.at(retentionLog))
-	return nil
 }
 
 // cmdNightly is freshness-status --deep, then sweep, always both (E52, B13).

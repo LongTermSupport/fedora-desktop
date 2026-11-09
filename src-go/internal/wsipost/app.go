@@ -170,15 +170,20 @@ func (a App) postProcess(ctx context.Context, o options) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, claudeTimeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	_, err = a.Env.Runner.Run(ctx, execx.Cmd{
+	_, runErr := a.Env.Runner.Run(ctx, execx.Cmd{
 		Name: filepath.Join(a.Env.BinDir, claudeHelper), Args: append(args, text), Stdout: &stdout, Stderr: &stderr,
 	})
 	processed := strings.TrimSpace(stdout.String())
-	if err != nil || processed == "" {
+	if runErr != nil || processed == "" {
 		reason := strings.TrimSpace(strings.ReplaceAll(stderr.String(), "\n", " "))
 		reason = strings.TrimPrefix(reason, claudeHelper+": ")
 		if reason == "" {
-			reason = fmt.Sprintf("exit %d, no output", exitCode(err))
+			reason = fmt.Sprintf("exit %d, no output", exitCode(runErr))
+			// A helper that never ran, or was stopped by the timeout, has no exit code of its own.
+			var exit *execx.ExitError
+			if runErr != nil && !errors.As(runErr, &exit) {
+				reason = runErr.Error()
+			}
 		}
 		a.say("Claude post-processing failed: " + reason)
 		return "", errFailed

@@ -37,6 +37,8 @@ _RUN_FIELDS = (
     "name",
     "commit",
     "dirty",
+    "dirty_paths",
+    "dirty_paths_truncated",
     "play_sha256",
     "outcome",
     "changed",
@@ -134,8 +136,15 @@ def build_record(
     changed: int,
     started: str,
     finished: str,
+    dirty_paths: Iterable[str] = (),
+    dirty_paths_truncated: bool = False,
 ) -> dict[str, Any]:
-    """One validated run record. Every constraint here is a thing Phase 2 relies on."""
+    """One validated run record. Every constraint here is a thing Phase 2 relies on.
+
+    `dirty_paths` are the checkout's uncommitted paths (`repo.dirty_state`), and
+    `dirty_paths_truncated` says the list was cut. `dirty` stays, so a reader from before
+    the paths were kept still reads a dirty run as dirty; it must agree with them.
+    """
     _require(bool(play) and not play.startswith("/"), f"play must be repo-relative, got {play!r}")
     _require(outcome in OUTCOMES, f"unknown outcome {outcome!r}; expected one of {sorted(OUTCOMES)}")
     _require(bool(_COMMIT_RE.match(commit)), f"commit must be a 40-hex sha, got {commit!r}")
@@ -143,6 +152,15 @@ def build_record(
     # A string here is truthy, so every run would record as dirty and the reason
     # play_sha256 exists at all would become unreadable.
     _require(isinstance(dirty, bool), f"dirty must be a bool, got {type(dirty).__name__}")
+    paths = list(dirty_paths)
+    for path in paths:
+        _require(isinstance(path, str) and bool(path) and not path.startswith("/"),
+                 f"a dirty path must be repo-relative, got {path!r}")
+    paths.sort()
+    _require(isinstance(dirty_paths_truncated, bool), "dirty_paths_truncated must be a bool")
+    # A dirty run naming no path would clear every play; a clean one naming paths is a lie.
+    _require(dirty == (bool(paths) or dirty_paths_truncated),
+             f"dirty={dirty} disagrees with {len(paths)} dirty paths (truncated={dirty_paths_truncated})")
     _require(isinstance(changed, int) and not isinstance(changed, bool), "changed must be an int")
     for label, value in (("started", started), ("finished", finished)):
         _require(bool(_TIMESTAMP_RE.match(value)), f"{label} must be UTC ISO 8601, got {value!r}")
@@ -153,6 +171,8 @@ def build_record(
         "name": name,
         "commit": commit,
         "dirty": dirty,
+        "dirty_paths": paths,
+        "dirty_paths_truncated": dirty_paths_truncated,
         "play_sha256": play_sha256,
         "outcome": outcome,
         "changed": changed,
@@ -218,6 +238,26 @@ def fold_latest(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
         if seen is None or record.get("finished", "") > seen.get("finished", ""):
             latest[play] = record
     return latest
+
+
+def recorded_dirty_paths(record: dict[str, Any]) -> tuple[str, ...] | None:
+    """The paths a run's checkout had uncommitted: none for a clean run, or None when the
+    record cannot name them all.
+
+    The one reader of a record's `dirty`: a play is stale for dirtiness only when one of
+    these paths is among its own inputs, so a stray file no play reads stales nothing. None
+    is the cautious answer, read as "any input may have been dirty": a record from before the
+    paths were kept (`dirty: true` alone), a list cut at the limit, or one it cannot read.
+    """
+    dirty = record.get("dirty")
+    if dirty is False:
+        return ()
+    paths = record.get("dirty_paths")
+    if (dirty is not True or record.get("dirty_paths_truncated") is not False
+            or not isinstance(paths, list) or not paths
+            or not all(isinstance(path, str) and path for path in paths)):
+        return None
+    return tuple(paths)
 
 
 def run_fields() -> tuple[str, ...]:

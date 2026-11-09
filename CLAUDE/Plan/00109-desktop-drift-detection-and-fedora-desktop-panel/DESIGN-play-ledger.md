@@ -14,17 +14,32 @@ One record per **play**, not per playbook run. `run.bash` invokes `playbook-main
 imports many plays; per-playbook granularity would record one line saying "everything ran" and
 lose the axis Phase 2 needs.
 
-| field                  | example                                             | why                                                         |
-| ---------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
-| `play`                 | `playbooks/imports/play-gnome-shell-extensions.yml` | repo-relative; the key Phase 2 joins on                     |
-| `name`                 | `Gnome Shell Extensions`                            | the play's `name:`, for human-readable reports              |
-| `commit`               | `e5c9d82d…` (40 hex)                                | repo HEAD at run time                                       |
-| `dirty`                | `true` \| `false`                                   | whether the tree had uncommitted changes                    |
-| `play_sha256`          | `9f2c…`                                             | hash of the play file **as executed**                       |
-| `outcome`              | `ok` \| `failed` \| `unreachable`                   | from the run's stats for that play's hosts                  |
-| `changed`              | `3`                                                 | task-level changed count, for "did this run do anything"    |
-| `started` / `finished` | `2026-09-14T09:31:07Z`                              | UTC, ISO 8601                                               |
-| `schema`               | `1`                                                 | so a later reader can refuse a shape it does not understand |
+| field                   | example                                             | why                                                         |
+| ----------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| `play`                  | `playbooks/imports/play-gnome-shell-extensions.yml` | repo-relative; the key Phase 2 joins on                     |
+| `name`                  | `Gnome Shell Extensions`                            | the play's `name:`, for human-readable reports              |
+| `commit`                | `e5c9d82d…` (40 hex)                                | repo HEAD at run time                                       |
+| `dirty`                 | `true` \| `false`                                   | whether the tree had uncommitted changes                    |
+| `dirty_paths`           | `["files/home/x.conf"]`                             | which paths were uncommitted (modified, staged, untracked)  |
+| `dirty_paths_truncated` | `false`                                             | the list was cut at 50 paths, so it does not name them all  |
+| `play_sha256`           | `9f2c…`                                             | hash of the play file **as executed**                       |
+| `outcome`               | `ok` \| `failed` \| `unreachable`                   | from the run's stats for that play's hosts                  |
+| `changed`               | `3`                                                 | task-level changed count, for "did this run do anything"    |
+| `started` / `finished`  | `2026-09-14T09:31:07Z`                              | UTC, ISO 8601                                               |
+| `schema`                | `1`                                                 | so a later reader can refuse a shape it does not understand |
+
+### Dirty is judged per input
+
+`dirty` alone was a fact about the whole checkout: one stray untracked file no play reads made
+every run record `dirty: true`, and every play read stale for ever. So a run also records
+`dirty_paths`, and `changed_plays.judge` treats a run as stale for dirtiness only when one of
+them is among that play's own inputs (or is the group_vars file every play loads). A record
+that cannot name them all (`dirty_paths_truncated`, an unreadable list, or a record written
+before the fields existed, which has `dirty` alone) keeps the old meaning: stale. `dirty`
+stays and must agree with the list, so older readers still read a dirty run as dirty; the
+schema number is unchanged because the new fields are additive. Only
+`ledger.recorded_dirty_paths` reads the flag; `tests/helpers/play_ledger/test_dirty_judged_per_input.py`
+fails any other reader.
 
 ### Why the hash, stated correctly
 

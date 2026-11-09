@@ -59,7 +59,7 @@ discarding the branch's stale, simpler version — never the reverse.
   **union** of both sides' stages (both sides added stages independently;
   `CLAUDE/QA.md` documents the positional `.[0]..[5]` jq merge as fragile).
 - Confirm `run.bash`'s `RUN_BASH_GITHUB_ACCOUNTS=none` support (Plan 00082,
-  proven live from the lts-infra side two days before this plan) survives the
+  proven live from the example-team side two days before this plan) survives the
   merge — this is the one regression that would silently un-bank already-proven
   work.
 - `qa-reviewer` review of the full merge diff before the PR is opened for
@@ -73,7 +73,7 @@ discarding the branch's stale, simpler version — never the reverse.
 - Re-implementing or redesigning Plan 00068's CI-runner requirements beyond
   what already exists as code on the branch — this is a resync, not a
   feature re-scope.
-- Any change to lts-infra (Plan 00045 there tracks the lts-infra-side
+- Any change to example-team (Plan 00045 there tracks the example-team-side
   dependency; this plan is fedora-desktop-only).
 
 ## Tasks

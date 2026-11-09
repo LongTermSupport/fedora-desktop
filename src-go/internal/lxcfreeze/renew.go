@@ -14,6 +14,10 @@ var errNotRenewed = errors.New("thawed, but the DHCP lease was not renewed")
 
 const ethernet = "ethernet"
 
+// noNmcli is what lxc-attach says when the container has no nmcli to exec: such a container
+// manages its address some other way, so the renewal does not apply to it.
+const noNmcli = `No such file or directory - Failed to exec "nmcli"`
+
 // renewDHCP renews the lease of every ethernet device NetworkManager manages inside the
 // container, because a freeze longer than the lease leaves it thawed but unreachable. lxc-attach
 // chowns the file its stderr points at, so both streams are pipes: sudo.Capture hands the runner
@@ -22,6 +26,9 @@ func (e *Engine) renewDHCP(ctx context.Context, name string) (string, error) {
 	status, err := e.Sudo.Capture(ctx, "lxc-attach", "-n", name, "--", "nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status")
 	if stop := e.endsBatch(ctx, err); stop != nil {
 		return "", stop
+	}
+	if err != nil && strings.Contains(string(status.Stderr), noNmcli) {
+		return "", &freeze.DoneError{Note: "thawed; no DHCP lease renewed — the container has no nmcli (NetworkManager is not installed)"}
 	}
 	if err != nil {
 		return "thawed, but the DHCP lease was not renewed — nmcli failed: " + freeze.FailureText(status, err), errNotRenewed

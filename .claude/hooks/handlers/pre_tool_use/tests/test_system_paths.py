@@ -149,13 +149,39 @@ class TestSystemPathsHandler:
         }
         assert handler.matches(hook_input) is False
 
-    def test_matches_write_relative_path_returns_false(self, handler):
-        """Should NOT match Write with relative path (assume workspace)."""
+    @pytest.fixture
+    def cwd_in_a_system_dir(self, monkeypatch):
+        """The daemon's working directory is not the project: put it under a blocked prefix."""
+        monkeypatch.chdir("/etc")
+
+    def test_matches_write_relative_path_returns_false(self, handler, cwd_in_a_system_dir):
+        """A relative path is the project's, wherever the daemon runs."""
         hook_input = {
             "tool_name": "Write",
             "tool_input": {"file_path": "files/etc/config.conf", "content": "setting=value"},
         }
         assert handler.matches(hook_input) is False
+
+    def test_matches_a_relative_climb_out_of_the_project(self, handler, monkeypatch, tmp_path):
+        """A relative path is taken from the project root, so `..` out of it reaches /etc."""
+        monkeypatch.chdir(tmp_path)
+        climb = "../" * system_paths._resolve_project_root().count("/") + "etc/hosts"
+        assert handler.matches({"tool_name": "Write", "tool_input": {"file_path": climb}}) is True
+        result = handler.handle({"tool_name": "Write", "tool_input": {"file_path": climb}})
+        assert "Edit the project file in: files/etc/hosts\n" in result.reason
+
+    def test_a_relative_project_dir_variable_is_refused(self, monkeypatch):
+        """CLAUDE_PROJECT_DIR is only ever read as an absolute path: a relative one is an error."""
+        monkeypatch.setattr(system_paths, "_ROOT_SENTINELS", ("no-such-sentinel",))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", "relative/project")
+        with pytest.raises(RuntimeError, match="not absolute"):
+            system_paths._resolve_project_root()
+
+    def test_a_relative_project_dir_variable_is_no_spelling_of_the_project(self, project, monkeypatch):
+        """A relative CLAUDE_PROJECT_DIR is not resolved against the daemon's directory."""
+        monkeypatch.chdir(project.parent)
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", project.name)
+        assert system_paths._project_spellings(f"{project}/") == [f"{project}/"]
 
     def test_matches_write_to_root_claude_projects_returns_false(self, handler):
         """Should NOT match Write under /root/.claude/projects/ (agent runtime memory)."""

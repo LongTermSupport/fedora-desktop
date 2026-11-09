@@ -33,6 +33,7 @@ gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlist
 gate	go-vuln	scripts/qa-go-vuln.bash	govulncheck found a vulnerability src-go reaches, or could not judge	detail:GO-VULN-OK .+
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
+gate	private-names	scripts/qa-private-names.bash tree HEAD	a tracked file names an install (team, seat, container, host or client project), or the guard could not judge in a ccy container	detail:private-names: ([0-9]+ file[(]s[)] scanned against [0-9]+ terms, 0 finding[(]s[)]|SKIPPED.*)
 # The seven report stages. Their reports are merged into the machine report.
 stage	bash	scripts/qa-bash.bash	ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	python	scripts/qa-python.bash	ERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
@@ -42,6 +43,7 @@ stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: ansible-syntax gate c
 stage	js	scripts/qa-js.bash	ERROR: js gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (an empty scope, an unread or unparsed file, a broken discovery, or the tool failed: see the ERROR line above).
 # Hard gates that are not report stages.
+gate	teamchat-keeps-off-v1	scripts/qa-teamchat-separate.bash	a file v2 of the agent-team bus (teamchat) owns holds a v1 name, or an allowlist row is stale	detail:[0-9]+ v2 file[(]s[)] hold no v1 name
 gate	nokill-containerwatch	scripts/qa-nokill-containerwatch.bash	rejected a process-termination call site in the container-watch watchdog	detail:[0-9]+ container-watch file[(]s[)] clean
 drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ from their deployed copies
 helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
@@ -63,10 +65,14 @@ gate	ccy-token-import-cleanup	scripts/test-ccy-token-import-cleanup.bash	ccy tok
 gate	ccy-ssh-handling	scripts/test-ccy-ssh-handling.bash	ccy ssh-handling unit tests failed	count
 gate	ccy-git-signing	scripts/test-ccy-git-signing.bash	ccy commit-signing unit tests failed	count
 gate	git-signing-declared	scripts/test-git-signing-declared.bash	git signing gate tests failed	count
+gate	colour-emoji-fallback	scripts/test-colour-emoji-fallback.bash	colour emoji fallback tests failed	count
 gate	qa-tool-pin-converges	scripts/test-qa-tool-pin-converges.bash	QA tool pin convergence tests failed	count
 gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy browser session guard unit tests failed	count
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
+gate	find-race-negated-stat-test	scripts/qa-find-race.bash	a find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
+gate	hook-handler-rules	scripts/qa-hook-handler-rules.bash	hook handler rules: code the hooks daemon loads resolves a path against the daemon's working directory	count
+gate	walk-opens-non-regular-file	scripts/qa-walk-open.bash	walk-open rule: Python opens an entry a directory walk found without checking it is a regular file	count
 gate	ready-wait-rules	scripts/qa-ready-wait-rules.bash	a ready-wait that ignores its child's exit (Python and bash)	count
 gate	hidden-bindings	scripts/qa-hidden-bindings.bash	an action reachable only by a key, with no visible choice (shell fzf, Python Textual)	detail:HIDDEN-BINDINGS-OK .+
 gate	lxc-attach-file-stream	scripts/qa-lxc-attach-streams.bash	a command reaching lxc-attach with stdin, stdout or stderr on a file, which lxc-attach hands to root	detail:LXC-ATTACH-STREAMS-OK: [0-9]+ shell script[(]s[)] examined, no lxc-attach stream on a file
@@ -80,6 +86,7 @@ gate	ccy-flag-check	scripts/test-ccy-flag-check.bash	ccy flag check tests failed
 gate	ccy-restart-request	scripts/test-ccy-restart-request.bash	ccy restart-request unit tests failed	count
 gate	ccy-container-name	scripts/test-ccy-container-name.bash	ccy container-name claim tests failed	count
 gate	ccy-image-build-lock	scripts/test-ccy-image-build-lock.bash	ccy image build lock tests failed	count
+gate	ccy-network-version-probes	scripts/test-ccy-network-version-probes.bash	ccy network check and version probe tests failed	count
 gate	ccy-container-version-hook	scripts/test-ccy-container-version-hook.bash	ccy container version hook tests failed	count
 gate	ccy-project-env	scripts/test-ccy-project-env.bash	ccy project env tests failed	count
 gate	ccy-git-preflight	scripts/test-ccy-git-preflight.bash	ccy entrypoint git preflight tests failed	count
@@ -118,6 +125,9 @@ gate	run-bash-gh-scopes	scripts/test-run-bash-gh-scopes.bash	run.bash / gh-accou
 gate	run-bash-config-repo	scripts/test-run-bash-config-repo.bash	run.bash config-repo tests failed	count
 gate	run-bash-ssh-agent-start	scripts/test-run-bash-ssh-agent-start.bash	run.bash headless SSH unlock tests failed	count
 gate	run-bash-pipx-inject	scripts/test-run-bash-pipx-inject.bash	run.bash pipx inject step tests failed	count
+gate	run-bash-consumer	scripts/test-run-bash-consumer.bash	run.bash consumer hand-off tests failed	count
+gate	run-bash-optional	scripts/test-run-bash-optional.bash	run.bash optional plays past a failure tests failed	count
+gate	run-bash-upgrade-first	scripts/test-run-bash-upgrade-first.bash	run.bash upgrade-before-Ansible tests failed	count
 gate	gh-alias-wrappers	scripts/test-gh-alias-wrappers.bash	gh-<alias> wrapper tests failed	count
 gate	self-update-cycle	scripts/test-self-update-cycle.bash	fedora-desktop-self-update end-to-end tests failed	count
 gate	agent-bus-install	scripts/test-agent-bus-install.bash	agent-bus-install tests failed	count
@@ -128,6 +138,8 @@ gate	bash-history-search	scripts/test-bash-history-search.bash	bash history sear
 gate	bash-history-session	scripts/test-bash-history-session.bash	bash history session unit tests failed	count
 gate	terminal-modes	scripts/test-terminal-modes.bash	terminal modes prompt hook unit tests failed	count
 gate	fedora-desktop-health	scripts/test-fedora-desktop-health.bash	fedora-desktop-health command unit tests failed	count
+gate	randfile	scripts/test-randfile.bash	randfile command unit tests failed	count
+gate	podman-store-probe-race	scripts/test-podman-store-probe-race.bash	the podman store ownership probe matched a file deleted during its walk	count
 gate	failfast-pattern-tests	scripts/test-qa-ansible-failfast.bash	fail-fast directive pattern unit tests failed	count
 gate	docs-exit-codes	scripts/test-qa-docs-exit-codes.bash	docs gate exit-code contract failed	count
 gate	qa-changed-mapping	scripts/test-qa-changed.bash	qa-changed file-to-check mapping tests failed	count

@@ -140,7 +140,7 @@ cc_teams_command() {
     CC_TEAMS_CMD+=(
         env "PINGBUS_MEMBERSHIP=$dir" "$CC_TEAMS_KIT/pingbus" seat exec
         --root "$checkout/$CC_TEAMS_SEATS_DIR" --home "$tmp/pingbus-home" --
-        claude --plugin-dir "$CC_TEAMS_KIT/plugin/pingbus" --settings "$tmp/settings.json"
+        /var/local/claude-code/cc-claude --plugin-dir "$CC_TEAMS_KIT/plugin/pingbus" --settings "$tmp/settings.json"
         --append-system-prompt "$CC_TEAMS_PROMPT" "$@"
     )
 }

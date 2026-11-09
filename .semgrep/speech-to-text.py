@@ -4,6 +4,7 @@
 import contextlib
 import io
 import os
+import pathlib
 import shutil
 import sys
 import typing
@@ -303,3 +304,105 @@ class OtherAttribute:
         self.count = 0
         # ok: completion-published-before-cleanup
         self.path.unlink(missing_ok=True)
+
+
+# The originating instance in wsi-stream-server: read as raw s16 PCM, it was an AU stream.
+# ruleid: pw-record-stdout-not-raw
+CAPTURE_CMD = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+
+# ok: pw-record-stdout-not-raw
+RAW_CAPTURE_CMD = ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
+
+# ok: pw-record-stdout-not-raw
+SHORT_RAW_CMD = ["pw-record", "-a", "--rate", "16000", "-"]
+
+# A named file: its extension chooses the container, and the reader understands it.
+# ok: pw-record-stdout-not-raw
+FILE_CMD = ["pw-record", "--rate", "44100", "--channels", "2", "/dev/shm/recording.wav"]
+
+PW_RECORD = "pw-record"
+
+
+def prebuffer_capture():
+    # The wsi-stream instance: one element a line, the binary named by a constant.
+    # ruleid: pw-record-stdout-not-raw
+    pw_record_cmd = [
+        PW_RECORD,
+        "--rate", "16000",
+        "--format", "s16",
+        "/dev/stdout",
+    ]
+    return pw_record_cmd
+
+
+def cat_capture():
+    # ruleid: pw-record-stdout-not-raw
+    return ["pw-cat", "--record", "--format", "s16", "/dev/fd/1"]
+
+
+def shell_capture():
+    # ruleid: pw-record-stdout-not-raw
+    return "pw-record --rate 16000 --format s16 - | sox -t raw -r 16000 - out.wav"
+
+
+def shell_raw_capture():
+    # ok: pw-record-stdout-not-raw
+    return "pw-record --raw --rate 16000 --format s16 - | sox -t raw -r 16000 - out.wav"
+
+
+def shell_capture_alone():
+    # ruleid: pw-record-stdout-not-raw
+    return "pw-record --rate 16000 --format s16 -"
+
+
+def mic_close_message(log):
+    # A message, not a command: the dash is prose (wsi-stream-server's stop path).
+    # ok: pw-record-stdout-not-raw
+    log("pw-record did not close its output in 3 s - killing it", "WARN")
+
+
+# The Python form of issue #182's wait: the leader's Z read as the process's end.
+def assert_gone(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    # ruleid: proc-zombie-taken-as-exit
+    return state in ("Z", "X")
+
+
+def zombie_by_join(pid):
+    fields = (pathlib.Path("/proc") / str(pid) / "stat").read_text().split()
+    # ruleid: proc-zombie-taken-as-exit
+    return fields[2] == "Z"
+
+
+def zombie_by_format(pid):
+    with open("/proc/%d/stat" % pid, encoding="ascii") as handle:
+        rest = handle.read().rsplit(")", 1)[1]
+    # ruleid: proc-zombie-taken-as-exit
+    return rest.strip().startswith("Z")
+
+
+def group_ended(pid):
+    # The whole group's end: State Z and no thread left but the leader.
+    fields = dict(line.split(":", 1) for line in pathlib.Path(f"/proc/{pid}/status").read_text().splitlines())
+    # ok: proc-zombie-taken-as-exit
+    return fields["State"].split()[0] == "Z" and fields["Threads"].strip() == "1"
+
+
+def stat_and_threads(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    status = pathlib.Path(f"/proc/{pid}/status").read_text()
+    threads = [line.split(":", 1)[1].strip() for line in status.splitlines() if line.startswith("Threads:")]
+    # ok: proc-zombie-taken-as-exit
+    return state == "Z" and threads == ["1"]
+
+
+def stopped(pid):
+    state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    # ok: proc-zombie-taken-as-exit
+    return state == "T"
+
+
+def grade(letter):
+    # A Z that is not a process state, in a function that reads no stat file.
+    # ok: proc-zombie-taken-as-exit
+    return letter == "Z"

@@ -134,7 +134,7 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 		// The cursor starts on leaving it running: no destructive answer is pre-selected (Plan 00203 Task 3.8).
 		"gum choose --header What happens to alpha? --selected Leave it running Leave it running Take it down, keep its data Take it down and delete its data",
 		opsDeclare + "remove --file " + r.hostVars + " --team alpha",
-		opsPlay + ` -e {"agent_bus_only_teams": ["alpha"]}`,
+		opsPlay + r.hostVarsArg() + ` -e {"agent_bus_only_teams": ["alpha"]}`,
 	}
 	got := r.lines()
 	if len(got) != len(want) {
@@ -187,6 +187,25 @@ func TestRemoveTakesTheTeamsLiveSessionsOffItFirst(t *testing.T) {
 	}
 }
 
+// A No to taking the team's sessions off it first is a decline: exit 0, nothing taken down.
+func TestRemoveDeclinedWhileSessionsAreInTheTeamIsNoFailure(t *testing.T) {
+	r := removeRig(t)
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return []string{"ccy-a"}, nil }
+	r.ops.TakeOut = func(context.Context, string, string) bool { t.Fatal("a session was taken off"); return false }
+	r.onExit("gum confirm", 1, "")
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "Nothing was changed: a team is taken down once no running session is in it.") {
+		t.Fatalf("said %q", r.said())
+	}
+	for _, line := range r.lines() {
+		if strings.HasPrefix(line, opsDeclare) || strings.HasPrefix(line, opsInstaller) {
+			t.Fatalf("taken down with a session in it: %q", line)
+		}
+	}
+}
+
 func TestRemoveStopsWhileASessionIsStillInTheTeam(t *testing.T) {
 	r := removeRig(t)
 	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return []string{"ccy-a"}, nil }
@@ -225,6 +244,89 @@ func TestRemoveExplainWidthFollowsTheTerminal(t *testing.T) {
 	}
 	if !r.called("gum style --width 76") {
 		t.Errorf("nil Width: calls %q", r.lines())
+	}
+}
+
+// Plan 00177 Task 11.4: a team watched in Element loses its launcher and profile with it: the
+// Element play runs after the team's play, and the launcher must then be gone.
+func TestRemoveOfAWatchedTeamRunsTheElementPlayToRemoveItsLauncher(t *testing.T) {
+	r := removeRig(t)
+	r.declareElement(t, "alpha")
+	launcher := r.ops.ElementLauncher("alpha")
+	r.files[launcher] = true
+	r.fake.OnFunc(strings.Fields(opsElementPlay), func(execx.Cmd) (execx.Result, error) {
+		delete(r.files, launcher)
+		return execx.Result{}, nil
+	})
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	got := r.lines()
+	if len(got) < 2 || got[len(got)-2] != opsPlay+r.hostVarsArg()+` -e {"agent_bus_only_teams": ["alpha"]}` ||
+		got[len(got)-1] != opsElementPlay+r.hostVarsArg() {
+		t.Fatalf("calls %q", got)
+	}
+	if !strings.Contains(r.said(), "removes alpha's Element launcher and profile") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
+func TestRemoveOfAWatchedTeamWhoseLauncherStaysFails(t *testing.T) {
+	r := removeRig(t)
+	r.declareElement(t, "alpha")
+	r.files[r.ops.ElementLauncher("alpha")] = true
+	r.on(opsElementPlay, execx.Result{})
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code == 0 {
+		t.Fatalf("a launcher left behind passed: %s", r.said())
+	}
+	if !strings.Contains(r.said(), "alpha's Element launcher is still there") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
+// questionDrains is, for each gum question and fzf screen run (not gum style), whether it
+// discarded the keys typed before it drew.
+func (r *opsRig) questionDrains() []bool {
+	var out []bool
+	for _, c := range r.fake.Calls() {
+		if c.Name == "fzf" || (c.Name == "gum" && len(c.Args) > 0 && c.Args[0] != "style") {
+			out = append(out, c.DrainInput)
+		}
+	}
+	return out
+}
+
+// Plan 00177 Task 12.3: remove is destructive, so every question of it starts on no key typed
+// before it drew: Esc on "Back up first?" then Down no longer moves step 2's cursor.
+func TestEveryQuestionOfRemoveDiscardsKeysTypedBeforeIt(t *testing.T) {
+	r := removeRig(t)
+	r.onExit("gum confirm", 1, "")
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if got := r.questionDrains(); !slices.Equal(got, []bool{true, true}) {
+		t.Fatalf("drains %v: %q", got, r.lines())
+	}
+	// The flow over, a question keeps the keys typed ahead again.
+	if _, err := r.ops.Gum.Confirm(context.Background(), takeDownHeading("alpha"), "q", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.questionDrains(); got[len(got)-1] {
+		t.Fatalf("a question after remove drained: %v", got)
+	}
+}
+
+func TestEveryScreenOfRestoreDiscardsKeysTypedBeforeIt(t *testing.T) {
+	r := newOpsRig(t)
+	r.sudoOK()
+	r.on("fzf", execx.Result{Stdout: []byte("Yes, restore backup 2\n")})
+	r.on(opsInstaller+"restore --team alpha --backup 2", execx.Result{})
+	if code := r.ops.Restore(context.Background(), []string{"alpha", "2"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	got := r.questionDrains()
+	if len(got) == 0 || slices.Contains(got, false) {
+		t.Fatalf("drains %v: %q", got, r.lines())
 	}
 }
 
@@ -304,7 +406,8 @@ func TestRemoveChooseCancelledAndLeave(t *testing.T) {
 
 	r = removeRig(t)
 	r.on("gum choose", execx.Result{Stdout: []byte("Leave it running\n")})
-	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+	// A person's choice to leave it is a decline, not a failure (Plan 00201 Task 2.29).
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
 		t.Errorf("leave: code %d", code)
 	}
 	if !strings.Contains(r.said(), "Nothing was changed.") {

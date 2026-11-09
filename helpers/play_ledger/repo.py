@@ -1,7 +1,7 @@
 """Git and filesystem facts for one play-ledger record (Plan 00109, Task 1.2).
 
-Three of a record's fields describe the checkout the play ran from rather than
-the play itself: `commit`, `dirty` and `play_sha256`. They are gathered here so
+Some of a record's fields describe the checkout the play ran from rather than
+the play itself: `commit`, `dirty` with the paths that were dirty, and `play_sha256`. They are gathered here so
 the Ansible callback plugin stays a pure adapter — `ansible` is not importable
 by the interpreter that runs the tests, so anything left in the plugin is
 untested by construction.
@@ -20,6 +20,11 @@ import hashlib
 import re
 import subprocess
 from collections.abc import Callable
+from typing import NamedTuple
+
+#: How many dirty paths a record names. Past it the list is cut and flagged as cut, and a
+#: cut list clears no play: the missing paths could be any play's inputs.
+DIRTY_PATHS_LIMIT = 50
 
 #: Read size for hashing. A play file is small; this just avoids assuming so.
 CHUNK_BYTES = 65536
@@ -52,14 +57,38 @@ def head_commit(repo_root: str, *, run: Runner = subprocess.run) -> str:
     return commit
 
 
-def is_dirty(repo_root: str, *, run: Runner = subprocess.run) -> bool:
-    """Whether the checkout has uncommitted changes, untracked files included.
+class DirtyState(NamedTuple):
+    """The checkout's uncommitted paths, sorted, and whether the list was cut at the limit."""
 
-    Untracked counts deliberately: a play file that exists only in the working
-    tree is exactly the case `play_sha256` was added to catch, and calling that
-    checkout clean would let the record claim the commit describes it.
+    paths: tuple[str, ...]
+    truncated: bool
+
+    @property
+    def dirty(self) -> bool:
+        return bool(self.paths) or self.truncated
+
+
+def dirty_state(repo_root: str, *, run: Runner = subprocess.run,
+                limit: int = DIRTY_PATHS_LIMIT) -> DirtyState:
+    """Which paths the checkout has uncommitted: modified, staged or untracked.
+
+    The paths, not one flag for the whole checkout: a stray file no play reads must not make
+    every play's run read as dirty (the judge asks whether a dirty path is among a play's own
+    inputs). Untracked counts deliberately: a play file that exists only in the working tree
+    is exactly the case `play_sha256` was added to catch. Every untracked file is listed, never
+    its folder, and renames are off, so each entry is one path. An entry it cannot read raises.
     """
-    return bool(_git(repo_root, ["status", "--porcelain"], run).strip())
+    output = _git(repo_root, ["status", "--porcelain=v1", "-z", "--no-renames",
+                              "--untracked-files=all"], run)
+    paths = set()
+    for entry in output.split("\0"):
+        if not entry:
+            continue
+        if len(entry) < 4 or entry[2] != " ":
+            raise ValueError(f"git status in {repo_root!r} gave an entry it cannot read: {entry!r}")
+        paths.add(entry[3:])
+    ordered = sorted(paths)
+    return DirtyState(paths=tuple(ordered[:limit]), truncated=len(ordered) > limit)
 
 
 def sha256_file(path: str) -> str:

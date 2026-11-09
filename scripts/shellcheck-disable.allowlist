@@ -9,7 +9,7 @@
 # fails on an entry added or a count or code raised.
 #
 # path <TAB> directives <TAB> codes (sorted, comma-separated)
-.claude/init.sh	5	SC1090,SC1091,SC2064,SC2317
+.claude/init.sh	4	SC1090,SC1091,SC2064
 CLAUDE/Plan/00055-container-process-watchdog/acceptance.bash	4	SC2016,SC2086,SC2317
 CLAUDE/Plan/Completed/00138-bash-history-and-ctrl-r/acceptance.bash	1	SC2016
 CLAUDE/Plan/Completed/00138-bash-history-and-ctrl-r/probe-history.bash	1	SC2016

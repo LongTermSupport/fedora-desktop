@@ -44,7 +44,7 @@ from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
 from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, membership, notify,
-                             protocol, relay, sentlog, syncer)
+                             protocol, relay, sentlog, syncer, watcherstate)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
@@ -55,6 +55,20 @@ FORGE_REFUSED = "forge check refused"
 #: ask-human's refusal when an open or answered question already asks it (after `pingbus: `),
 #: which Plan 00211's acceptance reads to reuse its test question while it is not closed.
 QUESTION_DUPLICATE = "team {team}: {question} is open and asks the same question"
+#: send and say's refusal when several teams are active and none is inferred; the active teams
+#: follow it, one per line.
+CHOICES_HEAD = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
+#: The words the watcher and its supervisor end each kind of log line with, which Plan 00203's
+#: homeserver triage counts in a session's watch.log.
+WATCHER_EXITS = "the watcher exits"
+WATCHER_ENDED = "the watcher ended"
+WATCHER_REFUSED = "the watcher was refused"
+WATCHER_RESTARTED = "starting it again"
+TEAM_NOT_WATCHED = "no longer watched"
+HOMESERVER_SILENT = "the homeserver does not answer"
+#: The watcher's line once a team it could not sync syncs again, which Plan 00194's delivery
+#: acceptance counts in a session's watch.log.
+TEAM_SYNCS_AGAIN = "the team syncs again"
 
 EXIT_OK = 0
 EXIT_NOTHING = 3
@@ -289,13 +303,15 @@ def item_line(team: str, server_name: str, outcome: protocol.Outcome, room: str 
 
 def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
                outcome: protocol.Outcome, room: str = protocol.ROOM_MAIN,
-               question: tuple[int, str] | None = None) -> str | None:
+               question: tuple[int, str] | None = None, closed: str | None = None) -> str | None:
     """The ready `say` command that answers a `HUMAN` or `PEER` item; None for a ping, whose
     answer is a verb the agent chooses. The name is the sender's short name when no other
     member of the team has it, else the full handle; a human's is the localpart. `--re` names
     the item, single-quoted for the shell (an event ID starts with `$`), so the answer is
     threaded under it in Element. A questions-room item is answered in its question's thread,
-    or, unattached, as a reply to it (Plan 00211 SPEC §8.3)."""
+    or, unattached, as a reply to it (Plan 00211 SPEC §8.3). With `closed` (the receiver's
+    role, `_humans_closed`), a human's main-room item is answered where humans are reached:
+    by a coordinator with a question about it, by a worker through the coordinator."""
     message = outcome.human or outcome.peer
     if message is None:
         return None
@@ -303,6 +319,10 @@ def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
         event_id = _event_id(message.event_id)
         target = f"Q{question[0]}" if question is not None else f"--re '{event_id}'"
         return format_line("REPLY", _team(team), event_id, f"{PROG} --team {team} thread {target}")
+    if outcome.human is not None and closed is not None:
+        event_id = _event_id(message.event_id)
+        command = "ask-human" if closed == protocol.ROLE_COORDINATOR else "say --to-coordinator"
+        return format_line("REPLY", _team(team), event_id, f"{PROG} --team {team} {command} --re '{event_id}'")
     name = _localpart(message.sender, server_name)
     if outcome.peer is not None:
         short = name.partition(protocol.HANDLE_SEP)[0]
@@ -945,16 +965,50 @@ def _user_id(name: str, record: protocol.TeamRecord, member: config.Member) -> s
                             f"Agents: {', '.join(handles) or '-'}. Humans: {', '.join(humans) or '-'}")
 
 
+#: Plan 00211 Task 2.14: where a sender whose main room is closed to its words to a human
+#: (`_humans_closed`) reaches the humans instead, by its role.
+HUMANS_ELSEWHERE = {
+    protocol.ROLE_COORDINATOR: ("write to the humans in the questions room: pingbus ask-human opens a topic, "
+                                "pingbus thread Q<n> replies in one"),
+    protocol.ROLE_WORKER: ("ask the coordinator with --to-coordinator; tell the humans what they should know "
+                           "with pingbus report"),
+}
+
+
+def _humans_closed(seat: _Seat, record: protocol.TeamRecord) -> str | None:
+    """The sender's role when the main room is closed to its messages to a human, whose
+    answer there would be a reply it may never see: a coordinator's once the team's questions
+    room exists, a worker's once its reports room does. None before the play made that room,
+    while the main room is still the way to a human."""
+    role = record.roles.get(seat.member.user_id)
+    purpose = protocol.PURPOSE_QUESTIONS if role == protocol.ROLE_COORDINATOR else protocol.PURPOSE_REPORTS
+    return role if role in protocol.ROLES and purpose in seat.syncer.side else None
+
+
+def _no_human_here(to: Sequence[str], record: protocol.TeamRecord, member: config.Member,
+                   closed: str | None) -> None:
+    """Refuse (`target`, exit 4) a main-room message naming a human, once `closed` (the
+    sender's role, `_humans_closed`) says where the humans are reached instead."""
+    humans = [user for user in to if user in record.humans]
+    if closed is None or not humans:
+        return
+    names = ",".join(_localpart(user, member.server_name) for user in humans)
+    raise protocol.Refusal("target", f"--to {names}: no agent writes to a human in the main room; "
+                                     f"{HUMANS_ELSEWHERE[closed]}")
+
+
 @contextlib.contextmanager
 def _explained_targets(args: argparse.Namespace, verb: str | None, record: protocol.TeamRecord,
-                       member: config.Member) -> Iterator[list[str]]:
+                       member: config.Member, closed: str | None = None) -> Iterator[list[str]]:
     """`--to`'s addressees (`_addressees`), with a `target` refusal raised inside re-raised
     with what was refused and who this command can address, from the command line and the
-    record only. `verb` is the ping's, None for `say`."""
+    record only. `verb` is the ping's, None for `say`. With `closed` (`_humans_closed`), a
+    human named is refused (`_no_human_here`), `--all` names no human, and no human is listed."""
     server = member.server_name
     to: list[str] = []
     try:
-        to += _addressees(args, record, member)
+        to += _addressees(args, record, member, humans=closed is None)
+        _no_human_here(to, record, member, closed)
         yield to
     except protocol.Refusal as exc:
         if exc.reason != "target" or exc.detail is not None:
@@ -973,7 +1027,7 @@ def _explained_targets(args: argparse.Namespace, verb: str | None, record: proto
             what = f"{command} takes at most {limit} addressees, not {len(checked)}"
             if len(checked) > len(to):
                 what += " (the coordinator is copied on a worker's message to a human)"
-        users = [user for user in (*record.roles, *sorted(record.humans))
+        users = [user for user in (*record.roles, *(sorted(record.humans) if closed is None else ()))
                  if user != member.user_id and protocol.addressable(user, verb, ctx)]
         agents = [_localpart(user, server) for user in users if protocol.is_agent_user_id(user, server)]
         humans = [_localpart(user, server) for user in users if protocol.is_human_user_id(user, server)]
@@ -986,9 +1040,19 @@ def _user_ids(names: str, record: protocol.TeamRecord, member: config.Member) ->
     return [_user_id(name, record, member) for name in names.split(",")]
 
 
-def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
+def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member,
+                humans: bool = True) -> list[str]:
     """`--to`'s names then, for `--to-coordinator`, the team's coordinator but the sender;
-    each user once. Nothing else is judged here: the validator refuses what is not allowed."""
+    each user once. Nothing else is judged here: the validator refuses what is not allowed.
+    `say --all` stands alone and is the coordinator's: every agent with a role and, unless
+    `humans` is False, every human, but the sender."""
+    if getattr(args, "all", False):
+        if args.to is not None or args.to_coordinator:
+            raise config.UsageError("--all already names every member: give it without --to or --to-coordinator")
+        if member.user_id not in protocol.coordinators(record.roles):
+            raise protocol.Refusal("target", "--all is the coordinator's; a worker names its addressees with --to")
+        everyone = (*record.roles, *(sorted(record.humans) if humans else ()))
+        return [user for user in dict.fromkeys(everyone) if user != member.user_id]
     to = [] if args.to is None else _user_ids(args.to, record, member)
     if args.to_coordinator:
         found = [user for user in protocol.coordinators(record.roles) if user != member.user_id]
@@ -1027,8 +1091,7 @@ def _choices_line(member: config.Member, unknown: bool) -> str:
     """One active team with what it is for (or why it cannot be judged), for the message that
     asks which to name."""
     if unknown:
-        return (f"  {member.team}  (no verified team record yet: run pingbus recv or name it "
-                "with --team)")
+        return f"  {member.team}  ({inbox.NO_RECORD_YET}: run pingbus recv or name it with --team)"
     try:
         about = inbox.TeamState.for_member(member).about()
     except inbox.StateError:
@@ -1058,8 +1121,7 @@ def _sending_member(args: argparse.Namespace, environ: Mapping[str, str]) -> con
         if len(fitting) == 1:
             return fitting[0]
     raise config.UsageError(
-        "several teams are active and --to/--re fit more than one (or none): name one with --team:\n"
-        + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
+        f"{CHOICES_HEAD}\n" + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
 
 
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -1070,7 +1132,7 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    with _explained_targets(args, args.verb, record, member) as addressees:
+    with _explained_targets(args, args.verb, record, member, _humans_closed(seat, record)) as addressees:
         to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
         ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
         content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
@@ -1129,7 +1191,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    with _explained_targets(args, None, record, member) as addressees:
+    with _explained_targets(args, None, record, member, _humans_closed(seat, record)) as addressees:
         to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
         event_id, now, said_to = _send_text(seat, ctx, to, text, rt, re=args.re)
     if relaying:
@@ -1396,7 +1458,9 @@ def _refetch(seat: _Seat, ctx: protocol.Context, item: inbox.Item) -> tuple[prot
         return protocol.Outcome(protocol.DROP, "schema"), None
     if event.get("event_id") != item.event_id:
         return protocol.Outcome(protocol.DROP, "schema"), None
-    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text, room=item.room)
+    answers = None if item.outcome.human is None else item.outcome.human.answers
+    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text, room=item.room,
+                                      sender_of=protocol.own_message(answers, member.user_id))
     return outcome, event.get("sender")
 
 
@@ -1444,7 +1508,8 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
                     continue
                 emit(item_line(member.team, member.server_name, outcome, item.room, item.question), out, err)
                 printed += 1
-                reply = reply_line(member.team, member.server_name, record, outcome, item.room, item.question)
+                reply = reply_line(member.team, member.server_name, record, outcome, item.room, item.question,
+                                   _humans_closed(seat, record))
                 if reply is not None:
                     emit(reply, out, err)
             elif outcome.kind == protocol.DROP:
@@ -1506,12 +1571,20 @@ def _spool_lock(environ: Mapping[str, str]) -> relay.Spool:
     return relay.Spool(config.resolve_home(environ))
 
 
+#: What `recv` says after a sync that failed for a reason a retry would meet again (issue #116).
+RECV_NOT_SYNCED = ("not synced: delivering what the inbox already holds; `pingbus history --team {team}` "
+                   "reads the room itself, and `pingbus status` shows the watcher's state")
+
+
 def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
-               out: TextIO, err: TextIO) -> tuple[int, int]:
+               out: TextIO, err: TextIO) -> tuple[int, int, int | None]:
     """One team's `recv`: sync once when the lock is free, then deliver; one DROPPED line
-    for the sync's and the re-fetch's drops together. (lines, drops)"""
+    for the sync's and the re-fetch's drops together. A sync that fails other than for a
+    homeserver that does not answer is said with how to recover, and what the inbox already
+    holds is delivered all the same (issue #116). (lines, drops, the failed sync's exit code)"""
     seat = _seat(member, environ, rt, err, reads=True)
     drops: collections.Counter[str] = collections.Counter()
+    sync_failed: int | None = None
     try:
         lock = inbox.acquire_lock(seat.state, "recv", sleep=rt.sleep)
     except inbox.Busy as busy:
@@ -1520,14 +1593,38 @@ def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
         record = load_cached_record(member)
     else:
         with lock:
-            batch = seat.syncer.sync_once(0)
-        record = seat.syncer.record
-        drops.update(batch.drops)
+            try:
+                batch = seat.syncer.sync_once(0)
+            except FAILURES as exc:
+                if not _inbox_still_readable(exc):
+                    raise
+                try:
+                    record = load_cached_record(member)
+                except protocol.Untrusted:
+                    raise exc from None
+                sync_failed, message = failure(exc)
+                err.write(f"{PROG}: team {member.team}: {message}: "
+                          f"{RECV_NOT_SYNCED.format(team=member.team)}\n")
+                batch = None
+        if batch is not None:
+            record = seat.syncer.record
+            drops.update(batch.drops)
     printed, refetched = _deliver(seat, record, rt, out, err, _spool_lock(environ))
     drops.update(refetched)
     if drops:
         emit(dropped_line(drops), out, err)
-    return printed, sum(drops.values())
+    return printed, sum(drops.values()), sync_failed
+
+
+def _inbox_still_readable(exc: Exception) -> bool:
+    """Whether a failed sync leaves the inbox deliverable: not when the room is not trusted,
+    the lock is taken, the homeserver does not answer or refuses the token, for the re-fetch
+    of every item would fail the same way."""
+    if isinstance(exc, (protocol.Untrusted, inbox.Busy)):
+        return False
+    if isinstance(exc, matrix.MatrixError):
+        return not exc.transient and exc.exit_code != EXIT_AUTH
+    return True
 
 
 def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -1539,13 +1636,15 @@ def cmd_recv(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
         try:
-            lines, drops = _recv_team(member, environ, rt, out, err)
+            lines, drops, sync_failed = _recv_team(member, environ, rt, out, err)
         except FAILURES as exc:
             code, message = failure(exc)
             err.write(f"{PROG}: team {member.team}: {message}\n")
             if first_failure is None:
                 first_failure = code
             continue
+        if first_failure is None:
+            first_failure = sync_failed
         printed += lines
         dropped += drops
     if printed:
@@ -1785,6 +1884,23 @@ def _mark_down(home: pathlib.Path | None, team: str, down: bool, err: TextIO) ->
                   f"{'written' if down else 'removed'}: {_describe(exc)}\n")
 
 
+def _clear_watcher_record(seat: _Seat, err: TextIO) -> None:
+    """The team synced, so its watcher works: `status` stops naming it failing (issue #116)."""
+    try:
+        watcherstate.clear(seat.state.path)
+    except OSError as exc:
+        err.write(f"{PROG}: team {seat.member.team}: the watcher record was not removed: {_describe(exc)}\n")
+
+
+def _record_stop(member: config.Member, cause: str, now_ms: int, err: TextIO) -> None:
+    """Record that nothing will restart this team's watcher, for `status` and the supervisor;
+    one stderr line when it cannot be written."""
+    try:
+        watcherstate.record_stop(member.state_dir, cause, now_ms)
+    except OSError as exc:
+        err.write(f"{PROG}: team {member.team}: the watcher record was not written: {_describe(exc)}\n")
+
+
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO,
                 stop: threading.Event | None = None, home: pathlib.Path | None = None) -> None:
     """One team's watcher thread: a first sync, then long-poll until stopped, waking the
@@ -1803,6 +1919,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
     timeout_ms = 0
     outage: str | None = None
     marked = False
+    synced = False
     try:
         while not waiting.stop.is_set() and not stop.is_set():
             try:
@@ -1810,6 +1927,9 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                 timeout_ms = rt.long_poll_ms
                 if _discarded(seat, stop, batch):
                     return
+                if not synced:
+                    _clear_watcher_record(seat, err)
+                    synced = True
                 if batch.drops:
                     waiting.drops.put((team, batch.drops))
                 now = rt.clock_ms()
@@ -1817,7 +1937,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                     seat.syncer.publish_status(now + WATCH_STATUS_TTL_MS)
                     status_ms = now
                 if outage is not None:
-                    err.write(f"{PROG}: team {team}: the team syncs again\n")
+                    err.write(f"{PROG}: team {team}: {TEAM_SYNCS_AGAIN}\n")
                     outage = None
                     backoff.reset()
                 if marked:
@@ -1833,7 +1953,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                     marked = True
                 if outage is None:
                     outage = _describe(exc)
-                    what = ("the homeserver does not answer" if isinstance(exc, matrix.MatrixError)
+                    what = (HOMESERVER_SILENT if isinstance(exc, matrix.MatrixError)
                             else "this team's sync failed")
                     err.write(f"{PROG}: team {team}: {what} ({outage}): retrying, the team stays "
                               "watched\n")
@@ -1931,8 +2051,8 @@ class _Injector:
 
 
 def _reply_command(team: str, server_name: str, record: protocol.TeamRecord,
-                   outcome: protocol.Outcome, item: inbox.Item) -> str | None:
-    line = reply_line(team, server_name, record, outcome, item.room, item.question)
+                   outcome: protocol.Outcome, item: inbox.Item, closed: str | None) -> str | None:
+    line = reply_line(team, server_name, record, outcome, item.room, item.question, closed)
     return None if line is None else line.rsplit("\t", 1)[1]
 
 
@@ -1982,7 +2102,8 @@ def _choose(seats: Sequence[_Seat], inj: _Injector, rt: Runtime) -> _Batch:
         entry = envelope.entry_from_line(
             item_line(member.team, member.server_name, outcome, item.room, item.question), handle=member.handle,
             ts_ms=item.origin_server_ts,
-            reply=_reply_command(member.team, member.server_name, record, outcome, item),
+            reply=_reply_command(member.team, member.server_name, record, outcome, item,
+                                 _humans_closed(seat, record)),
             question_headline=None if item.question is None else item.question[1],
             revises=None if outcome.human is None else outcome.human.revises)
         key = (entry.team, entry.sender)
@@ -2165,10 +2286,54 @@ def _session_watch_lock(environ: Mapping[str, str], path: str, err: TextIO) -> i
         return None
 
 
+def _exit_cause(code: int) -> str:
+    """A supervised watcher's exit as one line: its signal, or its §14 code and meaning."""
+    if code < 0:
+        try:
+            return f"killed by signal {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    meaning = "an uncaught exception, in watch.log" if code == 1 else EXIT_CODES.get(code, "unassigned")
+    return f"exit {code}: {meaning}"
+
+
+def _record_child_exit(environ: Mapping[str, str], code: int, started_ms: int, final: bool,
+                       rt: Runtime, err: TextIO) -> bool:
+    """Record a supervised watcher's exit for each active team (issue #116): a team the
+    child stopped itself (a permanent failure, `_permanent`) keeps its record; the others
+    are `stopped` after a final exit, else `failing` with their restart count. True when
+    every team is stopped: a restart cannot change what the watcher met."""
+    try:
+        members = config.load_active(environ)
+    except (config.ConfigError, config.UsageError) as exc:
+        err.write(f"{PROG}: the watcher's exit is not recorded: its teams cannot be read: {exc}\n")
+        return False
+    now, cause, stopped = rt.clock_ms(), _exit_cause(code), 0
+    for member in members:
+        try:
+            record = watcherstate.read(member.state_dir)
+        except inbox.StateError:
+            record = None  # the supervisor's own file: the write below replaces it
+        if record is not None and record.state == watcherstate.STOPPED and record.at_ms >= started_ms:
+            stopped += 1
+            continue
+        if final:
+            _record_stop(member, cause, now, err)
+            stopped += 1
+            continue
+        try:
+            watcherstate.record_exit(member.state_dir, cause, now)
+        except OSError as exc:
+            err.write(f"{PROG}: team {member.team}: the watcher record was not written: {_describe(exc)}\n")
+    return bool(members) and stopped == len(members)
+
+
 def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runtime, err: TextIO) -> int:
     """Run `watch --child` until the session's socket goes, starting it again after any
-    other exit with a backoff, except a final one (SPEC-inject E26). The child inherits the
-    session's watch lock, so a supervisor killed on its own leaves its watcher counted."""
+    other exit with a backoff, except a final one, or one where the child stopped every team
+    for a failure a restart cannot change (SPEC-inject E26, issue #116). Each exit is recorded
+    beside each team's state for `status` (`watcherstate`). The child inherits the session's
+    watch lock, so a supervisor killed on its own leaves its watcher counted."""
     try:
         argv = [*hooks.watch_argv(environ), "--child"]
     except FileNotFoundError as exc:
@@ -2176,23 +2341,29 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
     lock.set_inheritable()
     backoff = _Backoff(rt.supervise_retry_s, rt.supervise_retry_max_s)
     while True:
-        started = rt.monotonic()
+        started, started_ms = rt.monotonic(), rt.clock_ms()
         code = rt.run_child(argv, environ)
         if not notify.socket_present(path):
             err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
             return EXIT_OK
         if code == EXIT_OK:
-            err.write(f"{PROG}: the watcher ended (the session is on no team, or its socket refuses "
+            err.write(f"{PROG}: {WATCHER_ENDED} (the session is on no team, or its socket refuses "
                       "connections): the supervisor exits\n")
             return EXIT_OK
-        if code in SUPERVISE_FINAL:
-            err.write(f"{PROG}: the watcher was refused (exit {code}), which a restart cannot change: "
+        final = code in SUPERVISE_FINAL
+        every_team_stopped = _record_child_exit(environ, code, started_ms, final, rt, err)
+        if final:
+            err.write(f"{PROG}: {WATCHER_REFUSED} (exit {code}), which a restart cannot change: "
                       "the supervisor exits\n")
+            return code
+        if every_team_stopped:
+            err.write(f"{PROG}: {WATCHER_REFUSED} on every team (exit {code}), which a restart cannot "
+                      "change: the supervisor exits; `pingbus status` names each team's cause\n")
             return code
         if rt.monotonic() - started >= rt.supervise_retry_max_s:
             backoff.reset()
         wait = backoff.next()
-        err.write(f"{PROG}: the watcher exited (exit {code}): starting it again in {wait:g} s\n")
+        err.write(f"{PROG}: the watcher exited (exit {code}): {WATCHER_RESTARTED} in {wait:g} s\n")
         rt.sleep(wait)
 
 
@@ -2283,7 +2454,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if rt.stopping.is_set():
                     return EXIT_OK
             elif not notify.socket_present(path):
-                err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
+                err.write(f"{PROG}: the session socket is gone: {WATCHER_EXITS}\n")
                 return EXIT_OK
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
@@ -2294,16 +2465,16 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                     if injector is not None:
                         _tell(environ, injector, rt, err)
                 except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                     return EXIT_OK
                 if not seats:
-                    err.write(f"{PROG}: this session is on no team now: the watcher exits\n")
+                    err.write(f"{PROG}: this session is on no team now: {WATCHER_EXITS}\n")
                     return EXIT_OK
             elif injector is not None:
                 try:
                     _tell(environ, injector, rt, err, hooks.tell_roles)
                 except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                     return EXIT_OK
             try:
                 if relaying:
@@ -2311,7 +2482,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 else:
                     _inject_pass(seats, injector, rt, pending, err)
             except notify.SocketGone as gone:
-                err.write(f"{PROG}: {gone}: the watcher exits\n")
+                err.write(f"{PROG}: {gone}: {WATCHER_EXITS}\n")
                 return EXIT_OK
             except Exception as exc:  # contained (E25): the next tick tries again
                 if not pass_failing:
@@ -2330,12 +2501,15 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
-                err.write(f"{PROG}: team {team}: {message}: this team is no longer watched\n")
+                err.write(f"{PROG}: team {team}: {message}: this team is {TEAM_NOT_WATCHED}\n")
+                for seat in seats:
+                    if seat.member.team == team:
+                        _record_stop(seat.member, message, rt.clock_ms(), err)
                 first_failure = first_failure or code
                 following.failed.add(team)
                 seats = [seat for seat in seats if seat.member.team != team]
             if not seats:
-                err.write(f"{PROG}: no team is left to watch: the watcher exits\n")
+                err.write(f"{PROG}: no team is left to watch: {WATCHER_EXITS}\n")
                 return first_failure
     finally:
         waiting.stop.set()
@@ -2395,7 +2569,7 @@ class _Following:
                 kept.append(seat)
                 continue
             stops[seat.member.team].remove()
-            self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: no longer watched\n")
+            self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: {TEAM_NOT_WATCHED}\n")
         if start is None:
             return kept
         watched = {seat.member.team for seat in kept}
@@ -2588,6 +2762,7 @@ def relay_state(environ: Mapping[str, str]) -> str:
 def _status_team(member: config.Member, now_ms: int, relay_field: str, out: TextIO) -> None:
     state = inbox.TeamState.for_member(member)
     wake = WAKE_NAMES.get(inbox.probe_lock(state) or "", "none")
+    watcher = watcherstate.read(state.path)
     members, statuses = state.room_view()
     overdue, dropped = _overdue(state, member, now_ms), state.drop_count()
     try:
@@ -2612,6 +2787,9 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
     about = state.about() if record is not None else None
     if about is not None:
         out.write(format_line("ABOUT", _team(member.team), json.dumps(about, ensure_ascii=True)) + "\n")
+    if watcher is not None:
+        out.write(report_line("WATCHER", member.team, watcher.state, f"restarts={watcher.restarts}",
+                              f"since={watcher.since_ms}", f"at={watcher.at_ms}", watcher.cause) + "\n")
     if record is None:
         reason = state.untrusted_reason()
         if reason is not None:
@@ -3011,12 +3189,31 @@ def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, env
     return f"told: claim {claimed}"
 
 
+#: The commands whose text arrives on stdin (it stays out of ps and shell history), each
+#: with the rest of its command line, for the message that refuses a text given as an argument.
+STDIN_FORMS = {"say": " --to NAME", "report": "", "ask-human": "", "thread": " Q<n>"}
+
+
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     class Parser(argparse.ArgumentParser):
         """Usage errors exit 64 (never argparse's 2); help goes to the given stdout."""
 
         def error(self, message: str) -> None:
-            raise config.UsageError(f"{self.prog}: {message}")
+            # main() prefixes the program name, so only a subcommand's name is added here.
+            scope = self.prog.removeprefix(PROG).strip()
+            raise config.UsageError(f"{scope}: {message}" if scope else message)
+
+        def parse_args(self, args: Sequence[str] | None = None,
+                       namespace: argparse.Namespace | None = None) -> argparse.Namespace:
+            parsed, extras = self.parse_known_args(args, namespace)
+            command_name = getattr(parsed, "command", None)
+            if extras and command_name in STDIN_FORMS:
+                raise config.UsageError(
+                    f"{command_name} reads the message from stdin: printf '%s\\n' '...' | "
+                    f"{PROG} --team T {command_name}{STDIN_FORMS[command_name]}")
+            if extras:
+                self.error(f"unrecognized arguments: {' '.join(extras)}")
+            return parsed
 
         def exit(self, status: int = 0, message: str | None = None) -> None:
             if message:
@@ -3074,6 +3271,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                      help="human localparts, handles or full user IDs; never @room")
     say.add_argument("--to-coordinator", action="store_true",
                      help="the team's coordinator, besides any --to")
+    say.add_argument("--all", action="store_true",
+                     help="the coordinator only: every member of the team but itself, alone")
     say.add_argument("--re", metavar="EVENT_ID",
                      help="the message this answers (the REPLY command gives it): Element shows "
                           "the text as a reply to it")

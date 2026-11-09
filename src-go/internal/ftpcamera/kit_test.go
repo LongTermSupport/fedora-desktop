@@ -17,13 +17,16 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 // kit is one ftp-camera run on a fake machine: a recording runner that answers every program
 // it runs, an upload tree under a temporary directory, a config file path, an environment, a
 // PATH, and a clock that moves only when the tool sleeps.
 type kit struct {
-	t        *testing.T
+	t *testing.T
+	// echo is the hold on the terminal's echo, nil for none.
+	echo     *ttyecho.Hold
 	fake     *execx.Fake
 	out, err bytes.Buffer
 	env      map[string]string
@@ -35,6 +38,8 @@ type kit struct {
 	stdinTTY bool
 	colour   bool
 	proc     fstest.MapFS
+	// random is the source of the hotspot password's words.
+	random io.Reader
 
 	mu    sync.Mutex
 	now   time.Time
@@ -142,6 +147,7 @@ func newKit(t *testing.T) *kit {
 		proc:   fstest.MapFS{},
 		live:   make(chan struct{}, 8),
 	}
+	k.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	if err := os.MkdirAll(k.upload, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +187,8 @@ func (k *kit) app() *App {
 		IsTerminal: func(v any) bool { return (v == stdin && k.stdinTTY) || (k.colour && v != stdin) },
 		OpenTTY:    func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil },
 		ConfigPath: k.config,
+		Echo:       k.echo,
+		Random:     k.random,
 	}}
 }
 

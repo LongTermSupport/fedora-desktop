@@ -50,7 +50,7 @@ func (w *world) touch(rel, first string) {
 func (w *world) session() *session {
 	w.t.Helper()
 	s := &session{
-		env:     Env{Runner: w.runner, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		env:     Env{Getenv: noEnv, Umask: keepUmask, Runner: w.runner, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
 		root:    w.root,
 		scripts: filepath.Join(w.root, "scripts"),
 		opts:    options{base: "HEAD"},
@@ -1025,6 +1025,73 @@ func TestASpeechToTextGateEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A changed Python file (by name or shebang) runs the hook handler rules over that file only;
+// JavaScript, shell and deleted files do not.
+func TestAChangedPythonFileRunsTheHookHandlerRulesOnThatFile(t *testing.T) {
+	assertPerFilePythonCheck(t, "hook-handler-rules-files", "hook-handler-rules", ".claude/hooks/handlers/one.py")
+}
+
+// A changed Python file (by name or shebang) runs the walk-open rule over that file only;
+// JavaScript, shell and deleted files do not.
+func TestAChangedPythonFileRunsTheWalkOpenRuleOnThatFile(t *testing.T) {
+	assertPerFilePythonCheck(t, "walk-open-files", "walk-open", "helpers/play_ledger/group_vars.py")
+}
+
+// assertPerFilePythonCheck holds a per-file Python gate check: a changed .py file and an
+// extensionless Python script each get exactly themselves as its items and never the whole gate;
+// a JavaScript file, a shell script and a deleted Python file get no such check.
+func assertPerFilePythonCheck(t *testing.T, perFile, whole, pyFile string) {
+	t.Helper()
+	w := newWorld(t)
+	w.touch(pyFile, "x = 1")
+	w.touch("files/home/.local/bin/py-tool", "#!/usr/bin/env python3")
+	for _, f := range []string{pyFile, "files/home/.local/bin/py-tool"} {
+		p := w.classify([]string{f})
+		if got := p.items(perFile); !reflect.DeepEqual(got, []string{f}) {
+			t.Errorf("%s: %s items %v", f, perFile, got)
+		}
+		if p.has(whole) {
+			t.Errorf("%s ran the whole %s gate: %v", f, whole, keys(p))
+		}
+	}
+	w.touch("extensions/panel.js", "// x")
+	w.touch("scripts/two.bash", "#!/usr/bin/bash")
+	for _, f := range []string{"extensions/panel.js", "scripts/two.bash"} {
+		if p := w.classify([]string{f}); p.has(perFile) {
+			t.Errorf("%s ran %s: %v", f, perFile, keys(p))
+		}
+	}
+	if p := w.classify(nil, "helpers/gone.py"); p.has(perFile) {
+		t.Errorf("a deleted file has nothing for %s: %v", perFile, keys(p))
+	}
+}
+
+// An edit to the hook handler rules, their fixture, the wrapper, the shared Go package or the
+// command runs the whole gate (and a deletion owes it), and the .semgrep files count as covered.
+func TestAHookHandlerRulesGateEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		".semgrep/hook-handlers.yml", ".semgrep/hook-handlers.py",
+		"src-go/qa/sttrules/scan.go", "src-go/qa/cmd/qa-hook-handler-rules/main.go", "scripts/qa-hook-handler-rules.bash",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x")
+		p := w.classify([]string{f})
+		if !p.has("hook-handler-rules") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if p.has("hook-handler-rules-files") {
+			t.Errorf("%s was also judged as a changed script: %v", f, keys(p))
+		}
+		if len(p.suites) != 0 && (f == "scripts/qa-hook-handler-rules.bash" || f == ".semgrep/hook-handlers.yml") {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, ".semgrep/hook-handlers.py"); !p.has("hook-handler-rules") {
+		t.Errorf("a deleted fixture owes the whole gate: %v", keys(p))
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
@@ -1058,6 +1125,47 @@ func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
 	}
 }
 
+// Plan 00209 D 4.1: a change to a file v2 owns, or to the gate's own files, runs
+// teamchat-keeps-off-v1 before the commit; a deletion does too; a v1 or shared file does not.
+func TestAV2EditRunsTheKeepsOffV1Gate(t *testing.T) {
+	for _, f := range []string{
+		"src-go/internal/teamchat/paths/paths.go",
+		"src-go/cmd/teamchat/main.go",
+		"files/opt/claude-yolo/optional/teamchat/settings.json",
+		"tasks/teamchat-units.yml",
+		"vars/teamchat.yml",
+		"playbooks/imports/play-teamchat.yml",
+		"playbooks/imports/play-teamchat.yaml",
+		"playbooks/imports/optional/common/play-teamchat-element.yml",
+		"scripts/qa-teamchat-separate.bash",
+		"src-go/qa/teamchatseparate/run.go",
+		"src-go/qa/teamchatseparate/v1-names.txt",
+		"src-go/qa/teamchatseparate/v1-names-corpus.tsv",
+		"src-go/qa/teamchatseparate/allowed.tsv",
+		"src-go/qa/cmd/qa-teamchat-separate/main.go",
+	} {
+		w := newWorld(t)
+		w.touch(f, "# x")
+		if p := w.classify([]string{f}); !p.has("teamchat-keeps-off-v1") {
+			t.Errorf("%s: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "src-go/internal/teamchat/paths/gone.go"); !p.has("teamchat-keeps-off-v1") {
+		t.Errorf("a deleted v2 file: %v", keys(p))
+	}
+	for _, f := range []string{
+		"src-go/internal/teams/board/board.go", "playbooks/imports/play-agent-bus.yml",
+		"playbooks/imports/optional/common/play-agent-bus-element.yml",
+	} {
+		w := newWorld(t)
+		w.touch(f, "# x")
+		if p := w.classify([]string{f}); p.has("teamchat-keeps-off-v1") {
+			t.Errorf("%s must not run the gate: %v", f, keys(p))
+		}
+	}
+}
+
 // The shared command helpers of src-go/qa/internal rerun the gates whose commands are built on
 // them, and a gate that does not use one does not rerun for it.
 func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
@@ -1066,15 +1174,15 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 		"src-go/qa/internal/cmdmain/cmdmain.go": {
 			"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs", "ansible-patterns", "nokill-containerwatch",
 			"ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest", "gh-scopes",
-			"deployed-drift", "ready-wait", "stt-rules", "bash-limits", "go-deps", "go-vuln",
+			"deployed-drift", "ready-wait", "stt-rules", "bash-limits", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 		"src-go/qa/internal/emit/emit.go": {
 			"nokill-containerwatch", "ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"ansible-patterns", "go-deps", "go-vuln",
+			"ansible-patterns", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 		"src-go/qa/internal/rootargs/rootargs.go": {
 			"nokill-containerwatch", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns", "go-deps", "go-vuln",
+			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 	}
 	for file, checks := range uses {

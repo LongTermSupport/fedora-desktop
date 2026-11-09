@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 const usage = "Usage: testfreeze\n"
@@ -240,6 +242,39 @@ func TestNamesReachTheEngineInTheNamesMode(t *testing.T) {
 	}
 	if strings.Join(r.eng.acted, ",") != "thaw bravo" {
 		t.Fatalf("the derived verb thaws a paused set: %v", r.eng.acted)
+	}
+}
+
+// The run's end puts back the mode a screen held; a mode that cannot be put back fails the run.
+func TestRunContextHoldsTheEchoOffAndPutsTheModeBack(t *testing.T) {
+	r := newRig(t)
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := tty.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	r.env.Echo, modes = ttyecho.Fake(tty)
+	if err = ttyecho.Screen(r.env.Echo); err != nil || modes.Echo() {
+		t.Fatalf("screen %v, echo %v", err, modes.Echo())
+	}
+	if got := RunContext(context.Background(), r.env, nil, r.tool, []string{"--help"}); got != term.ExitOK {
+		t.Fatalf("exit %d: %s", got, r.errb)
+	}
+	if !modes.Echo() || modes.Sets != 2 {
+		t.Fatalf("echo after %v, %d sets", modes.Echo(), modes.Sets)
+	}
+	if err = ttyecho.Screen(r.env.Echo); err != nil {
+		t.Fatal(err)
+	}
+	modes.SetErr = errors.New("EIO")
+	if got := RunContext(context.Background(), r.env, nil, r.tool, []string{"--help"}); got != term.ExitFailure ||
+		!strings.Contains(r.errb.String(), "put the terminal's mode back: EIO") {
+		t.Fatalf("exit %d: %s", got, r.errb)
 	}
 }
 

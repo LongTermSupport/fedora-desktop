@@ -11,7 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
@@ -25,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -38,6 +41,12 @@ type Host struct {
 	config.Config
 
 	Runner execx.Runner
+	// Echo holds the echo of the terminal the keys are read from off for the run, so keys typed
+	// between two screens are not echoed over the next (ttyecho); nil holds nothing. The
+	// production hosts run Runner and the launcher's exec under it.
+	Echo *ttyecho.Hold
+	// Execer replaces this process with the launcher (Exec's seam).
+	Execer execx.Execer
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -76,11 +85,15 @@ type Host struct {
 	Exec     func(path string, argv []string, dir string) error
 	// InContainer says whether this is a CCY container, where ccy-teams has no business.
 	InContainer func() bool
+	// UserHome is the passwd database's home of a uid: where pingbus looks for its owner's
+	// Element acceptance (helpers/pingbus/config.py _home_of), whatever HOME says.
+	UserHome func(uid int) (string, error)
 }
 
 // New is the production Host: the real OS and the process's own streams.
 func New(cfg config.Config) *Host {
-	h := &Host{Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}
+	echo := ttyecho.New(os.Stdin)
+	h := &Host{Config: cfg, Echo: echo, Runner: echo.Runner(execx.OS{}), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}
 	h.Wire()
 	return h
 }
@@ -89,7 +102,11 @@ func New(cfg config.Config) *Host {
 // stdout is kept for Payload, and everything the flows and the tools they run print on stdout
 // (an Ansible play's output among it) goes to stderr.
 func NewDiverted(cfg config.Config) *Host {
-	h := &Host{Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stderr, Stderr: os.Stderr, Payload: os.Stdout}
+	echo := ttyecho.New(os.Stdin)
+	h := &Host{
+		Config: cfg, Echo: echo, Runner: echo.Runner(execx.OS{}),
+		Stdin: os.Stdin, Stdout: os.Stderr, Stderr: os.Stderr, Payload: os.Stdout,
+	}
 	h.Wire()
 	return h
 }
@@ -124,11 +141,23 @@ func (h *Host) Wire() {
 	if h.Out == nil {
 		h.Out = &term.Printer{}
 	}
+	if h.UserHome == nil {
+		h.UserHome = passwdHome
+	}
 	if h.Term == nil {
 		h.Term = h.FreshTerm()
 	}
 	h.wireTools()
 	h.wireAsking()
+}
+
+// passwdHome is the passwd database's home of uid.
+func passwdHome(uid int) (string, error) {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
 }
 
 // FreshTerm is a Term over the host's streams with no steps counted yet: a flow that numbers
@@ -213,11 +242,13 @@ func (h *Host) wireTools() {
 // wireAsking builds what the questions and the picker are asked through, and the seams to the
 // terminal and the launcher.
 func (h *Host) wireAsking() {
+	// One Drain for both: leaving a gum question drains the picker drawn next, and the reverse.
+	drain := &ui.Drain{}
 	if h.Gum == nil {
-		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Gum = &ui.Gum{Runner: h.Runner, Stdin: h.Stdin, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.Picker == nil {
-		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr)}
+		h.Picker = &ui.Picker{Runner: h.Runner, Stderr: h.Stderr, Plain: !h.Term.ColourOn(h.Stderr), Drain: drain}
 	}
 	if h.LookPath == nil {
 		h.LookPath = exec.LookPath
@@ -225,8 +256,13 @@ func (h *Host) wireAsking() {
 	if h.OpenTTY == nil {
 		h.OpenTTY = openTerminal
 	}
+	if h.Execer == nil {
+		h.Execer = execx.OS{}
+	}
 	if h.Exec == nil {
-		h.Exec = execLauncher
+		h.Exec = func(path string, argv []string, dir string) error {
+			return launcherVia(h.Echo.Execer(h.Execer), path, argv, dir)
+		}
 	}
 	if h.InContainer == nil {
 		h.InContainer = ccyenv.InContainer
@@ -243,13 +279,8 @@ func openTerminal() (io.ReadCloser, error) {
 	return tty, nil
 }
 
-// execLauncher replaces this process with the launcher, started in dir: it does not return
-// unless the launcher cannot be started.
-func execLauncher(path string, argv []string, dir string) error {
-	return launcherVia(execx.OS{}, path, argv, dir)
-}
-
-// launcherVia replaces the process through x, the one seam that may. argv
+// launcherVia replaces the process with the launcher, started in dir, through x, the one seam
+// that may: it does not return unless the launcher cannot be started. argv
 // starts with the launcher's own name, which x supplies from path.
 func launcherVia(x execx.Execer, path string, argv []string, dir string) error {
 	var args []string

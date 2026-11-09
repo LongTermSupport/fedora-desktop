@@ -30,7 +30,7 @@ type outcome struct {
 // scan judges each language's files with that language's rules alone, in a private directory that
 // is removed when the scan ends, whatever its outcome.
 func (g *gate) scan(ctx context.Context, set ruleSet, sets fileSets) (outcome, error) {
-	dir, err := os.MkdirTemp("", "qa-speech-to-text-rules-")
+	dir, err := os.MkdirTemp("", g.spec.command+"-")
 	if err != nil {
 		return outcome{}, fmt.Errorf("cannot make a directory for the rule files: %s", reason(err))
 	}
@@ -44,7 +44,7 @@ func (g *gate) scan(ctx context.Context, set ruleSet, sets fileSets) (outcome, e
 // scanAll scans each language that has files, writing its rule file into dir.
 func (g *gate) scanAll(ctx context.Context, set ruleSet, sets fileSets, dir string) (outcome, error) {
 	var total outcome
-	for _, lang := range languages {
+	for _, lang := range g.spec.languages {
 		files := sets[lang]
 		if len(files) == 0 {
 			continue
@@ -108,7 +108,7 @@ func (g *gate) finish(got outcome) ExitCode {
 		fmt.Fprintln(&g.stdout, f)
 		files[f.path] = true
 	}
-	fmt.Fprintf(&g.stdout, "speech-to-text rules: %d finding(s) in %d file(s). See CLAUDE/QA.md under each identifier.\n", len(found), len(files))
+	fmt.Fprintf(&g.stdout, "%s: %d finding(s) in %d file(s). See CLAUDE/QA.md under each identifier.\n", g.spec.title, len(found), len(files))
 	fmt.Fprintf(&g.stdout, "passed: %d failed: %d\n", scanned-len(files), len(files))
 	return ExitFailed
 }

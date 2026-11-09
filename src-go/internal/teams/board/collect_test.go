@@ -2,12 +2,15 @@ package board
 
 import (
 	"io/fs"
+	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -60,7 +63,7 @@ func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
 		t.Fatal("a systemctl failure fails the collection")
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: systemctl could not list the agent-bus homeserver units.\n") {
+	if !strings.Contains(h.ErrOut.String(), "ERROR: systemctl could not list the agent-bus homeserver units: systemctl exited 1: boom\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 
@@ -322,10 +325,10 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	shown := term.AbbrevHome(checkout, h.c.Home)
 	want := []Row{
 		{Team: "alpha", Member: "(no description)", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev", Held: true},
+		{Team: "alpha", Member: "1", Kind: "ccy", State: "listening", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev", Held: true, Live: agentbus.LiveListening},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
-		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev"},
-		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops"},
+		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev", Live: agentbus.LiveStale},
+		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "not listening", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops", Live: agentbus.LiveNoStatus},
 		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
@@ -335,6 +338,111 @@ func TestCollectBuildsTheRows(t *testing.T) {
 			t.Logf("got  %+v", s.Rows[i])
 		}
 		t.Fatalf("rows differ from the %d expected", len(want))
+	}
+}
+
+// STATE is whether a member's session is listening on the bus now, from its LIVE line (the
+// agent_bus.status pingbus status reads), never from the registry's park word: a member that is
+// not parked and whose session stopped is stale, not active. An agent-bus older than LIVE lines
+// leaves it unknown, and the team row says why.
+func TestCollectShowsLivenessFromTheBusAndUnknownWithWhy(t *testing.T) {
+	h := populated(t)
+	h.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\n"+
+		"MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\nLIVE\tproj.1+local.podman\tstale\n", 0)
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if row := s.Rows[1]; row.State != "stale" || row.Live != agentbus.LiveStale {
+		t.Fatalf("a member not parked whose status lapsed: %+v", row)
+	}
+	if strings.Contains(s.Rows[0].Where, "liveness") {
+		t.Fatalf("every member was reported: %q", s.Rows[0].Where)
+	}
+
+	h.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n", 0)
+	s, err = h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if row := s.Rows[1]; row.State != "unknown" || row.Live != agentbus.LiveUnreported {
+		t.Fatalf("a member with no LIVE line: %+v", row)
+	}
+	if want := ", liveness unknown: agent-bus list reports none (the agent-bus play updates it)"; !strings.HasSuffix(s.Rows[0].Where, want) {
+		t.Fatalf("team row %q, want it to end %q", s.Rows[0].Where, want)
+	}
+}
+
+// endSession is what a session's end leaves: no tmux session, no record, its seat released.
+func endSession(t *testing.T, h rig) {
+	t.Helper()
+	h.On("tmux -L ccy list-sessions", "", 0)
+	if err := os.Remove(filepath.Join(h.Root, "home/.local/state/ccy/sessions/ccy-proj")); err != nil {
+		t.Fatal(err)
+	}
+	h.HoldSeat(t, h.Checkout(), "alpha", "1", false)
+}
+
+func seatSessions(s *Snapshot, team string) map[string]string {
+	got := map[string]string{}
+	for _, r := range s.Rows {
+		if r.Team == team && r.Kind == KindCcy && r.Dir != "-" {
+			got[r.Member] = r.Session
+		}
+	}
+	return got
+}
+
+// Plan 00201 Task 2.29: once its session has ended no record names a seat's checkout, and the
+// board still reads its seats there, from the list of seat checkouts, as free.
+func TestASeatWhoseSessionEndedStillReadsAsFree(t *testing.T) {
+	h := populated(t)
+	if _, err := h.c.Collect(t.Context()); err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	endSession(t, h)
+	s, err := collectorOf(h.World).Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if got := seatSessions(s, "alpha"); !maps.Equal(got, map[string]string{"1": "free", "dev": "free"}) {
+		for _, r := range s.Rows {
+			t.Logf("row %+v", r)
+		}
+		t.Fatalf("seats %v", got)
+	}
+	if s.Incomplete != "" || h.ErrOut.String() != "" {
+		t.Fatalf("incomplete %q stderr %q", s.Incomplete, h.ErrOut.String())
+	}
+}
+
+// A listed checkout that has gone, or has no seats, is not read and is no failure.
+func TestAListedCheckoutWithNoSeatsIsNotRead(t *testing.T) {
+	h := populated(t)
+	teamtest.MustWrite(t, filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts"), "/home/u/gone\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil || s.Incomplete != "" || h.ErrOut.String() != "" {
+		t.Fatalf("%v incomplete %q stderr %q", err, s.Incomplete, h.ErrOut.String())
+	}
+	if !slices.Contains(s.Checkouts, "/home/u/gone") {
+		t.Fatalf("checkouts %v", s.Checkouts)
+	}
+}
+
+// A list that cannot be read is said, and the board says it is incomplete.
+func TestAnUnreadableListOfSeatCheckoutsIsSaid(t *testing.T) {
+	h := populated(t)
+	list := filepath.Join(h.Root, "home/.local/state/ccy/seat-checkouts")
+	teamtest.MustWrite(t, list, "relative\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Incomplete != wordSeatListUnread || !strings.Contains(h.ErrOut.String(), list) {
+		t.Fatalf("incomplete %q stderr %q", s.Incomplete, h.ErrOut.String())
+	}
+	if !slices.Contains(s.Checkouts, h.Checkout()) {
+		t.Fatalf("the sessions' checkouts are still read: %v", s.Checkouts)
 	}
 }
 

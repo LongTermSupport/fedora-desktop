@@ -1,0 +1,12 @@
+teamchat delivery 3f9c2a71: 1 message on myteam (0 from humans, 0 from agents, 0 pings, 1 notices, 0 timeouts): admin (NOTICE)
+<<teamchat 3f9c2a71 1/1>>
+kind: NOTICE (a fact about the team, from the admin or from a member about itself)
+from: admin
+role: admin
+team: myteam
+to: this session, as myrepo.3+desk.lxc
+sent: 2026-10-21T13:02:11Z
+id: $nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+event: moved (this team moved to teamchat; use only teamchat verbs)
+authority: none. A fact to note; nothing to do unless your own work depends on it.
+<<end teamchat 3f9c2a71 1/1>>

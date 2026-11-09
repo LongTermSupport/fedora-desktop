@@ -31,8 +31,10 @@ owns the tool, its file contract and its install.
 
 ## Goals
 
-- `stt-review [FOLDER]`: play, replay, pause, 3 s back and forward, slower; type and save;
-  mark inaudible; skip; previous clip; progress and the clip's name on screen.
+- `stt-review [FOLDER]`: the clip repeats with a short gap until the person acts on it (on by
+  default, a key turns it off), and the text box takes typing from the moment it starts;
+  replay, pause, 3 s back and forward, slower; type and save; mark inaudible; skip; previous
+  clip; progress and the clip's name on screen.
 - The file contract (clip name, sidecar suffix, inaudible marker) written down once, in
   `docs/features/speech-to-text.md`, so the cutter and the scorer are built independently.
 - A crash, a quit or a closed window never leaves a half-written sidecar or a player still
@@ -73,50 +75,71 @@ of visible actions, Plan 00204), opened by a new `Review Clips...` menu item.
 ### Playback (decision D2)
 
 The player is an external program run through `execx`, behind a small `Player` seam (play a
-file from an offset at a tempo; stop; an event when it ends), so every behaviour is tested
-with a fake. The default is sox's `play`, which `play-speech-to-text.yml` already installs:
-`play -q -t opus <clip> trim <offset> tempo -s <t>` covers replay, pause (stop, keep the
-position), seeking and slower playback with the pitch kept, each a restart at an offset (sox
-has no pause or seek of a running player). `-t opus` is needed because sox picks its Vorbis
-handler for a `.ogg` name. The length is read in Go from the Ogg stream (last granule
-position minus pre-skip; R18), so no tool's flags matter for it. Whether
-Fedora's sox decodes Opus at all (through libopusfile) is not known yet: Task 1.1 establishes
-it on the host. If it cannot, the fallback is `ffplay` from Fedora's own `ffmpeg-free`
-(`-nodisp -autoexit -ss <offset> -af atempo=<t>`), which keeps the same restart design; `mpv`
-is not the fallback because it comes from RPM Fusion, which this play does not depend on. The
-position is counted from an injected clock, and the end of playback is the process's exit
-(no timed guess; the `project_realtime_bound` rule). The player runs under
-`execx.Cmd.NewSession` and `execx.SignalContext`, so no player outlives the tool.
+file from an offset at a tempo; pause; resume; seek; set the tempo; stop; an event when a pass
+reaches the end), so every behaviour, the loop included, is tested with a fake player and an
+injected clock.
+
+- **mpv, preferred.** mpv is in Fedora 44's own repositories (built on `ffmpeg-free`) and
+  already on the owner's desktop through `play-cli-tools.yml`. One `mpv --no-config --no-terminal --no-video --keep-open=yes --audio-pitch-correction=yes` process per clip,
+  driven over its JSON IPC: pause and resume (`pause`), seeking (`seek <s> absolute`) and the
+  slow tempo (`speed 0.75`, the pitch kept by its scaletempo filter) act on the running
+  player, with no restart. The IPC is a socket pair whose one end the child inherits
+  (`execx.Cmd.ExtraFiles`, `--input-ipc-client=fd://3`), so there is no socket file and no
+  wait for one to appear; the end of a pass is the observed `eof-reached` property. The
+  adapter is tested against a fake IPC peer in the test (the JSON commands it sends, the
+  events it turns into seam events).
+- **sox `play`, first fallback**, already installed by the play:
+  `play -q -t opus <clip> trim <offset> tempo -s <t>`, every action a stop and a restart at an
+  offset (sox has no pause or seek of a running player). `-t opus` is needed because sox picks
+  its Vorbis handler for a `.ogg` name. Whether Fedora's sox decodes Opus at all (through
+  libopusfile) is not known yet.
+- **`ffplay`, second fallback**, from Fedora's own `ffmpeg-free`
+  (`-nodisp -autoexit -ss <offset> -af atempo=<t>`), the same restart design as sox.
+
+Task 1.1 establishes on the host which of them decodes the contract's clips. The loop is the
+tool's, not the player's (decision D13): when a pass ends, the tool waits the gap on the
+injected clock and starts the next pass from the start (mpv: a seek to 0 and unpause; sox and
+ffplay: a new process). mpv's own `--loop-file=inf` is not used, since it repeats with no gap
+and its repeat could not be asserted through the fake; one loop serves all three players and
+its toggle is a flag in the flow. The length is read in Go from the Ogg stream (last granule
+position minus pre-skip; R18), so no player's flags matter for it. The position is counted
+from the injected clock, and the end of a pass is an event (the player's exit, or mpv's
+`eof-reached`), never a timed guess (the `project_realtime_bound` rule); the gap is a chosen
+pause, not a guess at when something finished. The player runs under `execx.Cmd.NewSession`
+and `execx.SignalContext`, so no player outlives the tool.
 
 ### Keyboard flow
 
 The text box has the focus throughout, so every action is on a non-printing key, drawn in the
-footer (decision D3; the table is R30 of the spec). A clip plays as soon as it is shown. The
-person listens (replaying, pausing, stepping back, slowing down as needed), types, and presses
-Enter to save and move on. `ctrl+x` marks it inaudible, PgDown skips it, PgUp goes back to the
+footer (decision D3; the table is R30 of the spec). A clip plays as soon as it is shown and
+repeats, about 0.6 s apart, until the person saves, marks it inaudible, skips, goes back or
+quits; `ctrl+l` turns the repeat off (and on again). The text box takes typing from the first
+moment, and typing never pauses or restarts the clip. The person listens (pausing, stepping
+back, slowing down as needed), types, and presses Enter to save and move on. `ctrl+x` marks it inaudible, PgDown skips it, PgUp goes back to the
 previous clip (its saved text editable), Esc quits. After the last clip an end screen counts
 the session and offers to go round again over what is still unsaved.
 
 ### Specification
 
-[SPEC-stt-review.md](SPEC-stt-review.md): the file contract and behaviours R1-R31, each a test.
+[SPEC-stt-review.md](SPEC-stt-review.md): the file contract and behaviours R1-R34, each a test.
 
 ## Decisions the coordinator may default
 
 | #   | Decision                                      | Default                                                                                                                                                                                                                                                     |
 | --- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1  | Platform                                      | Go terminal tool on the house TUI, opened from the panel menu in `foot` (above)                                                                                                                                                                             |
-| D2  | Player                                        | sox `play -t opus` if Task 1.1 shows it decodes Ogg Opus; else `ffplay` from Fedora's `ffmpeg-free`, installed by the play                                                                                                                                  |
+| D2  | Player                                        | mpv over its IPC if Task 1.1 shows it decodes the clips; else sox `play -t opus`; else `ffplay` from Fedora's `ffmpeg-free`. The chosen package is installed by `play-speech-to-text.yml` itself, so the tool does not depend on `play-cli-tools.yml`       |
 | D3  | Keys                                          | As in R30; every action on the review screen non-printing; `ctrl+p` replaces `ctrl+space` if an input method takes it                                                                                                                                       |
-| D4  | Seek step and slow tempo                      | 3 s; 0.75 with pitch kept (`tempo -s`)                                                                                                                                                                                                                      |
+| D4  | Seek step and slow tempo                      | 3 s; 0.75 with pitch kept (mpv `speed` with pitch correction, sox `tempo -s`)                                                                                                                                                                               |
 | D5  | Play a clip as soon as it is shown            | Yes                                                                                                                                                                                                                                                         |
 | D6  | A folder holding anything but clips, sidecars | Refused before any screen, every stray entry named (R6), as the contract says the folder holds only clips; the tool's own crash temporaries are removed at start, said on stderr. The clip cutter (Plan 00179 Task 1.5) is told to write nothing else there |
-| D7  | A folder inside a git work tree               | Refused (R7): clips must not sit in a repository                                                                                                                                                                                                            |
+| D7  | A folder inside a git work tree               | Refused (R7): clips must not sit in a repository. Clip sets are to be cut outside any checkout; the experiment session is changing where it cuts them                                                                                                       |
 | D8  | Formats                                       | `.ogg` only, as the contract says; widen when a cutter writes another                                                                                                                                                                                       |
 | D9  | Previous clip                                 | Allowed, its saved text editable and re-saved atomically (R26)                                                                                                                                                                                              |
 | D10 | Panel menu item                               | Yes, `Review Clips...`, opening the tool with no folder, so it asks (R1)                                                                                                                                                                                    |
 | D11 | Command name                                  | `stt-review`, a binary of its own (`stt` takes paths as arguments, so a `review` subcommand would be ambiguous)                                                                                                                                             |
 | D12 | Text line                                     | `pathinput`'s editing factored out and shared; no new vendored package                                                                                                                                                                                      |
+| D13 | Loop                                          | On by default; `ctrl+l` toggles it for the rest of the run; a gap of 0.6 s between passes; the loop is the tool's (R13, R14, R32-R34), not mpv's `--loop-file`                                                                                              |
 
 ## Tasks
 
@@ -128,7 +151,11 @@ the session and offers to go round again over what is still unsaved.
   temporary folder outside any checkout; whether the installed sox decodes it, probed both
   without and with the type (`sox <clip>.ogg -n stat` and `sox -t opus <clip>.ogg -n stat`, the
   decoded length in `stat`'s output, which sox writes to stderr), and `play -q -t opus` of it to a null output; whether
-  `ffplay` is installed, which package owns it (`rpm -qf`), and whether it plays the clip. Queued in `meta-deploy.list`, with
+  `mpv` is installed, its version and owning package (`rpm -qf`, expected from Fedora's own
+  repositories), whether `mpv --no-config --no-video --ao=null` plays the clip to the end with
+  exit 0, and whether `mpv --list-options` lists the `--input-ipc-client` option the adapter
+  needs; whether `ffplay` is installed, which package owns it (`rpm -qf`), and whether it
+  plays the clip. If mpv decodes the clips, D2 is mpv; sox, then ffplay, are the fallbacks. Queued in `meta-deploy.list`, with
   what it does, in the commit that adds it. The result settles D2 and the acceptance's encoder,
   and is recorded in this plan's journal.
 
@@ -143,15 +170,18 @@ the session and offers to go round again over what is still unsaved.
   so no sidecar that appeared is replaced, sharing `WriteAtomic`'s `.tmp.<pid>` naming; the
   crash temporary removed at start; the clip length read from the Ogg stream
   (R6, R18, R21, R22, R24, R26).
-- [ ] ⬜ **Task 2.3**: Tests, then the `Player` seam and its sox (or `ffplay`) adapter through
-  `execx` (`Cmd.NewSession`, `SignalContext`): `-t opus`, offset, tempo, stop, the end as an
-  event, no player left on any exit path (R4, R13-R20). A fake player and clock for the flow
-  tests.
+- [ ] ⬜ **Task 2.3**: Tests, then the `Player` seam and the adapter D2 chose, through `execx`
+  (`Cmd.NewSession`, `SignalContext`): for mpv the IPC socket pair passed on `ExtraFiles`
+  (`fd://3`), the pause, seek and speed commands, and `eof-reached` as the end of a pass,
+  tested against a fake IPC peer; for sox or ffplay `-t opus`, offset, tempo and stop as
+  restarts and the exit as the end. No player left on any exit path (R4, R15-R20). A fake
+  player and clock for the flow tests, which own the loop (R13, R14, R32-R34).
 - [ ] ⬜ **Task 2.4**: Tests, then the screen in `internal/ui` (the frame's heading, playback
   line, text line, footer) and the flow: every action, the end screen, quit with unsaved text,
-  the no-transcript check (R1, R2, R9-R12, R23, R25, R27, R28, R30). The shared text line
+  the no-transcript check, the loop and typing over it (R1, R2, R9-R14, R23, R25, R27, R28,
+  R30, R32-R34). The shared text line
   factored out of `pathinput` with its tests kept green.
-- [ ] ⬜ **Task 2.5**: `src-go/cmd/stt-review`, the package doc carrying R1-R31, its
+- [ ] ⬜ **Task 2.5**: `src-go/cmd/stt-review`, the package doc carrying R1-R34, its
   `stt-review<TAB>qa-go` row in `scripts/go-binary-suites.tsv` (a command with no row fails
   QA), `stt-review` added to the tool list of `src-go/CLAUDE.md`, and a `GoProjectRules.md`
   rule first for any defect class found on the way.
@@ -159,8 +189,9 @@ the session and offers to go round again over what is still unsaved.
 ### Phase 3: Install, panel, docs
 
 - [ ] ⬜ **Task 3.1**: `play-speech-to-text.yml` builds and installs `stt-review` to
-  `~/.local/bin` through `tasks/build-go-command.yml`, and installs the player (if D2 needs
-  `ffmpeg-free`) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
+  `~/.local/bin` through `tasks/build-go-command.yml`, and installs the player D2 chose (`mpv`
+  or `ffmpeg-free`; sox it installs already; `mpv` is then installed by `play-cli-tools.yml`
+  too, which is harmless and keeps each play standalone) and the acceptance's encoder (as it installs `dbus-daemon` for Plan 00212's
   acceptance).
 - [ ] ⬜ **Task 3.2**: The `Review Clips...` panel menu item, opening `stt-review` in `foot`
   at `--window-size-chars=100x20` with `xdg-terminal-exec` as the fallback, as the server
@@ -185,7 +216,7 @@ the session and offers to go round again over what is still unsaved.
 - [ ] ⬜ **Task 4.2**: The owner's hand check, comfort only (everything else is the
   acceptance's): opened from the panel on a real clip folder, the keys feel right (and
   `ctrl+space` reaches the tool rather than an input method; else D3's `ctrl+p`), the slow
-  tempo is useful, the text is legible at the window size.
+  tempo is useful, the 0.6 s gap between repeats feels right (D13), the text is legible at the window size.
 - [ ] ⬜ **Task 4.3**: `qa-all.bash`, then the `qa-reviewer` agent over the plan's diff.
 
 ## Success Criteria

@@ -30,7 +30,27 @@ var (
 	ErrNotReady = errors.New("sudo is not ready")
 	// ErrNeedsPassword is "sudo -n" wanting a password first; nothing was printed.
 	ErrNeedsPassword = errors.New("sudo wants a password first")
+	// ErrWrongPassword is a password sudo did not accept; nothing was printed.
+	ErrWrongPassword = errors.New("sudo did not accept the password")
 )
+
+// CheckPassword asks sudo whether pw is this user's password: "sudo -k -S -v", the cached
+// credential ignored, the password fed on stdin (never in argv), no prompt printed. A right one
+// leaves the credential cached, as Ready does. ErrWrongPassword is sudo refusing it; any other
+// error is sudo not running at all.
+func (s *Sudo) CheckPassword(ctx context.Context, pw execx.Secret) error {
+	_, err := s.Runner.Run(ctx, execx.Cmd{
+		Name: cmd, Args: []string{"-k", "-S", "-p", "", "-v"},
+		Feed: &execx.Feed{Secret: pw, After: "\n"},
+	})
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok {
+		return fmt.Errorf("%w (%w)", ErrWrongPassword, exitErr)
+	}
+	if err != nil {
+		return fmt.Errorf("sudo -v: %w", err)
+	}
+	return nil
+}
 
 // Sudo runs commands as root. Stdin is where a password would be typed; Term.Err is where
 // it is asked for. Stdout is where Run streams a root command's own output: that output is
@@ -73,13 +93,14 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 	}
 	// "-v" wants authentication unless every sudoers entry is NOPASSWD, so on a host with some
 	// NOPASSWD entries it fails while root commands run without a password.
-	if _, rootErr := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-n", "true"}}); rootErr == nil {
+	_, rootErr := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-n", "true"}})
+	if rootErr == nil {
 		return nil
 	}
 	said := strings.TrimRight(string(probe.Stdout)+string(probe.Stderr), "\n")
 	if noTTY := s.noTerminal(); noTTY != nil {
 		s.Term.PrintError(why + " That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: " + said + "). Run sudo -v first.")
-		return fmt.Errorf("%w: no terminal: %w", ErrNotReady, noTTY)
+		return fmt.Errorf("%w: no terminal: %w (sudo -n -v: %w; sudo -n true: %w)", ErrNotReady, noTTY, err, rootErr)
 	}
 	s.Term.Printf("\n")
 	s.Term.Say(why)

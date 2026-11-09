@@ -15,12 +15,19 @@ type Scan struct {
 	// DaemonOwned are the exempt files of DaemonOwnedFiles; VerifyDaemonOwned keeps only
 	// those an upgrade shipped.
 	DaemonOwned map[string]bool
+	// Judged are the bash files the rule assignment-masks-substitution-failure read (every one
+	// but the Unjudged); Masked holds its findings in those files.
+	Judged map[string]bool
+	Masked map[string][]MaskedSubstitution
 }
 
 // ScanTree measures each bash file among files. A listed file that is gone from disk, or is not
 // a regular file (a symlink, a submodule), is not scanned; any other failure stops the scan.
 func ScanTree(fsys fs.FS, files []string) (Scan, error) {
-	scan := Scan{Measured: map[string]Measurement{}, Exempt: map[string]bool{}, Present: map[string]bool{}, DaemonOwned: map[string]bool{}}
+	scan := Scan{
+		Measured: map[string]Measurement{}, Exempt: map[string]bool{}, Present: map[string]bool{},
+		DaemonOwned: map[string]bool{}, Judged: map[string]bool{}, Masked: map[string][]MaskedSubstitution{},
+	}
 	for _, p := range files {
 		info, err := fs.Lstat(fsys, p)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -49,20 +56,37 @@ func scanFile(fsys fs.FS, p string, scan *Scan) error {
 	if err != nil {
 		return err
 	}
+	unjudged, err := IsUnjudged(p)
+	if err != nil {
+		return err
+	}
 	if exempt {
 		scan.Exempt[p] = true
 		if IsDaemonOwnedFile(p) {
 			scan.DaemonOwned[p] = true
 		}
+	}
+	if unjudged {
 		return nil
 	}
 	src, err := fs.ReadFile(fsys, p)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", p, err)
 	}
-	measure := Measure
+	measure, judge := Measure, MaskedSubstitutions
 	if path.Ext(p) == jinjaExt {
-		measure = MeasureTemplate
+		measure, judge = MeasureTemplate, MaskedSubstitutionsTemplate
+	}
+	masked, err := judge(src)
+	if err != nil {
+		return fmt.Errorf("%s: %w", p, err)
+	}
+	scan.Judged[p] = true
+	if len(masked) > 0 {
+		scan.Masked[p] = masked
+	}
+	if exempt {
+		return nil
 	}
 	measured, err := measure(src)
 	if err != nil {

@@ -19,13 +19,17 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -63,7 +67,7 @@ type Config struct {
 	// CPUSample is the length of the CPU sample; zero means the shortest possible.
 	CPUSample          time.Duration
 	TakeOverWaitTenths int
-	CompactFloor       TokenFloor
+	CompactFloor       compactfloor.Floor
 	PassphraseFile     string
 	BootIDFile         string
 	// ProcStatFile is where this boot's start time (btime) is read; empty means the kernel's.
@@ -74,7 +78,7 @@ type Config struct {
 // one is refused, not guessed.
 func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		CcyLib: getenv("CCY_LIB"), CompactFloor: ParseTokenFloor(getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS")),
+		CcyLib: getenv("CCY_LIB"), CompactFloor: compactfloor.Parse(getenv(compactfloor.Env)),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
 		ProcStatFile: getenv("CCY_PROC_STAT_FILE"), TakeOverWaitTenths: 50,
 	}
@@ -110,30 +114,9 @@ func loadConfig(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// TokenFloor is the context size, in tokens, at or above which a restored session is typed
-// /compact rather than continue. It keeps the text it was read from, because a value that is not
-// a whole number of tokens is reported as it was written, when set-going needs it.
-type TokenFloor struct {
-	raw    string
-	tokens int64
-	valid  bool
-}
-
-// ParseTokenFloor reads a floor: a whole number of tokens, at least 1, written without a sign or
-// leading zero. Anything else is a TokenFloor that is not Valid.
-func ParseTokenFloor(raw string) TokenFloor {
-	tokens, err := strconv.ParseInt(raw, 10, 64)
-	if !wholeTokens.MatchString(raw) || err != nil {
-		return TokenFloor{raw: raw}
-	}
-	return TokenFloor{raw: raw, tokens: tokens, valid: true}
-}
-
-// Tokens is the floor, and whether it is a whole number of tokens at all.
-func (f TokenFloor) Tokens() (int64, bool) { return f.tokens, f.valid }
-
-// String is the floor as it was written.
-func (f TokenFloor) String() string { return f.raw }
+// maxKnobSeconds is the longest a timing knob may be set to, a day: past it a knob is a
+// mistake, and a number past a time.Duration would wrap negative.
+const maxKnobSeconds = 86400
 
 // seconds is the named variable as a duration; unset is def.
 func seconds(getenv func(string) string, name string, def time.Duration) (time.Duration, error) {
@@ -145,6 +128,9 @@ func seconds(getenv func(string) string, name string, def time.Duration) (time.D
 	if err != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, fmt.Errorf("%s is '%s', not a number of seconds", name, raw)
 	}
+	if f > maxKnobSeconds {
+		return 0, fmt.Errorf("%s is '%s', more than %d seconds", name, raw, maxKnobSeconds)
+	}
 	return time.Duration(f * float64(time.Second)), nil
 }
 
@@ -154,6 +140,9 @@ func seconds(getenv func(string) string, name string, def time.Duration) (time.D
 type App struct {
 	Runner execx.Runner
 	Execer execx.Execer
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. NewApp runs Runner and Execer under it.
+	Echo   *ttyecho.Hold
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -171,6 +160,8 @@ type App struct {
 	Probe     *sessprobe.Probe
 	// Transcripts reads only what each polled transcript gained since the last look.
 	Transcripts *transcript.Cache
+	// Closer closes a session from its menu: /compact, then /exit (sessclose).
+	Closer sessclose.Closing
 
 	// Now is the clock. Pause waits d, or until a signal arrives on sig, and reports whether
 	// it was interrupted. Signals starts listening for INT and TERM and returns the channel
@@ -192,16 +183,25 @@ type App struct {
 
 // NewApp is the production App: the real OS and the process's own streams.
 func NewApp() *App {
-	a := &App{}
+	echo := ttyecho.New(os.Stdin)
+	a := &App{Echo: echo, Runner: echo.Runner(execx.OS{}), Execer: echo.Execer(execx.OS{})}
 	a.wire()
 	return a
 }
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
-// not be written turns a success into a failure.
+// not be written turns a success into a failure. The terminal's echo is held off for the run
+// and its mode put back at the end.
 func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
-	return a.Term.Finish(a.run(args), a.writeErr)
+	var code term.ExitCode
+	if err := a.Echo.Held(func() { code = a.run(args) }); err != nil {
+		a.Term.PrintError(err.Error() + "; run reset to see what you type.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
+	return a.Term.Finish(code, a.writeErr)
 }
 
 func (a *App) run(args []string) term.ExitCode {
@@ -283,6 +283,12 @@ func (a *App) wire() {
 	}
 	if a.Transcripts == nil {
 		a.Transcripts = transcript.NewCache()
+	}
+	if a.Closer == nil {
+		c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
+		c.Transcripts, c.Now = a.Transcripts, a.Now
+		c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
+		a.Closer = c
 	}
 }
 
@@ -371,6 +377,14 @@ func (a *App) sayf(format string, args ...any) { a.Term.Printf(format, args...) 
 func (a *App) fail(msg string) { a.Term.PrintError(msg) }
 
 func (a *App) failErr(err error) { a.Term.PrintError(err.Error()) }
+
+// failed is a run's exit on err, printing err unless it was reported where it happened.
+func (a *App) failed(err error) term.ExitCode {
+	if !errors.Is(err, errReported) {
+		a.failErr(err)
+	}
+	return term.ExitFailure
+}
 
 // pauseFor waits d, or until a signal arrives on sig, and reports whether one did.
 func pauseFor(d time.Duration, sig <-chan os.Signal) bool {

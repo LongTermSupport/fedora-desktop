@@ -1,7 +1,9 @@
 // Package shutdown is `ccy-teams shutdown <team>` and the team row's "Shut down every session of
 // <team>" (Plan 00201 SPEC-shutdown.md). Every live ccy or cc session that a session record
-// names for a seat of the team is sent /exit through its tmux pane, as if typed, and stopped
-// only when it has not ended in time; each seat it held is then read again until it is free.
+// names for a seat of the team is closed through sessclose: /compact then /exit typed into its
+// tmux pane (only /exit with --no-compact), stopped only when it has not ended in time, and left
+// running, named as failed, when its compaction does not complete; each seat it held is then
+// read again until it is free.
 // Members this host cannot reach (an LXC container's agent in a running container, a session
 // on another machine, a held seat no record names) are listed as not shut down, never acted
 // on. An LXC member whose container is stopped, or that the last apply held back for it, is
@@ -22,35 +24,26 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
-// Waits are the pauses and the bounds of a shutdown (SPEC-shutdown.md SD10, SD12, SD14).
+// Waits are the shutdown's own pause and bound, the seats' (SPEC-shutdown.md SD14); closing a
+// session has its own, sessclose.Waits.
 type Waits struct {
-	// Submit is the pause between typing /exit and pressing Enter, as ccy-sessions types.
-	Submit time.Duration
-	// Poll is how often the panes and the seats are read again.
+	// Poll is how often the seats are read again.
 	Poll time.Duration
-	// Prompt bounds the wait for claude's prompt before /exit can be typed.
-	Prompt time.Duration
-	// Exit bounds the wait for a session to end after /exit.
-	Exit time.Duration
 	// Release bounds the wait for a seat to be free once its session has ended.
 	Release time.Duration
 }
 
 // DefaultWaits are the production waits.
-var DefaultWaits = Waits{
-	Submit: 200 * time.Millisecond, Poll: time.Second,
-	Prompt: 30 * time.Second, Exit: 60 * time.Second, Release: 30 * time.Second,
-}
+var DefaultWaits = Waits{Poll: time.Second, Release: 30 * time.Second}
 
 // Why a member is out of reach, in the words the preview and the result use.
 const (
@@ -60,17 +53,18 @@ const (
 		"in the container, type /exit in its session"
 	whyElsewhere = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
 		"does not know); end it where it runs"
-	wordParked = "parked"
-	kindLxc    = board.Kind("lxc")
+	whyNoSession = "no session running"
+	wordParked   = "parked"
+	kindLxc      = board.Kind("lxc")
 )
 
 // Shutdown is the flow. Every dependency is a field so a test stands in for each.
 type Shutdown struct {
-	Kit      *flow.Kit
-	Collect  func(context.Context) (*board.Snapshot, error)
-	Tmux     *tmuxccy.Tmux
-	Bus      *agentbus.Client
-	Registry func() (*registry.Store, error)
+	Kit     *flow.Kit
+	Collect func(context.Context) (*board.Snapshot, error)
+	// Closer closes each session (SD10-SD13).
+	Closer sessclose.Closing
+	Bus    *agentbus.Client
 	// Lxc says which containers run; Sudo is made ready for it; AppliedDir holds the play's LXC
 	// member record.
 	Lxc        Containers
@@ -94,31 +88,41 @@ type Shutdown struct {
 // New is the Shutdown of a host, reading the machine through the table's collector.
 func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 	return &Shutdown{
-		Kit: kit, Collect: b.Collect, Tmux: h.Tmux, Bus: h.Bus, Registry: h.Registry,
+		Kit: kit, Collect: b.Collect, Closer: sessclose.New(h.Tmux, h.Registry, h.Getenv), Bus: h.Bus,
 		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
 }
 
-const helpText = `Usage: ccy-teams shutdown <team> [--yes]
+const helpText = `Usage: ccy-teams shutdown <team> [--yes] [--no-compact]
 
-Sends /exit to every ccy session of the team, as if typed, and waits for each to end;
-a session that has not ended within 60 s is stopped (its tmux session killed), and its
-seat is released. The homeserver keeps running. Without --yes it asks first. An LXC
-member whose container is stopped is offline: it is named, with nothing to shut down.
+Closes every ccy session of the team as a person would: /compact is typed into it, as if
+typed, and once its transcript records the compaction, /exit; then it waits for each to
+end. Compacting at close, while the session's prompt cache is warm, is cheap, and the next
+resume starts from the small summary instead of the whole conversation. A session with
+nothing to compact since its last compaction is sent /exit alone; so is every session with
+--no-compact. A compaction that does not complete within 600 s fails that session: /exit
+is not typed and it is left running, named. A session that has not ended within 60 s of
+/exit is stopped (its tmux session killed), and its seat is released. The homeserver
+keeps running. Without --yes it asks first. An LXC member whose container is stopped is
+offline, and a seat whose session has ended has no session: each is named, with nothing
+to shut down.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
-      (offline members included)
-  1   a session failed, or a member is not reachable from here (an LXC member whose
-      container runs)
+      (offline members and seats with no session included)
+  1   a session failed (its compaction among them), or a member is not reachable from
+      here (an LXC member whose container runs)
   64  usage error
 `
 
-// Run is `ccy-teams shutdown <team> [--yes]` (SD1).
+// noCompactFlag sends /exit alone.
+const noCompactFlag = "--no-compact"
+
+// Run is `ccy-teams shutdown <team> [--yes] [--no-compact]` (SD1).
 func (s *Shutdown) Run(ctx context.Context, args []string) term.ExitCode {
-	team, yes := "", false
+	team, yes, noCompact := "", false, false
 	for _, a := range args {
 		switch {
 		case a == "-h" || a == "--help":
@@ -126,6 +130,8 @@ func (s *Shutdown) Run(ctx context.Context, args []string) term.ExitCode {
 			return term.ExitOK
 		case a == "--yes":
 			yes = true
+		case a == noCompactFlag:
+			noCompact = true
 		case strings.HasPrefix(a, "-"):
 			return s.usageError("unknown shutdown option '" + a + "'.")
 		case team == "":
@@ -137,13 +143,13 @@ func (s *Shutdown) Run(ctx context.Context, args []string) term.ExitCode {
 	if team == "" {
 		return s.usageError("'shutdown' needs a team.")
 	}
-	return s.forTeam(ctx, team, yes)
+	return s.forTeam(ctx, team, yes, noCompact)
 }
 
 // Offer is the team row's menu line (SD2): the same flow with the picker's yes/no, then back to
 // the list once what it said has been read.
 func (s *Shutdown) Offer(ctx context.Context, team string) (flow.Result, error) {
-	if err := s.Kit.InPicker("ccy-teams shutdown "+team, s.forTeam(ctx, team, false)); err != nil {
+	if err := s.Kit.InPicker("ccy-teams shutdown "+team, s.forTeam(ctx, team, false, false)); err != nil {
 		return flow.Done, err
 	}
 	s.Kit.BackToList(ctx)
@@ -151,7 +157,7 @@ func (s *Shutdown) Offer(ctx context.Context, team string) (flow.Result, error) 
 }
 
 // forTeam reads the machine, shows what will be shut down, asks, and shuts it down.
-func (s *Shutdown) forTeam(ctx context.Context, team string, yes bool) term.ExitCode {
+func (s *Shutdown) forTeam(ctx context.Context, team string, yes, noCompact bool) term.ExitCode {
 	snap, err := s.Collect(ctx)
 	if err != nil {
 		return term.ExitFailure
@@ -166,14 +172,14 @@ func (s *Shutdown) forTeam(ctx context.Context, team string, yes bool) term.Exit
 		s.tell("Team " + team + " has no running session.")
 		return term.ExitOK
 	}
-	s.preview(team, p)
+	s.preview(team, p, noCompact)
 	if len(p.jobs) == 0 {
 		return s.report(team, p)
 	}
 	if code, proceed := s.confirm(ctx, team, len(p.jobs), yes); !proceed {
 		return code
 	}
-	s.stopAll(ctx, p.jobs)
+	s.stopAll(ctx, p.jobs, noCompact)
 	s.checkSeats(ctx, p.jobs)
 	return s.report(team, p)
 }
@@ -208,12 +214,13 @@ func (r seatRef) String() string { return r.seat + "@" + r.team }
 // unreached is a member that cannot be shut down from here, and why.
 type unreached struct{ member, why string }
 
-// plan is what a shutdown acts on, what it cannot reach and what is offline; lxc is the LXC
-// member rows still to be resolved (resolveLxc).
+// plan is what a shutdown acts on, what it cannot reach, what is offline and the seats with
+// no session; lxc is the LXC member rows still to be resolved (resolveLxc).
 type plan struct {
 	jobs      []*job
 	unreached []unreached
 	offline   []unreached
+	idle      []unreached
 	lxc       []board.Row
 }
 
@@ -246,7 +253,8 @@ func planFor(snap *board.Snapshot, team string) plan {
 }
 
 // addSeat makes a job of the live session holding a seat row, once per session; a held seat no
-// live session names is out of reach.
+// live session names is out of reach, and a free one no live session names has no session: it is
+// named, and nothing to shut down (Plan 00201 Task 2.29).
 func (p *plan) addSeat(snap *board.Snapshot, team string, row board.Row) {
 	attached, live := snap.Live[row.Record]
 	switch {
@@ -260,6 +268,8 @@ func (p *plan) addSeat(snap *board.Snapshot, team string, row board.Row) {
 		})
 	case row.Held:
 		p.unreached = append(p.unreached, unreached{row.Member + "@" + team + " (" + row.Handle + ")", whyHeld})
+	default:
+		p.idle = append(p.idle, unreached{row.Member + "@" + team + " (" + row.Handle + ")", whyNoSession})
 	}
 }
 
@@ -283,7 +293,7 @@ func seatsOf(snap *board.Snapshot, name, team string) []seatRef {
 }
 
 // preview says what will be shut down and what cannot be (SD6).
-func (s *Shutdown) preview(team string, p plan) {
+func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	if len(p.jobs) > 0 {
 		s.tell("Team " + team + ": " + sessions(len(p.jobs)) + " to shut down.")
 	}
@@ -303,21 +313,30 @@ func (s *Shutdown) preview(team string, p plan) {
 		}
 		s.tell(line)
 	}
-	if len(p.unreached) > 0 {
-		s.tell("Not reachable from here, so not shut down:")
-		for _, u := range p.unreached {
-			s.tell("  " + u.member + "   " + u.why)
-		}
+	s.listed("Not reachable from here, so not shut down:", p.unreached)
+	s.listed("Offline, nothing to shut down:", p.offline)
+	s.listed("No session running, nothing to shut down:", p.idle)
+	if len(p.jobs) == 0 {
+		return
 	}
-	if len(p.offline) > 0 {
-		s.tell("Offline, nothing to shut down:")
-		for _, u := range p.offline {
-			s.tell("  " + u.member + "   " + u.why)
-		}
+	w := s.Closer.Limits()
+	first := "Each session is compacted (/compact, as if typed) and then sent /exit; one whose compaction has not " +
+		"completed within " + sessclose.Seconds(w.Compact) + " is left running and named. "
+	if noCompact {
+		first = "Each session is sent /exit, as if typed, without compacting; "
 	}
-	if len(p.jobs) > 0 {
-		s.tell("Each session is sent /exit, as if typed; one that has not ended within " + seconds(s.Waits.Exit) +
-			" is stopped (its tmux session killed). The homeserver keeps running.")
+	s.tell(first + "One that has not ended within " + sessclose.Seconds(w.Exit) +
+		" of /exit is stopped (its tmux session killed). The homeserver keeps running.")
+}
+
+// listed is a heading and one line per member under it, when there is any.
+func (s *Shutdown) listed(heading string, members []unreached) {
+	if len(members) == 0 {
+		return
+	}
+	s.tell(heading)
+	for _, u := range members {
+		s.tell("  " + u.member + "   " + u.why)
 	}
 }
 
@@ -329,16 +348,16 @@ func (s *Shutdown) report(team string, p plan) term.ExitCode {
 	for _, j := range p.jobs {
 		line := j.name + ": "
 		switch j.result {
-		case exited:
+		case sessclose.Exited:
 			exitedN++
 			line += "exited cleanly"
 			if j.note != "" {
 				line += "; " + j.note
 			}
-		case stopped:
+		case sessclose.Stopped:
 			stoppedN++
 			line += "stopped: " + j.note
-		case pending, failed:
+		case sessclose.Pending, sessclose.Failed:
 			failedN++
 			line += "failed: " + j.note
 		}
@@ -351,6 +370,9 @@ func (s *Shutdown) report(team string, p plan) term.ExitCode {
 		s.tell(u.member + ": not shut down: " + u.why)
 	}
 	for _, u := range p.offline {
+		s.tell(u.member + ": " + u.why + ", nothing to shut down")
+	}
+	for _, u := range p.idle {
 		s.tell(u.member + ": " + u.why + ", nothing to shut down")
 	}
 	count := fmt.Sprintf("%s: %d exited cleanly, %d stopped, %d failed", team, exitedN, stoppedN, failedN)
@@ -383,8 +405,6 @@ func plural(n int) string {
 	}
 	return "s"
 }
-
-func seconds(d time.Duration) string { return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " s" }
 
 func (s *Shutdown) tell(msg string) { s.Out.Print(s.Stderr, msg+"\n") }
 

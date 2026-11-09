@@ -17,6 +17,8 @@ const (
 	StateNotSetGoing     State = "NOT-SET-GOING"
 	StateWaitingAtPrompt State = "WAITING-AT-PROMPT"
 	StateDead            State = "DEAD"
+	// StateNotStarted is a recorded session the restore could not start; the detail says why.
+	StateNotStarted State = "NOT-STARTED"
 )
 
 // ContainerState is what the engine says about a ccy session's container.
@@ -45,16 +47,18 @@ const (
 	OutcomeStarted
 	// OutcomeFailed is a session set-going left alone or could not set going; Detail says why.
 	OutcomeFailed
+	// OutcomeNotStarted is a session the restore never started; Detail says why.
+	OutcomeNotStarted
 )
 
 // GoingOutcome is what set-going did to one session, judged from its manifest entry.
 type GoingOutcome struct {
 	Kind   OutcomeKind
-	Detail string // the reason, for OutcomeFailed only
+	Detail string // the reason, for OutcomeFailed and OutcomeNotStarted only
 }
 
 // String is the going word the bash restore library speaks: "-", "setting-going", "started" or
-// "failed:<detail>".
+// "failed:<detail>", and "not-started:<detail>", which only the Go verdict reads.
 func (o GoingOutcome) String() string {
 	switch o.Kind {
 	case OutcomeNone:
@@ -65,6 +69,8 @@ func (o GoingOutcome) String() string {
 		return "started"
 	case OutcomeFailed:
 		return "failed:" + o.Detail
+	case OutcomeNotStarted:
+		return "not-started:" + o.Detail
 	}
 	return "-"
 }
@@ -95,8 +101,12 @@ const (
 // when its engine client exists and the container is not yet listed, ContainerNone when there is
 // no engine client; cc runs claude on the host and ignores it. going is what set-going did to
 // the session (OutcomeNone when it has nothing to say): that only matters once the session is
-// otherwise OK, so a session still at a prompt or starting reports that first.
+// otherwise OK, so a session still at a prompt or starting reports that first. The one exception
+// is a session the restore never started, which is NOT-STARTED whatever runs under its name.
 func Judge(prefix string, live bool, pane string, container ContainerState, going GoingOutcome) Verdict {
+	if going.Kind == OutcomeNotStarted {
+		return goingVerdict(going)
+	}
 	if !live {
 		return Verdict{StateDead, "session-not-running"}
 	}
@@ -132,6 +142,8 @@ func goingVerdict(going GoingOutcome) Verdict {
 		return Verdict{State: StateSettingGoing}
 	case OutcomeFailed:
 		return Verdict{StateNotSetGoing, going.Detail}
+	case OutcomeNotStarted:
+		return Verdict{StateNotStarted, going.Detail}
 	}
 	return Verdict{StateNotSetGoing, "unknown-state-" + going.String()}
 }
@@ -167,7 +179,8 @@ const (
 //	none               OutcomeNone: not this restore's to set going
 //	pending            OutcomeSettingGoing
 //	untouched          OutcomeFailed with the entry's detail
-//	compacting         OutcomeSettingGoing while set-going waits to type continue after the
+//	not-started        OutcomeNotStarted with the entry's detail
+//	compacting        OutcomeSettingGoing while set-going waits to type continue after the
 //	                   compaction; failed "compact-not-started" if the /compact was not taken
 //	                   within window
 //	compact, continue  OutcomeStarted once it took input; OutcomeSettingGoing until window seconds
@@ -183,6 +196,11 @@ func GoingState(going Going, at int64, detail string, now, window int64, took To
 			detail = "no-reason-recorded"
 		}
 		return GoingOutcome{OutcomeFailed, detail}
+	case GoingNotStarted:
+		if detail == "" {
+			detail = "no-reason-recorded"
+		}
+		return GoingOutcome{OutcomeNotStarted, detail}
 	case GoingCompacting:
 		if took != TookYes && now-at >= window {
 			return GoingOutcome{OutcomeFailed, "compact-not-started"}

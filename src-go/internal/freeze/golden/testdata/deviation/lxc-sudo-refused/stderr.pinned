@@ -4,5 +4,6 @@ sudo asks for your login password.
 sudo: 3 incorrect password attempts
 ERROR: sudo was not given your password (three wrong tries, or cancelled).
 lxcfreeze: sudo was refused, so no LXC state could be read.
+  (sudo is not ready: sudo exited 1)
   Nothing was changed. This is NOT 'no containers found' — the question was
   never asked, and reporting an empty machine here would be a guess.

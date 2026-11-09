@@ -264,6 +264,58 @@ podman ps
 podman images
 ```
 
+### The Daily Prune of the Podman Store
+
+Every ccy rebuild and every daily in-place Claude Code update moves a fixed tag
+(`claude-yolo:base`, `:latest`, `:<project>`) onto a new image, and the image the tag used to
+name is left dangling (`<none>:<none>`). `play-podman.yml` installs a user timer that removes
+them, so the store does not grow without end.
+
+Each ccy build and in-place update also removes, straight after it succeeds, the images it
+replaced that no tag names and no container uses (`container-images replaced`, run by the build
+lock); the timer catches what that leaves, such as an old `:latest` a project image was still
+built on, or everything a build replaced while another ccy image build was running. A cleanup
+that fails is reported and never fails the build that ran before it.
+
+Neither this cleanup nor `container-images prune --yes` removes anything until
+`play-podman.yml` has found, as root, no store file owned outside your current subuid range and
+written `~/.local/state/fedora-desktop/container-images.store-clean`; without that marker each
+says so once and removes nothing, because such a file would leave the store broken until root
+repairs it.
+
+- **When**: `container-images-prune.timer` runs `container-images prune --yes` once a day
+  (`Persistent=true`, so a day the machine was off is caught up at the next boot). Until one prune has succeeded, each deploy runs it straight away, clearing the backlog.
+- **What is removed**:
+  - dangling images no container uses (running, stopped, or a buildah working container), over
+    a day old, so a build in flight is never touched;
+  - tagged images no container uses and no other image is built on, created over 28 days ago
+    (the owner's four weeks; podman records no last use of an image, so the age is its
+    creation, which for a pulled image is its build upstream, and a pull fetches it again);
+    a `claude-yolo:<project>` image also only once its project has not been launched for 28
+    days (ccy touches `~/.cache/claude-yolo-update-checks/claude-yolo_<project>` on each
+    launch day), and that project's next `ccy` launch rebuilds it;
+  - buildah working containers over a day old, left by a build that did not finish; another "storage" container (one whose podman record was lost) is listed, never removed. While a ccy image build runs, nothing is removed.
+- **What is never removed**: an image any container uses, `claude-yolo:base` and `:latest`,
+  an image built on this host that nothing here builds again (a `localhost/` name other than
+  a ccy project image, such as `claude-devtools`, which its play builds), any container, and
+  volumes. Dangling volumes are listed in each run's output; deciding about them is yours,
+  since a volume holds data.
+- **Stale ccy images**: every image ccy builds is labelled `ccy-version=<CCY_VERSION>`. After
+  each build (a launch's, or `play-claude-yolo.yml`'s right after it installs a new ccy),
+  `container-images stale` removes the project images an older ccy built, or that have no such
+  label, once no container uses them. A stopped container keeping a stale image alive is named
+  and logged as `held`; remove that old session yourself to let the image go.
+- **The log**: each removal is appended to `~/.local/state/fedora-desktop/container-images.log`
+  (time, kind, what, id, size in bytes, labels, why; tab-separated), only once it has happened.
+  The run's report is in the journal:
+  `journalctl --user -u container-images-prune.service --no-pager`.
+- **What the next run would remove**: `container-images prune` (without `--yes`) is a dry run.
+  It lists what would go and what is kept, with why, and removes nothing.
+- A removal that fails fails the unit, which the host health report shows as a failed user unit.
+
+The timer cleans podman's store, which `play-podman.yml` installs for every install whatever
+`container_engine` says. Docker's store (DDEV's) is not touched.
+
 ### Further Reading
 
 See `CLAUDE/ContainerEngines.md` for the complete Podman-first policy, the rationale for rootful Docker as a compatibility layer, and the FAQ.

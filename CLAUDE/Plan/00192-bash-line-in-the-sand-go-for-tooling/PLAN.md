@@ -1,15 +1,26 @@
 # Plan 00192: Line in the sand: tooling is Go, bash only for small helpers
 
 **Status**: In Progress. Every QA script is ported or retired (`qa-go.bash` by Plan 00191
-Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Left for workers: the
-remaining ports of Task 3.3 (the `ccy` launcher's phases 3 to 5 are deferred by Plan 00191
-D4/D10), and Tasks 4.1 and 4.2 over the finished plan. Left for the host agent: the host checks
-of the merged ports (freeze steps 2 and 3, vmtest, ftp-camera H1, H2 and H5, watermark, wsi H2,
-open, rclone-cache-status, rclone-tail H2 to H4, gh-account-setup H1 and H3 to H5), the queued
-`deploy-rclone-tail.bash` through meta-deploy, and Task 3.2's root run, which
-needs sudo at the run. Left for the owner: only what needs the owner in person, namely
-gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical camera)
-and wsi H1 (speaking into the microphone).
+Task 3.3; the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`). Every port of Task 3.3 is merged
+except the `ccy` launcher, whose phases 3 to 5 are deferred by Plan 00191 D4/D10. Tasks 4.1
+and 4.2 are done, and so are the follow-ups (Tasks 3.11 to 3.15, 3.17, 3.18); nothing is left
+for workers (2026-10-31). The ports not yet made are deferred or parked by decision: P1, the
+ccy launcher (Plan 00191 D4/D10); P2, agent-bus-install (Task 3.2); P4, shrinking run.bash
+(it needs a decision on how Go reaches a fresh host); P9, kept in bash. Left for the host
+agent: the host check of the merged ports that is still open (gh-account-setup H3, a full
+`run.bash`). Already done on the host: vmtest H3 and H4,
+gh-account-setup H4, ssh-with-key H2 and H4's guest part and the read-only `ssh -G` check for
+ssh-with-key H5 are done on the host (2026-10-28). Task 3.2's root run is on hold until Plan
+00209 Task 2.5 (see the task). Left for the owner: only what needs the owner in person, namely open H5's Ctrl-C
+in mpv (it plays through the speakers), gh-account-setup H5 (Ctrl-C during H2's login) and
+vmtest H6 (a throwaway GitHub account to
+create), gh-account-setup H2 (a real GitHub device login), ftp-camera H3 and H4 (the physical
+camera), H1 (it sorts the real upload tree, so it waits on the owner's yes) and H5 (a Wi-Fi
+access point on the owner's machine), wsi H1 (speaking into the microphone) and H2 (a real
+recording and Escape on the owner's desktop), open H2 and H3 and reclaim H5 (the owner's
+screen), nord H4-H7 (they reroute the host's network), nvidia-status H5 (a driver install or
+reboot), ssh-with-key H5 (the owner's hosts and keys) and setup-rclone H1-H4 (a real remote
+and the vault).
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -80,7 +91,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 3: Rewrites, one feature branch each
 
-- [ ] 🔄 **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+- [x] ✅ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
   `go-port/freeze` (P7), podfreeze and lxcfreeze: merged into F44 and pushed (`f0284848`). Spec
   [SPEC-freeze.md](SPEC-freeze.md); the library (`internal/freeze`), the two engines and the
   shared flow in Go; golden replay of the bash tools' recorded output
@@ -92,23 +103,56 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   established: the first run matched byte for byte on three of the four commands (the fourth
   stopped on a sudo prompt the Go sudo probe raised wrongly, now fixed), and the second run,
   with no prompt, differed only by the containers started between the runs, every common row
-  identical. A live comparison against a saved baseline cannot repeat on a machine whose
-  containers change, so `acceptance.bash` is retired from the queue. Left, for the host agent:
+  identical. A row comparison against a saved baseline cannot repeat on a machine whose
+  containers change, so `acceptance.bash` now checks the layout only (Task 3.4). Left, for the host agent:
   [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) step 2 (freeze and thaw a throwaway container
   with each tool; the menu driven by tmux keys and read with `capture-pane`; Ctrl-C mid-batch
-  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (a second run of the freeze plays
-  reports ok, not changed).
-- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
+  gives 130; `lxcfreeze` needs sudo at the run) and step 3 (the meta-deploy run queued for
+  00192: the freeze build and install tasks report ok, not changed, read from the play recaps,
+  and the `acceptance.bash` leg passes). Step 2, partial (bus `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`):
+  podfreeze freeze/thaw and the tmux-driven menu PASS on throwaways. `lxcfreeze` PASS 26-10-26
+  (host agent, Alpine and Rocky throwaways: freeze, thaw, list, the fzf menu, raw `lxc-freeze`
+  thawed by the tool); the thaw without NetworkManager exits 1 (Task 3.5). The rest PASS
+  27-10-27 (host agent, throwaways): Ctrl-C after the first `✓` gives "interrupted — 1 of N
+  container(s) done, the rest were not touched.", exit 130, in both tools; the numbered menu
+  with no fzf on `PATH` lists the groups, drills in, freezes and thaws all, `q` exits 0. Sudo
+  asking again after its timestamp lapses cannot occur on this host (its sudo needs no
+  password, so it keeps no timestamp); that path rests on the Fable fix's unit tests. Step 3
+  PASS at F44 5340d3ac7 (meta-deploy, META_RC=0): every freeze build and install task `ok`,
+  both plays changed=0, and `acceptance.bash` COVERAGE 11 of 11, the layout kept for `list` and
+  `freeze --all -n` of both tools.
+
+- [ ] ⏸️ **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
-  It runs as root and changes behaviour (its D7), so it merges only after a host test as root
-  (the branch's `ACCEPTANCE-agent-bus-install.md`): the host agent runs it through meta-deploy
-  on a throwaway team, with sudo given at the run. Before spending that run, the coordinator
-  checks whether Plan 00209 (agent-bus v2 in Go) has made this port moot.
+  It runs as root and changes behaviour (its D7), so it would merge only after a host test as
+  root (the branch's `ACCEPTANCE-agent-bus-install.md`). **On hold, no host run** (checked
+  27-10-27 against Plan 00209, report `subagent-reports/261027-task-3-4-3-2.md`):
+
+  - v2 does not port this installer, it replaces it: `teamchat-admin` (00209 Tasks 2.1-2.3) is
+    v2's own root installer, designed from requirements, citing this spec's bug list as `I-B<n>`
+    (DESIGN-v2-C), so the spec's value is already carried. v1, and this installer with it, runs
+    beside v2 until every team has migrated (Phase 6, owner-paced); retiring v1 is a later plan
+    (Task 6.3). No task of 00209's Phases 1 to 6 is started yet.
+  - The branch is stale: last touched 26-10-14; `git merge-tree` with F44 gives 24 conflicts (at 4a4f1c634),
+    the bash installer itself among them (modify/delete). F44 changed the bash installer in 7
+    commits (78 lines: the stamps group, health, backup timer state, the Go status line) and its
+    suite by 115 lines since; none of that is in the port, so a host test now would test an
+    installer that no longer matches v1.
+  - It changes the installer every running v1 team depends on (D7) while 00209's migration
+    calls v1's verbs as they are (`backup-now`, `remove`), and the bash file is held by the
+    ratchet, so leaving it in bash costs nothing until it must grow.
+  - **Decision: park, do not drop.** Re-decide when 00209 Task 2.5 passes (`teamchat-admin`
+    accepted on the host): drop the port then if v2 stands. Revive it earlier only if the v1
+    installer needs a change the ratchet refuses, or 00209 is stopped. Reviving means merging
+    F44 into the branch, porting those 7 commits test first, a review, then the host run. The
+    branch stays, unmerged.
+
 - [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy`
   launcher's port is Plan 00191's (D1-D10 defaulted there, phases 0 to 2 built, 3 to 5
   deferred by its D4/D10). Each port: a spec first, its tests first, a Fable review whose
   findings are fixed, then merged. Per-port detail, review dispositions and departures:
   [PORTS.md](PORTS.md). Status by port:
+
   - Done, merged into F44: `qa-changed`, `qa-all`, `qa-ansible`, `qa-nokill-containerwatch`,
     `qa-patterns`, `qa-python`, `qa-ansible-syntax`, `qa-bash`, `qa-discovery`,
     `qa-deployed-drift`, `qa-js`, `qa-ansible-pause`, `qa-gh-scopes`, `qa-ready-wait-rules`,
@@ -121,31 +165,358 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
     frame" is a screenshot the host agent can read once a file arrives), `watermark` (H3, the
     host agent's) and `wsi` (H2 the host agent's; H1's live dictation and audible grace the
     owner's, with the transcription half provable by a recorded fixture).
+    H3's wording was wrong and is corrected: a second run on the same input exits 2 (the output
+    exists, M10), and exit 3 is a run on the watermarked output (M9), as the host showed. wsi H2
+    now also checks that the recording is gone after Escape (W15a, Plan 00171 Task 5.12).
+    Host results, 2026-10-23: vmtest H1 and H5 PASS, H2 PASS apart from its bridge half,
+    H4 PASS (`$J1MsGTTA4klOto2BoOTEamrIfElxFFz2HuwHLDHUVmE`, `$8aqX_PoK5b62YkY5FNbJF0kZ2SBsP8XxhoXIrIR5fkI`),
+    H4's Ctrl-C during member-up PASS, exit 130, no guest left
+    (`$49WVO-g6jUYPrUTWNVTGt_VLL2bk3WD7ydjiJVHMzMY`); left: H2's bridge run, H3 and H6, and
+    H7 (`prune-runs`, Task 3.10).
+    watermark H3 PASS (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`), the source of the
+    wording correction above.
+    Host, 2026-10-27 (host agent; `$k9uI3FUf_DcvOv_JwAhf17IurP3meue4j1dnETUvOGY`,
+    `$TI8EqLDcYBMAKoH3ZkGnXJtHBgW6qUvqNluei5bMPXM`): vmtest H2's bridge run PASS
+    (`server-fast-provision` through `vmtest-request.bash`, 13 of 13 checks, `vmtest verify`
+    signature ok, verdict pass); H3's run half PASS (`desktop-fresh-install` 16 of 16), its
+    base build (`vmtest build-base desktop-44`) not started: the host's root filesystem was at
+    99%. Finding: the kept overlays of failed runs under the lab's runs directory had grown to
+    about 108G in 37 runs, never removed, and vmtest has no verb to prune them; being fixed on
+    `fix/00192-vmtest-prune-runs`. H6 SKIP, it needs a throwaway GitHub account. ftp-camera H2
+    PASS (`--copy-preflight` printed the rclone RC address, exit 0); H1 and H5 not run (the
+    owner's, above). wsi H2 not run (the owner's).
+    Host, 2026-10-28 (host agent): vmtest H4 PASS. Attempt 1's `member-up` timed out (`guest did not answer SSH within 600s`) under a load average of about 10. Attempt 2 answered SSH after
+    about 192 s; `member-ssh` passed exit 3 through; `member-down` removed the guest and its
+    directory. Ctrl-C during `member-up` destroyed and undefined the domain and kept
+    `members/<name>` for its console log until `member-down` (`VM_RC=130`). Follow-ups: Tasks
+    3.13 to 3.15.
+    Host, 2026-10-28 (host agent, `$Qi9JTl2_tuoIcv1oOAJMrklJOZELQGCGhl4oIIkayQc`): vmtest H3
+    PASS, both halves. `vmtest build-base desktop` built `desktop-44` unattended (both ISOs
+    current and verified against the GPG-signed CHECKSUM and releases.json, the session runner
+    installed, the guest cleaned, a LUKS root, `VMTEST-BASE-BUILT ... refresh_state=complete`,
+    `BUILD_RC=0`); `vmtest run desktop-fresh-install` at `77d68ab96` on it: the LUKS unlock
+    answered by the harness, `run.bash` headless to completion, the reboot into the session,
+    16 of 16 checks, `VMTEST-BASE-CERTIFIED desktop-44`, verdict pass.
+    So vmtest's H1-H5 and H7 (`prune-runs`, Task 3.17) have passed; left: H6, which needs a
+    throwaway GitHub account only the owner can make.
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
-    (`8c2de08c`); its host checks H1-H5 are the host agent's (terminal steps through tmux,
-    the desktop steps by screenshot and `gio mime`), not queued in `meta-deploy.list`. Spec
-    [SPEC-open.md](SPEC-open.md).
+    (`8c2de08c`); its host checks H1, H4 and H5 are the host agent's (terminal steps through
+    tmux), H2 and H3 the owner's (the desktop), not queued in `meta-deploy.list`. Spec
+    [SPEC-open.md](SPEC-open.md). Host, 2026-10-23 (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`):
+    H1 and H4 PASS (H4's image render unproven by `capture-pane`); H5 partial (Ctrl-C in mpv
+    not run, mpv was then missing; it is now installed, mpv v0.41.0 by `play-cli-tools.yml`,
+    `$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 and H3 (the owner's screen) not run.
+    Host, 2026-10-27 (host agent, a private tmux, `$k9uI3FUf_DcvOv_JwAhf17IurP3meue4j1dnETUvOGY`):
+    H1 PASS; H4 PASS for text (the editor), a directory and `.` (`ls` in `less`), a PDF
+    (`pdftotext` in `less`) and an unknown type (the chooser, Esc exit 130). H4's image: `chafa`
+    ran, exit 0, but drew nothing inside the nested tmux (`TERM=tmux-256color`), while
+    `chafa --format symbols` drew text; fixed (E11a), and the rerun at `071969780` in the same
+    tmux drew the image in text symbols, exit 0 (`$WJ4Fgyz5sHTT3KCDHHKiNF8P6i4Z8PLlx9f7rcZS2Wk`). H5: Ctrl-C
+    in `less` is less's, `q` exits 0 with the terminal normal; a named pipe is classified
+    without blocking, and Ctrl-C at the chooser gives `cancelled — nothing opened.`, exit 130
+    (E31). Not run: Ctrl-C in mpv (left, above), Ctrl-C ending chafa (a still image returns at
+    once) and Ctrl-C during a slow file (no slow file found). H2 and H3 are the owner's.
+    Host, 2026-10-28 at `f6efc0b04` (host agent, a private tmux, scratch files,
+    `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): H5 PASS for `less` (Ctrl-C left less on
+    screen; `q` exit 0, `stty -a` unchanged), the editor (Ctrl-C was vim's own) and before the
+    handler (a FIFO with no writer: `open: cancelled — nothing opened.`, exit 130, `stty -a`
+    unchanged). Ctrl-C in mpv is the owner's: the auto-mode classifier denied playing media in
+    the host session, and it would sound through the owner's speakers.
   - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
     (`deploy-rclone-cache-status.bash` passed), spec
     [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left, for the host agent: the
-    checks inside a mount (H2, H3) and `rclone-cache-warm`.
+    checks inside a mount (H2, H3) and `rclone-cache-warm`. Host, 2026-10-23: H1, H2 and H3
+    PASS, `rclone-cache-warm` brackets its run (`$NIHwpSi3rTN-Z2LSvujaLWtueWfi_dZedKS4rkYtB9M`).
+    H3's wording "`rclone-tail --once` still brackets" is wrong against the code: only the
+    streaming mode brackets (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); the spec's H3
+    now says so.
   - `rclone-tail` (P6): ported, cut over and merged into F44 at 1d8bc1037; spec
     [SPEC-rclone-tail.md](SPEC-rclone-tail.md). Its host run `deploy-rclone-tail.bash` (H1
-    scripted by `acceptance-rclone-tail.bash`) is queued in `meta-deploy.list`; H2 to H4 are
+    scripted by `acceptance-rclone-tail.bash`) PASSED through meta-deploy at b1e298e1c, 5 of 5
+    checks, `~/.local/bin/rclone-tail` now an ELF (`$SaaNjb_VFudX-vnN6tjA8rXQXtbNv_-y_dJUJgXxFSA`); H2 to H4 are
     the host agent's (a file written into a mount while `rclone-tail` runs in a tmux pane,
-    Ctrl-C by `send-keys`, `ftp-camera`'s closing status).
+    Ctrl-C by `send-keys`, `ftp-camera`'s closing status). H2 and H3 PASS 26-10-26 (host agent,
+    a copy and delete into a `<remote>` mount: queue and rate during the upload, then idle;
+    Ctrl-C exit 0); one overwrite showed two uploads, cause not found in the log. H4 PASS
+    2026-10-28 (host agent, `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): `rclone-tail --once <mount>`, the call behind `ftp-camera`'s closing status, printed each mount `idle`,
+    exit 0, with no `error:`, alone and for all mounts; no camera session was started.
   - `gh-account-setup` (P6): ported and merged into F44 at 9e404ae6b (Opus MERGE in round 4;
     `src-go/cmd/gh-account-setup`); it is run from the checkout, so no play deploys it. Spec
     [SPEC-gh-account-setup.md](SPEC-gh-account-setup.md). Host checks: H1, H3 and H5 the host
     agent's, H4 in the VM lab (host agent); H5's Ctrl-C mid-login leaves the host's `gh`
     accounts as it found them. H2 is the owner's (completing a GitHub device-code login for a
-    real account; the script side up to the printed URL is the host agent's).
-  - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
-    after `rclone-cache-status`) and the `ccy` launcher.
+    real account; the script side up to the printed URL is the host agent's). H1 PASS
+    2026-10-28 (host agent, `$_NU5YS7PTfylzk4ZzGtjm9e5lCwZi19xQAKhyDnXJBc`): `--check` found
+    every configured account healthy (auth, scopes, key, registered key, SSH verified), exit 0,
+    no token printed, and `gh auth status --active` the same before and after. H5 needs H2's
+    login, so it is the owner's with H2; H3 is a full `run.bash`. H4 PASS 2026-10-28 (host
+    agent, `$Qi9JTl2_tuoIcv1oOAJMrklJOZELQGCGhl4oIIkayQc`, the same fresh-guest headless run as
+    vmtest H3): the preflight installed golang with the system dependencies, the golang play's
+    minimum-version assert passed on both runs, and the GitHub step completed. The scenario has
+    no GitHub identity, so that step passes trivially: H4 proves it does not break a headless
+    install, not that account setup works (vmtest H6's ground).
+  - `setup-rclone` (P6): ported (`go-port/setup-rclone-3`, the review's FIX-FIRST findings
+    fixed) and merged into F44 (`61b70d02d`); spec [SPEC-setup-rclone.md](SPEC-setup-rclone.md).
+    Run from the checkout through the `scripts/setup-rclone.bash` wrapper, so no play deploys
+    it and nothing is queued in `meta-deploy.list`. Host checks H1-H4 are the owner's, at the
+    desktop (a real remote and the vault).
+  - `reclaim` (P6): built, Fable-reviewed and its findings fixed, merged into F44
+    (`2e32edc2a`); spec
+    [SPEC-reclaim.md](SPEC-reclaim.md), oracle the scenario table run against the Go and the
+    bash ([PORTS.md](PORTS.md)). `play-cli-tools.yml` builds it. Host checks on 2.0.0 (host
+    agent): H1-H4 pass; H5 (baobab on the desktop, by screenshot) is the owner's, since the
+    host agent may open no window and take no screenshot. Two limits of that run: H3's "no
+    sudo question" (B12) was not exercised, because the host user's sudo needs no password,
+    and H4's option 6 read the scratch home's empty podman storage, so its podman preview was
+    not seen against real data. H1 found two faults, fixed in 2.0.1: `du`'s ~95 raw
+    `Permission denied` lines under `/var/log` and `/var/cache` (now one line per directory,
+    counted, the first named; E6), and `podman system df` exiting 125 on a volume whose data a
+    container's uid owns, so podman storage was never reported (now read again under
+    `podman unshare`, the refusal named; E7, E22). 2.0.1 on the host: the `du` fix holds, but
+    podman storage was still unavailable, because one rootless volume's data is owned by a uid
+    outside the user's current subordinate range, which no user namespace maps. 2.0.2 reports
+    podman storage in part from the listings that open no volume, names that volume and why
+    (found from its owner and `/etc/subuid`), and option 6 then offers only the image prune
+    (E7a, E22a). 2.0.2 on the host: the wording holds, but the partial section printed the
+    raw listings (hundreds of lines), and option 6's image prune (`-af`) would have removed
+    every unused tagged image, the per-project claude-yolo images included. 2.0.3 summarises
+    the partial section (counts, sizes, dangling images, the largest ten of each kind), makes
+    every default prune dangling-only, and asks separately, default No, about every unused
+    image, listing the claude-yolo images it would remove; the safe sweep never asks it (E7a,
+    E22, E22a, E27, B16). 2.0.3's host check ran, and 2.0.4 fixes what it found: it drops the summed image size (it equalled the whole disk; no layer sizes are available without `podman system df`) and explains the dangling count that differs between the report and the prune question (images a container uses are kept); its host recheck passed at `cad6b5053`. 2.0.5 prints `Skipped <command>.` after a No to either "Also remove all unused" question as well; its host recheck passed at `071969780` (option 6, No to all four: a Skipped line after each, nothing run, podman and docker figures unchanged).
+  - `nord` (P6): ported, Fable-reviewed (no blocker) and its findings fixed, merged into F44 and
+    deployed; spec [SPEC-nord.md](SPEC-nord.md) (D1-D5, E1-E24, B1-B18, H1-H7), detail in
+    [PORTS.md](PORTS.md). `play-nordvpn-openvpn.yml` builds it. Host, at `037892368` (host agent,
+    `$AbDvJXw-PoXVxcyjVoVyG-8BDAIQktS9JyvA3iNfHhk`): the play ran by name, firewalld not reloaded,
+    the network connections and firewall unchanged; H1, H2 and H3 PASS (the ELF at its old path,
+    2.0.0; list, list-active and status read NetworkManager; the chooser cancelled with q, Ctrl-D,
+    Ctrl-C and three bad answers, nothing changed). Left: H4-H7 (a VPN brought up, switched,
+    down, and the profiles removed), the owner's, since they reroute the host's network.
+  - `nvidia-status` (P6): ported, Fable-reviewed (no blocker) and its fix-before-merge finding
+    fixed (B14; `subagent-reports/261028-fable-review-nvidia-status.md`), merged into F44; spec
+    [SPEC-nvidia-status.md](SPEC-nvidia-status.md). Run from the checkout through the
+    `scripts/nvidia-status.bash` wrapper, so no play deploys it. Host, at `037892368` (host agent,
+    same message as nord's): H1-H4 PASS on the hybrid laptop: every section read, verdict
+    complete and functional, `--check` silent with exit 0, no escape bytes in a pipe, a headless
+    glxinfo failure named as no display rather than a driver fault, and each parser checked
+    against the real mokutil, vulkaninfo, glxinfo and vainfo output. Noted there: the akmods key
+    file is absent while the modules load signed (section 1 warns, as it should). Left: H5 (the
+    owner's, optional: the not-functional verdicts need a driver install or reboot).
+    Follow-ups F2-F7 fixed (`subagent-reports/261028-nvidia-status-follow-ups.md`; E26, E22a, E23a, B15-B19). H6 at `77d68ab96` (host agent, `$LYt33COy9oe25XqZBVmuHXbQqle-1EIIqRYKM-kc55Y`):
+    E22a PASS (section 7's NVIDIA VA-API line agrees with `LIBVA_DRIVER_NAME=nvidia vainfo` by
+    hand, its profiles listed), E26 PASS (section 3's loaded version equals
+    `/proc/driver/nvidia/version`'s); E23a not shown on real data, as this boot's journal has no
+    `nvidia-gpu` i2c line, so its fakes carry it.
+  - The `ssh-with-key` family (P6): ported, Fable-reviewed
+    ([subagent-reports/261028-fable-review-ssh-with-key.md](subagent-reports/261028-fable-review-ssh-with-key.md)),
+    findings fixed (B11: ssh-copy-id-with-key installed nothing; now it checks with the new key
+    alone and runs `ssh-copy-id -f`), merged into F44 and deployed; spec [SPEC-ssh-with-key.md](SPEC-ssh-with-key.md) (D1-D5, E1-E20, B1-B12, H1-H5),
+    detail in [PORTS.md](PORTS.md). `play-basic-configs.yml` builds the three commands. Host, at
+    `e3d67048d` (host agent, `$vhPS9DKUjsqIN_1rUby3ZBYsOMxFEp1C5zl2jJwushA`, throwaway keys only):
+    `changed-plays` ran it, the three are ELF binaries; H1 PASS (help, usage exit 64, a public
+    key refused); H3 PASS (a second IdentityFile named and nothing run); H4 in part (the menu,
+    `q` giving 130 and no agent left; its "no agent left" check reworded, since the containers'
+    agents share the user). H2 and the rest of H4 need a VM-lab guest, and `vmtest member-up`
+    refuses for lack of disk until the owner allows `vmtest prune-runs --yes` (Task 3.10's H7 open item); the host
+    agent did not fall back to the host's own sshd, which would put a throwaway key in the
+    owner's `authorized_keys`. H5's logins (the owner's hosts and keys) are the owner's. H5's
+    decision, the owner's on 2026-10-28 ("all recommended" to the unblocking list, item A8): E11's
+    refusal stands. Seat 2 first runs the read-only `ssh -G <host>` for two of the owner's real
+    hosts (no connection is made); if it finds an IdentityFile other than the default that every
+    host gets, the owner scopes those lines to their hosts. If none, the decision is moot.
+  - Still to do: the `ccy` launcher (Plan 00191's, deferred there).
+
+- [x] ✅ **Task 3.4**: Freeze step 3's `acceptance.bash` compared live engine output with the
+  baseline saved at the first deploy, so it failed (7 of 11) once containers started or stopped:
+  every diff was added rows only. Kept and fixed, not retired: the golden replay runs under
+  fakes, so this is still the only check that the parsers read a real engine, and step 3 needs a
+  scripted verdict. `freeze-layout.bash` compares the layout: container rows (the lines under a
+  `  NAME` header) and counts dropped, every remaining line one the bash tool printed (the
+  baseline, or the golden for an empty machine and a full dry run). The dry run may exit 1 with
+  empty stdout. Baseline rows as a subset was rejected: a removed container fails it. Test first:
+  `test-freeze-layout.bash`, 10 fixture cases (rows added, removed and thawed, a machine now
+  empty pass; a changed header, a renamed heading, a stray stdout line, a wrong verb fail).
+  Host check: step 3 PASS at F44 5340d3ac7 (COVERAGE 11 of 11; Task 3.1).
+
+- [x] ✅ **Task 3.5**: `lxcfreeze thaw` on a container without NetworkManager exits 1 after a
+  thaw that succeeded (SPEC-freeze bug 19, D6). Owner decision 26-10-26: no `nmcli` is not
+  applicable, not a failure. Built: lxc-attach's `Failed to exec "nmcli"` (No such file)
+  becomes `freeze.DoneError`, a `✓` with its note; every other nmcli failure still fails. No
+  golden scenario pinned that message, so the golden is unchanged. Host check passed
+  26-10-26 (Alpine throwaway, two cycles, `✓` and exit 0). The host's nit, that the freeze
+  note still promised a renewal on every thaw, is SPEC-freeze bug 29: the note says "where
+  NetworkManager runs inside", pinned on the 12 lxc scenarios that print it.
+
+- [x] ✅ **Task 3.6**: `run.bash --changed` did not count `play-podfreeze.yml` and
+  `play-lxcfreeze.yml` stale after their Go (`internal/ui`) changed: the staleness misses Go
+  dependencies (Plan 00214's area). They were queued by name instead. Fixed on
+  `fix/00192-changed-go-deps`: no Go-building play had any of src-go as an input, because
+  `tasks/build-go-command.yml` reaches it as `root_dir ~ '/src-go'`. The mapper
+  (`helpers/self_update/affected_plays.py`) now follows `root_dir ~`/`+` joins and takes a Go
+  module root as the builds of the play's `go_command_name` commands (a `{{ var }}` name
+  resolved through the walked files): every package each imports, transitively, in src-go and
+  its vendor tree, read from the source and held to `go list -deps` by a real-repo test (24
+  commands, 12 plays). Defence Before Fix rule `play-input-dropped`
+  ([QA.md](../../QA.md#play-input-dropped)): 15 findings red, 0 green. Host check: the queued
+  `changed-plays` entry lists the Go-building plays whose packages changed since they last ran.
+  Report `subagent-reports/261026-task-3-6.md`. Host, 27-10-26 at f9073ce05: `changed-plays`
+  ran 49 of 49 (most for Plan 00228's play edits), every Go-building play among them, and
+  lxcfreeze, which the stale list before the run (play files only) did not name; afterwards
+  nothing is stale. Its reasons never name a src-go package: Task 3.8.
+
+- [x] ✅ **Task 3.7**: Inputs the play text cannot show, found by Task 3.6's independent search
+  and outside `play-input-dropped`: `helpers/github_scopes/cli.py` reads
+  `vars/github-required-scopes.yml` through `__file__`, so `play-github-cli-multi.yml` does not
+  rerun when the required scopes change (class: a helper the play runs reads a checkout file
+  outside its package); `environment/localhost/group_vars/desktop.yml` is an input of no play
+  (decided 2026-10-28, questions-room Q3 closed: not counted, since counting it would rerun every
+  play after any variable edit; the follow-up that names the plays reading each changed variable
+  is Task 3.11); `scripts/qa-toolchain.bash`, run by
+  `play-python.yml` as a check, reads `src-go/qa/` and `src-go/go.mod`, which are not inputs.
+  Fixed on `fix/00192-hidden-play-inputs` (DBF): the rule `play-program-read-dropped`
+  (`CLAUDE/QA.md`), red on 30 findings in 9 plays, green after. The mapper counts what the
+  programs a play runs read: a helper's `__file__` paths and literal checkout paths
+  (`helpers/self_update/not-play-inputs.json` lists the names that are not reads), a bash input's sourced library, and the
+  Go command it builds with `run_go_tool`/`run_go_command`, with the checkout files that names.
+  Report `subagent-reports/261027-task-3-7.md`. Merged into F44 (daf53f21c); the helpers run
+  from the checkout, so no host run is needed. Helpers are judged a package at a time, so the
+  gnome plays rerun when `vars/fedora-version.yml` changes though no module they run reads it:
+  it errs towards a rerun, never a miss (coordinator default, accepted).
+
+- [x] ✅ **Task 3.8**: `run.bash --changed` gives a play made stale by Go packages alone no
+  reason a person can read: its reasons list names play files and `play-golang.yml`, never the
+  src-go package path (host, 27-10-26). Name the changed package(s), or the command they build,
+  in the reason, test first. Fixed on `fix/00192-changed-reasons-go`: the mapper records which
+  commands each Go package is built into, the judgement keeps the changed packages, and one
+  formatter (`changed_plays.reasons`) gives a Go change its own line, up to three packages and
+  three commands (`changed Go packages: src-go/internal/ui (built into podfreeze)`). The login
+  report and the panel read that formatter; `run.bash --changed` had printed no reasons at all,
+  and now its helper writes one line per play to stderr before the list (run.bash unchanged).
+  The login report already used the same judgement; the stale list the host saw names no Go
+  path, which only the pre-3.6 mapper gives, so it was collected (hourly timer) before the merge. Report `subagent-reports/261027-task-3-8.md`. Host check: the next
+  `run.bash --changed` after a Go-only change names the package and its command for each play.
+  Host, 27-10-27 at d247e4b2f: before the run and in `--changed`'s own output, claude-yolo's
+  reason read "changed Go packages: src-go/internal/teams/choose, …/hot, …/roles (built into
+  ccy-teams)" beside its other paths. No play was stale from Go alone that run, so the Go line's
+  own place was shown, not the Go-alone case; the formatter's tests cover that.
+
+- [x] ✅ **Task 3.9**: `qa-changed` missed a suite a change broke. Task 3.7 made
+  `helpers/self_update/affected_plays.py` load `not-play-inputs.json` at import, and
+  `scripts/test-self-update-cycle.bash`, whose fixture copied `helpers/self_update/*.py` and
+  `unattended-plays.json` only, failed 125 checks in qa-all; qa-changed had passed on the branch.
+  A suite is chosen for a changed file when it names the path, and a glob (`*.py`) names none.
+  The fixture is fixed (it copies `*.json` too, 218 pass); the gate gap is open: a suite that
+  copies or reads files through a glob must be chosen when any file the glob matches changes,
+  test first, with a Defence Before Fix sweep for other suites that reach files only by glob.
+  Done: `src-go/qa/changed/reach.go` reads each suite's repository-rooted variables and the
+  globs and directories it reaches through them; a changed file a glob matches, or one under a
+  reached directory, selects the suite ("reaches F through P"), red then green on exactly the
+  self-update case. Over every tracked non-markdown file no suite lost a selection and eleven
+  gained 375 (subagent-reports/261027-task-3-9.md lists them).
+
+- [x] ✅ **Task 3.10**: The VM lab's runs filled the host's disk: `vmtest sweep` keeps every run
+  that did not pass, with its overlay (up to the 20 GiB guest disk), for ever, and vmtest had no
+  way to remove one. Code done (SPEC-vmtest E61-E65, H7): `vmtest prune-runs`, a dry run unless
+  `--yes`, removes only the `*.qcow2` of runs that passed, were followed by a passing run of the
+  same scenario, or are older than `--older-than` days (default 7). The rule, the disk and RAM
+  floors and the run and build sweep are Go in `internal/vmtest` (`retention.go`), so the 2 GiB
+  margin has one home and a run one disk check; `helpers/vmtest/retention.py` keeps only the
+  bridge spool's sweep (`sweep-spool`), Python because spool.py is the bridge helpers' too
+  (second qa-reviewer pass, finding 2). A run whose domain libvirt lists, or that
+  holds the new `run.lock` (taken from its directory to the end of its teardown), is live and
+  left. `run` and `member-up` refuse with under 22 GiB free and a base build with under 26 GiB, before anything
+  else, naming what `prune-runs` would free; a failed run says the size of the overlay it kept.
+  H7 PASS at `886288d70` (`$kRFFD7XyKl4N7zP_QpP9m39uVvM3NxHI55Kcb0HwOm0`): the dry run listed
+  15 of 37 runs (a later pass of the scenario, or failed and older than 7 days), the three
+  bases untouched, "would free 107.5 GiB", and removed nothing. `--yes` at the owner's word to
+  the host agent, 2026-10-28 (`$7wVDWemAHDml9Z6pGS5TIbDalKYTqipZLira-taMYvI`): "freed 107.5
+  GiB from 15 runs", the same 15 overlays as the dry run, the bases untouched, `runs/` from
+  108G to 15M with all 25 run directories kept (logs, `response.json`, signatures), and the
+  disk from 19G free to 146G. H7 PASS.
+  The nightly sweep removed 12 passing runs' whole directories, plan-cited evidence included
+  (`$7zLrx0PlxkebT2F8RqwaGSEf4cRO3g9cH6A7vOGvjrA`); it now removes only `*.qcow2` (E51, B19).
+  The two reviews' follow-ups are fixed or answered (subagent-reports/261028-vmtest-follow-ups.md).
+  Nightly check PASS 2026-10-29 (host agent, `$xit0eCSFI_bH4I5yj4ZiI7UiLkb2Ewm8WZKQr5_NV1E`):
+  the vmtest-nightly run with the Go sweep fired at 03:37 and finished in 16 s with no error,
+  deep-hashed the three bases (each `decision=refresh`: the updates repository moved overnight;
+  reporting only, nothing rebuilt), evicted nothing (`VMTEST-SPOOL-SWEEP-DONE evicted=0`, no
+  `VMTEST-EVICTED` line), kept every run directory (the 25 of the baseline, plus one newer run),
+  wrote `freshness-status.txt`, and left `retention.log` untouched: no kept-build line. SPEC-vmtest
+  H5 PASS.
+
+- [x] ✅ **Task 3.11**: FOLLOW-UP of Task 3.7 (Q3, decided 2026-10-28): `run.bash --changed`
+  names the plays that read each changed variable of `environment/localhost/group_vars/desktop.yml`,
+  rather than none (today) or every play. Tests first: a change to one variable makes stale the
+  plays that read it and no other; a variable no play reads makes none stale.
+
+- [x] ✅ **Task 3.12**: Filed upstream as a feature request,
+  [claude-code-hooks-daemon#145](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/145)
+  (2026-10-31, body from `hooks-daemon issue-report`). Decided "file" by a Fable review at the
+  owner's direction (questions room Q8). The deny is deliberate upstream
+  (`secret_file_guard.py`, documented as an accepted cost), so it is a feature request, not a
+  defect.
+  FOLLOW-UP (part C item 9 of the unblocking list, decided 2026-10-28): the
+  hooks-daemon secret-file guard denies a Write or a Bash command whose text holds nmcli's VPN
+  secrets setting name as one token, though no file is involved ([PORTS.md](PORTS.md), nord).
+  The `nord` workaround (the name joined from its parts, pinned by a test) is kept and the guard
+  is not weakened locally. File the upstream issue with `hooks-daemon issue-report`: the guard
+  should judge path-like tokens, or the operands of file-reading commands, rather than every
+  token. Record the issue's number here and in PORTS.md.
+
+- [x] ✅ **Task 3.13**: FOLLOW-UP of vmtest H4 (2026-10-28): a failed `member-up` prints the
+  last lines of the member's console log with its error, so a timeout says what the guest was
+  doing. Tests first, in `internal/vmtest`.
+
+- [x] ✅ **Task 3.14**: FOLLOW-UP of vmtest H4: review the 600 s bound on the wait for SSH (E24)
+  under host load. Attempt 1 timed out at a load average of about 10; attempt 2 answered after
+  about 192 s. Decide whether the bound scales with load, is settable, or stays, and say why
+  in SPEC-vmtest.
+
+- [x] ✅ **Task 3.15**: FOLLOW-UP of vmtest H4: SPEC-vmtest states that Ctrl-C during
+  `member-up` keeps `members/<name>` for its console log until `member-down` (E57 says it for
+  any failure or signal; H4's "leaves no guest" does not say the directory stays).
+
+- [ ] 🔄 **Task 3.16**: FOLLOW-UP (the owner's decision, 2026-10-28): the camera hotspot's
+  Wi-Fi password is generated, not asked for. `play-ftp-camera.yml` runs
+  `ftp-camera --new-hotspot-password` (three random words from the list the binary embeds)
+  when none is saved and saves it through the new `tasks/save-secret.yml`, the save path
+  `tasks/ask-and-save-secret.yml` now shares; a saved one is kept, and an unattended run no
+  longer stops. `ftp-camera` shows the hotspot's network name and password in the camera
+  settings, read from the NetworkManager profile (as the user, then root). SPEC-ftp-camera
+  E67, E68; the code and tests are on the branch. H6 PASSED on the host (2026-10-30): the
+  password was made and vaulted unattended on the 10-29 run, and the second run at 784e4dace
+  asked nothing, left the vault block byte-identical (by sha256) and printed no password.
+  Left: H7, the owner's look with the camera (`ftp-camera --hotspot`).
+
+- [x] ✅ **Task 3.17**: FOLLOW-UP of a cut run (host, 2026-10-30): a run that dies with its
+  guest still defined (the host powered off mid-run) leaves the libvirt domain behind, and
+  `prune-runs` reads any listed domain as live, so its overlay is never freed and nothing
+  removes the domain. A run's domain whose run holds no lock is an orphan: `prune-runs`
+  shows it as such and, with `--yes`, destroys and undefines the domain; the plan then judges
+  the overlay as for any run. A domain whose lock is held stays live, and so does a listed run
+  from before the lock. SPEC-vmtest E66; red (fe3f985f6: the dry run named no orphan, and a
+  failed removal passed), then green. On the host after play-vm-test-lab (2026-10-30):
+  `prune-runs --yes` printed `VMTEST-PRUNE-ORPHAN 20261029T145952Z-server-fast-provision removed vmtest-run-20261029T145952Z-server-fast-provision` (destroyed, then undefined), and
+  its overlay went with the run's; 43.3 GiB freed from 5 runs.
+
+- [x] ✅ **Task 3.18**: FOLLOW-UP of issue #106 (owner sheet A13, decided by review: option
+  1): speech-to-text sent the Enter, or the save (Ctrl+S), after the paste without asking
+  the panel again unless focus had been given back during the dictation, so a focus or tab
+  change in the 0.3 s wait sent it to another window. Class: a synthetic keystroke sent to
+  whatever has focus without re-checking the target it was meant for. Now both `wsi`
+  (`internal/wsi/paste.go`, SPEC W33) and `wsi-stream` ask the panel again before every
+  Enter or save, keeping the 1 s wait only after a retake; a changed target is refused with
+  `The text was pasted but not sent: <why>`. Red then green in both suites. Sweep:
+  `clean-paste` (the user's own shortcut into the focused window, no pinned target) and the
+  tmux `send-keys` calls (an explicit pane target) are not in the class. No analyzer: the
+  rule is an ordering across functions (a press preceded by a fresh panel answer) that
+  neither `go/analysis` nor semgrep can state without naming these two flows; the W33 tests
+  hold it. Deployed 2026-10-31 at ac7383246 (play-speech-to-text, the only play the judge
+  picked); the owner sees it at the next dictation that ends in "send" or "save".
 
 ### Phase 4: Review
 
-- [ ] 🔄 **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
+- [x] ✅ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
   fixed. Three reviews (subagent-reports/261014-fable-review-{gate,go,gqaci}.md) found
   blockers in each: the gate is evadable and its CI ratchet bypassable; the DBF rules caught
   1 of 13 planted evasions and Ctrl-C can wedge the terminal; go-qa-ci cannot be adopted (no
@@ -155,27 +526,65 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   merged (go-qa-ci's on its own remote), and so are typed state, the ccy-sessions and
   ccy-teams redraw cost, and the `teams` package split. The ports get their own review before
   merge: freeze's found two blockers, fixed and merged; qa-changed's and qa-all's findings are
-  fixed; agent-bus-install's are fixed on its branch.
-- [ ] 🔄 **Task 4.2**: qa-reviewer over the plan: done once
+  fixed; agent-bus-install's are fixed on its branch. Every Phase 3 port since was reviewed
+  before merge (reclaim, open, nord, nvidia-status, the ssh-with-key family, vmtest prune-runs,
+  the retention move and the sweep fix: the `fable-review` reports in `subagent-reports/`), each with
+  no blocker left and its fix-before-merge findings fixed; their follow-ups are recorded in
+  those reports. The `ccy` launcher's review goes with its port, which is Plan 00191's.
+- [x] ✅ **Task 4.2**: qa-reviewer over the plan: done once
   ([subagent-reports/261014-qa-reviewer-plan.md](subagent-reports/261014-qa-reviewer-plan.md));
   its fixes are on `go-port/qa-all` ([the fix report](subagent-reports/261014-qa-reviewer-fixes-sonnet.md)).
-  Runs again over the finished plan.
+  Second pass, over the Phase 3 ports at `e3d67048d`: FIX-BEFORE-MERGE, no blocker; every
+  finding fixed ([the fix report](subagent-reports/261028-qa-reviewer-r2-fixes.md)). What is
+  left of the plan is host and owner checks, no more code; the `ccy` launcher's work, and its
+  review, are Plan 00191's.
 
 ## Success Criteria
 
-- [ ] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA.
-- [ ] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
+- [x] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA
+  (Task 1.3's controls: over-long, too many functions, `declare -A`, `fzf`, growth and an added
+  entry each fail the gate).
+- [x] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
   Where the bash tool and its suites were deleted, the oracle was replaced, not dropped: the
   freeze tools' white-box bash suites are replaced by a golden replay of the shipped bash tools'
   recorded output (stdout, stderr, status and commands over a scenario corpus) plus Go tests, and
   qa-all's by a golden replay of the legacy script plus the Go tests that took over the cases of
   the deleted `qa-helper-summary` suite. That meets the criterion because the replay compares the
   Go with the bash byte for byte, and a difference is allowed only as a numbered bug pinned with
-  its reason, which a suite of a deleted tool could no longer do.
-- [ ] Each defect class found in the ports has a rule, or a recorded reason it cannot
+  its reason, which a suite of a deleted tool could no longer do. Every merged port, one row each:
+  `subagent-reports/261028-criterion-2-suites.md`. Black-box suites ran against the Go
+  (qa-changed, qa-ansible, qa-docs, wsi, gh-account-setup's wrapper cases); the white-box ones
+  (qa-docs' and ready-wait's Python unit tests, gh-account-setup's extracted functions) are
+  expectation tests now; ftp-camera, watermark, the ssh-with-key family, the 16 other qa gates
+  and the P6 tools had no suite. vmtest's four deleted suites: the member and host-only-gate
+  cases are black-box, re-pointed at the binary
+  ([vmtest-blackbox/blackbox-vmtest.bash](vmtest-blackbox/blackbox-vmtest.bash)) and pass 81 of
+  81 against today's build and the cut-over build of `2c9878497` (run after the cut-over, since
+  nothing recorded one before); reboot-dispatch and build-dir-cleanup test bash functions, and
+  their cases are SPEC-vmtest section 6's Go tests. No defect found.
+- [x] Each defect class found in the ports has a rule, or a recorded reason it cannot
   ([GoProjectRules.md](../../GoProjectRules.md): `project_waitdelay` for the dropped capture
-  (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it).
+  (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it). The audit of
+  the P6 ports and vmtest's prune-runs, retention and sweep
+  (`subagent-reports/261028-defect-classes-audit.md`) found 19 classes: a new rule,
+  `project_duration_overflow`, for a Duration built from an unbounded number (6 found, all
+  fixed); three held by existing linters (`errcheck`, gosec G304, `project_seam_commands`); and
+  15 recorded under "Defect classes that cannot be a rule" (13 new, two existing entries
+  extended), each with what holds it.
 
 ## Delivery & Milestones
 
-- <!-- milestone or delivery commit hash -->
+Merges into F44 (`git log --merges --first-parent F44`):
+
+- The gate and the rules: `a6123672c` (qa-bash-limits with its ratchet), `e4fc8a2a2` (the
+  project DBF rules), `ed7a42be4` (the gate on a real bash parser), `b4edbe8b2`, `78ce2a21b`,
+  `4f0aaf616` (the Fable review fixes).
+- The QA scripts: `f0284848f` (freeze), `de85afbc3` (qa-changed), `6e0ae8aaa` (qa-all),
+  `b4027b70f` (qa-ansible), `14058c622` (every QA script but qa-go.bash), `0d39334e3`
+  (qa-go.bash retired for go-qa-ci).
+- The tools: `3474744f3` (vmtest), `a069fd963` (ftp-camera), `8c2ec4ccc` (wsi and watermark),
+  `507827626` (open), `e3126b64c` (rclone-cache-status), `1d8bc1037` (rclone-tail), `9e404ae6b`
+  (gh-account-setup), `61b70d02d` (setup-rclone), `2e32edc2a` (reclaim), `075d2418f` (nord),
+  `791118b60` (nvidia-status), `e3d67048d` (the ssh-with-key family).
+- Fixes from the host checks: `d318f5dba` and `76a72ec5f` (vmtest prune-runs, Task 3.10),
+  `866fcb2e5` and `cc2b83ab1` (reclaim), `071969780` (open's chafa in tmux).

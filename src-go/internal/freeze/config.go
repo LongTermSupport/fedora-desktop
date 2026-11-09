@@ -73,6 +73,12 @@ func Die(format string, args ...any) error {
 	return &DieError{Msg: fmt.Sprintf(format, args...)}
 }
 
+// DoneError is an act that succeeded, with a step that does not apply to this container. Act
+// returns it so the success is printed with its note and counted as done, not as a failure.
+type DoneError struct{ Note string }
+
+func (e *DoneError) Error() string { return e.Note }
+
 // GaveUpError is a prompt that was answered wrongly MaxTries times. It is a fatal error at the
 // group menu; the drill-down's is said and the menu returns.
 type GaveUpError struct{ *DieError }

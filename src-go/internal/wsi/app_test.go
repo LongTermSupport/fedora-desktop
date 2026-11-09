@@ -95,6 +95,65 @@ func TestW5ALiveRecorderIsLeftAloneAndExit1(t *testing.T) {
 	}
 }
 
+// leftovers is a recording a killed run left behind (Escape kills the whole group).
+func (k *kit) leftovers() []string {
+	return []string{k.wav(), k.wav() + ".resampled.wav", k.wav() + ".padded"}
+}
+
+func (k *kit) leaveRecording() {
+	for _, path := range k.leftovers() {
+		if err := os.WriteFile(path, []byte("discarded audio"), 0o600); err != nil {
+			k.t.Fatal(err)
+		}
+	}
+}
+
+func TestW15AStaleRecordingIsRemovedBeforeTheRecorderStarts(t *testing.T) {
+	k := newKit(t)
+	k.leaveRecording()
+	k.silent = true // this run's recorder writes nothing: only the stale audio could be read
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d: the discarded recording was transcribed? stdout %q", code, k.out.String())
+	}
+	k.wantStderr("Recording file empty or missing: " + k.wav())
+	for _, path := range k.leftovers() {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is left behind: %v", path, err)
+		}
+	}
+}
+
+func TestW15AAStaleRecordingThatCannotBeRemovedEndsTheRunBeforeRecording(t *testing.T) {
+	k := newKit(t)
+	if err := os.MkdirAll(filepath.Join(k.wav(), "held"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	k.wantStderr("Cannot remove the recording a discarded dictation left: ")
+	if k.rec.started != 0 {
+		t.Fatalf("the recorder started %d time(s) beside a recording it could not replace", k.rec.started)
+	}
+}
+
+func TestW5ALiveRecordersRecordingIsLeftAlone(t *testing.T) {
+	k := newKit(t)
+	k.leaveRecording()
+	if err := os.WriteFile(k.pidFile(), []byte("777\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k.alive[777] = true
+	if code := k.exec("--session-token", "t"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, path := range k.leftovers() {
+		if data, err := os.ReadFile(path); err != nil || string(data) != "discarded audio" {
+			t.Errorf("the live recorder's %s changed: %q %v", path, data, err)
+		}
+	}
+}
+
 func TestW1ToW26AWholeDictationWithNoDesktopPrintsTheText(t *testing.T) {
 	k := newKit(t)
 	if err := os.WriteFile(k.pidFile(), []byte("777\n"), 0o600); err != nil {
@@ -204,6 +263,22 @@ func TestW12EachPreflightFailureIsExit1BeforeTheMicrophone(t *testing.T) {
 	}
 }
 
+// The setting's schema allows 0 to 30 seconds; a larger answer is not the setting, and one
+// past a time.Duration would wrap negative and stop at once (project_duration_overflow).
+func TestW13AGraceOverTheSettingsRangeIsRefused(t *testing.T) {
+	for _, big := range []string{"31", "9223372037"} {
+		k := newKit(t)
+		k.run.On([]string{filepath.Join(k.bin, "wsi-stop-grace")}, execx.Result{Stdout: []byte(big + "\n")})
+		if code := k.exec(); code != 1 {
+			t.Fatalf("%s: exit %d", big, code)
+		}
+		k.wantStderr("[ERROR] The stop grace is " + big + "s, more than the 30s the setting allows (" + filepath.Join(k.bin, "wsi-stop-grace") + "; re-run play-speech-to-text.yml)")
+		if k.rec.started != 0 {
+			t.Fatalf("%s: recorded", big)
+		}
+	}
+}
+
 func TestW13NoGraceNoRecording(t *testing.T) {
 	for _, res := range []execx.Result{{ExitCode: 1}, {Stdout: []byte("uint32 3\n")}} {
 		k := newKit(t)
@@ -266,7 +341,7 @@ func TestW14ResolverAndSettingFailures(t *testing.T) {
 	if code := k.exec(); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	k.wantStderr("Cannot read the language setting (" + filepath.Join(k.bin, "wsi-setting") + " failed; reason above)")
+	k.wantStderr("Cannot read the language setting (" + filepath.Join(k.bin, "wsi-setting") + " exited 1; reason above)")
 }
 
 func TestW19AnEmptyRecordingIsAnError(t *testing.T) {
@@ -294,7 +369,7 @@ func TestW20AudioToolFailures(t *testing.T) {
 	if code := k.exec(); code != 0 {
 		t.Fatalf("a soxi failure is a problem only: exit %d", code)
 	}
-	k.wantStderr("[ERROR] Could not read the audio duration (soxi): bad header")
+	k.wantStderr("[ERROR] Could not read the audio duration (soxi): soxi exited 1: bad header")
 	k.wantStderr("[ERROR]   Skipping the minimum-length pad; transcription may reject short audio.")
 
 	k = newKit(t)

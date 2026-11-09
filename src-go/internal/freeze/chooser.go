@@ -269,10 +269,22 @@ func (c *TTYChooser) numberedMembers(ctx context.Context, screen MemberScreen) (
 	}
 }
 
-// readLine reads one reply from the terminal with the surrounding blanks trimmed. End of input
-// is io.EOF even when a partial line was typed. A cancelled context (Ctrl-C) ends the prompt's
-// line and returns the cancellation, without waiting for the read.
+// readLine reads one reply from the terminal with the surrounding blanks trimmed, typed with
+// the terminal's echo on (Env.Echo holds it off between screens). End of input is io.EOF even
+// when a partial line was typed. A cancelled context (Ctrl-C) ends the prompt's line and returns
+// the cancellation, without waiting for the read.
 func (c *TTYChooser) readLine(ctx context.Context) (string, error) {
+	var line string
+	err := c.Env.Echo.Given(func() error {
+		var readErr error
+		line, readErr = c.readReply(ctx)
+		return readErr
+	})
+	return line, err
+}
+
+// readReply is readLine's read.
+func (c *TTYChooser) readReply(ctx context.Context) (string, error) {
 	type result struct {
 		line string
 		err  error

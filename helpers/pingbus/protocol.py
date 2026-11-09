@@ -22,7 +22,9 @@ import dataclasses
 import json
 import re
 import unicodedata
-from collections.abc import Container, Iterable, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
+
+from helpers.pingbus import markdown
 
 PROTOCOL_VERSION = 1
 #: The team room's version: the homeserver's default and what `bootstrap` creates and checks.
@@ -48,6 +50,8 @@ MSGTYPE_PING = "m.notice"
 MSGTYPE_HUMAN = "m.text"
 MSGTYPE_TEXT = "m.notice"
 RENDER_TAG = "[agent-bus]"
+#: What a message a person reads adds to its plain body: the HTML Element draws (Plan 00241).
+FORMATTED_KEYS = frozenset({"format", "formatted_body"})
 
 ROLE_COORDINATOR = "coordinator"
 ROLE_WORKER = "worker"
@@ -204,6 +208,7 @@ QUESTION_STATES = (STATE_OPEN, STATE_ANSWERED, STATE_CLOSED)
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
     "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate", "unresolved", "provenance",
+    "gap",
 )
 #: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
 #: §9): it is for others, so the agent skips it silently and it is never a drop.
@@ -223,7 +228,7 @@ UNHEARD_REASONS = (IGNORE_NOT_ADDRESSED,)
 #: reports or questions room yet (the agent-bus play creates them).
 SEND_REFUSALS = ("secret", "no-room")
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check (`forge-rate`, `unresolved`, `provenance`).
-REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance"})
+REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance", "gap"})
 
 REQUIRED = "required"
 OPTIONAL = "optional"
@@ -412,6 +417,9 @@ class HumanMessage:
     #: In the questions room, the event this edit revises; None for a message that is not
     #: an edit (Plan 00211 SPEC §6).
     revises: str | None = None
+    #: In the main room, this agent's message that a reply naming no one answers, which is why
+    #: it was delivered (`reply_root`); None for a message that mentions this agent.
+    answers: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -843,11 +851,39 @@ def _addressed(content: Mapping[str, object], self_user_id: str) -> bool:
     return isinstance(users, list) and self_user_id in users
 
 
+def reply_root(content: Mapping[str, object]) -> str | None:
+    """The event a human's message answers: its thread's root, else the event it replies to;
+    None for neither. A thread reply's `m.in_reply_to` is only its fallback, so the root wins."""
+    relates = content.get("m.relates_to")
+    if not isinstance(relates, dict):
+        return None
+    if relates.get("rel_type") == "m.thread":
+        root = relates.get("event_id")
+    elif relates.get("rel_type") is None and isinstance(relates.get("m.in_reply_to"), dict):
+        root = relates["m.in_reply_to"].get("event_id")
+    else:
+        return None
+    return root if is_event_id(root) else None
+
+
+def _no_sender(event_id: str) -> None:
+    """`validate_event`'s default `sender_of`: no event's sender is known."""
+    return None
+
+
+def own_message(event_id: str | None, self_user_id: str) -> Callable[[str], object]:
+    """A `sender_of` that knows one event, `event_id`, as this member's own (None: none):
+    what an inbox item's `answers` recorded when the syncer asked the homeserver."""
+    return lambda asked: self_user_id if event_id is not None and asked == event_id else None
+
+
 def _human_outcome(
     content: Mapping[str, object], event_id: str, sender: str, ts: int, self_user_id: str,
-    human_text: bool,
+    human_text: bool, sender_of: Callable[[str], object] = _no_sender,
 ) -> Outcome:
-    """Spec §9 human path, steps 04h-09h (10h `stale` and 11h `rate` are the caller's)."""
+    """Spec §9 human path, steps 04h-09h (10h `stale` and 11h `rate` are the caller's). A
+    message that mentions no one is still this agent's when it answers this agent's own message
+    (`reply_root`, its sender from `sender_of`): Element's thread reply carries no mention."""
     if not human_text:
         return Outcome(DROP, "sender")
     if content.get("msgtype") != MSGTYPE_HUMAN:
@@ -862,13 +898,16 @@ def _human_outcome(
         return Outcome(DROP, "schema")
     if len(body.encode("utf-8")) > MAX_HUMAN_BODY_BYTES:
         return Outcome(DROP, "size")
+    answers = None
     if not _addressed(content, self_user_id):
-        return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
+        answers = reply_root(content)
+        if answers is None or sender_of(answers) != self_user_id:
+            return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
     if relates is not None and "m.in_reply_to" in relates:
         body = strip_reply_fallback(body)
         if body == "":
             return Outcome(IGNORE, "empty")
-    return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body))
+    return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body, answers=answers))
 
 
 def _names(content: Mapping[str, object], self_user_id: str) -> bool:
@@ -946,10 +985,13 @@ def validate_event(
     seen: Container[str] = frozenset(),
     human_text: bool = True,
     room: str = ROOM_MAIN,
+    sender_of: Callable[[str], object] = _no_sender,
 ) -> Outcome:
     """The offline receive steps of spec §9 for one timeline event of `room`.
 
-    `seen` holds event IDs already processed; `human_text` is the bundle's flag. An event
+    `seen` holds event IDs already processed; `human_text` is the bundle's flag; `sender_of`
+    gives the sender of a main-room event a human's message answers (`_human_outcome`), and
+    is asked only for a message that mentions no one but answers an event. An event
     that is not `m.room.message` is ignored before anything else of it is read: only
     messages are pings or human text. In the questions room every human message is for the
     coordinator, edits included, and nothing else is received (`_questions_outcome`).
@@ -980,7 +1022,7 @@ def validate_event(
     if cls is None:
         return Outcome(DROP, "sender")
     if cls == SENDER_HUMAN:
-        return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
+        return _human_outcome(content, event_id, sender, ts, self_user_id, human_text, sender_of)
     if TEXT_KEY in content:
         # Beside a ping it is neither, and the sender is at fault.
         if PING_KEY in content:
@@ -998,21 +1040,29 @@ def validate_event(
         copy_of=_copy_of(ping.to, self_user_id, ctx)))
 
 
-def reached_no_agent(event: object, ctx: Context, outcome: Outcome) -> bool:
+def _role_agent(user: object, ctx: Context) -> bool:
+    return isinstance(user, str) and user in ctx.roles and is_agent_user_id(user, ctx.server_name)
+
+
+def reached_no_agent(event: object, ctx: Context, outcome: Outcome,
+                     sender_of: Callable[[str], object] = _no_sender) -> bool:
     """Spec §9 "Unheard": whether `outcome` (`validate_event`'s for `event`) is a team
-    human's message ignored as not addressed whose mentions name no agent holding a role,
-    so no agent of the team receives it. A message for another agent is that agent's."""
+    human's message ignored as not addressed whose mentions name no agent holding a role, and
+    that answers no such agent's message (`sender_of`, as `validate_event`), so no agent of the
+    team receives it. A message for another agent is that agent's."""
     if outcome.kind != IGNORE or outcome.reason != IGNORE_NOT_ADDRESSED or not isinstance(event, dict):
         return False
     content = event.get("content")
     if sender_class(event.get("sender"), ctx) != SENDER_HUMAN or not isinstance(content, dict):
         return False
+    root = reply_root(content)
+    if root is not None and _role_agent(sender_of(root), ctx):
+        return False
     mentions = content.get("m.mentions")
     users = mentions.get("user_ids") if isinstance(mentions, dict) else None
     if not isinstance(users, list):
         return True
-    return not any(isinstance(user, str) and user in ctx.roles and is_agent_user_id(user, ctx.server_name)
-                   for user in users)
+    return not any(_role_agent(user, ctx) for user in users)
 
 
 def _list_of(value: object, low: int, high: int) -> list:
@@ -1377,16 +1427,22 @@ def check_thread_text(text: str, *, closing: bool) -> None:
 
 
 def build_report(text: str) -> dict:
-    """A report: a notice with no mentions, so Element never notifies it (SPEC §7)."""
-    return {"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {}, REPORT_KEY: {"v": PROTOCOL_VERSION}}
+    """A report: a notice with no mentions, so Element never notifies it (SPEC §7), its
+    markdown drawn as HTML (Plan 00241)."""
+    return markdown.formatted({"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {},
+                               REPORT_KEY: {"v": PROTOCOL_VERSION}})
 
 
 def check_report_content(content: object) -> None:
-    """Raise `Refusal("schema")` unless `content` is exactly a report's shape."""
-    if (not isinstance(content, dict) or set(content) != {"msgtype", "body", "m.mentions", REPORT_KEY}
+    """Raise `Refusal("schema")` unless `content` is exactly a report's shape: its HTML, when
+    it has any, is its body's."""
+    keys = {"msgtype", "body", "m.mentions", REPORT_KEY}
+    if (not isinstance(content, dict) or set(content) - FORMATTED_KEYS != keys
             or content["msgtype"] != MSGTYPE_TEXT or content["m.mentions"] != {}
             or _canonical(content[REPORT_KEY]) != _canonical({"v": PROTOCOL_VERSION})
             or not isinstance(content["body"], str)):
+        raise Refusal("schema")
+    if FORMATTED_KEYS & set(content) and content != markdown.formatted(content):
         raise Refusal("schema")
 
 
@@ -1441,8 +1497,10 @@ def build_question(n: int, text: str, humans: Iterable[str], asked_by: Sequence[
                    re: Sequence[str]) -> dict:
     """A question as a thread root: `m.text` mentioning every human, so Element notifies,
     its headline numbered `Q<n>`, and whom to answer (SPEC §8.2)."""
-    return {"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}", "m.mentions": {"user_ids": sorted(humans)},
-            QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by), "re": list(re)}}
+    return markdown.formatted({"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}",
+                               "m.mentions": {"user_ids": sorted(humans)},
+                               QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by),
+                                              "re": list(re)}})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1504,7 +1562,7 @@ def build_thread_post(root: str | None, text: str, humans: Iterable[str], *, ask
                                    "m.in_reply_to": {"event_id": re or root}}
     if close is not None:
         content[QUESTION_STATE_KEY] = {"v": PROTOCOL_VERSION, "n": close, "state": STATE_CLOSED}
-    return content
+    return markdown.formatted(content)
 
 
 def _closes(content: Mapping[str, object]) -> int | None:

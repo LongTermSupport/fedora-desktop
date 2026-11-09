@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 
@@ -12,22 +11,27 @@ import (
 
 var wholeMinutes = regexp.MustCompile(`^[1-9][0-9]*$`)
 
+// maxMinutes is the longest warning or countdown taken, a week: longer is a mistake, and a
+// number past a time.Duration would wrap the countdown negative and reboot at once.
+const maxMinutes = 10080
+
 // minutesOrUsage is value as a number of minutes, or the usage sentence naming the flag.
 func minutesOrUsage(value, flag string) (int, string) {
 	n, err := strconv.Atoi(value)
 	if !wholeMinutes.MatchString(value) || err != nil {
 		return 0, fmt.Sprintf("%s needs a whole number of minutes, at least 1; got '%s'.", flag, value)
 	}
+	if n > maxMinutes {
+		return 0, fmt.Sprintf("%s takes at most %d minutes (a week); got '%s'.", flag, maxMinutes, value)
+	}
 	return n, ""
 }
 
 // goingDownKind is the warning kind that tells this user's sessions the truth about what
-// follows: reboot-warning when their restore unit is enabled (the wants-symlink the play
-// manages), shutdown-warning when it is not. A link that points at nothing pulls in nothing at
-// boot, so it counts as off.
+// follows: reboot-warning when their restore unit is enabled (restoreEnabled), shutdown-warning
+// when it is not.
 func (a *App) goingDownKind() string {
-	wants := a.Getenv("HOME") + "/.config/systemd/user/default.target.wants/ccy-sessions-restore.service"
-	if _, err := os.Stat(wants); err == nil {
+	if a.restoreEnabled() {
 		return "reboot-warning"
 	}
 	return "shutdown-warning"

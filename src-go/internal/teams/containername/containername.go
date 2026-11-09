@@ -189,6 +189,13 @@ func writeClaim(path, line string) error {
 // own claim, one whose process has gone and an unfinished one are removed; a malformed claim
 // whose process cannot be shown to be gone is an error naming the file.
 func (c *Claim) held(path string, me owner) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, fmt.Errorf("could not read the container name claim %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("the container name claim %s is not a regular file; remove it", path)
+	}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return false, fmt.Errorf("could not read the container name claim %s: %w", path, err)

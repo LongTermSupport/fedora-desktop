@@ -330,10 +330,11 @@ class SkillTest(unittest.TestCase):
             "**questions room** between the coordinator and the humans",
             "Questions go to the coordinator, never to a human.",
             "ask the coordinator with `pingbus say --to-coordinator`",
-            "Once the reports room exists, write to a human only to answer a human who wrote to you",
+            "Never write to a human in the main room.",
+            "pingbus refuses `say --to HUMAN`",
             "carry on in the main room as before",
-            "Reports are for the humans to read, not to answer.",
-            "Not routine progress, not a question, not a request.",
+            "Reports are read-only status: post one at every checkpoint.",
+            "never a question, a request or a \"Needs you\" item",
             "Nobody is woken by a report and nobody replies to one",
             "Bubble up only what you cannot answer",
             "one question per message, self-contained",
@@ -362,7 +363,7 @@ class SkillTest(unittest.TestCase):
         example = self.text[self.text.index("agent-bus delivery 3f9c2a71"):]
         example = example[:example.index("```")]
         for line in (envelope.KIND_LINES["HUMAN"], "<<agent-bus 3f9c2a71 1/1>>", "<<end agent-bus 3f9c2a71 1/1>>",
-                     "from: alice", "reply: pingbus --team TEAM say --to alice --re 'EVENT_ID'"):
+                     "from: alice", "reply: pingbus --team TEAM say --to-coordinator --re 'EVENT_ID'"):
             self.assertIn(f"  {line}\n", example)
         self.assertIn(envelope.AUTHORITY["HUMAN"].split(". ")[0], example)
         first = envelope.FIRST_LINE.format(nonce="3f9c2a71", total=1, noun="message", humans=1, agents=0,

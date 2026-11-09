@@ -1,6 +1,6 @@
 # Plan 00197: agent bus seat broker daemon
 
-**Status**: Not Started
+**Status**: In Progress (design revised after the Fable review; the owner's decisions next)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -61,12 +61,24 @@ ranges, the approval policy.
 
 ### Phase 1: Design
 
-- [ ] ⬜ **Task 1.1**: DESIGN.md: the API (request, poll, approve, refuse, revoke), the pairing
+- [x] ✅ **Task 1.1**: [DESIGN.md](DESIGN.md): the API (request, poll, approve, refuse, revoke), the pairing
   code and request secret, where it listens (only the bridge interfaces a team admits), the
   service user and what it may touch (the registration secret, the registry; not root), the
   approval surfaces (Element room message from the team's admin account, ccy-teams list), the
-  audit log, expiry, rate limits, and how `agent_bus_lxc_members` is retired.
-- [ ] ⬜ **Task 1.2**: Fable adversarial review of the design; findings fixed.
+  audit log, expiry, rate limits, and how `agent_bus_lxc_members` is retired. The handle is
+  derived from the checkout by ccy's rule (owner direction). Its section 13 holds 15 owner
+  decisions; its section 14 is the task list that replaces Phases 2 and 3 once decided.
+- [x] ✅ **Task 1.2**: Fable adversarial review of the design
+  ([report](subagent-reports/261014-fable-review-design.md), verdict REVISE); every finding
+  taken into DESIGN.md. Disposition: the lasting member key, its bindings, rejoin and enroll
+  dropped (F1); room approval off by default (F2); responses signed with a kit-pinned broker
+  key (F3); root mints through the socket on the desktop (F4); per-interface request pools
+  (F5); `ccy` in LXC (`podman`) told apart from an LXC member (`lxc`) (F6); the mint's
+  `--address` mapped (F7); wrong codes refuse nothing, collisions are ambiguous (F8); sealing
+  pinned (F9); unit device dependencies (F10); seat reservations (F11); the Go build named
+  (F12); `feat/ccy-teams-lxc-member` to be merged as the interim.
+- [ ] ⬜ **Task 1.3**: The owner decides DESIGN.md section 13; section 14 then replaces
+  Phases 2 and 3 below.
 
 ### Phase 2: Build (Go, spec first, tests first)
 

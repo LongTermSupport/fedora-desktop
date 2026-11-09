@@ -34,7 +34,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, statusline, syncer
+from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, statusline, syncer, watcherstate
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -859,6 +859,23 @@ class WatchOutageTest(WatchCase):
         self.assertIn("no longer watched", err)
         self.assertNotIn(self.OUTAGE, err)
 
+    def test_a_team_dropped_for_a_permanent_failure_is_recorded_stopped(self):
+        """Issue #116: what `status` and the supervisor read, with the watcher's own words."""
+        self.joined()
+        self.start_watch()
+        self.a.fake.inject("GET", r"/sync$", 401, {"errcode": "M_UNKNOWN_TOKEN", "error": "gone"})
+        self.watcher.join(10)
+        record = watcherstate.read(self.a.state.path)
+        self.assertEqual(record.state, watcherstate.STOPPED)
+        self.assertIn("homeserver", record.cause)
+
+    def test_a_team_that_syncs_clears_its_record(self):
+        self.joined()
+        watcherstate.record_exit(self.a.state.path, "exit 7", int(self.now * 1000))
+        self.start_watch()
+        self.until(lambda: watcherstate.read(self.a.state.path) is None,
+                   "a watcher that syncs left its team recorded as failing")
+
 
 class WatchMembershipTest(WatchCase):
     """Plan 00203 H11, H12, H15: under PINGBUS_MEMBERSHIP the watcher follows the session's
@@ -992,6 +1009,7 @@ class _FakeSyncer:
 class _FakeState:
     def __init__(self) -> None:
         self.consumed: list[str] = []
+        self.path = pathlib.Path("/nonexistent-pingbus-fake/state")  # no watcher record to clear
 
     def consume(self, event_id: str) -> bool:
         self.consumed.append(event_id)
@@ -1142,6 +1160,72 @@ class WatchSuperviseTest(WatchCase):
         self.assertEqual(code, cli.EXIT_BUSY)
         self.assertIn("this session already has a watcher", err)
         self.assertEqual(self.children, [])
+
+    def record(self, team=None):
+        return watcherstate.read((team or self.a).state.path)
+
+    def child_stops(self, *teams, code: int = cli.EXIT_UNREACHABLE):
+        """A child that dropped `teams` for a permanent failure, as `_watch` records it."""
+        def act() -> int:
+            for team in teams:
+                watcherstate.record_stop(team.state.path, "homeserver: the gap runs past 20 pages",
+                                         int(self.now * 1000))
+            return code
+        return act
+
+    def test_each_restart_is_recorded_for_status_with_its_cause_and_count(self):
+        """Issue #116: a watcher that keeps exiting is not only in watch.log."""
+        seen: list[object] = []
+
+        def look(code: int):
+            def act() -> int:
+                seen.append(self.record())
+                return code
+            return act
+
+        self.codes = [1, look(-9), look(cli.EXIT_UNREACHABLE), self.socket_closes(cli.EXIT_OK)]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
+        first, second = seen
+        self.assertEqual((first.state, first.restarts), (watcherstate.FAILING, 1))
+        self.assertIn("exit 1", first.cause)
+        self.assertEqual((second.state, second.restarts, second.cause),
+                         (watcherstate.FAILING, 2, "killed by signal SIGKILL"))
+        last = self.record()
+        self.assertEqual((last.restarts, last.since_ms), (3, first.since_ms))
+        self.assertIn("exit 7", last.cause)
+
+    def test_a_child_that_stopped_every_team_ends_the_supervisor(self):
+        """Issue #116: a failure a restart cannot change is not retried every 60 s for ever."""
+        self.codes = [self.child_stops(self.a), cli.EXIT_UNREACHABLE]
+        code, out, err = self.run_cli("watch", "--supervise")
+        self.assertEqual((code, out), (cli.EXIT_UNREACHABLE, ""))
+        self.assertEqual(len(self.children), 1, "a permanent failure was restarted")
+        self.assertIn("a restart cannot change", err)
+        self.assertNotIn(cli.WATCHER_RESTARTED, err)
+        record = self.record()
+        self.assertEqual(record.state, watcherstate.STOPPED)
+        self.assertIn("gap runs past 20 pages", record.cause)
+
+    def test_a_stop_left_by_an_earlier_child_does_not_end_it(self):
+        watcherstate.record_stop(self.a.state.path, "old", int(self.now * 1000) - 1)
+        self.codes = [cli.EXIT_UNREACHABLE, self.socket_closes(cli.EXIT_OK)]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
+        self.assertEqual(len(self.children), 2)
+
+    def test_a_team_still_watched_keeps_the_restarts_going(self):
+        b = self.add_team()
+        self.codes = [self.child_stops(self.a), self.socket_closes(cli.EXIT_OK)]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
+        self.assertEqual(len(self.children), 2)
+        self.assertEqual(self.record().state, watcherstate.STOPPED)
+        self.assertEqual(self.record(b).state, watcherstate.FAILING)
+
+    def test_a_final_refusal_is_recorded_as_stopped(self):
+        self.codes = [cli.EXIT_AUTH]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_AUTH)
+        record = self.record()
+        self.assertEqual(record.state, watcherstate.STOPPED)
+        self.assertIn("exit 8", record.cause)
 
     def test_the_child_runs_under_its_parents_lock(self):
         self.joined()

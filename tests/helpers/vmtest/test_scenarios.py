@@ -333,6 +333,113 @@ class TestRebootBeforeChecks(unittest.TestCase):
         self.assertIn("server-fast-provision", scenarios.allowlist(manifest))
 
 
+class TestAudience(unittest.TestCase):
+    """`audience` (Plan 00228): which install run.bash makes, and so how the harness drives it."""
+
+    @staticmethod
+    def _consumer(**overrides):
+        document = copy.deepcopy(MANIFEST)
+        document["vm_test_scenarios"]["desktop-consumer-install"] = {
+            "base": "desktop",
+            "description": "an attended ./run.bash --consumer",
+            "planned": 10,
+            "max_skipped": 0,
+            "reboot_before_checks": True,
+            "audience": "consumer",
+            **overrides,
+        }
+        return document
+
+    def test_it_defaults_to_developer(self):
+        # Every scenario written before the key existed provisions the developer install.
+        for scenario in _parse().scenarios.values():
+            with self.subTest(scenario=scenario.id):
+                self.assertEqual(scenario.audience, "developer")
+
+    def test_a_desktop_scenario_may_be_a_consumer_install(self):
+        scenario = _parse(self._consumer()).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.audience, "consumer")
+        self.assertIn("desktop-consumer-install", scenarios.allowlist(_parse(self._consumer())))
+
+    def test_developer_may_be_written_out(self):
+        scenario = _parse(self._consumer(audience="developer")).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.audience, "developer")
+
+    def test_it_is_a_closed_list(self):
+        for value in ("Consumer", "everyone", "", None, True, 1):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(audience=value))
+                self.assertIn("audience", str(caught.exception))
+                self.assertIn("desktop-consumer-install", str(caught.exception))
+
+    def test_a_consumer_install_needs_a_desktop_base(self):
+        # run.bash refuses a consumer install on a server profile, so such a scenario
+        # could only ever fail, and would look like the product failing.
+        with self.assertRaises(scenarios.ManifestError) as caught:
+            _parse(self._consumer(base="server-fast", reboot_before_checks=False))
+        self.assertIn("desktop", str(caught.exception))
+
+    def test_a_consumer_install_takes_no_run_env_and_no_credential(self):
+        # The consumer path reads no RUN_BASH_* knob and has no GitHub identity: a knob or
+        # a credential there would be silently ignored, and the run would seem to prove it.
+        for overrides, word in (
+            ({"run_env": {"RUN_BASH_REBOOT": "0"}}, "run_env"),
+            ({"host_only": True}, "host_only"),
+        ):
+            with self.subTest(word=word):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(**overrides))
+                self.assertIn(word, str(caught.exception))
+
+
+class TestOptionalPlays(unittest.TestCase):
+    """`optional_plays` (Plan 00228): the optional-app menu picks a consumer scenario makes."""
+
+    @staticmethod
+    def _consumer(**overrides):
+        return TestAudience._consumer(**overrides)
+
+    def test_it_defaults_to_none(self):
+        for scenario in _parse(self._consumer()).scenarios.values():
+            with self.subTest(scenario=scenario.id):
+                self.assertEqual(scenario.optional_plays, ())
+
+    def test_a_consumer_install_names_its_picks_in_order(self):
+        plays = ["play-speech-to-text.yml", "play-hd-audio.yml"]
+        scenario = _parse(self._consumer(optional_plays=plays)).scenarios["desktop-consumer-install"]
+        self.assertEqual(scenario.optional_plays, ("play-speech-to-text.yml", "play-hd-audio.yml"))
+
+    def test_a_developer_scenario_takes_none(self):
+        # A headless run's optional plays are RUN_BASH_OPTIONAL_PLAYBOOKS in run_env; a second
+        # way to say it would be read by nothing on that path, and look proved.
+        with self.assertRaises(scenarios.ManifestError) as caught:
+            _parse(self._consumer(audience="developer", optional_plays=["play-speech-to-text.yml"]))
+        message = str(caught.exception)
+        self.assertIn("optional_plays", message)
+        self.assertIn("RUN_BASH_OPTIONAL_PLAYBOOKS", message)
+        self.assertIn("desktop-consumer-install", message)
+
+    def test_malformed_picks_are_refused(self):
+        for value in (
+            "play-speech-to-text.yml",
+            [],
+            [""],
+            [1],
+            ["speech-to-text"],
+            ["play-Speech.yml"],
+            ["../play-x.yml"],
+            ["common/play-x.yml"],
+            ["play-x.yml", "play-x.yml"],
+            None,
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(scenarios.ManifestError) as caught:
+                    _parse(self._consumer(optional_plays=value))
+                self.assertIn("optional_plays", str(caught.exception))
+                self.assertIn("desktop-consumer-install", str(caught.exception))
+
+
 class TestManifestRejections(unittest.TestCase):
     """Every malformed manifest raises ManifestError naming the offending entry."""
 

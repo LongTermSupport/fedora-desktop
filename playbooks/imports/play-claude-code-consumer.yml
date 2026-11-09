@@ -1,0 +1,115 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# ccc: Claude Code in rootless podman, always in ~/CCC, for someone who does not write code
+# (Plan 00233). It runs ccy's image without ccy's GitHub prerequisites, so this play builds
+# that image (tasks/claude-yolo-image.yml, shared with play-claude-yolo.yml), the ccc command
+# and a "Claude" entry in the app grid. Core on every install: on a developer box the image is
+# the one ccy already uses, and the build is a cache hit.
+- import_playbook: play-golang.yml
+- import_playbook: play-podman.yml
+
+- hosts: desktop
+  name: Claude Code for Everyone - ccc
+  become: false
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
+    ccc_bin: "/home/{{ user_login }}/.local/bin/ccc"
+  pre_tasks:
+    - name: Load container defaults
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/container-defaults.yml"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # ccc runs rootless podman only; an image built by another engine is one it cannot see.
+    - name: Assert The Container Engine Is Podman
+      ansible.builtin.assert:
+        that:
+          - container_engine == 'podman'
+        fail_msg: >-
+          ccc runs Claude Code in rootless podman, and container_engine is
+          {{ container_engine }}. Set container_engine: podman in localhost.yml, or leave this
+          play out.
+
+    - name: Stage and Build the Claude YOLO Container Image
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/claude-yolo-image.yml"
+
+    # ccc holds the image to the version the launcher requires, read from the same file.
+    - name: Read REQUIRED_CONTAINER_VERSION for the ccc Build
+      ansible.builtin.set_fact:
+        ccc_required_version: >-
+          {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
+          | regex_search('^REQUIRED_CONTAINER_VERSION="([0-9][0-9.]*)"', '\1', multiline=True)
+          | default([], true) | first | default('') }}
+
+    - name: Assert REQUIRED_CONTAINER_VERSION Was Read for the ccc Build
+      ansible.builtin.assert:
+        that:
+          - ccc_required_version is match('^[0-9]+[.][0-9]+[.][0-9]+$')
+        fail_msg: >-
+          No REQUIRED_CONTAINER_VERSION="x.y.z" line was found in
+          files/var/local/claude-yolo/claude-yolo; ccc cannot be built without it.
+
+    - name: Ensure the User Bin Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Build and Install the ccc Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ccc
+        go_command_dest: "{{ ccc_bin }}"
+        go_command_mode: "0755"
+        go_command_ldflags: "-X main.RequiredVersion={{ ccc_required_version }}"
+
+    # ccc keeps its sign-in in the token pool ccy, cc and speech-to-text share, and each
+    # agent's state outside the folder the person works in.
+    - name: Create the Private ccc Directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0700"
+      loop:
+        - "/home/{{ user_login }}/.claude-tokens"
+        - "/home/{{ user_login }}/.claude-tokens/ccy"
+        - "/home/{{ user_login }}/.claude-tokens/ccy/tokens"
+        - "/home/{{ user_login }}/.local/share/ccc"
+        - "/home/{{ user_login }}/.local/share/ccc/claude"
+
+    - name: Ensure the Applications Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/share/applications"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy the Claude App Grid Entry
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.local/share/applications/ccc.desktop"
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Name=Claude
+          Comment=Chat with Claude in a safe container; your files are in the CCC folder
+          Exec={{ ccc_bin }}
+          Icon=utilities-terminal
+          Terminal=true
+          Categories=Utility;
+          Keywords=claude;ai;chat;assistant;

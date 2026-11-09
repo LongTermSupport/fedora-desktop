@@ -21,36 +21,35 @@ whether what runs is what the host_vars declare, DESIGN.md D65), followed by its
                          with no checkout
   human                  a person in the team room: in it or not, and how many Element
                          sessions they are signed in with
-Enter on any row opens a menu of everything that can be done to it, in words, each with its
-shortcut beside it (Esc goes back to the list); the picker's header names the row's actions
-too (? there shows every key, explained). The shortcuts:
-  Enter    a menu for the row. On a seat it begins with attaching its session (as
-           ccy-sessions does); on a person who is signed in, with opening Element; on a
-           person who never has been, with signing in (a password, shown once); on a team,
-           with opening Element
-  Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
-  Ctrl-P   a new Element password for the person on the row; it asks first, saying how
-           many of their Element sessions it signs out (none: no question)
-  Ctrl-E   open the team in Element (setting its profile up first, when it has none);
-           Element starts apart from ccy-teams, which stays on the list. Each team is its
-           own Element window, because each team is its own Matrix server and an Element
-           window holds one account; the menu of a team row has Open every team in
-           Element, a window each (no shortcut), which opens every team with a profile
-  Ctrl-U   on a team row: update every team that is out of date or not built (never one
-           to take down)
-  Ctrl-R   turn the seat's session's restore after a reboot off or on
-  Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
-  Tab      the last row, Running sessions: every session ccy's tmux started, its teams
-           (seat, role) and its state. Enter on one lists, in words, what can be done to
-           it: Add to a team, Remove from <team>, Change role in <team>, Move to another
-           team, Attach, and Repair when its seat keeper has stopped. Each is
-           `ccy-teams session ...` below, run for you, with its question and its steps.
-           Back to the teams, or Esc, comes back
-A key works only on a row whose menu has it.
+Enter on any row opens a menu of everything that can be done to it, in words (Esc goes back
+to the list); the picker's header says what Enter on the row offers. There are no shortcut
+keys: every action is a line of that menu. On a seat it begins with attaching its session (as
+ccy-sessions does); on a person who is signed in, with opening Element; on a person who never
+has been, with signing in (a password, shown once); on a team, with opening Element. Among
+the lines:
+  Start a ccy session      in a free or new seat of the row's team, here
+  New password             a new Element password for the person on the row; it asks
+                           first, saying how many of their Element sessions it signs out
+                           (none: no question)
+  Open <team> in Element   setting its profile up first, when it has none; Element starts
+                           apart from ccy-teams, which stays on the list. Each team is its
+                           own Element window, because each team is its own Matrix server
+                           and an Element window holds one account; the menu of a team row
+                           has Open every team in Element, a window each, which opens every
+                           team with a profile
+  Update every team        on a team row: every team that is out of date or not built
+                           (never one to take down)
+  Restore after a reboot   turn the seat's session's restore off (after a yes/no) or on
+  Remove, Park, Take down  a seat, a member, or a team (each after a yes/no)
+The last row, Running sessions, lists every session ccy's tmux started, its teams (seat, role)
+and its state. Enter on one lists, in words, what can be done to it: Add to a team, Remove
+from <team>, Change role in <team>, Move to another team, Attach, and Repair when its seat
+keeper has stopped. Each is `ccy-teams session ...` below, run for you, with its question and
+its steps. Back to the teams, or Esc, comes back.
 The menu of a team row also has Restart the team's desktop sessions, Wind down the team's
-sessions and Shut down every session of <team> (no shortcut): the same as
+sessions and Shut down every session of <team>: the same as
 `ccy-teams restart <team>`, `ccy-teams wind-down <team>` and `ccy-teams shutdown <team>` below.
-The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
+The menu of a team row also has Edit settings: every field of the team's entry
 with its value. Each editable one is checked as it is typed; Save and apply writes the changes
 to the host_vars in one edit and applies the team, as ccy-teams apply does. The coordinator
 changes at once; the name, port, listen addresses, server name, forge API and removed people
@@ -82,6 +81,13 @@ Usage:
   ccy-teams                        the picker (needs a terminal)
   ccy-teams -l|--list              print the same table, with a heading, and exit
                                    (colour only on a terminal, and never with NO_COLOR)
+  ccy-teams --graph                print the same as a Mermaid flowchart on stdout: each team
+                                   a subgraph (what it is for, its homeserver, its people),
+                                   each member's kind, seat, role, checkout and live state
+                                   (listening on the bus, offline: stale, no status, parked
+                                   or deferred, or unknown with why; never left out),
+                                   LXC members inside their container, and the coordinator's
+                                   edges to its workers. It fails as --list does
   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
                    [--allow-from CIDR]... [--description TEXT] [--yes]
                                    add a team to agent_bus_teams in the host_vars, with
@@ -140,16 +146,20 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
-  ccy-teams shutdown <team> [--yes]
+  ccy-teams shutdown <team> [--yes] [--no-compact]
                                    end every session of the team on this host: it lists
                                    them, and the members it cannot reach from here (an
                                    LXC container's agent, another machine), then asks
                                    (default No; with no terminal, --yes is required).
-                                   Each session gets /exit typed into its tmux pane
-                                   (Escape first when busy) and is stopped only if it
-                                   has not ended within 60 s; then each of its seats must
+                                   Each session gets /compact typed into its tmux pane
+                                   (Escape first when busy), then /exit once the
+                                   compaction is in its transcript (--no-compact: /exit
+                                   only); a compaction not done within 600 s fails it and
+                                   leaves it running. It is stopped only if it has not
+                                   ended within 60 s of /exit; then each of its seats must
                                    be free. One line per member: exited cleanly, stopped,
-                                   failed or not shut down; exit 1 unless all ended. The
+                                   failed or not shut down; a seat with no session is
+                                   named, nothing to shut down; exit 1 unless all ended. The
                                    homeserver keeps running. Nothing goes on the bus
   ccy-teams restart <team> [--yes]
                                    restart the team's sessions on this desktop, each
@@ -183,7 +193,12 @@ Usage:
                                    No; with no terminal, --yes is required). One line per
                                    member; exit 1 unless every running session got both
                                    lines and none was out of reach, whose text it prints
-                                   to give by hand. Nothing is ended; shutdown does that
+                                   to give by hand. Once a session has answered, it is
+                                   typed /compact when its context is at or above
+                                   set-going's compact floor (an LXC member whatever its
+                                   size), one at a time, the coordinator first, inside a
+                                   15-minute window; a compaction that failed or could not
+                                   be judged is exit 1. Nothing is ended; shutdown does that
   ccy-teams for-checkout        print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the
@@ -212,6 +227,20 @@ Usage:
                                    only that once-per-user question, for cc --bus: a session
                                    on no team that you add to teams later (ccy-teams session
                                    add). Prints nothing; declining ends the run (exit 1)
+  ccy-teams launch-summary --type=podman|host --token=T --ssh=K --network=N
+                                   [--teams=<seats>] [--roles=<team=role,...>] [--skip-teams]
+                                   the launcher's one summary of every default, on a terminal
+                                   only: the token, the SSH key, the network, and each team
+                                   with its seat and role. Enter on "Launch with these
+                                   choices" accepts all; any other line changes only that
+                                   one. A team whose remembered seat is now held, whose scope
+                                   no longer covers the checkout, whose role changed, or that
+                                   cannot be taken is marked NEEDS AN ANSWER, and only that
+                                   line is asked (scope, then seat and role, as choose-teams
+                                   asks them). Prints TEAMS, ROLES and ASK lines on stdout;
+                                   ASK names the one question (token, ssh, network) the
+                                   launcher asks next, or none. Leaving it prints nothing
+                                   and succeeds. ccy calls it
   ccy-teams record-seats <session> <seats>
                                    put the seats (a canonical --teams list) into the record of
                                    the session, so its restore replays them. ccy calls it, naming
@@ -291,6 +320,7 @@ Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust"
 The APPLIED column, from `declare.py status` against the installer's stamps (readable
 without sudo): up to date, out of date (config, software or both), not built, removed,
 or needs your decision (declared absent but still built, or built but not declared).
-Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure.
+Exit 64 for a usage mistake, 130 when cancelled (Esc, Ctrl-C), 1 for a refusal or a failure;
+a No or Stop you choose at a question changes nothing and exits 0.
 
 Runs on the HOST, as the desktop user.

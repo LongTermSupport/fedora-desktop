@@ -4,8 +4,10 @@ Plan 00161. play-agent-bus.yml runs this on the homeserver host, as root: `--pha
 before any team is removed, `--phase present` after the teams are installed. Each entry is
 one agent user in one existing LXC container (never made here), in one team hosted on this
 host. A present entry gets README.lxc's steps (files/opt/claude-yolo/optional/agent-bus/),
-in its order, after README.lxc's requirement is checked for every container before any change
-(gh installed and logged in to github.com for the agent user; never provided here):
+in its order, after every container has passed the checks below that need no change, gh is
+installed in it when missing (GH_INSTALL_SH), and every agent user's gh login to github.com
+is checked before any team changes: the login is the owner's, by gh's device code, and a
+missing one stops the run with the command for each (gh_login_refusal):
 
   1. the kit, /usr/local/share/agent-bus/kit, copied into the container (only what differs
      is written) and its `pingbus` and `agent-bus-claude` linked into /usr/local/bin, the
@@ -65,6 +67,7 @@ import ipaddress
 import json
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -117,6 +120,10 @@ SERVICE_TMUX = "agent-bus-claude"
 _UNIT_VALUE_RE = re.compile(r"/[A-Za-z0-9._/@+-]*")
 _CONTAINER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+#: The agent runs as an ordinary user with no sudo (docs/agent-bus-lxc-members.md), never as the
+#: container's root, which could change the kit, the bundles and every other user's files.
+ROOT_USER_REFUSAL = ("user must not be root: the agent runs as an ordinary user of the container, "
+                     "with no sudo; make one there (useradd -m agent) and name it")
 _ENV_VALUE = r"[A-Za-z0-9,._-]*"
 _SUGGEST_RE = re.compile(r"--repo=(\S+) --host=(\S+) --type=(\S+)")
 
@@ -377,11 +384,49 @@ SERVICE_NEEDS_SH = ('test -d /run/systemd/system || { echo "systemd is not the i
 
 #: As the agent: README.lxc step 6, with the env file read as agent-bus-claude reads it.
 CONFIG_CHECK_SH = f'set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; exec pingbus config check'
-#: As the agent, before any change: README.lxc's requirement, gh logged in to github.com
-#: (pingbus's one forge credential, DESIGN.md D66), with the env file read when there is one,
-#: as config check reads it (a GH_TOKEN there counts). The token stays inside the container.
+#: As root, once every other check has passed: gh in the container when it is not there, from
+#: GitHub's own apt or dnf repository (as play-git-configure-and-tools.yml installs it on the
+#: host), or Alpine's github-cli. Prints the package manager it used; nothing when gh is there.
+GH_INSTALL_SH = r'''set -eu
+if command -v gh >/dev/null; then exit 0; fi
+if command -v apt-get >/dev/null; then
+  export DEBIAN_FRONTEND=noninteractive
+  if ! command -v curl >/dev/null; then apt-get update >&2; apt-get install -y ca-certificates curl >&2; fi
+  keyring=/etc/apt/keyrings/githubcli-archive-keyring.gpg
+  mkdir -p -m 755 /etc/apt/keyrings /etc/apt/sources.list.d
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o "$keyring"
+  chmod 644 "$keyring"
+  arch=$(dpkg --print-architecture)
+  echo "deb [arch=$arch signed-by=$keyring] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
+  apt-get update >&2
+  apt-get install -y gh >&2
+  echo apt
+elif command -v dnf >/dev/null; then
+  if ! command -v curl >/dev/null; then dnf -y install curl >&2; fi
+  curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos.d/gh-cli.repo
+  dnf -y install gh >&2
+  echo dnf
+elif command -v apk >/dev/null; then
+  apk add --no-cache github-cli >&2
+  echo apk
+else
+  echo "this container has none of apt-get, dnf or apk to install gh with: install gh in it" >&2
+  exit 5
+fi
+command -v gh >/dev/null || { echo "gh is still not on PATH after its install" >&2; exit 6; }
+'''
+#: What GH_INSTALL_SH's package manager is said as.
+GH_SOURCES = {"apt": "from cli.github.com", "dnf": "from cli.github.com", "apk": "the distribution's github-cli"}
+#: The command the owner runs to log the agent user's gh in, by gh's one-time device code.
+GH_LOGIN = "gh auth login --hostname github.com --web"
+#: As the agent: README.lxc's requirement, gh logged in to github.com (pingbus's one forge
+#: credential, DESIGN.md D66), with the env file read when there is one, as config check reads
+#: it (a GH_TOKEN there counts). Prints `logged-in`, or `logged-out` and what gh said; the
+#: token goes to /dev/null and never leaves the container.
 GH_CHECK_SH = (f'if [ -f "$HOME/{PINGBUS_DIR}/env" ]; then set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; fi; '
-               "gh auth token --hostname github.com >/dev/null")
+               'if said=$(gh auth token --hostname github.com 2>&1 >/dev/null); then echo logged-in; '
+               "else printf 'logged-out %s\\n' \"$said\"; fi")
 
 
 class MemberError(Exception):
@@ -442,6 +487,8 @@ def _parse_entry(position: int, entry: object) -> Member:
         raise MemberError(f"{where}: container must be an LXC container name")
     if not isinstance(user, str) or not _USER_RE.fullmatch(user):
         raise MemberError(f"{where}: user must be a user name")
+    if user == "root":
+        raise MemberError(f"{where}: {ROOT_USER_REFUSAL}")
     host = entry.get("host")
     if host is not None:
         if not isinstance(host, str):
@@ -725,6 +772,28 @@ def known_handle(member: Member, record: Mapping | None) -> str | None:
         if given is not None and given != found:
             return None
     return item["handle"]
+
+
+def others_held(record: Mapping | None, member: Member) -> set[str]:
+    """The handles the member record gives the team's other entries (other container or user)."""
+    items = record.get("members") if isinstance(record, Mapping) else None
+    return {item["handle"] for item in (items if isinstance(items, list) else ())
+            if isinstance(item, Mapping) and isinstance(item.get("handle"), str)
+            and (item.get("container"), item.get("user")) != (member.container, member.user)}
+
+
+def unheld_handles(listed: Mapping[str, tuple[str, bool]], repo: str, host: str | None, seat: str | None,
+                   others: Collection[str]) -> list[str]:
+    """The team's active LXC members of `repo` (and of `host` and `seat`, where known) that no
+    other entry holds: the handles an absent entry with no bundle and no record may hold."""
+    found = []
+    for handle, (_role, parked) in listed.items():
+        held = protocol.parse_handle(handle)
+        if parked or held is None or handle in others or held.type != MEMBER_TYPE or held.repo != repo:
+            continue
+        if host in (None, held.host) and seat in (None, held.seat):
+            found.append(handle)
+    return sorted(found)
 
 
 def with_handle(member: Member, handle: str) -> Member:
@@ -1050,13 +1119,43 @@ def _check_teams(members: Sequence[Member], teams_present: Sequence[str], host: 
                               "active; run play-agent-bus.yml with the team declared present")
 
 
-def _check_gh(guest, member: Member, home: str) -> None:
-    """README.lxc's requirement, met by whoever set the container up and never by this play:
-    gh installed and logged in to github.com for the agent user."""
-    guest.agent(member.user, home, home, ["sh", "-c", GH_CHECK_SH],
-                f"LXC container {member.container}: gh is required and must be logged in for "
-                f"{member.user}: install gh in the container and run `gh auth login --hostname "
-                f"github.com` as {member.user}. The check, gh's token for github.com,")
+def gh_login_refusal(missing: Sequence[tuple[Member, str]]) -> str:
+    """One message for every member whose gh is not logged in: the command each needs, run by
+    the owner on this host, and how the join then finishes."""
+    lines = []
+    for member, said in missing:
+        lines.append(f"LXC container {member.container}: gh is required and must be logged in for "
+                     f"{member.user}, and it is not ({said or 'gh gave no reason'}). Log it in, on this host:")
+        lines.append(f"  sudo lxc-attach -n {shlex.quote(member.container)} -- su - {shlex.quote(member.user)} "
+                     f"-c {shlex.quote(GH_LOGIN)}")
+    teams = sorted({member.team for member, _ in missing})
+    lines.append("gh prints a one-time device code to enter at github.com/login/device; no token is written "
+                 "down or put on a command line. Then " +
+                 "; ".join(f"ccy-teams lxc-add {team} again, or ccy-teams apply {team}" for team in teams) +
+                 ", finishes the join.")
+    return "\n".join(lines)
+
+
+def _ensure_gh(guest, container: str, emit: Callable[[str], None], say: Callable[[str], None]) -> None:
+    """README.lxc's requirement, gh in the container, installed when it is missing."""
+    out = guest.root(["sh", "-c", GH_INSTALL_SH],
+                     f"LXC container {container}: installing gh (the GitHub CLI pingbus needs)").decode().strip()
+    if out:
+        line = f"container {container}: gh installed ({out}, {GH_SOURCES.get(out, 'by ' + out)})"
+        emit(line)
+        say(line)
+
+
+def _gh_logged_out(guest, member: Member, home: str) -> str | None:
+    """What gh said when the agent user's gh is not logged in to github.com; None when it is."""
+    out = guest.agent(member.user, home, home, ["sh", "-c", GH_CHECK_SH],
+                      f"LXC container {member.container}: checking gh's login for {member.user}").decode().strip()
+    word, _, said = out.partition(" ")
+    if word == "logged-in":
+        return None
+    if word != "logged-out":
+        raise MemberError(f"LXC container {member.container}: gh's login check for {member.user} printed {out!r}")
+    return " ".join(said.split())
 
 
 def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None],
@@ -1264,12 +1363,19 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
             continue
         guest = host.guest(container)
         home = _home(guest, group[0])
-        _check_gh(guest, group[0], home)
         _interpreter(guest)
         _check_route(host, guest, group, bus)
         if group[0].service:
             tmux_of[(container, user)] = _check_service(host, guest, container)
         ready.append((container, user, group, guest, home))
+    # gh is installed once every container has passed the checks above, and every agent user's
+    # login is checked before any team changes: one message names each login still missing.
+    for container in dict.fromkeys(c for c, *_ in ready):
+        _ensure_gh(next(g for c, _u, _m, g, _h in ready if c == container), container, emit, say)
+    missing = [(member, said) for _c, _u, group, guest, home in ready
+               if (said := _gh_logged_out(guest, group[0], home)) is not None for member in group]
+    if missing:
+        raise MemberError(gh_login_refusal(missing))
     reachable = {(c, u) for c, u, *_ in ready}
     # A held-back entry takes part in the derivation only through its known handle (L4).
     found = [claimed.get(id(m), m) for m in members
@@ -1328,6 +1434,48 @@ def _absent_held_back(host: Host, member: Member, state: str, team_runs: bool, r
     return Seen(member, DEFERRED, held, f"{where}: {held} is parked in team {member.team}; {later}")
 
 
+def _unbundled_handle(host: Host, member: Member, state: str | None, guest, home: str | None,
+                      record: Mapping | None, listed: Mapping[str, tuple[str, bool]]) -> str | None:
+    """The handle of an absent entry whose container holds no bundle for the team and whose
+    handle this host has no record of. An entry giving host and seat names it; otherwise its
+    `<repo>` and `<host>` are derived from the checkout (or taken from the entry) and the team is
+    searched: None, nothing to park, when no active member of them is unheld (it never joined);
+    refused when one is, since it may be this container's (a lost bundle) or another's."""
+    if member.host is not None and member.seat is not None:
+        if member.repo is None and home is None:
+            raise MemberError(f"{member.label}: no user {member.user} in the container to run "
+                              "suggest-handle as: add repo: <repo> to the entry")
+        return member.handle(member.repo if member.repo is not None else
+                             registry.normalise_repo(_suggest(guest, member, home)))
+    repo, where = member.repo, member.host
+    if state is not None and member.checkout is not None:
+        try:
+            identity = derive.identity_of(derive.parse_probe(host.read_checkout(member.container, member.user,
+                                                                                member.checkout)))
+        except derive.DeriveError as exc:
+            raise MemberError(f"{member.label} in team {member.team}: {exc}") from None
+        if repo is not None and repo != identity.repo:
+            raise MemberError(f"{member.label} in team {member.team}: the entry says repo: {repo}, and its "
+                              f"checkout's origin gives {identity.repo}")
+        repo, where = identity.repo, where or identity.host
+    if repo is None:
+        raise MemberError(f"{member.label}: no bundle in the container names its handle: add repo: <repo> "
+                          "to the entry")
+    if member.seat is not None and where is not None:
+        return dataclasses.replace(member, host=where).handle(repo)
+    candidates = unheld_handles(listed, repo, where, member.seat, others_held(record, member))
+    if not candidates:
+        return None
+    named = (f"{candidates[0]} is an active member" if len(candidates) == 1
+             else f"{', '.join(candidates)} are active members")
+    fixes = " or ".join(("" if where is not None else f"host: {protocol.parse_handle(h).host} and ")
+                        + f"seat: {protocol.parse_handle(h).seat}" for h in candidates)
+    raise MemberError(f"{member.label}: no bundle in the container names its handle and this host has no "
+                      f"record of it, and {named} of team {member.team} that no entry holds: it may be this "
+                      "container's (its bundle lost) or another's joined by hand, so nothing is parked "
+                      f"silently. To park the one that is its, set {fixes} on the entry and run the play again")
+
+
 def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
                 emit: Callable[[str], None], record: Mapping | None = None) -> Seen:
     team_runs = host.team_active(member.team)
@@ -1350,17 +1498,13 @@ def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
         if home is not None:
             found, env = _observe(guest, member, home)
     if team_runs:
+        listed = parse_list(host.agent_bus(["list", member.team]).decode())
         held = bundle_handle(found.member) if found.member is not None else None
         if held is None:
-            if member.host is None or member.seat is None:
-                raise MemberError(f"{member.label}: no bundle in the container names its handle, and the entry "
-                                  "leaves out its host or seat: set both on the entry to park it")
-            if member.repo is None and home is None:
-                raise MemberError(f"{member.label}: no user {member.user} in the container to run "
-                                  "suggest-handle as: add repo: <repo> to the entry")
-            held = member.handle(member.repo if member.repo is not None else
-                                 registry.normalise_repo(_suggest(guest, member, home)))
-        registered = parse_list(host.agent_bus(["list", member.team]).decode()).get(held)
+            held = known_handle(member, record)
+        if held is None:
+            held = _unbundled_handle(host, member, state, guest, home, record, listed)
+        registered = listed.get(held) if held is not None else None
     else:
         held, registered = None, None
     plan = absent_plan(found, registered, team_runs)

@@ -205,6 +205,9 @@ func identityOf(d *pycompat.Dict, where string) (member, error) {
 		}
 		*f.into = string(s)
 	}
+	if m.user == rootUser {
+		return member{}, refusedf("%s: %s", where, rootUserRefusal)
+	}
 	return m, nil
 }
 

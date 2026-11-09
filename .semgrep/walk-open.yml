@@ -1,0 +1,244 @@
+# Semgrep rule for Python that opens what a directory walk found. Run by
+# scripts/qa-walk-open.bash over every Python file git would publish, after the rule is proven
+# against .semgrep/walk-open.py. The reasoning, and how to fix a finding, is in CLAUDE/QA.md
+# under "walk-opens-non-regular-file".
+rules:
+  # Rule: an entry a directory walk yields is opened only after it is known to be a regular file
+  # (Defence Before Fix; CLAUDE/QA.md "walk-opens-non-regular-file"; issue #191).
+  #
+  # A walk lists every kind of entry: named pipes, sockets and devices as well as files. Opening
+  # a named pipe for reading blocks until something writes to it, so a walk that reaches one
+  # hangs for ever. play_text() in helpers/play_ledger/group_vars.py read every name os.walk()
+  # listed under a play's input directories, reached the named pipes old plan runs left under
+  # untracked/, and changed_plays never returned.
+  #
+  # WRONG: for dirpath, _dirs, files in os.walk(top):
+  #            for name in files:
+  #                with open(os.path.join(dirpath, name)) as handle: ...
+  # RIGHT: for dirpath, _dirs, files in os.walk(top):
+  #            for name in files:
+  #                path = os.path.join(dirpath, name)
+  #                if not os.path.isfile(path):
+  #                    continue
+  #                with open(path) as handle: ...
+  #
+  # Taint from what os.walk, os.scandir, os.listdir, glob.glob/iglob and Path.rglob/glob/iterdir
+  # return, through anything built from it and into a set or list it is added to, reaching
+  # open/io.open/os.open, Path.open/read_text/read_bytes, or a bare-named function of the module's
+  # own whose name says it reads (_read, read_text, load_json ...), or zipfile.ZipFile.
+  # os.path.isfile(x), x.is_file() and stat.S_ISREG(os.stat(x).st_mode) (lstat, or x.stat())
+  # clear x only where they guard the open: in the branch the check holds (also with `and`), in a
+  # comprehension's filter, after the check by short circuit, after an `if` whose failed check
+  # leaves the block (continue, break, return, raise; also with `or`), or after an assert of it.
+  # A check that only warns and falls through, a bare check statement, a check joined by `or` to
+  # the branch, or an existence test guards nothing. A check must name the variable opened.
+  - id: walk-opens-non-regular-file
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: os.walk(...)
+      - pattern: os.fwalk(...)
+      - pattern: os.scandir(...)
+      - pattern: os.listdir(...)
+      - pattern: glob.glob(...)
+      - pattern: glob.iglob(...)
+      - pattern: $P.rglob(...)
+      - pattern: $P.glob(...)
+      - pattern: $P.iterdir()
+      - pattern: $P.walk(...)
+    pattern-propagators:
+      - pattern: $S.update($X)
+        from: $X
+        to: $S
+      - pattern: $S.add($X)
+        from: $X
+        to: $S
+      - pattern: $S.append($X)
+        from: $X
+        to: $S
+      - pattern: $S.extend($X)
+        from: $X
+        to: $S
+    pattern-sanitizers:
+      # The open sits in the branch the check guards: `if p.is_file(): open(p)`, also with more
+      # terms joined by `and`. An `or` means the branch is not guarded, so it does not count.
+      - patterns:
+          - pattern-inside: |
+              if $COND:
+                $...BODY
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: &regular-file-check
+                    - pattern: os.path.isfile($X)
+                    - pattern: $X.is_file(...)
+                    - pattern: stat.S_ISREG(os.stat($X).st_mode)
+                    - pattern: stat.S_ISREG(os.lstat($X).st_mode)
+                    - pattern: stat.S_ISREG($X.stat().st_mode)
+                    - pattern: stat.S_ISREG($X.lstat().st_mode)
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $...BODY
+          - pattern: $X
+      # The same in a comprehension's filter: `[p.read_text() for p in d.iterdir() if p.is_file()]`.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: '[$E for $V in $I if $COND]'
+              - pattern-inside: '($E for $V in $I if $COND)'
+              - pattern-inside: '{$E for $V in $I if $COND}'
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $E
+          - pattern: $X
+      # Within one condition, after the check by short circuit: `p.is_file() and read(p)`,
+      # `not p.is_file() or read(p)`.
+      - patterns:
+          - pattern-inside: $GUARD and $REST
+          - metavariable-regex:
+              metavariable: $GUARD
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $GUARD
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $REST
+          - pattern: $X
+      - patterns:
+          - pattern-inside: $GUARD or $REST
+          - metavariable-regex:
+              metavariable: $GUARD
+              regex: '^(?:not\s*\([\s\S]*\)$|(?![\s\S]*\band\b))'
+          - metavariable-pattern:
+              metavariable: $GUARD
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-inside: not $NEGATED
+          - focus-metavariable: $REST
+          - pattern: $X
+      # A check asserted, which raises when it fails: `assert p.is_file()`,
+      # `self.assertTrue(p.is_file(), ...)`.
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: assert $COND
+              - pattern: assert $COND, $MESSAGE
+              - pattern: $TEST.assertTrue($COND, ...)
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?![\s\S]*\bor\b)'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-not-inside: not $NEGATED
+          - focus-metavariable: $X
+      # A failed check leaves the block before the open: `if not p.is_file(): continue` (or
+      # break, return, raise), also with more terms joined by `or`. A branch that only warns and
+      # falls through to the open does not count, and an `and` means it may not leave.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    continue
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    break
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    return
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    return $RESULT
+                  ...
+              - pattern-inside: |
+                  if $COND:
+                    ...
+                    raise $ERROR
+                  ...
+          - metavariable-regex:
+              metavariable: $COND
+              regex: '^(?:not\s*\([\s\S]*\)$|(?![\s\S]*\band\b))'
+          - metavariable-pattern:
+              metavariable: $COND
+              patterns:
+                - pattern-either: *regular-file-check
+                - pattern-inside: not $NEGATED
+          - pattern: $X
+    pattern-sinks:
+      - pattern: open(...)
+      - pattern: io.open(...)
+      - pattern: os.open(...)
+      - pattern: $X.open(...)
+      - pattern: $X.read_text(...)
+      - pattern: $X.read_bytes(...)
+      - pattern: $M.imread(...)
+      - pattern: zipfile.ZipFile(...)
+      # A function of the module's own whose name says it opens what it is given. One named for
+      # regular files (_read_regular...) is the check itself, not a sink: its own body is judged
+      # by regular-read-helper-unchecked below, so the name exempts nothing it does not do.
+      - patterns:
+          - pattern: $FN(...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: '^_?(read|load|slurp|open)(_\w*)?$'
+          - metavariable-regex:
+              metavariable: $FN
+              regex: '^(?!_?read_regular(_|$))'
+    message: >
+      walk-opens-non-regular-file: this opens an entry a directory walk found without checking
+      it is a regular file, and opening a named pipe blocks for ever. Skip any entry that
+      os.path.isfile() or Path.is_file() rejects before opening it. See CLAUDE/QA.md
+      "walk-opens-non-regular-file".
+    severity: ERROR
+    metadata:
+      dbf-class: a walked directory entry opened without a regular-file check
+
+  # Rule: a reader named for regular files does what its name promises, since that name exempts
+  # its callers from walk-opens-non-regular-file. Its body opens non-blocking (a FIFO cannot hang
+  # the open) and refuses anything its descriptor's fstat says is not a regular file.
+  #
+  # WRONG: def _read_regular_text(path):
+  #            with open(path) as handle: ...                    (blocks on a FIFO)
+  # RIGHT: def _read_regular_text(path):
+  #            descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+  #            if not stat.S_ISREG(os.fstat(descriptor).st_mode): raise OSError(...)
+  - id: regular-read-helper-unchecked
+    languages: [python]
+    patterns:
+      - pattern: |
+          def $FN(...):
+            ...
+      - metavariable-regex:
+          metavariable: $FN
+          regex: '^_?read_regular(_\w*)?$'
+      - pattern-not: |
+          def $FN(...):
+            ...
+            <... os.open(..., <... os.O_NONBLOCK ...>) ...>
+            ...
+            <... stat.S_ISREG(os.fstat(...).st_mode) ...>
+            ...
+    message: >
+      regular-read-helper-unchecked: a reader named for regular files must open non-blocking
+      and refuse what its descriptor's fstat says is not a regular file, because its name
+      exempts its callers from walk-opens-non-regular-file. See CLAUDE/QA.md
+      "walk-opens-non-regular-file".
+    severity: ERROR
+    metadata:
+      dbf-class: a regular-file reader that does not check what it opened

@@ -3,5 +3,6 @@
   "playbooks/imports/optional/common/play-open-command.yml": "playbooks/imports/optional/common/play-cli-tools.yml",
   "playbooks/imports/optional/common/play-compression-helpers.yml": "playbooks/imports/optional/common/play-cli-tools.yml",
   "playbooks/imports/optional/common/play-disk-reclaim.yml": "playbooks/imports/optional/common/play-cli-tools.yml",
-  "playbooks/imports/optional/common/play-golang.yml": "playbooks/imports/play-golang.yml"
+  "playbooks/imports/optional/common/play-golang.yml": "playbooks/imports/play-golang.yml",
+  "playbooks/imports/play-ms-fonts.yml": "playbooks/imports/play-fonts.yml"
 }

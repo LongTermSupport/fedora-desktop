@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 // pruneTree is a library with two orphans (one in a dated tree with a JPEG/ sibling) and two
@@ -20,6 +22,51 @@ func pruneTree(k *kit) {
 	k.put("photos/2026/10/15/JPEG/C.JPEG", jpegBytes(), testStart)
 	k.put("photos/2026/10/15/RAW/D.ARW", make([]byte, 100), testStart)
 	k.put("photos/2026/10/15/RAW/notes.txt", []byte("x"), testStart)
+}
+
+// The run holds the terminal's echo off, gives it back while the prune question is answered,
+// and leaves the terminal as it found it; the production environment holds it.
+func TestThePruneAnswerIsTypedWithTheEchoOn(t *testing.T) {
+	k := newKit(t)
+	k.realRoot()
+	pruneTree(k)
+	k.stdin = "n\n"
+	k.stdinTTY = true
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := tty.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	k.echo, modes = ttyecho.Fake(tty)
+	// A screen shown earlier in the run (the launcher's mode question) took the hold.
+	if err = ttyecho.Screen(k.echo); err != nil {
+		t.Fatal(err)
+	}
+	k.wantCode(k.run("--prune"), term.ExitOK)
+	if modes.Sets != 4 || !modes.Echo() {
+		t.Fatalf("%d sets (held, given, held, released), echo after %v", modes.Sets, modes.Echo())
+	}
+	if err = ttyecho.Screen(k.echo); err != nil {
+		t.Fatal(err)
+	}
+	modes.SetErr = errors.New("EIO")
+	k.wantCode(k.run("--prune"), term.ExitFailure)
+	k.wantErr("put the terminal's mode back: EIO")
+	env := NewEnv()
+	if env.Echo == nil || env.Echo.TTY != os.Stdin {
+		t.Fatalf("hold %+v", env.Echo)
+	}
+	if _, bare := env.Runner.(execx.OS); bare {
+		t.Fatal("the commands run outside the hold")
+	}
+	if _, bare := env.Execer.(execx.OS); bare {
+		t.Fatal("the exec is outside the hold")
+	}
 }
 
 // E37-E40.
@@ -93,6 +140,6 @@ func TestPruneRemovalFailureGoesOn(t *testing.T) {
 	k.fake.On([]string{"sudo", "-n", "rm", "-f", filepath.Join(k.upload, "photos/2026/10/14/RAW/B.ARW")}, execx.Result{ExitCode: 1})
 	k.stdin = "Y\n"
 	k.wantCode(k.run("--prune"), term.ExitOK)
-	k.wantErr("  failed  photos/2026/10/14/RAW/B.ARW\n")
+	k.wantErr("  failed  photos/2026/10/14/RAW/B.ARW  (sudo exited 1)\n")
 	k.wantOut("Prune complete: 1 of 2 files removed")
 }

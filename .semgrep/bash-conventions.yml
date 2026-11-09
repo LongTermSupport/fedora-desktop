@@ -306,3 +306,108 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: no secret kept short-lived by a clipboard meant to erase itself
+  # (Defence Before Fix; CLAUDE/GoProjectRules.md "project_self_erasing_clipboard"
+  # is the same class in Go, with its proof).
+  #
+  # WRONG: printf '%s' "$pw" | wl-copy --paste-once   (or -o, or xclip -loops 1)
+  # WRONG: echo "The password is on the clipboard for one paste"
+  # RIGHT: copy plainly, say it is on the clipboard, and once it is pasted (or a
+  #        bounded wait ends) clear the clipboard only if it still holds it.
+  #
+  # On GNOME the desktop reads a new selection at once and goes on serving its own
+  # copy after wl-copy has exited: the secret stays pasteable until the next copy
+  # while the person was told it was gone. Comments count: a comment promising one
+  # paste is the same false claim.
+  - id: bash-self-erasing-clipboard
+    pattern-either:
+      - pattern-regex: '\bwl-copy\b[^\n|;&]*?[ \t](?:--paste-once|-[A-Za-z]*o[A-Za-z]*)\b'
+      - pattern-regex: '\bxclip\b[^\n|;&]*?[ \t]-loops[ \t]+[1-9]'
+      - pattern-regex: '(?i)paste[- ]once|\b(?:for|to|serves?|after)\s+(?:one|a\s+single|the\s+first)\s+paste\b|\bthe\s+one\s+paste\b|\bgone\s+from\s+the\s+clipboard\b|\bgone\s+after\s+(?:one|a\s+single|the\s+first)\s+paste\b'
+    message: >
+      bash-self-erasing-clipboard: a secret kept short-lived by a clipboard meant
+      to erase itself after one paste, or text promising it. GNOME keeps serving
+      the selection after wl-copy exits. Copy plainly, then clear only while the
+      clipboard still holds the secret. See CLAUDE/GoProjectRules.md
+      "project_self_erasing_clipboard".
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'extensions/**'
+        - 'fedora-install/**'
+        - 'CLAUDE/Plan/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH
+
+  # A test that asserts a recorded time lies below a fresh read of the wall clock.
+  #
+  # The window is built from separate reads of `date` in separate processes (one
+  # before the run, one inside the code under test, one after): any of them failing
+  # or stepping makes the assertion fail on a run that did nothing wrong, as the
+  # ccy-teams launch-start assertion did on CI. Give the code under test a clock
+  # the test owns (a fake `date` first on PATH, a clock variable) and assert the
+  # exact value it was given.
+  - id: bash-test-time-window
+    patterns:
+      - pattern-regex: '(?m)^[^\n#]*\[\[?[^\n]*[ \t]-(?:le|lt)[ \t]+"?\$\([ \t]*date[ \t][^\n)]*\)"?[^\n]*\]\]?[^\n]*$'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'scripts/**'
+        - 'tests/**'
+        - 'files/**'
+        - 'fedora-install/**'
+    message: >
+      bash-test-time-window: a test compares a time with a fresh read of the wall
+      clock (-le or -lt against "$(date ...)"). The bounds come from separate
+      processes and a clock that steps or a `date` that fails makes it fail on a
+      correct run. Inject the clock (a fake `date` first on PATH, or a variable the
+      code under test reads) and assert the exact value. If a bound on the real
+      clock is the point, annotate with # FAIL-FAST-OK and say why.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+
+  # A test suite whose scratch tree is inside the checkout, with no git ceiling.
+  #
+  # git, run from a directory with no repository of its own, walks up to the
+  # enclosing checkout and answers with ITS configuration: its remote, its hooks
+  # path, its identity. A case that means "a project with no remote" then reads
+  # the checkout's `origin`, so it passes where that is a plain URL (CI) and fails
+  # where it is an ssh-config alias (the CCY container, a host set up as this
+  # project sets one up). The result depends on whose checkout runs the suite.
+  #
+  # RIGHT: export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked" within three
+  #        lines after the mktemp: git then stops looking above the scratch tree
+  #        and reports "not a repository", as it would from a directory in /tmp.
+  # RIGHT: a case that needs a repository makes its own (`git init -q "$dir"`).
+  - id: bash-test-scratch-inside-checkout
+    patterns:
+      - pattern-regex: '(?m)^[^\n#]*\bmktemp\b[^\n]*\$\{?REPO_ROOT\}?/[^\n]*$(?!(?:\n[^\n]*?){1,3}GIT_CEILING_DIRECTORIES)'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'scripts/test-*'
+        - 'tests/**'
+    message: >
+      bash-test-scratch-inside-checkout: this suite makes its scratch directory
+      inside the checkout and does not put a git ceiling above it, so git run from
+      the scratch tree reads the checkout's own remote and configuration and the
+      result depends on whose checkout runs it. Export
+      GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked" within three lines after the
+      mktemp, or make the directory's own repository with `git init -q`. If the
+      suite genuinely needs the checkout's configuration, annotate with
+      # FAIL-FAST-OK and say why.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

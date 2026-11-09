@@ -194,7 +194,7 @@ func (s *session) check(ctx context.Context, root string) (int, error) {
 		s.report(append(unshipped, refused...))
 		return ExitFailure, err
 	}
-	findings := slices.Concat(unshipped, Evaluate(list.Records, scan))
+	findings := slices.Concat(unshipped, Evaluate(list.Records, scan), MaskedFindings(scan))
 	more, err := s.againstBase(ctx, root, list, scan)
 	if err != nil {
 		return 0, err
@@ -338,11 +338,11 @@ func (s *session) verdict(findings []Finding, list File, scan Scan) int {
 		for _, f := range findings {
 			s.err.printf("✗ bash-limits: %s\n", f.Msg)
 		}
-		s.err.printf("✗ bash-limits: %d finding(s). Tooling is Go; bash is for very small helpers (src-go/CLAUDE.md).\n", len(findings))
+		s.err.printf("✗ bash-limits: %d finding(s). Tooling is Go; bash is for very small helpers (src-go/CLAUDE.md); a masked substitution: CLAUDE/QA.md#%s.\n", len(findings), MaskedRuleID)
 		return ExitFailure
 	}
 	checked := len(scan.Measured)
-	s.out.printf("BASH-LIMITS-OK %d bash files: %d exempt, %d checked (%d allowlisted, %d within limits)\n",
-		checked+len(scan.Exempt), len(scan.Exempt), checked, len(list.Records), checked-len(list.Records))
+	s.out.printf("BASH-LIMITS-OK %d bash files: %d exempt, %d checked (%d allowlisted, %d within limits); %d judged by %s\n",
+		checked+len(scan.Exempt), len(scan.Exempt), checked, len(list.Records), checked-len(list.Records), len(scan.Judged), MaskedRuleID)
 	return ExitOK
 }

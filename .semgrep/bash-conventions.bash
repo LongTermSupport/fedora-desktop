@@ -341,3 +341,98 @@ podman run -d --pids-limit 4096 "$IMAGE"
 
 # ok: ccy-container-default-pids-limit
 podman run -d --pids-limit 100 "$IMAGE"
+
+# --- bash-self-erasing-clipboard ---
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy --paste-once
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy -o
+
+# ruleid: bash-self-erasing-clipboard
+printf '%s' "$pw" | xclip -selection clipboard -loops 1
+
+# ruleid: bash-self-erasing-clipboard
+echo "The password is on the clipboard for one paste." >&2
+
+# ruleid: bash-self-erasing-clipboard
+check "served once" "yes" "$(logged 'wl-copy --paste-once')"
+
+# ruleid: bash-self-erasing-clipboard
+# after that it is gone from the clipboard
+
+# ok: bash-self-erasing-clipboard
+printf '%s' "$pw" | wl-copy
+
+# ok: bash-self-erasing-clipboard
+wl-copy --clear
+
+# ok: bash-self-erasing-clipboard
+wl-copy --type text/plain < "$file" && curl -o out "$url"
+
+# ok: bash-self-erasing-clipboard
+echo "The transcript is typed in one paste at stop." >&2
+
+# --- bash-test-time-window ---
+
+# The ccy-teams launch-start assertion as it was: a recorded time bounded by a
+# read of the clock taken after it.
+# ruleid: bash-test-time-window
+check "launch start" "yes" "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
+
+# The `[[ ]]` form and the seconds clock are the same defect.
+# ruleid: bash-test-time-window
+if [[ "$recorded" -lt "$(date +%s)" ]]; then echo ok; fi
+
+# The exact value the code under test was given is what to assert.
+# ok: bash-test-time-window
+[ "$since_ms" -eq 1762000000123 ]
+
+# A bound on how long something took is about elapsed time, not a window.
+# ok: bash-test-time-window
+[ $(($(date +%s) - started)) -lt 10 ]
+
+# A bound on the real clock that is the point of the test says so.
+# ok: bash-test-time-window
+[ "$stamp" -le "$(date +%s)" ]  # FAIL-FAST-OK: the stamp is the system clock's own
+
+# --- bash-test-scratch-inside-checkout ---
+
+# The compose-restore suite as it was: a scratch tree inside the checkout and
+# nothing stopping git from walking up into it.
+# ruleid: bash-test-scratch-inside-checkout
+WORK="$(mktemp -d "$REPO_ROOT/untracked/scratch/compose-test.XXXXXX")"
+PROJECT="$WORK/project-a"
+mkdir -p "$PROJECT"
+cd "$PROJECT" || exit 99
+
+# The braced spelling and an unquoted assignment are the same defect.
+# ruleid: bash-test-scratch-inside-checkout
+SCRATCH=$(mktemp -d "${REPO_ROOT}/untracked/scratch/registry-test.XXXXXX")
+trap 'rm -rf "$SCRATCH"' EXIT
+mkdir -p "$SCRATCH/home"
+mkdir -p "$SCRATCH/bin"
+
+# The fix: the ceiling goes straight after the directory is made.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/menus-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"
+
+# Two lines later is still "straight after".
+# ok: bash-test-scratch-inside-checkout
+work=$(mktemp -d "$REPO_ROOT/untracked/scratch/askpass-test.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"
+
+# A directory outside the checkout has no enclosing repository to read.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d)"
+
+# A suite that needs the checkout's own configuration says so.
+# ok: bash-test-scratch-inside-checkout
+SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/x.XXXXXX")"  # FAIL-FAST-OK: the case reads the checkout's remote on purpose
+
+# A comment that quotes the call is not the call.
+# ok: bash-test-scratch-inside-checkout
+# the suite used to run: mktemp -d "$REPO_ROOT/untracked/scratch/y.XXXXXX"

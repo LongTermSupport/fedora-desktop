@@ -62,11 +62,13 @@ func NewEnv() Env {
 }
 
 // onSignal is OnStop over the process's SIGINT and SIGTERM, every one of them until released.
+// The release ends the relay that calls stop and waits for it, so no stop runs after it.
 func onSignal(stop func()) func() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	done := make(chan struct{})
-	go func() {
+	var relay sync.WaitGroup
+	relay.Go(func() {
 		for {
 			select {
 			case <-sigs:
@@ -75,12 +77,13 @@ func onSignal(stop func()) func() {
 				return
 			}
 		}
-	}()
+	})
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			signal.Stop(sigs)
 			close(done)
+			relay.Wait()
 		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -21,6 +22,10 @@ const (
 	actTakeOver = "take-over"
 	actEnd      = "end"
 	actNew      = "new"
+	// actClose closes a session as a person would: /compact, then /exit; actCloseOnly, /exit
+	// alone (sessclose, Plan 00191 Task 4.12).
+	actClose     = "close"
+	actCloseOnly = "close-no-compact"
 )
 
 // step is how an action ended: the picker is done (with an exit code), or goes round again,
@@ -191,6 +196,8 @@ func sessionMenu(r tableRow) ui.Menu {
 	}
 	acts = append(acts,
 		ui.Action{ID: actTakeOver, Label: "Take it over here (any other terminal on it is detached; the session keeps running)", Key: "ctrl-t"},
+		ui.Action{ID: actClose, Label: "Close it: /compact, then /exit (it ends cleanly, and its next resume starts small)"},
+		ui.Action{ID: actCloseOnly, Label: "Close it without compacting: /exit only"},
 		ui.Action{ID: actEnd, Label: "End it, and everything running in it", Key: "ctrl-x"})
 	return ui.Menu{
 		Title:   r.Name,
@@ -246,6 +253,8 @@ func (a *App) act(ctx context.Context, st *pickState, picked ui.Picked, rows []t
 	switch picked.Action {
 	case actEnd:
 		return a.confirmEnd(ctx, row.Name)
+	case actClose, actCloseOnly:
+		return a.confirmClose(ctx, row.Name, picked.Action == actCloseOnly)
 	case actTakeOver:
 		return a.confirmTakeOver(ctx, st, row.Name)
 	case actAttach:
@@ -280,7 +289,10 @@ func (a *App) startHere(st *pickState) step {
 // kill-session never lets the pane's trampoline remove it. A session that ended since the list
 // was drawn is just as ended.
 func (a *App) confirmEnd(ctx context.Context, name string) step {
+	// Destructive: the question starts on no key typed before it drew (ui.Drain).
+	end := a.Picker.Destructive()
 	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "End", "session "+name), "End "+name+"? Everything running in it will be killed.", "end '"+name+"'", false)
+	end()
 	if err != nil {
 		a.failErr(err)
 		return leave(term.ExitFailure)
@@ -310,6 +322,54 @@ func (a *App) confirmEnd(ctx context.Context, name string) step {
 		a.sayf("Ended '%s'.\n", name)
 	}
 	return redraw
+}
+
+// confirmClose closes a session as a person would, after the picker's yes/no (no is the
+// default): /compact, then /exit once the compaction is recorded, or /exit alone, through
+// sessclose. A failure leaves the session running and says why; the list comes back either way.
+func (a *App) confirmClose(ctx context.Context, name string, noCompact bool) step {
+	how := "It is compacted (/compact), then sent /exit."
+	if noCompact {
+		how = "It is sent /exit, without compacting."
+	}
+	end := a.Picker.Destructive()
+	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "Close", "session "+name), "Close "+name+"? "+how, "close '"+name+"'", false)
+	end()
+	if err != nil {
+		a.failErr(err)
+		return leave(term.ExitFailure)
+	}
+	if !yes {
+		a.sayf("Kept '%s'.\n", name)
+		return redraw
+	}
+	if !noCompact {
+		a.sayf("Closing '%s': /compact, then /exit; its compaction is waited for, %s at most.\n",
+			name, sessclose.Seconds(a.Closer.Limits().Compact))
+	}
+	results := a.Closer.Close(ctx, []sessclose.Target{{Name: name, NoCompact: noCompact}})
+	if len(results) != 1 {
+		a.fail("closing '" + name + "' returned no result")
+		return leave(term.ExitFailure)
+	}
+	a.sayf("%s\n", closeWords(results[0]))
+	return redraw
+}
+
+// closeWords is what a close did, in one sentence.
+func closeWords(r sessclose.Result) string {
+	suffix := "."
+	if r.Note != "" {
+		suffix = "; " + r.Note + "."
+	}
+	switch r.Outcome {
+	case sessclose.Exited:
+		return "Closed '" + r.Name + "': exited cleanly" + suffix
+	case sessclose.Stopped:
+		return "Closed '" + r.Name + "': stopped: " + r.Note + "."
+	case sessclose.Pending, sessclose.Failed:
+	}
+	return "'" + r.Name + "' was not closed: " + r.Note + "."
 }
 
 // attachHere attaches a detached session and ends the picker once the user detaches again. It

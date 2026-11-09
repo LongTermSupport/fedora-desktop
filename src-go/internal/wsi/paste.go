@@ -37,6 +37,7 @@ const (
 	targetReady     = "ready"
 	targetClosed    = "closed"
 	targetUnfocused = "unfocused"
+	targetOtherTab  = "other-tab"
 )
 
 // The ydotool chords (linux/input-event-codes.h: 29 Ctrl, 42 Shift, 47 V, 110 Insert,
@@ -57,12 +58,14 @@ var (
 	keysCtrlS      = []string{ctrlDown, "31:1", "31:0", ctrlUp}
 )
 
-// pasteAnswer is PasteKey's reply: ('<wm_class>', with_shift, save_after[, focused, gone]).
-var pasteAnswer = regexp.MustCompile(`^\('((?:\\.|[^'\\])*)', (true|false), (true|false)(?:, (true|false), (true|false))?\)$`)
+// pasteAnswer is PasteKey's reply: ('<wm_class>', with_shift, save_after[, focused, gone[,
+// tab_changed]]).
+var pasteAnswer = regexp.MustCompile(`^\('((?:\\.|[^'\\])*)', (true|false), (true|false)(?:, (true|false), (true|false)(?:, (true|false))?)?\)$`)
 
-// answer is one PasteKey reply; focused is "" from a panel that does not pin focus.
+// answer is one PasteKey reply; focused is "" from a panel that does not pin focus, and
+// tabChanged "" from one that does not watch a terminal's tabs.
 type answer struct {
-	wm, withShift, save, focused, gone string
+	wm, withShift, save, focused, gone, tabChanged string
 }
 
 // pasteKey asks the panel once; nil and the reason when it cannot say (W30).
@@ -93,7 +96,7 @@ func (r *run) pasteKey(ctx context.Context) (*answer, string) {
 	if m == nil {
 		return nil, reply
 	}
-	return &answer{wm: m[1], withShift: m[2], save: m[3], focused: m[4], gone: m[5]}, ""
+	return &answer{wm: m[1], withShift: m[2], save: m[3], focused: m[4], gone: m[5], tabChanged: m[6]}, ""
 }
 
 // focusWait counts the answers of one askPanel.
@@ -114,6 +117,10 @@ func (r *run) askPanel(ctx context.Context, enter bool) {
 		}
 		if a.gone == gvTrue {
 			r.target = targetClosed
+			return
+		}
+		if a.tabChanged == gvTrue {
+			r.target = targetOtherTab
 			return
 		}
 		if r.judge(w, a) {
@@ -200,8 +207,11 @@ func (r *run) settle(w *focusWait, a *answer) {
 
 // targetWhy is why the window pinned at Insert cannot take the keys (W31).
 func (r *run) targetWhy() string {
-	if r.target == targetClosed {
+	switch r.target {
+	case targetClosed:
 		return "the window this dictation started in was closed"
+	case targetOtherTab:
+		return "the terminal tab this dictation started in is no longer the one showing"
 	}
 	return "the window this dictation started in would not take focus back"
 }
@@ -316,14 +326,21 @@ func (r *run) readSelection(ctx context.Context, selection string) (string, stri
 	return stdout.String(), ""
 }
 
-// beforeEnter is W33's wait, and the second question after a retake.
+// beforeEnter is W33: the wait, then the panel asked again before any Enter or save, since
+// focus can move during the wait after any paste. A retake can be undone by whatever took
+// focus during the dictation, so it is given longer to show. Without --paste-with-shift
+// no window was pinned at Insert, so there is nothing to ask about.
 func (r *run) beforeEnter(ctx context.Context) error {
-	if !r.refocused || r.o.skipEnter {
+	keyDue := !r.o.skipEnter || r.saveAfter
+	if !r.refocused || !keyDue {
 		r.env.Sleep(enterDelay)
+	} else {
+		r.log.info("Waiting 1.0 s before the Enter: focus was given back for this paste")
+		r.env.Sleep(enterDelayAfterRetake)
+	}
+	if !keyDue || r.o.pasteWithShift == "" {
 		return nil
 	}
-	r.log.info("Waiting 1.0 s before the Enter: focus was given back for this paste")
-	r.env.Sleep(enterDelayAfterRetake)
 	r.askPanel(ctx, true)
 	if r.target == targetReady {
 		return nil

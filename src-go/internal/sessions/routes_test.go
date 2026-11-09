@@ -76,7 +76,7 @@ func TestCheckProjectsRefusesWhenContainersCannotBeMatched(t *testing.T) {
 	if _, err := h.app.checkProjects(context.Background(), "reboot-warning"); !errors.Is(err, errReported) {
 		t.Fatalf("ps: %v", err)
 	}
-	contains(t, "ps", h.stderr(), "the process table could not be read, so no session can be matched to its container: ps: gone")
+	contains(t, "ps", h.stderr(), "the process table could not be read, so no session can be matched to its container: ps exited 1: ps: gone")
 
 	h = newHarness(t)
 	h.sessions("cc-a 1 /srv/a")
@@ -258,7 +258,7 @@ func TestDeliverSignalStopsAtTheFirstRefusedWarningButNotAWithdrawal(t *testing.
 	if _, err := h.app.deliverSignal(context.Background(), projects, "reboot-warning", 3, false); !errors.Is(err, errReported) {
 		t.Fatalf("got %v", err)
 	}
-	contains(t, "warning", h.stderr(), "ERROR: signalling reboot-warning to "+a+" failed.")
+	contains(t, "warning", h.stderr(), "ERROR: signalling reboot-warning to "+a+" failed (exit 1).")
 	if h.count(cli(b)) != 0 {
 		t.Fatal("a warning stops at the first project that refuses")
 	}

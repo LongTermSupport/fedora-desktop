@@ -73,6 +73,8 @@ class TestBuildRecord(unittest.TestCase):
                 "name",
                 "commit",
                 "dirty",
+                "dirty_paths",
+                "dirty_paths_truncated",
                 "play_sha256",
                 "outcome",
                 "changed",
@@ -113,6 +115,56 @@ class TestBuildRecord(unittest.TestCase):
         # dirty, which makes play_sha256's whole reason for existing unreadable.
         with self.assertRaises(ValueError):
             self._record(dirty="false")
+
+    def test_a_clean_run_records_no_dirty_paths(self):
+        record = self._record()
+        self.assertEqual((record["dirty_paths"], record["dirty_paths_truncated"]), ([], False))
+
+    def test_a_dirty_run_records_which_paths_sorted(self):
+        record = self._record(dirty=True, dirty_paths=("b", "a"))
+        self.assertEqual((record["dirty"], record["dirty_paths"]), (True, ["a", "b"]))
+
+    def test_dirty_must_agree_with_the_paths(self):
+        # A dirty run naming no path would clear every play; a clean one naming paths is a lie.
+        for fields in ({"dirty": True}, {"dirty_paths": ("a",)}, {"dirty_paths_truncated": True}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                self._record(**fields)
+
+    def test_a_cut_list_is_dirty_even_with_paths(self):
+        record = self._record(dirty=True, dirty_paths=("a",), dirty_paths_truncated=True)
+        self.assertIs(record["dirty_paths_truncated"], True)
+
+    def test_a_dirty_path_must_be_a_repo_relative_string(self):
+        for bad in ("", "/abs", 3):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self._record(dirty=True, dirty_paths=(bad,))
+
+
+class TestRecordedDirtyPaths(unittest.TestCase):
+    """What a record says was dirty: the paths, or None when it cannot say all of them."""
+
+    def test_a_clean_run_names_none(self):
+        self.assertEqual(ledger.recorded_dirty_paths({"dirty": False}), ())
+
+    def test_a_dirty_run_names_its_paths(self):
+        record = {"dirty": True, "dirty_paths": ["a", "b"], "dirty_paths_truncated": False}
+        self.assertEqual(ledger.recorded_dirty_paths(record), ("a", "b"))
+
+    def test_a_record_from_before_the_paths_were_kept_cannot_say(self):
+        self.assertIsNone(ledger.recorded_dirty_paths({"dirty": True}))
+
+    def test_a_cut_list_cannot_say(self):
+        record = {"dirty": True, "dirty_paths": ["a"], "dirty_paths_truncated": True}
+        self.assertIsNone(ledger.recorded_dirty_paths(record))
+
+    def test_a_list_it_cannot_read_cannot_say(self):
+        for paths in ("a", [3], [], None):
+            record = {"dirty": True, "dirty_paths": paths, "dirty_paths_truncated": False}
+            with self.subTest(paths=paths):
+                self.assertIsNone(ledger.recorded_dirty_paths(record))
+
+    def test_an_unreadable_flag_cannot_say(self):
+        self.assertIsNone(ledger.recorded_dirty_paths({"dirty": "yes"}))
 
 
 class TestSerialise(unittest.TestCase):

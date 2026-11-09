@@ -40,6 +40,12 @@ def _resolve_project_root() -> str:
     # Depth assumption appears wrong — fall back to the env var if available.
     env_root = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
     if env_root:
+        # Relative would mean relative to the daemon's working directory, which is not the project
+        if not os.path.isabs(env_root):
+            raise RuntimeError(
+                f"system_paths handler: CLAUDE_PROJECT_DIR={env_root!r} is not absolute.  "
+                "Cannot determine project root — refusing to run to avoid mis-exempting system paths."
+            )
         env_path = Path(env_root).resolve()
         if any((env_path / sentinel).exists() for sentinel in _ROOT_SENTINELS):
             return str(env_path) + "/"
@@ -87,14 +93,32 @@ def _normalise(file_path: str) -> str:
     return path
 
 
+def _absolute(file_path: str) -> str:
+    """Return *file_path* absolute: a relative tool path is the project's, taken from its root.
+
+    The daemon's working directory is not the agent's project, so a relative path is never
+    resolved against it (CLAUDE/QA.md "hook-path-resolved-against-cwd").
+    """
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(_resolve_project_root(), file_path)
+    return file_path
+
+
+def _realpath(path: str) -> str:
+    """Return the path *path* (absolute) reaches once symlinks are followed."""
+    if not os.path.isabs(path):
+        raise ValueError(f"system_paths handler: {path!r} is not absolute")
+    return os.path.realpath(path)
+
+
 def _resolves_under(file_path: str, root: str) -> bool:
     """Return True if *file_path*, resolved as the kernel would, lies under *root*'s target.
 
     The ORIGINAL path is resolved, not its lexical normalisation: `root/link/../x` with
     link -> /etc/ssh normalises to root/x but is written to /etc/x.
     """
-    real_root = os.path.realpath(root)
-    return os.path.realpath(file_path).startswith(real_root + os.sep)
+    real_root = _realpath(root)
+    return _realpath(file_path).startswith(real_root + os.sep)
 
 
 def _is_claude_projects_path(file_path: str) -> bool:
@@ -114,12 +138,13 @@ def _project_spellings(real_root: str) -> list[str]:
 
     The resolved root, and the root as this file was loaded and as CLAUDE_PROJECT_DIR
     names it, each only when it resolves to the same directory: a checkout reached
-    through a symlinked parent is still the project, and nothing else becomes it.
+    through a symlinked parent is still the project, and nothing else becomes it. A
+    relative CLAUDE_PROJECT_DIR names nothing (it would be relative to the daemon).
     """
     candidates = [str(Path(__file__).parents[4]), os.environ.get("CLAUDE_PROJECT_DIR", "").strip()]
     spellings = [real_root]
     for candidate in candidates:
-        if candidate and os.path.realpath(candidate) + "/" == real_root:
+        if os.path.isabs(candidate) and _realpath(candidate) + "/" == real_root:
             spellings.append(_normalise(candidate).rstrip("/") + "/")
     return spellings
 
@@ -134,7 +159,7 @@ def _is_project_path(file_path: str) -> bool:
     lexical = _normalise(file_path)
     if not any(lexical.startswith(prefix) for prefix in _project_spellings(real_root)):
         return False
-    return os.path.realpath(file_path).startswith(real_root)
+    return _realpath(file_path).startswith(real_root)
 
 
 class SystemPathsHandler(Handler):
@@ -186,6 +211,7 @@ class SystemPathsHandler(Handler):
         file_path = get_file_path(hook_input)
         if not file_path:
             return False
+        file_path = _absolute(file_path)
         # Exempt the active Claude Code project directory. When Claude runs on
         # the HOST (not inside a /workspace CCY container), the project itself
         # lives under /home/<user>/..., and legitimately editing its own files
@@ -207,7 +233,7 @@ class SystemPathsHandler(Handler):
         # Blocked if either the folded path (`//etc/x`, `/tmp/../etc/x`) or the path the
         # write lands on once symlinks are followed (`/bin/x` -> /usr/bin/x,
         # `/proc/self/root/etc/x`) is under a system prefix.
-        reached = (_normalise(file_path), os.path.realpath(file_path))
+        reached = (_normalise(file_path), _realpath(file_path))
         return any(path.startswith(blocked) for path in reached for blocked in self.BLOCKED_PATHS)
 
     def handle(self, hook_input: dict[str, Any]) -> HookResult:
@@ -223,8 +249,8 @@ class SystemPathsHandler(Handler):
         if not file_path:
             return HookResult(decision=Decision.ALLOW)
 
-        # Determine the project equivalent path
-        project_path = self._get_project_path(file_path)
+        # Determine the project equivalent path, of where a relative path lands
+        project_path = self._get_project_path(_normalise(_absolute(file_path)))
 
         return HookResult(
             decision=Decision.DENY,

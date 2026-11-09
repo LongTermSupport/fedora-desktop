@@ -3,6 +3,8 @@ package ftpcamera
 import (
 	"bufio"
 	"context"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -84,14 +86,18 @@ func (c *cli) prune(ctx context.Context) error {
 		o.f("  %s%s%s\n", o.y, c.rel(f), o.n)
 	}
 	o.f("\n")
-	if !c.confirmDelete() {
+	yes, answerErr := c.confirmDelete()
+	if answerErr != nil {
+		return c.failErr("could not read the answer: %v", answerErr)
+	}
+	if !yes {
 		o.f("%sAborted — no files removed.%s\n", o.y, o.n)
 		return nil
 	}
 	removed := 0
 	for _, f := range found {
 		if err := c.asRoot(ctx, "rm", "-f", f); err != nil {
-			c.err.f("  %sfailed%s  %s\n", c.err.r, c.err.n, c.rel(f))
+			c.err.f("  %sfailed%s  %s  (%v)\n", c.err.r, c.err.n, c.rel(f), howEnded(err))
 			continue
 		}
 		removed++
@@ -107,16 +113,25 @@ func (c *cli) prune(ctx context.Context) error {
 func (c *cli) rel(path string) string { return strings.TrimPrefix(path, c.upload+"/") }
 
 // confirmDelete asks the [y/N] question on a terminal and reads one line; only y or Y is yes,
-// and end of input is no (E39).
-func (c *cli) confirmDelete() bool {
+// and end of input is no (E39). The answer is typed with the terminal's echo on; a read that
+// fails otherwise, or an echo that cannot be given back, is the error.
+func (c *cli) confirmDelete() (bool, error) {
 	if c.env.IsTerminal(c.env.Stdin) {
 		c.err.f("Delete these files? [y/N] ")
 	}
-	line, err := bufio.NewReader(c.env.Stdin).ReadString('\n')
-	if err != nil {
+	var line string
+	err := c.env.Echo.Given(func() error {
+		var readErr error
+		line, readErr = bufio.NewReader(c.env.Stdin).ReadString('\n')
+		return readErr
+	})
+	switch {
+	case errors.Is(err, io.EOF):
 		c.err.f("\n")
-		return false
+		return false, nil
+	case err != nil:
+		return false, err
 	}
 	reply := strings.TrimSuffix(line, "\n")
-	return reply == "y" || reply == "Y"
+	return reply == "y" || reply == "Y", nil
 }

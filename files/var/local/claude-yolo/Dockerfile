@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.79.9"
+LABEL claude-yolo-version="2.79.27"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -65,7 +65,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     jq \
     ripgrep \
-    fzf \
     vim \
     nano \
     less \
@@ -86,6 +85,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     shellcheck \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# fzf from its upstream release, not the Debian package (many releases behind, and without
+# options the pickers and the Ctrl+R search use). The sha256 is the one the project publishes in
+# fzf_<version>_checksums.txt for this exact asset, so a substituted tarball fails the build.
+# The version and sums are read from vars/fzf-pin.yml, the one pin the host plays install
+# from too (tasks/claude-yolo-image.yml copies it into this build context).
+COPY fzf-pin.yml /tmp/fzf-pin.yml
+RUN pin() { awk -F'"' -v k="$1:" 'index($1, k) == 1 { print $2 }' /tmp/fzf-pin.yml; } \
+    && arch="$(dpkg --print-architecture)" \
+    && version="$(pin fzf_version)" \
+    && sha="$(pin "fzf_sha256_${arch}")" \
+    && test -n "${version}" && test -n "${sha}" \
+    && curl -fsSL --retry 5 -o /tmp/fzf.tar.gz \
+        "https://github.com/junegunn/fzf/releases/download/v${version}/fzf-${version}-linux_${arch}.tar.gz" \
+    && echo "${sha}  /tmp/fzf.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/fzf.tar.gz -C /usr/local/bin fzf \
+    && rm -f /tmp/fzf.tar.gz /tmp/fzf-pin.yml \
+    && test "$(fzf --version | cut -d' ' -f1)" = "${version}"
 
 # Install image/PDF processing and web development utilities
 # poppler-utils: pdftotext, pdfinfo, pdftoppm, pdfimages (PDF text/image extraction)

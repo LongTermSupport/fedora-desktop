@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
@@ -194,9 +195,12 @@ func bashLauncherDir(t *testing.T) string {
 	return filepath.Join(repoRoot(t), "files", "var", "local", "claude-yolo")
 }
 
-// installBash lays the checkout's bash launcher out as the play installs it (the launcher,
-// executable, with lib/ beside it) in a directory of its own, and returns the launcher's path.
-// edit, when not nil, changes the launcher's text first: the oracle's own red test.
+// installBash lays the checkout's bash launcher out as the play installs it, in a directory of
+// its own: the launcher, executable, as claude-yolo.bash, lib/ beside it, and the Go front
+// (this test binary) as claude-yolo, which the bash asks to read its saved launch
+// configuration (ccylaunch F16). It returns the bash launcher's path: a run of it is a direct
+// run of the bash, as CCY_LEGACY gives. edit, when not nil, changes the launcher's text first:
+// the oracle's own red test.
 func installBash(t *testing.T, edit func(string) string) string {
 	t.Helper()
 	src := bashLauncherDir(t)
@@ -212,15 +216,33 @@ func installBash(t *testing.T, edit func(string) string) string {
 		}
 		text = edited
 	}
-	writeFile(t, filepath.Join(dst, "claude-yolo"), text, dirMode)
+	writeFile(t, filepath.Join(dst, ccylaunch.BashName), text, dirMode)
 	libs, err := filepath.Glob(filepath.Join(src, "lib", "*.bash"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, lib := range libs {
+		info, statErr := os.Lstat(lib)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("%s is not a regular file", lib)
+		}
 		writeFile(t, filepath.Join(dst, "lib", filepath.Base(lib)), readFile(t, lib), libMode)
 	}
-	return filepath.Join(dst, "claude-yolo")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	front, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, frontName), front, dirMode); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dst, ccylaunch.BashName)
 }
 
 // launcherUnderTest is LAUNCHER from the environment when set (any program, run as is), or else
@@ -615,13 +637,16 @@ func describe(lines *[]string, path, rel string, d fs.DirEntry) error {
 		*lines = append(*lines, fmt.Sprintf("link %s -> %s", rel, target))
 	case d.IsDir():
 		*lines = append(*lines, fmt.Sprintf("dir  %s %04o", rel, info.Mode().Perm()))
-	default:
+	case d.Type().IsRegular():
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		*lines = append(*lines, fmt.Sprintf("file %s %04o", rel, info.Mode().Perm()))
 		*lines = append(*lines, contentLines(raw)...)
+	default:
+		// A named pipe, socket or device is described, never opened: a pipe would block the read.
+		*lines = append(*lines, fmt.Sprintf("other %s %v", rel, info.Mode()))
 	}
 	return nil
 }

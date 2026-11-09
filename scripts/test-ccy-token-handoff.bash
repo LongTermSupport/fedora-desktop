@@ -52,6 +52,7 @@ check() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/token-handoff-test.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
@@ -108,7 +109,9 @@ new-session)
             printf 'MODES file=%s dir=%s\n' "$(stat -c %a "$f")" "$(stat -c %a "$(dirname "$f")")" >>"$T_LOG" ;;
         esac
     done
-    "${pane[@]}" </dev/null >>"$T_LOG" 2>&1
+    # A server already running gives a new pane its own environment, not this client's: only
+    # what the pane's command carries reaches the launcher.
+    env -u CCY_TEAMS_HOST_VARS "${pane[@]}" </dev/null >>"$T_LOG" 2>&1
     exit 0 ;;
 attach-session) [ -f "$T_STATE" ] && exit 1; exit 0 ;;
 esac
@@ -142,6 +145,7 @@ done
 printf 'INNER GH_TOKEN=%s HANDOFF=%s CHILD=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}" \
     "$(bash -c 'printf %s "${GH_TOKEN-unset}/${CCY_GH_TOKEN_HANDOFF-unset}"')"
 printf 'PANEPIDS %s\n' "${CCY_PIDS_LIMIT-unset}"
+printf 'HOSTVARS %s\n' "${CCY_TEAMS_HOST_VARS-unset}"
 EOF
 # The outer launcher: the libraries, the caller's token as the launcher holds it after its
 # first line (a plain variable), then the entry point.
@@ -249,6 +253,17 @@ check "  and the token still arrives" "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD
 rm -f "$T_STATE"
 drive terminal ""
 check "with none settled, nothing is put on the pane's command" "PANEPIDS unset" "$(line PANEPIDS)"
+
+echo ""
+echo "=== CCY_TEAMS_HOST_VARS reaches the inner launcher, as its ccy-teams calls read it ==="
+# A harness's host_vars (Plan 00201 chooser-teams-up.bash): the launch block inside the session
+# (ccy-teams describe-seats --block) reads the teams' descriptions from it.
+rm -f "$T_STATE"
+CCY_TEAMS_HOST_VARS="$SCRATCH/harness host_vars.yml" drive terminal "$TOKEN"
+check "the inner launcher has the caller's CCY_TEAMS_HOST_VARS" "HOSTVARS $SCRATCH/harness host_vars.yml" "$(line HOSTVARS)"
+check "  and the token as before" "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(line 'INNER ')"
+drive terminal ""
+check "without it, the inner launcher has none" "HOSTVARS unset" "$(line HOSTVARS)"
 
 echo ""
 echo "=== the session record names the program that started the launch ==="
@@ -567,8 +582,16 @@ EOF
 read -r FIXED_NAME <<'EOF'
 "$SCRIPT_DIR/claude-yolo"
 EOF
+# The uses of the front's own name re-run nothing: each asks the front beside the bash one
+# question only it answers: the saved launch configuration (ccylaunch F16), the network
+# check (F18) and the Claude Code versions (F19). The cross-engine cleanup's listings, stops
+# and removals (F20-F22) are asked from lib/docker-network-cleanup.bash.
+FRONT_QUESTIONS=(-e "$FIXED_NAME --read-launch-config " -e "$FIXED_NAME --check-network " -e "$FIXED_NAME --claude-versions ")
 check "the launcher gives both modes, and the restart, the launch's own program; no fixed name" "2 1 0" \
-    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") $(grep -cF -- "$FIXED_NAME" "$LAUNCHER")"
+    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$RELAUNCH" "$LAUNCHER") \
+$(grep -F -- "$FIXED_NAME" "$LAUNCHER" | grep -cvF "${FRONT_QUESTIONS[@]}")"
+check "  the front is named only for its three questions, once each" "3" \
+    "$(grep -cF "${FRONT_QUESTIONS[@]}" "$LAUNCHER")"
 cat >"$SCRATCH/show-token" <<'EOF'
 #!/usr/bin/env bash
 printf '%s' "${GH_TOKEN-unset}"

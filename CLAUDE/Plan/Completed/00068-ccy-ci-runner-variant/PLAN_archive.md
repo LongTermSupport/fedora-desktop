@@ -17,7 +17,7 @@
 
 ## The architecture this serves
 
-Owned by **lts-infra Plan 00030**. Stated by the owner, and it is short:
+Owned by **example-team Plan 00030**. Stated by the owner, and it is short:
 
 ```
 GitHub fires a job for a repo
@@ -104,7 +104,7 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
    is gated on `--no-ssh`), so a runner that has minted a per-repo, one-hour, `contents: read`
    token has no way to hand it over. The plumbing already exists — `GH_TOKEN` is exported at
    `:2751` and passed with `-e GH_TOKEN`; what is missing is honouring a value that is already
-   set. Blocks lts-infra Plan 00030 Task 2.11, which is the end state for per-project credentials.
+   set. Blocks example-team Plan 00030 Task 2.11, which is the end state for per-project credentials.
 
    **Owner's shape: a token-first mode, opt-in and CI-default.** Checked, and it is a smaller
    change than "ccy is SSH-first" suggests, because **the container already tolerates it**:
@@ -219,7 +219,7 @@ changing the *mechanism*.
   > design question, not a prohibition. Only the *parallel product* was ever the problem.
 - No `LABEL` identity convention (Decision 2).
 - **No `--egress`** (Decision 8) — and no assumption, either way, about what the runner's own
-  egress posture becomes as a result. That is lts-infra's to decide.
+  egress posture becomes as a result. That is example-team's to decide.
 - No permission surface **on the desktop** — Decision 4 stands there, and is reversed only for
   CI by Decision 9.
 
@@ -315,7 +315,7 @@ The owner's reason is cost/benefit, and it holds:
 tighter lever here: an agent that cannot write or push cannot turn a compromised dependency into
 a repo change, whatever it can reach.
 
-**Consequence for lts-infra**: the runner's egress posture becomes an open question *there*.
+**Consequence for example-team**: the runner's egress posture becomes an open question *there*.
 Not this plan's to close, and nothing in fedora-desktop should assume either answer. C3 is
 retained in `reports/mcp-and-egress.md` for whoever revisits it.
 
@@ -497,7 +497,7 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
      **The owner's fix is better than mine, and fixes more**: serialise the jobs. `ccy`'s side
      still takes a caller-supplied `--container-name` and never `rm -f`s it (cheap, and it makes
      the race unreachable rather than merely unlikely), but the primary control belongs on the
-     runner — see lts-infra Plan 00030 Task 2.8. The reason it fixes more: Plan 00030 gives each
+     runner — see example-team Plan 00030 Task 2.8. The reason it fixes more: Plan 00030 gives each
      repo **one** checkout, so two concurrent jobs for that repo `git checkout` different SHAs
      **in the same working tree**. That is two jobs corrupting each other's source, and no
      container-naming fix touches it. `runner_instances: 4` today, so this is live, not
@@ -570,7 +570,7 @@ before designing around either branch.** Both branches here were wrong.
 list because it is the tripwire that fires the moment anyone re-restricts egress. Note also that
 `triage.bash` could never have settled it: the host has open egress and a warm image cache, so
 the preflight passes there regardless of what the runner would do. Logged
-against lts-infra Plan 00030, whose open question 1 already asks the adjacent question about
+against example-team Plan 00030, whose open question 1 already asks the adjacent question about
 build-time egress.
 
 Re-run the probes any time: `./triage.bash` on the HOST.
@@ -578,7 +578,7 @@ Re-run the probes any time: `./triage.bash` on the HOST.
 ## Dependencies
 
 - **Blocks**: the ccy CI implementation plan, not yet created.
-- **Consumed by**: lts-infra Plan 00030, which owns the runner-side dispatch.
+- **Consumed by**: example-team Plan 00030, which owns the runner-side dispatch.
 
 ## Success Criteria
 

@@ -4,35 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
-
-func TestSpinRunsTheCommandBehindTheDoubleDash(t *testing.T) {
-	f := &execx.Fake{}
-	f.On([]string{"gum", "spin"}, execx.Result{})
-	err := newGum(f).Spin(context.Background(), "Looking up example-org on GitHub…", "gh", "api", "users/example-org", "--silent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "gum spin --title Looking up example-org on GitHub… -- gh api users/example-org --silent"
-	if line := f.Calls()[0].Line(); line != want {
-		t.Fatalf("argv %q", line)
-	}
-	if len(f.Calls()[0].Env) == 0 {
-		t.Fatal("spin must carry the gum environment")
-	}
-}
-
-func TestSpinReportsTheCommandsFailureAsAnExitError(t *testing.T) {
-	f := &execx.Fake{}
-	f.On([]string{"gum", "spin"}, execx.Result{ExitCode: 1})
-	err := newGum(f).Spin(context.Background(), "t", "gh")
-	if exit, ok := errors.AsType[*execx.ExitError](err); !ok || exit.Code != 1 {
-		t.Fatalf("got %v", err)
-	}
-}
 
 func TestBoxIsABorderedStyleWithOptionalBold(t *testing.T) {
 	f := &execx.Fake{}
@@ -84,14 +60,36 @@ func TestExplainWrapsToTheTerminalWidthLessFour(t *testing.T) {
 	}
 }
 
-func TestExplainWithNoTputStillExplainsAtTheCommonWidth(t *testing.T) {
+// A tput that ran and could not say is the common width (above); one that could not run is a
+// fault, returned with its cause and nothing drawn.
+func TestExplainWithATputThatCannotRunIsTheError(t *testing.T) {
 	f := &execx.Fake{}
+	missing := &execx.NotInstalledError{Name: "tput"}
+	f.OnError([]string{"tput"}, missing)
 	f.On([]string{"gum", "style"}, execx.Result{})
 	g := &Gum{Runner: f, Stderr: &bytes.Buffer{}}
-	if err := g.Explain(context.Background(), "hint", 0); err != nil {
-		t.Fatal(err)
+	err := g.Explain(context.Background(), "hint", 0)
+	if !errors.Is(err, missing) || !strings.Contains(err.Error(), "the terminal's width: ") {
+		t.Fatalf("got %v", err)
 	}
-	if !f.Called("gum style --width 76") {
-		t.Fatalf("calls %v", f.Calls())
+	if f.Called("gum") {
+		t.Fatalf("drew with no width: %v", f.Calls())
+	}
+}
+
+// Every question's heading reads the width the same way: a tput that cannot run stops it.
+func TestAQuestionWithATputThatCannotRunIsTheError(t *testing.T) {
+	f := &execx.Fake{}
+	f.OnError([]string{"tput"}, errors.New("exec format error"))
+	g := &Gum{Runner: f, Stderr: &bytes.Buffer{}, Plain: true}
+	if _, err := g.Confirm(context.Background(), testHead, "sure?", false); err == nil || !strings.Contains(err.Error(), "exec format error") {
+		t.Fatalf("confirm: %v", err)
+	}
+	p := &Picker{Runner: f, Plain: true}
+	if _, err := p.Choose(context.Background(), testHead, ChooseSpec{Rows: []string{"a"}}); err == nil || !strings.Contains(err.Error(), "exec format error") {
+		t.Fatalf("choose: %v", err)
+	}
+	if f.Called("gum") || f.Called("fzf") {
+		t.Fatalf("asked with no width: %v", f.Calls())
 	}
 }

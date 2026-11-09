@@ -45,6 +45,24 @@ type Cmd struct {
 	// NewSession runs the child in a session of its own, for a command whose children must
 	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
 	NewSession bool
+	// EchoHeld is a child given the terminal that may run with its echo held off (internal/ttyecho):
+	// it takes the terminal raw itself and gives back the mode it found (fzf, gum), or reads no
+	// input from it (tput). Any other child given the terminal runs with the echo it had.
+	EchoHeld bool
+	// DrainInput is an EchoHeld screen that must not read keys typed before it drew: under a
+	// hold, what is waiting in the terminal's input is discarded before it runs (internal/ui
+	// says which screens).
+	DrainInput bool
+	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
+	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
+	Credential *syscall.Credential
+	// UserNamespace runs the child as root of a new user namespace, mapped to this process's
+	// uid and gid, with a mount namespace of its own: mounts a test makes without privilege
+	// on the host. Only tests set it. A credential beside it, or Exec, is refused.
+	UserNamespace bool
+	// CleanEnv makes Env and Secrets the child's whole environment: nothing of the parent's is inherited,
+	// an empty Env is an empty environment, and Unset beside it is refused.
+	CleanEnv bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -54,6 +72,38 @@ func (c Cmd) Line() string {
 
 func (c Cmd) argv() []string {
 	return append([]string{c.Name}, c.Args...)
+}
+
+// ErrBadCmd is a Cmd whose fields contradict each other; no runner starts it.
+var ErrBadCmd = errors.New("execx: contradictory command")
+
+// check refuses a Cmd no runner can honour as written.
+func (c Cmd) check() error {
+	if c.CleanEnv && len(c.Unset) > 0 {
+		return fmt.Errorf("%w: %s has CleanEnv and Unset", ErrBadCmd, c.Name)
+	}
+	if c.Credential != nil && c.Credential.NoSetGroups {
+		return fmt.Errorf("%w: %s has a credential that keeps the parent's groups", ErrBadCmd, c.Name)
+	}
+	if c.Credential != nil && c.UserNamespace {
+		return fmt.Errorf("%w: %s has a credential and a user namespace", ErrBadCmd, c.Name)
+	}
+	return nil
+}
+
+// sysProcAttr is the child's start attributes: a session of its own, the credential, the
+// namespaces, or nil.
+func (c Cmd) sysProcAttr(setsid bool) *syscall.SysProcAttr {
+	if !setsid && c.Credential == nil && !c.UserNamespace {
+		return nil
+	}
+	attr := &syscall.SysProcAttr{Setsid: setsid, Credential: c.Credential}
+	if c.UserNamespace {
+		attr.Cloneflags = syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS
+		attr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}}
+		attr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
+	}
+	return attr
 }
 
 // Result is what a finished command produced.
@@ -84,6 +134,14 @@ func (e *ExitError) Error() string {
 	return msg
 }
 
+// ExitedNonZero reports whether err is a program that ran and ended itself with a non-zero
+// status: the answer of a probe whose failure is its answer. A program that could not start,
+// was missing or was killed by a signal is not; its error is a fault to report.
+func ExitedNonZero(err error) bool {
+	exit, ok := errors.AsType[*ExitError](err)
+	return ok && exit.Signal == 0
+}
+
 // Runner runs a command to completion.
 type Runner interface {
 	Run(ctx context.Context, c Cmd) (Result, error)
@@ -106,7 +164,7 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
-	if err := c.checkSecrets(); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets()); err != nil {
 		return Result{}, err
 	}
 	c, feedErr := c.fed()
@@ -117,6 +175,7 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		return o.runSession(ctx, c)
 	}
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
+	cmd.SysProcAttr = c.sysProcAttr(false)
 	interrupt := syscall.SIGTERM
 	if c.Interrupt != 0 {
 		interrupt = c.Interrupt
@@ -187,6 +246,8 @@ type Fake struct {
 	execs       []Cmd
 	foregrounds []Cmd
 	execErr     error
+	startRules  []startRule
+	starts      []Cmd
 }
 
 // On answers every command whose argv starts with prefix. Later rules win over earlier
@@ -209,7 +270,7 @@ func (f *Fake) OnFunc(prefix []string, fn func(Cmd) (Result, error)) {
 
 // Run implements Runner.
 func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
-	if err := c.checkSecrets(); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets()); err != nil {
 		return Result{}, err
 	}
 	f.mu.Lock()

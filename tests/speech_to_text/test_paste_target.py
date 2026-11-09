@@ -46,19 +46,29 @@ class ParsePasteTargetTest(unittest.TestCase):
     def test_a_gui_app(self):
         self.assertEqual(
             wsi_stream.parse_paste_target("('org.gnome.TextEditor', false, true, true, false)\n"),
-            ("org.gnome.TextEditor", False, True, True, False))
+            ("org.gnome.TextEditor", False, True, True, False, False))
 
     def test_a_terminal_not_yet_focused(self):
-        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false)"),
-                         ("kitty", True, False, False, False))
+        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false, false)"),
+                         ("kitty", True, False, False, False, False))
 
     def test_a_closed_window(self):
-        self.assertEqual(wsi_stream.parse_paste_target("('', false, false, false, true)"),
-                         ("", False, False, False, True))
+        self.assertEqual(wsi_stream.parse_paste_target("('', false, false, false, true, false)"),
+                         ("", False, False, False, True, False))
+
+    def test_another_ptyxis_tab_showing(self):
+        """Issue #106: a panel that watches a terminal's tabs adds tab_changed."""
+        self.assertEqual(
+            wsi_stream.parse_paste_target("('org.gnome.Ptyxis', true, false, true, false, true)"),
+            ("org.gnome.Ptyxis", True, False, True, False, True))
+
+    def test_a_panel_that_does_not_watch_tabs_never_says_the_tab_changed(self):
+        self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false, false, false)"),
+                         ("kitty", True, False, False, False, False))
 
     def test_a_panel_that_does_not_pin_answers_for_the_focused_window(self):
         self.assertEqual(wsi_stream.parse_paste_target("('kitty', true, false)"),
-                         ("kitty", True, False, True, False))
+                         ("kitty", True, False, True, False, False))
 
     def test_anything_else_is_no_answer(self):
         for reply in ("", "('kitty', true)", "(true, false, false)", "Error: no such method",
@@ -160,6 +170,17 @@ class PasteTargetNowTest(unittest.TestCase):
         self.assertEqual(self.ask(unfocused, focused, for_enter=True), (True, False, True))
         self.assertEqual(self.asked, 2 + settle_polls)
 
+    def test_another_ptyxis_tab_showing_is_not_pasted_into(self):
+        """Issue #106: nothing is pasted, and the panel is not asked again."""
+        with self.assertRaises(wsi_stream.PasteTargetUnavailable) as raised:
+            self.ask(completed("('org.gnome.Ptyxis', true, false, true, false, true)"))
+        self.assertIn("tab", str(raised.exception))
+        self.assertEqual(self.asked, 1)
+
+    def test_before_the_enter_another_ptyxis_tab_takes_no_enter(self):
+        with self.assertRaises(wsi_stream.PasteTargetUnavailable):
+            self.ask(completed("('org.gnome.Ptyxis', true, false, false, false, true)"), for_enter=True)
+
     def test_before_the_enter_a_closed_window_takes_no_enter(self):
         with self.assertRaises(wsi_stream.PasteTargetUnavailable) as raised:
             self.ask(completed("('', false, false, false, true)"), for_enter=True)
@@ -237,9 +258,21 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.assertEqual(self.wait_before_enter(), wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
         self.assertGreater(wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, 0.3 + len("hello") * 0.002)
 
-    def test_a_window_that_kept_focus_is_not_asked_again_before_the_enter(self):
-        self.paste((True, False, False))
-        self.assertEqual(self.asks, [False])
+    def test_a_window_that_kept_focus_is_asked_again_before_the_enter(self):
+        """Owner sheet A13: focus can move during the wait after any paste, not only after
+        a retake, so the panel is asked again before every Enter."""
+        self.assertEqual(self.paste((True, False, False)), [(CTRL, SHIFT, V), (ENTER,)])
+        self.assertEqual(self.asks, [False, True])
+        enter = self.timeline.index((ENTER,))
+        self.assertEqual(self.timeline[enter - 1], "asked")
+        self.assertAlmostEqual(self.wait_before_enter(), 0.3 + len("hello") * 0.002)
+
+    def test_a_window_that_kept_focus_then_closed_takes_no_enter(self):
+        closed = wsi_stream.PasteTargetUnavailable("the window this dictation started in was closed")
+        with mock.patch.object(wsi_stream, "paste_target_now", self.target((False, True, False), closed)), \
+                self.assertRaises(wsi_stream.EnterNotSent):
+            wsi_stream.auto_paste("hello")
+        self.assertEqual(self.pressed, [(CTRL, V)])
 
     def test_after_a_retake_the_panel_is_asked_again_just_before_the_enter(self):
         """Plan 00164 (H2): focus can move away again after the paste. The panel is asked
@@ -250,8 +283,12 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.assertEqual(self.timeline[enter - 2:enter],
                          [wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, "asked"])
 
-    def test_a_retake_with_no_enter_due_asks_once(self):
+    def test_a_save_with_no_enter_due_is_asked_for_too(self):
         self.assertEqual(self.paste((False, True, True), skip_enter=True), [(CTRL, V), (CTRL, S)])
+        self.assertEqual(self.asks, [False, True])
+
+    def test_no_key_due_after_the_paste_asks_once(self):
+        self.assertEqual(self.paste((False, False, True), skip_enter=True), [(CTRL, V)])
         self.assertEqual(self.asks, [False])
 
     def test_a_window_closed_after_the_paste_takes_no_enter_and_no_save(self):

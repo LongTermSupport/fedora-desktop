@@ -99,6 +99,13 @@ password file on tmpfs that fails to be removed dies at the next boot and never 
 persistent storage. That is also why the cleanup unlinks rather than shreds: overwriting
 in place is what `shred` needs to mean anything, and tmpfs has no place to overwrite.
 
+**The provisioned box carries one scoped `NOPASSWD` rule of its own**:
+`/etc/sudoers.d/fedora-desktop-shutdown-with-update`, which lets the user run
+`shutdown-with-update` and `reboot-with-update` without a password. A managed VM whose policy
+forbids any permanent `NOPASSWD` rule sets `shutdown_with_update_sudoers: false` in
+`environment/localhost/host_vars/localhost.yml`; the next converge removes the rule, and the
+scripts still install and ask for the sudo password instead.
+
 ---
 
 ## Step 1 — Download and inspect run.bash
@@ -141,6 +148,12 @@ access tokens → Tokens (classic)) carrying every scope listed in
 `vars/github-required-scopes.yml` in the repo. That file is the only list, and it
 covers everything `run.bash` and the plays do with the token, uploading your SSH keys
 included.
+
+It must be a classic token because the scope check reads the classic OAuth scopes
+GitHub reports for a token (`helpers/github_scopes`); GitHub reports no such scopes for a
+fine-grained token, so it cannot pass. This puts a full-scope token for that account on the server. A box
+that only needs to pull this repo does not need one: set `RUN_BASH_GITHUB_ACCOUNTS=none`
+instead.
 
 The token must be **fully scoped up front** — headless cannot run the interactive
 scope-refresh flow. An under-scoped token fails loud, naming every missing scope at once.

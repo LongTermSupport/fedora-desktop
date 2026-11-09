@@ -2,10 +2,13 @@
 
 **Status**: In Progress. Tasks 2.1, 2.1b and 2.2 wait on an upstream release, hooks-daemon
 #119 (plugin API 1.1), and are then specified on agent-bus v2 (Plan 00209 D4); nobody here
-can unblock them. Left for the host agent: the host checks of Tasks 2.0c (H1-H7), 2.0d and
-2.0f, and success criterion step 5, with a scripted test human posting in place of Element (a
-worker builds that sender, which Plan 00211's acceptance needs too). Nothing waits on the
-owner: Task 1.2 is superseded.
+can unblock them. [delivery-acceptance.bash](delivery-acceptance.bash) passed on the host
+on 27-10-26 (H1-H6, 2.0d, 2.0f, E16, C1). H7 is not applicable: no launch omits
+`crossSessionInbound: accept`, so no session refuses a delivery (decided 2026-10-28,
+questions-room Q2 closed: the coordinator's default stood in the unblocking list the owner
+answered "all recommended"). Success criterion step 5, the
+lifecycle-restart baseline for Task 2.0e, was recorded on the host at F44 fe894347c. Task 1.2
+is superseded.
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -96,7 +99,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   Integrated with Task 2.0 on `feat/agent-bus-presence` (plugin 1.1.0, container 2.56). Host
   run for the image: `play-claude-yolo.yml` (meta-deploy note, queued by the coordinator at
   merge); the goodbye reaches ccy sessions only after the image rebuild.
-- [ ] 🔄 **Task 2.0c**: Inject the message itself through today's inbox socket (the owner's
+- [x] ✅ **Task 2.0c**: Inject the message itself through today's inbox socket (the owner's
   decision of 2026-10-15, journal 17:10), until Task 2.1 can replace it: a nonce-marked
   envelope with kind and sender from pingbus, the body as escaped data capped after escaping
   (the rest in `pingbus history`), a flood limit per agent sender, delivered once, a held
@@ -104,20 +107,34 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
   2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Reviewed, merged into F44 and
-  deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the host
-  checks H1-H7 (SPEC-inject.md), the host agent's, with a scripted test human (a declared
-  test human whose password the agent-bus admin tool sets with `human password`, the sender
-  logging in with it; never the owner's account) posting
-  where the spec says Element, and the session pane read with tmux `capture-pane`. That proves
-  the server-side path and the envelope; it does not prove Element's own rendering.
-- [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
+  deployed: every ccy session now receives `agent-bus delivery` envelopes. The host checks are
+  built, test first, on branch `feat/00194-test-human-sender`: the scripted test human
+  [bus_human.py](bus_human.py) (a team human declared for testing, never the owner's account;
+  its password from `agent-bus human password` on stdin; posts as Element does through
+  pingbus's own `matrix.Client`; also serves Plan 00211's thread reply and edit), and
+  [delivery-acceptance.bash](delivery-acceptance.bash) on the goodbye acceptance's throwaway
+  teams, judged by [delivery_check.py](delivery_check.py) from the session's transcript, pane
+  (`capture-pane`), `pingbus status` and watch log. Left: its host run (meta-deploy) for
+  H1-H6, then H7 by hand (no launch omits `crossSessionInbound: accept`; the run prints the
+  step and exits 2). It proves the server-side path and the envelope, not Element's rendering.
+  Report: [261026-test-human-sender.md](subagent-reports/261026-test-human-sender.md). Two host
+  runs stopped in set-up, on live-path faults `--fake` never ran. Every live leg was then
+  audited against agent-bus and pingbus, and five faults are fixed (the peer is now a take of
+  its own). `--fake` now rehearses the set-up's readers and each seat take:
+  [261026-live-path-audit.md](subagent-reports/261026-live-path-audit.md). Host, 27-10-26 at
+  f9073ce05: H1, H6, H5, H4, H3, H2, E16 and C1 PASS; H7 COULD NOT ESTABLISH, and is not
+  applicable (decided 2026-10-28, Q2 closed; above).
+- [x] ✅ **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged
   into F44 (4cdd2d3b) and deployed by later `play-claude-yolo.yml` and `play-agent-bus.yml`
-  runs. Left, for the host agent: restart a throwaway team's homeserver under an idle session
-  (needs sudo at the run), then post as the scripted test human (Task 2.0c).
-- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
-  once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
+  runs. Left, for the host agent: the host run of `delivery-acceptance.bash` (meta-deploy;
+  sudo at the run), whose check 2.0d restarts a throwaway team's homeserver under the idle
+  session, waits for the watcher's "syncs again" and posts as the test human. Host, 27-10-26
+  at f9073ce05: PASS.
+- [ ] ❌ **Task 2.0e**: Specified in Plan 00209 Task 3.1 (SPEC-n3 RS1-RS3), built in Task 3.2
+  and turned on with Task 4.2; the switch is CMD's exit 75 alone, so hooks-daemon #127 no
+  longer gates it. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
   first join) posts `left the team: session ended (exit)` and the session re-joins seconds
   later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
@@ -129,8 +146,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   (or exports a marker path) before it types `/exit` and clears it when it abandons one, an
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
-  too, test first. `docs/agent-bus.md` states today's behaviour until then.)
-- [ ] 🔄 **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
+  too, test first. `docs/agent-bus.md` states today's behaviour until then.) Today's
+  behaviour, the baseline, is recorded under success criterion step 5: `left the team: session ended (exit)`, then a silent return.
+- [x] ✅ **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
   `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
   member's watcher ignored it as not addressed, which writes nothing, and the owner could not
   tell. Now a team human's message whose mentions name no agent of the team gets one
@@ -139,10 +157,13 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `@room` stays unaddressed: the owner's decision). Built test first on branch
   `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); reviewed, merged and
   deployed (play-agent-bus.yml at F44 2efd4442, journal 2026-10-19 17:54). Left, for the host
-  agent: post a plain-text `@room` (no `m.mentions.room`) as the scripted test human (Task
-  2.0c), then `pingbus status` in a member shows `ignored=1`. Report:
+  agent: the host run of `delivery-acceptance.bash`, whose check 2.0f posts a typed `@room`
+  (no `m.mentions.room`) as the test human and reads `ignored=` one higher in the session's
+  `pingbus status`, with no delivery. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
-- [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
+  Host, 27-10-26 at f9073ce05: PASS (a typed `@room` reaches no agent; `ignored=` counts it).
+- [ ] ❌ **Task 2.0g**: Folded into Plan 00209's N3 (Task 3.1); decided in SPEC-n3 UH1: `empty`
+  counts as unheard at every member.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
   member sees a mention naming an agent, so no one logs it although it reached no agent.
@@ -199,7 +220,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
 
-- [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
+- [x] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
   `fix/goodbye-ctrl-c`, journal 2026-10-19). Before the fix no goodbye was ever sent:
   Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
   it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
@@ -213,6 +234,15 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   4. No ending posts both messages.
   5. Baseline for Task 2.0e: a lifecycle restart (`CCY_LIFECYCLE_MAX_AGE_SECONDS` at its
      minimum); record what the team sees (today: `left the team`, then the seat re-joins).
+     **Recorded** by the host agent at F44 fe894347c on a throwaway team: a session launched
+     `ccy --teams --no-ssh` with the minimum `--max-age`, left idle, with the tracked ccy
+     supervisor files in its scratch checkout. The supervisor warned the session first; at the
+     maximum age it asked for the restart, Claude Code was updated in the image, and the
+     session was resumed unattended with the same session id, in the same tmux session, its
+     status line back on both seats. The team's room: the message
+     `<handle> left the team: session ended (exit)`, which a human cannot tell apart from a
+     real `/exit`; then only an `agent_bus.status` event for the seat. The return is silent:
+     no join or rejoin message, so a human in Element sees only "left the team".
 
   Steps 1-4 are automated, as the owner asked, by [acceptance.bash](acceptance.bash), run
   through meta-deploy: G1 = step 1 (Ctrl-C sent until the launcher exits; one goodbye per
@@ -225,9 +255,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   run stopped in setup at ccy's commit-signing check; the scratch checkout now turns signing
   off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
   reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
-  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5 is still by
-  hand, so this criterion stays open. Step 5 is the host agent's: launch with
-  `CCY_LIFECYCLE_MAX_AGE_SECONDS` at its minimum in the scratch checkout and read the room.
+  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5, the baseline,
+  was recorded by hand on the host at F44 fe894347c (above).
 
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 

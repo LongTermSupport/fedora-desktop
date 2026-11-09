@@ -79,7 +79,7 @@ func (s *Seats) AttachSeat(ctx context.Context, snap *board.Snapshot, row board.
 		return s.Kit.Refuse(ctx, row.Handle+" is a ccy member whose checkout is not known here, so there is no session to attach.")
 	}
 	if _, live := snap.Live[row.Session]; !live {
-		return s.Kit.Refuse(ctx, "Seat "+row.Label()+" in "+row.Team+" has no running session to attach. Ctrl-N starts one.")
+		return s.Kit.Refuse(ctx, "Seat "+row.Label()+" in "+row.Team+" has no running session to attach. Start a ccy session, on the row's menu, starts one.")
 	}
 	return s.AttachSession(ctx, snap, row.Session)
 }
@@ -169,7 +169,7 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
 	if state != systemd.HomeserverUp {
-		return s.Kit.Refuse(ctx, team+"'s homeserver is down, so no session can join it.")
+		return s.Kit.Refuse(ctx, team+"'s homeserver is not up, so no session can join it.")
 	}
 	seats, unreadable, err := s.Bus.SeatList(ctx, top)
 	if err != nil || unreadable {
@@ -204,12 +204,26 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 }
 
 // ToggleRestore turns on or off the restart after a reboot of the session holding a seat.
+// Turning it off asks first, default No (Plan 00177 Task 10.6); turning it on asks nothing.
 func (s *Seats) ToggleRestore(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	current, recorded := snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
 	if row.Kind != board.KindCcy || !recorded {
-		return s.Kit.Note(ctx, "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session.")
+		return s.Kit.Note(ctx, "Restore after a reboot is whether a seat's ccy session comes back after a reboot, and this row has no session.")
 	}
 	name := row.Record
+	if current {
+		ref := row.Member + "@" + row.Team
+		yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Restore off").About("seat "+ref+" · session "+name+" · in "+s.Kit.Abbrev(row.Dir)),
+			"Turn restore off for seat "+ref+"? Its session, "+name+", will not come back after a reboot: "+
+				"it stays down until it is started by hand. Start its session again after a reboot, on the seat's menu, turns restore on again.",
+			"turn restore off for "+ref, false)
+		if err != nil {
+			return flow.Done, err
+		}
+		if !yes {
+			return s.Kit.Note(ctx, "Nothing was changed: session "+name+" will still be started again after a reboot.")
+		}
+	}
 	store, err := s.Registry()
 	if err != nil {
 		s.Kit.Term.PrintError(err.Error())

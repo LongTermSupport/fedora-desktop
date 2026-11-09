@@ -361,7 +361,7 @@ take_over(name):  rc 0 -> exit 0 ; rc 2 -> DETACHED_FROM += name; stderr "The li
 `ccy_tmux_take_over(name)`: `list-clients` (gone -> `ERROR: '<name>' has ended; there is nothing to take over.` return 2; error -> return 1).
 If clients: `words = client_words(clients, now)`; `tmux -L ccy detach-client -s =<name>` (stderr merged);
 success -> stderr `Detached '<name>' from <words>; the session keeps running.`; failure -> `detach_failed`,
-stderr `The detach from <words> failed (<out>); checking whether '<name>' is free anyway.`. Then loop:
+stderr `The detach from <words> failed (<tmux's error: exit and out>); checking whether '<name>' is free anyway.`. Then loop:
 `list-clients`; gone -> `ERROR: '<name>' ended while it was being taken over; nothing was attached.` return 2;
 error -> return 1; empty -> break; non-empty and `detach_failed` -> `ERROR: could not detach '<name>' from <words>: <out>` return 1;
 `waited >= WAIT_TENTHS` -> `ERROR: '<name>' was told to leave <words>, but it is still open there after <WAIT_TENTHS/10> s. Nothing was attached; the session keeps running.` return 1;
@@ -391,7 +391,7 @@ which every caller treats as "Esc" (so the picker **exits 0**): see 9.1.
 
 `session_containers()` (L203-217): `tmux -L ccy list-panes -a -F '#{session_name} #{pane_pid}'` (no server
 text -> empty panes; other failure -> `ERROR: tmux list-panes failed: <text>`, return 1), `ps -ww -eo pid=,ppid=,args=`
-(failure -> `ERROR: the process table could not be read, so no session can be matched to its container: <text>`, return 1;
+(failure -> `ERROR: the process table could not be read, so no session can be matched to its container: <ps's error: exit and text>`, return 1;
 **note the wording differs from the detail probe's**), then `ccy_session_containers` (2.4 step 3).
 `set_route(dir)`: if the project has a container route: `ROUTE_CMD = [engine, exec, container, /workspace/.claude/hooks-daemon/bin/hooks-daemon]`, root `/workspace`, via text ` (in container <container>)`;
 else `ROUTE_CMD = [<dir>/.claude/hooks-daemon/bin/hooks-daemon]`, root `<dir>`, via empty. No `-i`/`-t`/`-w`/env on `exec` (R L130-142 fake accepts `exec <container> <cli> <args...>`).
@@ -422,7 +422,7 @@ Fills `PROJECTS` (distinct session directories in first-appearance order) and th
 - no projects: stderr `No CCY or cc sessions need warning; nothing to signal.`, prints `0` on stdout, return 0.
 - `cli_args = signal <kind> [--minutes N] --all-sessions`; per project in order:
   dry-run -> stderr `would signal <kind>[ --minutes N] to <dir><via>`; else run `<ROUTE_CMD> signal <kind> [--minutes N] --all-sessions --project-root <route root>` (argv order is asserted: R L344, L480);
-  failure -> `ERROR: signalling <kind> to <dir><via> failed.`; for a **warning** return 1 at once (no count printed); for `reboot-cancelled` remember and carry on;
+  failure -> `ERROR: signalling <kind> to <dir><via> failed (exit <n>).` (a run that could not start: its error); for a **warning** return 1 at once (no count printed); for `reboot-cancelled` remember and carry on;
   success -> stderr `signalled <kind>[ (N min)] to <dir><via>`.
 - after the loop, a remembered failure -> return 1; else print the project count on stdout and return 0.
 - `signal_projects` = `check_projects || return 1`, then `deliver_signal`.
@@ -439,7 +439,7 @@ Argument grammar (positional, after `notify`):
 | (absent)                                           | `'notify' needs a signal kind: going-down, reboot-warning, shutdown-warning or reboot-cancelled.`                                                                                                     |
 | other                                              | `unknown signal kind '<kind>'.`                                                                                                                                                                       |
 
-Errors: `'notify <kind>' needs --minutes N.` (when arg 2 is not `--minutes` or arg 3 empty); `--minutes needs a whole number of minutes, at least 1; got '<v>'.` (all usage errors, exit 64). `going-down` is
+Errors: `'notify <kind>' needs --minutes N.` (when arg 2 is not `--minutes` or arg 3 empty); `--minutes needs a whole number of minutes, at least 1; got '<v>'.`; over 10080, as for `reboot --in`, `--minutes takes at most 10080 minutes (a week); got '<v>'.` (Plan 00192, project_duration_overflow) (all usage errors, exit 64). `going-down` is
 rewritten to `reboot-warning` when `${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service` exists (`-e`: **follows** the link, so a dangling link is "off"; R L382-384), else `shutdown-warning` (L426-434).
 Then `signal_projects kind minutes dry-run >/dev/null`: stdout empty, exit status of that call (0/1). A dry run **does** run `check_projects` (R L385-389). Stderr strings asserted: `No CCY or cc sessions` (R L366), `would signal shutdown-warning --minutes 5` (R L389).
 
@@ -485,6 +485,15 @@ Behaviour:
    else `ccy_tmux_start_detached name dir env CCY_SESSION_RESTORE=1 [CCY_RESTORE_SSH_PASSPHRASE_FILE=<path>] <launcher> <args...>` (the passphrase assignment only when a file is set **and** `prefix == ccy`; a `cc` session never gets it: A L484-486). Success -> stderr `restored <name> in <dir>.`, started++, entry `(... pending "" "" "")`; failure -> `ERROR: could not start <name> in <dir> (the record is kept at <file>).`, failures++.
 5. Not dry-run: `_ccy_restore_manifest_merge <entries>` under the manifest lock (6.2); failure -> failures++.
 6. No files seen -> stderr `ccy session registry: nothing to restore (no records in <regdir>).` and exit status = (failures == 0). Else stderr `ccy session restore: <started> started, <failures> failed.`, status (failures == 0). Returns as soon as the sessions exist (it is a `Type=oneshot` that default.target waits for).
+
+Departure (fedora-desktop#108, Plan 00135 Phase 12): every failure in step 4 (an unreadable
+record, under its file's name; no recorded conversation; its directory gone; arguments that
+cannot be worked out; a start that failed) is also a manifest entry `going=not-started`,
+`detail=` `record-unreadable`, `no-conversation`, `directory-gone`, `arguments-unworkable` or
+`start-failed`, so verify-restore reports it. `restore --check` judges the same records by the
+same rules, live ones included, starts nothing and writes nothing: stdout `<name> RESTORABLE` or
+`<name> UNRESTORABLE <why>`, exit 1 when any is unrestorable or the registry cannot be read, exit
+0 with a note when the user's restore unit is not enabled.
 
 `ccy_registry_restore_args` (SR L629-680; golden cases RG L373-402, L653-805), pure: `--compose start` for outcome `started`/`running`, `--compose skip` for `declined` (ccy only; unknown outcome is an error); `--supervise` appended (before the first `--` if any) for ccy unless the recorded args hold `--supervise`/`--no-supervise` before `--`; `--continue` appended after everything unless the args hold `--continue`, `-c`, `--resume` or `-r`. For prefix `cc`, only `--continue`.
 `ccy_registry_resume_id` (SR L980-1011) and `ccy_registry_supervised` (SR L1017-1032): pure, golden RG L926-937. The record's `launcher` is run as given (e.g. `/var/local/claude-yolo/claude-yolo`).
@@ -561,11 +570,11 @@ decision in Plan 00135.
 
 ### 4.8 `verify-restore` (L900-1001)
 
-`verify-restore [--wait SECONDS]`: `--wait` value must match `^[0-9]+$` else `--wait needs a whole number of seconds; got '<v>'.` (64, R L998-999); other -> `unknown verify-restore option '<arg>'.`.
+`verify-restore [--wait SECONDS]`: `--wait` value must match `^[0-9]+$` else `--wait needs a whole number of seconds; got '<v>'.` (64, R L998-999), and over 86400 `--wait takes at most 86400 seconds; got '<v>'.` (64; the timing knobs of the table above are refused over 86400 seconds too, `<NAME> is '<v>', more than 86400 seconds`: Plan 00192, project_duration_overflow); other -> `unknown verify-restore option '<arg>'.`.
 
 1. `ccy_restore_manifest_read` failure -> exit 1 (`ERROR: no session restore has been recorded (<path> does not exist).` R L947-948).
 2. `boot` mismatch -> `ERROR: the last session restore ran in an earlier boot, so it says nothing about this one; nothing restored these sessions since this machine started.`, exit 1 (R L953).
-3. No entries -> stderr `This boot's restore brought up no sessions; nothing to verify.`, exit 0, stdout empty (R L957-958).
+3. No entries -> stderr `This boot's restore brought up no sessions; nothing to verify.`, exit 0, stdout empty (R L957-958). An entry `going=not-started` is `NOT-STARTED <detail>` whatever runs under its name, and the exit is 1 (fedora-desktop#108).
 4. Loop with `deadline = SECONDS + WAIT`: `states = restore_states` (failure -> exit 1); break if no line lacks the suffix ` OK` or `SECONDS >= deadline`; break if `states == previous` **and** no line ends in ` STARTING` or ` SETTING-GOING`; `previous = states`; `sleep POLL`.
 5. Print `states` on stdout (one `<name> <STATE>[ <detail>]` per manifest entry, manifest order). Any line not ending ` OK` -> stderr `Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.`, exit 1. Else 0.
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 // The files a container runtime drops inside a container. Both are fields of Env so a test can
@@ -24,13 +25,16 @@ const (
 // Env is everything a run touches outside itself, so tests fill fakes and production fills the
 // real thing.
 type Env struct {
-	Out, Err         io.Writer
-	Getenv           func(string) string
-	Stat             func(string) (os.FileInfo, error)
-	LookPath         func(string) (string, error)
-	OpenTTY          func() (io.ReadCloser, error) // the terminal to read numbered replies from
-	IsTerminal       func(any) bool
-	Runner           execx.Runner
+	Out, Err   io.Writer
+	Getenv     func(string) string
+	Stat       func(string) (os.FileInfo, error)
+	LookPath   func(string) (string, error)
+	OpenTTY    func() (io.ReadCloser, error) // the terminal to read numbered replies from
+	IsTerminal func(any) bool
+	Runner     execx.Runner
+	// Echo holds the terminal's echo off for the run, so keys typed between two screens are not
+	// echoed over the next (ttyecho); nil holds nothing. A tool's NewApp runs Runner under it.
+	Echo             *ttyecho.Hold
 	ContainerEnvPath string
 	DockerEnvPath    string
 }
@@ -43,6 +47,15 @@ func NewEnv(out, stderr io.Writer, runner execx.Runner) Env {
 		OpenTTY: openTTY, IsTerminal: term.FileIsTerminal, Runner: runner,
 		ContainerEnvPath: ContainerEnvPath, DockerEnvPath: DockerEnvPath,
 	}
+}
+
+// NewTerminalEnv is NewEnv for a tool run by a person: the real commands, run under a hold on
+// the echo of the terminal the keys are read from (stdin), which the run starts and releases.
+func NewTerminalEnv(out, stderr io.Writer) Env {
+	echo := ttyecho.New(os.Stdin)
+	env := NewEnv(out, stderr, echo.Runner(execx.OS{}))
+	env.Echo = echo
+	return env
 }
 
 // openTTY opens the controlling terminal, failing when there is none (a readable /dev/tty

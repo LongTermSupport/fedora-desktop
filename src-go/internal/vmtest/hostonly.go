@@ -78,11 +78,14 @@ func (c *cli) hostOnlyPreflight(l *lab, id string, cr credentials) error {
 // secretFileOK is a readable, non-empty regular file only its owner can read (E30, B7).
 func secretFileOK(path string) error {
 	info, err := os.Stat(path)
-	if err != nil || !readable(path) {
+	if err != nil {
 		return failf("secret file %s is not readable", path)
 	}
 	if !info.Mode().IsRegular() {
 		return failf("secret file %s is not a regular file", path)
+	}
+	if !readable(path) {
+		return failf("secret file %s is not readable", path)
 	}
 	if info.Size() == 0 {
 		return failf("secret file %s is empty; an empty secret cannot be redacted from the transcript afterwards, nor verified absent from it", path)
@@ -154,7 +157,7 @@ func (c *cli) scrub(ctx context.Context, l *lab, cr credentials, runDir, transcr
 			{front, "verify", artefact, cr.tokenFile, cr.ppFile},
 		} {
 			if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "bash", Args: argv, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
-				return ctxErr(ctx, failf("a supplied secret survived redaction in %s; the run's artefacts are NOT safe to share (they remain under %s)", artefact, runDir))
+				return ctxErr(ctx, failf("a supplied secret survived redaction in %s (%s: %v); the run's artefacts are NOT safe to share (they remain under %s)", artefact, argv[1], err, runDir))
 			}
 		}
 	}

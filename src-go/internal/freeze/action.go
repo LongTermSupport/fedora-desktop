@@ -132,6 +132,11 @@ func (s *Session[R]) actOn(ctx context.Context, verb Verb, names []string) (batc
 			return res, err
 		}
 		out, err := s.Engine.Act(ctx, verb, name)
+		if done, ok := errors.AsType[*DoneError](err); ok && done != nil {
+			s.stderr.Printf("  ✓ %s — %s\n", name, done.Note)
+			res.done = append(res.done, name)
+			continue
+		}
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
 				return res, cerr

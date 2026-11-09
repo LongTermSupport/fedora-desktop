@@ -1,0 +1,57 @@
+---
+# The busy guard of the rootless podman store (Plan 00235): fails while a podman or buildah
+# process of the user removes or builds, or while a process holds one of the given lock files.
+# tasks/podman-store-repair.yml and tasks/podman-store-old-range.yml run it before they change
+# the store as root, so root never races c/storage.
+#
+# /proc/locks names a held lock by device and inode; matching on the inode alone can only take
+# an unrelated lock for a held one, which stops the play: the safe side.
+#
+# Needs: user_login; podman_store_guard_locks, a list of ansible.builtin.find file results (path,
+# inode) of the lock files to check; podman_store_guard_what, what the caller is about to do
+# ("The store repair", say), for the messages.
+
+- name: List the Login User's Processes
+  ansible.builtin.command:
+    argv: [ps, -u, "{{ user_login }}", -o, "pid=,args="]
+  register: podman_store_ps
+  changed_when: false
+  # ps exits 1 when the user runs no process at all, which is a clean answer here.
+  failed_when: podman_store_ps.rc not in [0, 1]
+
+- name: Read the Kernel's Table of File Locks
+  ansible.builtin.slurp:
+    path: /proc/locks
+  register: podman_store_proc_locks
+
+- name: Assert No podman or buildah Process Is Removing or Building
+  ansible.builtin.assert:
+    that:
+      - podman_store_busy | length == 0
+    fail_msg: >-
+      {{ podman_store_guard_what }} would race a running podman or buildah
+      ({{ podman_store_busy | join('; ') }}). Let it finish, then run play-podman.yml again.
+    quiet: true
+  vars:
+    # A process that removes or builds, by its command line: buildah, container-images, or a
+    # podman whose subcommand is one of these (after any leading options).
+    podman_store_busy_pattern: >-
+      ^\s*\d+\s+(\S*/)?(buildah|container-images)(\s|$)|^\s*\d+\s+(\S*/)?podman(\s+-\S+)*\s+((image|container|system|volume|manifest|buildx)\s+)?(build|commit|rm|rmi|prune|pull|load|import|reset|migrate|renumber)(\s|$)
+    podman_store_busy: "{{ podman_store_ps.stdout_lines | select('match', podman_store_busy_pattern) | list }}"
+
+- name: Assert No Process Holds a Lock of the Store
+  ansible.builtin.assert:
+    that:
+      - podman_store_held | length == 0
+    fail_msg: >-
+      {{ podman_store_held | join(', ') }} is held by a running process, so the store is in
+      use. {{ podman_store_guard_what }} waits for it: let it finish, then run play-podman.yml
+      again.
+    quiet: true
+  vars:
+    podman_store_held_inodes: >-
+      {{ podman_store_proc_locks.content | b64decode
+         | regex_findall('\s[0-9a-f]+:[0-9a-f]+:(\d+)\s') | map('int') | list }}
+    podman_store_held: >-
+      {{ podman_store_guard_locks | selectattr('inode', 'in', podman_store_held_inodes)
+         | map(attribute='path') | list }}

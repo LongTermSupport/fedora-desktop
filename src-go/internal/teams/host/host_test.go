@@ -3,12 +3,14 @@ package host
 import (
 	"bytes"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
 
 func newHost(t *testing.T) *Host {
@@ -67,7 +69,7 @@ func TestWireFillsOnlyWhatIsMissing(t *testing.T) {
 		"Getenv": h.Getenv != nil, "Gum": h.Gum != nil, "Picker": h.Picker != nil, "Stdout": h.Stdout != nil,
 		"Stderr": h.Stderr != nil, "Stdin": h.Stdin != nil, "Out": h.Out != nil, "LookPath": h.LookPath != nil,
 		"OpenTTY": h.OpenTTY != nil, "Exec": h.Exec != nil, "InContainer": h.InContainer != nil,
-		"IsTerminal": h.IsTerminal != nil,
+		"IsTerminal": h.IsTerminal != nil, "UserHome": h.UserHome != nil,
 	}
 	for name, ok := range built {
 		if !ok {
@@ -200,9 +202,70 @@ func TestLauncherViaReportsAFailedExec(t *testing.T) {
 	}
 }
 
+// The Element acceptance is found where pingbus looks (config._home_of): the passwd home.
+func TestTheUserHomeIsThePasswdDatabases(t *testing.T) {
+	h := New(config.Config{RootDir: "/checkout"})
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := h.UserHome(os.Getuid())
+	if err != nil || home != me.HomeDir {
+		t.Fatalf("UserHome %q, %v; want %q", home, err, me.HomeDir)
+	}
+	if _, err := h.UserHome(-2); err == nil {
+		t.Fatal("a uid with no passwd entry gave a home")
+	}
+}
+
 func TestTheProductionHostIsTheRealSystem(t *testing.T) {
 	h := New(config.Config{RootDir: "/checkout"})
 	if h.Runner == nil || h.Stdout != os.Stdout || h.Stderr != os.Stderr || h.Stdin != os.Stdin {
 		t.Fatalf("host %+v", h)
+	}
+}
+
+// Both production hosts hold the echo of the terminal they read keys from, and run every
+// command under the hold: keys typed between two screens are not echoed over the next one.
+func TestTheProductionHostsHoldTheEchoOfTheirTerminal(t *testing.T) {
+	for _, h := range []*Host{New(config.Config{RootDir: "/checkout"}), NewDiverted(config.Config{RootDir: "/checkout"})} {
+		if h.Echo == nil || h.Echo.TTY != os.Stdin {
+			t.Fatalf("hold %+v", h.Echo)
+		}
+		if _, bare := h.Runner.(execx.OS); bare {
+			t.Fatal("the commands run outside the hold")
+		}
+		if _, bare := h.Execer.(execx.OS); !bare {
+			t.Fatalf("execer %T", h.Execer)
+		}
+	}
+}
+
+// The launcher takes this terminal over, so it is started in the mode ccy-teams found.
+func TestTheLauncherIsStartedWithTheTerminalsModePutBack(t *testing.T) {
+	h := newHost(t)
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tty.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var modes *ttyecho.FakeModes
+	h.Echo, modes = ttyecho.Fake(tty)
+	f := &execx.Fake{}
+	h.Execer = f
+	h.Exec = nil
+	h.Wire()
+	if err := ttyecho.Screen(h.Echo); err != nil || modes.Echo() {
+		t.Fatalf("start %v, echo %v", err, modes.Echo())
+	}
+	if err := h.Exec("/top/ccy", []string{"ccy", "--teams"}, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Execs()) != 1 || !modes.Echo() {
+		t.Fatalf("execs %v, echo at the exec %v", f.Execs(), modes.Echo())
 	}
 }

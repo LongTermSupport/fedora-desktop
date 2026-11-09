@@ -62,7 +62,11 @@ type Snapshot struct {
 	Seats     *discover.Index
 	Checkouts []string
 
-	Members        map[string]agentbus.Roster
+	Members map[string]agentbus.Roster
+	// LXC is each team's LXC member record (lxcrecord.Read): which container, user and checkout
+	// each LXC member is, and what the last apply found of it. A team with none, or whose record
+	// could not be read (its row's WHERE says why), has an empty one.
+	LXC            map[string]lxcrecord.Record
 	MembersUnknown map[string]string // team -> why its members are not shown
 	SignedIn       map[string]string // "<team>|<person>" -> their Element sessions in words
 	Sessions       map[string]int    // same key -> how many, for the people whose count could be read
@@ -82,7 +86,7 @@ func NewSnapshot() *Snapshot {
 		DescriptionState: map[string]declare.DescriptionState{},
 		Loaded:           map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{}, Seats: discover.New(),
-		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
+		Members: map[string]agentbus.Roster{}, LXC: map[string]lxcrecord.Record{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 		Sessions: map[string]int{},
 	}
 }
@@ -102,6 +106,33 @@ func (s *Snapshot) RoleOf(team, handle string) string {
 		return ""
 	}
 	return m.Role
+}
+
+// wordNotListening is the STATE of a member with no status on the bus: no session of it has listened.
+const wordNotListening = "not listening"
+
+// unreportedLiveness ends a team row's WHERE when agent-bus list gave a member no LIVE line.
+const unreportedLiveness = "liveness unknown: agent-bus list reports none (the agent-bus play updates it)"
+
+// liveWord is a member's liveness in the STATE column: whether a session of it is listening on the
+// bus now (its LIVE line, the agent_bus.status pingbus status reads), unknown when not reported.
+func liveWord(live agentbus.Liveness) string {
+	switch live {
+	case agentbus.LiveListening, agentbus.LiveStale:
+		return string(live)
+	case agentbus.LiveNoStatus:
+		return wordNotListening
+	case agentbus.LiveUnreported:
+	}
+	return declare.WordUnknown
+}
+
+// memberState is a member's STATE: parked (the registry's word, not liveness), else its liveness.
+func memberState(m agentbus.Member) string {
+	if m.Parked {
+		return wordParked
+	}
+	return liveWord(m.Live)
 }
 
 // NoDescription is what a team row's MEMBER cell says for a team that has no description.
@@ -146,6 +177,11 @@ func (s *Snapshot) HoldsLiveSeat(top, team string) bool {
 		}
 	}
 	return false
+}
+
+// livenessUnreported is whether agent-bus list gave a member of team no LIVE line.
+func (s *Snapshot) livenessUnreported(team string) bool {
+	return slices.ContainsFunc(s.Members[team].Members, func(m agentbus.Member) bool { return m.Live == agentbus.LiveUnreported })
 }
 
 // up is whether team's homeserver is installed and running: only then are its members read.
@@ -240,12 +276,9 @@ func (s *Snapshot) fillSeats() {
 // back, and its people.
 func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc lxcrecord.Record) {
 	roster := s.Members[team]
-	activity := map[string]string{}
+	members := map[string]agentbus.Member{}
 	for _, m := range roster.Members {
-		activity[m.Handle] = "active"
-		if m.Parked {
-			activity[m.Handle] = "parked"
-		}
+		members[m.Handle] = m
 	}
 	unknown := declare.WordUnknown
 	if s.MembersUnknown[team] == WordNeedSudo {
@@ -254,11 +287,11 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc 
 	shown := map[string]bool{}
 	for _, sa := range seats {
 		if sa.seat.Team == team {
-			s.Rows = append(s.Rows, c.seatRow(s, team, sa, activity, unknown))
+			s.Rows = append(s.Rows, c.seatRow(s, team, sa, members, unknown))
 			shown[sa.seat.Handle] = true
 		}
 	}
-	s.addListedRows(team, roster, activity, shown, lxc)
+	s.addListedRows(team, roster, shown, lxc)
 	for _, h := range roster.Humans {
 		signed := s.SignedIn[team+"|"+h.Name]
 		if signed == "" {
@@ -274,9 +307,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc 
 // addListedRows appends the team's listed members that no seat row showed, with what the LXC
 // record says of each it held back, then a row for each deferred LXC member the list does not
 // name (one never joined, so with no handle yet).
-func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, activity map[string]string, shown map[string]bool,
-	lxc lxcrecord.Record,
-) {
+func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, shown map[string]bool, lxc lxcrecord.Record) {
 	held := map[string]lxcrecord.Item{}
 	for _, item := range lxc.HeldBack() {
 		if item.Handle != "" {
@@ -289,8 +320,8 @@ func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, activity m
 		}
 		shown[m.Handle] = true
 		row := Row{
-			Team: team, Member: m.Handle, Kind: Kind(m.Kind()), State: activity[m.Handle],
-			Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-", Role: m.Role,
+			Team: team, Member: m.Handle, Kind: Kind(m.Kind()), State: memberState(m),
+			Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-", Role: m.Role, Live: m.Live,
 		}
 		if item, ok := held[m.Handle]; ok {
 			row.State, row.Where = heldBackWords(row, item)
@@ -300,7 +331,7 @@ func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, activity m
 	for _, item := range lxc.HeldBack() {
 		if item.Status == lxcrecord.StatusDeferred && !shown[item.Handle] {
 			s.Rows = append(s.Rows, Row{
-				Team: team, Member: item.Label(), Kind: "lxc", State: lxcrecord.StatusDeferred,
+				Team: team, Member: item.Label(), Kind: kindLxc, State: lxcrecord.StatusDeferred,
 				Applied: "-", Session: "-", Restore: "-", Where: item.Words(), Handle: "-", Dir: "-",
 			})
 		}

@@ -26,7 +26,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, protocol
+from helpers.pingbus import cli, inbox, protocol, watcherstate
 from tests.helpers.pingbus import test_cli as bus
 
 MARKER = "MARKER-never-printed"
@@ -41,6 +41,8 @@ LINE_RES = {
         rf"\toverdue=\d+\tdropped=\d+\tignored=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
     "ABOUT": re.compile(rf"ABOUT\t1\t{TEAM_RE}\t\"[\x20-\x7e]{{0,300}}\""),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
+    "WATCHER": re.compile(rf"WATCHER\t{TEAM_RE}\t(?:failing|stopped)\trestarts=\d+\tsince=\d+\tat=\d+"
+                          r"\t[\x20-\x7e]{1,200}"),
     "MEMBER": re.compile(
         rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|coordinator|worker)\t(?:listening|stale|-)"),
     "UNEXPECTED": re.compile(rf"UNEXPECTED\t{TEAM_RE}\t{USER_RE}\t(?:join|invite)"),
@@ -276,6 +278,30 @@ class StatusTest(StatusCase):
         self.assertEqual(code, cli.EXIT_CONFIG)
         self.assertEqual([r[1] for r in rows if r[0] == "TEAM"], [bus.TEAM_B])
         self.assertIn(f"team {bus.TEAM_A}", err)
+
+    def test_no_watcher_line_while_the_watcher_works(self):
+        self.joined()
+        _, rows, _ = self.report()
+        self.assertNotIn("WATCHER", [r[0] for r in rows])
+
+    def test_a_watcher_that_keeps_exiting_is_shown_failing_with_its_cause_and_count(self):
+        """Issue #116: a restart loop was visible only in watch.log."""
+        self.joined()
+        ms = int(self.now * 1000)
+        watcherstate.record_exit(self.a.state.path, "exit 7: homeserver unreachable", ms - 5000)
+        watcherstate.record_exit(self.a.state.path, "exit 7: homeserver unreachable", ms)
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        kinds = [r[0] for r in rows]
+        self.assertEqual(kinds[:2], ["TEAM", "WATCHER"])
+        self.assertEqual(rows[1], ["WATCHER", bus.TEAM_A, "failing", "restarts=2", f"since={ms - 5000}",
+                                   f"at={ms}", "exit 7: homeserver unreachable"])
+
+    def test_a_stopped_watcher_is_shown_even_for_a_room_not_trusted(self):
+        watcherstate.record_stop(self.a.state.path, "homeserver: forbidden", int(self.now * 1000))
+        _, rows, _ = self.report()
+        (line,) = [r for r in rows if r[0] == "WATCHER"]
+        self.assertEqual((line[2], line[-1]), ("stopped", "homeserver: forbidden"))
 
     def test_a_planted_status_for_a_non_member_is_not_printed(self):
         self.joined()

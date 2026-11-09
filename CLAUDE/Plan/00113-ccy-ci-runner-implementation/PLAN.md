@@ -51,9 +51,9 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
 - No egress allowlist. Decision 8 dropped `--egress` on measured cost, and the
   safety story moved to the tool surface (Decision 9).
 - No runner provisioning, no workflow YAML, no token store. Those live in
-  lts-infra; this plan ends at the launcher's contract.
+  example-team; this plan ends at the launcher's contract.
 - No MCP server implementation. Class B needs one server configured; which one,
-  and who runs it, is lts-infra's.
+  and who runs it, is example-team's.
 - No new `ccy` subcommand where a flag or an env var does.
 
 ## Tasks
@@ -155,7 +155,7 @@ launcher's hardest dependency as written but unproven, and see Task 0.6.
 - [ ] ⬜ **Task 1.5**: The unattended-launch hygiene fixes, four cited defects
   ([DECISIONS.md §7](../Completed/00068-ccy-ci-runner-variant/DECISIONS.md)). The
   container-naming race is primarily fixed by serialising jobs on the runner
-  (lts-infra Plan 00030 Task 2.8) — do not re-solve it here
+  (example-team Plan 00030 Task 2.8) — do not re-solve it here
 - [ ] ⬜ **Task 1.6**: CCY version bump (mandatory when
   `files/var/local/claude-yolo/claude-yolo` changes) and QA
 
@@ -255,7 +255,7 @@ Carried from 00068 and unanswered there; each changes work in this plan.
 - [ ] ⬜ **The class-A token's scopes.** `reports/ci-tool-surface.md` records
   that `Bash` is a write vector, so removing `Edit`/`Write` does not make a
   class-A job read-only — what stops it pushing is the token. If that token
-  carries push scope, the tool surface is decorative. Property of lts-infra's
+  carries push scope, the tool surface is decorative. Property of example-team's
   token store, unreadable from this repo
 - [ ] ⬜ **`ccy.env` sourcing** and **the `/root/.claude` → `/workspace` symlink**
   — DECISIONS.md §8 items 2 and 3, both open owner questions
@@ -266,7 +266,7 @@ Carried from 00068 and unanswered there; each changes work in this plan.
   any disagreement
 - **Builds on**: Plan 00089 (token-first `ssh-handling.bash`) — code landed, plan
   still In Progress and its live-on-HOST criterion unticked; Task 0.6 closes it
-- **Coordinates with**: lts-infra Plan 00030 (the workflow and runner side; job
+- **Coordinates with**: example-team Plan 00030 (the workflow and runner side; job
   serialisation fixes the container-naming race)
 - **Do not duplicate**: Plan 00080 (ccy network isolation), 00092 (child-claude
   spawn mode), 00093 (version gate) — different subsystems

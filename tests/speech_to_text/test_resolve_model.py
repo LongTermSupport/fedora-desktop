@@ -12,8 +12,10 @@ The script runs for real with a stub `ctranslate2` module first on PYTHONPATH, s
 GPU answer is controlled without CUDA. Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """
 
+import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -284,6 +286,185 @@ class ModelOnDiskTest(ResolverRun):
                               cache=self.case / "empty")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "distil-whisper/distil-large-v3.5-ct2\n")
+
+
+class RealtimeModelTest(ResolverRun):
+    """Plan 00234 Task 4.1: wsi-stream's live preview loads a second, small model beside
+    the main one (RealtimeSTT's realtime_model_type). Left unnamed, RealtimeSTT loads its
+    default "tiny", which nothing downloaded, so the first live dictation fetched it, or
+    failed offline. `--realtime` names it for the language, checked on disk like the main
+    one; `--realtime-models` lists every one, for the download."""
+
+    NOT_DOWNLOADED = 3
+
+    def test_english_previews_with_tiny_en(self):
+        result = self.resolve("--realtime", "--language", "en", gpus=-1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "tiny.en\n", "stdout must be the model and nothing else")
+
+    def test_another_language_or_detection_previews_with_multilingual_tiny(self):
+        for language in ("de", ""):
+            result = self.resolve("--realtime", "--language", language, gpus=-1)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "tiny\n", language)
+
+    def test_a_real_time_model_not_on_disk_names_it_the_play_and_the_manager(self):
+        with tempfile.TemporaryDirectory() as empty:
+            result = self.resolve("--realtime", "--language", "en", cache=empty)
+        self.assertEqual(result.returncode, self.NOT_DOWNLOADED, result.stderr)
+        self.assertEqual(result.stdout, "")
+        last = result.stderr.strip().splitlines()[-1]
+        for phrase in ("tiny.en", "live preview", "play-speech-to-text.yml", "model manager"):
+            self.assertIn(phrase, last)
+
+    def test_realtime_models_lists_each_one_the_download_must_fetch(self):
+        result = self.resolve("--realtime-models", gpus=-1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "tiny.en\ntiny\n")
+
+    def test_realtime_with_a_mode_is_a_usage_error(self):
+        result = self.resolve("--realtime", "--mode", "streaming", "--language", "en")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+
+
+class FitTest(ResolverRun):
+    """Plan 00234: `--fit` says, for each model the model manager offers, how much GPU
+    memory it needs and whether this machine's NVIDIA GPU has that much, so the manager
+    can mark the models that fit and refuse the ones that do not. The memory is
+    nvidia-smi's; without a GPU CTranslate2 can use, everything runs on the CPU."""
+
+    def setUp(self):
+        self._case = tempfile.TemporaryDirectory()
+        self.case = pathlib.Path(self._case.name)
+        self.bin = self.case / "bin"
+        self.bin.mkdir()
+
+    def tearDown(self):
+        self._case.cleanup()
+
+    def nvidia_smi(self, body):
+        script = self.bin / "nvidia-smi"
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+
+    def fit(self, gpus=1, nvidia_nodes=True):
+        path = f"{self.bin}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+        return self.resolve("--fit", gpus=gpus, nvidia_nodes=nvidia_nodes,
+                            env_extra={"PATH": path})
+
+    def report(self, **kwargs):
+        result = self.fit(**kwargs)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_a_4_gb_gpu_fits_the_distilled_models_and_not_large_v3(self):
+        self.nvidia_smi('echo "NVIDIA RTX A2000 Laptop GPU, 4096"\n')
+        report = self.report()
+        self.assertEqual(report["device"], "cuda")
+        self.assertEqual(report["gpu"], "NVIDIA RTX A2000 Laptop GPU")
+        self.assertEqual(report["gpu_memory_mb"], 4096)
+        models = report["models"]
+        self.assertFalse(models["large-v3"]["fits"])
+        self.assertFalse(models["large-v2"]["fits"])
+        for name in ("distil-large-v3.5", "large-v3-turbo", "medium.en", "tiny"):
+            self.assertTrue(models[name]["fits"], name)
+
+    def test_the_need_is_the_download_size_with_room_to_run(self):
+        self.nvidia_smi('echo "Some GPU, 4096"\n')
+        models = self.report()["models"]
+        # 1.25 x the 75 MiB download + 850 MiB, rounded up
+        self.assertEqual(models["tiny"], {"size_mb": 75, "needs_mb": 944, "fits": True})
+        self.assertEqual(models["large-v3"]["needs_mb"], 4535)
+
+    def test_nvidia_smi_is_asked_for_name_and_total_memory_only(self):
+        self.nvidia_smi(f'echo "$*" > "{self.case}/args"\necho "Some GPU, 8192"\n')
+        self.report()
+        self.assertEqual((self.case / "args").read_text().split(),
+                         ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+
+    def test_with_two_gpus_the_smaller_is_the_one_judged(self):
+        self.nvidia_smi('echo "Big GPU, 24576"\necho "Small GPU, 4096"\n')
+        report = self.report(gpus=2)
+        self.assertEqual(report["gpu"], "Small GPU")
+        self.assertEqual(report["gpu_memory_mb"], 4096)
+
+    def test_without_a_gpu_everything_runs_on_the_cpu(self):
+        self.nvidia_smi(f'touch "{self.case}/asked"\nexit 9\n')
+        report = self.report(gpus=0, nvidia_nodes=False)
+        self.assertEqual(report["device"], "cpu")
+        self.assertIsNone(report["gpu"])
+        self.assertIsNone(report["gpu_memory_mb"])
+        self.assertTrue(all(m["fits"] for m in report["models"].values()))
+        self.assertFalse((self.case / "asked").exists(), "no GPU, so nvidia-smi is not asked")
+
+    def test_a_gpu_without_nvidia_smi_fails_naming_the_play(self):
+        # PATH is only the empty stub directory: python3 is run by absolute path
+        result = self.resolve("--fit", gpus=1, nvidia_nodes=True,
+                              env_extra={"PATH": str(self.bin)})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("nvidia-smi", result.stderr)
+        self.assertIn("play-nvidia.yml", result.stderr)
+
+    def test_a_failing_nvidia_smi_fails_with_its_reason(self):
+        self.nvidia_smi('echo "NVIDIA-SMI has failed to communicate" >&2\nexit 9\n')
+        result = self.fit()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("failed to communicate", result.stderr)
+
+    def test_an_unreadable_nvidia_smi_answer_fails(self):
+        for body in ('echo "Some GPU, [N/A]"\n', 'echo ""\n', 'echo "no comma"\n'):
+            self.nvidia_smi(body)
+            result = self.fit()
+            self.assertEqual(result.returncode, 1, body)
+            self.assertEqual(result.stdout, "", body)
+            self.assertIn("nvidia-smi", result.stderr, body)
+
+    def test_a_gpu_ctranslate2_cannot_see_fails(self):
+        self.nvidia_smi('echo "Some GPU, 4096"\n')
+        result = self.fit(gpus=0, nvidia_nodes=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("counts 0", result.stderr)
+
+
+class SizesHaveOneHomeTest(ResolverRun):
+    """Plan 00234: a model's size lives only in wsi-resolve-model's SIZE_MB. The panel
+    keeps no sizes of its own, and the docs' model tables show SIZE_MB's figures."""
+
+    _EXTENSION = _REPO_ROOT / "extensions" / "speech-to-text@fedora-desktop"
+    _DOCS = _REPO_ROOT / "docs" / "features" / "speech-to-text.md"
+    # A hand-kept size such as ~75MB or ~1.5GB
+    _SIZE_STRING = re.compile(r"~\d+(\.\d+)?\s?[MG]B")
+
+    def sizes(self):
+        result = self.resolve("--fit", gpus=0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return {name: model["size_mb"] for name, model in json.loads(result.stdout)["models"].items()}
+
+    @staticmethod
+    def shown(mb):
+        """A size as the model manager shows it (wsi-model-manager human_mb)."""
+        return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
+
+    def test_the_extension_keeps_no_model_sizes(self):
+        for path in sorted(self._EXTENSION.glob("*.js")):
+            self.assertTrue(path.is_file(), f"{path.name} is not a regular file")
+            found = self._SIZE_STRING.search(path.read_text())
+            self.assertIsNone(found, f"{path.name} keeps a model size ({found and found[0]}); "
+                                     "sizes live in wsi-resolve-model's SIZE_MB")
+
+    def test_the_docs_tables_show_the_resolvers_sizes(self):
+        text = self._DOCS.read_text()
+        section = text[text.index("**Model comparison:**"):text.index("A model change applies")]
+        self.assertIsNone(self._SIZE_STRING.search(section), "a hand-kept size in the docs")
+        rows = dict(re.findall(r"^\| `([^`]+)`\s*\|\s*([^|]*?)\s*\|", section, re.MULTILINE))
+        sizes = self.sizes()
+        self.assertEqual(set(rows) - {"auto"}, set(sizes))
+        for name, mb in sizes.items():
+            self.assertEqual(rows[name], self.shown(mb), name)
 
 
 if __name__ == "__main__":

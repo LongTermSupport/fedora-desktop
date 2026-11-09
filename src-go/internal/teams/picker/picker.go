@@ -99,6 +99,9 @@ type run struct {
 	table board.Table
 	noOps int
 	view  view
+	// startRow is where the list's cursor starts on the next pass (from 1; 0 the top): after
+	// Esc then an arrow in a row's menu, the row the arrow moves to from the menu's row.
+	startRow int
 }
 
 // Run is ccy-teams with no argument: the list of teams, seats and people, and a key for
@@ -154,10 +157,13 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 	return (&run{p: p, frame: above}).loop(ctx)
 }
 
-// frame is what stays above the rows whichever row the cursor is on: where Ctrl-N would start a
-// session and what RESTORE means. It is built once; the column headings are each pass's.
+// frame is what stays above the rows whichever row the cursor is on: where a new session would
+// start and what RESTORE means. It is built once; the column headings are each pass's.
+// newRefusal is why no session can start in this folder, "" when one can: the header line and
+// every menu's start line are both drawn from it, so they never disagree.
 type frame struct {
 	newLine, restoreLine string
+	newRefusal           string
 }
 
 // header is the picker's header with footer, the line naming the row's actions, and rest, the
@@ -171,7 +177,7 @@ func (r *run) header(footer, rest string) string {
 		rest = "This row: " + rest
 	}
 	return ui.Header(
-		"Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit",
+		"Enter lists what can be done to the row, help among it   Running sessions is the last row   Esc or q quit",
 		footer, rest, r.frame.newLine, r.frame.restoreLine, heading,
 	)
 }
@@ -184,19 +190,22 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return frame{}, fmt.Errorf("look for the restore service: %w", err)
 	}
-	newLine := "Ctrl-N starts a new ccy session in the row's team, in "
+	var refusal, newLine string
 	switch here, err := p.Checkouts.Find(ctx, ""); {
 	case err != nil:
-		newLine = "Ctrl-N unavailable: " + err.Error()
+		refusal = err.Error()
 	case here.Top == "":
-		newLine = "Ctrl-N unavailable: " + p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
+		refusal = p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
 	case !here.Host():
-		newLine = "Ctrl-N unavailable: " + here.Refusal(p.Kit.Abbrev(here.Top))
+		refusal = here.Refusal(p.Kit.Abbrev(here.Top))
 	default:
-		newLine += p.Kit.Abbrev(here.Top)
+		newLine = "A new ccy session (Enter on a row) starts in the row's team, in " + p.Kit.Abbrev(here.Top)
+	}
+	if refusal != "" {
+		newLine = "A new ccy session is unavailable: " + refusal
 	}
 	return frame{
-		newLine: newLine,
+		newLine: newLine, newRefusal: refusal,
 		restoreLine: "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is " +
 			restore + " (ccy_restore_sessions)",
 	}, nil
@@ -209,7 +218,7 @@ func (r *run) rowHeaders() []string {
 	for _, row := range r.snap.Rows {
 		headers = append(headers, r.header(r.footerFor(row), r.table.Rest(row)))
 	}
-	return append(headers, r.header("This row: Enter or Tab shows the running sessions, and what can be done to each", ""))
+	return append(headers, r.header("This row: Enter shows the running sessions, and what can be done to each", ""))
 }
 
 // listHeading is the teams list's heading: how many teams there are, and which are not up.
@@ -273,9 +282,10 @@ func (r *run) listPass(ctx context.Context) error {
 	}
 	picked, err := p.Kit.Choose(ctx, r.listHeading(), ui.PickSpec{
 		Title: "Agent teams", Header: r.header("", ""), RowHeaders: r.rowHeaders(),
-		Rows: r.shownRows(), Tags: r.tags(), Actions: []ui.Action{sessionsAction}, Menus: menus,
+		Rows: r.shownRows(), Tags: r.tags(), Actions: listActions, Menus: menus,
+		StartRow: r.startRow,
 	})
-	var notOffered *ui.NotOfferedError
+	r.startRow = 0
 	switch {
 	case errors.Is(err, ui.ErrLeave):
 		if err = p.Kit.Interrupted(ctx); err != nil {
@@ -283,13 +293,10 @@ func (r *run) listPass(ctx context.Context) error {
 		}
 		return flow.Leave(term.ExitOK)
 	case errors.Is(err, ui.ErrBack):
+		r.startRow = r.rowAfter(picked.Tag, ui.MovedBy(err))
 		if err = p.Kit.Interrupted(ctx); err != nil {
 			return err
 		}
-		return r.count(flow.Done)
-	case errors.As(err, &notOffered):
-		p.Kit.Tell(nothingOnThisRow)
-		p.Kit.BackToList(ctx)
 		return r.count(flow.Done)
 	case err != nil:
 		return err
@@ -308,6 +315,17 @@ func (r *run) listPass(ctx context.Context) error {
 		return err
 	}
 	return r.count(res)
+}
+
+// rowAfter is the list line, from 1, the cursor moves to from the row tagged tag by move, kept
+// on the list's lines (the rows, the Running sessions row, Exit); 0 when the tag names no row.
+func (r *run) rowAfter(tag string, move int) int {
+	at, err := strconv.Atoi(tag)
+	if err != nil || at < 0 || at >= len(r.snap.Rows) {
+		return 0
+	}
+	lines := len(r.snap.Rows) + len(listActions) + 1
+	return min(max(at+move+1, 1), lines)
 }
 
 // count tallies refusals in a row; any other outcome starts the tally again.

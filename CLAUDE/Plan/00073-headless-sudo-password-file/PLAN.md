@@ -272,7 +272,7 @@ This plan does not fix that, and must not pretend to. Two consequences:
 
 ## Dependencies
 
-- **Blocks lts-infra Plan 00031 Task 3.2** (give the fedora-desktop runbook a caller), and
+- **Blocks example-team Plan 00031 Task 3.2** (give the fedora-desktop runbook a caller), and
   therefore the "one archetype, three instances" goal there. Consumed via a `fedora_desktop_ref`
   bump.
 - **Extends Plan 00063** D4 / Decision 5 / V3.7. Cited by number, not path — that folder is
@@ -305,7 +305,7 @@ This plan does not fix that, and must not pretend to. Two consequences:
 
 ## Notes & Updates
 
-No recovery cron — the owner asked for crons to be stopped.
+No recovery cron was created for this plan.
 
 ## Delivery & Milestones
 

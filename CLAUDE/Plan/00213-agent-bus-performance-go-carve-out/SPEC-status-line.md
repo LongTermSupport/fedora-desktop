@@ -56,8 +56,17 @@ carries a Python behaviour that Go's standard library does not give by default.
 
 - **S9** The command runs as `/bin/sh -c <command>`. Its stdin is the raw payload bytes. Its
   environment is this process's, plus `PINGBUS_STATUS_LINE_INNER=1`, and nothing else is
-  added. Its working directory is the project directory if that is an existing directory,
+  added, except that `CLAUDE_PROJECT_DIR` is set to the project directory of S6 when one was
+  found and the variable is not already an absolute path (GitHub issue 138: a settings command
+  such as `$CLAUDE_PROJECT_DIR/.claude/hooks/status-line` expanded to `/.claude/hooks/status-line`
+  when this command ran outside Claude Code, though the payload named the project). Its working directory is the project directory if that is an existing directory,
   else this process's own. Its stdout is captured. Its stderr is inherited.
+
+- **S9a** When no project directory is found (S6) and the command's text contains
+  `CLAUDE_PROJECT_DIR`, the command is not run. The inner part is the red note
+  `status line: the command uses $CLAUDE_PROJECT_DIR, but CLAUDE_PROJECT_DIR is unset or not an absolute path, and the payload has no absolute workspace.project_dir or cwd, so it was not run`,
+  which names the variable and the payload fields that were empty. A command that does not
+  contain the name runs as before.
 
 - **S10** **NOT BOILERPLATE: its own process group.** The inner starts in a new session
   (`setsid`, Python's `start_new_session=True`), so that its pid is its process group id.

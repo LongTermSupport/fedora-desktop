@@ -35,7 +35,7 @@ Arguments:
 
 Examples:
   $0                                    # Lint entire playbooks/ directory
-  $0 playbooks/imports/play-git.yml    # Lint specific file
+  $0 playbooks/imports/play-python.yml # Lint specific file
   $0 --fix playbooks/                  # Auto-fix all violations
   $0 --fix=fqcn playbooks/             # Auto-fix only FQCN violations
 EOF

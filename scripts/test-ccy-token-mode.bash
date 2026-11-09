@@ -76,6 +76,7 @@ done
 # namespace collides with the same PID in another, so two concurrent runs could
 # share a fixture dir and delete each other's on exit.
 WORK="$(mktemp -d "$REPO_ROOT/untracked/ccy-token-mode-fixtures.XXXXXX")"
+export GIT_CEILING_DIRECTORIES="$REPO_ROOT/untracked"  # git must not read the checkout's own remote and config
 BANNERS="$WORK/banners.log"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
@@ -192,6 +193,92 @@ menu_case "valid pick -> names its expiry"    $'1\n'                0 'Selected 
 menu_case "Desktop keypress -> host OAuth"    $'d\n'                0 'Using Desktop'
 
 echo ""
+echo "=== container mode: a token with no usage left is refused (lib/token-usable.bash) ==="
+# ccy-token-usable is stubbed: STUB_USED_UP names the token it calls used up, STUB_EXIT forces
+# its exit. Its own reading of the usage is the Go command's, tested in internal/ccylaunch.
+# Piped stdin makes ccy_nobody_to_ask true; the menu runs only where a person answers, so a
+# case stands for that person by redefining it, unless it tests the nobody-there stop.
+USABLE_LIB="$LIB_DIR/token-usable.bash"
+mkdir -p "$WORK/two-valid" "$WORK/bin"
+printf 'placeholder-not-a-real-token\n' >"$WORK/two-valid/alpha.$NEXT_YEAR.token"
+printf 'placeholder-not-a-real-token\n' >"$WORK/two-valid/beta.$NEXT_YEAR.token"
+cat >"$WORK/bin/ccy-token-usable" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_CALLS"
+mark=false
+[ "$1" = --mark ] && mark=true && shift
+[ "$1" = -- ] && shift
+name="${1##*/}" && name="${name%%.*}"
+[ -z "${STUB_EXIT:-}" ] || exit "$STUB_EXIT"
+[ "$name" = "${STUB_USED_UP:-}" ] || exit 0
+if [ "$mark" = true ]; then
+    echo "   ✗ no usage left: STUB-WINDOW"
+    exit 0
+fi
+echo "✗ No usage left on token $name: STUB-WINDOW" >&2
+exit 3
+STUB
+chmod +x "$WORK/bin/ccy-token-usable"
+
+# usable_case <description> <PATH> <mode> <attended: yes|no> <stdin> <want-rc> <env> <want-text>...
+usable_case() {
+    local desc="$1" path="$2" mode="$3" attended="$4" input="$5" wantRc="$6" env="$7" rc=0 out="" want
+    shift 7
+    : >"$WORK/calls"
+    out="$(printf '%s' "$input" | env STUB_CALLS="$WORK/calls" "$env" PATH="$path" timeout 10 bash -c "
+        set -uo pipefail
+        : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
+        source '$PURE_LIB'
+        source '$TOKEN_LIB'
+        source '$USABLE_LIB'
+        [ '$attended' = no ] || ccy_nobody_to_ask() { return 1; }
+        select_token '$WORK/two-valid' $mode && echo \"SELECTED=\$SELECTED_TOKEN\"
+    " 2>&1)" || rc=$?
+    printf '\n--- %s ---\n%s\n' "$desc" "$out" >>"$BANNERS"
+    if [ "$rc" -ne "$wantRc" ]; then
+        printf '  FAIL  %-54s -> rc=%s (want %s)\n' "$desc" "$rc" "$wantRc"
+        FAILED=$((FAILED + 1))
+        return
+    fi
+    for want in "$@"; do
+        if ! grep -qF -- "$want" <<<"$out$(cat "$WORK/calls")"; then
+            printf '  FAIL  %-54s -> rc=%s but never said "%s"\n' "$desc" "$rc" "$want"
+            FAILED=$((FAILED + 1))
+            return
+        fi
+    done
+    printf '  PASS  %-54s -> rc=%s\n' "$desc" "$rc"
+    PASSED=$((PASSED + 1))
+}
+
+STUB_PATH="$WORK/bin:$PATH"
+# Not installed: the distribution's directories only, where no play installs ccy-token-usable;
+# the caller's PATH would reach the copy play-claude-yolo.yml installs in ~/.local/bin.
+NO_USABLE_PATH="/usr/bin:/bin"
+usable_case "used up -> refused, marked, another chosen" "$STUB_PATH" container yes $'1\n2\n' 0 STUB_USED_UP=alpha \
+    "✗ No usage left on token alpha: STUB-WINDOW" "alpha   expires" "✗ no usage left: STUB-WINDOW" \
+    "Selected token: beta" "SELECTED=$WORK/two-valid/beta.$NEXT_YEAR.token" "--mark -- $WORK/two-valid/alpha"
+usable_case "usage left -> chosen at once" "$STUB_PATH" container yes $'1\n' 0 STUB_USED_UP=none \
+    "Selected token: alpha" "-- $WORK/two-valid/alpha.$NEXT_YEAR.token"
+usable_case "only used-up picks -> bounded, gives up" "$STUB_PATH" container yes $'1\n1\n1\n1\n' 2 STUB_USED_UP=alpha \
+    "Giving up after 3 invalid selections"
+usable_case "used up, nobody to choose -> stops" "$STUB_PATH" container no $'1\n' 1 STUB_USED_UP=alpha \
+    "Nobody is here to choose another token"
+usable_case "check fails -> stops, naming it" "$STUB_PATH" container yes $'1\n' 1 STUB_EXIT=2 \
+    "ccy-token-usable failed (exit 2)"
+usable_case "check not installed -> stops, naming the play" "$NO_USABLE_PATH" container yes $'1\n' 1 STUB_USED_UP=none \
+    "ccy-token-usable is not installed" "run play-claude-yolo.yml"
+usable_case "host mode (cc) never asks it" "$STUB_PATH" host yes $'1\n' 0 STUB_EXIT=2 \
+    "Selected token: alpha"
+if [ -s "$WORK/calls" ]; then
+    echo "  FAIL  host mode ran ccy-token-usable: $(cat "$WORK/calls")"
+    FAILED=$((FAILED + 1))
+else
+    echo "  PASS  host mode ran no ccy-token-usable"
+    PASSED=$((PASSED + 1))
+fi
+
+echo ""
 echo "=== usage errors ==="
 bad_mode_rc=0
 SELECTED_TOKEN=""
@@ -203,6 +290,93 @@ else
     echo "  FAIL  invalid mode returned rc=$bad_mode_rc (want 1)"
     FAILED=$((FAILED + 1))
 fi
+
+echo ""
+echo "=== validate_token: a check that could not run is never an invalid token ==="
+# validate_token asks the real Go front (--check-token, ccylaunch F17), built here, which runs
+# the check through a fake podman on PATH answering as the case says. The launcher reads 3
+# alone as a refused token (recovery); any other failure is a check that did not happen.
+export CHECK_DIR="$WORK/check"
+mkdir -p "$CHECK_DIR/bin"
+if ! front_build=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$CHECK_DIR/claude-yolo" ./cmd/claude-yolo 2>&1); then
+    echo "  FAIL  the Go front did not build: $front_build"
+    FAILED=$((FAILED + 1))
+fi
+cat >"$CHECK_DIR/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$CHECK_DIR/argv"
+printf '%s' "${CLAUDE_CODE_OAUTH_TOKEN:-}" >"$CHECK_DIR/env-token"
+printf '%s' "$CHECK_STDOUT"
+[ -z "$CHECK_STDERR" ] || printf '%s\n' "$CHECK_STDERR" >&2
+exit "$CHECK_EXIT"
+EOF
+chmod +x "$CHECK_DIR/bin/podman"
+CHECK_TOKEN="placeholder_not-a-real-token"
+# check_case <desc> <want-rc> <stderr-word> <podman stdout> <podman stderr> <podman exit>
+check_case() {
+    local desc="$1" want="$2" word="$3" rc=0 err
+    err=$(CHECK_STDOUT="$4" CHECK_STDERR="$5" CHECK_EXIT="$6" \
+        PATH="$CHECK_DIR/bin:$PATH" SCRIPT_DIR="$CHECK_DIR" CONTAINER_ENGINE=podman \
+        validate_token "$CHECK_TOKEN" claude-yolo:latest 2>&1 >/dev/null) || rc=$?
+    if [ "$rc" = "$want" ] && [[ "$err" == *"$word"* ]] && ! grep -qF "$CHECK_TOKEN" "$CHECK_DIR/argv" &&
+        [ "$(cat "$CHECK_DIR/env-token")" = "$CHECK_TOKEN" ]; then
+        echo "  PASS  $desc (rc=$rc)"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAIL  $desc: rc=$rc (want $want), stderr '$err' (want '$word'), token by name only"
+        FAILED=$((FAILED + 1))
+    fi
+}
+check_case "a token the API accepts is 0" 0 "" "200" "" 0
+check_case "a token the API refuses is 3, the recovery case" 3 "refused the token" "401" "" 0
+check_case "an unreachable API is 1 with its cause, not a refusal" 1 "Could not resolve host" "" "curl: (6) Could not resolve host: api.anthropic.com" 6
+check_case "a missing image is 1, said so" 1 "is not built" "" "Error: claude-yolo:latest: image not known" 125
+check_case "an engine failure is 1 with the engine's words" 1 "cannot connect" "" "Error: cannot connect to Podman" 125
+
+echo ""
+echo "=== create_token: only a refused token is discarded ==="
+# create_token's setup-token run is container_cmd, stubbed here to print what setup-token
+# would (SETUP_OUT); its check is the real front through the fake podman above. A check that
+# could not run (1) keeps the new token, saying why; only the API's refusal (3) discards it.
+# Run under a hard timeout: the paste loop reads stdin, and a read at its end must end it.
+NEW_TOKEN="sk-ant-oat01-$(printf 'x%.0s' $(seq 90))"
+# create_case <desc> <want-rc> <want-saved yes|no> <output-word> <setup out> <stdin> <podman stdout> <podman stderr> <podman exit>
+create_case() {
+    local desc="$1" want="$2" saved="$3" word="$4" rc=0 out got_saved=no dir="$WORK/create.$RANDOM"
+    mkdir -p "$dir"
+    out=$(printf '%s' "$6" | SETUP_OUT="$5" CHECK_STDOUT="$7" CHECK_STDERR="$8" CHECK_EXIT="$9" \
+        PATH="$CHECK_DIR/bin:$PATH" SCRIPT_DIR="$CHECK_DIR" CONTAINER_ENGINE=podman timeout 20 bash -c "
+        set -uo pipefail
+        source '$PURE_LIB'
+        source '$TOKEN_LIB'
+        container_cmd() { printf '%s\n' \"\$SETUP_OUT\"; }
+        create_token '$dir' placeholder-gh claude-yolo:latest ccy work
+    " 2>&1) || rc=$?
+    if compgen -G "$dir/work.*.token" >/dev/null && grep -qxF "$NEW_TOKEN" "$dir"/work.*.token; then
+        got_saved=yes
+    fi
+    if [ "$rc" = "$want" ] && [ "$got_saved" = "$saved" ] && [[ "$out" == *"$word"* ]]; then
+        echo "  PASS  $desc (rc=$rc, saved=$got_saved)"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  FAIL  $desc: rc=$rc (want $want), saved=$got_saved (want $saved), output lacks '$word'"
+        FAILED=$((FAILED + 1))
+    fi
+}
+create_case "setup-token's token, accepted: saved" 0 yes "Token created successfully" "$NEW_TOKEN" "" "200" "" 0
+create_case "setup-token's token, refused (3): discarded" 1 no "the API refused it" "$NEW_TOKEN" "" "401" "" 0
+create_case "setup-token's token, check not run (1): kept, with the cause" 0 yes "Could not resolve host" \
+    "$NEW_TOKEN" "" "" "curl: (6) Could not resolve host: api.anthropic.com" 6
+create_case "  and says it was not checked" 0 yes "could not be checked" \
+    "$NEW_TOKEN" "" "" "Error: cannot connect to Podman" 125
+create_case "a pasted token, check not run (1): kept, with the cause" 0 yes "cannot connect" \
+    "no token here" $'\n'"$NEW_TOKEN" "" "Error: cannot connect to Podman" 125
+create_case "a pasted token, refused (3), then n: discarded" 1 no "the API refused it" \
+    "no token here" $'\n'"$NEW_TOKEN"$'\nn\n' "401" "" 0
+create_case "a pasted token, refused (3), then the input closes: ends, never loops" 1 no "the API refused it" \
+    "no token here" $'\n'"$NEW_TOKEN"$'\n' "401" "" 0
+create_case "no token pasted before the input closes: ends, never loops" 1 no "the input closed" \
+    "no token here" $'\n' "200" "" 0
 
 echo ""
 echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="

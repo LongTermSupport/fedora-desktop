@@ -42,12 +42,20 @@ type fakeRunner struct {
 	replies map[string]reply
 	log     []string
 	dirs    []string
+	cmds    []proc.Cmd
+	// mask is the process's umask as the run left it, and masks the one each command ran under.
+	mask  int
+	masks []int
 }
 
 func newFakeRunner(t *testing.T) *fakeRunner {
 	t.Helper()
-	return &fakeRunner{t: t, replies: map[string]reply{}}
+	return &fakeRunner{t: t, replies: map[string]reply{}, mask: machineUmask}
 }
+
+// machineUmask is the umask of the machine a fake run starts on: a GitHub runner's, not
+// gates.SuiteUmask.
+const machineUmask = 0o022
 
 // keyOf names a command: a bash script by its file name, anything else by its words.
 func keyOf(argv []string) string {
@@ -80,6 +88,8 @@ func (f *fakeRunner) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 	key := keyOf(c.Argv)
 	f.log = append(f.log, key)
 	f.dirs = append(f.dirs, c.Dir)
+	f.cmds = append(f.cmds, c)
+	f.masks = append(f.masks, f.mask)
 	stage, helper := envOf(c.Env, "QA_JSON_OUT"), argAfter(c.Argv, "--counts-file")
 	r, ok := f.replies[key]
 	if !ok && stage == "" && helper == "" {
@@ -100,6 +110,13 @@ func (f *fakeRunner) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 	res := proc.Result{Code: r.code, TimedOut: r.timedOut, Leftover: r.leftover}
 	f.deliver(&res, r, c)
 	return res, nil
+}
+
+// setUmask is Env.Umask over the fake: the process umask the next commands inherit.
+func (f *fakeRunner) setUmask(mask int) int {
+	old := f.mask
+	f.mask = mask
+	return old
 }
 
 func orDefault(value, fallback string) string {
@@ -149,6 +166,7 @@ type world struct {
 	out    strings.Builder
 	errOut strings.Builder
 	env    map[string]string
+	lock   *lockRecorder
 }
 
 func newWorld(t *testing.T, table string) *world {
@@ -173,22 +191,30 @@ func newWorld(t *testing.T, table string) *world {
 			}
 		}
 	}
-	return &world{t: t, root: root, runner: newFakeRunner(t), env: map[string]string{"QA_RESULTS_JSON": filepath.Join(root, "results.json")}}
+	w := &world{t: t, root: root, runner: newFakeRunner(t), env: map[string]string{"QA_RESULTS_JSON": filepath.Join(root, "results.json")}}
+	w.lock = &lockRecorder{ran: func() int { return len(w.runner.log) }}
+	return w
 }
 
 func (w *world) main(ctx context.Context, args ...string) ExitCode {
 	w.t.Helper()
 	w.out.Reset()
 	w.errOut.Reset()
-	env := Env{
+	return Main(ctx, append([]string{"--root", w.root}, args...), w.env0())
+}
+
+// env0 is the command's environment over this world.
+func (w *world) env0() Env {
+	return Env{
 		Getenv:   func(k string) string { return w.env[k] },
 		Stdout:   &w.out,
 		Stderr:   &w.errOut,
 		Runner:   w.runner,
 		Cwd:      w.root,
 		NewToken: func() string { return "tok-1" },
+		Lock:     w.lock.take,
+		Umask:    w.runner.setUmask,
 	}
-	return Main(ctx, append([]string{"--root", w.root}, args...), env)
 }
 
 func (w *world) results() string {

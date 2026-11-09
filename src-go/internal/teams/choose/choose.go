@@ -12,12 +12,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatcheckouts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -29,6 +31,18 @@ const exitConfig term.ExitCode = 78
 
 // stateNew is a seat the checkout does not have yet: its member is made when the launch starts.
 const stateNew = "new"
+
+// stateHeld is a seat a running session holds.
+const stateHeld = "held"
+
+// The launch block's head and seat line (S-C4); Plan 00201's m7_check reads them by name. The
+// seat line's first field is the team, padded to the longest team of the block.
+const (
+	blockHead     = "This session is on %d %s:"
+	blockNounOne  = "team"
+	blockNounMany = "teams"
+	blockLine     = "  %s  seat %s (%s)  %s"
+)
 
 // Words of the role question.
 const (
@@ -57,7 +71,7 @@ func row(c agentbus.Choice) string {
 	state := c.State
 	switch c.State {
 	case "free":
-	case "held":
+	case stateHeld:
 		state = "held by a running session"
 	case stateNew:
 		state = "new seat"
@@ -143,27 +157,49 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 // taken, naming every team the session is on with its seat, the seat's role and what the team is
 // for. LIST is the canonical SEAT@TEAM list; anything else is a usage mistake.
 func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
+	return c.blockTo(ctx, c.Host.Stdout, args)
+}
+
+// Block writes the same block to w for the canonical SEAT@TEAM list of a session whose seats
+// changed while it runs (`ccy-teams session add` and `move`, Plan 00177 Task 11.2), so every route
+// that takes a seat names the session's teams, as the launch does. checkout is the session's
+// checkout, whose seats are read: ccy-teams runs in a terminal whose working directory need not be
+// it (Task 12.1).
+func Block(ctx context.Context, h *host.Host, kit *flow.Kit, w io.Writer, checkout, canonical string) term.ExitCode {
+	c := &Choose{Host: h, Bus: h.Bus, Gum: h.Gum, Kit: kit}
+	return c.blockIn(ctx, w, checkout, []string{canonical})
+}
+
+// blockTo is the block of a launch, which runs in the session's checkout.
+func (c *Choose) blockTo(ctx context.Context, w io.Writer, args []string) term.ExitCode {
+	return c.blockIn(ctx, w, "", args)
+}
+
+func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args []string) term.ExitCode {
 	seats, ok := c.seatItems("--block", args)
 	if !ok {
 		return term.ExitUsage
+	}
+	if !c.listCheckout(ctx, checkout) {
+		return term.ExitFailure
 	}
 	width := 0
 	for _, st := range seats {
 		width = max(width, len(st.team))
 	}
-	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
-	noun := "teams"
+	d := &describer{c: c, checkout: checkout, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
+	noun := blockNounMany
 	if len(seats) == 1 {
-		noun = "team"
+		noun = blockNounOne
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "This session is on %d %s:\n", len(seats), noun)
+	fmt.Fprintf(&b, blockHead+"\n", len(seats), noun)
 	for _, st := range seats {
 		about := d.about[st.team]
 		if about == "" {
 			about = "(no description)"
 		}
-		fmt.Fprintf(&b, "  %-*s  seat %s (%s)  %s\n", width, st.team, st.seat, d.roleWords(ctx, st.seat, st.team), about)
+		fmt.Fprintf(&b, blockLine+"\n", fmt.Sprintf("%-*s", width, st.team), st.seat, d.roleWords(ctx, st.seat, st.team), about)
 	}
 	// Security audit L1: a team human's request carries the owner's authority over the session.
 	which := "these teams"
@@ -171,8 +207,33 @@ func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
 		which = "this team"
 	}
 	fmt.Fprintf(&b, "Any human listed in %s can direct this session as you can.\n", which)
-	c.Host.Print(c.Host.Stdout, b.String())
+	c.Host.Print(w, b.String())
 	return term.ExitOK
+}
+
+// listCheckout adds the session's checkout ("" is the working directory's) to the list of seat
+// checkouts: the block follows every seat take, and once the session ends no record names the
+// checkout, so the board and shutdown read its seats from that list (Plan 00201 Task 2.29). A
+// failure is said and ends the block, so the launch does not start.
+func (c *Choose) listCheckout(ctx context.Context, checkout string) bool {
+	if checkout == "" {
+		top, err := c.Host.Git.TopLevel(ctx, "")
+		if err != nil {
+			c.Kit.ReportErr(err)
+			c.Kit.Term.PrintError("this checkout could not be named, so it is not listed among the seat checkouts.")
+			return false
+		}
+		checkout = top
+	}
+	store, err := c.Host.Registry()
+	if err == nil {
+		err = seatcheckouts.Of(store).Add(checkout)
+	}
+	if err != nil {
+		c.Kit.Term.PrintError(err.Error() + "; without it, its seats are not shown once the session ends.")
+		return false
+	}
+	return true
 }
 
 type seatTeam struct{ seat, team string }
@@ -307,7 +368,7 @@ func running(choices agentbus.Choices) coordinator.Lookup {
 	var seats []agentbus.Seat
 	for _, r := range choices.Rows {
 		if r.State != stateNew {
-			seats = append(seats, agentbus.Seat{Seat: r.Seat, Handle: r.Handle, Held: r.State == "held"})
+			seats = append(seats, agentbus.Seat{Seat: r.Seat, Handle: r.Handle, Held: r.State == stateHeld})
 		}
 	}
 	return coordinator.FromSeats(seats)
@@ -344,12 +405,14 @@ type rosterResult struct {
 
 // describer reads each team once and the checkout's seats once.
 type describer struct {
-	c       *Choose
-	rosters map[string]rosterResult
-	handles map[string]string // "<seat>@<team>" -> handle
-	about   map[string]string // team -> what it is for
-	loaded  bool
-	loadErr error
+	c          *Choose
+	checkout   string // the session's checkout; "" is the working directory's (a launch runs there)
+	rosters    map[string]rosterResult
+	handles    map[string]string // "<seat>@<team>" -> handle
+	about      map[string]string // team -> what it is for
+	loaded     bool
+	loadErr    error
+	unreadable bool // agent-bus could not read every seat (or refused the list): said on its stderr
 }
 
 // describe is the seat with its role, and what its team is for when the team has a description.
@@ -374,6 +437,9 @@ func (d *describer) roleWords(ctx context.Context, seat, team string) string {
 	if err != nil {
 		return "role unknown: " + err.Error()
 	}
+	if !found && d.unreadable {
+		return unreadSeatWords
+	}
 	if !found {
 		return newSeatWords
 	}
@@ -393,16 +459,19 @@ func (d *describer) roleWords(ctx context.Context, seat, team string) string {
 	return member.Role
 }
 
-const newSeatWords = "new seat: it joins as a worker"
+const (
+	newSeatWords    = "new seat: it joins as a worker"
+	unreadSeatWords = "role unknown: the checkout's seats could not all be read (the reason is above)"
+)
 
-// handle is the member's handle of a seat of this checkout; found is false for a seat it does
-// not have.
+// handle is the member's handle of a seat of the session's checkout; found is false for a seat
+// it does not have, or for one agent-bus could not read (unreadable).
 func (d *describer) handle(ctx context.Context, seat, team string) (string, bool, error) {
 	if !d.loaded {
 		d.loaded = true
 		d.handles = map[string]string{}
-		list, _, err := d.c.Bus.SeatList(ctx, "")
-		d.loadErr = err
+		list, unreadable, err := d.c.Bus.SeatList(ctx, d.checkout)
+		d.loadErr, d.unreadable = err, unreadable
 		for _, s := range list {
 			d.handles[s.Seat+"@"+s.Team] = s.Handle
 		}

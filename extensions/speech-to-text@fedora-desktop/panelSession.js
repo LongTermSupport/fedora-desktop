@@ -158,11 +158,25 @@ export class PanelSession {
             this._log(`Escape ignored: no microphone open (${this._shown})`);
             return;
         }
+        if (session.exited) {
+            // Its PID is free for reuse: never signalled. A stale recording is wsi's to
+            // remove at its next start (SPEC-wsi-watermark.md W15a)
+            this._log(`Escape: ${session.pid} has already exited; nothing to discard`);
+            session.aborted = true;
+            session.ended = 'IDLE';
+            this._finish(session);
+            return;
+        }
         this._log(`Escape: discarding the dictation of ${session.pid}`);
         this._releaseMedia(session);
         session.aborted = true;
         session.ended = 'IDLE';
-        this._abort(session.pid, session.launch);
+        // What the killed recorder leaves is removed once it has exited (_exited)
+        try {
+            session.afterExit = this._abort(session.pid, session.launch) ?? null;
+        } catch (e) {
+            this._reportError(`Escape: ${e.message}`);
+        }
         this._render();
     }
 
@@ -257,7 +271,7 @@ export class PanelSession {
         const token = this._newToken();
         const session = {
             token, launch, pid: null, state: 'LAUNCHING', ended: null, pressedAs: null,
-            exited: false, cancelled: false, stopAsked: false, aborted: false,
+            exited: false, cancelled: false, stopAsked: false, aborted: false, afterExit: null,
             safetyTimer: null, settleTimer: null, media: null,
         };
         this._session = session;
@@ -302,6 +316,16 @@ export class PanelSession {
     }
 
     _exited(session, how, failed) {
+        // First, so nothing new can start, and write the same files, before they are gone
+        if (session.afterExit) {
+            const afterExit = session.afterExit;
+            session.afterExit = null;
+            try {
+                afterExit();
+            } catch (e) {
+                this._reportError(`What the discarded recorder left could not be removed: ${e.message}`);
+            }
+        }
         if (session !== this._session) {
             this._log(`Recorder ${session.pid} (session ${session.token}) ended (${how}); ` +
                 'the panel had already finished with it');

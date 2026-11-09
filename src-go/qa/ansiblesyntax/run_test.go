@@ -133,15 +133,18 @@ func TestFailedWriteToAStreamIsExitTwo(t *testing.T) {
 
 // S4
 func TestEngineThatCannotRunIsExitTwo(t *testing.T) {
-	for name, set := range map[string]func(*fakeRun){
-		"missing":   func(f *fakeRun) { f.missing = "ansible-playbook" },
-		"exit code": func(f *fakeRun) { f.versionCode = 1 },
+	for name, c := range map[string]struct {
+		set   func(*fakeRun)
+		cause string
+	}{
+		"missing":   {func(f *fakeRun) { f.missing = "ansible-playbook" }, "executable file not found"},
+		"exit code": {func(f *fakeRun) { f.versionCode = 1 }, "ansible-playbook --version exited 1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, nil)
 			w.addPlaybook("p.yml")
-			set(w.run)
-			wantStderr(t, w.main(), "ansible-playbook not installed", "run.bash")
+			c.set(w.run)
+			wantStderr(t, w.main(), "ansible-playbook not installed", "run.bash", c.cause)
 			w.noReport()
 		})
 	}

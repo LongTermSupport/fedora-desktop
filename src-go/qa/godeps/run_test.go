@@ -52,6 +52,8 @@ func subcommand(argv []string) string {
 		return "vendor"
 	case slices.Equal(argv[:3], []string{"go", "tool", "govulncheck"}):
 		return "govulncheck"
+	case slices.Equal(argv[:3], []string{"go", "list", "-deps"}):
+		return "list " + argv[len(argv)-1]
 	}
 	return strings.Join(argv, " ")
 }
@@ -123,7 +125,7 @@ func TestARepositoryInStepPasses(t *testing.T) {
 	if code := r.deps(t); code != ExitOK {
 		t.Fatalf("code %d, stderr:\n%s", code, r.err.String())
 	}
-	want := "GO-DEPS-OK 1 module(s) allowlisted (0 at a pseudo-version, 0 replaced); go.sum verified, tidy, vendor/ in sync (2 files)\n"
+	want := "GO-DEPS-OK 1 module(s) allowlisted (0 at a pseudo-version, 0 replaced), 0 keepout(s) held; go.sum verified, tidy, vendor/ in sync (2 files)\n"
 	if r.out.String() != want {
 		t.Fatalf("stdout = %q", r.out.String())
 	}

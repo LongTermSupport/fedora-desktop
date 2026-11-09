@@ -13,6 +13,27 @@ pointer rather than restated.
 
 How to work effectively on this repo (the `feedback`-type notes).
 
+### Running this repo's tooling is dogfooding it: find the faults, then fix or log each one
+
+Whenever you run a tool this repository ships, you are also its tester. Watch for its faults
+while you use it, and leave each one fixed or logged before you move on.
+
+- **What counts:** everything this repository ships or runs. That means pingbus and the agent
+  bus, `run.bash`, `meta-deploy.bash` and the plan scripts, the QA gates and hooks, ccy and
+  ccy-teams, and the Go commands.
+- **What to look for:** bugs, and also the smaller things: an error that does not say what to
+  do, a prompt that is unclear, output that misleads, a doc that is wrong or missing, a step
+  that takes two tries.
+- **What to do with each one:** fix it if it is in your task's reach, under the usual rules
+  (Defence Before Fix for a defect). Otherwise log it the moment you meet it: a GitHub issue,
+  or a plan when it needs design. Write what you ran, what happened and what should happen,
+  with no install-specific names.
+- **Never just work around one.** A retry in a different form that gets past a fault is
+  fine, as long as the fault is logged too. A silent workaround is how the same fault costs
+  every later session the same time.
+- **A seat that cannot fix or file** (a host seat with no write access to the forge, say)
+  reports each finding to the team's coordinator, and the coordinator logs it.
+
 ### Never wait in the foreground — the owner cannot type while a command blocks
 
 A wait for a long job (QA, a build, a log line) runs in the background: Bash with
@@ -86,6 +107,16 @@ waiting for has finished, or work is blocked on them. **Do not spam:** no progre
 no routine updates; the chat remains the report. A container session has no desktop session
 bus, so this does not apply there.
 
+### Never look at the owner's desktop — no screenshots, no windows, unless asked
+
+**Standing rule from the owner:** no agent takes a screenshot of the owner's desktop, asks
+the screenshot portal or GNOME Shell for one, or opens windows on the owner's desktop for a
+check, unless the owner asked for it in that session. A check that needs the screen is the
+owner's, and the plan says so. **Why:** the portal puts a permission dialog on the screen
+the owner is working at, and a capture shows their screen; both interrupt their work. The
+rule is about the owner's real desktop only: a screenshot of a test VM (the VM lab's
+`virsh screenshot`, a guest's display) is fine.
+
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
 **Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
@@ -105,9 +136,23 @@ entry below), is, at every commit, exactly what needs running **now**:
 - **It cannot usefully run yet: leave it out.** A triage that reads the next boot's journal
   goes in once the reboot has happened, not before. A run that would only repeat one
   already passed is not pending.
-- **Then ask the owner to run it.** Say "run `./CLAUDE/Plan/meta-deploy.bash`", with what it
-  will do and anything it will ask of them (a browser authorisation, say). Ask whenever the
-  list holds something; do not route the run through another agent instead.
+- **Then have the host agent run it.** Owner: "you dont need me to run meta, you ask the
+  desktop agent". Where the team has a host agent (a seat on the host, on the agent bus), ask
+  it to run `./CLAUDE/Plan/meta-deploy.bash`, saying what the run will do and what to report;
+  it runs the host side and reports back. Ask the owner only where no host agent is on the
+  team, or for what only the owner can give (a browser authorisation, a login, a look at the
+  screen), naming it. Ask whenever the list holds something.
+- **The host agent does triage and deployment only, never dev work.** Owner: "you are not
+  supposed to be doing dev work, only triage+deployment". Send it meta-deploy runs, host
+  checks and read-only probes. Code, tests, branches and pull requests, in any repository,
+  go to a container worker, even when the defect only shows on the host.
+- **The agent bus v1 is feature-frozen: bug fixes only.** Owner, 2026-11-02: "v1 should feature
+  freeze apart from bug fix". New bus features, cross-network membership included, go into v2
+  (Plan 00209, direction 7). A v1 change that is not a bug fix is refused.
+- **Dispatch a worker as a background subagent with `isolation: "worktree"`, never as a
+  named in-process teammate.** A teammate runs inside the coordinator's own session, so when
+  it moves into its worktree the coordinator moves with it, and the worktree guards then
+  refuse the coordinator's git and edits everywhere else, including the main checkout.
 - **Meta-deploy runs plan scripts, never a tool's routine job.** Owner: "meta deploy is
   only a convenience for running plan level deploy/triage scripts". Downloading models,
   rebuilding VM bases or cleaning disk is the owner running the deployed tool
@@ -162,6 +207,25 @@ cannot, and the user has to keep re-granting something they already mandated.
   the layer, rather than silently declining — a per-session operating
   instruction sits above daemon config, so no `.claude/hooks-daemon.yaml`
   setting can clear it.
+
+### A second QA run waits for the first — it is queued, not refused
+
+**QA never runs in parallel**, from any worktree, CCY container or the host: `qa-all`,
+`qa-changed` and `qa-go-qa.bash` take one shared lock in the git common directory, and every
+QA run is nice 19, ionice idle ([QA.md](QA.md#qa-runs-one-at-a-time-the-qa-lock-and-low-priority)).
+
+**How to apply:**
+
+- A coordinator does not need to sequence workers' QA by hand: a worker's
+  `./scripts/qa-changed.bash` started while a full run goes simply waits, printing
+  `qa: waiting for the QA run <pid> (<command>, started <time>, in <worktree>)` on stderr and a
+  line a minute after. That line is a queued run, not a hang and not a failure; do not kill it.
+- Run QA in the background (it can wait a long time) and wait on its exit, never in the
+  foreground.
+- A script or CI step that would rather fail passes `--no-wait` (exit `2`, the holder named), or
+  bounds the wait with `QA_LOCK_TIMEOUT=<duration>`.
+- `R-SUBAGENT-FULL-QA` still stands: a sub-agent does not run the full gate at all; the lock only
+  stops runs overlapping.
 
 ### Tell a read-only reviewer WHERE to write, never that it must not write
 

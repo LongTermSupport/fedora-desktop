@@ -1,0 +1,304 @@
+---
+# Fixture for the sudoers-rule check of src-go/qa/ansible: every line marked EXPECT-FINDING
+# must be reported, and no other. Each sudoers task below installs a rule (or is installed in a
+# way) that lets the user it is granted to steer what runs as root. A task list, not a play, so
+# no gate syntax-checks it. The deploys of the targets come first and carry no finding: a
+# target's fault is reported on the rule that names it.
+
+- name: The target every rule names, root's alone
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/tool
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: A target the user owns
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/userowned
+    owner: "{{ user_login }}"
+    mode: "0755"
+
+- name: A target the group can write
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/groupwritable
+    owner: root
+    mode: "0775"
+
+- name: A target in a directory the user owns
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /opt/tools/bin/t
+    owner: root
+    mode: "0755"
+
+- name: The directory the user owns
+  ansible.builtin.file:
+    path: /opt/tools
+    state: directory
+    owner: "{{ user_login }}"
+
+- name: A link to a file in the user's home
+  ansible.builtin.file:
+    src: "/home/{{ user_login }}/bin/t"
+    dest: /usr/local/bin/linked
+    state: link
+    owner: root
+
+- name: A target with no mode
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/nomode
+    owner: root
+
+- name: No argument list, so any arguments
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/no-args.j2"
+    dest: /etc/sudoers.d/no-args
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A wildcard argument
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/glob-arg.j2"
+    dest: /etc/sudoers.d/glob-arg
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: SETENV
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/setenv.j2"
+    dest: /etc/sudoers.d/setenv
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: Defaults keeps the caller's PATH
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/env-keep.j2"
+    dest: /etc/sudoers.d/env-keep
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: Defaults turns env_reset off for the command
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/not-reset.j2"
+    dest: /etc/sudoers.d/not-reset
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A group, not a fixed user
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/group.j2"
+    dest: /etc/sudoers.d/group
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: Runs as anyone
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/runas-all.j2"
+    dest: /etc/sudoers.d/runas-all
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: An expression with a bare dot
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/regex-dot.j2"
+    dest: /etc/sudoers.d/regex-dot
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: An expression anchored at one end
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/regex-unanchored.j2"
+    dest: /etc/sudoers.d/regex-unanchored
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A negated command
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/negation.j2"
+    dest: /etc/sudoers.d/negation
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target no task deploys
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/undeployed.j2"
+    dest: /etc/sudoers.d/undeployed
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target the user owns
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/user-owned.j2"
+    dest: /etc/sudoers.d/user-owned
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target the group can write
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/group-writable.j2"
+    dest: /etc/sudoers.d/group-writable
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target under a directory the user owns
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/writable-dir.j2"
+    dest: /etc/sudoers.d/writable-dir
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A link to a file in the user's home
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/link-to-user.j2"
+    dest: /etc/sudoers.d/link-to-user
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target with no mode
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/no-mode.j2"
+    dest: /etc/sudoers.d/no-mode
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: An alias expanded, and a command with no argument list beside it
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/alias.j2"
+    dest: /etc/sudoers.d/alias
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: An include
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/include.j2"
+    dest: /etc/sudoers.d/include
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A wildcard in the path
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/path-glob.j2"
+    dest: /etc/sudoers.d/path-glob
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A target an installer puts in place group-writable
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/installed-writable.j2"
+    dest: /etc/sudoers.d/installed-writable
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A user alias
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/user-alias.j2"
+    dest: /etc/sudoers.d/user-alias
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: No validation
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/no-validate
+    owner: root
+    group: root
+    mode: "0440"
+
+- name: A drop-in others can read
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/readable
+    owner: root
+    group: root
+    mode: "0644"
+    validate: visudo -cf %s
+
+- name: A drop-in the user owns
+  ansible.builtin.copy:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/user-owned
+    owner: "{{ user_login }}"
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A block in /etc/sudoers with no validation
+  ansible.builtin.blockinfile:  # EXPECT-FINDING
+    path: /etc/sudoers
+    block: '{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool ""'
+
+- name: A line with SETENV
+  ansible.builtin.lineinfile:  # EXPECT-FINDING
+    path: /etc/sudoers.d/line
+    line: '{{ user_login }} ALL=(root) NOPASSWD:SETENV: /usr/local/bin/tool ""'
+    validate: visudo -cf %s
+
+- name: Inline content with no argument list
+  ansible.builtin.copy:  # EXPECT-FINDING
+    content: "{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool\n"
+    dest: /etc/sudoers.d/inline
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A rule written by a shell command
+  ansible.builtin.shell: |  # EXPECT-FINDING
+    set -euo pipefail
+    echo "someone ALL=(ALL) NOPASSWD: /usr/local/bin/tool" > /etc/sudoers.d/by-shell
+  changed_when: true
+
+- name: A source that is not there
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/missing.j2"
+    dest: /etc/sudoers.d/missing
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s

@@ -1,0 +1,9 @@
+## 17:26 · finding · —   — qa-changed: wiring TestE2EQueuedAtStart missed its 30 s wait once under the gate load
+
+A finding from the third and fourth `qa-changed` runs of the S7b host half and the health slice on the cross-network branch.
+
+The fourth run failed in one place: `member/wiring`'s `TestE2EQueuedAtStart` ("not within 30s", after 33 s), with the shuffle seed `1793725383728376160`. Every package the change touches (`host`, `paths`, `units`, `admin`, `health`, `tlsterm`, `tlsverb`) passed, as did the detectors, the project rules and the tagged stages. The test starts a keeper, a link and an agent as real processes and waits 30 s of real time for the agent to be queued; it did not get there in time while the whole gate ran its other packages.
+
+What I checked. The test alone under `-race` passed three times in a row (about 80 s each, most of it building and starting the processes); the whole `wiring` package under the same shuffle seed on an otherwise idle machine passed (204 s); and a second `qa-changed` run of the unchanged tree passed, `wiring` included. So the failure is the 30 s wait against a slow start under load, not an order dependence and not this change: the committed first half of S7b added the `tls` verb to `wiring`'s table, and nothing since touches the package.
+
+The same class as the earlier finding about the `member/engine` binary that spun once: tests in `teamchat/member` whose only bound is a real-time wait or none at all, on a gate that runs every package at once at low priority (`qa/internal/proc` makes a QA command nice 19 and idle I/O). Neither is reproduced on demand. I did not lengthen the wait or skip the test. What would hold the class is the owner's call: a longer or clock-free wait in the e2e tests, or the gate's `-p` limited for `teamchat`. Until then a red `wiring` e2e test in a QA run is to be re-run alone before it is read as a defect.

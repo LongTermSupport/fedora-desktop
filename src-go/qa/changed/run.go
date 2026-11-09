@@ -83,6 +83,9 @@ func resolvePaths(opts options, getenv func(string) string, cwd string) (string,
 }
 
 func newSession(env Env, opts options) (*session, error) {
+	if env.Umask == nil {
+		return nil, errors.New("no umask control is wired into this command")
+	}
 	root, scripts := resolvePaths(opts, env.Getenv, env.Cwd)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("root %s is not a directory", root)
@@ -134,7 +137,29 @@ func (s *session) run(ctx context.Context) ExitCode {
 	if s.preflight() != nil {
 		return ExitCannotRun
 	}
-	return s.execute(ctx)
+	return s.locked(ctx)
+}
+
+// locked runs the checks under the QA lock, so no other QA run overlaps them.
+func (s *session) locked(ctx context.Context) ExitCode {
+	if s.env.Lock == nil {
+		s.errf("ERROR: no QA lock is wired into this command\n")
+		return ExitCannotRun
+	}
+	release, err := s.env.Lock(ctx, s.root, s.opts.noWait)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return s.interrupted()
+		}
+		s.errf("ERROR: %v\n", err)
+		return ExitCannotRun
+	}
+	code := s.execute(ctx)
+	if err := release(); err != nil {
+		s.errf("ERROR: cannot release the QA lock: %v\n", err)
+		return ExitCannotRun
+	}
+	return code
 }
 
 func (s *session) collect(ctx context.Context) (collected, error) {
@@ -313,20 +338,42 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		record(d.id, o)
 	}
 	for _, suite := range s.plan.suites {
-		res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
-			return s.script(c, nil, strings.TrimPrefix(suite.name, "scripts/"))
-		})
-		if o == interrupted {
-			return s.interrupted()
+		for _, argv := range s.suiteRuns(suite) {
+			res, o := s.timed(ctx, true, func(c context.Context) (checkResult, error) {
+				return s.exec(c, nil, argv.argv...)
+			})
+			if o == interrupted {
+				return s.interrupted()
+			}
+			name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
+			if o == passed {
+				o, reasons, res.output = judgeSuite(res.output, reasons, argv.rows)
+			}
+			s.report(name, reasons, res, o)
+			record(name, o)
 		}
-		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
-		if o == passed {
-			o, reasons, res.output = judgeSuite(res.output, reasons, suite.rows)
-		}
-		s.report(name, reasons, res, o)
-		record(name, o)
 	}
 	return s.verdict(failures, cannot)
+}
+
+// suiteRun is one command of a picked suite and the row that gives it, which judges its output.
+type suiteRun struct {
+	argv []string
+	rows []gates.Gate
+}
+
+// suiteRuns is the commands a suite runs: one per row of qa-gates.tsv, with the arguments the row
+// gives, as qa-all runs that gate. A script with no row runs bare and is judged unreadable.
+func (s *session) suiteRuns(suite pickedSuite) []suiteRun {
+	script := filepath.Join(s.scripts, strings.TrimPrefix(suite.name, "scripts/"))
+	if len(suite.rows) == 0 {
+		return []suiteRun{{argv: []string{toolBash, script}}}
+	}
+	runs := make([]suiteRun, 0, len(suite.rows))
+	for _, row := range suite.rows {
+		runs = append(runs, suiteRun{argv: slices.Concat([]string{toolBash, script}, row.Argv[1:]), rows: []gates.Gate{row}})
+	}
+	return runs
 }
 
 // judgeSuite settles a suite that exited 0 by each of its rows' own readers, the judge qa-all
@@ -420,9 +467,34 @@ func (s *session) cleanup() {
 	s.temps = nil
 }
 
-// runCmd starts a command through the process seam, naming the program when it cannot start.
+// isolation is the run's gates.Isolation, built on first use, its PATH stand-ins in a scratch
+// directory that cleanup removes.
+func (s *session) isolation() (gates.Isolation, error) {
+	if s.iso != nil {
+		return *s.iso, nil
+	}
+	scratch, err := s.tempDir()
+	if err != nil {
+		return gates.Isolation{}, err
+	}
+	// Set once for the process, before its first command: every command inherits it.
+	s.env.Umask(gates.SuiteUmask)
+	iso, err := gates.NewIsolation(s.root, s.scripts, s.env.Getenv("PATH"), scratch)
+	if err != nil {
+		return gates.Isolation{}, fmt.Errorf("cannot isolate the checks from this machine: %w", err)
+	}
+	s.iso = &iso
+	return iso, nil
+}
+
+// runCmd starts a command through the process seam, in gates.Isolation (suite-env-isolated),
+// naming the program when it cannot start.
 func (s *session) runCmd(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
-	res, err := s.env.Runner.Run(ctx, cmd)
+	iso, err := s.isolation()
+	if err != nil {
+		return proc.Result{}, err
+	}
+	res, err := s.env.Runner.Run(ctx, iso.Apply(cmd))
 	if err != nil {
 		return proc.Result{}, fmt.Errorf("cannot run %s: %w", cmd.Argv[0], err)
 	}

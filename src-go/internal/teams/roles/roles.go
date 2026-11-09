@@ -50,6 +50,10 @@ const readTimeout = 20 * time.Second
 // lxcKind is the type word of an LXC container's agent's handle.
 const lxcKind = "lxc"
 
+// setTo is the line a role change says for each step: the handle, its new role and the step's
+// note. Plan 00203's M4 reads it by name (Plan 00201 m7_check product-pattern).
+const setTo = "%s set to %s%s"
+
 // Reader reads a container's checkout from the host's side, and lists the host's containers
 // (running, then stopped); *lxcfreeze.Lister is the real one.
 type Reader interface {
@@ -240,7 +244,7 @@ func (s *Setter) step(ctx context.Context, team string, st Step, said func(strin
 		s.Kit.ReportRootErr(err)
 		return fmt.Errorf("%s was not made a %s", st.Handle, st.To)
 	}
-	said(st.Handle + " set to " + st.To + st.Note)
+	said(fmt.Sprintf(setTo, st.Handle, st.To, st.Note))
 	done.undo = append(done.undo, func(ctx context.Context) error {
 		if err := s.SetRole(ctx, team, st.Handle, st.From); err != nil {
 			return fmt.Errorf("%s was not made a %s again: %w", st.Handle, st.From, err)

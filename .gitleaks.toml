@@ -13,11 +13,15 @@ useDefault = true
 # helper tests. `container_token="abcdef0123456789"` is a truncated container
 # ID (16 hex chars), not a credential, but gitleaks' generic-api-key rule fires
 # on its entropy. Scope the allowance to that one test module and require the
-# match to be the fake-token assignment (matchCondition = AND), so a genuinely
-# leaked secret in the same file would still be reported.
+# match to be the fake-token assignment (condition = AND), so a genuinely
+# leaked secret in the same file would still be reported. The key is
+# `condition`, which gitleaks reads; and the allowlist names its rule, because
+# `gitleaks dir` skips whole every file a global allowlist's paths match
+# (tests/helpers/gitleaks_config/test_config_as_written_rule.py).
 [[allowlists]]
 description = "containerwatch test fixtures (fake container tokens, not real secrets)"
-matchCondition = "AND"
+targetRules = ["generic-api-key"]
+condition = "AND"
 paths = [
   '''tests/helpers/containerwatch/test_cli\.py''',
 ]
@@ -25,3 +29,76 @@ regexes = [
   '''container_token="[0-9a-f]+"''',
 ]
 regexTarget = "line"
+
+# The teamchat (agent-bus v2) Go tests below name fake values, written in the
+# test as placeholders, that generic-api-key flags on entropy beside a word like
+# key or token. Each allowance holds only for that rule, in the files named, for
+# the exact values listed (condition = AND, regexTarget = "secret"), so any
+# other value in the same files is still reported.
+
+# Fake seat key: the placeholder 16-hex `--key` the guest verbs' tests pass
+# (lower case), and the upper-case spelling the verbs must refuse.
+[[allowlists]]
+description = "teamchat guest-verb tests: fake seat key placeholders, not real secrets"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^src-go/internal/teamchat/member/cli/parse_test\.go$''',
+  '''^src-go/internal/teamchat/member/cli/guest_test\.go$''',
+  '''^src-go/internal/teamchat/member/keeper/prepare_test\.go$''',
+]
+regexes = [
+  '''^0123456789abcdef$''',
+  '''^0123456789ABCDEF$''',
+]
+regexTarget = "secret"
+
+# Fake session tokens: placeholders the guest, delivery, keeper and wire tests
+# pass along, to prove a token reaches its consumer and is never printed,
+# logged or put in an argv.
+[[allowlists]]
+description = "teamchat member tests: fake session token placeholders, not real secrets"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^src-go/internal/teamchat/host/lxc/lxccmd/guest_test\.go$''',
+  '''^src-go/internal/teamchat/member/engine/deliver_test\.go$''',
+  '''^src-go/internal/teamchat/member/keeper/scan_test\.go$''',
+  '''^src-go/internal/teamchat/member/keeper/membership_test\.go$''',
+  '''^src-go/internal/teamchat/member/wire/control_test\.go$''',
+]
+regexes = [
+  '''^tok-SECRET-1234$''',
+  '''^tok-0123456789$''',
+  '''^tok-0123456789abcdef$''',
+  '''^tok_SECRET_0123456789$''',
+]
+regexTarget = "secret"
+
+# Fake Matrix access token: syt_ + base64 of "repo.1" + the alphabet + a made-up
+# checksum, the shape the send test proves free text may never carry.
+[[allowlists]]
+description = "teamchat send test: fake Matrix access token, not a real secret"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^src-go/internal/teamchat/member/engine/send_test\.go$''',
+]
+regexes = [
+  '''^syt_cmVwby4x_abcdefghijklmnopqrst_0a1b2c$''',
+]
+regexTarget = "secret"
+
+# Fake Slack token: the short xoxb- sample the secret detector's own test feeds
+# it, to prove the detector refuses that shape.
+[[allowlists]]
+description = "teamchat secret-detector test: fake Slack token sample, not a real secret"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^src-go/internal/teamchat/proto/secret_test\.go$''',
+]
+regexes = [
+  '''^xoxb-1234567890$''',
+]
+regexTarget = "secret"

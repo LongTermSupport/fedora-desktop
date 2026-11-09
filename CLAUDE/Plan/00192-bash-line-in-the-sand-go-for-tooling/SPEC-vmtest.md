@@ -12,7 +12,7 @@ listed in section 7.
 ## 1. Role and callers
 
 `vmtest` is a thin executor. Every decision (manifest parsing, freshness, the base record, the
-verdict, retention) lives in the unit-tested Python helpers that `play-vm-test-lab.yml` deploys
+verdict, the bridge spool's retention) lives in the unit-tested Python helpers that `play-vm-test-lab.yml` deploys
 to `/usr/local/lib/ccy-helpers/helpers/vmtest`. The CLI fetches, verifies, boots, drives a guest
 over SSH and calls the helpers. It reads only Ansible-deployed copies (the manifest, the guest
 scripts, the helpers, the kickstarts), never the checkout (DESIGN.md §2.3).
@@ -93,7 +93,8 @@ The tests cite these numbers.
 
 - E6. `VMTEST_HOME` (default `~/.local/share/vmtest`) is the lab tree, and `VMTEST_HELPERS_LIB`
   (default `/usr/local/lib/ccy-helpers`) is the helpers' `PYTHONPATH`. An empty value means the
-  default.
+  default, as it does for the two bounds in seconds, `VMTEST_SSH_WAIT_TIMEOUT` (E24) and
+  `VMTEST_MEMBER_SSH_TIMEOUT` (E58).
 - E7. `lab.env` is read as data and never executed. It is `KEY=VALUE` lines; blank lines and `#`
   comments are skipped. Any other line, or a repeated key, is
   `ERROR: <lab.env>:<n>: ...`. The keys that matter are `VMTEST_FEDORA_VERSION` (digits only),
@@ -111,7 +112,9 @@ The tests cite these numbers.
   or a non-zero exit from the validator is an `ERROR:` and exit 1.
 - E10. Scenario facts come from `--scenario ID` in the same way: one `VMTEST-SCENARIO` line with
   `id`, `base`, `base_name`, `profile`, `planned`, `max_skipped`, `runnable`, `host_only`,
-  `reboot_before_checks` and `run_env`. Each of `runnable`, `host_only` and
+  `reboot_before_checks`, `run_env`, `audience` and `optional_plays`. `optional_plays` is `-` or
+  comma-separated `play-<a-z0-9->.yml` names; any other entry is
+  `malformed optional_plays entry: '<p>'`. Each of `runnable`, `host_only` and
   `reboot_before_checks` must be exactly `true` or `false`. Any other value is refused:
   `validator reported host_only='<v>', which is neither true nor false`.
 - E11. `run_env` is `-` (no overrides) or comma-separated `RUN_BASH_<A-Z_>=<[A-Za-z0-9._,:/=-]+>`
@@ -138,11 +141,11 @@ The tests cite these numbers.
     `-z <file>` when a local copy exists. A non-empty `.partial` replaces the file
     (`downloaded <file> (<n> bytes)`). An empty one is removed and keeps the current copy
     (`<file> is current (not modified upstream)`). If there is no copy at all, that is a failure.
-    A failed curl removes the `.partial` and fails with `download failed: <url>`;
+    A failed curl removes the `.partial` and fails with `download failed: <url>: <curl's error>`;
   - download `Fedora-<v>-<l>-x86_64-CHECKSUM` from the same directory of the URL in the same way;
   - verify it with `gpg2` against `RPM-GPG-KEY-fedora-<V>-primary`, imported into a private
     0700 home that is removed afterwards. A failed import or verify prints gpg's output and
-    fails. A verify failure says `GPG signature verification FAILED for <checksum> — refusing the artefact`;
+    fails. A verify failure says `GPG signature verification FAILED for <checksum> (gpg2 exited <n>) — refusing the artefact`, and a failed import `could not import <key> (gpg2 exited <n>)`;
   - read the one `SHA256 (<file>) = <64 hex>` line. If it is missing, the run fails. If it
     differs from the probe's sha, the run fails with `releases.json (<a>) and <checksum> (<b>) disagree about <file>`;
   - hash the downloaded file. A mismatch is `SHA-256 MISMATCH for <file>: expected <e>, got <a>`.
@@ -156,10 +159,12 @@ The tests cite these numbers.
   record (`--artefact <file>=<sha>`). The first artefact names the compose label and is the
   file that a fast base is seeded from. The compose id and the revision come from the probe
   (E13).
-- E16. Before anything is built: `retention floor --path bases --base-size <n> --step rebuild --guest-mib <ram>`.
-  `<n>` is the size of the existing base disk if there is one, otherwise the size of the first
-  artefact. A refusal is
-  `the host cannot carry a rebuild of <name> (stage: base); see the VMTEST-DISK/VMTEST-RAM lines above`.
+- E16. Before anything is built, the rebuild floor: free space under `bases/` for two bases of
+  `<n>` bytes and the 2 GiB margin (the old base stays until the rename), and the RAM ceiling
+  (E33). `<n>` is the size of the existing base disk if there is one, otherwise the size of the
+  first artefact. A refusal is
+  `the host cannot carry a rebuild of <name> (stage: base): only <free> free under <bases>; a rebuild needs <need> (the old and the new base, <n> each, and a 2 GiB margin)`,
+  or the RAM sentence of E33 after the colon.
 - E17. The build domain is `vmtest-build-<name>`, and its directory is `bases/<name>.build`. If
   libvirt already knows the domain, the command fails before any change, and the message names
   the `virsh ... undefine --nvram` command. Otherwise the directory is recreated empty and a
@@ -184,7 +189,7 @@ The tests cite these numbers.
   first `Base URL` must both be present. A desktop gets the session runner installed at
   `/usr/local/bin/vmtest-session-provision.bash` (root, 0755). `guest-cleanup.bash` must print
   `VMTEST-GUEST-CLEANUP-DONE` on a line of its own, or the build fails with
-  `guest cleanup did not complete`. Then a poweroff is scheduled with `systemd-run`, the command
+  `guest cleanup did not complete` (a cleanup that could not be run adds `: <ssh's error>`). Then a poweroff is scheduled with `systemd-run`, the command
   waits up to 300s for `shut off` (E25), and the domain is undefined (`--nvram`).
 - E21. The disk becomes `bases/<name>/base.qcow2`, and a desktop's passphrase moves beside it.
   The command hashes the disk and reads its size and mtime. `refresh_state` is `complete` when
@@ -200,12 +205,25 @@ The tests cite these numbers.
 - E23. `domstate` of the domain reads `shut off` or `crashed`: the guest has stopped, and the
   failure is `guest <domain> is <state> while waiting for <what>; see <dir>/console.log`. A
   failed `domstate` is
-  `cannot read the state of guest <domain> while waiting for <what>`.
-- E24. The wait for SSH: `==> waiting for SSH on 127.0.0.1:<port> (up to 600s)`. Each try first
+  `cannot read the state of guest <domain> while waiting for <what>: <virsh's error>`.
+- E24. The wait for SSH: `==> waiting for SSH on 127.0.0.1:<n> (up to <s>s)`. Each try first
   checks that the guest is up (E23), then runs `ssh ... true`. The wait sleeps 5s between tries
-  and ends by the clock after 600s with
-  `guest did not answer SSH within 600s; see <dir>/console.log`. Success is
-  `==> guest answered SSH after ~<n>s`.
+  and ends by the clock after `<s>` seconds with
+  `guest did not answer SSH within <s>s (VMTEST_SSH_WAIT_TIMEOUT): <the last try's error>; see <dir>/console.log`. Success is
+  `==> guest answered SSH after ~<n>s`. `<s>` is `VMTEST_SSH_WAIT_TIMEOUT`, default 600, a
+  positive whole number of seconds up to 86400, read when the lab is loaded (E7), so a bad value
+  fails as `VMTEST_SSH_WAIT_TIMEOUT must be a positive number of seconds up to 86400, got '<v>'`
+  before anything boots. It bounds every wait for SSH (build, run, member-up) and a desktop's
+  wait for its login prompt (E26's `--timeout`).
+  - Why settable, and not scaled with load (Task 3.14). On a host at a load average of about 10,
+    a member's first boot did not answer within 600s, and the next answered after about 192s.
+    Two readings do not give a relation between load and boot time, and the load average lags
+    and counts tasks waiting on I/O, so a bound computed from it would be a guess that no test
+    here can check. The default stays 600s, three times the slow boot measured, so a guest that
+    never comes up still fails within ten minutes. A caller that knows its host is busy (an
+    acceptance script starting a member beside other work) raises it for that call, and a
+    failed member-up shows the console's last lines (E57), which say whether the guest was
+    still booting or stuck.
 - E25. The wait for power-off polls `domstate` every 5s for up to 300s:
   `guest did not shut off within 300s (state: <s>)`. A failed `domstate` is a failure.
 - E26. On a desktop, `serial_console --unlock-with <passphrase> --until 'login: '` answers the
@@ -257,8 +275,10 @@ The tests cite these numbers.
 - E33. The freshness gate (E48) runs. A refusing verdict prints its marker line to stderr and
   fails with
   `base <name> may not be used (freshness: <decision>); rebuild it with: vmtest build-base <key>`.
-  Then comes `retention floor --path runs --base-size <size> --step run --guest-mib <ram>`. A
-  refusal there names `(stage: clone)`.
+  Then comes the RAM ceiling: a guest may have at most 75% of the host's memory (MemTotal of
+  `/proc/meminfo`). A refusal is
+  `the host cannot carry a run on <name> (stage: clone): guest <ram> MiB exceeds the <ceiling> MiB ceiling of a <host> MiB host`.
+  The disk is the guard's alone (E64).
 
 - E34. The run id is `<UTC %Y%m%dT%H%M%SZ>-<id>`, the directory is `runs/<run-id>`, and the domain
   is `vmtest-run-<run-id>`. The overlay is `qemu-img create -q -f qcow2 -F qcow2 -b <base>`, and
@@ -336,7 +356,7 @@ The tests cite these numbers.
   judged: `redact` for the token and for the passphrase, then `verify` (D2). A missing scrubber
   front or library fails the run, naming `play-vm-test-lab.yml`. A failed redact or verify fails
   the run with
-  `a supplied secret survived redaction in <file>; the run's artefacts are NOT safe to share (they remain under <dir>)`.
+  `a supplied secret survived redaction in <file> (<redact|verify>: <error>); the run's artefacts are NOT safe to share (they remain under <dir>)`.
   The transcript must exist. A missing `console.log` is logged and skipped.
 
 - E46. The follower is stopped, then the domain is destroyed and undefined. `judge_run` writes
@@ -377,8 +397,29 @@ The tests cite these numbers.
   in name order. A base with a record and no disk fails the command. When every base is done,
   the file is renamed into place. The exit is the worst gate status (0 or 1). It never builds
   anything.
-- E51. `sweep` runs `retention sweep --lab-dir <home> --checkout <checkout> --log <home>/retention.log`
-  and then names the log.
+- E51. `sweep` never removes a run directory, nor a build directory: it removes only disk
+  images (`*.qcow2`). Of the runs that passed (`response.json` says `finished` and `pass`;
+  newest by the start their run id names, a directory not named as a run id being left), the
+  newest 10 are untouched and the rest lose their `*.qcow2`, keeping the transcript, console,
+  `response.json`, signature and check results, which plans cite as evidence; a run that did
+  not pass is left to `prune-runs` (E61). Nothing in vmtest removes a run directory: the sweep
+  and `prune-runs` take only its `*.qcow2`, so a run directory stays until the owner removes
+  it. A symlink under `runs/` or `bases/` is neither a run nor a build, and is never followed. A leftover `bases/*.build` directory of a fast base
+  loses its `*.qcow2` and keeps its console log until the next build of that base clears it,
+  unless libvirt lists its `vmtest-build-<base>` domain: then the build is running (the
+  nightly tick can land during an evening `build-base`) and is kept whole; a
+  desktop one (`desktop-*`, hours to rebuild, and the diagnosis) is kept whole. A directory
+  with no `*.qcow2` is left alone and nothing is printed for it, so a second sweep evicts
+  nothing. A build it keeps is no change, so it is said on stderr only
+  (`==> kept build <name>: <why>`), never in the log, which would otherwise grow a line a
+  night. Each eviction is appended to `retention.log` first (`<epoch> evicted run-overlay|build-disk <name> <files>: <why>`) and
+  printed as `VMTEST-EVICTED run-overlay|build-disk <name> <files>` (files comma-separated).
+  A removal that fails stops the sweep before the builds and the spool, naming the file and
+  every file the sweep had removed so far (B19), and appends
+  `<epoch> failed to remove <path>: <error>` to the log, so the log alone does not claim it went. Then it runs `retention sweep-spool --checkout <checkout> --log <home>/retention.log`,
+  the Python half that bounds the bridge spool through spool.py's pinned descriptors (they are
+  shared with the bridge helpers), whose lines pass through, and names the log. A response
+  that cannot be read, or a log that cannot be written, stops the sweep before the spool.
 - E52. `nightly` runs `freshness-status --deep` and then `sweep`, always both. The exit is 0 only
   if both succeed. Otherwise it is the status's own exit if that is non-zero, or else 1.
 - E53. `ensure-base <key>`: if the base is present and the gate accepts it, the command prints
@@ -396,19 +437,27 @@ The tests cite these numbers.
 
 - E55. A member name matches `^[a-z0-9][a-z0-9-]{0,39}$` and is checked before anything else:
   `a member name is 1 to 40 of a-z, 0-9 and '-', not starting with '-'; got '<name>'`.
-- E56. `member-up <name> <key>`: the base must be `server`, and present
+- E56. `member-up <name> <key>`: after the disk guard (E64), the base must be `server`, and present
   (`build it with: vmtest ensure-base <key>`). A member whose directory or domain
   `vmtest-member-<name>` exists is refused, with the `member-down` hint. The gate must accept
-  the base (on a refusal the message names `vmtest ensure-base <key>`). Then come the retention
-  floor under `members/`, the overlay in `members/<name>/`, and the boot (a server boot, as in
+  the base (on a refusal the message names `vmtest ensure-base <key>`). Then come the
+  RAM ceiling (E33; the disk was the guard's, E64), the overlay in `members/<name>/`, and the boot (a server boot, as in
   E34). The port goes to `ssh-port` before the wait for SSH. On success the command prints
   `VMTEST-MEMBER-UP <name> domain=<domain>` and leaves the guest running.
 - E57. A member-up that does not finish (any failure or signal after its directory exists)
-  removes the domain, the overlay and `ssh-port`. It keeps the directory and its console log,
-  says so with the `member-down` hint, and exits non-zero (E4 for a signal).
+  removes the domain, the overlay and `ssh-port`. It shows the last 10 lines of the console log
+  that are not blank, on stderr after `==> the last 10 lines of <dir>/console.log:`, each indented
+  four spaces, with carriage returns, terminal escape sequences and other control bytes but tabs
+  dropped (`==> <path> holds no console output` for none; `==> no console output to show: <error>`
+  when it cannot be read, as after a failed virt-install). It keeps the directory and its console
+  log, says so with the `member-down` hint, and exits non-zero (E4 for a signal); the `ERROR:`
+  line comes last. A signal is the same: Ctrl-C (SIGINT, 130) or SIGTERM (143) during member-up,
+  in the boot or the wait for SSH, removes the guest, the overlay and `ssh-port` and keeps
+  `members/<name>/` with its console log until `vmtest member-down <name>` removes it, so a
+  second `member-up <name>` is refused until then (E56).
 - E58. `member-ssh <name> <command...>` needs no lab load. It needs `members/<name>/ssh-port`
   holding a number, the lab key, and `VMTEST_MEMBER_SSH_TIMEOUT` (default 1800) as a positive
-  whole number of seconds. It runs ssh with the E22 options, `ServerAliveInterval=15` and
+  whole number of seconds up to 86400 (a day; more would also wrap the bound negative). It runs ssh with the E22 options, `ServerAliveInterval=15` and
   `ServerAliveCountMax=4`, with stdin, stdout and stderr passed through. It exits with the remote
   command's status. At the bound it exits 124 with
   `ERROR: member-ssh <name>: the command did not finish within <n>s (VMTEST_MEMBER_SSH_TIMEOUT)`.
@@ -423,6 +472,65 @@ The tests cite these numbers.
   and the key is `~/.config/vmtest-bridge/<slug>/response.key` (it must be readable). The
   command runs `verify_response --checkout --key --run-id`, then names the service log of
   record. `verify_response`'s exit is the command's exit.
+
+### prune-runs and the disk guard
+
+No bash had these: a run that did not pass kept its overlay (up to the 20 GiB guest disk) for
+ever, since `sweep` keeps every such run, so the runs directory filled the disk. They are new
+behaviour, not departures.
+
+- E61. `prune-runs [--older-than DAYS] [--yes]` (DAYS a whole number, default 7; anything else,
+  or an option twice, is a usage error) lists libvirt's domains first (`virsh list --all --name`; a failed listing stops the command, removing nothing), then reads every directory
+  under `runs/` in name order (a response that cannot be read stops the command). The rule is
+  the sweep's neighbour in the same Go: an
+  overlay may go when the run passed (the same rule as the sweep, E51), a later run of
+  the same scenario passed (the scenario and the order are read from the run id
+  `<UTC stamp>-<scenario>`), or the run is older than DAYS. A directory whose name is not a run
+  id is kept. Only runs holding a `*.qcow2` are reported. A run is live, and kept whatever the
+  plan said, when its `run.lock` is held, or when it has no `run.lock` and libvirt lists
+  `vmtest-run-<run-id>` (E63); a listed domain whose run has a `run.lock` nobody holds is an
+  orphan (E66). The dry
+  run prints, on stdout, `VMTEST-PRUNE-RUN <run-id> would-remove|keep|live <files> <size>: <reason>`
+  per run, `VMTEST-PRUNE-BASE <name> <size>: bases are never touched` per base, and
+  `VMTEST-PRUNE-DONE would free <size> from <n> runs; dry run, vmtest prune-runs --yes removes them`.
+  It writes nothing. Sizes are the space allocated on disk, in binary units rounded down.
+- E62. With `--yes`, each prunable run's lock is taken without waiting (a run that now holds it
+  is reported `live` and left), the removal is appended to `retention.log` first
+  (`<epoch> pruned overlay <run-id> <files>: <reason>`, files comma-separated), and then the run's `*.qcow2` files, and only
+  those, are removed under the lock: its logs, response, transcript and check results stay, so
+  `verify` (which reads the bridge spool) is unaffected. The line says `removed`, and the last
+  line `VMTEST-PRUNE-DONE freed <size> from <n> runs`. A removal that fails stops the command,
+  naming the file and the files of that run already removed (`; removed so far: <paths>` or
+  `nothing`), and appends `<epoch> failed to remove <path>: <error>` to the log, as the sweep does (E51).
+- E63. `run` takes an exclusive `flock` on `runs/<run-id>/run.lock` straight after creating the
+  directory, and releases it after its teardown, so a run is live from before its overlay
+  exists until it is cleaned up. A run directory without the file is from before the lock, and
+  only libvirt's listing says whether it is live.
+- E64. The disk guard runs before anything else: in `run` right after the lab is loaded, in
+  `member-up` right after the lab is loaded (after the name check of E55), and as the first
+  step of every base build (`build-base`, and `ensure-base` and `refresh-base` when they
+  build). The lab is one filesystem, the one holding `<home>` (statfs's available fragments
+  times the fragment size): `runs/`, `members/` and `bases/` are its directories, and a mount of
+  their own under them is not supported, so the guard measures `<home>`, which exists before any
+  of them does. A run needs 22 GiB free on the lab's filesystem (the 20 GiB guest disk an overlay can
+  grow to, and retention's 2 GiB margin), and so does a member, which boots the same overlay
+  under `members/<name>/` (`a member needs 22.0 GiB (...)`); a build needs 26 GiB (the same and
+  4 GiB of install media). Short, the command fails with
+  `only <free> free under <home>; a run needs 22.0 GiB (...). vmtest prune-runs would free <size> of run overlays; vmtest prune-runs lists them and vmtest prune-runs --yes removes them`,
+  computing the figure from the E61 plan; if the plan cannot be made, the message says so with
+  its error. This is the one disk check of a run and a member; later they check only the RAM
+  (E33). A rebuild also has its floor (E16): room for two bases of the size it replaces.
+- E65. A run that did not pass and keeps an overlay says, as its last progress line,
+  `overlay (<size>) and console kept for diagnosis: <dir>; vmtest prune-runs --yes removes the overlay once a later run of <scenario> passes or it is older than 7 days`.
+- E66. A run that ends without its teardown (the host powered off, the process killed) leaves
+  its domain defined and its `run.lock` free. `prune-runs` reports such an orphan before the
+  run's own line:
+  `VMTEST-PRUNE-ORPHAN <run-id> would-remove|removed vmtest-run-<run-id>: libvirt has the domain and no run holds run.lock; the run ended without its teardown`.
+  The dry run touches nothing. With `--yes`, the run's lock is taken without waiting (a run
+  that now holds it is `live`, and nothing of it is touched), `<epoch> removed orphaned domain <domain> of <run-id>` is appended to `retention.log`, and the domain is destroyed (unless shut
+  off) and undefined with its NVRAM (E59's removal). A removal that fails stops the command
+  with virsh's error, before the run's overlay is judged. The plan then decides the overlay as
+  for any run (E61, E62): an orphaned failed run keeps its overlay for diagnosis.
 
 ## 4. Where the Go departs from the bash
 
@@ -446,6 +554,7 @@ The tests cite these numbers.
 | B16 | a desktop host-only run's session `run.env` carried no GitHub identity, so run.bash in the session provisioned as `none`                       | the same identity lines a server run passes                | E36, E37      |
 | B17 | a probe artefact URL was used as printed, any scheme                                                                                           | `https://` required, with a 64-hex sha256                  | E13           |
 | B18 | nothing set `VMTEST_FROM_BRIDGE`, so the CLI's bridge refusal never fired                                                                      | `bridge_run.py` sets it on both of its vmtest launches     | E30           |
+| B19 | the sweep removed whole passing-run directories past the newest ten (logs, response, signature) and a fast-base build's console log            | only `*.qcow2` removed; order by run id                    | E51           |
 
 Kept as they were, and accepted. The free port is chosen, released and then handed to
 virt-install, so there is a race between them, as in the bash. `ssh` host keys are not checked
@@ -456,10 +565,10 @@ virt-install, so there is a race between them, as in the bash. `ssh` host keys a
 - `src-go/cmd/vmtest/main.go`: signals (INT, TERM and HUP cancel a context, and the first one
   sets the exit status) and the real environment. `run` is tested.
 - `src-go/internal/vmtest`: `App` (dispatch, usage, exit status), `Env` (runner, streams,
-  getenv, clock, sleep, free port, random source), the lab and its files, the facts and probe
+  getenv, clock, sleep, free port, free disk space, random source), the lab and its files, the facts and probe
   readers, the helper seam, the guest (ssh, scp, domain state, waits, console), and one file
-  per command family: `fetch`, `build`, `run` with its steps, `hostonly`, `freshness`, `member`
-  and `verify`. A failure is a typed error carrying its message, so a failure deep in a step
+  per command family: `fetch`, `build`, `run` with its steps, `hostonly`, `freshness`, `member`,
+  `verify` and `prune` (prune-runs, the run lock and the disk guard). A failure is a typed error carrying its message, so a failure deep in a step
   unwinds through the deferred teardowns before the `ERROR:` line is printed. A status that is
   not a failure (member-ssh, freshness-status) is a typed exit.
 - The only processes started are through `execx.Runner`, and `git` through `gitx`
@@ -494,7 +603,11 @@ plan's `meta-deploy.list` queues the play, which builds and installs the binary.
 - H3. A desktop base build and a desktop run: the LUKS unlock, the session runner, the reboot
   into the session, and the evidence.
 - H4. `vmtest member-up m1 server-fast`, `member-ssh m1 true`, `member-down m1`, and Ctrl-C
-  during a `member-up` leaves no guest.
+  during a `member-up` leaves no guest, and keeps `members/<name>/` with its console log until
+  `member-down` (E57).
 - H5. `vmtest nightly` from its timer: the status file is written, and the sweep log is written.
 - H6. A host-only scenario run with a throwaway account: secrets delivered, scrubbed and
   verified.
+- H7. `vmtest prune-runs` (dry) on the host's lab lists every run holding an overlay with its
+  size and reason, the bases, and the total it would free, and removes nothing; a run started
+  meanwhile is `live`. `vmtest prune-runs --yes` is the owner's call. With the disk short, `vmtest run` refuses at once naming both figures (E64).

@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# Plan 00231: the desktop user runs shutdown-with-update and reboot-with-update bare, and the
+# script hands itself to sudo; this lets it through without a password, and nothing else.
+# Each entry is one argument list the script's parser accepts: none, --help, -h,
+# --strict-sessions, --in 1 to 9999, and the two orders of --in with --strict-sessions. An
+# anchored regular expression (sudo 1.9.10 or later) pins the --in value, so no other option
+# or argument reaches the root script. The script, its link and the directories above them
+# are root-owned (play-basic-configs.yml), and sudo's env_reset and secure_path (Fedora's
+# /etc/sudoers) hold: no SETENV, no Defaults here. This grants no general root. The
+# reasoning is in CLAUDE/Plan/00231-shutdown-with-update-runs-without-a-password-prompt.
+Cmnd_Alias SHUTDOWN_WITH_UPDATE = /usr/local/bin/shutdown-with-update "", \
+    /usr/local/bin/shutdown-with-update --help, \
+    /usr/local/bin/shutdown-with-update -h, \
+    /usr/local/bin/shutdown-with-update --strict-sessions, \
+    /usr/local/bin/shutdown-with-update ^--in [1-9][0-9]?[0-9]?[0-9]?$, \
+    /usr/local/bin/shutdown-with-update ^--in [1-9][0-9]?[0-9]?[0-9]? --strict-sessions$, \
+    /usr/local/bin/shutdown-with-update ^--strict-sessions --in [1-9][0-9]?[0-9]?[0-9]?$, \
+    /usr/local/bin/reboot-with-update "", \
+    /usr/local/bin/reboot-with-update --help, \
+    /usr/local/bin/reboot-with-update -h, \
+    /usr/local/bin/reboot-with-update --strict-sessions, \
+    /usr/local/bin/reboot-with-update ^--in [1-9][0-9]?[0-9]?[0-9]?$, \
+    /usr/local/bin/reboot-with-update ^--in [1-9][0-9]?[0-9]?[0-9]? --strict-sessions$, \
+    /usr/local/bin/reboot-with-update ^--strict-sessions --in [1-9][0-9]?[0-9]?[0-9]?$
+{{ user_login }} ALL=(root) NOPASSWD: SHUTDOWN_WITH_UPDATE

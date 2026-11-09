@@ -34,7 +34,7 @@ func (s *session) teardown(ctx context.Context) error {
 		return nil
 	}
 	if err := c.sortPass(ctx); err != nil && !errors.Is(err, errRefused) {
-		c.err.f("note: the sort pass did not complete — continuing with teardown.\n")
+		c.err.f("note: the sort pass did not complete%s — continuing with teardown.\n", unprinted(err))
 	}
 	return nil
 }
@@ -44,7 +44,7 @@ func (s *session) teardown(ctx context.Context) error {
 func (s *session) stopServer(ctx context.Context) error {
 	c := s.c
 	if err := c.ready(ctx); err != nil {
-		return errors.New("sudo is not ready")
+		return fmt.Errorf("sudo is not ready: %w", err)
 	}
 	active, activeErr := c.sd.UnitActive(ctx, "vsftpd")
 	if activeErr != nil {
@@ -196,7 +196,7 @@ func (s *session) asyncSummary(ctx context.Context) {
 	if c.onPath("rclone-tail") {
 		_, err := c.env.Runner.Run(ctx, execx.Cmd{Name: "rclone-tail", Args: []string{"--once", name}, Stdout: c.out.w, Stderr: c.err.w})
 		if err != nil {
-			o.f("  %scould not read upload status — no matching mount, or the rclone RC is unreachable%s\n", o.y, o.n)
+			o.f("  %scould not read upload status: %v%s\n", o.y, err, o.n)
 		}
 		o.f("  Watch live:            %srclone-tail %s%s\n", o.c, name, o.n)
 	} else {

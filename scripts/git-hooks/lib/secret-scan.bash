@@ -68,7 +68,7 @@ hook_keep_unwhitelisted() {
         # recognisable, so they are masked before tokens are extracted.
         masked=$(printf '%s' "$line" \
             | awk '{ gsub(/<[^>]*@[^>]*>/, "<PH>");
-                     gsub(/\{\{[^}]*@[^}]*\}\}/, "{{PH}}"); print }')
+                     gsub(/\{\{[^}]*@[^}]*\}\}/, "{{PH}}"); gsub(/(^|[ \t])--vault-id[= ][^ \t]+/, " --vault-id VID"); print }')
         if ! tokens=$(printf '%s' "$masked" | grep -oE -- "$token_re"); then
             continue
         fi

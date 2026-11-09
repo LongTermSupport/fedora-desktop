@@ -134,7 +134,7 @@ cd ~/Projects/fedora-desktop
 
 ### 6. Re-run any optional playbooks you rely on
 
-Optional playbooks are not run by the main playbook. If you previously installed things like `docker`, `ddev`, `vscode`, `python` (pyenv), re-run them so any version-specific logic picks up the new Fedora release:
+Optional playbooks are not run by the main playbook. If you previously installed things like `docker` or `ddev`, re-run them so any version-specific logic picks up the new Fedora release:
 
 ```bash
 cd ~/Projects/fedora-desktop

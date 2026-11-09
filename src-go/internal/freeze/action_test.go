@@ -139,6 +139,20 @@ func TestDoActionAFailureWithNoOutputFallsBackToTheError(t *testing.T) {
 	mustContain(t, "fallback", h.err.String(), "✗ charlie — podman not found")
 }
 
+// A DoneError is an act that happened with a step that does not apply to this container: it is
+// a success, named with its note, and the run does not fail (Task 3.5).
+func TestDoActionADoneErrorIsASuccessWithItsNote(t *testing.T) {
+	h := newHarness(t, vocabs[0])
+	h.eng.actErr = &DoneError{Note: "no nmcli inside, so no lease to renew"}
+	if err := h.s.DoAction(context.Background(), VerbFreeze, []string{"charlie"}); err != nil {
+		t.Fatalf("a done act fails the run: %v", err)
+	}
+	got := h.err.String()
+	mustContain(t, "the success carries its note", got, "  ✓ charlie — no nmcli inside, so no lease to renew\n")
+	mustLack(t, "and is not a failure", got, "✗")
+	mustLack(t, "and is not counted as one", got, "failed")
+}
+
 // Bug 7: the bash printed "Thaw them with" and the freeze note for attempts, not successes.
 func TestDoActionHintsDescribeSuccessesOnly(t *testing.T) {
 	t.Run("every target failed: neither hint nor note", func(t *testing.T) {

@@ -118,6 +118,9 @@ against risk:
     `nm -- T | less`;
   - `text/*`, `application/xml`, `javascript`, `x-shellscript`, `x-perl`, `x-python`, `toml`,
     `yaml`, `x-yaml`, `x-desktop`, `message/rfc822`: the text viewers.
+- E11a. Inside a terminal multiplexer (`TMUX` set, or `TERM` starting `tmux` or `screen`),
+  chafa is `chafa --format symbols -- T`: tmux and screen pass no sixel or kitty image, the
+  graphics chafa picks for itself elsewhere, so the image drew nothing (found at H4).
 - E12. The text viewers are the editor (the first of `$VISUAL`, `$EDITOR`, `nvim`, `vim`,
   `nano`, `vi` whose first word is on PATH; its words, then T; label `<editor> (edit)`),
   `bat --paging=always -- T` and `less -- T`.
@@ -141,7 +144,9 @@ against risk:
   are two rows), and a last row `Cancel — open nothing`. The header names the keys
   (`Enter open   Esc or q cancel`). Leaving it is `open: cancelled — nothing opened.`, exit 130.
 - E18. Without fzf the chooser is a numbered menu on stderr: the same heading, then
-  `  N) <label>` per candidate, then `Choice [1-N, q to cancel]: `, read from `/dev/tty`. A
+  `  N) <label>` per candidate, then `Choice [1-N, q to cancel]: `, read from `/dev/tty`. The heading's width is `tput cols`,
+  80 when tput runs and cannot say; a tput that could not run is
+  `open: could not read the terminal's width: <reason>`, exit 1, before the menu. A
   number in range chooses. `q`, `Q`, `quit` and end of input cancel (exit 130, as E17).
   Anything else is `  Not one of the options — enter a number between 1 and N, or q to cancel.`
   and the prompt again, at most 3 times; then `open: giving up after 3 attempts — nothing opened.`, exit 1.
@@ -244,7 +249,7 @@ E31); 128 + n a handler killed by signal n other than SIGINT (E30).
 - `internal/open`: `App` over an `Env` of seams (runner, picker, streams, environment, PATH lookup,
   the readable check, the terminal test, the controlling terminal, the signal channel). `args.go`
   the command line, `mime.go` E4-E6, `desktop.go` E8-E10 (the `gio mime` reader and the XDG
-  search), `handlers.go` E11-E13 as a table, `choose.go` E15-E19, `launch.go` E21-E27 and E29-E31.
+  search), `handlers.go` E11-E13 as a table (E11a's flags on the chafa row), `choose.go` E15-E19, `launch.go` E21-E27 and E29-E31.
 - `scripts/go-binary-suites.tsv`: `open	qa-go` (its oracle is the Go tests).
 - The usage text, `src-go/internal/open/usage.txt`, is embedded: the bash's, with `--list` and
   `--dry-run` said to print on stdout and the default registered by `gio`.
@@ -263,7 +268,8 @@ Plan 00064's Phase 4 desktop and terminal checks, on the Go binary:
   it as the default afterwards), and a later `open <image>` starts it unasked. A Flatpak app
   registered for the type is among the rows (B2).
 - H4. Terminal (over SSH, or `open -t`): `open <text>` opens the editor; `open .` lists the
-  directory in `less`; `open <image>` renders through `chafa`; `open <pdf>` pages `pdftotext`
+  directory in `less`; `open <image>` renders through `chafa`, as text symbols inside tmux
+  (E11a); `open <pdf>` pages `pdftotext`
   output, and `q` in `less` returns to the prompt with exit 0 (E25); an unknown type shows the
   chooser.
 - H5. Terminal: Ctrl-C inside `less` or `mpv` started by `open` is that program's; the shell

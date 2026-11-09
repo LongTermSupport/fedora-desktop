@@ -121,12 +121,12 @@ func (x *Hot) takeOut(ctx context.Context, t *target, r request, team, seat stri
 // are done; otherwise it stays owed. With --park the handle is parked last.
 func (x *Hot) farewell(ctx context.Context, t *target, r request, team, seat string, up bool) term.ExitCode {
 	ref := seat + "@" + team
-	retired := x.pingbus(ctx, "re-baseline", "sync position cleared, listening status expired", "seat", "retire", "--root", t.seatsRoot(), ref)
+	retired := x.pingbus(ctx, stepRebaseline, rebaselined, "seat", "retire", "--root", t.seatsRoot(), ref)
 	_, handle, err := x.seatHeld(ctx, t, team, seat)
 	if err != nil || handle == "" {
 		handle = "seat " + seat
 	}
-	said := x.pingbus(ctx, "goodbye", handle+" left the team: removed by the owner", "seat", "farewell", "--root", t.seatsRoot(), ref)
+	said := x.pingbus(ctx, stepGoodbye, handle+" left the team: removed by the owner", "seat", "farewell", "--root", t.seatsRoot(), ref)
 	if !retired || !said {
 		if !up {
 			x.say(removedHomeserverDown)
@@ -136,11 +136,18 @@ func (x *Hot) farewell(ctx context.Context, t *target, r request, team, seat str
 		return term.ExitFailure
 	}
 	farewell := slices.DeleteFunc(slices.Clone(t.desired.Farewell), func(f membership.Farewell) bool { return f.Team == team })
-	if len(farewell) == 0 && x.ended(ctx, t) {
+	ended := false
+	if len(farewell) == 0 {
+		var endedErr error
+		if ended, endedErr = x.ended(ctx, t); endedErr != nil {
+			x.say("Whether " + t.session + " still runs could not be read (" + endedErr.Error() + "), so its membership file is kept.")
+		}
+	}
+	if ended {
 		if err := x.dropDesired(t); err != nil {
 			return term.ExitFailure
 		}
-	} else if err := x.writeDesired(t, t.desired.Seats, farewell, "farewell done"); err != nil {
+	} else if err := x.writeDesired(t, t.desired.Seats, farewell, farewellDone); err != nil {
 		return term.ExitFailure
 	}
 	if r.park {
@@ -159,10 +166,10 @@ func (x *Hot) farewell(ctx context.Context, t *target, r request, team, seat str
 // pingbus runs the host's pingbus and says the step.
 func (x *Hot) pingbus(ctx context.Context, step, done string, args ...string) bool {
 	if _, err := x.Host.Runner.Run(ctx, execx.Cmd{Name: x.Host.Pingbus, Args: args}); err != nil {
-		x.mark(markFailed, step+": "+lastLine(err))
+		x.step(markFailed, step, lastLine(err))
 		return false
 	}
-	x.mark(markDone, step+": "+done)
+	x.step(markDone, step, done)
 	return true
 }
 

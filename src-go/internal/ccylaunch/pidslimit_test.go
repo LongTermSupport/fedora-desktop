@@ -74,3 +74,41 @@ func TestThePidsLimit(t *testing.T) {
 		}
 	}
 }
+
+// E14 and F17-F19: the containers the bash launcher asks the front to run (the token check,
+// the network check, the version probe) are started with the settled --pids-limit; a limit the
+// library refuses runs nothing and is exit 1, naming the variable.
+func TestTheLauncherChecksRunUnderThePidsLimit(t *testing.T) {
+	checks := map[string]func(t *testing.T) *run{
+		checkTokenFlag: func(t *testing.T) *run {
+			t.Helper()
+			return checkRun(t, checkValue).answer(execx.Result{Stdout: []byte("200")}, nil)
+		},
+		checkNetworkFlag: func(t *testing.T) *run {
+			t.Helper()
+			return netRun(t, execx.Result{}, nil)
+		},
+		claudeVersionsFlag: func(t *testing.T) *run {
+			t.Helper()
+			return versionsRun(t, imageSays, registrySays, nil)
+		},
+	}
+	for flag, start := range checks {
+		for value, want := range map[string]string{"": "4096", "8192": "8192"} {
+			r := start(t).env(pidsLimitEnv + "=" + value)
+			if code := r.start(t); code != term.ExitOK {
+				t.Fatalf("%s with %s=%q: exit %d, stderr %q", flag, pidsLimitEnv, value, code, r.stderr)
+			}
+			args := r.runner.Calls()[0].Args
+			if i := slices.Index(args, "--pids-limit"); args[0] != "run" || i < 0 || i+1 >= len(args) || args[i+1] != want {
+				t.Fatalf("%s with %s=%q ran %q, want --pids-limit %s", flag, pidsLimitEnv, value, args, want)
+			}
+		}
+		for _, value := range []string{"0", "-1", "max", "255", "32769"} {
+			r := start(t).env(pidsLimitEnv + "=" + value)
+			if code := r.start(t); code != term.ExitFailure || len(r.runner.Calls()) != 0 || !strings.Contains(r.stderr.String(), pidsLimitEnv) {
+				t.Fatalf("%s with %s=%s: exit %d, ran %d, stderr %q", flag, pidsLimitEnv, value, code, len(r.runner.Calls()), r.stderr)
+			}
+		}
+	}
+}

@@ -142,12 +142,14 @@ gnome-extensions list --enabled | grep speech-to-text
 
 Choose the model in **Settings... → Transcription → Whisper Model** (only downloaded
 models are listed, meaning a cache snapshot holds the weights, `model.bin`; **Manage
-Whisper Models...** downloads them). **No model is downloaded for you**: the model that
+Whisper Models...** downloads them). **The model you dictate with is not downloaded for
+you**: the model that
 suits one machine does not suit every machine, so download at least one with **Manage
 Whisper Models...** before the first recording. The default, `auto`, is decided at each
 recording by `~/.local/bin/wsi-resolve-model`, and is the one to download unless you
 want another. `wsi-model-manager --download-auto` downloads `auto`'s pick for each mode
-without the TUI or any prompt, and fails unless the weights are then on disk:
+(and the live preview models below) without the TUI or any prompt, and fails unless the
+weights are then on disk:
 
 | Machine      | English                         | Other languages or detection    |
 | ------------ | ------------------------------- | ------------------------------- |
@@ -165,6 +167,14 @@ Hugging Face repo, `distil-whisper/distil-large-v3.5-ct2`: faster-whisper 1.2.1 
 the short name, but 1.1.1 (pinned by older RealtimeSTT releases) does not. Article mode
 uses the warm server's model, like streaming server mode.
 
+The one download the play does make is the **live preview model**: streaming mode's
+standard and pre-buffer startups show the words as you speak with a second, small model
+beside the selected one, `tiny.en` for English and `tiny` for other languages or
+detection (`wsi-resolve-model --realtime`). They are the same on every machine and 75 MB
+each, so play-speech-to-text.yml downloads both (`wsi-model-manager --download-realtime`),
+and fails if it cannot. If one is removed in the manager, streaming says so and does not
+start until it is downloaded again.
+
 `stt_model` and `stt_language` in the host variables are only the defaults of
 `faster-whisper-transcribe` when you run that script by hand; the recorders always pass
 the model and language from Settings:
@@ -178,30 +188,32 @@ stt_language: en  # Default
 
 **Model comparison:**
 
-The authoritative list is `_whisperModels` in
-`extensions/speech-to-text@fedora-desktop/extension.js` — this table is generated from it.
+The models and notes are `_whisperModels` in
+`extensions/speech-to-text@fedora-desktop/extension.js`; the download sizes are
+`SIZE_MB` in `wsi-resolve-model`, the figures the model manager shows (a test checks
+these tables against it).
 **Multilingual:**
 
 | Model            | Size   | Notes                      |
 | ---------------- | ------ | -------------------------- |
 | `auto`           | varies | See the table above        |
-| `tiny`           | ~75MB  | Fastest, basic accuracy    |
-| `base`           | ~142MB | Fast, good accuracy        |
-| `small`          | ~466MB | Balanced — **default**     |
-| `medium`         | ~1.5GB | Slow, great accuracy       |
-| `large-v2`       | ~3GB   | Very high accuracy         |
-| `large-v3`       | ~3GB   | Best quality               |
-| `large-v3-turbo` | ~1.6GB | Distilled, fast + accurate |
+| `tiny`           | 75 MB  | Fastest, basic accuracy    |
+| `base`           | 142 MB | Fast, good accuracy        |
+| `small`          | 464 MB | Balanced speed/accuracy    |
+| `medium`         | 1.4 GB | Slow, great accuracy       |
+| `large-v2`       | 2.9 GB | Very high accuracy         |
+| `large-v3`       | 2.9 GB | Best quality               |
+| `large-v3-turbo` | 1.5 GB | Distilled, fast + accurate |
 
-**English-only** (smaller and faster, no multilingual capability):
+**English-only** (no multilingual capability):
 
 | Model               | Size   | Notes                                         |
 | ------------------- | ------ | --------------------------------------------- |
-| `tiny.en`           | ~41MB  | Fastest, English only                         |
-| `base.en`           | ~77MB  | Fast, good accuracy, English only             |
-| `small.en`          | ~252MB | Balanced, English only                        |
-| `medium.en`         | ~789MB | Great accuracy, English only                  |
-| `distil-large-v3.5` | ~1.5GB | Fewer errors than Turbo, faster, English only |
+| `tiny.en`           | 75 MB  | Fastest, English only                         |
+| `base.en`           | 141 MB | Fast, good accuracy, English only             |
+| `small.en`          | 464 MB | Balanced, English only                        |
+| `medium.en`         | 1.4 GB | Great accuracy, English only                  |
+| `distil-large-v3.5` | 1.4 GB | Fewer errors than Turbo, faster, English only |
 
 A model change applies from the next recording; in Server mode, from the next server
 start. Models are cached in `~/.cache/huggingface/hub/` and shared between batch and streaming modes.
@@ -422,6 +434,9 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 | **Ctrl+Insert** | Record with corporate processing | 🤖 Claude corporate mode    |
 | **Alt+Insert**  | Record with natural processing   | 💬 Claude natural mode      |
 
+Ctrl+Insert and Alt+Insert are not bound on a consumer install (see
+[Claude Code Post-Processing](#claude-code-post-processing)).
+
 ### What Insert Does
 
 There is only ever one recording. Every press does something you can see: a press that
@@ -593,10 +608,14 @@ stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a pat
 
 A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
 an audio file, or a folder of those. A recording is sent only once its manifest says
-`COMPLETE` and every part has synced with its recorded size and MD5, and an audio file with
+`COMPLETE`, or `INTERRUPTED` (stopped early, by a flat battery or a crash), and every part has
+synced with its recorded size and MD5. While it says `ACTIVE` it waits (the app uploads the
+manifest only once recording has stopped, so this should not happen); any
+other state is a failure that names it. An audio file with
 no manifest once it has gone a minute unchanged; one shorter than
 `--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
-matter (source, length, language, model, and the audio it was made from: each part's size and
+matter (source, the manifest's `recording_state`, so an `INTERRUPTED` transcript says its end
+may be missing, length, language, model, and the audio it was made from: each part's size and
 MD5) and the text in paragraphs, each opened by its time. When a recording's audio no longer
 matches its sidecar (replaced or re-synced), `stt --list` shows it as `stale` and `stt`
 transcribes it again over the old sidecar; a folder is checked against its manifest without
@@ -614,7 +633,7 @@ stt_watch_folders:
 ```
 
 Nothing is sent early. A recording with a `manifest.json` waits until the manifest says
-`COMPLETE` and every part has synced, and a part whose size or MD5 is not the manifest's is a
+`COMPLETE` or `INTERRUPTED` and every part has synced, and a part whose size or MD5 is not the manifest's is a
 failure. An audio file with no manifest is sent once it has gone a minute unchanged, so a
 file still being copied in is left for a later run. Any folder can be watched. For an rclone
 mount, name the folder inside the mount, never the mountpoint (the play refuses one listed in
@@ -631,6 +650,10 @@ emptying it) and re-running the play stops the timer.
 ---
 
 ## Claude Code Post-Processing
+
+On a consumer install (`./run.bash --consumer`) post-processing is not offered: Ctrl+Insert,
+Alt+Insert, the panel's Post-Process items, Create Article and the Claude settings are
+hidden, and plain dictation (Insert) works as below.
 
 ### How It Works
 

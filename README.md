@@ -62,6 +62,24 @@ Make sure you have:
 
 Need more details? See the full [Installation Guide](docs/installation.md).
 
+### Install for Someone Who Does Not Write Code
+
+Setting up a computer for someone who just wants a good desktop, with no GitHub account
+and no programming tools? On a fresh Fedora installation, open a terminal as the regular
+user and run:
+
+<!-- ssot-quote: docs/installation.md#install-for-someone-who-does-not-write-code -->
+
+```bash
+(source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)) --consumer)
+```
+
+<!-- /ssot-quote -->
+
+It asks for the login password once, then lists the everyday apps you can add
+at the end. What it leaves out, and how to update: [Install for Someone Who Does Not Write
+Code](docs/installation.md#install-for-someone-who-does-not-write-code).
+
 ### Unattended Server / Cloud Install (IaC)
 
 Provisioning a **Fedora Server or Cloud** box with no prompts (cloud-init / CI / an LLM
@@ -119,7 +137,7 @@ The main playbook configures these essentials without any interaction:
 **System Foundations**
 
 - Optimized DNF configuration (10 parallel downloads)
-- Essential packages (vim, wget, htop, bash-completion, ripgrep)
+- Essential packages (vim, wget, htop, btop, bash-completion, ripgrep)
 - Microsoft fonts for document compatibility
 - RPM Fusion repositories (free and non-free)
 

@@ -167,7 +167,8 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   one; in a covered checkout, one question "Start a ccy session here?" replaces the
   question per team. Yes runs `ccy --teams` (bare), which shows S-B3. "Create a team for
   OWNER/REPO now?" defaults to **No**: creating a team is heavy and outward, so a stray Enter
-  must not do it. Both start-a-session questions default to Yes.
+  must not do it. Both start-a-session questions default to No as well (decision A12: an
+  offer that starts or opens something starts on No).
 
 ## C. A session on several teams
 

@@ -181,6 +181,17 @@ func TestAddrForMountPathOutsideAnyMount(t *testing.T) {
 	}
 }
 
+// A findmnt that fails otherwise than by finding no mount is said as it failed.
+func TestAddrForMountFindmntFailureCarried(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"findmnt"}, execx.Result{ExitCode: 2, Stderr: []byte("findmnt: bad usage\n")})
+	c := client(t, f, "", mountProc())
+	_, err := c.AddrForMount(context.Background(), "/x")
+	if err == nil || !strings.Contains(err.Error(), "findmnt exited 2") || strings.Contains(err.Error(), "not inside any mount") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // A process that ends between the listing and the read is passed over.
 func TestAddrForMountSkipsAVanishedProcess(t *testing.T) {
 	f := &execx.Fake{}

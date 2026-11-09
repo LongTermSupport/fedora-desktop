@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-#: Nothing it uses changed since its last run here, which succeeded from a clean checkout.
+#: Nothing it uses changed since its last run here, which succeeded with its inputs committed.
 FRESH = "fresh"
-#: Its own file or a checkout path it deploys changed since it ran, or it ran dirty.
+#: Its own file or a checkout path it deploys changed since it ran, or one was uncommitted then.
 STALE = "stale"
 #: Its last run here did not succeed.
 FAILED = "failed"

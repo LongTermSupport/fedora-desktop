@@ -7,8 +7,8 @@ the transient-vs-persistent split.
 
 - Implementation: [`Plan/_planlib.inc.bash`](Plan/_planlib.inc.bash)
 - Tests: [`../scripts/test-planlib.bash`](../scripts/test-planlib.bash)
-- Sibling implementation: lts-infra's `CLAUDE/Plan/_planlib.inc.bash`
-- Donor of the concept: ballicom-infra's `CLAUDE/Plan/_planlib.bash`
+- Sibling implementation: example-team's `CLAUDE/Plan/_planlib.inc.bash`
+- Donor of the concept: example-d-infra's `CLAUDE/Plan/_planlib.bash`
 
 Everything in [StderrHygiene.md](StderrHygiene.md), [QA.md](QA.md), and the repo-wide
 fail-fast rule still applies in full. This document adds the orchestrator-specific rules.
@@ -22,7 +22,7 @@ root it resolved to that repo, wrote its report there, and the probe meant to ca
 deployed-vs-checkout launcher drift compared against a path that does not exist:
 
 ```
-sha256sum: /home/<user>/Projects/LTS/lts-infra/files/var/local/claude-yolo/claude-yolo:
+sha256sum: /home/<user>/Projects/LTS/example-team/files/var/local/claude-yolo/claude-yolo:
            No such file or directory
 ```
 
@@ -63,7 +63,7 @@ source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 ```
 
-**The `.git` bound is load-bearing.** This repo is routinely checked out inside lts-infra at
+**The `.git` bound is load-bearing.** This repo is routinely checked out inside example-team at
 `untracked/repos/fedora-desktop`, and **both repos have an `ansible.cfg` at their root** — so
 an unbounded walk from a plan script here finds the outer repo's marker and appears to work.
 The bound uses a plain `-e` so a worktree's `.git` *file* stops the walk too, and involves no
@@ -181,13 +181,13 @@ see R8.
 Both wrappers `cd` to `PLAN_REPO_ROOT` in a subshell before invoking ansible. **That cd is
 load-bearing**: `ansible.cfg`'s `inventory`, `roles_path`, `fact_caching_connection` and
 `vault_password_file` are all **relative** paths, so running from anywhere else silently picks
-up different — or missing — ones. Unlike lts-infra there is no wrapper script to delegate to;
+up different — or missing — ones. Unlike example-team there is no wrapper script to delegate to;
 `ansible.cfg` already supplies inventory, vault password file and `transport = local`.
 
 Both close stdin so ansible cannot drain the script's own stdin out from under a later prompt.
 
 A relative playbook path is resolved against `PLAN_REPO_ROOT`, never the cwd, so
-`plan_ansible_playbook playbooks/imports/foo.yml` works whether the operator runs
+`plan_ansible_playbook playbooks/imports/play-<name>.yml` works whether the operator runs
 `./deploy.bash` from the plan folder or by full path from anywhere else.
 
 ### R7 — Mode declaration and leg semantics

@@ -1,0 +1,109 @@
+---
+# Fixture for the regex-class-escape check of src-go/qa/ansible: every value marked
+# EXPECT-FINDING must be reported, and no other line. Each value is a regex whose letter
+# escape (\d, \s, \w, \b ...) reaches the regex as a literal backslash and the letter, or as a
+# backspace where \b was meant, so the regex silently matches something else.
+# A task list, not a play, so no gate syntax-checks it.
+
+- name: The /etc/subuid regex of tasks/podman-store-ownership-probe.yml before its fix
+  ansible.builtin.set_fact:
+    podman_store_subuid_ranges: >-  # EXPECT-FINDING
+      {{ podman_store_subuid.content | b64decode
+         | regex_findall('(?m)^(?:' ~ (user_login | regex_escape) ~ '|'
+                         ~ ansible_facts['getent_passwd'][user_login][1] ~ '):(\\d+):(\\d+)\\s*$') }}
+
+- name: The held-lock regex of tasks/podman-store-repair.yml before its fix
+  ansible.builtin.assert:
+    that:
+      - podman_store_held | length == 0
+  vars:
+    podman_store_held_inodes: >-  # EXPECT-FINDING
+      {{ podman_store_proc_locks.content | b64decode
+         | regex_findall('\\s[0-9a-f]+:[0-9a-f]+:(\\d+)\\s') | map('int') | list }}
+
+- name: Literal block, regex_search pattern
+  ansible.builtin.set_fact:
+    literal: |-  # EXPECT-FINDING
+      {{ s | regex_search('\\w+') }}
+
+- name: Plain scalar, regex_replace pattern
+  ansible.builtin.set_fact:
+    plain: x{{ s | regex_replace('\\S+$', '') }}  # EXPECT-FINDING
+
+- name: Single-quoted scalar, double-quoted Jinja string
+  ansible.builtin.set_fact:
+    single: '{{ s | regex_search("^\\d") }}'  # EXPECT-FINDING
+
+- name: Double-quoted scalar, four backslashes
+  ansible.builtin.set_fact:
+    double: "{{ s | regex_search('\\\\d') }}"  # EXPECT-FINDING
+
+- name: Fully qualified filter name
+  ansible.builtin.set_fact:
+    qualified: >-  # EXPECT-FINDING
+      {{ s | ansible.builtin.regex_findall('\\b[a-z]+\\b') }}
+
+- name: The regex test inside a template
+  ansible.builtin.set_fact:
+    test_regex: "{{ (s is regex('^\\\\s*key')) | bool }}"  # EXPECT-FINDING
+
+- name: The match test, negated, inside a template
+  ansible.builtin.set_fact:
+    test_match: x{{ s is not match('\\d') }}  # EXPECT-FINDING
+
+- name: The search test by its qualified name
+  ansible.builtin.set_fact:
+    test_search: x{{ s is ansible.builtin.search('\\w') }}  # EXPECT-FINDING
+
+- name: A filter by name to map
+  ansible.builtin.set_fact:
+    by_name: x{{ l | map('regex_replace', '\\s+', ' ') | list }}  # EXPECT-FINDING
+
+- name: A test by name to select
+  ansible.builtin.set_fact:
+    by_select: x{{ l | select('match', '\\d') | list }}  # EXPECT-FINDING
+
+- name: A test by name to selectattr, after the attribute
+  ansible.builtin.set_fact:
+    by_selectattr: x{{ l | selectattr('name', 'search', '\\w') | list }}  # EXPECT-FINDING
+
+- name: A test by name to reject, qualified
+  ansible.builtin.set_fact:
+    by_reject: x{{ l | reject('ansible.builtin.regex', '^\\s') | list }}  # EXPECT-FINDING
+
+- name: A character class
+  ansible.builtin.set_fact:
+    in_class: x{{ s | regex_search('[\\w.]+') }}  # EXPECT-FINDING
+
+- name: A statement, four backslashes, which Jinja halves to two
+  ansible.builtin.set_fact:
+    statement: x{% if s | regex_search('\\\\d') %}y{% endif %}  # EXPECT-FINDING
+
+- name: A conditional, four backslashes
+  ansible.builtin.debug:
+    msg: x
+  when: s is regex('\\\\d')  # EXPECT-FINDING
+
+- name: A conditional, three backslashes before an unknown escape, which Jinja keeps
+  ansible.builtin.debug:
+    msg: x
+  when: s is regex('\\\d')  # EXPECT-FINDING
+
+- name: A conditional, one backslash before b, which Jinja turns into a backspace
+  ansible.builtin.debug:
+    msg: x
+  when: s is regex('\bword\b')  # EXPECT-FINDING
+
+- name: An assert that, a regex_search pattern in a literal block
+  ansible.builtin.assert:
+    that:
+      - |  # EXPECT-FINDING
+        s | regex_search('\\\\w')
+
+- name: The debug action's var, a bare expression
+  ansible.builtin.debug:
+    var: s | regex_search('\\\\s')  # EXPECT-FINDING
+
+- name: A concatenated pattern, the second constant wrong
+  ansible.builtin.set_fact:
+    concat: x{{ s | regex_search('^a' ~ v ~ '\\s*=') }}  # EXPECT-FINDING

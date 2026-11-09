@@ -34,6 +34,7 @@ func hotspotKit(t *testing.T, active bool) *kit {
 	k.fake.On([]string{"nmcli", "-g", "ipv4.method", "connection", "show", "Camera AP"}, execx.Result{Stdout: []byte("shared\n")})
 	k.fake.On([]string{"nmcli", "-g", "GENERAL.DEVICES", "connection", "show", "Camera AP"}, execx.Result{Stdout: []byte("wlp1\n")})
 	k.fake.On([]string{"nmcli", "-g", "802-11-wireless.ssid", "connection", "show", "Camera AP"}, execx.Result{Stdout: []byte("ftp-camera\n")})
+	k.fake.On(pskArgv("nmcli"), execx.Result{Stdout: []byte(testWifiPass + "\n")})
 	ipAddr(k, "wlp1", hotspotIP)
 	k.feedOn(true, tailArgv)
 	k.feedOn(false, []string{"inotifywait"})
@@ -53,6 +54,8 @@ func TestHotspotOwnedBySession(t *testing.T) {
 		"  Hotspot:      on   (SSID: ftp-camera, IP: "+hotspotIP+", dev: wlp1)\n",
 		"                     (managed by ftp-camera, will close on exit)\n",
 		"  FTP URL:      ftp://camera@"+hotspotIP+"/\n",
+		"    Wi-Fi:       ftp-camera   (join this network on the camera first)\n",
+		"    Wi-Fi pass:  "+testWifiPass+"\n",
 		"Deactivating hotspot 'Camera AP'...\n")
 	if k.slept[0] != 2*time.Second {
 		t.Errorf("no wait for the AP: %v", k.slept)
@@ -78,7 +81,12 @@ func TestHotspotRefusals(t *testing.T) {
 	k = hotspotKit(t, false)
 	onNM(k, "-t -f NAME connection show", "Wired\n", 0)
 	k.wantCode(k.run("--hotspot"), term.ExitFailure)
-	k.wantErr("ERROR: NetworkManager connection 'Camera AP' not found\n", "    ./vault.bash set ftp_camera_hotspot_password    # 8-63 chars\n")
+	k.wantErr("ERROR: NetworkManager connection 'Camera AP' not found\n",
+		"  play-ftp-camera.yml creates this AP profile for you, with a\n  Wi-Fi password it generates and saves in the vault. Run, from the repo:\n\n",
+		"    ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml\n")
+	if strings.Contains(k.err.String(), "vault.bash set") {
+		t.Error("the refusal still asks for a hand-set password")
+	}
 	k.wantNotRan("sudo -n systemctl start")
 
 	k = hotspotKit(t, false)

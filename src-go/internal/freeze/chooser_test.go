@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -112,6 +115,56 @@ func (dieChooser) Group(context.Context, []string, []string) (string, error) {
 
 func (dieChooser) Members(context.Context, MemberScreen) (Choice, error) {
 	return Choice{}, errors.New("chooser must not be asked")
+}
+
+// echoReader is the terminal's input: what it was asked for, and whether the terminal echoed then.
+type echoReader struct {
+	in    io.Reader
+	modes *ttyecho.FakeModes
+	echo  []bool
+}
+
+func (r *echoReader) Read(p []byte) (int, error) {
+	r.echo = append(r.echo, r.modes.Echo())
+	n, err := r.in.Read(p)
+	if err != nil {
+		return n, fmt.Errorf("read: %w", err)
+	}
+	return n, nil
+}
+
+// devNull is an open file a fake hold takes for the terminal.
+func devNull(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return f
+}
+
+// A numbered reply is typed with the echo on, though the run holds it off between screens.
+func TestANumberedReplyIsTypedWithTheEchoOn(t *testing.T) {
+	h := newTTY(t, "")
+	var modes *ttyecho.FakeModes
+	h.c.Env.Echo, modes = ttyecho.Fake(devNull(t))
+	if err := ttyecho.Screen(h.c.Env.Echo); err != nil {
+		t.Fatal(err)
+	}
+	in := &echoReader{in: strings.NewReader("2\n"), modes: modes}
+	h.c.Env.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(in), nil }
+	key, err := h.c.Group(context.Background(), menuKeys, menuLabels)
+	if err != nil || key != "all" {
+		t.Fatalf("got %q, %v", key, err)
+	}
+	if len(in.echo) == 0 || slices.Contains(in.echo, false) || modes.Echo() {
+		t.Fatalf("echo while reading %v, after %v", in.echo, modes.Echo())
+	}
 }
 
 func TestGroupNumberedPrompt(t *testing.T) {

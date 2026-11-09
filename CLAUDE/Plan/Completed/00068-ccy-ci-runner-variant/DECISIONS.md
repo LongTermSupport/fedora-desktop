@@ -12,7 +12,7 @@ as it stood when the plan was written. Treat them as pointers, not as current li
 
 ## 1. The architecture this serves
 
-Owned by **lts-infra Plan 00030**:
+Owned by **example-team Plan 00030**:
 
 ```
 GitHub fires a job for a repo
@@ -108,7 +108,7 @@ cannot do the job. If that statement cannot be written truthfully, the mechanism
    `build_ssh_mounts_and_validate` runs unconditionally (`claude-yolo:870`; only discovery is
    gated on `--no-ssh`), so a runner that minted a per-repo, one-hour, `contents: read` token
    cannot hand it over. `GH_TOKEN` is already exported at `:2751` and passed with `-e GH_TOKEN`;
-   what is missing is honouring an already-set value. Blocks lts-infra Plan 00030 Task 2.11.
+   what is missing is honouring an already-set value. Blocks example-team Plan 00030 Task 2.11.
 
    **Owner's shape: a token-first mode, opt-in and CI-default.** The container already tolerates
    it: `entrypoint.sh:39` guards the identity cross-check on `[ -n "$GITHUB_USERNAME" ]` and `:59`
@@ -227,7 +227,7 @@ The owner's reason is cost/benefit:
   unretrievable (`runner.yml:218-248`).
 
 The safety story moves to Decision 9. The runner's own egress posture becomes an open question
-for lts-infra; nothing in fedora-desktop should assume either answer. C3 is retained in
+for example-team; nothing in fedora-desktop should assume either answer. C3 is retained in
 `reports/mcp-and-egress.md` for whoever revisits it.
 
 ### Decision 9 — CI runs with a restricted tool surface
@@ -322,7 +322,7 @@ save-and-disable pair, whose restore is the `stty "$_CCY_STTY_SAVED"` in `cleanu
    sole `container_cmd rm -f "$CONTAINER_NAME"` runs under *"Safety net: remove any leftover
    container"* — the same construct §6 names, cited the same way. Two jobs for one repo can both
    choose `<repo>_yolo`, and the second one's `rm -f` destroys the first job's running container.
-   Fix: serialise the jobs on the runner (lts-infra Plan 00030 Task 2.8), which also fixes the
+   Fix: serialise the jobs on the runner (example-team Plan 00030 Task 2.8), which also fixes the
    worse problem of two jobs checking out different SHAs into one working tree
    (`runner_instances: 4` today). On ccy's side: accept a caller-supplied `--container-name` and
    never `rm -f` it.
@@ -366,7 +366,7 @@ so CI never has to drop it and there is no prompt to hang on. Lesson: when a pla
 behaviour, measure the behaviour before designing around either branch.
 
 **E7 is defused, not answered.** `triage.bash` could never settle it: the host has open egress and
-a warm image cache. Logged against lts-infra Plan 00030, whose open question 1 asks the adjacent
+a warm image cache. Logged against example-team Plan 00030, whose open question 1 asks the adjacent
 question about build-time egress.
 
 Verdicts from the host runs: `reports/host-run-verdicts.md`. Re-run the probes any time with

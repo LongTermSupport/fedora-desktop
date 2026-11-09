@@ -47,6 +47,9 @@ type Gum struct {
 	Stderr io.Writer
 	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
 	Plain bool
+	// Drain says which questions start on no key typed before they drew (shared with the
+	// command's Picker); nil makes one on first use.
+	Drain *Drain
 }
 
 // exitCode is a command's non-zero exit, or -1 when the error is not an exit at all.
@@ -63,13 +66,19 @@ func (g *Gum) Confirm(ctx context.Context, h Heading, question string, defaultYe
 	if err := h.check(); err != nil {
 		return false, err
 	}
-	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, g.headingWidth(ctx)))
+	width, err := g.headingWidth(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, err = g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, width))
 	switch code := exitCode(err); {
 	case err == nil:
 		return true, nil
 	case code == 1:
+		g.drain().left() // Esc and No are the one exit: either drains the next screen
 		return false, nil
 	case code > 0:
+		g.drain().left()
 		return false, ErrCancelled
 	default:
 		return false, fmt.Errorf("gum confirm: %w", err)
@@ -82,9 +91,13 @@ func (g *Gum) Input(ctx context.Context, h Heading, header, placeholder, value s
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--placeholder", placeholder, "--value", value, "--width", "0")
+	width, err := g.headingWidth(ctx)
 	if err != nil {
-		return "", cancelOrFail("gum input", err)
+		return "", err
+	}
+	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, width), "--placeholder", placeholder, "--value", value, "--width", "0")
+	if err != nil {
+		return "", g.cancelOrFail("gum input", err)
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
@@ -94,13 +107,18 @@ func (g *Gum) Choose(ctx context.Context, h Heading, header, selected string, op
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	args := append([]string{"choose", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--selected", selected}, options...)
+	width, err := g.headingWidth(ctx)
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"choose", "--header", h.above(header, !g.Plain, width), "--selected", selected}, options...)
 	res, err := g.run(ctx, args...)
 	if err != nil {
-		return "", cancelOrFail("gum choose", err)
+		return "", g.cancelOrFail("gum choose", err)
 	}
 	choice := strings.TrimSpace(string(res.Stdout))
 	if choice == "" {
+		g.drain().left()
 		return "", ErrCancelled
 	}
 	return choice, nil
@@ -111,7 +129,7 @@ func (g *Gum) Style(ctx context.Context, text string, width, indent int) error {
 	_, err := g.Runner.Run(ctx, execx.Cmd{
 		Name: "gum",
 		Args: []string{"style", "--width", strconv.Itoa(width), "--padding", "0 0 0 " + strconv.Itoa(indent), text},
-		Env:  gumEnv, Stdout: g.Stderr, Stderr: g.Stderr,
+		Env:  gumEnv, Stdout: g.Stderr, Stderr: g.Stderr, EchoHeld: true,
 	})
 	if err != nil {
 		return fmt.Errorf("gum style: %w", err)
@@ -119,14 +137,19 @@ func (g *Gum) Style(ctx context.Context, text string, width, indent int) error {
 	return nil
 }
 
+// run is a question: it drains what was typed before it when g.Drain says so, and a cancel
+// drains the next one.
 func (g *Gum) run(ctx context.Context, args ...string) (execx.Result, error) {
 	return g.Runner.Run(ctx, execx.Cmd{
-		Name: "gum", Args: args, Env: gumEnv, Stdin: g.Stdin, Stderr: g.Stderr,
+		Name: "gum", Args: args, Env: gumEnv, Stdin: g.Stdin, Stderr: g.Stderr, EchoHeld: true,
+		DrainInput: g.drain().next(),
 	})
 }
 
-func cancelOrFail(what string, err error) error {
+// cancelOrFail is a question's failure: a cancel (which drains the next question), or an error.
+func (g *Gum) cancelOrFail(what string, err error) error {
 	if exitCode(err) > 0 {
+		g.drain().left()
 		return ErrCancelled
 	}
 	return fmt.Errorf("%s: %w", what, err)

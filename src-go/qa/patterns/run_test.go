@@ -137,15 +137,18 @@ func TestP3FailedStdoutWriteIsExit2(t *testing.T) {
 
 // P4
 func TestP4SemgrepMissingOrBrokenIsExit2WithTheInstallHint(t *testing.T) {
-	for name, set := range map[string]func(*fakeRun){
-		"not on PATH":   func(f *fakeRun) { f.noSemgrep = true },
-		"version fails": func(f *fakeRun) { f.versionCode = 1 },
+	for name, c := range map[string]struct {
+		set   func(*fakeRun)
+		cause string
+	}{
+		"not on PATH":   {func(f *fakeRun) { f.noSemgrep = true }, "(semgrep: executable file not found in $PATH)"},
+		"version fails": {func(f *fakeRun) { f.versionCode = 1 }, "(semgrep --version exited 1: )"},
 	} {
 		w := oneScript(t)
-		set(w.run)
+		c.set(w.run)
 		got := w.main()
 		wantExit(t, got, ExitCannotRun)
-		wantStderr(t, got, "ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
+		wantStderr(t, got, "ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand) "+c.cause)
 		noReport(t, w)
 		if w.run.called("git") {
 			t.Fatalf("%s: ran git before knowing semgrep works", name)

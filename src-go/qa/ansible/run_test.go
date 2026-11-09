@@ -123,7 +123,7 @@ func TestMainStdoutWriteFailureIsAnErrorLine(t *testing.T) {
 
 func cleanTree() map[string]string {
 	return map[string]string{
-		"playbooks/a.yml": playbookShebang + "\n---\n- hosts: all\n  vars:\n    scope: general\n",
+		"playbooks/a.yml": playbookShebang + "\n---\n- hosts: all\n  vars:\n    scope: general\n    audience: all\n",
 		"tasks/t.yml":     "k: v\n",
 	}
 }
@@ -154,6 +154,8 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 	files["environment/e.yml"] = "x: ansible_env\n"
 	files["roles/r/rd.yml"] = "p: /run/user/1000\n"
 	files["tasks/rb.yml"] = "v: >-\n  {{ s | regex_search('a(b)', '\\\\1') }}\n"
+	files["tasks/re.yml"] = "v: >-\n  {{ s | regex_search('\\\\d') }}\n"
+	files["tasks/rc.yml"] = "- command: fc-cache -f\n"
 	files["playbooks/b.yml"] = playbookShebang + "\n- hosts: all\n"
 	root := writeTree(t, files)
 	chmodX(t, root, "playbooks/a.yml")
@@ -167,11 +169,11 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 			order = append(order, line[len("  ERROR ("):i])
 		}
 	}
-	want := "fail-fast hygiene self-ref var scope deprecated fact var guessed uid in a runtime path regex-backref-escape"
+	want := "fail-fast hygiene self-ref var scope audience deprecated fact var guessed uid in a runtime path regex-backref-escape regex-class-escape root-umask"
 	if got := strings.Join(order, " "); got != want {
 		t.Fatalf("order %q want %q\n%s", got, want, res.out)
 	}
-	if !strings.Contains(res.out, "✗ ansible: 7 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 1 scope/guard, 2 deprecated fact var, 1 regex backref\n") {
+	if !strings.Contains(res.out, "✗ ansible: 10 violation(s) — 1 fail-fast, 1 hygiene, 1 self-ref var, 2 scope/guard, 2 deprecated fact var, 1 regex backref, 1 regex escape, 1 root umask, 0 play ux, 0 sudoers rule\n") {
 		t.Fatalf("summary:\n%s", res.out)
 	}
 }

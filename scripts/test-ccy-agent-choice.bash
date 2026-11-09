@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unit-test ccy --opencode (-oc), lib/agent-choice.bash (Plan 00215 decisions O1, O2).
+# Unit-test ccy --opencode (-oc), lib/agent-choice.bash (Plan 00215 decisions O1, O2), and the
+# session's container run under its network policy, lib/network-policy.bash (Plan 00232).
 #
 # Sources the library from THIS repo, and checks the launcher calls it where the flag is meant to
 # act, so the text under test is the text that ships.
@@ -17,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CCY_DIR="$REPO_ROOT/files/var/local/claude-yolo"
 LIB="$CCY_DIR/lib/agent-choice.bash"
+POLICY_LIB="$CCY_DIR/lib/network-policy.bash"
 LAUNCHER="$CCY_DIR/claude-yolo"
 
 if [ ! -f "$LIB" ]; then
@@ -45,6 +47,8 @@ check() {
 fresh() {
     # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/agent-choice.bash
     source "$LIB"
+    # shellcheck source-path=SCRIPTDIR source=../files/var/local/claude-yolo/lib/network-policy.bash
+    source "$POLICY_LIB"
     CLAUDE_ARGS=() CLAUDE_CMD_ARGS=() PROMPT_TEXT="" HEADLESS_MODE=false SUPERVISE_MODE=false
     NO_SUPERVISE_MODE=false NO_BUS_MODE=false TEAMS_GIVEN=false OPT_MAX_AGE="" OPT_RUN_FOR=""
     OPT_UNTIL="" CLAUDE_ARGS_BEFORE_SEPARATOR=""
@@ -183,34 +187,57 @@ PROMPT_TEXT="fix the bug"
 ccy_agent_command >"$work/out"
 check "opencode runs with --auto, the prompt and the arguments, not claude's" "opencode|--auto|--prompt|fix the bug|--model|openrouter/x" "$(IFS='|'; echo "${CCY_AGENT_CMD[*]}")"
 check "the banner names opencode" "Executing opencode with arguments:" "$(awk 'NR == 2' "$work/out")"
-container_cmd() { env >"$work/child-env"; printf '%s\n' "$@" >"$work/child-args"; }
+CONTAINER_ENGINE=podman CONTAINER_NAME=proj_yolo IMAGE_NAME=img
+ccy-network-policy() { env >"$work/child-env"; printf '%s\n' "$@" >"$work/child-args"; }
 check "the run is the engine's own status" "0" "$(ccy_agent_container run --rm img; echo $?)"
-check "the run's arguments are passed as given" "run --rm img" "$(tr '\n' ' ' <"$work/child-args" | awk '{$1=$1; print}')"
+check "the run goes through ccy-network-policy, its arguments as given" "launch --name proj_yolo --image img -- podman run --rm img" "$(tr '\n' ' ' <"$work/child-args" | awk '{$1=$1; print}')"
 check "the engine gets each key's value" "ANTHROPIC_API_KEY=sk-ant-test OPENROUTER_API_KEY=sk-or-test" "$(grep -E '^(ANTHROPIC|OPENROUTER)_API_KEY=' "$work/child-env" | sort | tr '\n' ' ' | awk '{$1=$1; print}')"
 ccy_agent_container run >/dev/null
 check "after the run no key is set in the launcher" "unset unset" "${ANTHROPIC_API_KEY-unset} ${OPENROUTER_API_KEY-unset}"
 check "nothing the launcher starts later inherits a key" "0" "$(env | grep -c '_API_KEY=')"
-container_cmd() { env >"$work/child-env"; }
+ccy-network-policy() { env >"$work/child-env"; }
 (set -x; ccy_agent_container run) 2>"$work/trace"
 check "under --debug's set -x no key reaches the trace" "0" "$(grep -c -e sk-ant-test -e sk-or-test "$work/trace")"
-check "  the trace still shows the engine call" "1" "$(grep -c -E '^\++ container_cmd run$' "$work/trace")"
+check "  the trace still shows the engine call" "1" "$(grep -c -E '^\++ ccy_network_policy_launch run$' "$work/trace")"
 check "  and the engine still gets the key" "1" "$(grep -c '^OPENROUTER_API_KEY=sk-or-test$' "$work/child-env")"
 check "  and set -x is on again after the call" "on" "$(set -x; ccy_agent_container run 2>/dev/null; case $- in *x*) echo on ;; *) echo off ;; esac)"
-container_cmd() { return 3; }
+ccy-network-policy() { return 3; }
 check "a failed run's status comes back" "3" "$(ccy_agent_container run; echo $?)"
-container_cmd() { echo started >"$work/started"; }
+ccy-network-policy() { echo started >"$work/started"; }
 rm -f "$work/started"
 : >"$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
 check "a key gone blank since the check stops the run (1)" "1" "$(ccy_agent_container run 2>/dev/null; echo $?)"
 check "the engine is not started without it" "no" "$([ -e "$work/started" ] && echo yes || echo no)"
 rm -f "$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
 check "a key gone since the check stops the run (1)" "1" "$(ccy_agent_container run 2>/dev/null; echo $?)"
+key OPENROUTER_API_KEY sk-or-test
+unset -f ccy-network-policy
+check "no ccy-network-policy installed stops the run (1)" "1" "$(PATH="$work/empty-bin" ccy_agent_container run 2>/dev/null; echo $?)"
+check "  and says to run the play" "1" "$(PATH="$work/empty-bin" ccy_agent_container run 2>&1 | grep -c 'ccy-network-policy is not installed.*play-claude-yolo.yml')"
+
+echo "=== --connect and --disconnect refresh the live sessions' policies ==="
+connect_to_network() { echo "connect $*" >>"$work/net-calls"; return "${net_rc:-0}"; }
+disconnect_from_network() { echo "disconnect $*" >>"$work/net-calls"; return "${net_rc:-0}"; }
+ccy-network-policy() { echo "policy $*" >>"$work/net-calls"; return "${policy_rc:-0}"; }
+net_calls() { tr '\n' '|' <"$work/net-calls"; }
+: >"$work/net-calls"
+check "both at once are refused (1)" "1" "$(ccy_network_change true true a b 2>/dev/null; echo $?)"
+check "  and nothing is changed" "" "$(net_calls)"
+check "--connect, then the refresh" "0 connect a _yolo ccy|policy refresh|" "$(ccy_network_change true false a b; echo "$? $(net_calls)")"
+: >"$work/net-calls"
+check "--disconnect, then the refresh" "0 disconnect b _yolo ccy|policy refresh|" "$(ccy_network_change false true a b; echo "$? $(net_calls)")"
+: >"$work/net-calls"
+check "a failed connect's status comes back, and nothing is refreshed" "4 connect a _yolo ccy|" "$(net_rc=4 ccy_network_change true false a b; echo "$? $(net_calls)")"
+: >"$work/net-calls"
+check "a failed refresh's status comes back" "5" "$(policy_rc=5 ccy_network_change false true a b; echo $?)"
 
 echo "=== the launcher calls it ==="
 check "the parse's last branch is the flag" "1" "$(grep -c -x -F "        ccy_agent_arg \"\$arg\"" "$LAUNCHER")"
 check "the options follow the parse, before the bus and flag checks" "yes" "$(awk '/^ccy_agent_options [|][|] exit [$][?]$/ {o=NR} /^ccy_no_bus_check / {b=NR} /^suspect_flags=[(][)]$/ {s=NR} END {print (o && o < b && b < s) ? "yes" : "no"}' "$LAUNCHER")"
 check "the container runs the chosen agent" "1" "$(grep -c -x -F "    \"\${CCY_AGENT_CMD[@]}\" || container_rc=\$?" "$LAUNCHER")"
 check "the run goes through the key hand-over" "1" "$(grep -c -F "GH_TOKEN=\"\$GH_TOKEN\" ccy_agent_container run " "$LAUNCHER")"
+check "--connect and --disconnect go through the policy refresh" "1" "$(grep -c -x -F '    ccy_network_change "$CONNECT_MODE" "$DISCONNECT_MODE" "$CONNECT_NETWORK" "$DISCONNECT_NETWORK"' "$LAUNCHER")"
+check "  and nothing else connects or disconnects" "0" "$(grep -c -E '^ *(dis)?connect_(to|from)_network ' "$LAUNCHER")"
 check "the keys' -e arguments are in the run" "1" "$(grep -c -F "\"\${CCY_AGENT_RUN_ARGS[@]}\"" "$LAUNCHER")"
 check "--opencode is offered as a ccy flag in the did-you-mean list" "1" "$(grep -c -- '--prevent --opencode --help' "$LAUNCHER")"
 # The Quick Launch block itself, with no bus kit, is run by test-ccy-teams.bash; the save is

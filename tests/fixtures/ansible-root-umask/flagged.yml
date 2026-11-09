@@ -1,0 +1,104 @@
+---
+# Fixture for the root-umask check of src-go/qa/ansible: every line marked EXPECT-FINDING
+# must be reported, and no other. Each task creates files that user processes read, as root (a
+# task list carries no play, so the check takes it as run as root), under the inherited umask:
+# a system cache rebuilt, or a download, redirect, clone or extraction into a system path, with
+# no umask 022 or readable mode. A task list, not a play, so no gate syntax-checks it.
+
+- name: The originating instance, argv form
+  ansible.builtin.command:  # EXPECT-FINDING
+    argv: [fc-cache, -f]
+  changed_when: true
+
+- name: Free-form command, short module name
+  command: fc-cache -fs  # EXPECT-FINDING
+
+- name: Shell block without a umask
+  ansible.builtin.shell: |  # EXPECT-FINDING
+    set -euo pipefail
+    gtk-update-icon-cache -f /usr/share/icons/hicolor
+  args:
+    executable: /bin/bash
+
+- name: Shell block with the wrong umask
+  ansible.builtin.shell: |  # EXPECT-FINDING
+    set -euo pipefail
+    umask 077
+    glib-compile-schemas /usr/share/glib-2.0/schemas
+  args:
+    executable: /bin/bash
+
+- name: Umask set only after the rebuild
+  ansible.builtin.shell: update-desktop-database /usr/share/applications && umask 022  # EXPECT-FINDING
+
+- name: Full path to the tool
+  ansible.builtin.command: /usr/bin/update-mime-database /usr/share/mime  # EXPECT-FINDING
+
+- name: Explicit become to root
+  become: true
+  become_user: root
+  ansible.builtin.command: gdk-pixbuf-query-loaders-64 --update-cache  # EXPECT-FINDING
+
+- name: A block of tasks
+  block:
+    - name: Nested in a block
+      ansible.builtin.shell: update-desktop-database  # EXPECT-FINDING
+  rescue:
+    - name: Nested in a rescue
+      ansible.builtin.shell: gio-querymodules-64 /usr/lib64/gio/modules  # EXPECT-FINDING
+
+- name: The cmd form of the shell module
+  ansible.builtin.shell:  # EXPECT-FINDING
+    cmd: dconf update
+
+- name: The legacy namespace and raw
+  ansible.legacy.raw: mandb -q  # EXPECT-FINDING
+
+- name: The umask only in a comment line
+  ansible.builtin.shell: |  # EXPECT-FINDING
+    set -euo pipefail
+    # umask 022 would be needed here
+    mkfontdir /usr/share/fonts/local
+  args:
+    executable: /bin/bash
+
+- name: Command after a pipe or semicolon
+  ansible.builtin.shell: true; mkfontscale /usr/share/fonts/local  # EXPECT-FINDING
+
+- name: The args form
+  ansible.builtin.command:  # EXPECT-FINDING
+  args:
+    cmd: systemd-hwdb update
+
+- name: A download into a system path, an exec-bit chmod only
+  ansible.builtin.shell: |  # EXPECT-FINDING
+    set -euo pipefail
+    wget -qO /usr/bin/yq https://example.com/yq && chmod +x /usr/bin/yq
+  args:
+    executable: /bin/bash
+
+- name: curl into /opt
+  ansible.builtin.command: curl -fsSL -o /opt/tool/tool.bin https://example.com/tool  # EXPECT-FINDING
+
+- name: A redirect into /etc
+  ansible.builtin.shell: echo "[repo]" > /etc/yum.repos.d/example.repo  # EXPECT-FINDING
+
+- name: tee into /usr
+  ansible.builtin.shell: printf 'x\n' | tee -a /usr/local/share/example.txt  # EXPECT-FINDING
+
+- name: A clone into /opt
+  ansible.builtin.git:  # EXPECT-FINDING
+    repo: https://example.com/repo.git
+    dest: /opt/repo
+
+- name: A clone with the wrong umask
+  ansible.builtin.git:  # EXPECT-FINDING
+    repo: https://example.com/repo.git
+    dest: /usr/local/src/repo
+    umask: '0077'
+
+- name: An extraction into /opt without mode
+  ansible.builtin.unarchive:  # EXPECT-FINDING
+    src: /var/tmp/a.zip
+    dest: /opt/a
+    remote_src: true

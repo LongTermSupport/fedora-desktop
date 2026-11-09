@@ -96,7 +96,11 @@ func (r *run) needTerminal(target, mime string) error {
 // numbered is E18-E19: the menu without fzf, read from the terminal.
 func (r *run) numbered(ctx context.Context, heading ui.Heading, labels []string) (int, error) {
 	colour := r.env.Getenv("NO_COLOR") == ""
-	drawn, err := heading.Draw(colour, r.columns(ctx))
+	cols, err := r.columns(ctx)
+	if err != nil {
+		return 0, err
+	}
+	drawn, err := heading.Draw(colour, cols)
 	if err != nil {
 		return 0, err
 	}
@@ -134,24 +138,39 @@ func (r *run) numbered(ctx context.Context, heading ui.Heading, labels []string)
 }
 
 // columns is the terminal's width as tput gives it, for the heading (InteractiveScripts.md
-// rule 15); 80 when tput cannot say.
-func (r *run) columns(ctx context.Context) int {
+// rule 15); 80 when tput runs and cannot say. A tput that could not run is the error.
+func (r *run) columns(ctx context.Context) (int, error) {
 	var out bytes.Buffer
 	if _, err := r.env.Runner.Run(ctx, execx.Cmd{Name: "tput", Args: []string{"cols"}, Stdout: &out, Stderr: r.env.Stderr}); err != nil {
-		return 80
+		if execx.ExitedNonZero(err) {
+			return 80, nil
+		}
+		return 0, fmt.Errorf("could not read the terminal's width: %w", err)
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(out.String())); err == nil && n > 0 {
-		return n
+		return n, nil
 	}
-	return 80
+	return 80, nil
 }
 
 // errInterrupted is Ctrl-C (or Ctrl-\) at the prompt.
 var errInterrupted = errors.New("interrupted")
 
-// readLine is one reply from the terminal, trimmed; end of input is io.EOF even after a partial
-// line, and an interrupt is errInterrupted without waiting for the read.
+// readLine is one reply from the terminal, trimmed, typed with the echo on (Env.Echo holds it
+// off between screens); end of input is io.EOF even after a partial line, and an interrupt is
+// errInterrupted without waiting for the read.
 func (r *run) readLine() (string, error) {
+	var line string
+	err := r.env.Echo.Given(func() error {
+		var readErr error
+		line, readErr = r.readReply()
+		return readErr
+	})
+	return line, err
+}
+
+// readReply is readLine's read.
+func (r *run) readReply() (string, error) {
 	type result struct {
 		line string
 		err  error

@@ -31,6 +31,7 @@ func TestAddToAPlainSessionRelaunchesItOnce(t *testing.T) {
 		"✓ session: seat 3 held, applied (0.0 s)",
 		"✓ session: relaunched once to accept team messages (it started on no team): resumed, seat 3 held (0 s)",
 		"Done. The session is told it joined alpha as proj.3+local.podman.")
+	wantBlock(t, r.ErrOut.String(), "This session is on 1 team:", "alpha")
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh", "--teams", "3@alpha"}) {
 		t.Fatalf("record %v", got)
 	}
@@ -46,6 +47,9 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 	}
 	wantLines(t, r.ErrOut.String(), "✓ record: --teams 1@beta,3@alpha",
 		"Done. The session is told it joined alpha as proj.3+local.podman. Nothing restarted.")
+	// Plan 00177 Task 11.2: a seat taken while the session runs gets the launch's block too,
+	// naming every team the session is now on.
+	wantBlock(t, r.ErrOut.String(), "This session is on 2 teams:", "beta", "alpha")
 	if strings.Contains(r.ErrOut.String(), "relaunch") {
 		t.Fatalf("a seated session is not relaunched:\n%s", r.ErrOut.String())
 	}
@@ -53,12 +57,35 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 		t.Fatalf("rerun exit %d:\n%s", code, r.ErrOut.String())
 	}
 	onlySkips(t, r.ErrOut.String())
+	if strings.Contains(r.ErrOut.String(), "This session is on") {
+		t.Fatalf("a rerun that changes nothing prints no block:\n%s", r.ErrOut.String())
+	}
 	wantLines(t, r.ErrOut.String(), "Nothing to do: "+session+" is already in alpha as seat 3.")
 	if r.desired(t).Generation != 2 {
 		t.Fatal("a rerun writes nothing")
 	}
 	if code := r.run(t, "add", session, "alpha/4", "--yes"); code != term.ExitUsage {
 		t.Fatalf("a second seat in a team: exit %d", code)
+	}
+}
+
+// Plan 00177 Task 12.1: ccy-teams runs in a terminal whose working directory need not be the
+// session's checkout. The block reads the session's seats from the session's checkout, so a
+// seat that exists there is named by its role, never as a new seat.
+func TestTheBlockReadsTheSessionsCheckoutNotTheWorkingDirectory(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	elsewhere := filepath.Join(r.Root, "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.On("git rev-parse --show-toplevel", elsewhere+"\n", 0)
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.ErrOut.String()
+	wantLines(t, got, "  alpha  seat 3 (worker)  (no description)", "  beta   seat 1 (worker)  (no description)")
+	if strings.Contains(got, "new seat") {
+		t.Fatalf("seats that exist in the session's checkout are not new:\n%s", got)
 	}
 }
 
@@ -142,6 +169,21 @@ func TestAddThatTheKeeperRefusesIsRolledBack(t *testing.T) {
 	}
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh"}) {
 		t.Fatalf("record %v", got)
+	}
+}
+
+func TestAddWhoseSessionCannotBeSeenMidwaySaysWhy(t *testing.T) {
+	r := newRig(t)
+	r.Fake.OnFunc([]string{"podman", "exec"}, func(execx.Cmd) (execx.Result, error) {
+		r.m.psErr = "cannot connect to podman"
+		return execx.Result{}, nil
+	})
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: seat 3: whether "+session+" still runs could not be read: "+
+		"podman could not list its container: podman exited 125: cannot connect to podman") {
+		t.Fatalf("the look's failure is said:\n%s", got)
 	}
 }
 
@@ -259,7 +301,7 @@ func TestAddRefusesANewMemberWhenTheRosterIsFull(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "✓ team alpha: homeserver up, 64 of 64 agents",
-		"✗ seat 4: alpha has 64 agents, the most a team can have: park or remove a member first (ccy-teams, Ctrl-X on a member)")
+		"✗ seat 4: alpha has 64 agents, the most a team can have: park or remove a member first (ccy-teams, Enter on a member)")
 	if r.Fake.Called("agent-bus seat take") || r.desired(t).Generation != 1 {
 		t.Fatal("nothing is created or written for a full roster")
 	}
@@ -376,6 +418,22 @@ func TestAddWhoseRelaunchedSessionHasNoReportYetWaitsForIt(t *testing.T) {
 	got := r.ErrOut.String()
 	if !strings.Contains(got, "not relaunched within 180 s") || strings.Contains(got, "could not be read") {
 		t.Fatalf("a report not written yet is waited for:\n%s", got)
+	}
+}
+
+func TestAddWhoseRelaunchCannotBeSeenSaysWhy(t *testing.T) {
+	r := newRig(t)
+	r.m.onPs = func() {
+		if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err == nil {
+			r.m.psErr = "cannot connect to podman"
+		}
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: whether it relaunched could not be read within 180 s: "+
+		"podman could not list its container: podman exited 125: cannot connect to podman.") {
+		t.Fatalf("the look's failure is said:\n%s", got)
 	}
 }
 
