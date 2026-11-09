@@ -3,10 +3,17 @@
 # to one reader would be invisible to the others, so there is only this file.
 #
 # list <TAB> dir
-#   list  shell: shell, YAML and JavaScript discovery. python: Python discovery, narrower inside
-#         .claude/ccy because claude-supervise.py is tracked and must stay gated.
-#   dir   a directory name matched as a whole /<dir>/ segment sequence anywhere in the path,
-#         not only at the repository root.
+#   list  shell: shell, YAML, JavaScript and Markdown discovery. python: Python discovery.
+#   dir   a directory, or one file, matched as a whole /<dir>/ segment sequence anywhere in the
+#         path, not only at the repository root.
+#
+# Daemon-deployed files are excluded, never gated here (owner's decision, 2026-11-09): the hooks
+#   daemon ships and rewrites them on every upgrade, its own QA is their gate, and a finding in
+#   one is reported upstream and never blocks this repository. They are .claude/ccy (with
+#   claude-supervise.py), .claude/hooks, .claude/skills, .claude/init.sh, .claude/provision.sh,
+#   CLAUDE/Plan/mkplan.bash and CLAUDE/core. The project handlers under .claude/hooks/handlers
+#   are ours, so the python list does not exclude .claude/hooks. The secret and private-name
+#   scans do not read this table and still cover every one of them.
 #
 # .git, .ansible: the WHOLE .ansible tree, not just roles/. It is gitignored Galaxy output and
 #   `ansible-galaxy collection install` populates .ansible/collections/ with thousands of
@@ -16,16 +23,10 @@
 # .claude/hooks-daemon-backups: the upgrade keeps the previous copy of any daemon-deployed tree
 #   it replaces; it is a byte copy of .claude/skills, already excluded, and is recreated by
 #   every upgrade, so deleting the directory defers the failure rather than fixing it.
-# .claude/ccy: the whole CCY runtime tree (snapshots, plugins, history) for shell. Python
-#   excludes only plugins, file-history and projects (saved transcripts of a Read of a script
-#   start with its shebang), because claude-supervise.py is tracked. It is daemon-owned and
-#   rewritten on every upgrade; upstream guarantees it clean under ruff's default rules, and a
-#   finding from a rule this repo selected is excluded here, not patched (CLAUDE/QA.md).
+# .claude/ccy: the whole CCY runtime tree (snapshots, plugins, history, saved transcripts) and
+#   the daemon-deployed claude-supervise.py, for both lists.
 # .claude/hooks: for shell only, the hook scripts the daemon generates (one per event, plus
-#   status-line), rewritten on every upgrade, so a finding there is upstream's to fix, not
-#   patched here (owner's decision, 2026-11-06, after v3.72.1 shipped SC2034 and a 119-line
-#   status-line). The project handlers under .claude/hooks/handlers/ are Python, and the python
-#   list does not exclude them, so they stay gated.
+#   status-line).
 # .claude/skills: installed skill payloads.
 # .claude/worktrees: checkouts of other branches, gated on their own branch.
 # roles/vendor: vendored Ansible roles.
@@ -41,6 +42,10 @@ shell	.claude/hooks-daemon-backups
 shell	.claude/ccy
 shell	.claude/hooks
 shell	.claude/skills
+shell	.claude/init.sh
+shell	.claude/provision.sh
+shell	CLAUDE/Plan/mkplan.bash
+shell	CLAUDE/core
 shell	.claude/worktrees
 shell	roles/vendor
 shell	src-go/vendor
@@ -50,9 +55,7 @@ shell	untracked
 python	.git
 python	.ansible
 python	.claude/hooks-daemon
-python	.claude/ccy/plugins
-python	.claude/ccy/file-history
-python	.claude/ccy/projects
+python	.claude/ccy
 python	.claude/worktrees
 python	.claude/skills
 python	roles/vendor

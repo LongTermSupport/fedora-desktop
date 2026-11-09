@@ -17,6 +17,7 @@ import (
 // listed here, is measured as any other.
 var DaemonOwnedFiles = []Exemption{
 	{Pattern: "CLAUDE/Plan/mkplan.bash", Reason: "daemon-owned plan scaffolder: the hooks daemon deploys it from its install/templates/mkplan.bash and overwrites it on every upgrade, so it must not be edited here"},
+	{Pattern: ".claude/ccy/claude-supervise", Reason: "daemon-owned ccy supervisor launcher: the hooks daemon deploys it beside claude-supervise.py and overwrites it on every upgrade, so it must not be edited here"},
 }
 
 // upgradeMetadata are the markers around the metadata block of a hooks-daemon upgrade commit,
