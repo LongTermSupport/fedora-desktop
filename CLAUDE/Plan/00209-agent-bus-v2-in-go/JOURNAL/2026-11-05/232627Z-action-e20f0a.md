@@ -1,0 +1,3 @@
+## 23:26 · action · —
+
+PT1 P2 readings (issue 156) built on fix/pt1-p2-readings-156. Finding: first-seen order alone predicts the same record under both readings, so the record adds each copy's delivery nonce and the store's in-flight deliveries of the item before the failing recv and at the mark. Red: the classifier and print tests failed on stubs (all eight timelines unnamed, no record printed, no nonce read); a classifier plant (before swapped for at) failed the redelivery timeline. Real runs: TestPT1MarkBeforeAnInFlightDelivery reads (b); a planted Return without repeat made TestPT1Redelivery fail reading (a), reverted. Green: TestPT1 -race -shuffle=on -count=2, 261 s. Report: subagent-reports/261105-fix-pt1p2-opus-report.md.

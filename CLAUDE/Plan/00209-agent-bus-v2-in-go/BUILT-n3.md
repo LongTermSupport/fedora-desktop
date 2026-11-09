@@ -81,6 +81,27 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   reviewer's 180 isolated runs and 12 full-suite copies, none failing, are recorded, and the
   decision to keep the seed in the gate is stated with its one-line alternative).
 
+  P2's readings for issue 156 (`subagent-reports/261105-fix-pt1p2-opus-report.md`): a copy's
+  first-seen order alone cannot split the readings, since under both the unmarked copy is first
+  seen after the mark. Each transcript copy now carries its delivery's nonce, each takes the
+  harness's next sequence number when a read first holds it, and a failing recv's mark records
+  the store's deliveries of the item, awaiting entries and missed entries apart, before the recv
+  runs and again just before the count. A returned item's P2 finding prints, under its unchanged
+  first line, reading (b) (the copy's delivery was a missed entry before the recv, declared once
+  it could be due, found late), reading (a) (it began after the hand-out and lacks the line, it
+  was awaiting before the recv, so the recv handed out an item a delivery held: P11's question,
+  or it was a missed entry declared before due) or neither (no record, store unread, no nonce, a
+  link crash, a delivery both missed and awaiting, a contradictory record), with the record. Due
+  is judged from the missed entry's `AtMS` on the boot clock: `declareMissing` needs 180 s of
+  quiet after the delivery's write (`engine/proof.go` `quietAfter`), and the harness reads the
+  boot clock before the run's world starts, so an entry declared less than 180 s after that start
+  reads (a), "declared missing before due". No seed run lasts 180 s, so in a seed run every missed
+  entry reads (a) and (b) is reached only by the forced timelines. The
+  verdict is unchanged (`TestPT1P2VerdictIsTheRecordsNot`); `pt1_readings_unit_test.go` holds the
+  forced timelines, (b) through a missed entry built from real stores, and
+  `TestPT1MarkBeforeAnAwaitingDelivery` shows an awaiting entry read as production over a real
+  run. Seed 57 stays in `pt1Fixed`.
+
 - **n3f-a built in part** on `feat/bus-v2-n3f-a` (SPEC-n3f section 10's row n3f-a;
   `subagent-reports/261105-n3f-a-sonnet.md`). Built: G7 (exit 20's set gains `not-ready`, exit
   10's gains `open-limit`, row 20's meaning and next step as SPEC-n3f 12.5 words them; the

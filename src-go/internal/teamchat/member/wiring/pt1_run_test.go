@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
@@ -129,11 +130,12 @@ func pt1RunAt(t *testing.T, seed uint64, point failpoint.Name) {
 // point armed in its first link, "" for none.
 func newPT1Runner(t *testing.T, seed uint64, point failpoint.Name) *pt1Runner {
 	t.Helper()
+	start := clock.System().Boot().Milliseconds()
 	w := newWorld(t, fakeServer(t))
 	if point != "" {
 		w.arm = arm("link", point)
 	}
-	return &pt1Runner{t: t, seed: seed, w: w, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}}
+	return &pt1Runner{t: t, seed: seed, w: w, startMS: start, s: w.claudeSeated(w.desiredFlags(state.InboundAccept)...), recv: map[string]int{}, marked: map[string]int{}, marks: map[string]pt1Mark{}}
 }
 
 // judge drains the run and fails the test with every check ops broke.
@@ -235,6 +237,14 @@ type pt1Runner struct {
 	// marked is each id a recv whose output failed handed out, and the link got back unacknowledged
 	// and marked repeat, with how many copies the transcript held then (pt1_redeliver_test.go).
 	marked map[string]int
+	// seq is the harness's own sequence: one number per store read of a mark and per transcript
+	// copy the first time a read holds it (firstSeen, by place); marks is each mark's record.
+	seq       int
+	firstSeen []int
+	marks     map[string]pt1Mark
+	// startMS is the boot clock, the link's clock for its store's entries (CLOCK_BOOTTIME, one
+	// per kernel), read before the run's world started (pt1Seen.startMS).
+	startMS int64
 }
 
 // pt1PeerShort is the peer's short name, which a send names it by (P69).
@@ -334,7 +344,8 @@ func (r *pt1Runner) killLink() {
 
 // copies is the transcript's item copies, in the order the fake wrote them. It reads the file the
 // fake keeps, not the fake's answer, because the fake is gone after an ending; only the lines
-// whole so far are read, up to the last newline.
+// whole so far are read, up to the last newline. Each copy a read holds for the first time takes
+// the next sequence number (the transcript only grows, so a copy keeps its place).
 func (r *pt1Runner) copies() []pt1Copy {
 	r.t.Helper()
 	data, err := testfiles.Try(filepath.Dir(r.s.transcript), filepath.Base(r.s.transcript))
@@ -343,6 +354,10 @@ func (r *pt1Runner) copies() []pt1Copy {
 	text = text[:strings.LastIndexByte(text, '\n')+1]
 	copies, err := pt1Copies(text)
 	check(r.t, err)
+	for len(r.firstSeen) < len(copies) {
+		r.seq++
+		r.firstSeen = append(r.firstSeen, r.seq)
+	}
 	return copies
 }
 
@@ -452,9 +467,12 @@ func (r *pt1Runner) seen() pt1Seen {
 	if !r.removed {
 		awaiting = r.awaitingIDs()
 	}
+	// Read before the literal: the read adds to firstSeen, which the literal takes.
+	transcript := r.copies()
 	return pt1Seen{
-		posted: r.posted, recv: r.recv, transcript: r.copies(), awaiting: awaiting, crashes: max(len(links)-1, 0), linksAlive: alive,
+		posted: r.posted, recv: r.recv, transcript: transcript, awaiting: awaiting, crashes: max(len(links)-1, 0), linksAlive: alive,
 		notices: notices, want: r.want, sends: r.sends, inMain: inMain,
 		removed: r.removed, atRemoval: r.atRemoval, afterRemoval: r.afterRemoval, storeBack: r.storeBack, marked: r.marked,
+		marks: r.marks, firstSeen: r.firstSeen, startMS: r.startMS,
 	}
 }
