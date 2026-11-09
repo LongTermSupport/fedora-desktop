@@ -2448,7 +2448,7 @@ fi
 # Mounts:
 # - /workspace: Project directory (includes .claude/ for ALL state)
 # - /tmp/claude-config-import: Git configuration
-# - /var/cache/ccy-go: the project's Go caches (host directory or docker volume; see below)
+# - /var/cache/ccy-go: the project's Go caches (a host directory under ~/.cache/ccy; see below)
 #
 # No credentials mounted - token via environment variable
 

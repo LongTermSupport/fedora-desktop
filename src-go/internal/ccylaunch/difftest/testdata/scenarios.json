@@ -213,6 +213,7 @@
                {"tool": "podman", "args": ["commit"], "stdout": "sha256:0000\n"},
                {"tool": "podman", "args": ["rm"]}]},
     {"name": "launch-plain", "area": "launch", "about": "a plain launch", "worlds": ["common", "podman", "token"], "args": ["--token", "work"]},
+    {"name": "launch-go-cache-fails", "area": "launch", "about": "the Go caches cannot be made or bounded: the launch stops before any container, exit 1", "worlds": ["common", "podman", "token"], "args": ["--token", "work"], "rules": [{"tool": "ccy-teams", "args": ["internal", "go-cache", "difftest-project"], "stderr": "ccy-teams: internal go-cache: still over the bound\n", "exit": 1}]},
     {"name": "launch-pids-limit-override", "area": "launch", "about": "CCY_PIDS_LIMIT=8192 on the host: every container ccy runs, the probes and the session, gets --pids-limit 8192", "worlds": ["common", "podman", "token"], "args": ["--token", "work"], "env": {"CCY_PIDS_LIMIT": "8192"},
      "rules": [{"tool": "podman", "args": ["run", "--rm", "--pids-limit", "8192", "--pull=never", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "sh"], "stdout": "200"},
                {"tool": "podman", "args": ["run", "--rm", "--pids-limit", "8192", "--entrypoint", "claude", "claude-yolo:latest", "--version"], "stdout": "2.0.0 (Claude Code)\n"},

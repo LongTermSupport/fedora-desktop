@@ -26,7 +26,7 @@
 //   - G4. The bind's caches are bounded at launch, under an flock on
 //     ~/.cache/ccy/<project>/go.lock (beside the bind, out of the container's reach), so two
 //     launches of the project never prune at once and one never takes another's .prune-* for a
-//     leftover. go already trims build-cache entries unused for five days; on top of that, when
+//     leftover. A launch that must wait for another's prune says so on stderr first. go already trims build-cache entries unused for five days; on top of that, when
 //     the regular files under the root hold more than Limit (DefaultLimit) on disk (allocated
 //     blocks), the build caches (go-build, golangci-lint) are cleared, and if the total is still
 //     over, the module cache and the tools too; still over after that is exit 1, naming the
@@ -98,8 +98,9 @@ type Cache struct {
 	Host *host.Host
 	// Limit is the bound of G4, in bytes on disk.
 	Limit int64
-	// lock takes the exclusive lock at path and returns its release (flock outside tests).
-	lock func(path string) (func() error, error)
+	// lock takes the exclusive lock at path and returns its release (flock outside tests),
+	// calling waiting first when another holder makes it wait.
+	lock func(path string, waiting func()) (func() error, error)
 	// wrap, when set, stands between the command and the cache's os.Root: the tests' fault
 	// injection.
 	wrap func(fsRoot) fsRoot
@@ -139,7 +140,7 @@ func (c *Cache) Run(_ context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	root := filepath.Join(home, ".cache", "ccy", project, "go")
-	if err := c.prepare(root); err != nil {
+	if err := c.prepare(project, root); err != nil {
 		c.say(err.Error())
 		return term.ExitFailure
 	}
@@ -176,7 +177,7 @@ func runArgs(root, relabel string) []string {
 // prepare makes the directories and, under the project's lock, finishes an interrupted prune
 // and applies the bound. Everything inside root is done through one os.Root: the container
 // writes there, so a link it plants never leads the host outside the cache (G4).
-func (c *Cache) prepare(root string) (err error) {
+func (c *Cache) prepare(project, root string) (err error) {
 	if err = makeRoot(root); err != nil {
 		return err
 	}
@@ -190,7 +191,9 @@ func (c *Cache) prepare(root string) (err error) {
 		r = c.wrap(r)
 	}
 	// The lock sits beside the bind, where the container cannot hold, remove or replace it.
-	unlock, err := c.lock(filepath.Join(filepath.Dir(root), lockName))
+	unlock, err := c.lock(filepath.Join(filepath.Dir(root), lockName), func() {
+		c.say("waiting for another launch of " + project + " to finish clearing its Go caches.")
+	})
 	if err != nil {
 		return err
 	}
@@ -368,13 +371,19 @@ func skipGone(err error) error {
 	return err
 }
 
-// flock takes an exclusive flock on path, made 0600 if missing, and returns its release.
-func flock(path string) (func() error, error) {
+// flock takes an exclusive flock on path, made 0600 if missing, and returns its release. When
+// another holder has it, waiting is called before the wait, so the wait is never silent.
+func flock(path string, waiting func()) (func() error, error) {
 	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, lockMode)
 	if err != nil {
 		return nil, fmt.Errorf("open the lock %s: %w", path, err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		waiting()
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	}
+	if err != nil {
 		return nil, errors.Join(fmt.Errorf("lock %s: %w", path, err), f.Close())
 	}
 	return func() error {

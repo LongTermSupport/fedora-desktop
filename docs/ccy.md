@@ -1893,7 +1893,9 @@ Every launch binds `~/.cache/ccy/<project>/go` at `/var/cache/ccy-go` and points
 `GOMODCACHE`, `GOLANGCI_LINT_CACHE` and `GOQA_TOOLS_DIR` there. The caches stay warm between
 sessions, every seat of the project shares them, and `--rm` no longer deletes tens of
 thousands of cache files when a session ends (which held up the exit for up to a minute).
-Each launch bounds them at 8 GiB on disk. Over that, the build caches are cleared, and if
+Each launch bounds them at 8 GiB on disk; between launches a running session can grow them
+past that, and the next launch clears them. A launch that finds another launch of the project
+clearing them says so and waits. Over the bound, the build caches are cleared, and if
 the total is still over, the module cache and go-qa's tools are cleared too. If it is still
 over after that, the launch stops and names the directory, because what remains is not a
 cache ccy keeps. Clearing the module cache can fail a download that another running seat
@@ -1901,7 +1903,9 @@ has in flight, and clearing the tools makes its next go-qa run install them agai
 bound is per project name, so each worktree launched as its own project has its own 8 GiB,
 and nothing removes the cache of a project that is gone: delete its `~/.cache/ccy/<project>`.
 A file the container gave to another user (a `chown` as root inside) cannot be removed by
-you, and every launch then fails on it: remove it with `podman unshare rm -rf <path>`.
+you, and every launch then fails on it. Under podman, remove it with
+`podman unshare rm -rf <path>`. Under rootless docker, remove it as the container's root:
+`docker run --rm --pids-limit 4096 -v ~/.cache/ccy/<project>/go:/c <image> rm -rf /c/<name>`.
 Rootless docker gets the same bind and bound. The `-e` values replace any `ENV` of the same
 name in a project Dockerfile, and `GOMODCACHE` moves a module cache that a Dockerfile's
 `GOPATH` would have put elsewhere. A project's `ccy.env` can point them elsewhere. Details:

@@ -274,7 +274,7 @@ func TestTheBoundIsAppliedUnderTheProjectsLock(t *testing.T) {
 	r.cache.Limit = 256 << 10
 	build := r.fill(t, "go-build", "ab/entry-d", 512)
 	var order []string
-	r.cache.lock = func(path string) (func() error, error) {
+	r.cache.lock = func(path string, _ func()) (func() error, error) {
 		// Beside the bind, never in it: the container must not be able to hold, delete or
 		// replace the lock.
 		if path != filepath.Join(filepath.Dir(r.root()), "go.lock") {
@@ -300,7 +300,7 @@ func TestTheBoundIsAppliedUnderTheProjectsLock(t *testing.T) {
 
 func TestTheRealLockIsExclusive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".lock")
-	unlock, err := flock(path)
+	unlock, err := flock(path, func() { t.Fatal("waited for a lock nobody held") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestACacheThatIsASymlinkIsMovedNotFollowed(t *testing.T) {
 
 func TestALockThatCannotBeTakenFails(t *testing.T) {
 	r := newRig(t)
-	r.cache.lock = func(string) (func() error, error) { return nil, errors.New("no lock for you") }
+	r.cache.lock = func(string, func()) (func() error, error) { return nil, errors.New("no lock for you") }
 	code, out := r.run(t, project, "z")
 	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "no lock for you") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, out, r.ErrOut.String())
@@ -459,7 +459,7 @@ func TestALockThatCannotBeTakenFails(t *testing.T) {
 
 func TestALockReleaseThatFailsFails(t *testing.T) {
 	r := newRig(t)
-	r.cache.lock = func(string) (func() error, error) {
+	r.cache.lock = func(string, func()) (func() error, error) {
 		return func() error { return errors.New("stuck") }, nil
 	}
 	code, out := r.run(t, project, "z")
@@ -469,9 +469,57 @@ func TestALockReleaseThatFailsFails(t *testing.T) {
 }
 
 func TestTheRealLockNeedsItsDirectory(t *testing.T) {
-	if _, err := flock(filepath.Join(t.TempDir(), "missing", ".lock")); err == nil ||
+	if _, err := flock(filepath.Join(t.TempDir(), "missing", ".lock"), func() {}); err == nil ||
 		!strings.Contains(err.Error(), "open the lock") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// Another launch of the project holding the lock (pruning, which can take minutes) is said
+// before the wait, never waited on in silence; the lock is then taken once it is free.
+func TestTheRealLockSaysWhenItMustWait(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".lock")
+	held, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := held.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	if lockErr := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); lockErr != nil {
+		t.Fatal(lockErr)
+	}
+	waited := 0
+	unlock, err := flock(path, func() {
+		waited++
+		// The other launch finishes: only now can the wait end.
+		if unlockErr := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); unlockErr != nil {
+			t.Error(unlockErr)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waited != 1 {
+		t.Fatalf("said the wait %d times", waited)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAWaitForTheProjectsLockIsSaidOnStderr(t *testing.T) {
+	r := newRig(t)
+	r.cache.lock = func(_ string, waiting func()) (func() error, error) {
+		waiting()
+		return func() error { return nil }, nil
+	}
+	r.mustRun(t, project, "z")
+	want := "waiting for another launch of " + project + " to finish clearing its Go caches"
+	if !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr %q", r.ErrOut.String())
 	}
 }
 
