@@ -202,11 +202,14 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
         linkless: list[str] = []
         for status_path in sorted(glob.glob(f"{SYSFS_DRM}/card*-*/status")):
             connector = os.path.dirname(status_path)
+            modes_path = os.path.join(connector, "modes")
+            if not (os.path.isfile(status_path) and os.path.isfile(modes_path)):
+                continue
             try:
                 with open(status_path, encoding="utf-8") as f:
                     if f.read().strip() != "connected":
                         continue
-                with open(os.path.join(connector, "modes"), encoding="utf-8") as f:
+                with open(modes_path, encoding="utf-8") as f:
                     if not f.read().strip():
                         continue
             except OSError:

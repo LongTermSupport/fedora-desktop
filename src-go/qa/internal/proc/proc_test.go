@@ -3,11 +3,14 @@ package proc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -119,16 +122,28 @@ func TestOSReportsAProgramThatCannotStart(t *testing.T) {
 	}
 }
 
-// gone is whether the process no longer runs: it has no /proc entry, or it is a zombie that
-// only waits to be reaped.
+// gone is whether the process has ended as a whole: it has no /proc entry, or it is a zombie
+// that only waits to be reaped and whose every other thread is gone. The leader's Z in stat
+// alone is not that: a killed program's other threads can still be exiting, holding its files
+// (issue #182; the main module's internal/procend says the same).
 func gone(pid int) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 		return true
 	}
-	// The state letter follows the parenthesised command name.
-	rest := string(data[bytes.LastIndexByte(data, ')')+1:])
-	return strings.HasPrefix(strings.TrimSpace(rest), "Z")
+	if err != nil {
+		return false // unread is not gone: the caller's wait fails, naming the pid
+	}
+	var state, threads string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if v, ok := strings.CutPrefix(line, "State:"); ok {
+			state = strings.TrimSpace(v)
+		}
+		if v, ok := strings.CutPrefix(line, "Threads:"); ok {
+			threads = strings.TrimSpace(v)
+		}
+	}
+	return strings.HasPrefix(state, "Z") && threads == "1"
 }
 
 // deadlineAtLine is a context whose deadline passes when the command has written its first

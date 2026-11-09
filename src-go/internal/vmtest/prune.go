@@ -142,7 +142,18 @@ func holdRun(dir string) (func() error, error) {
 // nothing holds it.
 func tryRun(dir string) (func() error, bool, error) {
 	none := func() error { return nil }
-	f, err := os.OpenFile(filepath.Join(dir, runLockFile), os.O_RDWR, 0)
+	path := filepath.Join(dir, runLockFile)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return none, true, nil
+	}
+	if err != nil {
+		return none, false, failf("cannot read the run lock in %s: %v", dir, err)
+	}
+	if !info.Mode().IsRegular() {
+		return none, false, failf("%s is not a regular file", path)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return none, true, nil
 	}

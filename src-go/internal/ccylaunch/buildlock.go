@@ -333,7 +333,8 @@ func (f Front) unvouched(rec buildRecord) (string, error) {
 
 // procStat is a process's parent and start tick, from <proc>/<pid>/stat (fields 4 and 22,
 // counted after the command name's closing bracket); alive is false when it has gone, and for a
-// process that has exited and only waits to be reaped (state Z or X, field 3).
+// process that has exited as a whole and only waits to be reaped (state Z or X, field 3, with no
+// thread left but the leader: stillRuns).
 type procInfo struct {
 	ppid  int
 	start int64
@@ -341,6 +342,16 @@ type procInfo struct {
 
 func (f Front) procStat(pid int) (procInfo, bool, error) {
 	path := filepath.Join(f.procRoot(), strconv.Itoa(pid), "stat")
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return procInfo{}, false, nil
+	}
+	if err != nil {
+		return procInfo{}, false, fmt.Errorf("could not read process %d: %w", pid, err)
+	}
+	if !info.Mode().IsRegular() {
+		return procInfo{}, false, fmt.Errorf("process %d: %s is not a regular file", pid, path)
+	}
 	raw, err := os.ReadFile(filepath.Clean(path))
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 		return procInfo{}, false, nil
@@ -363,8 +374,47 @@ func (f Front) procStat(pid int) (procInfo, bool, error) {
 	if ppidErr != nil || startErr != nil {
 		return procInfo{}, false, fmt.Errorf("process %d: unreadable %s", pid, path)
 	}
-	exited := fields[0] == "Z" || fields[0] == "X"
-	return procInfo{ppid: ppid, start: start}, !exited, nil
+	alive, err := f.stillRuns(pid, fields[0])
+	if err != nil {
+		return procInfo{}, false, err
+	}
+	return procInfo{ppid: ppid, start: start}, alive, nil
+}
+
+// stillRuns is whether a process whose stat shows state has not exited. Z (or X) is the leader
+// thread's state alone: the rest of a killed program may still be exiting and holding its files,
+// so it has exited only once <proc>/<pid>/status counts no thread but the leader, or the process
+// has been reaped meanwhile.
+func (f Front) stillRuns(pid int, state string) (bool, error) {
+	if state != "Z" && state != "X" {
+		return true, nil
+	}
+	path := filepath.Join(f.procRoot(), strconv.Itoa(pid), "status")
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not read process %d: %w", pid, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("process %d: %s is not a regular file", pid, path)
+	}
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not read process %d: %w", pid, err)
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if v, ok := strings.CutPrefix(line, "Threads:"); ok {
+			if n, convErr := strconv.Atoi(strings.TrimSpace(v)); convErr == nil {
+				return n != 1, nil
+			}
+		}
+	}
+	return false, fmt.Errorf("process %d: no thread count in %s", pid, path)
 }
 
 // bootTime is the machine's boot time in epoch seconds (btime in <proc>/stat).

@@ -80,6 +80,11 @@ func (l Limits) Encode() Value {
 	return Obj(members...)
 }
 
+// DetailReportPerHour is the detail of a `rate` refusal that came from the report window
+// (`report_per_hour`, A 11.1) and not from the send bucket, whose refusal has none: the caller
+// answers the first as 14 `report-rate` and the second as 14 `rate`.
+const DetailReportPerHour = "report_per_hour"
+
 // The fixed windows of A 11.2 and 11.1, in milliseconds. DeliveryWindowMs is the window of B's
 // delivery budget, deliver_per_sender items per sender per 600 s (A 11.1, 11.4).
 const (
@@ -227,6 +232,28 @@ func (w *Window) Admit(key string, limit int64, spanMs, nowMs int64) bool {
 	}
 	w.Times[key] = append(slices.Clone(times), nowMs)
 	return true
+}
+
+// SeedWindow is a window holding times, the admissions of key a store remembers, oldest first
+// whatever order they are given (the caller's slice is not changed): the report window of a
+// `report`, seeded from `outbox.reports` (n3f-D6).
+func SeedWindow(key string, times []int64) Window {
+	return Window{Times: map[string][]int64{key: slices.Sorted(slices.Values(times))}}
+}
+
+// Oldest is the oldest admission of key within the span. It leaves the span spanMs after it was
+// admitted, which is when a refused report may be sent again.
+func (w *Window) Oldest(key string, spanMs, nowMs int64) (int64, bool) {
+	times := w.recent(key, spanMs, nowMs)
+	if len(times) == 0 {
+		return 0, false
+	}
+	return times[0], true
+}
+
+// Within is a copy of the admissions of key within the span, oldest first: the times to store.
+func (w *Window) Within(key string, spanMs, nowMs int64) []int64 {
+	return slices.Clone(w.recent(key, spanMs, nowMs))
 }
 
 // Prune forgets every key with nothing left in the span.

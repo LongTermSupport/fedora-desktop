@@ -312,11 +312,19 @@ func TestClaudeStatusLine(t *testing.T) {
 	freeze(t, s.keeper.Pid())
 	link := s.lastLink()
 	kill(t, link, syscall.SIGKILL)
-	eventually(t, func() bool { return gone(link) }, s.describe)
+	eventually(t, func() bool { return gone(t, link) }, s.describe)
+	// The line is waited for itself, not read once: what it draws rests on link.lock, which the
+	// kernel frees only as the link's last thread exits (issue #182).
 	down := sgrRed + "👥 teamchat starting" + colour.Reset + "\n"
-	got = s.statusLine()
-	if got.Exit != 0 || got.Stderr != "" || got.Stdout != down {
-		t.Fatalf("the status line with the link gone: %+v, want %q", got, down)
+	eventually(t, func() bool {
+		got = s.statusLine()
+		return got.Stdout == down
+	}, func() string {
+		return "the status line with the link gone: " + strconv.Quote(got.Stdout) + " stderr " +
+			strconv.Quote(got.Stderr) + ", want " + strconv.Quote(down)
+	})
+	if got.Exit != 0 || got.Stderr != "" {
+		t.Fatalf("the status line with the link gone: %+v", got)
 	}
 }
 

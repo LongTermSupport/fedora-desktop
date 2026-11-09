@@ -10,9 +10,9 @@ import (
 
 // startsProcess lists the standard-library functions that start or replace a process.
 var startsProcess = map[string][]string{
-	execPkg:   {"Command", "CommandContext"},
-	"syscall": {"Exec", "ForkExec", "StartProcess"},
-	"os":      {"StartProcess"},
+	execPkg:    {"Command", "CommandContext"},
+	syscallPkg: {"Exec", "ForkExec", "StartProcess"},
+	"os":       {"StartProcess"},
 }
 
 // cmdRunners are the methods of os/exec.Cmd that start the process it describes.

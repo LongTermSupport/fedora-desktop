@@ -60,7 +60,15 @@ func (f Front) readExport(name string) (export, string) {
 	if !e.valid {
 		return e, ""
 	}
-	raw, err := os.ReadFile(f.tokenDir() + "/" + e.file)
+	path := f.tokenDir() + "/" + e.file
+	info, err := os.Lstat(path)
+	if err != nil {
+		return e, "the token file cannot be read: " + e.file
+	}
+	if !info.Mode().IsRegular() {
+		return e, "a token file is not a regular file: " + e.file
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return e, "the token file cannot be read: " + e.file
 	}

@@ -12,7 +12,8 @@ request name fails here).
     VMTEST-VERIFY <run-id> signature=ok|bad request=<name> verdict=<verdict|->
 
 Exit 0 when the signature verifies, 1 when it does not, 2 when there is no
-response for that run id.
+response for that run id or the spool holds a response name that is not a
+regular file.
 """
 
 from __future__ import annotations
@@ -26,8 +27,12 @@ from helpers.vmtest import spool, verdict
 
 
 def find_response(responses_dir: pathlib.Path, run_id: str) -> tuple[str, str] | None:
-    """The (request name, response text) whose document names this run id, if any."""
+    """The (request name, response text) whose document names this run id, if any. A response
+    name that is not a regular file is refused (ValueError): a named pipe would block the read,
+    and skipped it would make an answered run look unanswered."""
     for path in sorted(responses_dir.glob("*.response.json")):
+        if not path.is_file():
+            raise ValueError(f"{path.name} is not a regular file, so the spool cannot be read")
         text = path.read_text(encoding="utf-8")
         try:
             document = json.loads(text)
@@ -45,7 +50,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
 
-    found = find_response(pathlib.Path(args.checkout) / "untracked" / "vmtest-bridge" / "responses", args.run_id)
+    try:
+        found = find_response(pathlib.Path(args.checkout) / "untracked" / "vmtest-bridge" / "responses", args.run_id)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
     if found is None:
         print(f"ERROR: no response for run id {args.run_id!r} in the spool", file=sys.stderr)
         return 2
