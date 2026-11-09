@@ -146,7 +146,7 @@ func constNames() map[string][]string {
 		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,
 		"HostKitRoot": HostKitRoot, "HostKitCurrent": HostKitCurrent().String(),
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
-		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot,
+		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot, "TLSStateRoot": TLSStateRoot,
 		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile, "LXCRecordDir": LXCRecordDir,
 		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate, "TLSUnitTemplate": TLSUnitTemplate,
 		"FenceUnitTemplate": FenceUnitTemplate, "ServerStateDirectory": ServerStateDirectory,
@@ -307,27 +307,7 @@ func teamNames(t *testing.T) map[string][]string {
 // teamDerived is every function of one team id, a seat's in both member layouts.
 func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	t.Helper()
-	home, err := HomeLayout("/home/u", "/run/user/1000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string][]string{}
-	for _, l := range []Layout{CCYLayout(), home} {
-		seat := l.Seat(team)
-		for name, value := range map[string]string{
-			"Layout.Seat":      seat.Dir(),
-			"Seat.Dir":         seat.Dir(),
-			"Seat.Bundle":      seat.Bundle(),
-			"Seat.Token":       seat.Token(),
-			"Seat.Lock":        seat.Lock(),
-			"Seat.Store":       seat.Store(),
-			"Seat.Report":      seat.Report(),
-			"Seat.LastLog":     seat.LastLog(),
-			"Seat.RosterCache": seat.RosterCache(),
-		} {
-			names[name] = append(names[name], value)
-		}
-	}
+	names := seatDerived(t, team)
 	dir, err := ElementConfigDir("/home/u", team)
 	if err != nil {
 		t.Fatal(err)
@@ -362,6 +342,7 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"MigrationDir":           MigrationDir(team),
 		"FenceFile":              FenceFile(team),
 		"FirewallRecord":         FirewallRecord(team),
+		"CADir":                  CADir(team),
 		"TLSDir":                 TLSDir(team),
 		"CACertFile":             CACertFile(team),
 		"CAKeyFile":              CAKeyFile(team),
@@ -384,6 +365,33 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"ProbeState":             probe,
 	} {
 		names[name] = append(names[name], value)
+	}
+	return names
+}
+
+// seatDerived is a seat's names of one team id in both member layouts.
+func seatDerived(t *testing.T, team TeamID) map[string][]string {
+	t.Helper()
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string][]string{}
+	for _, l := range []Layout{CCYLayout(), home} {
+		seat := l.Seat(team)
+		for name, value := range map[string]string{
+			"Layout.Seat":      seat.Dir(),
+			"Seat.Dir":         seat.Dir(),
+			"Seat.Bundle":      seat.Bundle(),
+			"Seat.Token":       seat.Token(),
+			"Seat.Lock":        seat.Lock(),
+			"Seat.Store":       seat.Store(),
+			"Seat.Report":      seat.Report(),
+			"Seat.LastLog":     seat.LastLog(),
+			"Seat.RosterCache": seat.RosterCache(),
+		} {
+			names[name] = append(names[name], value)
+		}
 	}
 	return names
 }
@@ -619,7 +627,7 @@ func perTeamRoots(t *testing.T) []string {
 func TestPerTeamRootsAreDerived(t *testing.T) {
 	roots := perTeamRoots(t)
 	for _, want := range []string{
-		HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, StatusRoot + "/teams",
+		HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, TLSStateRoot, StatusRoot + "/teams",
 		CCYLayout().State(), "/home/u/.config/teamchat/seats", "/run/" + Product,
 	} {
 		if !slices.Contains(roots, want) {

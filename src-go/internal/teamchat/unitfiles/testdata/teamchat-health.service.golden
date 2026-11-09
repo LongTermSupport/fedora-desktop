@@ -8,8 +8,9 @@ TimeoutStartSec=120
 SyslogIdentifier=teamchat-health
 NoNewPrivileges=yes
 ProtectSystem=strict
-# the admin state root holds every team's TLS directory, where the tick renews a leaf as team apply writes it
-ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin /var/lib/teamchat-admin
+# the TLS state root holds every team's leaf, which the tick renews as team apply makes it; the admin
+# state (the CA key the tick signs with, the approvals) is read-only
+ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin /var/lib/teamchat-tls
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

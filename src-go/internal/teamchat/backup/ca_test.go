@@ -188,11 +188,11 @@ func TestDecodeRefusesABadCATar(t *testing.T) {
 // plantCA writes ca where the host keeps a team's CA, with the host's modes.
 func (w *world) plantCA(ca pki.CA) {
 	w.t.Helper()
-	if err := os.MkdirAll(w.root+paths.TLSDir(w.team), 0o700); err != nil {
+	if err := os.MkdirAll(w.root+paths.CADir(w.team), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
 	for _, f := range caFiles(ca) {
-		if err := os.WriteFile(w.root+paths.TLSDir(w.team)+"/"+f.Name, f.Data, f.Mode); err != nil {
+		if err := os.WriteFile(w.root+paths.CADir(w.team)+"/"+f.Name, f.Data, f.Mode); err != nil {
 			w.t.Fatal(err)
 		}
 	}

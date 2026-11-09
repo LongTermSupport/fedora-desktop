@@ -47,6 +47,7 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
 - [x] ✅ **Task 8.1**: The 40 project-rule findings the tree had (the 29 the first plan listed,
   with 14 duration and 11 realtime ones where it counted 13 and 10, and F44's new liveness
   rule's 9):
+
   - 14 `project_duration_overflow`, in the teamchat member/client, nolink, forge, link/server,
     engine/proof, engine/timeout, matrix/client and fakehs/sync: fixed;
   - 11 `project_realtime_bound`: 8 fixed by handing the real waits to `clock.System()`; the 3
@@ -64,6 +65,7 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
     `lxc-info` and `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and a
     `dynamicNames` row for a run-time program inside a wrapper. Plan 00209 Task 6.3 collapses
     them to one owner each when v1 is retired.
+
 - [x] ✅ **Task 8.2**: The gosec exclusions v2 added to `.golangci.yml` had no exception in the
   project record. The owner's decision of 2026-11-03: record G401 and G505 (Synapse's
   registration MAC) and the test-file G301, G302 and G306 exclusions in `qa/record.toml`,
@@ -73,17 +75,23 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   in the pull request, never record it. The ten tagliatelle `case.overrides` are one rule, v2's
   own JSON formats and the Matrix wire are `snake_case`, stated once above them in
   `.golangci.yml`.
+
 - [x] ✅ **Task 8.3**: gofmt: name the files with a local go-qa run, then format them.
+
 - [x] ✅ **Task 8.4**: Two helper tests:
+
   - `agent_bus_lxc/test_derive`: on the CI runner, the claude process it finds has an empty
     start time;
   - `plan_acceptance/test_cited_constant_copy_rule`: one finding in Plan 00209's folder.
+
 - [x] ✅ **Task 8.5**: 13 gitleaks findings (12 when the plan was written), all fake keys in test
   fixtures. Allowlist them the way F44 allowlisted its own, never by weakening the scan.
+
 - [x] ✅ **Task 8.6**: In the merge, CLAUDE/QA.md, CLAUDE/GoProjectRules.md, src-go/CLAUDE.md and
   Plans 00194 and 00209 took F44's side of each conflicting hunk. The v2 lines that were lost are
   back, merged by meaning. One is left out on purpose: v2's teamchat-only text and fixtures for
   `project_realtime_bound`, which F44's module-wide rule replaced.
+
 - [ ] 🔄 **Task 8.7**: Pull request 124 (to F44, assigned to the owner's account, reviewed by
   `qa-reviewer`, its findings fixed). CI green, then ready for review. Only the owner merges it.
   The first CI run of the Go tests found tests that pass only as root; they are fixed as a class
@@ -92,12 +100,14 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   a skip at the `reexec` seam. CI is green and the pull request is ready for review. Still open,
   the owner's: whether CI allows the mount or accepts the skip, the older tests that skip when not
   root, and an unprivileged gate; and the `qa-reviewer` pass, owed once the agent limit resets.
+
 - [ ] 🔄 **Task 8.9**: The finished v2 work the branch lacked, which the owner asked for on pull
   request 124: `feat/bus-v2-n2` (the reviewed backup and restore work), `feat/bus-v2-n3e` (11
   newer commits) and `feat/bus-v2-n3f` (the side-rooms spec) merged into `spike/v2-merge-up`,
   conflicts resolved by meaning, every gate re-run. Merged; the three branches are contained, and
   are deleted, locally and on GitHub, once F44 holds them (the remote delete is refused until
   then).
+
 - [ ] 🔄 **Task 8.8** (branch `spike/v2-cross-network`, draft pull request 128, based on F44 since 124 merged on 2026-11-05; the
   spec is [SPEC-cross-network.md](SPEC-cross-network.md), the code it starts from is mapped in
   [RESEARCH-cross-network-code-map.md](RESEARCH-cross-network-code-map.md)): Cross-network
@@ -133,6 +143,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   too. Still open from that review: S1, S4 to S8 and the nits. Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher (the install path, #193
   item 2), which the coordinator queues.
+
+- [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
+  the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged
+  before the first approval, and the health unit's per-host IP drop-in for S13 is rendered by
+  `team apply`. The play runs without the verb until then; its refusals stand through `team apply`'s own gate.
 
 ### Install path (for X30)
 

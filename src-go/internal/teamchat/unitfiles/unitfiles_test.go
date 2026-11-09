@@ -42,6 +42,7 @@ func TestFilesAreWhatThePlayInstalls(t *testing.T) {
 		{paths.BackupService, paths.BackupServiceFile},
 		{paths.BackupTimer, paths.BackupTimerFile},
 		{filepath.Base(paths.ResolverStub), paths.ResolverStub},
+		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile},
 	}
 	got := make([][2]string, 0, len(want))
 	for _, f := range Files() {
@@ -163,8 +164,9 @@ func writable(lines []string, dir string) bool {
 	return false
 }
 
-// C 3.11.1's health unit, with what S12 and S13 need: the teams' TLS directories writable, and
-// the IP filter a drop-in can widen.
+// C 3.11.1's health unit, with what S12 and S13 need: the teams' leaves writable and nothing else
+// under /var/lib, so the tick that renews a leaf cannot change the CA key, the approvals or the
+// team's records; and the IP filter a drop-in can widen.
 func TestTheHealthUnit(t *testing.T) {
 	text := file(t, paths.HealthService).Text
 	got := lines(text)
@@ -172,9 +174,17 @@ func TestTheHealthUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dir := range []string{paths.StatusRoot, paths.AdminRunDir, paths.TLSDir(team)} {
+	for _, dir := range []string{paths.StatusRoot, paths.AdminRunDir, paths.TLSDir(team), paths.LeafKeyFile(team), paths.LeafCertFile(team)} {
 		if !writable(got, dir) {
 			t.Errorf("the health unit cannot write %s:\n%s", dir, text)
+		}
+	}
+	for _, dir := range []string{
+		paths.AdminStateRoot, paths.AdminState(team), paths.CADir(team), paths.CAKeyFile(team), paths.CACertFile(team),
+		paths.TeamDeclaration(team), paths.ServerConfig(team),
+	} {
+		if writable(got, dir) {
+			t.Errorf("the health unit can write %s, which it may only read:\n%s", dir, text)
 		}
 	}
 	for _, want := range []string{
@@ -212,6 +222,37 @@ func TestWritableDiscriminates(t *testing.T) {
 	}
 }
 
+// The directories the units write that no unit and no state keeper makes (the lock directory is
+// under /run, which a reboot empties; the leaves' root is the health unit's alone to write) are
+// made by systemd-tmpfiles before any unit runs, and by nothing else: a ReadWritePaths= entry that
+// does not exist fails the unit's namespace setup, and hiding that with a "-" would hide the fault.
+func TestTheTmpfilesEntryMakesTheDirectoriesTheUnitsNeed(t *testing.T) {
+	var entries []string
+	for _, l := range lines(file(t, filepath.Base(paths.TmpfilesFile)).Text) {
+		if l != "" && !strings.HasPrefix(l, "#") {
+			entries = append(entries, l)
+		}
+	}
+	want := []string{
+		"d " + paths.AdminRunDir + " 0700 root root -",
+		"d " + paths.TLSStateRoot + " 0700 root root -",
+	}
+	if !slices.Equal(entries, want) {
+		t.Errorf("the tmpfiles entries are %q, want %q", entries, want)
+	}
+}
+
+// The terminator stops after the LXC members, and its unit says why: the homeserver listens on
+// loopback alone, so a guest's member reaches it only through the terminator.
+func TestTheTerminatorSaysWhyItStopsAfterTheGuests(t *testing.T) {
+	text := file(t, paths.TLSUnitTemplate).Text
+	for _, want := range []string{"Before=lxc.service", "loopback"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the terminator unit lacks %q:\n%s", want, text)
+		}
+	}
+}
+
 // The resolver stub sends every lookup to an address nothing listens on.
 func TestTheResolverStub(t *testing.T) {
 	got := lines(file(t, filepath.Base(paths.ResolverStub)).Text)
@@ -231,7 +272,7 @@ func TestLookupKnowsOnlyTheFiles(t *testing.T) {
 			t.Errorf("Lookup(%q) found a file", name)
 		}
 	}
-	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer resolv.conf" {
+	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer resolv.conf teamchat.conf" {
 		t.Errorf("Names() = %s", got)
 	}
 }

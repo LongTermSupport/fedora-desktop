@@ -147,7 +147,7 @@ func bareWorld(t *testing.T) *world {
 		rules: map[bool]map[string]bool{true: {}, false: {}},
 	}
 	for _, dir := range []string{
-		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.StatusRoot,
+		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.TLSStateRoot, paths.StatusRoot,
 		paths.HomeserverPrivateStateRoot,
 	} {
 		if err := os.MkdirAll(w.root+dir, 0o700); err != nil {

@@ -20,6 +20,10 @@ const (
 	BackupTimerFile   = systemdDir + "/" + BackupTimer
 )
 
+// TmpfilesFile is the host's systemd-tmpfiles entry: the directories the units write under /run and
+// the leaves' root, made at every boot before a unit runs.
+const TmpfilesFile = "/etc/tmpfiles.d/" + Product + ".conf"
+
 // UnitsRecord is the team's restart and reload digest sets, with the Tuwunel version, port and
 // listen set last started.
 func UnitsRecord(t TeamID) string { return AdminState(t) + "/units.json" }

@@ -11,7 +11,7 @@ import (
 
 // knownFiles is how a units usage error names the files.
 const knownFiles = "the files are teamchat-server@.service, teamchat-tls@.service, teamchat-health.service, " +
-	"teamchat-health.timer, teamchat-backup.service, teamchat-backup.timer, resolv.conf"
+	"teamchat-health.timer, teamchat-backup.service, teamchat-backup.timer, resolv.conf, teamchat.conf"
 
 // `units list` is one line per installed file, its name and its install path, in the play's
 // order, for every caller class; it reaches no host seam.
@@ -22,7 +22,8 @@ func TestUnitsList(t *testing.T) {
 		"teamchat-health.timer\t/etc/systemd/system/teamchat-health.timer\n" +
 		"teamchat-backup.service\t/etc/systemd/system/teamchat-backup.service\n" +
 		"teamchat-backup.timer\t/etc/systemd/system/teamchat-backup.timer\n" +
-		"resolv.conf\t/usr/local/share/teamchat/resolv.conf\n"
+		"resolv.conf\t/usr/local/share/teamchat/resolv.conf\n" +
+		"teamchat.conf\t/etc/tmpfiles.d/teamchat.conf\n"
 	for _, c := range []Class{ClassRoot, ClassCtl, ClassOther} {
 		if got := run(t, procFor(c), "", "units", "list"); got.code != term.ExitOK || got.stdout != want || got.stderr != "" {
 			t.Errorf("units list by %v = %+v", c, got)

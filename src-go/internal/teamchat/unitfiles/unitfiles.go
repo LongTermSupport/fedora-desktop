@@ -101,17 +101,20 @@ func terminatorUnit() string {
 		"StartLimitIntervalSec=0\n" +
 		"After=" + server + "\n" +
 		"Wants=" + server + "\n" +
-		"# stop after the LXC members at shutdown, as the homeserver does: their goodbyes reach it through this unit\n" +
+		"# stop after the LXC members at shutdown, as the homeserver does: the homeserver listens on loopback\n" +
+		"# alone, so a guest's member reaches it only through this unit, and its goodbyes need this unit up\n" +
 		"Before=lxc.service\n" +
 		"\n[Service]\n" +
 		restartLines +
 		strings.Join(sandbox, "\n") + "\n"
 }
 
-// healthService is `teamchat-health.service` (C 3.11.1). Beyond the design's text, the admin
-// state root is writable, since the tick renews a team's leaf in its TLS directory as team apply
-// writes it (S12, X31), and systemd takes no pattern for one directory per team; and the IP filter
-// is left for a drop-in to widen to the teams' listen addresses the reach probe dials (S13).
+// healthService is `teamchat-health.service` (C 3.11.1). Beyond the design's text, the TLS state
+// root is writable: the tick renews a team's leaf there as team apply writes it (S12, X31), and
+// systemd takes no pattern for one directory per team. That root holds leaves alone, so the admin
+// state, with the CA key the tick reads to sign and the approvals it must not change, stays
+// read-only under ProtectSystem=strict. The IP filter is left for a drop-in to widen to the teams'
+// listen addresses the reach probe dials (S13).
 const healthService = `[Unit]
 Description=Health of every ` + paths.Product + ` team
 
@@ -122,8 +125,9 @@ TimeoutStartSec=120
 SyslogIdentifier=` + paths.SyslogHealth + `
 NoNewPrivileges=yes
 ProtectSystem=strict
-# the admin state root holds every team's TLS directory, where the tick renews a leaf as team apply writes it
-ReadWritePaths=` + paths.StatusRoot + ` ` + paths.AdminRunDir + ` ` + paths.AdminStateRoot + `
+# the TLS state root holds every team's leaf, which the tick renews as team apply makes it; the admin
+# state (the CA key the tick signs with, the approvals) is read-only
+ReadWritePaths=` + paths.StatusRoot + ` ` + paths.AdminRunDir + ` ` + paths.TLSStateRoot + `
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -160,6 +164,20 @@ const resolverStub = `# The ` + paths.Product + ` homeserver's resolver (DESIGN-
 nameserver 127.0.0.1
 `
 
+// tmpfilesText makes, at every boot and when the play runs systemd-tmpfiles, the two directories
+// a unit writes that nothing else makes: the lock directory under /run, which a reboot empties,
+// and the leaves' root. A unit that writes a directory that is not there fails its namespace setup,
+// so the units name these without a "-" and this file makes them. Each line is a root-only
+// directory: type, path, mode, user, group, and no age.
+func tmpfilesText() string {
+	var out strings.Builder
+	out.WriteString("# The directories the " + paths.Product + " units write that nothing else makes (Plan 00246 INSTALL-PATH.md).\n")
+	for _, dir := range []string{paths.AdminRunDir, paths.TLSStateRoot} {
+		out.WriteString(strings.Join([]string{"d", dir, "0700", "root", "root", "-"}, " ") + "\n")
+	}
+	return out.String()
+}
+
 // Files is every file the play installs, in the order `units list` gives them.
 func Files() []File {
 	return []File{
@@ -170,6 +188,7 @@ func Files() []File {
 		{paths.BackupService, paths.BackupServiceFile, backup.ServiceUnit},
 		{paths.BackupTimer, paths.BackupTimerFile, backup.TimerUnit},
 		{filepath.Base(paths.ResolverStub), paths.ResolverStub, resolverStub},
+		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile, tmpfilesText()},
 	}
 }
 

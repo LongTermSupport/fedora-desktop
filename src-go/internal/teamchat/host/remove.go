@@ -201,6 +201,7 @@ func (r *removing) purgeState(ctx context.Context) error {
 	for _, step := range []struct{ path, line string }{
 		{paths.CtlState(r.team), "ctl state removed"},
 		{paths.ApprovedFile(r.team), "approval removed"},
+		{paths.TLSDir(r.team), "leaf removed"},
 		{paths.AdminState(r.team), "root state removed"},
 	} {
 		there, err := exists(r.path(step.path))

@@ -104,9 +104,9 @@ func TestEveryInstalledFileIsJudgedOrRunsNothing(t *testing.T) {
 		case strings.Contains(f.Text, "[Service]"):
 			services = append(services, f.Name)
 		case strings.HasSuffix(f.Name, ".timer") && strings.Contains(f.Text, "[Timer]"):
-		case f.Path == paths.ResolverStub:
+		case f.Path == paths.ResolverStub, f.Path == paths.TmpfilesFile:
 		default:
-			t.Errorf("installed file %s is neither a service, a timer nor the resolver stub", f.Name)
+			t.Errorf("installed file %s is neither a service, a timer, the resolver stub nor the tmpfiles entry", f.Name)
 		}
 	}
 	want := []string{paths.ServerUnitTemplate, paths.TLSUnitTemplate, paths.HealthService, paths.BackupService}

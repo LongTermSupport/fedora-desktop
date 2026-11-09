@@ -72,8 +72,8 @@ func TestRemove(t *testing.T) {
 		}
 	}
 	for _, p := range []string{
-		paths.AdminState(team), paths.CtlState(team), paths.ServerConfig(team), paths.ServerNameFile(team),
-		paths.UnitsRecord(team), paths.TeamDeclaration(team),
+		paths.AdminState(team), paths.TLSDir(team), paths.CtlState(team), paths.ServerConfig(team),
+		paths.ServerNameFile(team), paths.UnitsRecord(team), paths.TeamDeclaration(team),
 	} {
 		if !w.exists(p) {
 			t.Errorf("%s was removed without --purge", p)
@@ -155,11 +155,11 @@ func TestRemovePurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"homeserver state cleaned", "ctl state removed", "approval removed", "root state removed"}
+	want := []string{"homeserver state cleaned", "ctl state removed", "approval removed", "leaf removed", "root state removed"}
 	if len(lines) < len(want) || !slices.Equal(lines[len(lines)-len(want):], want) {
 		t.Errorf("lines %q, want them to end %q", lines, want)
 	}
-	for _, p := range []string{paths.AdminState(team), paths.CtlState(team), paths.ApprovedFile(team)} {
+	for _, p := range []string{paths.AdminState(team), paths.TLSDir(team), paths.CtlState(team), paths.ApprovedFile(team)} {
 		if w.exists(p) {
 			t.Errorf("%s is still there", p)
 		}
@@ -181,7 +181,7 @@ func TestPurgeAfterRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines, err := remove(t, w, true)
-	if err != nil || !slices.Equal(lines, []string{"ctl state removed", "root state removed"}) {
+	if err != nil || !slices.Equal(lines, []string{"ctl state removed", "leaf removed", "root state removed"}) {
 		t.Errorf("lines %q, err %v", lines, err)
 	}
 	if w.called("clean") {

@@ -208,17 +208,18 @@ The homeserver's own state is the exception: systemd places it at
 `/var/lib/private/teamchat/<team>/`, reached through the `/var/lib/teamchat/<team>` link it
 maintains.
 
-| Path                                                                                   | Owner and mode       | Content                                                                                                                                                                                                                 |
-| -------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/var/lib/private/teamchat/<team>/` (systemd StateDirectory, under neither state root) | dynamic uid, 0700    | `db/`, `backups/` (Tuwunel's own backup engine output)                                                                                                                                                                  |
-| `root/<team>/config.toml`                                                              | root, 0600           | the rendered Tuwunel config, including the registration shared secret; reaches the unit only through `LoadCredential=`                                                                                                  |
-| `root/<team>/team.json`                                                                | root, 0600           | the rendered team declaration last applied (canonical JSON); `server_name` is checked against it (C3)                                                                                                                   |
-| `root/<team>/firewall.json`                                                            | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                                                                                                         |
-| `root/<team>/tls/`                                                                     | root, 0700           | the CA (`ca.crt` 0644, `ca.key` 0600; made once, never replaced) and the leaf (`leaf.crt` 0644, `leaf.key` 0600; made again when its names change or 30 days remain), 3.5.2; the backup carries the CA only             |
-| `root/<team>/units.json`                                                               | root, 0600           | the restart and reload digest sets (3.5.2), and the Tuwunel version, port and listen set last started, so a team brought back can be started on its old version first (a port another team now holds refuses it, named) |
-| `root/<team>/backups/<n>.tar`                                                          | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                                                                                                              |
-| `root/<team>/server-name`                                                              | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                                                                                                                 |
-| `ctl/<team>/`                                                                          | `teamchat-ctl`, 0700 | `admin.token` 0600, `admin.password` 0600 (only during bootstrap), `roster.json` 0600 (its `pending` is the recorded intent, 3.6), `rooms.json` 0600                                                                    |
+| Path                                                                                   | Owner and mode       | Content                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/var/lib/private/teamchat/<team>/` (systemd StateDirectory, under neither state root) | dynamic uid, 0700    | `db/`, `backups/` (Tuwunel's own backup engine output)                                                                                                                                                                                                                                                                                                                            |
+| `root/<team>/config.toml`                                                              | root, 0600           | the rendered Tuwunel config, including the registration shared secret; reaches the unit only through `LoadCredential=`                                                                                                                                                                                                                                                            |
+| `root/<team>/team.json`                                                                | root, 0600           | the rendered team declaration last applied (canonical JSON); `server_name` is checked against it (C3)                                                                                                                                                                                                                                                                             |
+| `root/<team>/firewall.json`                                                            | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                                                                                                                                                                                                                                                                   |
+| `root/<team>/tls/`                                                                     | root, 0700           | the CA (`ca.crt` 0644, `ca.key` 0600; made once, never replaced), 3.5.2; the backup carries it. The health unit reads it and cannot write it                                                                                                                                                                                                                                      |
+| `/var/lib/teamchat-tls/<team>/`                                                        | root, 0700           | the leaf (`leaf.crt` 0644, `leaf.key` 0600; made again when its names change or 30 days remain), written by `team apply` and by the health tick that renews it, and read by the terminator as a credential. Its root, `/var/lib/teamchat-tls`, is made by the tmpfiles entry and is the only state the health unit may write besides the status records; no backup carries a leaf |
+| `root/<team>/units.json`                                                               | root, 0600           | the restart and reload digest sets (3.5.2), and the Tuwunel version, port and listen set last started, so a team brought back can be started on its old version first (a port another team now holds refuses it, named)                                                                                                                                                           |
+| `root/<team>/backups/<n>.tar`                                                          | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                                                                                                                                                                                                                                                                        |
+| `root/<team>/server-name`                                                              | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                                                                                                                                                                                                                                                                           |
+| `ctl/<team>/`                                                                          | `teamchat-ctl`, 0700 | `admin.token` 0600, `admin.password` 0600 (only during bootstrap), `roster.json` 0600 (its `pending` is the recorded intent, 3.6), `rooms.json` 0600                                                                                                                                                                                                                              |
 
 `/var/lib/teamchat-admin` is 0700 root and `/var/lib/teamchat-ctl` is 0700 `teamchat-ctl`. Root writes under
 `ctl/` only through the `teamchat-ctl` child, never directly, so the control user cannot steer a root
@@ -298,8 +299,10 @@ InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 The second `InaccessiblePaths=` line is D 4.2's runtime confinement: the six places v1 keeps its
 state, so that a v1 path reached by mistake fails with EACCES instead of touching v1. The directive
 is cumulative with the `-/run/dbus` line. Go holds the line once, as `v1names.InaccessiblePaths`
-(slice S7a), and `host.BaseSandbox` renders it; every v2 system unit carries it (the health and
-seats units, which Go does not yet make, with them).
+(slice S7a), and `host.BaseSandbox` renders it; every v2 system unit carries it (the seats unit,
+which Go does not yet make, with them). Go makes the text of every unit the play installs
+(package `unitfiles`: this template, the terminator's `teamchat-tls@`, the health and backup units
+and the resolver stub), and the play installs what `teamchat-admin units print` writes.
 
 `Before=lxc.service` orders the homeservers before the LXC containers that autostart, so at
 shutdown the guests, and the members' goodbyes in them, stop first while the homeserver still
@@ -467,7 +470,7 @@ class. A verb asked of the wrong class exits 77 naming the class it needs (DESIG
 | -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team approve`, `team remove`, `member add\|return\|park\|retire\|reissue\|set`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `redact`, `backup`, `backups`, `restore [--resume\|--discard\|--lost]`, `health`, `lxc apply\|restart`, `check`, `migrate preflight\|stage\|fence\|fence-status\|capture\|carry\|commit\|accept\|archive\|archive-check\|unfence\|rollback --team T`, `footprint` |
 | `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                                                                                                                            |
-| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                                                                                                                                    |
+| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`, `units list`, `units print <name>`                                                                                                                                                                                                                                                                                                                                |
 
 The `migrate` verbs and `footprint` behave as area D says (D §5.4, §5.5); C provides them in the
 same binary, and each `migrate` verb takes the team lock like every root verb. The list is one
@@ -498,6 +501,14 @@ runs `teamchat ping check --to <target> --team <team>` and then its own
 and the run ends when CMD does. No `cc` session runs in it, so seam row
 56's refusal of host `cc` members is untouched; the state directory is removed when the check ends,
 pass or fail.
+
+`units list` and `units print <name>` answer for every class too: they read nothing and hold no
+secret, and the play runs them on the target as root (Plan 00246 INSTALL-PATH.md, stage A).
+`units list` writes one line per file the play installs, `<name><TAB><install path>`, in a fixed
+order (the homeserver's and the terminator's base units, the health service and timer, the backup
+service and timer, the resolver stub); `units print <name>` writes exactly that file's text, and a
+name that is not one of them is a usage error (64) naming them. So the play holds neither a unit
+text nor a path of its own.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
@@ -780,8 +791,10 @@ and 05, every apply). The CA is made once with the clock and the randomness the 
 cannot use (a file that cannot be parsed, a key that is not its certificate's, a lone file) fails
 the apply with drift (exit 70), naming the file, before anything after the step runs; restoring
 the file from a backup, or removing both files so that the next apply makes a new CA (every bundle
-issued must then be reissued), is the owner's. The homeserver's leaf is signed by the CA and
-names every derived listen address and the `url` host when that is a name; it is made again when
+issued must then be reissued), is the owner's. The homeserver's leaf is signed by the CA, kept
+apart from it in `/var/lib/teamchat-tls/<team>/` (so the health tick that renews it can write
+there and nowhere in the admin state), and names every derived listen address and the `url` host
+when that is a name; it is made again when
 it is missing, torn, signed by another CA, has other names than these, or has fewer than 30 days
 left, and the apply says why. The terminator that serves the leaf is a later slice.
 
@@ -2232,7 +2245,7 @@ container sees only what is mounted into it, and no profile is.
 
 `teamchat-health.timer` (`OnActiveSec=30s`, `OnUnitActiveSec=60s`, `AccuracySec=5s`) starts
 `teamchat-health.service`: `Type=oneshot`, `ExecStart=/usr/local/sbin/teamchat-admin health --all`,
-`TimeoutStartSec=120`, `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `ProtectControlGroups`,
+`TimeoutStartSec=120`, `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin /var/lib/teamchat-tls` (the last is the leaves' root, where the tick renews a leaf; the admin state, with the CA key it reads to sign and the approvals, stays read-only), `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `ProtectControlGroups`,
 `CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID CAP_SYS_PTRACE` (to
 read the root-only records, to set the record's group, to start the `teamchat-ctl` child, and to
 open an LXC guest's `/proc/<init pid>/root`), `SystemCallFilter=~ptrace process_vm_readv process_vm_writev`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`.

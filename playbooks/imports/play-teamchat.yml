@@ -19,8 +19,9 @@
 #      /usr/local/sbin/teamchat-admin, the kit's current link and /usr/local/bin/teamchat swapped.
 #   3. The pinned Tuwunel for the target's architecture (files/usr/local/share/teamchat/tuwunel.pin,
 #      tracked by the update-versions skill), and the server pin file teamchat-admin reads.
-#   4. Every unit and the resolver stub, as the teamchat-admin just installed prints them
-#      (`units list`, `units print`): the text is Go's, the play holds none. One daemon-reload.
+#   4. Every unit, the resolver stub and the tmpfiles entry, as the teamchat-admin just installed
+#      prints them (`units list`, `units print`): the text is Go's, the play holds none. The
+#      tmpfiles entry's directories are made, then one daemon-reload.
 #   5. Per team, from teamchat_teams: `team approve` for the teams teamchat_approve_teams names,
 #      `team remove` for each absent entry, then `team apply` for each present one.
 #   6. The health and backup timers are enabled exactly while a team is declared present, so a
@@ -61,6 +62,7 @@
     tc_status_root: /var/lib/teamchat-status
     tc_admin_link: /usr/local/sbin/teamchat-admin
     tc_member_link: /usr/local/bin/teamchat
+    tc_tmpfiles_file: /etc/tmpfiles.d/teamchat.conf
     tc_ctl_user: teamchat-ctl
     # The pinned Tuwunel: a pin file in `var: value` lines, which is YAML (a mapping with comments).
     tc_pin: "{{ lookup('ansible.builtin.file', root_dir ~ '/files/usr/local/share/teamchat/tuwunel.pin') | from_yaml }}"
@@ -385,6 +387,14 @@
       loop_control:
         label: "{{ item.item.split('\t')[1] }}"
       register: tc_units_written
+
+    # The directories the units write that nothing else makes (the lock directory under /run, the
+    # leaves' root) are the tmpfiles entry's: made now, and again at every boot. A unit that writes
+    # a directory that is not there fails its namespace setup, so none of these is optional.
+    - name: Make the Tmpfiles Directories
+      ansible.builtin.command:
+        argv: [systemd-tmpfiles, --create, "{{ tc_tmpfiles_file }}"]
+      changed_when: tc_units_written.changed
 
     - name: Reload Systemd When a Unit Changed
       ansible.builtin.systemd_service:

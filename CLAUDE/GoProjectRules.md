@@ -2071,6 +2071,15 @@ bash they replaced and in the Go during review; each instance is in the audit re
   answer, not a state; the receipts loop's 401 ends it only until the next session; the
   resolver's 403 and 404 are about the user and the event, which a reissue does not change.
 
+- **A unit text no gate judges** (Plan 00246 INSTALL-PATH.md, stage A). The unit gates of
+  `internal/teamchat/v1names` (D 4.2's six paths, an allow paired with its deny) judge the texts
+  Go makes, and `TestEveryUnitTextSourceIsJudged` finds every Go file that makes one; a unit
+  written as a static file or a Jinja template is not Go, so no analyzer sees it. What holds it:
+  `TestNoTeamchatUnitIsAStaticFile` fails on any tracked file named as a teamchat unit or drop-in
+  (also as a `.j2`), red on a tracked fixture and on a fixture checkout; the play installs what
+  `teamchat-admin units print` writes (package `unitfiles`). Not caught: a unit text inlined in a
+  YAML `content:` or a script.
+
 Classes the bundled linters already hold, each seen firing on a minimal case in the audit: an
 error or status thrown away (the bash's `|| true`, unchecked process substitutions and
 `2>/dev/null`: nord B3, B11, reclaim B3, B6, open B5, B10, B11) is `errcheck`'s and `nilerr`'s in

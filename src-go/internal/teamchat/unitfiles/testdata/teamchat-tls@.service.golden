@@ -3,7 +3,8 @@ Description=v2 team TLS terminator %i
 StartLimitIntervalSec=0
 After=teamchat-server@%i.service
 Wants=teamchat-server@%i.service
-# stop after the LXC members at shutdown, as the homeserver does: their goodbyes reach it through this unit
+# stop after the LXC members at shutdown, as the homeserver does: the homeserver listens on loopback
+# alone, so a guest's member reaches it only through this unit, and its goodbyes need this unit up
 Before=lxc.service
 
 [Service]
