@@ -55,6 +55,9 @@ func TestSD5TokenReachesOnlyTheHeader(t *testing.T) {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		if !e.Type().IsRegular() {
+			t.Fatalf("%s is not a regular file", name)
+		}
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

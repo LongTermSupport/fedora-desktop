@@ -140,9 +140,9 @@ class TestNoFireAndForgetRefresh(unittest.TestCase):
         for tree in TREES:
             for dirpath, _dirs, files in os.walk(os.path.join(REPO_ROOT, tree)):
                 for name in sorted(files):
-                    if not name.endswith(".py"):
-                        continue
                     path = os.path.join(dirpath, name)
+                    if not name.endswith(".py") or not os.path.isfile(path):
+                        continue
                     with open(path, encoding="utf-8") as handle:
                         for number, line in enumerate(handle, start=1):
                             if re.search(r"""["']--no-block["']""", line):

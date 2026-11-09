@@ -39,8 +39,11 @@ def _claudes(proc: pathlib.Path) -> list[list[str]]:
     for entry in sorted(proc.iterdir()):
         if not entry.name.isdigit():
             continue
+        cmdline = entry / "cmdline"
+        if not cmdline.is_file():
+            continue
         try:
-            raw = (entry / "cmdline").read_bytes()
+            raw = cmdline.read_bytes()
         except OSError:
             continue
         argv = [part.decode("utf-8", "replace") for part in raw.split(b"\0")[:-1]]
@@ -61,7 +64,7 @@ def _managed_files(managed: pathlib.Path) -> list[pathlib.Path]:
     drop_in = managed / "managed-settings.d"
     if drop_in.is_dir():
         files.extend(sorted(drop_in.glob("*.json")))
-    return [path for path in files if path.exists()]
+    return [path for path in files if path.is_file()]
 
 
 def inbound(proc: pathlib.Path, managed: pathlib.Path, settings: pathlib.Path) -> list[str]:

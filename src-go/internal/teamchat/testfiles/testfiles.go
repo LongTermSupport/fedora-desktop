@@ -4,12 +4,14 @@
 // that leads out) is refused instead of opened. A test holds the full path of what it made more
 // often than a relative name, so a name may also be a full path under the directory.
 //
+// Read, Find and Try read only a regular file: anything else is refused before it is opened.
 // The helpers end the test on a failure, except Try. They hand back an open file for the caller to close:
 // the caller already says when, and some tests hand the file to code that closes it.
 package testfiles
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -76,8 +78,21 @@ func readIn(dir, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := root.ReadFile(beneath(dir, name))
+	data, err := readRegular(root, beneath(dir, name))
 	return data, errors.Join(err, root.Close())
+}
+
+// readRegular is the content of name beneath root when it is a regular file (a link to one is
+// followed); anything else is refused before it is opened, as a named pipe would block the read.
+func readRegular(root *os.Root, name string) ([]byte, error) {
+	info, err := root.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: not a regular file", filepath.Join(root.Name(), name))
+	}
+	return root.ReadFile(name)
 }
 
 func openIn(dir, name string, flag int, perm fs.FileMode) (*os.File, error) {

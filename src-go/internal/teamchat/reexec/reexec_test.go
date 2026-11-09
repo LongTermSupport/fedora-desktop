@@ -258,6 +258,41 @@ func TestReleaseReportsANonZeroExit(t *testing.T) {
 	}
 }
 
+// A helper someone else killed can be reaped before its runner closes done: kill then meets
+// ESRCH for a pid that has ended, which is the end it was asked for, not a failure.
+func TestKillOfAHelperReapedBeforeDoneWaitsForItsEnd(t *testing.T) {
+	gone, err := start("hold", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if killErr := unix.Kill(gone.Pid, unix.SIGKILL); killErr != nil {
+		t.Fatal(killErr)
+	}
+	<-gone.done
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Process{Pid: gone.Pid, stdin: w, done: make(chan struct{})}
+	// The runner's end comes only once kill has signalled and closed stdin, as a real runner's
+	// can: done is still open when the signal meets the reaped pid.
+	runnerErr := make(chan error, 1)
+	go func() {
+		_, readErr := io.ReadAll(r)
+		runnerErr <- errors.Join(readErr, r.Close())
+		p.end = gone.end
+		close(p.done)
+	}()
+	t.Cleanup(func() {
+		if e := <-runnerErr; e != nil {
+			t.Error(e)
+		}
+	})
+	if err = p.kill(); err != nil {
+		t.Fatalf("kill of a reaped helper whose runner had not yet closed done: %v", err)
+	}
+}
+
 func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
 	p, err := start("late", nil, nil, false)
 	if err != nil {

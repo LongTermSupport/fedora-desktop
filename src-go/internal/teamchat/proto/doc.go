@@ -24,7 +24,7 @@
 //
 // The corpus in testdata/ is A 14's: JSON cases of (receiver, room, event) to their outcome
 // in routing/, judged in the world of routing-world.json (the roster, rooms and store facts),
-// a case's floodBefore being its sender's earlier admissions in the receive window. Three drop
+// a case's flood_before being its sender's earlier admissions in the receive window. Three drop
 // reasons have no rows: forge-rate, unresolved and provenance are judged by B, after the
 // verdict, over the forge check proto hands it;
 // the envelope golden files in envelope/; the escaper's character classes and cases in

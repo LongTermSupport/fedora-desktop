@@ -158,7 +158,7 @@ def _walk(root: str) -> list[pathlib.Path]:
         if rel == PLAN_DIR:
             dirnames[:] = [d for d in dirnames if ACTIVE_PLAN.match(d)]
         dirnames[:] = [d for d in dirnames if d not in SKIPPED_DIRS]
-        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink())
+        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink() and p.is_file())
     return files
 
 

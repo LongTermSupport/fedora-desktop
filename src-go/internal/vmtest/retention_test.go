@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -119,6 +120,32 @@ func TestE61RunPassed(t *testing.T) {
 	k.write("runs/odd/response.json/x", "a directory where the response goes")
 	if _, err := runPassed(k.path("runs/odd")); err == nil {
 		t.Fatal("an unreadable response was not an error")
+	}
+}
+
+// A response, a run lock or a lab file that is not a regular file is never opened: a named pipe
+// would block the read for ever (#195). The response and the lock are refused by name; readable
+// says no, so its callers report the file missing or skip it.
+func TestWhatIsNotARegularFileIsNeverOpened(t *testing.T) {
+	k := newKit(t)
+	k.write("runs/p/keep", "")
+	responseOpened := fifotest.Plant(t, k.path("runs/p/response.json"))
+	if _, err := runPassed(k.path("runs/p")); err == nil || !strings.Contains(err.Error(), "response.json: not a regular file") {
+		t.Errorf("a response that is a pipe: %v", err)
+	}
+	lockOpened := fifotest.Plant(t, k.path("runs/p/run.lock"))
+	if _, _, err := tryRun(k.path("runs/p")); err == nil || !strings.Contains(err.Error(), "run.lock is not a regular file") {
+		t.Errorf("a run lock that is a pipe: %v", err)
+	}
+	fileOpened := fifotest.Plant(t, k.path("runs/p/base.qcow2"))
+	if readable(k.path("runs/p/base.qcow2")) {
+		t.Error("a pipe is readable")
+	}
+	if _, err := fileSHA256(k.path("runs/p/base.qcow2")); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("hashing a pipe: %v", err)
+	}
+	if responseOpened() || lockOpened() || fileOpened() {
+		t.Fatalf("a pipe was opened: response %v, lock %v, file %v", responseOpened(), lockOpened(), fileOpened())
 	}
 }
 

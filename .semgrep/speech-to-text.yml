@@ -539,3 +539,68 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: an audio capture piped to a reader in a format the reader did not ask for
+  # Rule: a process's end is not its leader's zombie state (Defence Before Fix; CLAUDE/QA.md
+  # "proc-zombie-taken-as-exit"; the Go side is the project rule project_zombie_exit).
+  #
+  # /proc/<pid>/stat is the thread-group leader's own entry, and its state turns Z as soon
+  # as the leader thread exits. The other threads of a killed multi-threaded program may
+  # still be exiting then, holding the process's files (a flock, a socket), so code that
+  # reads Z as "it has ended" and then relies on the release races them (issue #182: a
+  # status line read once the link showed Z found its lock still held).
+  #
+  # WRONG: state = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]
+  #        if state in ("Z", "X"): return
+  # RIGHT: read /proc/<pid>/status and require "State:" Z (or X) and "Threads:" 1, or wait
+  #        for the effect itself (the lock free, the line drawn).
+  #
+  # The rule reports a comparison with "Z" (==, !=, in a tuple, list or set, startswith) in
+  # a function that holds a string, f-strings included, naming a /proc stat file (one that
+  # ends in "/stat", or is "stat"), unless the function also names the thread count
+  # ("Threads..."). A path built entirely at run time is not seen.
+  - id: proc-zombie-taken-as-exit
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              def $F(...):
+                ...
+                <... "=~/(^|\/)stat$/" ...>
+                ...
+          - pattern-inside: |
+              def $F(...):
+                ...
+                <... f"/proc/{$P}/stat" ...>
+                ...
+          - pattern-inside: |
+              def $F(...):
+                ...
+                with <... "=~/(^|\/)stat$/" ...> as $H:
+                  ...
+                ...
+          - pattern-inside: |
+              def $F(...):
+                ...
+                with <... f"/proc/{$P}/stat" ...> as $H:
+                  ...
+                ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            <... "=~/^Threads/" ...>
+            ...
+      - pattern-either:
+          - pattern: $S == "Z"
+          - pattern: '"Z" == $S'
+          - pattern: $S != "Z"
+          - pattern: $S in (..., "Z", ...)
+          - pattern: $S in [..., "Z", ...]
+          - pattern: $S in {..., "Z", ...}
+          - pattern: $S.startswith("Z")
+    message: >
+      proc-zombie-taken-as-exit: Z in /proc/<pid>/stat is the leader thread's state; the
+      process's other threads may still hold its files. Require State Z and Threads 1 in
+      /proc/<pid>/status, or wait for the effect itself. See CLAUDE/QA.md
+      "proc-zombie-taken-as-exit".
+    severity: ERROR
+    metadata:
+      dbf-class: a process judged ended by its leader's zombie state while its threads still hold its files

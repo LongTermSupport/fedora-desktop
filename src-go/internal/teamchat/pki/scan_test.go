@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,6 +23,13 @@ func production(t *testing.T) (*token.FileSet, []*ast.File) {
 	for _, name := range names {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
+		}
+		info, statErr := os.Lstat(name)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("%s is not a regular file", name)
 		}
 		f, parseErr := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
 		if parseErr != nil {

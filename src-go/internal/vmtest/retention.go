@@ -105,10 +105,17 @@ func latestPassAfter(sorted []runFacts, r runFacts) string {
 // finished pass (a run killed while writing it), did not pass and is kept for diagnosis.
 func runPassed(dir string) (bool, error) {
 	path := filepath.Join(dir, responseFile)
-	body, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
+	if err != nil {
+		return false, failf("cannot read %s: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, failf("cannot read %s: not a regular file", path)
+	}
+	body, err := os.ReadFile(path)
 	if err != nil {
 		return false, failf("cannot read %s: %v", path, err)
 	}

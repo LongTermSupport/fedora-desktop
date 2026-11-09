@@ -147,8 +147,9 @@ def _walk(root: str) -> list[pathlib.Path]:
         if rel == PLAN_DIR:
             dirnames[:] = [d for d in dirnames if ACTIVE_PLAN.match(d)]
         dirnames[:] = [d for d in dirnames if d not in SKIPPED_DIRS]
-        # A symbolic link is the file it names, scanned where that lives (or nowhere, dangling).
-        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink())
+        # A symbolic link is the file it names, scanned where that lives (or nowhere, dangling);
+        # a named pipe, socket or device is no file to read (opening a named pipe blocks).
+        files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames) if not p.is_symlink() and p.is_file())
     return files
 
 

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -301,6 +302,24 @@ func TestAnUnreadableClaimIsReportedNotIgnored(t *testing.T) {
 	code, out := r.run(t, "proj", "yolo", "101")
 	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "proj_yolo") {
 		t.Fatalf("exit %d out %q err %q", code, out, r.ErrOut.String())
+	}
+}
+
+// A claim that is not a regular file is refused by name, never opened: a named pipe would block
+// the read for ever (#195).
+func TestAClaimThatIsNotARegularFileIsRefused(t *testing.T) {
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	if err := os.MkdirAll(r.reservations(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := fifotest.Plant(t, filepath.Join(r.reservations(), "proj_yolo"))
+	code, out := r.run(t, "proj", "yolo", "101")
+	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), "proj_yolo is not a regular file") {
+		t.Fatalf("exit %d out %q err %q", code, out, r.ErrOut.String())
+	}
+	if opened() {
+		t.Fatal("the pipe was opened")
 	}
 }
 

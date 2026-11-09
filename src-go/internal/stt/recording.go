@@ -263,10 +263,17 @@ func (r *recording) readiness(c check) (state, string) {
 // It returns the sidecar's audio fingerprint (S19; nil when it has none), the state, the
 // reason, and whether there is a sidecar at all.
 func (r *recording) sidecarState() ([]audioPart, state, string, bool) {
-	f, err := os.Open(r.sidecar)
+	info, err := os.Stat(r.sidecar)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, statePending, "", false
 	}
+	if err != nil {
+		return nil, stateCorrupt, "cannot read its sidecar: " + err.Error(), true
+	}
+	if !info.Mode().IsRegular() {
+		return nil, stateCorrupt, "cannot read its sidecar: " + r.sidecar + " is not a regular file", true
+	}
+	f, err := os.Open(r.sidecar)
 	if err != nil {
 		return nil, stateCorrupt, "cannot read its sidecar: " + err.Error(), true
 	}
@@ -397,6 +404,13 @@ func checkPart(part, label string, size int64, sum string, verify bool) (state, 
 }
 
 func readManifest(path string) (manifest, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return manifest{}, "cannot read " + path + ": " + err.Error()
+	}
+	if !info.Mode().IsRegular() {
+		return manifest{}, path + " is not a regular file"
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return manifest{}, "cannot read " + path + ": " + err.Error()
@@ -423,6 +437,13 @@ func readManifest(path string) (manifest, string) {
 }
 
 func md5File(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("open: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)

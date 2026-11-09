@@ -144,7 +144,7 @@ def scanned_files() -> list[pathlib.Path]:
     for root in SCAN_ROOTS:
         for dirpath, dirnames, filenames in os.walk(REPO_ROOT / root):
             dirnames[:] = [d for d in dirnames if d not in ("__pycache__", ".venv", "venv")]
-            files.extend(pathlib.Path(dirpath) / f for f in filenames if f.endswith(".py"))
+            files.extend(p for p in (pathlib.Path(dirpath) / f for f in filenames if f.endswith(".py")) if p.is_file())
     return sorted(files)
 
 

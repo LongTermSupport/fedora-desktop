@@ -3,8 +3,10 @@ package godeps
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 )
 
@@ -52,6 +54,9 @@ func readTree(root string) (map[string][]byte, error) {
 		}
 		if d.IsDir() {
 			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", filepath.Join(root, path))
 		}
 		body, err := fs.ReadFile(tree, path)
 		if err != nil {
