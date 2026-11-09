@@ -16,6 +16,12 @@
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    # Oracle's Fedora repo (rpm/fedora/<release>/aarch64) and RPM Fusion's akmod-VirtualBox
+    # are x86_64 only: VirtualBox has no Linux aarch64 host build.
+    - name: End play on aarch64 (VirtualBox publishes no Linux aarch64 host build; x86_64 hosts only)
+      ansible.builtin.meta: end_play
+      when: ansible_facts['architecture'] != 'x86_64'
+
     - name: Find the kernel the next boot runs, which the akmod handler builds for
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/boot-kernel-version.yml"
 

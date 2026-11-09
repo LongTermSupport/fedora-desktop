@@ -24,12 +24,31 @@
       {{ dict(lookup('ansible.builtin.file', root_dir ~ '/.qa-versions').splitlines()
               | select('match', '^[A-Z_]+=')
               | map('split', '=', 1)) }}
-    golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"
+    # The static QA binaries are published per architecture, and each upstream spells the
+    # arch its own way; keyed by the arch as Fedora names it.
+    shellcheck_arch_names:
+      x86_64: x86_64
+      aarch64: aarch64
+    golangci_lint_arch_names:
+      x86_64: amd64
+      aarch64: arm64
+    shellcheck_archive: "shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.{{ shellcheck_arch_names[ansible_facts['architecture']] }}.tar.xz"
+    golangci_lint_dir: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-{{ golangci_lint_arch_names[ansible_facts['architecture']] }}"
+    golangci_lint_archive: "{{ golangci_lint_dir }}.tar.gz"
     golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
   tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
+
+    - name: Fail on an architecture shellcheck or golangci-lint publishes no build for
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] in shellcheck_arch_names
+          - ansible_facts['architecture'] in golangci_lint_arch_names
+        fail_msg: >-
+          shellcheck and golangci-lint: no build for {{ ansible_facts['architecture'] }}
+          (published: {{ shellcheck_arch_names | list | intersect(golangci_lint_arch_names | list) | join(', ') }})
 
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -172,7 +191,7 @@
     - name: Install shellcheck at the pinned version
       become: true
       ansible.builtin.unarchive:
-        src: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/shellcheck-v{{ qa_versions.SHELLCHECK }}.linux.x86_64.tar.xz"
+        src: "https://github.com/koalaman/shellcheck/releases/download/v{{ qa_versions.SHELLCHECK }}/{{ shellcheck_archive }}"
         remote_src: true
         dest: /usr/local/bin
         include:
@@ -215,7 +234,7 @@
         remote_src: true
         dest: /usr/local/bin
         include:
-          - "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64/golangci-lint"
+          - "{{ golangci_lint_dir }}/golangci-lint"
         extra_opts:
           - --strip-components=1
         owner: root

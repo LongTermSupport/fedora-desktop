@@ -37,36 +37,47 @@
         name: flathub
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
-    - name: Install Slack
-      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
-      vars:
-        flatpak_app_id: com.slack.Slack
+    # Slack publishes Linux builds for x86_64 only, and its Flathub manifest says so
+    # (flathub.json only-arches). On any other architecture the block is skipped by
+    # name, and the task below says so; Slack in a browser is the alternative there.
+    - name: Say Slack is skipped on this architecture (Flathub has no Slack build for it)
+      ansible.builtin.debug:
+        msg: "Slack: no {{ ansible_facts['architecture'] }} build on Flathub (x86_64 only); skipped, use Slack in a browser"
+      when: ansible_facts['architecture'] != 'x86_64'
 
-    # The Flathub manifest grants the sandbox only xdg-download. A file dragged from
-    # Nautilus arrives as a host path; outside Downloads the sandbox cannot open it and
-    # Slack reports the empty result as "a type of file not supported" (Plan 00103).
-    # Read-only access to the home directory lets any dropped file be read without
-    # letting Slack write outside its own sandbox home. community.general has no
-    # flatpak-override module, so drive the CLI, guarded to stay idempotent.
-    - name: Read current Slack Flatpak overrides
-      become: true
-      ansible.builtin.command:
-        argv: [flatpak, override, --show, com.slack.Slack]
-      register: slack_flatpak_override
-      changed_when: false
+    - name: Slack (no aarch64 build on Flathub, skipped there; use Slack in a browser)
+      when: ansible_facts['architecture'] == 'x86_64'
+      block:
+        - name: Install Slack
+          ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+          vars:
+            flatpak_app_id: com.slack.Slack
 
-    - name: Grant Slack read-only access to the home directory so dropped files can be read
-      become: true
-      ansible.builtin.command:
-        argv: [flatpak, override, --filesystem=home:ro, com.slack.Slack]
-      when: "'home:ro' not in slack_flatpak_override.stdout"
+        # The Flathub manifest grants the sandbox only xdg-download. A file dragged from
+        # Nautilus arrives as a host path; outside Downloads the sandbox cannot open it and
+        # Slack reports the empty result as "a type of file not supported" (Plan 00103).
+        # Read-only access to the home directory lets any dropped file be read without
+        # letting Slack write outside its own sandbox home. community.general has no
+        # flatpak-override module, so drive the CLI, guarded to stay idempotent.
+        - name: Read current Slack Flatpak overrides
+          become: true
+          ansible.builtin.command:
+            argv: [flatpak, override, --show, com.slack.Slack]
+          register: slack_flatpak_override
+          changed_when: false
 
-    # A ~/Projects entry may be a symlink into an LXC container's filesystem. home:ro
-    # shows Slack the symlink but not its target, so a file dragged from there fails the
-    # same way (Plan 00195). Flatpak has no globs, so the whole LXC directory is granted,
-    # read-only: one fixed grant covers containers created after this play runs.
-    - name: Grant Slack read-only access to LXC containers so files under symlinked projects can be read
-      become: true
-      ansible.builtin.command:
-        argv: [flatpak, override, "--filesystem={{ lxc_containers_dir }}:ro", com.slack.Slack]
-      when: "(lxc_containers_dir ~ ':ro') not in slack_flatpak_override.stdout"
+        - name: Grant Slack read-only access to the home directory so dropped files can be read
+          become: true
+          ansible.builtin.command:
+            argv: [flatpak, override, --filesystem=home:ro, com.slack.Slack]
+          when: "'home:ro' not in slack_flatpak_override.stdout"
+
+        # A ~/Projects entry may be a symlink into an LXC container's filesystem. home:ro
+        # shows Slack the symlink but not its target, so a file dragged from there fails the
+        # same way (Plan 00195). Flatpak has no globs, so the whole LXC directory is granted,
+        # read-only: one fixed grant covers containers created after this play runs.
+        - name: Grant Slack read-only access to LXC containers so files under symlinked projects can be read
+          become: true
+          ansible.builtin.command:
+            argv: [flatpak, override, "--filesystem={{ lxc_containers_dir }}:ro", com.slack.Slack]
+          when: "(lxc_containers_dir ~ ':ro') not in slack_flatpak_override.stdout"

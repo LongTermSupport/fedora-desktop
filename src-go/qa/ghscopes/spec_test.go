@@ -79,6 +79,54 @@ func TestAFindRaceRuleWithoutExcludesNamesItsRuleFile(t *testing.T) {
 	wantIn(t, "stderr", got.stderr, "ERROR: .semgrep/find-race.yml declares no paths.exclude list")
 }
 
+// archPinWorld is a repository holding the arch-pin rule and fixture instead of gh-scopes'.
+func archPinWorld(t *testing.T, files map[string]string) *world {
+	t.Helper()
+	rules := strings.NewReplacer("gh-scope-outside-ssot", ArchPin.ruleName,
+		".semgrep/gh-scopes.*", ".semgrep/arch-pin.*").Replace(rulesText)
+	all := map[string]string{
+		ruleFile:            "",
+		fixtureFile:         "",
+		ArchPin.ruleFile:    rules,
+		ArchPin.fixtureFile: "# fixture\n# ruleid: " + ArchPin.ruleName + "\n",
+	}
+	maps.Copy(all, files)
+	return newWorld(t, all)
+}
+
+// The arch-pin gate is the same engine over its own rule file, fixture and words.
+func TestTheArchPinSpecRunsItsOwnRuleAndFixture(t *testing.T) {
+	w := archPinWorld(t, nil)
+	got := w.mainSpec(ArchPin)
+	wantExit(t, got, ExitOK)
+	wantTest := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ".semgrep/arch-pin.yml"), filepath.Join(w.root, ".semgrep/arch-pin.fixture")}
+	if !w.run.called(wantTest...) {
+		t.Fatalf("no self-test of the arch-pin rule: %v", w.run.calls)
+	}
+	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/arch-pin.yml")) {
+		t.Fatalf("the scan did not use the arch-pin rule: %v", w.run.scanArgv)
+	}
+}
+
+func TestTheArchPinUsageNamesItsCommand(t *testing.T) {
+	w := archPinWorld(t, nil)
+	got := w.mainSpec(ArchPin, "--help")
+	wantExit(t, got, ExitOK)
+	wantIn(t, "stdout", got.stdout, "usage: qa-arch-pin", ".semgrep/arch-pin.yml")
+}
+
+func TestAnArchPinFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
+	w := archPinWorld(t, map[string]string{"Dockerfile": "x\n"})
+	w.run.scan = func(files []string) string {
+		return report(scannable(files), []hit{{"Dockerfile", 7}}, nil)
+	}
+	got := w.mainSpec(ArchPin)
+	wantExit(t, got, ExitFailed)
+	wantIn(t, "stdout", got.stdout,
+		"Dockerfile:7  arch-pinned-artefact\n",
+		"arch-pinned-artefact: 1 line(s) in 1 file(s) fix a download, package or image to one CPU architecture. See CLAUDE/QA.md \"arch-pinned-artefact\".\n")
+}
+
 func TestAFindRaceSkipIsHeadedByItsOwnName(t *testing.T) {
 	w := findRaceWorld(t, map[string]string{"big.bin": "x\n"})
 	w.run.scan = func([]string) string {

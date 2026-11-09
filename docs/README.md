@@ -219,8 +219,9 @@ ansible-playbook playbook.yml --check
 ### Containerization
 
 ```bash
-# LXC: Create container
-sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a amd64
+# LXC: Create container (the image server spells the architecture amd64 or arm64)
+arch=$(case "$(uname -m)" in x86_64) echo amd64 ;; aarch64) echo arm64 ;; esac)
+sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a "$arch"
 sudo lxc-start -n mycontainer
 
 # Docker: Run service

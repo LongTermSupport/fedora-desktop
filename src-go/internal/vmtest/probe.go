@@ -21,6 +21,10 @@ type artefact struct {
 
 // probeUpstream runs the probe once. The caller removes the file with remove, on every path.
 func (c *cli) probeUpstream(ctx context.Context, l *lab) (*probe, error) {
+	arch, err := c.guestArch()
+	if err != nil {
+		return nil, err
+	}
 	f, err := os.CreateTemp(c.env.TempDir, "vmtest-probe.*")
 	if err != nil {
 		return nil, failf("cannot create the probe file: %v", err)
@@ -28,7 +32,7 @@ func (c *cli) probeUpstream(ctx context.Context, l *lab) (*probe, error) {
 	p := &probe{path: f.Name()}
 	_, runErr := c.helper(ctx, helperCall{
 		module: "probe_upstream", stdout: f,
-		args: []string{flagFedoraVersion, l.fedora, "--manifest", l.at(manifestFile)},
+		args: []string{flagFedoraVersion, l.fedora, "--arch", arch.Fedora, "--manifest", l.at(manifestFile)},
 	})
 	if cerr := f.Close(); cerr != nil && runErr == nil {
 		runErr = cerr

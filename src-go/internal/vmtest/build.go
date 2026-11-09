@@ -238,7 +238,15 @@ func (c *cli) renderKickstart(ctx context.Context, l *lab, b baseFacts, treeURL,
 	if err != nil {
 		return failf("cannot read %s.pub: %v", l.at(sshKeyFile), err)
 	}
-	args := []string{"--template", template, "--set", "SSH_PUBKEY=" + strings.TrimRight(string(pub), "\n"), "--set", "FEDORA_VERSION=" + l.fedora}
+	arch, err := c.guestArch()
+	if err != nil {
+		return err
+	}
+	const set = "--set"
+	args := []string{
+		"--template", template, set, "SSH_PUBKEY=" + strings.TrimRight(string(pub), "\n"), set, "FEDORA_VERSION=" + l.fedora,
+		set, "SERIAL_CONSOLE=" + arch.Console,
+	}
 	var stdin io.Reader
 	if b.Profile == profileDesktop {
 		secrets, serr := c.desktopSecrets(ctx, filepath.Dir(ks))
@@ -248,7 +256,7 @@ func (c *cli) renderKickstart(ctx context.Context, l *lab, b baseFacts, treeURL,
 		stdin = strings.NewReader(secrets)
 		args = append(args, "--set-stdin")
 	} else {
-		args = append(args, "--set", "TREE_URL="+treeURL)
+		args = append(args, set, "TREE_URL="+treeURL)
 	}
 	out, err := os.OpenFile(ks, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -290,6 +298,10 @@ func (c *cli) desktopSecrets(ctx context.Context, dir string) (string, error) {
 // rendered kickstart, powering off when done; then boots the installed system (E19). A
 // desktop's follower, running when it returns, is left in st for the caller to stop.
 func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p *probe, first, disk string, st *building) error {
+	arch, err := c.guestArch()
+	if err != nil {
+		return err
+	}
 	treeURL, err := p.treeURL(b.Tree)
 	if err != nil {
 		return err
@@ -337,7 +349,7 @@ func (c *cli) installFull(ctx context.Context, l *lab, g *guest, b baseFacts, p 
 	}, extra...)
 	args = append(args,
 		"--location", l.at(imagesDir, iso), "--initrd-inject", ks,
-		"--extra-args", "inst.ks=file:/ks.cfg inst.stage2=hd:LABEL="+label+" console=ttyS0,115200n8 plymouth.enable=0",
+		"--extra-args", "inst.ks=file:/ks.cfg inst.stage2=hd:LABEL="+label+" console="+arch.Console+",115200n8 plymouth.enable=0",
 		"--osinfo", "fedora-unknown", "--memballoon", virtioModel,
 		"--boot", "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no",
 		"--network", passtNetwork(g.port), flagGraphics, displayNone, "--serial", serialSpec(b.Profile, g.dir),

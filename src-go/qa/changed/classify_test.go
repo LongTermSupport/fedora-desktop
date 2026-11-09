@@ -253,6 +253,38 @@ func TestSrcGoRoutingIncludingTheLintConfigAndTheNestedModule(t *testing.T) {
 	}
 }
 
+// The arch-pin gate runs whole for a change to any file kind it guards (a Dockerfile, a play,
+// task or vars file, a files/ script, a CI workflow, an installer, a helper, Go outside the QA
+// module), deleted ones included, and for its own rule, fixture (which it covers), wrapper and
+// Go source; not for prose.
+func TestTheArchPinGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"files/var/local/claude-yolo/Dockerfile", ".claude/ccy/Dockerfile", "playbooks/imports/play-x.yml", "tasks/x.yml",
+		"vars/x.yml", "files/home/.local/bin/tool", ".github/workflows/qa.yml", "fedora-install/build-iso.bash",
+		"helpers/vmtest/freshness_gate.py", "src-go/internal/vmtest/fetch.go", "src-go/cmd/vmtest/main.go",
+		".semgrep/arch-pin.yml", ".semgrep/arch-pin.fixture",
+		"scripts/qa-arch-pin.bash", "src-go/qa/cmd/qa-arch-pin/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("arch-pin") {
+			t.Errorf("%s does not run arch-pin: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/arch-pin.yml", ".semgrep/arch-pin.fixture"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	w.touch("docs/x.md", "# x")
+	if p := w.classify([]string{"docs/x.md"}); p.has("arch-pin") {
+		t.Errorf("prose runs arch-pin: %v", keys(p))
+	}
+	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("arch-pin") {
+		t.Errorf("a deleted play must run the gate: %v", keys(p))
+	}
+}
+
 func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{".semgrep/bash-conventions.yml", ".semgrep/bash-conventions.bash", "src-go/qa/patterns/run.go", "src-go/qa/cmd/qa-patterns/main.go"} {

@@ -4,7 +4,7 @@ The thin executor for `helpers.vmtest.upstream` (Plan 00110, DESIGN.md §4.1,
 §9 T1.4). It fetches, the pure module parses, and this prints one stable
 `VMTEST-FRESHNESS-*` line per fact on stdout. Diagnostics go to stderr.
 
-    python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --manifest manifest.json
+    python3 -m helpers.vmtest.probe_upstream --fedora-version 44 --arch aarch64 --manifest manifest.json
     python3 -m helpers.vmtest.probe_upstream ... --fixture-dir DIR   # offline: DIR/<host>/<path>
 
 Every signal is reported on its own. A signal that cannot be read or parsed
@@ -37,7 +37,8 @@ from urllib.parse import urlsplit
 
 from helpers.vmtest import scenarios, upstream
 
-ARCH = "x86_64"
+# The architectures the lab has guests for: a guest is the host's architecture, which vmtest names.
+GUEST_ARCHES = ("x86_64", "aarch64")
 CANONICAL = "https://dl.fedoraproject.org/pub/fedora/linux"
 RELEASES_JSON_URL = "https://fedoraproject.org/releases.json"
 BODHI_RELEASES_URL = "https://bodhi.fedoraproject.org/releases/?rows_per_page=100"
@@ -49,12 +50,12 @@ def compose_id_url(fedora_version: int) -> str:
     return f"{CANONICAL}/releases/{fedora_version}/COMPOSE_ID"
 
 
-def treeinfo_url(fedora_version: int, tree: str) -> str:
-    return f"{CANONICAL}/releases/{fedora_version}/{tree}/{ARCH}/os/.treeinfo"
+def treeinfo_url(fedora_version: int, tree: str, arch: str) -> str:
+    return f"{CANONICAL}/releases/{fedora_version}/{tree}/{arch}/os/.treeinfo"
 
 
-def updates_repomd_url(fedora_version: int) -> str:
-    return f"{CANONICAL}/updates/{fedora_version}/Everything/{ARCH}/repodata/repomd.xml"
+def updates_repomd_url(fedora_version: int, arch: str) -> str:
+    return f"{CANONICAL}/updates/{fedora_version}/Everything/{arch}/repodata/repomd.xml"
 
 
 def fixture_path(fixture_dir: pathlib.Path, url: str) -> pathlib.Path:
@@ -105,14 +106,14 @@ class Probe:
             return None
 
 
-def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str], str]) -> int:
+def run(fedora_version: int, arch: str, manifest: scenarios.Manifest, fetch: Callable[[str], str]) -> int:
     probe = Probe(fetch)
 
     compose_id = probe.read("compose-id", compose_id_url(fedora_version), upstream.parse_compose_id)
     if compose_id is not None:
         print(f"VMTEST-FRESHNESS-COMPOSE-ID {compose_id}")
 
-    revision = probe.read("revision", updates_repomd_url(fedora_version), upstream.parse_repomd_revision)
+    revision = probe.read("revision", updates_repomd_url(fedora_version, arch), upstream.parse_repomd_revision)
     if revision is not None:
         print(f"VMTEST-FRESHNESS-REVISION {revision}")
 
@@ -128,13 +129,13 @@ def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str]
     # One fetch per distinct tree, however many bases share it.
     trees = sorted({base.tree for base in manifest.bases.values() if base.tree is not None})
     for tree in trees:
-        treeinfo = probe.read(f"tree:{tree}", treeinfo_url(fedora_version, tree), upstream.parse_treeinfo)
+        treeinfo = probe.read(f"tree:{tree}", treeinfo_url(fedora_version, tree, arch), upstream.parse_treeinfo)
         if treeinfo is None:
             continue
         print(f"VMTEST-FRESHNESS-TREE {tree} build_timestamp={treeinfo.build_timestamp}")
         # The tree's os/ directory is also what an Anaconda install reads packages from
         # (`url --url=`); printed so the builder installs from exactly the tree it verified.
-        print(f"VMTEST-FRESHNESS-TREE-URL {tree} {treeinfo_url(fedora_version, tree).removesuffix('.treeinfo')}")
+        print(f"VMTEST-FRESHNESS-TREE-URL {tree} {treeinfo_url(fedora_version, tree, arch).removesuffix('.treeinfo')}")
         for path, digest in sorted(treeinfo.checksums.items()):
             print(f"VMTEST-FRESHNESS-TREE-CHECKSUM {tree} {path} {digest}")
 
@@ -143,7 +144,7 @@ def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str]
         for base in sorted(manifest.bases.values(), key=lambda b: b.name):
             for selector in base.artefacts:
                 try:
-                    artefact = upstream.select_artefact(index, fedora_version, ARCH, selector)
+                    artefact = upstream.select_artefact(index, fedora_version, arch, selector)
                     label = upstream.compose_label_from_link(artefact.link)
                 except upstream.UpstreamParseError as exc:
                     probe.unreadable_signal(f"artefact {base.name}", RELEASES_JSON_URL, str(exc))
@@ -163,6 +164,7 @@ def run(fedora_version: int, manifest: scenarios.Manifest, fetch: Callable[[str]
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fedora-version", type=int, required=True, help="the branch's Fedora version")
+    parser.add_argument("--arch", required=True, choices=GUEST_ARCHES, help="the guests' architecture (the host's)")
     parser.add_argument(
         "--manifest",
         type=pathlib.Path,
@@ -183,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     fetch = make_fixture_fetcher(args.fixture_dir) if args.fixture_dir else fetch_http
-    return run(args.fedora_version, manifest, fetch)
+    return run(args.fedora_version, args.arch, manifest, fetch)
 
 
 if __name__ == "__main__":

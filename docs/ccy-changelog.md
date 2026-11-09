@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.113.1 — container 2.80.1
+
+The arm64 build of 3.113.0 and the fixes of 3.112.3, 3.112.4 and 3.112.5 in one release: each
+was made on its own line, so neither version holds the other's code. The image is rebuilt
+once, for the agent-bus helper fix 3.112.3 brought.
+
+## 3.113.0 — container 2.80.0
+
+The image builds on arm64 as well as x86_64 (Plan 00243, issue 118). Each download that was
+x86_64 only is chosen by the image architecture: the phpantom-lsp musl target (`uname -m`),
+yq (`yq_linux_<dpkg arch>`, still the latest release), Lightpanda and opencode (one pinned
+sha256 per architecture). On arm64 agent-browser uses Debian `chromium`, since Chrome for
+Testing publishes no linux-arm64 build. An x86_64 image has the same content; it is rebuilt
+once because the Dockerfile changed. The custom-Dockerfile examples in
+`/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt` name the go and AWS CLI archives by
+architecture, and `docker-in-lxc` asks the LXC download template for the host architecture.
+
 ## 3.112.5 — container 2.79.27
 
 `--build-lock` no longer takes a process whose leader thread is a zombie for gone while its
