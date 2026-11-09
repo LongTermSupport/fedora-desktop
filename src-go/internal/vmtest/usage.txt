@@ -39,6 +39,9 @@ Usage:
                                            Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
                                            seconds (default 1800; exit 124 when it is hit)
   vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
+  vmtest link-up <link>                    make a point-to-point link: two loopback UDP ports recorded under
+                                           links/<link>/ for two members' NICs; starts nothing
+  vmtest link-down <link>                  remove a link no member holds; nothing there is no error
   vmtest help
 
 `run` provisions from a PUSHED commit of the public repo (the branch tip on the

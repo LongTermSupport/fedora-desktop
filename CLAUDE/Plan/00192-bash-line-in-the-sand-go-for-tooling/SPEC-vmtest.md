@@ -479,7 +479,7 @@ libvirt `udp` sub-options) are not verified in this container and are proven by 
 `member-up --link` on the host.
 
 - E67. `link-up <link>`: the name as E55. It chooses two distinct free UDP ports on 127.0.0.1
-  (`Env.FreeUDPPort`, as `Env.FreePort`), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
+  (`Env.FreeUDPPorts`, which binds both at once so they differ), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
   lines) through `fsx.WriteAtomic`, and prints `VMTEST-LINK-UP <link> a=<p> b=<q>`. An existing
   `links/<link>/` is refused with the `link-down` hint. It makes no libvirt object.
 - E68. `member-up <name> <key> [--ram-mib N] [--link <link>:<a|b>]...`: an option repeated that
