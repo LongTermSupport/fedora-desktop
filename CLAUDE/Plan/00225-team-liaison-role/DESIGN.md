@@ -54,7 +54,7 @@ wakes, `ask` posts, guard answers, board and `--list` bytes as before; golden te
 
 - **LZ1.** `liaison` is a roster role beside `coordinator`, `worker` and `probe`. At most one per
   team; `role apply` refuses a second, naming the holder (as for the coordinator). It also
-  refuses a member declared with `human-text` false (such a member refuses human text and would
+  refuses a member declared with `human_text` false (such a member refuses human text and would
   never join the questions room), and the active test (LZ10) counts such a liaison as inactive.
 - **LZ2.** A team may name a liaison only while it has a coordinator. Removing the last
   coordinator while a liaison exists is allowed, and the liaison's session is told it has no one
@@ -105,9 +105,14 @@ human's event, bound to a question the coordinator itself handed over, never fro
 - **LZ5a. Hand-offs are posted verbatim, and never changed after.** `teamchat ask --handoff H<n>`,
   run by the liaison, posts the hand-off's own text byte for byte: `teamchat` copies it from the
   hand-off event it fetched, and the liaison supplies no question text. The liaison may add a
-  note, carried in its own content key `liaison_note` (never in the body the question parser
-  reads), shown apart by Element's fallback text and by the receiver, and never part of what the
-  question is. The post carries `handed-off: <hand-off event ID>`. After that post the liaison
+  note, carried in its own content key `liaison_note`, never part of what the question is.
+  Element renders only `body`, so the note reaches the human there by a fixed split: `body` is
+  the question text byte for byte, then one line `---`, then `Liaison's note: ` and the note; the
+  receiver takes the question as everything before that split line and compares it (LZ6), and
+  shows the note apart. The note is framing the human sees beside the question, so the receiver
+  always shows it (LZ6). The post has no `format` or `formatted_body` (Element would show those
+  instead of `body`); the receiver decodes the `Q<n>` post with v2's content decoder, which
+  refuses them, and a post that fails is `reworded`. The post carries `handed-off: <hand-off event ID>`. After that post the liaison
   posts nothing more in that question's thread (refusal `handed-off-thread`), and `teamchat`
   never edits or redacts it (the member has no verb that does; LZ6 catches a raw one). Anything
   it wants to tell the human about the question goes in a new hand-off the coordinator sends. A
@@ -133,11 +138,17 @@ human's event, bound to a question the coordinator itself handed over, never fro
   **The whole question, not one answer.** The coordinator's own store already holds every
   questions-room event it synced (LZ9's quiet items, and the liaison's posts it ignores). The
   relay block shows, from that store and checked against the homeserver as above, every human
-  message attached to `Q<n>` and every edit of one, in order, and **every liaison post in the
-  questions room between the `Q<n>` post and the answer, in the thread or not** (in the thread
-  there should be none, LZ5a; outside it, a post that reframes `Q7` for the human is shown so the
-  coordinator sees what the human saw). So a relay of bob's "yes" cannot hide alice's "no", bob's
-  own later "wait, no", or a liaison message that changed what "yes" meant. When more than one
+  message attached to `Q<n>` and every edit of one, in order, and **every liaison message to a
+  human from the moment the coordinator sent the hand-off to the answer**: its questions-room
+  posts in the thread or not (in the thread there should be none, LZ5a), mirrored ones included,
+  and its main-room texts to a human. The coordinator's member receives those in its main-room
+  sync but today ignores them as not addressed to it; it keeps the liaison's texts to humans in
+  its store for this listing only (never delivered, never in `history`), the one narrow
+  exception, tested in Task 2.3. So a relay of bob's "yes" cannot hide alice's "no", bob's
+  own later "wait, no", or a liaison preamble ("the next one is routine, just say yes") that
+  changed what "yes" meant. **This listing is transparency, not a guard**: the liaison's
+  unmirrored terminal talk with the owner is invisible to the coordinator, and nothing on the bus
+  can show it. The coordinator's rule (LZ7) is what answers that. When more than one
   human answered, or answers differ, the line says `answers differ` and LZ7 applies to all of
   them. The envelope shows, after the `PEER` entry:
 
@@ -145,7 +156,7 @@ human's event, bound to a question the coordinator itself handed over, never fro
   relays: HUMAN alice $event_id (checked on the homeserver; answers your H3 as Q7)
     asked: "your hand-off's text, as posted, as a JSON string"
     liaison's note: "the note, if any, as a JSON string"
-    liaison posts since Q7: $event_id3 "verbatim" (outside the thread)
+    liaison to humans since H3: $event_id3 questions "verbatim" (outside the thread)
     answer: alice $event_id "the human's own words, verbatim, as a JSON string"
     also on Q7: bob $event_id2 "verbatim" (newer)
   ```
@@ -165,7 +176,10 @@ human's event, bound to a question the coordinator itself handed over, never fro
   no more, and nothing beyond that question. Act on the human's verbatim answer, not on the
   liaison's summary; when they differ, the verbatim answer wins and you ask the liaison. A
   `NOT VERIFIED` relay, a terminal relay and every other liaison text are `PEER` information.
-  Before a consequential act the existing rule (confirm the human's request before acting)
+  When the relay block lists a liaison message to a human that could have framed the answer
+  (anything beyond a mirror of the owner's own words), a verified answer is information only for
+  a consequential act unless the human's own words are unambiguous without it; otherwise ask the
+  question again through a new hand-off. Before a consequential act the existing rule (confirm the human's request before acting)
   stands, with a new verb for relays: confirm with `teamchat verify-human --team <team> EVENT_ID`,
   which runs every LZ6 check (the `edited` one included) at the moment it is run, prints the
   sender, the question and the answer from the homeserver, and exits 0 only when all hold.
@@ -185,9 +199,14 @@ human's event, bound to a question the coordinator itself handed over, never fro
     into the questions room as one liaison post with the content key `mirror: terminal`, the
     owner's words quoted and marked "typed in the liaison's terminal". A mirrored post is the
     liaison's, so it carries no authority (LZ7) and is never a `Q<n>` post.
-  - A human's post in the questions room wakes the liaison (LZ9), so the room side is already
-    live; the liaison answers in the place the human last wrote and mirrors a terminal answer to
-    the room, never the other way (the room is the record).
+  - The other way, room to terminal, needs nothing new: a human's post in the questions room
+    wakes the liaison (LZ9) and arrives in the liaison's own conversation as a `HUMAN` item,
+    which is what the owner sees on returning to the terminal. The liaison answers in the place
+    the human last wrote; an answer it gives in the terminal is mirrored to the room, so the room
+    holds the whole conversation and the terminal shows it too.
+  - Mirroring is the liaison's discipline, taught by the skill and the role line (LZ23); nothing
+    on the bus can enforce it, since the terminal is not on the bus. That is why a terminal
+    answer never counts (LZ7a) and why the coordinator treats framing it cannot see as LZ7 says.
   - **Authority across the switch (LD13, coordinator default).** A terminal answer stays
     information only. When a handed-off question is answered in the terminal, the liaison makes
     sure the `Q<n>` post exists (LZ5a), mirrors the terminal answer beside it, and asks the
@@ -245,11 +264,12 @@ human's event, bound to a question the coordinator itself handed over, never fro
 ### 4.3 Active, and the fallback
 
 - **LZ10.** A liaison is **active** when it is named in the roster, has joined the questions
-  room (the coordinator cannot read the liaison's bundle, so the join stands in for `human-text`,
+  room (the coordinator cannot read the liaison's bundle, so the join stands in for `human_text`,
   which LZ1 refuses at assignment), and its session is live by v2's own signal. v2 has no v1-style
-  `agent_bus.status` event with an `until`; the live signal is the liaison keeper's run notices
-  (a run started and not ended, A 13 and n3 KP3's `end`), and which reading the coordinator's
-  member takes is Phase 0's fact (Task 0.1). **The producer:** the coordinator's member reads it
+  `agent_bus.status` event with an `until`. What v2 gives another member is A 7.4's lifecycle
+  notices (`left`, `disconnected`, `back`; `proto/content.go`, posted by `member/ends`) and the
+  members' Matrix presence, which the sync filter carries; which of these the coordinator's
+  member reads is Phase 0's fact (Task 0.1). **The producer:** the coordinator's member reads it
   on every sync and writes `liaison.json` per team in its state directory (liaison handle,
   `joined`, `live_since`, `read_at`), atomically; `ask`, the keeper (LZ9) and the guard (LZ16)
   read that file, and a file whose `read_at` is older than `liaison_offline_s` (default 600)
@@ -259,7 +279,7 @@ human's event, bound to a question the coordinator itself handed over, never fro
   inactive liaison never blocks anything: `ask` posts directly with a stderr line saying why,
   unrelayed quiet items are delivered (LZ9), the coordinator is woken for the questions room, and
   the guard lets the coordinator ask (LZ16).
-- **LZ11. Hand-off timeout.** A hand-off with no `relay` or reply `--re` it within
+- **LZ11. Hand-off timeout.** A hand-off with no `relay`, and no `reply` to it, within
   `liaison_handoff_s` (default 1800) raises one notice in the coordinator's session, as a ping
   timeout does; `teamchat handoffs` lists open ones. The coordinator may then post directly with
   `ask --direct`, which is allowed only for an open hand-off past its timeout or with an
@@ -294,15 +314,16 @@ human's event, bound to a question the coordinator itself handed over, never fro
   `tag` with only listing options), or `gh` with anything but `view`, `list`, `diff` and `status`
   subcommands (`gh api` is denied whatever its method). An allowlist, so a write verb nobody
   listed is denied, never allowed. Options that run commands or write files are denied with any
-  subcommand: `git -c`, `--output`, `--ext-diff`, `--textconv`, `--exec-path`. It keeps
+  subcommand: `git -c`, `--output`, `--ext-diff`, `--textconv`, `--exec-path`, and `git grep`'s
+  `-O`/`--open-files-in-pager`. It keeps
   `AskUserQuestion`, `PushNotification` and every read tool. The text, from a fixed template:
-  `agent-bus: <tool> is not the liaison's: you talk to the humans and do no work. Hand it to your coordinator: teamchat say --team <team> --to-coordinator '<what is needed>'.` A Bash
+  `teamchat: <tool> is not the liaison's: you talk to the humans and do no work. Hand it to your coordinator: teamchat say --team <team> --to-coordinator '<what is needed>'.` A Bash
   write by redirection, `curl` or a clone elsewhere is not caught; the mount (LZ17) and the
   missing credentials (LZ17a) are what stop those, and on `cc` the guard is against mistakes only
   (LZ19).
 
 - **LZ16. The coordinator loses `AskUserQuestion` while a liaison is active** in a team it
-  coordinates. Denial text: `agent-bus: ask the humans through your liaison: teamchat ask --team <team> (it hands the question to myrepo.3).` With no liaison, or an inactive one, it keeps
+  coordinates. Denial text: `teamchat: ask the humans through your liaison: teamchat ask --team <team> (it hands the question to myrepo.3).` With no liaison, or an inactive one, it keeps
   it (LZ0, LZ10). The guard reads activity from LZ10's `liaison.json`, the same file `ask` reads,
   on every call; missing or stale means inactive, so the coordinator may ask. LD3.
 
@@ -317,67 +338,101 @@ human's event, bound to a question the coordinator itself handed over, never fro
   itself, 00222's tests written as its own first cases.
 
 - **LZ17. ccy: a read-only checkout.** A ccy session launched as the liaison mounts the
-  checkout `ro` (with the same relabel) instead of `rw`, plus an `rw` bind of the real host
-  state path a session must write inside the checkout, and nothing more. The rule: nothing that
-  decides what runs in the session, or how the next launch is built, is writable by the
-  liaison. That covers more than the project's `.claude/settings*.json`, `.claude/hooks*` and
-  `.claude/hooks-daemon.yaml`. ccy links `/root/.claude` to `/workspace/.claude/ccy/`
-  (`entrypoint.sh`), so that directory also holds the user `settings.json` (which can turn hooks
-  off), the `claude-supervise.py` wrapper the session runs through, the `mounts` file added to
-  the next launch, `ccy.env`, the `Dockerfile` and `allowed-hostnames`. So `.claude/ccy/` is not
-  bound `rw` whole:
+  checkout `ro` (with the same relabel) instead of `rw`, plus the writable paths below, and
+  nothing more. The rule: nothing that decides what runs in any session, or how any next launch
+  is built, is writable by the liaison, and nothing it writes reaches another seat's session or
+  the host's. **Anything executed (a binary, a virtualenv, a wrapper, plugin or skill code) is
+  configuration even when it is written at run time**, so a measured write is not by itself
+  state. That covers more than the project's `.claude/settings*.json`, `.claude/hooks*` and
+  `.claude/hooks-daemon.yaml`:
 
-  - **State** (Task 0.1 lists it: transcripts, todos, the login's token file and the like) is
-    bound `rw` at its real host path, entry by entry, so it survives relaunch as today. The
-    hooks daemon's untracked state and the project's `untracked/` are state too.
-  - **Configuration** stays `ro` to the session, including every file named above. The
-    entrypoint (`set -e`) writes some of it at every launch: the `jq` merge into
-    `settings.json`, the plugin install into `plugins/`, the skills copy into `skills/`.
-  - **No in-container bind is trusted unless the session cannot undo it.** There is no `USER`
-    in the image: the entrypoint `exec`s the wrapper chain as the container's root, so Claude
-    Code and every Bash command the liaison runs are that same root, with the same capabilities.
-    A default rootless ccy container has no `CAP_SYS_ADMIN` and cannot `mount --bind` at all;
-    one launched with it could, and so could the liaison's own Bash `umount` or
-    `mount -o remount,rw`. So the in-container path (a kit Go binary that, after the
-    entrypoint's writes and before the hand-off to the wrapper, puts `ro` bind mounts over each
-    configuration path and stops the launch naming any that fails) counts only if that same
-    binary then removes `CAP_SYS_ADMIN` from the bounding, permitted, effective and inheritable
-    sets and sets `no_new_privs` before it `exec`s the wrapper, so nothing the session runs can
-    regain it. Task 0.1 probes both halves: the binds succeed, and from inside the session
-    `umount` and `mount -o remount,rw` on a bound path fail with `EPERM`. If either half fails,
-    or the owner prefers not to start the container with `CAP_SYS_ADMIN` at all, **LD12 is the
-    design, not a fallback**.
-  - **LD12: a per-seat configuration directory.** The liaison's `.claude/ccy/` is a per-seat host
-    directory outside the checkout, mounted over `/workspace/.claude/ccy`; the project's own
-    configuration paths (`.claude/settings*`, hooks, daemon config) come from the `ro`
-    checkout. Its writes there reach no file another role or the launcher reads for anyone
-    else. At every liaison launch the launcher (in Go, `ccy-teams internal launch-mounts`)
-    re-renders the wrapper, `mounts`, `ccy.env` and the user `settings.json` from the image and
-    the team record, so nothing the liaison wrote there carries over (`disableAllHooks` set in
-    the last session is gone at the next launch). The host-side reads the launcher makes at the
-    checkout's `.claude/ccy/` (`state/restart-request.json`, `Dockerfile`, `allowed-hostnames`,
-    `config.json`, `sessions/`, `.last-launch.conf`) are listed by Task 0.1, and for a liaison
-    seat each is read from the per-seat directory, so the supervisor's restart request lands
-    where the launcher looks; `Dockerfile` and `allowed-hostnames` are taken from the project's
-    checkout (configuration) and never from the per-seat copy.
+  - ccy links `/root/.claude` to `/workspace/.claude/ccy/` (`entrypoint.sh`), so that directory
+    holds the user `settings.json` (which can turn hooks off), `plugins/` and `skills/` (written
+    by the entrypoint at every launch: the `jq` merge, the plugin install, the skills copy), and
+    the project's tracked launch files: `claude-supervise*` (the wrapper the entrypoint runs),
+    `ccy.env` (which the entrypoint sources), `mounts` (read on the host before the container
+    exists), the `Dockerfile` and `allowed-hostnames`; beside them the untracked, install-local
+    `ccy.env.local`, read on the host and bound `ro` into the container today.
+  - The hooks daemon's `untracked/` holds the `hooks-relay` executable every hook call runs, the
+    daemon's virtualenvs (the container's one is named after `/workspace`, so every ccy seat of
+    the checkout shares it, and the host's sits beside it), and its upgrade and supervisor
+    directories: all configuration. Its sockets, pid and lock files, logs and ledgers are state.
+  - The project's `untracked/` is read by other agents (reference clones) and holds scratch
+    scripts they run, so it is configuration too; the liaison gets a per-seat scratch directory
+    instead.
 
-  Task 0.1 classifies every entry of `.claude/ccy/` and every other measured write as state or
-  configuration. Anything unclassified is configuration (`ro`): a session that then fails names
-  the path, and the list is extended by a reviewed change, never at run time.
-  `/root/.claude.json` is not in the checkout (claude-yolo creates it in the container and it
-  does not carry over), so it is never bound. The guard itself is in the image's member kit, not
-  the checkout. The liaison reads the host checkout live through the `ro` bind, including the
-  other seats' commits there; it cannot `git fetch`, since `.git` is `ro`, and needs no fetch.
-  The mount arguments come from Go; the launcher only appends what Go printed, so it does not
-  grow. **CCY version bump.**
+  **The liaison's writable paths are its own, never shared.** Everything a liaison session must
+  write lives in a per-seat host directory outside the checkout, seeded at launch:
+
+  - **its `.claude/ccy/`**, mounted over `/workspace/.claude/ccy`, holding only the user-level
+    files (`settings.json`, `plugins/`, `skills/`) and its session state (transcripts, todos,
+    `sessions/`, the token file the launcher hands every seat). The project's tracked launch
+    files listed above are bound `ro` from the checkout over it, file by file, and
+    `ccy.env.local` keeps its `ro` bind, ordered after the per-seat mount (Task 5.1's fixture pins
+    the order). So the liaison shares no transcript or session with another seat (it cannot edit
+    a coordinator's transcript before a `--resume`), and the entrypoint still sources and runs
+    the project's own `ccy.env` and wrapper;
+  - **its daemon state**: a per-seat directory bound over the daemon's socket, pid, lock, log
+    and ledger paths, and, where the daemon must build code at run time (its virtualenv), a
+    per-seat copy bound over that one path, so a write there reaches only the liaison's own
+    session; `bin/hooks-relay` and every other executable entry stay `ro`;
+  - **its scratch**: a per-seat directory for `untracked/scratch/`.
+
+  At every liaison launch the launcher (in Go, new: `ccy-teams internal launch-mounts`) resets
+  the per-seat user-level files from the same sources the entrypoint uses today, so nothing the
+  liaison wrote there carries over (a `disableAllHooks` set in one session is gone at the next
+  launch). Within a session the liaison can still change its own `settings.json`; that reaches
+  only itself, its checkout stays `ro` and it holds no write credentials (LZ17a), so the guard is
+  then a control against mistakes, as on `cc` (LZ19). The host reads the launcher makes at the
+  checkout's `.claude/ccy/` are listed by Task 0.1. For a liaison seat,
+  `state/restart-request.json`, `config.json`, `sessions/` and `.last-launch.conf` are read from
+  the per-seat directory (so the supervisor's restart request lands where the launcher looks);
+  `mounts`, `ccy.env.local`, `Dockerfile` and `allowed-hostnames` are read from the checkout,
+  never per-seat.
+
+  **The user-level files read-only within the session as well (optional, LD12).** The entrypoint
+  writes `settings.json`, `plugins/` and `skills/` at every launch, so they cannot be `ro` from the
+  start. There is no `USER` in the image: the entrypoint `exec`s the wrapper chain as the
+  container's root, so Claude Code and every Bash command the liaison runs are that same root. A
+  default rootless ccy container has no `CAP_SYS_ADMIN` and cannot bind-mount at all. The
+  in-container path is: the launcher adds `--cap-add SYS_ADMIN` for a liaison seat only (it adds
+  none today); a kit Go binary, after the entrypoint's writes and before the hand-off to the
+  wrapper, puts `ro` bind mounts over those three paths, stops the launch naming any that fails,
+  then removes `CAP_SYS_ADMIN` from the bounding, permitted, effective and inheritable sets and
+  sets `no_new_privs` before it `exec`s the wrapper. The entrypoint starts no background process,
+  so nothing keeps the capability. A child user namespace (`unshare -Urm`) still gets a full
+  capability set, so what protects the binds there is that they become locked (`MNT_LOCKED`) in
+  the child namespace: `umount`, `mount -o remount,rw` and a non-recursive `mount --bind` of a
+  parent are refused. Task 0.1 probes all of it: the binds succeed (under SELinux's `container_t`
+  and with `label=disable`); from the session, `umount` and `mount -o remount,rw` on a bound path
+  fail with `EPERM`; and after `unshare -Urm`, `umount`, `mount -o remount,rw` and a
+  non-recursive `mount --bind` of `/workspace` to a scratch path followed by a write through it
+  each fail. If any probe fails, or the owner prefers no `CAP_SYS_ADMIN` at launch, the per-seat
+  reset above is the whole design.
+
+  Task 0.1 classifies every entry of `.claude/ccy/`, of the daemon's `untracked/` and every other
+  measured write as state or configuration by the rule above. Anything unclassified is
+  configuration (`ro`): a session that then fails names the path, and the list is extended by a
+  reviewed change, never at run time. `/root/.claude.json` is not in the checkout (claude-yolo
+  creates it in the container and it does not carry over), so it is never bound. The guard
+  itself is in the image's member kit, not the checkout. The liaison reads the host checkout live
+  through the `ro` bind, including the other seats' commits there; it cannot `git fetch`, since
+  `.git` is `ro`, and needs no fetch. The mount arguments come from Go; the launcher only appends
+  what Go printed, so it does not grow. **CCY version bump.**
 
 - **LZ17a. No write credentials.** A read-only checkout does not stop a push made some other way:
   `curl` to the GitHub API, `gh api -X POST`, or a clone in `/tmp` pushed over `ssh`. So a liaison
-  launch carries no SSH keys and no write-scoped GitHub token: ccy's `SSH_KEYS` selection is
-  empty, and the GitHub token is either none or a read-only one (the token's scopes are checked
-  at launch, and a token that can write is refused). The board, `ccy --teams`, Quick Launch and
-  the LXC play refuse a liaison launch that selects SSH keys or a write-capable token, naming
-  which. Task 8.2 checks that a push from the liaison fails by each route.
+  launch carries no SSH keys, no SSH agent socket and no write-capable GitHub token. It does carry
+  a read-only token (fine-grained, contents read), because v2's forge check reads `gh`'s
+  credential to resolve a ping's reference (`member/forge`); with none, the liaison treats a
+  ping's reference as unchecked and says so. The refusal sits where the seat's role and the final
+  key and token selection meet, Go's `launch-mounts`, so no launcher route bypasses it: not the
+  board, `ccy --teams` or Quick Launch, not `claude-yolo`'s own single-key default or its
+  `LAST_SSH_KEYS` offer, not the SSH agent entry of `SSH_KEYS`, and not a relaunch on a restart
+  request with the previous choices. It refuses naming which. Inside the container, the kit stops
+  a liaison seat that finds `SSH_AUTH_SOCK`, a mounted key, or a `gh` token whose scopes allow a
+  write. The LXC apply places neither in a liaison guest's home. Task 8.2 checks that a push from
+  the liaison fails by each route.
 
 - **LZ18. A hot role change and the mount.** The mount and the credentials are fixed at launch.
   A hot change *to* liaison applies the guard at the next tool call and the board marks the seat
@@ -445,7 +500,7 @@ reverse that ruling first; LD1 puts it to the owner only in that form.
 | the quiet store, `liaison.json`, the keeper's relay wake (LZ9-LZ11)          | `member/state`, `member/keeper`, `member/teamsync`                                                                                |
 | reports history for the liaison (LZ12)                                       | `member/cli` (`history --room reports`, liaison only)                                                                             |
 | the guard (LZ15, LZ16)                                                       | the shared `Decide` package (Plan 00222), in the member kit                                                                       |
-| ccy mounts and credentials (LZ17, LZ17a), board and menus (LZ22)             | `ccy-teams internal launch-mounts`, the ccy launcher's Go front, `teams` board                                                    |
+| ccy mounts and credentials (LZ17, LZ17a), board and menus (LZ22)             | `ccy-teams internal launch-mounts` (new), the ccy launcher's Go front, `teams` board                                                    |
 | LXC binds (LZ20)                                                             | `host/lxc` apply                                                                                                                  |
 | role and session-start text (LZ23)                                           | `member/hooktext`                                                                                                                 |
 
