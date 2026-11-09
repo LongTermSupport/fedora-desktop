@@ -161,7 +161,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 	return []action{open, password, start, help}
 }
 
-// memberActions are an agent member's, whatever its kind (ccy, cc, LXC, host, docker, vm): a
+// memberActions are an agent member's, whatever its kind (ccy, cc, LXC, docker, vm): a
 // ccy seat's own first (attaching its session, restore), then its role, Element, a session of
 // the team, help, and taking it away. Every kind gets the same role action in the same words
 // (Plan 00203 Task 3.8), and one path changes it (seats.ToggleCoordinator). A member with no

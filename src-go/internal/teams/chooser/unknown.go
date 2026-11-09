@@ -126,7 +126,7 @@ func (c *Chooser) answerUnknown(ctx context.Context, h ui.Heading, team, answer 
 	}
 	made, code := c.Create(ctx, team)
 	switch {
-	case code == term.ExitCancelled || code == term.ExitOK && made == "":
+	case code == term.ExitCancelled:
 		c.say("Nothing was created; back to the choices.")
 		return "", take, term.ExitOK, true
 	case code != term.ExitOK:

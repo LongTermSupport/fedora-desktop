@@ -1754,7 +1754,7 @@ now does.
 A conversion to `term.ExitCode` (through an alias too) whose operand reads the `Code` field of
 an error type (a struct whose value or pointer implements `error`: `execx.ExitError`,
 `agentbus.CommandError`, `declare.Error`), directly, inside an expression, or through a local
-assigned from such a read in the same function. `internal/term`, which owns the translation, and
+assigned or declared (`var c = ee.Code`) from such a read in the same function. `internal/term`, which owns the translation, and
 test files are not judged. A child's code means what the child's documentation says, not the
 tool's: `ccy --teams` with a team the host does not have exited 78, `agent-bus seat choose`'s own
 code, which no ccy usage text named, and the owner's prompt reported "Unknown error code".
@@ -1766,7 +1766,8 @@ none of them. `project_refusal_kind` counts a code handed on through `term.FromC
 on whole.
 
 - Red, fixture: `testdata/src/fix/internal/badexit` (`bad.go`: `choose.listFailed`'s original,
-  a code carried in a `&stop{...}`, through a local, inside arithmetic, through an alias of the
+  a code carried in a `&stop{...}`, through a local, through a local declared with `var` (review
+  round 2 of the unknown-team branch found it missed: red, then green), inside arithmetic, through an alias of the
   type, in parentheses; `good.go`: `term.FromChild`, the code only printed, the tool's own
   `128 + signal`, a code from a struct that is not an error, a constant, a code only compared).
   The stub `fix/internal/term` has `ExitCode` and `FromChild`.

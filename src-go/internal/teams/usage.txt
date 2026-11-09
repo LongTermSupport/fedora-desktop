@@ -14,9 +14,10 @@ An LXC container's agent is added the same way (lxc-add), with no hand edit of t
 
 Each team is a row (its homeserver up, down or not installed yet, its port, and APPLIED:
 whether what runs is what the host_vars declare, DESIGN.md D65), followed by its members:
-  ccy                    a seat of a ccy checkout, with the ccy session holding it and
-                         whether that session is started again after a reboot
-  lxc, host, docker, vm  a member of that type; a ccy member whose checkout is not
+  ccy, cc                a seat of a checkout, held by a ccy container (ccy) or a cc
+                         session on this desktop (cc), with that session and whether it
+                         is started again after a reboot
+  lxc, docker, vm        a member of that type; a ccy member whose checkout is not
                          known here (no session or registry record names it) is "ccy"
                          with no checkout
   human                  a person in the team room: in it or not, and how many Element
@@ -292,7 +293,7 @@ Usage:
                                    goodbye; the token stays valid (remove does not revoke). move
                                    is add then remove; role sets the seat's role and waits for
                                    the session to be told, or, given a member's handle, sets the
-                                   role of a member of any kind (ccy, cc, LXC, host, docker, vm);
+                                   role of a member of any kind (ccy, cc, LXC, docker, vm);
                                    repair restarts a stopped seat keeper.
                                    One line per step on stderr (✓, ✗, or - for already so); asks
                                    first, --yes required with no terminal. Exit 75 for a seat

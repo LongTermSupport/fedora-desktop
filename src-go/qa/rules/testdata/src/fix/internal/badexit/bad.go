@@ -67,3 +67,12 @@ func aliased(cmd *CommandError) exit {
 func inParens(cmd *CommandError) term.ExitCode {
 	return term.ExitCode((cmd.Code)) // want `another program's exit code becomes this tool's own`
 }
+
+// declared carries the code through a local declared with var, not assigned.
+func declared(err error) term.ExitCode {
+	if ee, ok := errors.AsType[ExitError](err); ok {
+		var code = ee.Code
+		return term.ExitCode(code) // want `another program's exit code becomes this tool's own`
+	}
+	return term.ExitFailure
+}

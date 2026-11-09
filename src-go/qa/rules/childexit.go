@@ -20,7 +20,8 @@ var ChildExit = &analysis.Analyzer{
 	Doc: `project_child_exit flags a conversion to term.ExitCode (through an alias too) whose operand
 reads the Code field of an error type (a struct whose value or pointer implements error:
 execx.ExitError, agentbus.CommandError, declare.Error), directly, inside an expression, or
-through a local variable assigned from such a read in the same function. The internal/term
+through a local variable assigned or declared (var c = ...) from such a read in the same
+function. The internal/term
 package itself, which owns the translation, is not judged, and nor are test files.
 
 A tool documents its exit codes, and the person's shell names the ones it knows: ccy --teams
@@ -60,13 +61,10 @@ func checkChildExit(pass *analysis.Pass, body *ast.BlockStmt) {
 	for changed := true; changed; {
 		changed = false
 		ast.Inspect(body, func(n ast.Node) bool {
-			as, ok := n.(*ast.AssignStmt)
-			if !ok || len(as.Lhs) != len(as.Rhs) {
-				return true
-			}
-			for i, lhs := range as.Lhs {
-				obj := identObject(pass, lhs)
-				if obj != nil && !tainted[obj] && readsChildCode(pass, as.Rhs[i], tainted) {
+			lhs, rhs := bindings(n)
+			for i := range lhs {
+				obj := identObject(pass, lhs[i])
+				if obj != nil && !tainted[obj] && readsChildCode(pass, rhs[i], tainted) {
 					tainted[obj] = true
 					changed = true
 				}
@@ -81,6 +79,25 @@ func checkChildExit(pass *analysis.Pass, body *ast.BlockStmt) {
 		}
 		return true
 	})
+}
+
+// bindings are the names and values n gives, pairwise: an assignment's sides, or a var
+// declaration's names and values; nil when n binds none or not one value per name.
+func bindings(n ast.Node) ([]ast.Expr, []ast.Expr) {
+	var lhs, rhs []ast.Expr
+	switch n := n.(type) {
+	case *ast.AssignStmt:
+		lhs, rhs = n.Lhs, n.Rhs
+	case *ast.ValueSpec:
+		for _, name := range n.Names {
+			lhs = append(lhs, name)
+		}
+		rhs = n.Values
+	}
+	if len(lhs) != len(rhs) {
+		return nil, nil
+	}
+	return lhs, rhs
 }
 
 // identObject is the variable an assignment's left side names, or nil.

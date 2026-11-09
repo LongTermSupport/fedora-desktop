@@ -134,5 +134,6 @@ entry is asked about (`src-go/internal/teams/chooser/unknown.go`): create it (th
 machine's teams instead, start the rest without it, or start nothing. Leaving the wizard or the
 choice comes back to the question, three rounds at most, then exit 1. Headless stays fail-fast
 (`agent-bus seat check --resolved`). Tests written first and seen to fail to build against the
-old signatures: `chooser/unknown_test.go` (12 tests) and create's
+old signatures: `chooser/unknown_test.go` (12 tests when written first; review round 1's fixes
+brought it to the 16 named above) and create's
 `TestWizardForTheChooserOffersTheNameTypedOnTheCommandLine`; all pass.
