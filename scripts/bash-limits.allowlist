@@ -13,7 +13,6 @@
 #
 # path <TAB> code lines <TAB> functions <TAB> statements <TAB> grandfathered flags (assoc, ui, data or -)
 # measurer: 2
-.claude/ccy/claude-supervise	68	4	74	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
 CLAUDE/Plan/meta-deploy.bash	161	0	180	assoc
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-

@@ -264,7 +264,11 @@ func (a app) scan(cmd string, rest []string, m *Matcher) (result, error) {
 		hits, commits, err := a.scanRange(rest, m)
 		return result{hits: hits, scanned: strconv.Itoa(commits) + " commit(s)"}, err
 	case "push":
-		return a.scanPush(m)
+		remote := ""
+		if len(rest) > 0 {
+			remote = rest[0]
+		}
+		return a.scanPush(m, remote)
 	case "tree":
 		return a.scanTree(rest, m)
 	}
@@ -283,8 +287,13 @@ func (a app) scanRange(sel []string, m *Matcher) ([]Hit, int, error) {
 	return ScanLog(m, log), strings.Count(log, "\x01"), nil
 }
 
-// scanPush reads the pre-push ref lines "LOCALREF LOCALID REMOTEREF REMOTEID" from stdin.
-func (a app) scanPush(m *Matcher) (result, error) {
+// scanPush reads the pre-push ref lines "LOCALREF LOCALID REMOTEREF REMOTEID" from stdin and
+// scans each pushed commit the remote does not already hold: one under none of that remote's
+// tracking refs and not behind its own old tip. A branch's old tip alone is not enough (a commit
+// another branch published since is already public), and another remote's refs are no proof
+// (refs/remotes/ can hold local archives). Pushed to a URL, which has no tracking refs, an
+// existing branch is scanned from its old tip and a new one against every tracking ref.
+func (a app) scanPush(m *Matcher, remote string) (result, error) {
 	if a.env.Stdin == nil {
 		return result{}, errors.New("push needs the pre-push ref lines on stdin")
 	}
@@ -306,12 +315,7 @@ func (a app) scanPush(m *Matcher) (result, error) {
 		if localID == zeroID {
 			continue
 		}
-		// Only what no remote ref has yet is this push's to judge: a merge of the default branch
-		// would otherwise rescan every commit the remote already publishes.
-		sel := []string{localID, "--not", "--remotes"}
-		if remoteID != zeroID {
-			sel = []string{localID, "--not", remoteID, "--remotes"}
-		}
+		sel := pushSelection(localID, remoteID, remote)
 		hits, n, err := a.scanRange(sel, m)
 		if err != nil {
 			return result{}, err
@@ -321,6 +325,22 @@ func (a app) scanPush(m *Matcher) (result, error) {
 	}
 	res.scanned = strconv.Itoa(commits) + " commit(s)"
 	return res, nil
+}
+
+// pushSelection is the git log revision selection scanPush scans for one ref line.
+func pushSelection(localID, remoteID, remote string) []string {
+	sel := []string{localID, "--not"}
+	named := remote != "" && !strings.ContainsAny(remote, ":/")
+	if named {
+		sel = append(sel, "--remotes="+remote)
+	}
+	if remoteID != zeroID {
+		return append(sel, remoteID)
+	}
+	if !named {
+		sel = append(sel, "--remotes")
+	}
+	return sel
 }
 
 // scanTree reads every file of a commit through one `git cat-file --batch`.

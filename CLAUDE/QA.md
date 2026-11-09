@@ -520,35 +520,24 @@ same exported shell predicate (`discovery.ShellShebang`; a `-c` or a combined fl
 such as `-ec` makes a shebang an inline one-liner, not a script) over the same trees
 table. Change discovery there, not in a gate.
 
-The two languages carry **separate exclusion lists** over that one mechanism,
-and the difference is deliberate: `QA_PY_EXCLUDE_DIRS` excludes only
-`.claude/ccy/plugins` and `.claude/ccy/file-history`, not the whole `.claude/ccy`
-tree, because `.claude/ccy/claude-supervise.py` is **tracked** — it is committed,
-shared between clones, and sits squarely inside ruff's default scope.
-Unifying the lists would have *dropped* a real file from the Python gate — this
-section's own defect, committed inside the fix for it.
+The two languages carry **separate exclusion lists** over that one mechanism
+(`scripts/qa-trees.tsv`, `shell` and `python` rows). They differ where a tree
+holds code of ours in one language only: the Python project handlers under
+`.claude/hooks/handlers/` are gated, while the generated hook scripts beside them
+are not.
 
-**Tracked is not the same as ours.** `claude-supervise.py` is **daemon-owned**:
-the hooks daemon rewrites it on every install and upgrade, so a local edit is
-discarded. So are `.claude/init.sh`, `.claude/hooks/*`, the `*.sh` scripts under
-`.claude/skills/hooks-daemon/scripts/`, and `CLAUDE/Plan/mkplan.bash` — all
-tracked, none of them ours to edit.
-
-**Which of those the gates actually open is a separate question**, and the two
-must not be conflated. `.claude/init.sh`, `mkplan.bash` and `claude-supervise.py`
-are discovered and gated. The generated hook scripts in `.claude/hooks/` are not:
-v3.72.1 shipped them failing shellcheck under its default rules (SC2034) and gave
-`status-line` 119 lines, so the shell gates (`scripts/qa-trees.tsv`) and bash-limits
-(`Exemptions`) exclude them by the owner's decision, and the defect goes upstream.
-The Python project handlers under `.claude/hooks/handlers/` are still gated. The skill scripts are **not**:
-`.claude/skills` is in `QA_EXCLUDE_DIRS`, so nothing under it reaches a gate —
-confirm with `jq '.paths.scanned[]' /tmp/qa-results.json`, which lists zero paths
-there. Upstream guarantees each daemon-owned file is clean under its language's
-**default** rule set (`ruff --isolated`, shellcheck with no rc), which is why
-gating the other three costs nothing today. If an upgrade ever lands a finding under a
-rule *this repo* chose, the remedy is to exclude the file (or narrow the rule —
-see the `BLE` note in `ruff.toml`) and never to edit it, because the next upgrade
-overwrites the fix. Report it upstream if it fails under default rules.
+**Daemon-deployed files are never gated here** (owner's decision). The hooks
+daemon ships and rewrites them on every install and upgrade, so a local edit is
+discarded, and its own QA is their gate. They are `.claude/ccy` (with
+`claude-supervise.py`), `.claude/hooks/*` (but not `handlers/`), `.claude/skills`,
+`.claude/init.sh`, `.claude/provision.sh`, `CLAUDE/Plan/mkplan.bash` and
+`CLAUDE/core`, each a row of `scripts/qa-trees.tsv`; bash-limits holds its own
+exemptions for the same files (`Exemptions`, `DaemonOwnedFiles`). A finding in one
+of them is reported upstream (`/hooks-daemon issue-report`) and never blocks this
+repository: no gate opens them, and none is narrowed or patched to make one pass.
+The secret and private-name scans do not read the trees table and still cover
+them. When an upgrade ships a new daemon-deployed file a gate would open, it gets
+a row in the table in the upgrade commit.
 
 `qa-python.bash` joined them in Plan 00081. It had the identical defect and had
 not learned from 00076: it discovered by extension **or the execute bit**, so six

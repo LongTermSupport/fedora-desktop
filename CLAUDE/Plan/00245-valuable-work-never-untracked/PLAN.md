@@ -103,8 +103,12 @@ install-specific identifiers reaching a commit because no detector knows them.
 - [x] Task 3.6: `pre-push` scans only what no remote ref has yet. An update was scanned as
   `REMOTE..LOCAL`, so a branch that merged the default branch rescanned every commit
   `origin/F44` already publishes (1940 commits, 13 findings in history the owner left) and
-  could not be pushed. `scanPush` now selects `LOCAL --not REMOTE --remotes`
-  (`TestPushScansEachNewCommitRange`, red then green).
+  could not be pushed. `scanPush` selected `LOCAL --not REMOTE --remotes`
+  (`TestPushScansEachNewCommitRange`, red then green). F44 fixed the same fault in parallel
+  (55beea057: `LOCAL --not --remotes=<remote> [REMOTE_TIP]`, judged against the pushed-to
+  remote only, so local archive refs under `refs/remotes/` no longer count as published); the
+  aggregate's merge of F44 takes F44's version of `src-go/qa/privatenames` whole, as the
+  branch's test pinned nothing F44's does not.
 
 ### Phase 4: finish the dormant work branches
 
