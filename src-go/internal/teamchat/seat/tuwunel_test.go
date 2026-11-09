@@ -57,7 +57,7 @@ func startReal(ctx context.Context, t *testing.T, clock *fakeClock) realServer {
 
 func (r realServer) member(token string) *matrix.Client {
 	r.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: r.base, PlainHTTPHosts: []string{loopback}, Token: token, Clock: r.clock})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: r.base, Token: token, Clock: r.clock})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -91,6 +91,7 @@ func TestTuwunelTakeAndRelease(t *testing.T) {
 	store, err := Open(Config{
 		StateHome: filepath.Join(home, "state"), RuntimeDir: filepath.Join(home, "run"), Checkout: key,
 		Clock: clock, Credential: Password{Clock: clock}, Sessions: &sessions{}, Announcer: &announcer{outcome: Outcome{Posted: true}},
+		Reach: VersionsReach{Clock: clock},
 	})
 	if err != nil {
 		t.Fatal(err)

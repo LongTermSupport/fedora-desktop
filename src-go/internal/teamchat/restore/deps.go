@@ -73,6 +73,9 @@ type Tar struct {
 	Roster     apply.RosterFile
 	Rooms      proto.RoomIDs
 	Token      string
+	// CA is the team CA's files the backup holds (Plan 00246 X13), none for a backup taken
+	// before the backup carried the CA.
+	CA []host.BackupFile
 }
 
 // Deps is every effect of the restore (SM4). Root prefixes every host path ("" on a host);

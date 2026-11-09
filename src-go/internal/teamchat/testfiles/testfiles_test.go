@@ -51,7 +51,7 @@ func TestReadByNameAndByFullPath(t *testing.T) {
 // a link that leads out.
 func TestWhatLeavesTheDirectoryIsRefused(t *testing.T) {
 	w := newWorld(t)
-	for _, name := range []string{"../outside", w.outside, "outlink", "/etc/hostname"} {
+	for _, name := range []string{"../outside", w.outside, "outlink", "/etc/os-release"} {
 		if got, err := readIn(w.dir, name); err == nil {
 			t.Errorf("readIn %s: %q", name, got)
 		}

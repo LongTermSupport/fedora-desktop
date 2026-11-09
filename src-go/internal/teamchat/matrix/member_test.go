@@ -68,7 +68,7 @@ func TestVersions(t *testing.T) {
 func TestLogin(t *testing.T) {
 	srv := newServer(t)
 	uid := srv.AddUser("carol", "right", false)
-	c, err := NewMember(Config{BaseURL: srv.URL(), PlainHTTPHosts: []string{loopback}, Token: "unused", Clock: &fakeClock{}})
+	c, err := NewMember(Config{BaseURL: srv.URL(), Token: "unused", Clock: &fakeClock{}})
 	if err != nil {
 		t.Fatal(err)
 	}

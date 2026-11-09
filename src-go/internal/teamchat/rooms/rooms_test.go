@@ -488,7 +488,7 @@ func TestConvergeReinvitesWhoLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: noWait{}})
+	m, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), Token: token, Clock: noWait{}})
 	if err != nil {
 		t.Fatal(err)
 	}

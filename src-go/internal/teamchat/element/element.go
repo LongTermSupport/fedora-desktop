@@ -197,12 +197,24 @@ func (env Env) profile(team paths.TeamID) (files, bool, error) {
 	if err != nil || u.Hostname() == "" {
 		return files{}, false, fmt.Errorf("%w: %s: the approved url has no host", ErrRefused, team)
 	}
+	if u.Scheme == "https" {
+		if _, err = fmt.Fprintf(env.Stderr, noteCA, team, paths.CACertFile(team)); err != nil {
+			return files{}, false, err
+		}
+	}
 	return files{
 		config:   configJSON(g.URL, u.Hostname(), paths.ServerName(team)),
 		seed:     indent(proto.Obj(proto.M("spellCheckerEnabled", proto.Bool(false)))),
 		launcher: launcher(team, name),
 	}, true, nil
 }
+
+// noteCA is said for a team whose url is https (SPEC-cross-network X20): the team's own CA signs
+// its homeserver's certificate, and no system root does. Whether the Flatpak build of Element
+// honours a CA added for it is not established here, so the note says so.
+const noteCA = "%s: the team's url is https, so Element must trust the team's CA, %s " +
+	"(in a root-only directory: copy it out as root to import it); whether the Flatpak build " +
+	"honours a CA added for it has not been checked\n"
 
 // files are a team's three files' content.
 type files struct {

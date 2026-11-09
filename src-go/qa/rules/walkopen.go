@@ -740,7 +740,7 @@ func hasFlag(pass *analysis.Pass, flags ast.Expr, name string) bool {
 			return !found
 		}
 		obj := pass.TypesInfo.Uses[sel.Sel]
-		if obj != nil && obj.Pkg() != nil && (obj.Pkg().Path() == "syscall" || obj.Pkg().Path() == "golang.org/x/sys/unix") {
+		if obj != nil && obj.Pkg() != nil && (obj.Pkg().Path() == syscallPkg || obj.Pkg().Path() == "golang.org/x/sys/unix") {
 			found = obj.Name() == name
 		}
 		return !found

@@ -3,6 +3,8 @@ package declare
 import (
 	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -14,8 +16,7 @@ func teamEntry(id string, port int) map[string]any {
 		"state":       "present",
 		"port":        port,
 		"description": "The team that builds the thing.",
-		"listen":      []any{"192.0.2.10"},
-		"allow_from":  []any{"192.0.2.0/24"},
+		"networks":    []any{"192.0.2.0/24"},
 		"humans":      []any{"alice", "bob"},
 		"coordinator": "myrepo.1+desk.podman",
 		"trust": map[string]any{
@@ -23,6 +24,15 @@ func teamEntry(id string, port int) map[string]any {
 			"repos": []any{map[string]any{"repo": "example-org/thing", "branches": []any{"main"}}},
 		},
 	}
+}
+
+// networkList is n distinct host prefixes of 203.0.113.0/24 (n up to 256).
+func networkList(n int) []any {
+	out := make([]any, 0, n)
+	for i := range n {
+		out = append(out, "203.0.113."+strconv.Itoa(i)+"/32")
+	}
+	return out
 }
 
 func lxcEntry(team string) map[string]any {
@@ -91,7 +101,7 @@ func checkDefaults(t *testing.T, d Declaration) {
 	t.Helper()
 	a := d.Teams[0]
 	if a.ID.String() != "alpha" || a.Name != "alpha" || a.ServerName != "alpha.teamchat.internal" ||
-		a.URL != "http://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" {
+		a.URL != "https://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" {
 		t.Fatalf("defaults not filled: %+v", a)
 	}
 	m := d.LXC[0]
@@ -177,15 +187,25 @@ func teamRefusals() []refusal {
 
 func networkRefusals() []refusal {
 	return []refusal{
-		{"listen empty", "teamchat_teams[0].listen", "", func(d map[string]any) { team0(d)["listen"] = []any{} }},
-		{"listen wildcard", "teamchat_teams[0].listen[0]", "", func(d map[string]any) { team0(d)["listen"] = []any{"0.0.0.0"} }},
-		{"listen not canonical", "teamchat_teams[0].listen[0]", "", func(d map[string]any) { team0(d)["listen"] = []any{"2001:DB8::1"} }},
-		{"listen zone", "teamchat_teams[0].listen[0]", "", func(d map[string]any) { team0(d)["listen"] = []any{"fe80::1%eth0"} }},
-		{"listen duplicate", "teamchat_teams[0].listen[1]", "", func(d map[string]any) {
-			team0(d)["listen"] = []any{"192.0.2.10", "192.0.2.10"}
+		// X1: a team declares networks; listen and allow_from are unknown keys (the addresses are
+		// derived at apply time).
+		{"listen is not a key", "teamchat_teams[0].listen", "", func(d map[string]any) {
+			team0(d)["listen"] = []any{"192.0.2.10"}
 		}},
-		{"allow_from host bits", "teamchat_teams[0].allow_from[0]", "", func(d map[string]any) { team0(d)["allow_from"] = []any{"192.0.2.1/24"} }},
-		{"allow_from not a prefix", "teamchat_teams[0].allow_from[0]", "", func(d map[string]any) { team0(d)["allow_from"] = []any{"x"} }},
+		{"allow_from is not a key", "teamchat_teams[0].allow_from", "", func(d map[string]any) {
+			team0(d)["allow_from"] = []any{"192.0.2.0/24"}
+		}},
+		{"networks missing", "teamchat_teams[0].networks", "", func(d map[string]any) { delete(team0(d), "networks") }},
+		{"networks not a list", "teamchat_teams[0].networks", "", func(d map[string]any) { team0(d)["networks"] = "192.0.2.0/24" }},
+		{"networks host bits", "teamchat_teams[0].networks[0]", "", func(d map[string]any) { team0(d)["networks"] = []any{"192.0.2.1/24"} }},
+		{"networks not a prefix", "teamchat_teams[0].networks[0]", "", func(d map[string]any) { team0(d)["networks"] = []any{"x"} }},
+		{"networks a bare address", "teamchat_teams[0].networks[0]", "", func(d map[string]any) { team0(d)["networks"] = []any{"192.0.2.1"} }},
+		{"networks not canonical", "teamchat_teams[0].networks[0]", "", func(d map[string]any) { team0(d)["networks"] = []any{"2001:DB8::/32"} }},
+		{"networks zone", "teamchat_teams[0].networks[0]", "", func(d map[string]any) { team0(d)["networks"] = []any{"fe80::1%eth0/64"} }},
+		{"networks duplicate", "teamchat_teams[0].networks[1]", "", func(d map[string]any) {
+			team0(d)["networks"] = []any{"192.0.2.0/24", "192.0.2.0/24"}
+		}},
+		{"networks over 32", "teamchat_teams[0].networks", "", func(d map[string]any) { team0(d)["networks"] = networkList(33) }},
 		{"url path", "teamchat_teams[0].url", "", func(d map[string]any) { team0(d)["url"] = "http://192.0.2.10:8448/x" }},
 		{"url user", "teamchat_teams[0].url", "", func(d map[string]any) { team0(d)["url"] = "http://u@192.0.2.10:8448" }},
 		{"url scheme", "teamchat_teams[0].url", "", func(d map[string]any) { team0(d)["url"] = "ftp://192.0.2.10" }},
@@ -247,6 +267,108 @@ func TestDecodeRefusesNamingTheField(t *testing.T) {
 				_, err := Decode(encode(t, d))
 				wantField(t, err, c.field, c.value)
 			})
+		}
+	}
+}
+
+// X1: a team declares 0 to 32 networks, each a canonical masked CIDR, IPv4 and IPv6 alike.
+func TestNetworksBoundsAndFamilies(t *testing.T) {
+	for name, nets := range map[string][]any{
+		"none":       {},
+		"thirty-two": networkList(32),
+		"both families": {
+			"192.0.2.0/24", "198.51.100.7/32", "2001:db8::/32", "2001:db8:1::5/128",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := validDecl()
+			team0(d)["networks"] = nets
+			got, err := Decode(encode(t, d))
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if len(got.Teams[0].Networks) != len(nets) {
+				t.Fatalf("networks %v, want %d entries", got.Teams[0].Networks, len(nets))
+			}
+		})
+	}
+}
+
+// X6 (the part the declaration alone can judge): the url host is an IP literal or a DNS name, and
+// whether an IP literal is a derived listen address is judged where the listen set is known, in
+// `team apply`; here neither a name nor an address outside the networks is refused.
+func TestURLHostIsAnAddressOrANameHere(t *testing.T) {
+	for _, url := range []string{"https://chat.example.com:8448", "https://203.0.113.9:8448", "https://[2001:db8::1]:8448"} {
+		d := validDecl()
+		team0(d)["url"] = url
+		if _, err := Decode(encode(t, d)); err != nil {
+			t.Errorf("url %s refused: %v", url, err)
+		}
+	}
+}
+
+// PR #128 review S3: the port a team's url reaches, its explicit port or its scheme's default
+// (443, 80), is the team's own port, or `declare check` refuses it naming the field and both
+// ports.
+func TestURLPortIsTheTeamsPort(t *testing.T) {
+	for url, refused := range map[string]string{
+		"https://chat.example.com":      "reaches port 443, not the team's port 8448",
+		"https://192.0.2.10:8449":       "reaches port 8449, not the team's port 8448",
+		"http://127.0.0.1":              "reaches port 80, not the team's port 8448",
+		"https://chat.example.com:8448": "",
+		"http://[::1]:8448":             "",
+	} {
+		d := validDecl()
+		team0(d)["url"] = url
+		_, err := Decode(encode(t, d))
+		if refused == "" {
+			if err != nil {
+				t.Errorf("url %s refused: %v", url, err)
+			}
+			continue
+		}
+		wantField(t, err, "teamchat_teams[0].url", "")
+		if !strings.Contains(err.Error(), refused) {
+			t.Errorf("url %s: %v, want it to say %q", url, err, refused)
+		}
+	}
+}
+
+// X12 (PR #128 review S2): plain http is for a loopback IP literal alone, by matrix's one rule
+// (127.0.0.0/8 and ::1), so `declare check` refuses any other http url, naming the field; and the
+// url a team gets when it declares none is https.
+func TestPlainHTTPIsForALoopbackLiteralAlone(t *testing.T) {
+	for url, refused := range map[string]bool{
+		"http://192.0.2.10:8448":       true,
+		"http://chat.example.com:8448": true,
+		"http://[2001:db8::1]:8448":    true,
+		"http://127.0.0.1:8448":        false,
+		"http://127.0.0.2:8448":        false,
+		"http://[::1]:8448":            false,
+		"https://192.0.2.10:8448":      false,
+	} {
+		d := validDecl()
+		team0(d)["url"] = url
+		_, err := Decode(encode(t, d))
+		switch {
+		case refused:
+			wantField(t, err, "teamchat_teams[0].url", "")
+			if err != nil && !strings.Contains(err.Error(), "plain http is only for a loopback IP literal") {
+				t.Errorf("url %s: the refusal does not say why: %v", url, err)
+			}
+		case err != nil:
+			t.Errorf("url %s refused: %v", url, err)
+		}
+	}
+	for address, want := range map[string]string{"192.0.2.10": "https://192.0.2.10:8448", "2001:db8::1": "https://[2001:db8::1]:8448"} {
+		d := validDecl()
+		d["teamchat_address"] = address
+		got, err := Decode(encode(t, d))
+		if err != nil {
+			t.Fatalf("address %s: %v", address, err)
+		}
+		if got.Teams[0].URL != want {
+			t.Errorf("address %s: default url %s, want %s", address, got.Teams[0].URL, want)
 		}
 	}
 }
@@ -362,9 +484,9 @@ func TestDecodeInputRefuses(t *testing.T) {
 	}
 }
 
-const canonicalAlpha = `{"v":1,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
-	`"description":"The team that builds the thing.","listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],` +
-	`"url":"http://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
+const canonicalAlpha = `{"v":2,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
+	`"description":"The team that builds the thing.","networks":["192.0.2.0/24"],` +
+	`"url":"https://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
 	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
 
 func TestCanonicalTeamFile(t *testing.T) {
@@ -397,15 +519,57 @@ func TestCanonicalTeamFile(t *testing.T) {
 
 func TestDecodeTeamFileRefuses(t *testing.T) {
 	for _, bad := range []string{
-		strings.Replace(canonicalAlpha, `"v":1`, `"v":2`, 1),
+		strings.Replace(canonicalAlpha, `"v":2`, `"v":3`, 1),
 		strings.Replace(canonicalAlpha, `"port":8448,`, ``, 1),
-		strings.Replace(canonicalAlpha, `"v":1,`, `"v":1,"state":"present",`, 1),
-		strings.Replace(canonicalAlpha, `"v":1,`, ``, 1),
+		strings.Replace(canonicalAlpha, `"v":2,`, `"v":2,"state":"present",`, 1),
+		strings.Replace(canonicalAlpha, `"v":2,`, ``, 1),
+		strings.Replace(canonicalAlpha, `"networks":["192.0.2.0/24"],`, ``, 1),
+		strings.Replace(canonicalAlpha, `"networks":["192.0.2.0/24"],`, `"listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],`, 1),
 		`{`,
 	} {
 		if _, err := DecodeTeamFile([]byte(bad)); err == nil {
 			t.Fatalf("DecodeTeamFile accepted %s", bad)
 		}
+	}
+}
+
+// v1Alpha is alpha's team.json as version 1 wrote it, with listen and allow_from.
+const v1Alpha = `{"v":1,"team":"alpha","name":"Alpha","server_name":"alpha.teamchat.internal","port":8448,` +
+	`"description":"The team that builds the thing.","listen":["192.0.2.10"],"allow_from":["192.0.2.0/24"],` +
+	`"url":"http://192.0.2.10:8448","humans":["alice","bob"],"coordinator":"myrepo.1+desk.podman",` +
+	`"trust":{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}}`
+
+// X1: a version 1 file is refused, and the refusal names the version, whatever else the file holds.
+func TestDecodeTeamFileRefusesVersion1ByName(t *testing.T) {
+	_, err := DecodeTeamFile([]byte(v1Alpha))
+	wantField(t, err, "team.json.v", "")
+	if err == nil || !strings.Contains(err.Error(), "version 1") {
+		t.Fatalf("the refusal does not name the version: %v", err)
+	}
+	_, err = DecodeTeamFile([]byte(strings.Replace(canonicalAlpha, `"v":2`, `"v":7`, 1)))
+	if err == nil || !strings.Contains(err.Error(), "version 7") {
+		t.Fatalf("a version 7 file: %v", err)
+	}
+}
+
+// X1: team.json lists the keys in a fixed order with networks where listen and allow_from were,
+// and carries neither of them.
+func TestTeamFileKeysAreTheVersion2List(t *testing.T) {
+	d, err := Decode(encode(t, validDecl()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(d.Teams[0].Canonical())
+	for _, gone := range []string{`"listen"`, `"allow_from"`} {
+		if strings.Contains(raw, gone) {
+			t.Fatalf("team.json carries %s: %s", gone, raw)
+		}
+	}
+	if !strings.HasPrefix(raw, `{"v":2,`) || !strings.Contains(raw, `"networks":["192.0.2.0/24"]`) {
+		t.Fatalf("team.json %s", raw)
+	}
+	if !slices.Equal(d.Teams[0].Networks, []string{"192.0.2.0/24"}) {
+		t.Fatalf("networks %v", d.Teams[0].Networks)
 	}
 }
 

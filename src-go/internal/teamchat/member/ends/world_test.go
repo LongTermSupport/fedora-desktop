@@ -142,7 +142,7 @@ func (w *world) admin(t *testing.T) *matrix.Admin {
 
 func (w *world) client(t *testing.T, local string) *matrix.Client {
 	t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: w.tokens[local], Clock: noWait{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), Token: w.tokens[local], Clock: noWait{}})
 	if err != nil {
 		t.Fatal(err)
 	}

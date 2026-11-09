@@ -35,6 +35,10 @@ import (
 // Bridge is the LXC bridge the members' allow rule is rendered from (NW4).
 const Bridge = "lxcbr0"
 
+// ErrTeamCANotMade is the team CA of a team no apply has made one for (host.ErrCANotMade): an https
+// team's bundle and reach facts need that CA, so they fail with this.
+var ErrTeamCANotMade = host.ErrCANotMade
+
 // New is the production wiring for a build of digest: Env.Wire of `teamchat-admin`'s main.
 func New(digest string) func() (*admin.System, error) {
 	return func() (*admin.System, error) { return production().system(digest) }
@@ -51,6 +55,9 @@ type machine struct {
 	dial       func(context.Context) (units.Conn, error)
 	kernel     guestroot.Kernel
 	kitOwner   int // the uid the host kit's current link must have: root
+	// stateOwnerUID owns the state root and root's own files (the CA key among them): root on a
+	// host, and the test's own uid in a test, whose fixtures are its user's.
+	stateOwnerUID uint32
 	// restoreProven is set only once host checks H-C5 and H-C15 have passed (DC8, n2g-D8); a
 	// test sets it to run the engine over these adapters. Until then System.Restore refuses.
 	restoreProven bool
@@ -62,8 +69,12 @@ func production() machine {
 		ownerGroup: admin.OwnerGroupFile("", admin.LookupGroup),
 		readPin:    func() (host.Pin, error) { return admin.ReadPin("") },
 		runner:     execx.OS{}, dial: units.SystemBus, kernel: guestroot.LinuxKernel{},
+		stateOwnerUID: rootUID,
 	}
 }
+
+// rootUID is root's, the owner of the state root and of root's own files on a host.
+const rootUID = 0
 
 func (m machine) system(digest string) (*admin.System, error) {
 	d, err := paths.ParseDigest(digest)
@@ -75,7 +86,9 @@ func (m machine) system(digest string) (*admin.System, error) {
 		return nil, fmt.Errorf("the running binary: %w", err)
 	}
 	clock := systemClock{}
-	root, run := m.root, m.root+paths.AdminRunDir
+	root, run, stateOwnerUID := m.root, m.root+paths.AdminRunDir, m.stateOwnerUID
+	// The team CA is read from the host's files at each issue (Plan 00246 X15, S16).
+	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team, stateOwnerUID) }
 	ownerGroup := sync.OnceValues(m.ownerGroup)
 	systemd := units.NewManager(m.dial, m.runner)
 	child := admin.ExecChild{Runner: m.runner, Self: self, Lookup: m.lookupUser}
@@ -101,7 +114,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 	})
 	sys := &admin.System{
 		Host: host.Deps{
-			Root: root, LockDir: run, Clock: clock, Rand: rand.Reader, Software: digest,
+			Root: root, LockDir: run, Clock: clock, Rand: rand.Reader, Software: digest, StateOwnerUID: stateOwnerUID,
 			// Load only: team approve writes approved.json with the owner group's gid.
 			Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
 			Systemd:   systemd.Host(), Firewall: hostnet.Firewall{Runner: m.runner, Proc: m.proc},
@@ -117,7 +130,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 			},
 		},
 		Child:      child,
-		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d},
+		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCA},
+		TeamCA:     teamCA,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
 		Pin:        m.readPin,
@@ -136,9 +150,6 @@ func (m machine) system(digest string) (*admin.System, error) {
 	return sys, nil
 }
 
-// stateOwnerUID owns the state root and root's own files on a host.
-const stateOwnerUID = 0
-
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
 // team lock it holds.
 func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (admin.Restorer, error) {
@@ -146,7 +157,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 	if err != nil {
 		return nil, err
 	}
-	root := m.root
+	root, stateOwnerUID := m.root, m.stateOwnerUID
 	return admin.Engine{Deps: restore.Deps{
 		Root: root, CtlUID: b.CtlUID, StateOwnerUID: stateOwnerUID,
 		Units: restoreUnits{systemd}, Ready: b.Ready, Run: m.runner,
@@ -156,7 +167,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 			c, err := backup.ReadTar(b, team, n)
 			return restore.Tar{
 				TimeMS: c.Manifest.TimeMS, ServerName: c.Manifest.ServerName, TeamFile: c.TeamJSON, Config: c.Config,
-				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token,
+				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token, CA: c.CA,
 			}, err
 		},
 		Backup: func(ctx context.Context, held *teamlock.Lock, keep []int64) (int64, error) {

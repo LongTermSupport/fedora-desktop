@@ -31,7 +31,7 @@ func mustSeat(t *testing.T, s string) paths.SeatName {
 var bVerbs = []string{
 	"recv", "wait", "inbox", "reply", "say", "ping", "report", "ask", "thread", "questions",
 	"history", "verify", "status", "version", "help",
-	"run", "link", "hook", "status-line", "reach", "seat disconnected", "seat set-aside",
+	"run", "link", "hook", "status-line", "reach", "tls", "seat disconnected", "seat set-aside", "seat place-issued",
 	"guest check", "guest place-bundle", "guest membership", "guest remove",
 }
 
@@ -76,7 +76,7 @@ func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
 		"hook", "status-line",
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-		"reply", "say", "ping",
+		"tls", "reply", "say", "ping",
 	}
 	if got := Outside(); !slices.Equal(got, want) {
 		t.Fatalf("Outside() = %q", got)
@@ -147,6 +147,7 @@ func TestUsageSpellsBsForms(t *testing.T) {
 		"help":              "teamchat help [<verb>|exit-codes]",
 		"run":               "teamchat run --claude|--plain --kind ccy|lxc|host|other [--key K] [--desired DIR] [--seat T/S...] [--state DIR] [--resume-recorded] [--kit DIR] -- CMD",
 		"seat set-aside":    "teamchat seat set-aside --team T [--state DIR]",
+		"seat place-issued": "teamchat seat place-issued --checkout DIR",
 		"seat disconnected": "teamchat seat disconnected --bundle DIR --since MS --seed ID",
 		"guest check":       "teamchat guest check --user U --team T",
 		"guest membership":  "teamchat guest membership --user U --key K",

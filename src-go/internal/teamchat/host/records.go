@@ -24,7 +24,7 @@ var (
 
 var (
 	restartKeys = []string{digestBaseUnit, digestConfig, digestExecStart}
-	reloadKeys  = []string{digestIPAllow, digestMemory, digestSocketBind, digestUnit}
+	reloadKeys  = []string{digestIPAllow, digestMemory, digestSocketBind}
 )
 
 // unitsRecord is units.json (C 3.2.2): the digest sets, version, port and listen set last

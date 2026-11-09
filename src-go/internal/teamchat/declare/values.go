@@ -1,21 +1,22 @@
 package declare
 
 import (
+	"errors"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// The list bounds of DR3 and DR4.
+// The list bounds of DR3 and DR4, and X1's networks.
 const (
-	maxHumans    = 16
-	maxListen    = 8
-	maxAllowFrom = 32
-	maxDNSName   = 253
+	maxHumans   = 16
+	maxNetworks = 32
+	maxDNSName  = 253
 )
 
 var (
@@ -39,6 +40,32 @@ func validPrefix(s string) bool {
 
 // validServerName is a lower-case DNS name of at least two labels.
 func validServerName(s string) bool { return len(s) <= maxDNSName && dnsNameRe.MatchString(s) }
+
+// URLProblem is what makes a team's url one no member may use to reach the team on port, or ""
+// when none does: matrix's rule for a member's base URL, the one rule for it (X12: plain http
+// only to a loopback IP literal), and the port the url reaches, its explicit port or its scheme's
+// default, the team's own. `declare check` and `team apply` both judge a url by it.
+func URLProblem(raw string, port int) string {
+	_, err := matrix.CanonicalMemberBase(raw)
+	if me, ok := errors.AsType[*matrix.Error](err); ok {
+		return me.Detail
+	}
+	if err != nil {
+		return err.Error()
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err.Error()
+	}
+	reaches := u.Port()
+	if reaches == "" {
+		reaches = map[string]string{"https": "443", "http": "80"}[u.Scheme]
+	}
+	if reaches != strconv.Itoa(port) {
+		return "reaches port " + reaches + ", not the team's port " + strconv.Itoa(port)
+	}
+	return ""
+}
 
 // validURL is DR3's url: http or https, an IP or DNS host, an optional port, nothing else, in its
 // canonical text.
@@ -123,12 +150,9 @@ func (n node) humans() ([]string, error) {
 	return n.strings(1, maxHumans, proto.ValidHumanName, "is not a valid human name, or is reserved")
 }
 
-func (n node) listen() ([]string, error) {
-	return n.strings(1, maxListen, validAddress, "is not an IP address in canonical form, or is unspecified")
-}
-
-func (n node) allowFrom() ([]string, error) {
-	return n.strings(0, maxAllowFrom, validPrefix, "is not a CIDR prefix in canonical masked form")
+// networks reads n as X1's networks: 0 to 32 CIDRs, each in canonical masked form.
+func (n node) networks() ([]string, error) {
+	return n.strings(0, maxNetworks, validPrefix, "is not a CIDR prefix in canonical masked form")
 }
 
 func (n node) url() (string, error) {

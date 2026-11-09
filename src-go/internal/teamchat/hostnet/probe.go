@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
@@ -64,11 +65,7 @@ func (p Prober) Probe(ctx context.Context, team paths.TeamID) error {
 
 // newClient is the probes' client: no proxy, no redirect followed, five seconds.
 func newClient() *http.Client {
-	return &http.Client{
-		Timeout:       probeTimeout,
-		Transport:     &http.Transport{Proxy: nil, DisableKeepAlives: true},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	return matrix.LoopbackClient(probeTimeout)
 }
 
 // get is a GET of http://127.0.0.1:<port><path> that answers 200; at most bodyCap of the body

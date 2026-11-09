@@ -44,6 +44,16 @@ const (
 	EnvStatusLineInner = EnvPrefix + "STATUS_LINE_INNER"
 )
 
+// A unit's credentials (systemd.exec LoadCredential): EnvCredentials is the variable systemd sets
+// to the directory that holds them, which is systemd's and so is not under EnvPrefix, and the two
+// files the team's TLS terminator is given, the leaf certificate and its key (Plan 00246
+// SPEC-cross-network X18).
+const (
+	EnvCredentials     = "CREDENTIALS_DIRECTORY"
+	LeafCertCredential = "leaf.crt"
+	LeafKeyCredential  = "leaf.key"
+)
+
 // Binaries (D 3.3). InstallBinary is reserved for area C, should it split the installer out.
 const (
 	MemberBinary     = Product
@@ -96,6 +106,7 @@ const (
 const (
 	ServerUnitTemplate   = Product + "-server@.service"
 	FenceUnitTemplate    = Product + "-fence@.service"
+	TLSUnitTemplate      = Product + "-tls@.service"
 	ServerStateDirectory = Product + "/%i"
 	HealthService        = Product + "-health.service"
 	HealthTimer          = Product + "-health.timer"
@@ -147,6 +158,13 @@ func ServerRuntimeDirectory(t TeamID) string { return Product + "/" + t.text() }
 
 // FenceUnit is the team's migration fence unit (D 3.5).
 func FenceUnit(t TeamID) string { return Product + "-fence@" + t.text() + ".service" }
+
+// TLSUnit is the team's TLS terminator unit, which accepts TLS on the team's listen addresses and
+// relays to the homeserver on loopback (Plan 00246 SPEC-cross-network X18).
+func TLSUnit(t TeamID) string { return Product + "-tls@" + t.text() + ".service" }
+
+// TLSUnitDropIn is the drop-in directory of the team's terminator unit.
+func TLSUnitDropIn(t TeamID) string { return TLSUnit(t) + ".d" }
 
 // FenceTable is the name of the team's nftables fence table, in family inet.
 func FenceTable(t TeamID) string { return Product + "_fence_" + t.text() }
@@ -252,6 +270,26 @@ func FenceFile(t TeamID) string { return MigrationDir(t) + "/fence.nft" }
 
 // FirewallRecord is the record of the firewalld rules v2 added for the team.
 func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
+
+// TLSDir is the team's certificates, a root-only directory: its CA and the leaf its homeserver
+// is reached by (Plan 00246 SPEC-cross-network X13, X14).
+func TLSDir(t TeamID) string { return AdminState(t) + "/tls" }
+
+// CACertFile is the team's CA certificate. It is not secret (every member bundle carries it) and
+// is mode 0644 in the root-only TLSDir, so the admin issuing a bundle reads it as root.
+func CACertFile(t TeamID) string { return TLSDir(t) + "/ca.crt" }
+
+// CAKeyFile is the team's CA key, mode 0600: the one secret that signs the leaf. Every team
+// backup carries it with CACertFile (backup.Take, through host.CABackupFiles), and a restore puts
+// both back where the team has no CA (host.RestoreCA).
+func CAKeyFile(t TeamID) string { return TLSDir(t) + "/ca.key" }
+
+// LeafCertFile is the certificate the team's homeserver is reached by, signed by the CA. It is made
+// again at every apply that needs it, so no backup carries it.
+func LeafCertFile(t TeamID) string { return TLSDir(t) + "/leaf.crt" }
+
+// LeafKeyFile is the leaf's key, mode 0600.
+func LeafKeyFile(t TeamID) string { return TLSDir(t) + "/leaf.key" }
 
 // CtlState is the team's admin token, roster and rooms, owned by CtlUser.
 func CtlState(t TeamID) string { return CtlStateRoot + "/" + t.text() }

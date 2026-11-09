@@ -4,6 +4,17 @@
 // and the approval gate of DC18 over a team's security fields (`approved.json`, the comparison
 // and the approve logic). It reads JSON only: the host_vars YAML reader is
 // declare/hostvars, which `teamchat-admin` never imports (DC17).
+//
+// A handle's site is declared and read from nothing else (SPEC-cross-network X25): the machine's
+// teamchat_site (default local), which an LXC entry that names none takes, or the entry's own
+// site. No code reads a hostname into a handle, and machinehost.go is the one file of teamchat
+// that reads the machine's hostname at all (project_hostname_read, X27), so that CheckSites can
+// refuse a declared site that spells it, a dot-label of it or a DNS label of a team's url host
+// (X26). That refusal is best effort: a machine is known by names the code cannot see.
+//
+// A handle that already embeds a hostname is a permanent identity (X28): nothing here renames
+// it, and CheckSites judges a site declared from now on. The owner retires and reissues such a
+// handle if it is wanted gone.
 package declare
 
 import (
@@ -31,7 +42,7 @@ const (
 const (
 	keyTeam, keyName, keyState, keyPurge       = "team", "name", "state", "purge"
 	keyPort, keyServerName, keyDescription     = "port", "server_name", "description"
-	keyListen, keyAllowFrom, keyURL            = "listen", "allow_from", "url"
+	keyNetworks, keyURL                        = "networks", "url"
 	keyHumans, keyCoordinator, keyTrust        = "humans", "coordinator", "trust"
 	keyContainer, keyUser, keyCheckout         = "container", "user", "checkout"
 	keySite, keySeat, keyHumanText, keyService = "site", "seat", "human_text", "service"
@@ -39,10 +50,18 @@ const (
 	keyColour                                  = "colour"
 )
 
+// HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
+// another slice's file; the name moves there with them).
+const HostVarSite = "teamchat_site"
+
 // Declaration is the v2 keys of host_vars.
 type Declaration struct {
 	// Address is teamchat_address, empty when undeclared.
 	Address string
+	// Site is teamchat_site, empty when undeclared (a handle is then made with the default,
+	// local): the one site of a machine's members, which an LXC entry that names none takes.
+	// It is the only source of a handle's site besides an entry's own (SPEC-cross-network X25).
+	Site    string
 	Teams   []Team
 	LXC     []LXCMember
 	Element []ElementTeam
@@ -58,9 +77,11 @@ type Team struct {
 	Port        int
 	ServerName  string
 	Description string
-	Listen      []string
-	AllowFrom   []string
-	// URL is the members' base URL: the declared one, or http://<address>:<port> (DR3).
+	// Networks are the CIDRs the team's members may connect from (SPEC-cross-network X1), in
+	// canonical masked form. The addresses the homeserver listens on are derived from them at
+	// apply time and are not declared.
+	Networks []string
+	// URL is the members' base URL: the declared one, or https://<address>:<port> (DR3, X12).
 	URL         string
 	Humans      []string
 	Coordinator string
@@ -111,7 +132,7 @@ func parse(raw []byte) (proto.Value, error) {
 // FromValue reads a declaration from an already parsed value, the YAML reader's way in.
 func FromValue(v proto.Value) (Declaration, error) {
 	root := node{v: v}
-	f, err := root.object(nil, paths.HostVarAddress, paths.HostVarTeams, paths.HostVarLXCMembers, paths.HostVarElementTeams)
+	f, err := root.object(nil, paths.HostVarAddress, HostVarSite, paths.HostVarTeams, paths.HostVarLXCMembers, paths.HostVarElementTeams)
 	if err != nil {
 		if root.v.Kind() != proto.KindObject {
 			return Declaration{}, &FieldError{Field: "the declaration", Problem: "is not an object"}
@@ -124,11 +145,21 @@ func FromValue(v proto.Value) (Declaration, error) {
 			return Declaration{}, err
 		}
 	}
+	if f.has(HostVarSite) {
+		if d.Site, err = f.at(HostVarSite).checked(validSite, "is not a site label in its normal form"); err != nil {
+			return Declaration{}, err
+		}
+	}
 	if d.Teams, err = readTeams(f, paths.HostVarTeams, d.Address); err != nil {
 		return Declaration{}, err
 	}
 	if d.LXC, err = readLXC(f, paths.HostVarLXCMembers, d.presentTeams()); err != nil {
 		return Declaration{}, err
+	}
+	for i := range d.LXC {
+		if d.LXC[i].Site == "" {
+			d.LXC[i].Site = d.Site
+		}
 	}
 	if d.Element, err = readElement(f, d.presentTeams()); err != nil {
 		return Declaration{}, err
@@ -182,7 +213,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 }
 
 var teamOptional = []string{
-	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyListen, keyAllowFrom, keyURL,
+	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyNetworks, keyURL,
 	keyHumans, keyCoordinator, keyTrust, keyColour,
 }
 
@@ -206,7 +237,7 @@ func readTeam(n node, address string) (Team, error) {
 		return Team{}, f.at(keyPurge).fail("is allowed only with state absent")
 	}
 	if t.State == StatePresent {
-		for _, k := range []string{keyPort, keyDescription, keyListen, keyAllowFrom, keyHumans, keyTrust} {
+		for _, k := range []string{keyPort, keyDescription, keyNetworks, keyHumans, keyTrust} {
 			if !f.has(k) {
 				return Team{}, f.at(k).fail("is required for a present team")
 			}
@@ -258,8 +289,7 @@ func readValues(t *Team, f fields, address string) error {
 			t.Description, err = n.checked(proto.ValidDescription, "is not 1-120 characters, trimmed, free of control characters")
 			return err
 		}},
-		{keyListen, func(n node) error { t.Listen, err = n.listen(); return err }},
-		{keyAllowFrom, func(n node) error { t.AllowFrom, err = n.allowFrom(); return err }},
+		{keyNetworks, func(n node) error { t.Networks, err = n.networks(); return err }},
 		{keyURL, func(n node) error { t.URL, err = n.url(); return err }},
 		{keyHumans, func(n node) error { t.Humans, err = n.humans(); return err }},
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
@@ -288,6 +318,9 @@ func readValues(t *Team, f fields, address string) error {
 		}
 		t.URL = defaultURL(address, t.Port)
 	}
+	if problem := URLProblem(t.URL, t.Port); problem != "" {
+		return f.at(keyURL).fail(problem)
+	}
 	return nil
 }
 
@@ -296,13 +329,14 @@ func validDisplayName(s string) bool {
 	return err == nil
 }
 
-// defaultURL is http://<address>:<port>, brackets around an IPv6 address.
+// defaultURL is https://<address>:<port>, brackets around an IPv6 address (X12: every member URL
+// but a loopback one is https).
 func defaultURL(address string, port int) string {
 	host := address
 	if a, err := netip.ParseAddr(address); err == nil && a.Is6() {
 		host = "[" + address + "]"
 	}
-	return "http://" + host + ":" + strconv.Itoa(port)
+	return "https://" + host + ":" + strconv.Itoa(port)
 }
 
 func port(n node) (int, error) {
