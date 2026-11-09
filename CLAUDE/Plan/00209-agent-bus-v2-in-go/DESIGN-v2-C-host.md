@@ -594,11 +594,17 @@ needs ordering against readiness, typed validation or Matrix calls is `teamchat-
 #### 3.5.1 The play's static tasks
 
 The v2 play (`play-teamchat.yml`, its own file, so v1's play is untouched) runs in
-this order. Steps 1 and 2 run as the login user and change nothing outside the build cache; every
-later step is root.
+this order, against any inventory host (`hosts` is `teamchat_hosts`, default `desktop`). Step 01
+runs on the controller as the controller's own user and changes nothing outside a temporary build
+directory it removes; every later step is root on the target. Where a step differs from the
+design as first written, the difference is Plan 00246's `INSTALL-PATH.md`, which gives the
+reason (the first real bus server host is a remote machine that has no checkout, no Go toolchain
+and maybe no login user).
 
-01. `teamchat-admin` and `teamchat`: built by `tasks/build-go-command.yml` as the login user (no
-    toolchain runs as root), into the user's build output, not yet installed.
+01. `teamchat-admin` and `teamchat`: built on the controller by `tasks/teamchat-build-go-commands.yml`
+    (static, `CGO_ENABLED=0`, vendored, for each distinct architecture of the hosts, from the
+    table in `vars/teamchat-arch.yml`), from a `src-go` that equals its commit, with the git tree
+    id of `src-go` as the source digest baked in. No toolchain runs on the target.
 02. The freshly built `teamchat-admin declare check`, run unprivileged (it is an "anyone" verb, 3.3),
     with the Ansible-parsed `teamchat_teams`, `teamchat_lxc_members` and `teamchat_element_teams`, and the
     `team` and `port` of each `agent_bus_teams` entry, as JSON on stdin (3.8); it reads the set
@@ -608,48 +614,69 @@ later step is root.
     present team's security fields with the owner's last approval (decision DC18, below) and
     prints one `SECURITY<TAB><team><TAB><field><TAB><old> -> <new>` line per difference; the play
     shows those lines in a task of its own and then fails, naming `ccy-teams approve <team>`.
+    **As built (Plan 00246): not run.** The verb is a row of the table with no code, so the play
+    skips it; `team apply` refuses an unapproved security field itself (AG4), and the cross-team
+    checks wait for the verb. The caller class stands: when built it runs as `nobody`, not as root.
 03. Install: root copies the built `teamchat-admin` to `/usr/local/lib/teamchat/teamchat-admin-<digest>` 0755 root and
     swaps the link `/usr/local/sbin/teamchat-admin`; `teamchat` goes to
-    `/usr/local/lib/teamchat/kit/<digest>/` with a `current` link (C33). (The ccy image carries its
-    own single kit at `/opt/claude-yolo/optional/teamchat`, area B; the play does not write it.) Root
-    opens each build output with `O_NOFOLLOW|O_NONBLOCK`, `fstat`s it (a regular file owned by
-    the login user, under a size cap), and hashes the bytes it copies from that one fd, so the
-    copy can never be turned into a read of a root-only file. The hash is checked against the one
-    the build step reported; both come from the owner's side, so this guards against a torn or
-    swapped file, not against the owner (K9). No root step below runs an older `teamchat-admin`.
-04. Packages: `firewalld`, `NetworkManager`, `zstd`, `lxc` only if any LXC member is declared.
-    Nothing else: no Python, no `curl`, no `jq`, no `tcpdump` (v1 needed each for its bash or its
-    acceptance).
+    `/usr/local/lib/teamchat/kit/<digest>/bin/teamchat` with a `current` link (C33), and
+    `/usr/local/bin/teamchat` is a link to the current kit's binary. (The ccy image carries its
+    own single kit at `/opt/claude-yolo/optional/teamchat`, area B; the play does not write it.)
+    The files are copied by the play's `copy` straight to their digest-named homes, where
+    nothing runs or links to them yet, and the target's sha256 of each is checked against the
+    one the controller took before any link is changed; this guards against a torn or swapped
+    file, not against the controller's owner (K9). No root step below runs an older
+    `teamchat-admin`.
+04. Packages: `zstd`. `firewalld` must already be running: the play refuses a host whose is not
+    and never starts one, since the first start of a firewall can cut off the ssh that runs the
+    play. `NetworkManager` (the bus address, step 08) and `lxc` (the LXC phases, steps 10 and 13)
+    come with the pieces that need them. Nothing else: no Python, no `curl`, no `jq`, no
+    `tcpdump` (v1 needed each for its bash or its acceptance).
 05. The `teamchat-ctl` system user (no home, `nologin`), the two state roots
     (`/var/lib/teamchat-admin/` 0700 root, `/var/lib/teamchat-ctl/` 0700 `teamchat-ctl`), `/var/lib/teamchat-status` 0750 root:`<owner group>` (it holds `installed.json`,
     `teams/<team>/stamp.json` and `status.json`, `lxc/<team>.json`, and `sets/<set-id>.json`,
     which D's migration verbs write, D §5.3), `/etc/teamchat/owner-group`
-    (root 0644, one group name from `getent` of the desktop user, read by every writer of an
-    owner-readable record; no default, as v1's stamp-group file, H 7.18).
+    (root 0644, one group name, read by every writer of an owner-readable record). The group is
+    the variable `teamchat_owner_group`, with no default (as v1's stamp-group file, H 7.18) and
+    made if absent: a remote host has no desktop user to take it from.
 06. Tuwunel: `get_url` of the pinned release asset with `checksum: sha256:<pin>` into a root-only
     staging directory, `zstd -d` with `creates:`, install as `/usr/local/lib/teamchat/server/tuwunel-<version>` 0755
     (atomic rename of a complete file). There is no shared link: no homeserver runs it until its
     own team's `team apply` names it in that team's drop-in, after that team's backup (3.2.3,
-    3.5.2). The pin lives in `vars/version-pins.yml` beside every other pin, so the
-    `update-versions` skill sees it. The release is unsigned, so the pin is the supply-chain
+    3.5.2). The asset is the one for the host's architecture (`vars/teamchat-arch.yml`). The pin
+    lives in `files/usr/local/share/teamchat/tuwunel.pin`, listed in `vars/version-pins.yml`
+    beside every other pin, so the `update-versions` skill sees it; the play also writes the
+    server pin file `teamchat-admin` reads (`paths.ServerPinFile`, JSON: the version and the
+    `MemoryHigh` and cache modifier values, defaults 512M and 0.5 until H-C1 measures them). The
+    download is skipped when a record beside the binary names the pinned checksum. The release is unsigned, so the pin is the supply-chain
     check, as in v1. Since the pin file is one an agent can edit (K9), the play prints the pinned
     version and hash in a task of its own whenever they differ from `installed.json`'s, so the
     owner sees a pin change on the run that applies it, and the `update-versions` flow for this
     pin cross-checks the hash against the checksum upstream publishes with the release (or its
     signature, if Tuwunel starts signing) before it writes the pin (security 15).
-07. Units: `teamchat-server@.service`, `teamchat-health.{service,timer}`, `teamchat-backup.{service,timer}`, the
-    resolver stub, all 0644 root; one `daemon_reload` if any changed. As the login user,
+07. Units: `teamchat-server@.service`, `teamchat-tls@.service`, `teamchat-health.{service,timer}`,
+    `teamchat-backup.{service,timer}`, the resolver stub, all 0644 root; one `daemon_reload` if any
+    changed. The text of every one is Go's: the play runs the installed `teamchat-admin units list`
+    (one line per file, its name and its install path) and `units print <name>`, and writes the
+    output, so the bytes on the host are the bytes the unit gates judge. As the login user,
     `teamchat-seats.{service,timer}` in the owner's systemd user directory (3.7.5), with a user
-    `daemon_reload` if either changed. The three timers are enabled only while at least one team
+    `daemon_reload` if either changed; a host that declares no member user (a bus server host)
+    installs neither, and this part is not built yet. The health and backup timers are enabled only while at least one team
     is present, so a v2 install with no teams starts nothing (C40).
-08. The bus address: a NetworkManager dummy connection `teamchat0` with `teamchat_address`, if declared.
+08. The bus address: a NetworkManager dummy connection `teamchat0` with `teamchat_address`, if
+    declared. **As built: not yet;** the play refuses a set `teamchat_address` by name.
 09. `/var/lib/teamchat-status/installed.json` (0640 root:`<owner group>`): the digest of the installed
     `teamchat-admin`, the Tuwunel version and the kit digest, which the board reads (3.13).
+    **As built: not yet;** nothing reads it, so nothing writes it.
 10. `teamchat-admin lxc apply --phase absent` with the LXC member declaration on stdin, while every
     team's homeserver still runs, so a member that leaves is parked on a live server (3.9.2,
     LR 1.6).
 11. For each absent team: `teamchat-admin team remove`.
-12. For each present team: `teamchat-admin team apply` with the team's rendered declaration on stdin.
+12. For each present team: `teamchat-admin team apply` with the team's declaration on stdin
+    (`{"team": <the entry>, "lxc_members": []}`; the Go reader judges it and fills the defaults).
+    Before it, `team approve` for each team in `teamchat_approve_teams`: on a host managed from
+    another repository there is no owner at the host, so the operator's reviewed change that adds
+    the team is its approval (DC18), listed by name.
 13. `teamchat-admin lxc apply --phase present` with the LXC member declaration on stdin.
 
 Every `teamchat-admin` step reports changed only on a `^CHANGED\t` line. `teamchat_only_teams`

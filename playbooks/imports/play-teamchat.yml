@@ -1,0 +1,442 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# Agent team bus v2 host (Plan 00209 DESIGN-v2-C-host.md 3.5.1, as amended by Plan 00246
+# INSTALL-PATH.md): installs the v2 programs and units on a bus server host and applies the teams
+# the host declares. It uses no v1 name and no v1 file.
+#
+# It runs against ANY inventory host, not only the desktop it is edited on: hosts is
+# teamchat_hosts (default: desktop), the programs are built on the CONTROLLER for the target's
+# architecture and copied over, and nothing here reads the login user, the checkout or a home
+# directory on the target. A deploy route that manages a remote bus server host runs this file
+# with its own inventory group in teamchat_hosts.
+#
+#   1. Controller: the commands are built from the committed src-go, static, for each distinct
+#      architecture among the hosts (tasks/teamchat-build-go-commands.yml). The source digest baked
+#      into them is the git tree id of src-go, and the play refuses a src-go that differs from
+#      the commit, so a digest always names the bytes built.
+#   2. Target: the owner group, the teamchat-ctl account and the state roots; the programs copied
+#      to their digest-named homes and checked against the controller's sha256; then
+#      /usr/local/sbin/teamchat-admin, the kit's current link and /usr/local/bin/teamchat swapped.
+#   3. The pinned Tuwunel for the target's architecture (files/usr/local/share/teamchat/tuwunel.pin,
+#      tracked by the update-versions skill), and the server pin file teamchat-admin reads.
+#   4. Every unit and the resolver stub, as the teamchat-admin just installed prints them
+#      (`units list`, `units print`): the text is Go's, the play holds none. One daemon-reload.
+#   5. Per team, from teamchat_teams: `team approve` for the teams teamchat_approve_teams names,
+#      `team remove` for each absent entry, then `team apply` for each present one.
+#   6. The health and backup timers are enabled exactly while a team is declared present, so a
+#      host with no team starts nothing.
+#
+# Inputs (inventory variables of the target; the names are paths.HostVar*):
+#   teamchat_owner_group     required: the group that may read the status records. Made if absent.
+#   teamchat_teams           optional list, DESIGN-v2-C-host.md 3.8; teamchat_only_teams scopes
+#                            step 5 to the teams it names.
+#   teamchat_approve_teams   optional list of team ids whose declared security fields the OPERATOR
+#                            approves in this run. This is the owner's gate (DC18) done by IaC: a
+#                            listed team is approved exactly as declared, so the review of the
+#                            inventory change is the approval. Unlisted new or changed teams are
+#                            refused by `team apply`.
+#   teamchat_memory_high, teamchat_cache_capacity_modifier
+#                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
+#                            a real host: DESIGN-v2-C-host.md H-C1).
+# Not built, refused by name when set: teamchat_address (the teamchat0 bus address),
+# teamchat_lxc_members, and the Element team list (its own play).
+#
+# Firewalld must already be running on the target: this play does not start a firewall on a
+# remote host, because the first start of one can cut off the ssh that runs the play.
+- hosts: "{{ teamchat_hosts | default('desktop') }}"
+  name: Agent team bus v2 host (teamchat)
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    audience: all   # all | developer — see CLAUDE/AnsibleStyle.md
+    # Where things live on the target; internal/teamchat/paths owns them and a Go test holds these equal.
+    tc_lib_dir: /usr/local/lib/teamchat
+    tc_server_dir: /usr/local/lib/teamchat/server
+    tc_kit_root: /usr/local/lib/teamchat/kit
+    tc_share_dir: /usr/local/share/teamchat
+    tc_etc_dir: /etc/teamchat
+    tc_admin_state_root: /var/lib/teamchat-admin
+    tc_ctl_state_root: /var/lib/teamchat-ctl
+    tc_status_root: /var/lib/teamchat-status
+    tc_admin_link: /usr/local/sbin/teamchat-admin
+    tc_member_link: /usr/local/bin/teamchat
+    tc_ctl_user: teamchat-ctl
+    # The pinned Tuwunel: a pin file in `var: value` lines, which is YAML (a mapping with comments).
+    tc_pin: "{{ lookup('ansible.builtin.file', root_dir ~ '/files/usr/local/share/teamchat/tuwunel.pin') | from_yaml }}"
+    tc_arch: "{{ ansible_facts['architecture'] }}"
+    tc_version: "{{ tc_pin.tuwunel_version | regex_replace('^v', '') }}"
+    tc_teams: "{{ teamchat_teams | default([]) }}"
+    tc_present: "{{ tc_teams | rejectattr('state', 'defined') | list + tc_teams | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
+    tc_absent: "{{ tc_teams | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list }}"
+    tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"
+    tc_scoped_absent: "{{ tc_absent if teamchat_only_teams is not defined else tc_absent | selectattr('team', 'in', teamchat_only_teams) | list }}"
+    # Matches the CHANGED<TAB><what> marker lines teamchat-admin prints.
+    tc_changed_re: "^CHANGED\t"
+  vars_files:
+    - "{{ root_dir }}/vars/teamchat-arch.yml"
+  tasks:
+    # Every input is judged before anything changes.
+    - name: Check the Play's Inputs
+      ansible.builtin.assert:
+        that:
+          - tc_arch in teamchat_arch
+          - teamchat_owner_group is defined
+          - teamchat_owner_group is match('^[a-z_][a-z0-9_-]{0,31}$')
+          - tc_pin.tuwunel_version is match('^v[0-9]+[.][0-9]+[.][0-9]+$')
+          - tc_pin['tuwunel_sha256_' ~ tc_arch] is match('^[0-9a-f]{64}$')
+          - tc_teams is sequence and tc_teams is not string
+          - tc_teams | reject('mapping') | list | length == 0
+          - tc_teams | rejectattr('team', 'defined') | list | length == 0
+          - tc_teams | map(attribute='team') | unique | list | length == tc_teams | length
+          - teamchat_only_teams is not defined or (teamchat_only_teams is sequence and teamchat_only_teams is not string)
+          - teamchat_approve_teams is not defined or (teamchat_approve_teams is sequence and teamchat_approve_teams is not string)
+          - teamchat_approve_teams | default([]) | difference(tc_present | map(attribute='team') | list) | length == 0
+          - teamchat_address | default('') == ''
+          - teamchat_lxc_members | default([]) | length == 0
+        fail_msg: >-
+          play-teamchat.yml refused its inputs. The target's architecture ({{ tc_arch }}) needs a row
+          in vars/teamchat-arch.yml and a tuwunel_sha256_{{ tc_arch }} line in the Tuwunel pin;
+          teamchat_owner_group must be a group name; teamchat_teams must be a list of mappings with
+          a unique team each; teamchat_approve_teams may name only present teams; teamchat_address
+          and teamchat_lxc_members are not built in this play yet and must be unset or empty.
+        quiet: true
+
+    # The play neither starts firewalld (the host's own configuration owns it) nor assumes it runs:
+    # a missing firewall-cmd or a state other than "running" stops the play here, before any change.
+    - name: Check That Firewalld Is Already Running
+      ansible.builtin.command:
+        argv: [firewall-cmd, --state]
+      changed_when: false
+      register: tc_firewalld
+      failed_when: false # FAIL-FAST-OK: the registered result is checked by the next task, which fails with the reason
+
+    - name: Refuse a Host Whose Firewalld Is Not Running
+      ansible.builtin.assert:
+        that:
+          - tc_firewalld.rc | default(1) == 0
+          - tc_firewalld.stdout | default('') | trim == 'running'
+        fail_msg: >-
+          firewalld is not running on this host (firewall-cmd --state gave
+          '{{ tc_firewalld.stdout | default('') | trim }}', exit {{ tc_firewalld.rc | default('none') }}).
+          This play does not install or start a firewall on a remote host, because the first start of
+          one can cut off the ssh that runs the play. Start firewalld, with the access the host needs,
+          from the host's own configuration, then run this play again.
+        quiet: true
+
+    - name: Install the Packages
+      ansible.builtin.package:
+        name:
+          - zstd # unpacks the pinned Tuwunel release asset
+
+    - name: Make the Owner Group
+      ansible.builtin.group:
+        name: "{{ teamchat_owner_group }}"
+        state: present
+
+    - name: Make the Control Account
+      ansible.builtin.user:
+        name: "{{ tc_ctl_user }}"
+        system: true
+        create_home: false
+        home: "{{ tc_ctl_state_root }}"
+        shell: /usr/sbin/nologin
+
+    - name: Make the Directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: "{{ tc_lib_dir }}", mode: "0755"}
+        - {path: "{{ tc_server_dir }}", mode: "0755"}
+        - {path: "{{ tc_kit_root }}", mode: "0755"}
+        - {path: "{{ tc_share_dir }}", mode: "0755"}
+        - {path: "{{ tc_etc_dir }}", mode: "0755"}
+        - {path: "{{ tc_admin_state_root }}", mode: "0700"}
+        - {path: "{{ tc_ctl_state_root }}", mode: "0700", owner: "{{ tc_ctl_user }}", group: "{{ tc_ctl_user }}"}
+        - {path: "{{ tc_status_root }}", mode: "0750", group: "{{ teamchat_owner_group }}"}
+
+    - name: Name the Owner Group
+      ansible.builtin.copy:
+        content: "{{ teamchat_owner_group }}\n"
+        dest: "{{ tc_etc_dir }}/owner-group"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Build on the controller and copy over; the controller's directory is removed however the
+    # block ends.
+    - name: Build the Programs and Install Them
+      block:
+        - name: Make the Controller's Build Directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: teamchat-build-
+          delegate_to: localhost
+          become: false
+          run_once: true
+          register: tc_build_dir
+
+        - name: Read the Source Tree Id of src-go
+          ansible.builtin.command:
+            argv: [git, -C, "{{ root_dir }}", rev-parse, "HEAD:src-go"]
+          delegate_to: localhost
+          become: false
+          run_once: true
+          changed_when: false
+          register: tc_tree
+
+        - name: Read What Differs From the Commit in src-go
+          ansible.builtin.command:
+            argv: [git, -C, "{{ root_dir }}", status, --porcelain, --, src-go]
+          delegate_to: localhost
+          become: false
+          run_once: true
+          changed_when: false
+          register: tc_dirty
+
+        - name: Refuse a src-go That Differs From Its Commit
+          ansible.builtin.assert:
+            that:
+              - tc_dirty.stdout == ''
+              - tc_tree.stdout is match('^[0-9a-f]{40,64}$')
+            fail_msg: >-
+              src-go has changes that are not committed (or its tree id cannot be read), so a
+              source digest would not name the bytes built. Commit them, or build from a clean checkout.
+            quiet: true
+          run_once: true
+
+        - name: Build the Commands for the Targets' Architectures
+          ansible.builtin.include_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
+          vars:
+            go_cross_commands: [teamchat-admin, teamchat]
+            go_cross_goarches: "{{ ansible_play_hosts | map('extract', hostvars, ['ansible_facts', 'architecture']) | map('extract', teamchat_arch, 'goarch') | unique | list }}"
+            go_cross_dir: "{{ tc_build_dir.path }}"
+            go_cross_ldflags: "-X main.SourceDigest={{ tc_tree.stdout }}"
+
+        - name: Hash This Host's Builds on the Controller
+          ansible.builtin.stat:
+            path: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/{{ item }}"
+            checksum_algorithm: sha256
+          loop: [teamchat-admin, teamchat]
+          delegate_to: localhost
+          become: false
+          register: tc_built
+
+        - name: Make the Kit Directory
+          ansible.builtin.file:
+            path: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Copy the Admin Program to Its Digest-Named Home
+          ansible.builtin.copy:
+            src: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/teamchat-admin"
+            dest: "{{ tc_lib_dir }}/teamchat-admin-{{ tc_tree.stdout }}"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Copy the Member Program Into Its Kit
+          ansible.builtin.copy:
+            src: "{{ tc_build_dir.path }}/{{ teamchat_arch[tc_arch].goarch }}/teamchat"
+            dest: "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Read What Was Copied
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            checksum_algorithm: sha256
+          loop:
+            - "{{ tc_lib_dir }}/teamchat-admin-{{ tc_tree.stdout }}"
+            - "{{ tc_kit_root }}/{{ tc_tree.stdout }}/bin/teamchat"
+          register: tc_copied
+
+        - name: Check the Copies Against the Controller's Hashes
+          ansible.builtin.assert:
+            that:
+              - tc_copied.results[0].stat.checksum == tc_built.results[0].stat.checksum
+              - tc_copied.results[1].stat.checksum == tc_built.results[1].stat.checksum
+            fail_msg: A program on the target is not the one the controller built; nothing is linked to it.
+            quiet: true
+      always:
+        - name: Remove the Controller's Build Directory
+          ansible.builtin.file:
+            path: "{{ tc_build_dir.path }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          run_once: true
+          when: tc_build_dir is defined and tc_build_dir.path is defined
+
+    - name: Link the Admin Program
+      ansible.builtin.file:
+        src: "{{ tc_lib_dir }}/teamchat-admin-{{ tc_tree.stdout }}"
+        dest: "{{ tc_admin_link }}"
+        state: link
+        force: true
+
+    - name: Point the Kit's Current Link at This Build
+      ansible.builtin.file:
+        src: "{{ tc_tree.stdout }}"
+        dest: "{{ tc_kit_root }}/current"
+        state: link
+        force: true
+
+    - name: Link the Member Program
+      ansible.builtin.file:
+        src: "{{ tc_kit_root }}/current/bin/teamchat"
+        dest: "{{ tc_member_link }}"
+        state: link
+        force: true
+
+    # The pinned Tuwunel. The asset's hash is the pin; the record says which pin the installed
+    # binary came from, so an unchanged pin downloads nothing.
+    - name: Read the Tuwunel Install Record
+      ansible.builtin.stat:
+        path: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+      register: tc_record
+
+    - name: Install the Pinned Tuwunel
+      when: not tc_record.stat.exists or tc_record.stat.checksum != ((tc_pin['tuwunel_sha256_' ~ tc_arch] ~ '\n') | hash('sha1'))
+      block:
+        - name: Make a Root-Only Directory for the Download
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: teamchat-tuwunel-
+          register: tc_download
+
+        - name: Download the Pinned Tuwunel Release Asset
+          ansible.builtin.get_url:
+            url: "https://github.com/matrix-construct/tuwunel/releases/download/{{ tc_pin.tuwunel_version }}/{{ tc_pin.tuwunel_version }}-release-all-{{ teamchat_arch[tc_arch].tuwunel_asset }}-linux-gnu-tuwunel.zst"
+            dest: "{{ tc_download.path }}/tuwunel.zst"
+            checksum: "sha256:{{ tc_pin['tuwunel_sha256_' ~ tc_arch] }}"
+            mode: "0600"
+            timeout: 600
+
+        - name: Unpack the Tuwunel Release Asset
+          ansible.builtin.command:
+            argv: [zstd, -q, -d, -f, -o, "{{ tc_download.path }}/tuwunel", "{{ tc_download.path }}/tuwunel.zst"]
+          changed_when: true
+
+        - name: Install the Tuwunel Binary
+          ansible.builtin.copy:
+            src: "{{ tc_download.path }}/tuwunel"
+            remote_src: true
+            dest: "{{ tc_server_dir }}/tuwunel-{{ tc_version }}"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Record Which Pin the Binary Came From
+          ansible.builtin.copy:
+            content: "{{ tc_pin['tuwunel_sha256_' ~ tc_arch] }}\n"
+            dest: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+            owner: root
+            group: root
+            mode: "0644"
+      always:
+        - name: Remove the Download Directory
+          ansible.builtin.file:
+            path: "{{ tc_download.path }}"
+            state: absent
+          when: tc_download is defined and tc_download.path is defined
+
+    - name: Write the Server Pin
+      ansible.builtin.copy:
+        content: "{{ {'v': 1, 'version': tc_version, 'memory_high': teamchat_memory_high | default('512M'), 'cache_capacity_modifier': teamchat_cache_capacity_modifier | default('0.5')} | to_json }}\n"
+        dest: "{{ tc_server_dir }}/tuwunel.pin"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # The units are Go's text. The admin program just linked prints the list and each file.
+    - name: List the Units the Admin Program Installs
+      ansible.builtin.command:
+        argv: ["{{ tc_admin_link }}", units, list]
+      changed_when: false
+      register: tc_unit_list
+
+    - name: Print Each Unit's Text
+      ansible.builtin.command:
+        argv: ["{{ tc_admin_link }}", units, print, "{{ item.split('\t')[0] }}"]
+      loop: "{{ tc_unit_list.stdout_lines }}"
+      changed_when: false
+      register: tc_unit_text
+
+    # A command's stdout loses its trailing newline in Ansible, so the file's end is made explicit
+    # here: the text trimmed, then exactly one newline. The lab compares each installed file with
+    # `units print` byte for byte.
+    - name: Write Each Unit
+      ansible.builtin.copy:
+        content: "{{ item.stdout | trim }}\n"
+        dest: "{{ item.item.split('\t')[1] }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ tc_unit_text.results }}"
+      loop_control:
+        label: "{{ item.item.split('\t')[1] }}"
+      register: tc_units_written
+
+    - name: Reload Systemd When a Unit Changed
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: tc_units_written.changed
+
+    # A base unit's text is shared by every team, so one that changed reaches an unscoped team at
+    # its next restart unplanned: every present team is applied, whatever the scope says
+    # (DESIGN-v2-C-host.md 3.2.3).
+    - name: Apply Every Present Team Because a Base Unit Changed
+      ansible.builtin.set_fact:
+        tc_scoped_present: "{{ tc_present }}"
+      when:
+        - teamchat_only_teams is defined
+        - tc_units_written.results | selectattr('changed') | map(attribute='item.item') | select('match', '^teamchat-(server|tls)@') | list | length > 0
+
+    # Teams. teamchat-admin judges the declaration; the play only hands each team's entry over.
+    - name: Approve the Teams the Operator Names
+      ansible.builtin.command:
+        argv: ["{{ tc_admin_link }}", team, approve, --team, "{{ item.team }}"]
+        stdin: "{{ {'team': item, 'lxc_members': []} | to_json }}"
+      loop: "{{ tc_scoped_present | selectattr('team', 'in', teamchat_approve_teams | default([])) | list }}"
+      loop_control:
+        label: "{{ item.team }}"
+      register: tc_approved
+      changed_when: tc_approved.stdout_lines | select('match', tc_changed_re) | list | length > 0
+
+    - name: Remove the Absent Teams
+      ansible.builtin.command:
+        argv: "{{ [tc_admin_link, 'team', 'remove', '--team', item.team] + (['--purge'] if item.purge | default(false) | bool else []) }}"
+      loop: "{{ tc_scoped_absent }}"
+      loop_control:
+        label: "{{ item.team }}"
+      register: tc_removed
+      changed_when: tc_removed.stdout_lines | select('match', tc_changed_re) | list | length > 0
+
+    - name: Apply the Present Teams
+      ansible.builtin.command:
+        argv: ["{{ tc_admin_link }}", team, apply]
+        stdin: "{{ {'team': item, 'lxc_members': []} | to_json }}"
+      loop: "{{ tc_scoped_present }}"
+      loop_control:
+        label: "{{ item.team }}"
+      register: tc_applied
+      changed_when: tc_applied.stdout_lines | select('match', tc_changed_re) | list | length > 0
+
+    # The timers run exactly while a team is declared present (C40).
+    - name: Run the Health and Backup Timers While a Team Is Present
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: "{{ tc_present | length > 0 }}"
+        state: "{{ 'started' if tc_present | length > 0 else 'stopped' }}"
+      loop:
+        - teamchat-health.timer
+        - teamchat-backup.timer

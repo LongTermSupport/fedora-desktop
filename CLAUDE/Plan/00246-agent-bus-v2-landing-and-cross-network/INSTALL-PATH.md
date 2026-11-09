@@ -88,37 +88,62 @@ So stage A's play makes these changes to the design, and says so:
    `CGO_ENABLED=0 GOOS=linux GOARCH=<from the table>`, `-trimpath -buildvcs=false`,
    `GOFLAGS=-mod=vendor`, into a controller-side temporary directory removed at the end of the
    run. (Both commands cross-build for `amd64` and `arm64` from one host, checked in the
-   container.) A sha256 of each output is taken on the controller; the kit directory
-   `kit/<digest>/` is named from it. The files are copied to the target as root straight to their
-   digest-named homes (`/usr/local/lib/teamchat/teamchat-admin-<digest>` and
-   `kit/<digest>/teamchat`, 0755 root; nothing links to them yet), and the play compares the
-   target's sha256 of each with the controller's before anything uses it.
-3. **`declare check` runs unprivileged, as it must, and not as the login user.** The verb is
-   refused to root and to the `teamchat-ctl` account (`ClassOther`, `admin/class.go`), so the
-   play runs the copied binary as `nobody` with `setpriv` (`--reuid`, `--regid`, `--groups` of
-   `teamchat_owner_group`, so it can read the set records the v1-name rule needs), from the
-   digest-named file. The design had the login user run it; a remote host's login user may be
-   root, and `nobody` is the unprivileged account every Fedora host has. Nothing is linked,
-   rendered or installed before it passes. The copy's integrity check replaces step 03's
-   `O_NOFOLLOW` hand-over, which guarded a root copy out of a user-writable directory; the
-   transfer now lands in a root-owned one. K9's boundary moves from "the owner's checkout" to "the
-   controller's checkout", and stays stated, not solved.
+   container.) The source digest baked into both (`-X main.SourceDigest`) is the git tree id of
+   `src-go` at the checkout's commit, and the play refuses a `src-go` that differs from that
+   commit, so a digest always names the bytes built. (The closure-based digest of 3.13 does not
+   exist yet; it replaces this when the board is built, and the kit and program names change with
+   it.) The files are copied to the target as root straight to their digest-named homes
+   (`/usr/local/lib/teamchat/teamchat-admin-<digest>` and `kit/<digest>/bin/teamchat`, 0755
+   root; nothing links to them yet), and the play compares the target's sha256 of each with the
+   controller's before it links anything.
+3. **`declare check` is not built, so this play does not run it.** The verb is a row of the
+   admin table with no code (`teamchat-admin declare check` answers "not built yet"; only the
+   library `declare.Check` exists), and nothing yet turns a host's declaration into the input
+   `team apply` reads. The play hands each team's entry to `team apply` as `{"team": <entry>, "lxc_members": []}`, which the Go reader judges strictly and fills the defaults of, and
+   `team apply` itself refuses a security field that has no matching approval (AG4, exit 70), so
+   the gate still holds. What is missing is the cross-team checks `declare check` makes (a port
+   another team declares, the v1-name rule) and the `SECURITY` listing before a run. It is built
+   next, as its own piece (A1b); it is a caller class `ClassOther` (refused to root and to
+   `teamchat-ctl`), so the play will run it as `nobody` through `setpriv` with the owner group as
+   the one supplementary group, not as the login user. Until then a host that declares one team
+   is covered; a host that declares several is not.
+   **The approval** is the owner's gate (DC18) and the owner is not on a remote host. The play
+   approves exactly the teams `teamchat_approve_teams` names, as declared, with `team approve`
+   before `team apply`: listing a team is the operator's act, so the review of the inventory
+   change that adds it is the approval. A new or changed team that is not listed is refused by
+   `team apply`. The copy's integrity check replaces step 03's `O_NOFOLLOW` hand-over, which
+   guarded a root copy out of a user-writable directory; the transfer now lands in a root-owned
+   one. K9's boundary moves from "the owner's checkout" to "the controller's checkout", and stays
+   stated, not solved.
 4. **No login user on the target.** Where the design reads one (`/etc/teamchat/owner-group`, the
    owner-readable group of `/var/lib/teamchat-status`, step 05; the user units `teamchat-seats.*`,
    step 07), the play takes the group from a variable, `teamchat_owner_group`, with no default
    and a failure that names it, and installs the user units only where a member user is declared
    (`teamchat_member_user`). A bus server host with no member on it installs neither.
-5. **Packages and downloads are the target's own.** Step 04's packages are installed on the
-   target. Step 06's `get_url` of the pinned Tuwunel asset runs on the target and needs its
-   egress; a target without it is not established here and would move the download to the
-   controller.
+5. **Packages and downloads are the target's own, and no firewall is started.** `zstd` is
+   installed on the target. Step 06's `get_url` of the pinned Tuwunel asset runs on the target
+   and needs its egress; a target without it is not established here and would move the
+   download to the controller. Design step 04 installed `firewalld`; this play only checks that
+   it is running and refuses otherwise, because the first start of a firewall can cut off the
+   ssh that runs the play (the LXC play guards the same hazard).
+6. **Not in this play yet, and refused by name when set:** the `teamchat0` bus address
+   (`teamchat_address`), the LXC members (`teamchat_lxc_members`), and `installed.json` (no
+   program reads it yet; the board that does is later). The Element team list has its own play.
 
 This conflicts with design step 01 ("built as the login user") and with `build-go-command.yml`.
 The conflict is the design's, and it is resolved here: the existing task keeps serving the
-desktop plays that build on their own machine; stage A adds `tasks/build-go-command-cross.yml`
-for the controller build. Whether the two merge into one with a `go_command_goarch` input is for
-review. DESIGN-v2-C-host.md 3.5.1 steps 01 to 03 and 05 get the amended text in the commit that
-builds this.
+desktop plays that build on their own machine; stage A adds `tasks/teamchat-build-go-commands.yml`
+for the controller build (a v2-owned name, since the `teamchat-keeps-off-v1` gate lets a v2 play
+name only v2 files and the shared build task). Whether the two merge into one with a
+`go_command_goarch` input is for review. DESIGN-v2-C-host.md 3.5.1 steps 01 to 03 and 05 get the
+amended text in the commit that lands the verb.
+
+The Tuwunel pin is v2's own file, `files/usr/local/share/teamchat/tuwunel.pin` (the gate also
+forbids reading v1's), in the same `var: value` form and with the same values, listed in
+`vars/version-pins.yml` so `update-versions` finds it. Until v1 is retired a bump changes both
+files. The server pin file `teamchat-admin` reads (`ServerPinFile`) is written from it with
+`memory_high` 512M and `cache_capacity_modifier` 0.5 as defaults: starting values that H-C1 has
+not measured on a real host, overridable per host.
 
 ### No architecture lock
 
@@ -216,11 +241,13 @@ do not care:
    fails.
 5. **The play `playbooks/imports/play-teamchat.yml`**, design steps 01 to 13 as far as X30 needs
    them, as amended above: both binaries built on the controller for the target's architecture
-   and copied over, `declare check`, `teamchat-admin` and the kit installed with
-   `/usr/local/bin/teamchat` pointing at the kit's `current` binary, the packages, the
-   `teamchat-ctl` user and state roots, the pinned Tuwunel for the target's architecture, the
-   units with one `daemon_reload`, the bus address (`teamchat0`), `installed.json`, then
-   `team remove` and `team apply` per team. Timers are enabled only while a team is present
+   and copied over, `teamchat-admin` and the kit installed with `/usr/local/bin/teamchat`
+   pointing at the kit's `current` binary, the owner group, the `teamchat-ctl` account and state
+   roots, the pinned Tuwunel for the target's architecture and the server pin, the units and the
+   resolver stub as `units print` gives them with one `daemon_reload`, then `team approve` (the
+   teams the operator names), `team remove` and `team apply` per team. Built: all of that.
+   Not built: `declare check` (the verb does not exist), the bus address, the LXC phases,
+   `installed.json` (item 3 above). Timers are enabled only while a team is present
    (C40), so the same play on a member-only machine installs the binaries and starts nothing.
    The fence unit is the migration's (area D) and stays out. The play is edited in the repository
    only; a host run of this checkout's own host goes into `meta-deploy.list`, and a remote host's
@@ -455,6 +482,24 @@ Answered by the coordinator on #193 (the recommendation taken, except where note
 4. **X30 at seat level** (a `teamchat run --plain` member on the member machine, stage A only);
    the lab proves it at seat level, and the real second-machine run for a ccy member waits for
    stage C.
+
+Raised while building the play, for the coordinator:
+
+5. **`declare check` is not built** (a verb-table row with no code), and nothing turns a host's
+   declaration into the cross-team checks it is meant to make. Recommendation: build it as the
+   next piece (A1b) before any host declares two teams; `team apply` already holds the
+   approval gate, so one team on one host is safe without it.
+6. **The source digest** in stage A is the git tree id of `src-go` at a clean commit, not the
+   closure-based digest of 3.13 (which nothing computes yet). Recommendation: accept it for stage
+   A; the closure digest replaces it with the board.
+7. **Approval by IaC**: `teamchat_approve_teams` approves a listed team exactly as declared. The
+   owner's gate (DC18) assumes the owner is at the host; for a host managed from another
+   repository the reviewed change is the approval. Recommendation: accept, and say so in the
+   play's header (done).
+8. **A second Tuwunel pin file** (v2's own) beside v1's, with the same values, because the
+   separation gate forbids v2 reading a v1 file. Recommendation: accept until v1 is retired.
+9. **MemoryHigh 512M and cache modifier 0.5** are starting values, not measured (H-C1).
+   Recommendation: leave them overridable and measure on the first real host.
 
 Open for review: whether the controller build task merges into `build-go-command.yml` (a
 `go_command_goarch` input) or stays its own file.

@@ -1,0 +1,17 @@
+---
+# The architectures playbooks/imports/play-teamchat.yml builds and installs for, keyed by the
+# target's ansible_architecture (CLAUDE/Plan/00246-.../INSTALL-PATH.md, "No architecture lock").
+# One row per architecture; a target whose architecture has no row fails the play at its first
+# task, naming it. Nothing else in the play names an architecture.
+#
+#   goarch        GOARCH of the controller-side build of teamchat and teamchat-admin
+#   tuwunel_asset the architecture part of the pinned Tuwunel release asset's name,
+#                 <version>-release-all-<this>-linux-gnu-tuwunel.zst. Its sha256 is the pin
+#                 file's tuwunel_sha256_<ansible_architecture> line.
+teamchat_arch:
+  x86_64:
+    goarch: amd64
+    tuwunel_asset: x86_64-v1
+  aarch64:
+    goarch: arm64
+    tuwunel_asset: aarch64-v8
