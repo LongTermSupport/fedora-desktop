@@ -65,8 +65,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140) |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                       | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                            |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
-| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182) |
-| `project_container_pids_limit`    | a container run with no `--pids-limit`, so a fork bomb inside a session runs to the engine's default (podman 2048, docker none) | `ccc`'s session and sign-in runs, after the ccy launcher's Go probes had taken the limit (the Go twin of the Semgrep rule `ccy-container-default-pids-limit`) |
+| `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files                                                | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182)                                    |
+| `project_container_pids_limit`    | a container run with no `--pids-limit`, so a fork bomb inside a session runs to the engine's default (podman 2048, docker none)                                | `ccc`'s session and sign-in runs, after the ccy launcher's Go probes had taken the limit (the Go counterpart of the Semgrep rule `ccy-container-default-pids-limit`)      |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1702,7 +1702,6 @@ writer releases a reader at once, so a regression fails the test instead of hang
   (`[]byte(filepath.Join(dir, e.Name()))`, followed as content), and a time-of-check gap between
   the check and the open.
 
-
 ### project_zombie_exit
 
 **What it is about.** `/proc/<pid>/stat` is the thread-group leader's own entry, and its state
@@ -1746,6 +1745,7 @@ now does.
 - Not caught: a stat path built entirely at run time, a state compared through a parameter (a
   helper `procIs(pid, 'Z')` that takes the letter), and a `Threads` literal read but not
   required.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -2208,25 +2208,36 @@ Go, and the hooks' `R-ERROR-HIDING`; a path joined from a name the user gave (no
 `connect ../x`, B2) is gosec's G304, and nord matches the name against the listing instead; a
 shell template (open's `bash -c` handlers, B8) is `project_seam_commands`' `sh -c` finding.
 
-
 ### project_container_pids_limit
 
 **What it is.** An argument list (a `[]string` literal, or the arguments of one call) whose
-first constant is `"run"` and which holds a container-run flag (`--rm`, `-it`, `-i`, `-t`,
-`--interactive`, `--tty`, `-d`, `--detach`) but no `--pids-limit` (or `--pids-limit=N`). The
-Go twin of the Semgrep rule
+verb is `"run"` or `"create"` and which holds a container flag but no `--pids-limit`. The verb
+is the first constant after any leading non-constant arguments (a context, a program chosen
+at run time) and any `"podman"`, `"docker"` or `"container"`, so `e.run(ctx, "run", …)`,
+`{"podman", "run", …}` and docker's `container run` are all read. Flags are read by name:
+`-dit` is `-d`, `-i` and `-t`; `--rm=true` is `--rm`; `--pids-limit=N` is the limit. The
+container flags are the attach and detach flags (`--rm`, `-i`, `-t`, `-d`, `--interactive`,
+`--tty`, `--detach`) and the long flags only a container takes (`--name`, `--entrypoint`,
+`--volume`, `--mount`, `--network`, `--env`, `--userns`, `--security-opt` and the rest the doc
+string lists). The Go counterpart of the Semgrep rule
 [ccy-container-default-pids-limit](QA.md#ccy-container-default-pids-limit), which reads only
 bash; the class and its hazard are described there.
 
-**Not caught.** A run assembled by `append` from several lists where no literal holding a
-run flag starts with `"run"`, and a limit that turns the bound off (`-1`, `0`, `max`) given as
-a value: the value is not read.
+**Not caught.** A run whose only flags are short ones outside that set (`-v`, `-e`, `-p`,
+`-w`, `-u`: `go run -v` takes them too); a run assembled from several lists where no literal
+holding a container flag starts with the verb (`netpolicy`'s `create`, whose options and
+limit come from the bash launcher, is one); a `--pids-limit` after the image, which is the
+contained program's argument and not the engine's; and a limit that turns the bound off
+(`-1`, `0`, `max`) given as a value, as the value is not read.
 
-**Proof.** Fixture `fix/internal/badpids` (`TestContainerPidsLimit`): red before the analyzer
-existed, green with it. Over both modules the sweep reported `internal/ccc/run.go`'s session
-and sign-in runs and their tests' expectations, and nothing else (the four ccy engine runs
-already passed the limit); `ccc` now passes `engine.PidsLimitDefault`, and the sweep, the
-tagged `difftest` and `ccyteamstest` builds included, is clean.
+**Proof.** Fixture `fix/internal/badpids` (`TestContainerPidsLimit`). Real tree: red on
+`ccc`'s session and sign-in runs as they were (`git show 0ad400860^:src-go/internal/ccc/run.go`
+put back, then `go vet -vettool=<driver> -project_container_pids_limit ./internal/ccc/`:
+`run.go:51` and `run.go:80`), and nothing else over both modules (the ccy engine runs already
+passed the limit). Review round 4 widened it (the engine package's `e.run(ctx, "run", …)`,
+an engine word before the verb, `create`, the long container flags, `-dit` and `--rm=true`):
+seven fixture cases red, then green, and the sweep over both modules with the default,
+`difftest`, `ccyteamstest`, `busfailpoints` and `tuwunel` tags is clean.
 
 **How to fix.** Pass `"--pids-limit"` and the limit: the one the ccy launcher settles
 (`ccylaunch`'s `settledPidsLimit`), or `engine.PidsLimitDefault` where nothing overrides it.

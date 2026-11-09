@@ -117,10 +117,13 @@ finished and merged, through one aggregate branch (`agent-a5ee80f767118a918-a448
 the coordinator runs the full QA over and opens as one PR to F44
 ([report](subagent-reports/261109-dormant-aggregate.md)).
 
-- [ ] 🔄 **Task 4.1**: ccy pids limit (`agent-a5ee80f767118a918-a448e021`): merged over F44 as
-  ccy 3.113.0, the Go front's token check, network check and version probe given the limit
-  too; review round 3 (CHANGES) fixed: the Go twin rule `project_container_pids_limit`, red on
-  `ccc`'s two runs, which now pass the limit.
+- [x] ✅ **Task 4.1**: ccy pids limit (`agent-a5ee80f767118a918-a448e021`): merged over F44 as
+  ccy 3.113.1, the Go front's token check, network check and version probe given the limit
+  too; review round 3 (CHANGES) fixed: the Go rule `project_container_pids_limit`, red on
+  `ccc`'s two runs, which now pass the limit. Review round 4 (CHANGES, no blocker, three
+  medium) fixed: the rule reads the engine package's call style, an engine word before the
+  verb, `create`, the long container flags and combined or valued flags; what it cannot see
+  is listed in its catalogue entry.
 - [x] ✅ **Task 4.2**: Plan 00173's qa-reviewer fixes (`agent-ae87230b6e5b05508-967f0e77`):
   merged; its bash `ccy-sessions` change (a warning names each cc session as not shown it) is
   ported to the Go `ccy-sessions` F44 cut over to (`TestACcSessionIsNamedAsNotShownTheWarning`,

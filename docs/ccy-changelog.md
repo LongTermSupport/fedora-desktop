@@ -38,7 +38,9 @@ shipped). The image does not change.
   takes the default. A running session keeps its old limit until it is relaunched.
   `--debug`'s simplified run command shows the flag too. The Semgrep rule
   `ccy-container-default-pids-limit` holds every engine run and create in the ccy tree to it,
-  and its Go twin `project_container_pids_limit` every Go one; `ccc` passes the default too.
+  and the Go project rule `project_container_pids_limit` each Go run or create whose argument
+  list shows a container flag (what it cannot see is listed in `CLAUDE/GoProjectRules.md`);
+  `ccc` passes the default too.
 
 ## 3.112.5 — container 2.79.27
 
