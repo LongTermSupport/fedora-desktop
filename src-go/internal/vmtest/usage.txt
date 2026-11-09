@@ -38,10 +38,15 @@ Usage:
                                            VMTEST-MEMBER-NIC with the NIC's MAC. A failed or interrupted boot removes the guest
                                            and its overlay, shows the console log's last lines, and keeps
                                            members/<name>/ with that log until member-down
-  vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
+  vmtest member-ssh [--as <user>] <name> <command>
+                                           run <command> in the member as the cloud user (passwordless sudo),
+                                           or as <user> (a login name, given before the member's name),
                                            stdin passed through; exits with the command's status.
                                            Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
                                            seconds (default 1800; exit 124 when it is hit)
+  vmtest member-address <name>             print how to reach the member, so an inventory is built without
+                                           the lab's layout: VMTEST-MEMBER-ADDRESS (host, SSH port, user,
+                                           lab key) and one VMTEST-MEMBER-NIC per link; reads files only
   vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
   vmtest link-up <link>                    make a point-to-point link: two loopback UDP ports recorded under
                                            links/<link>/ for two members' NICs; starts nothing

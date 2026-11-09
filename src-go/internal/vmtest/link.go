@@ -113,24 +113,36 @@ func (c *cli) recordedNICs() ([]nicRecord, error) {
 	}
 	var out []nicRecord
 	for _, e := range entries {
-		path := c.paths.at(membersDir, e.Name(), memberLinksFile)
-		data, rerr := os.ReadFile(path)
-		if errors.Is(rerr, os.ErrNotExist) {
+		nics, rerr := c.memberRecord(e.Name())
+		if rerr != nil {
+			return nil, rerr
+		}
+		out = append(out, nics...)
+	}
+	return out, nil
+}
+
+// memberRecord is the NICs one member's links file holds, in the order recorded; a member with no
+// file holds none.
+func (c *cli) memberRecord(member string) ([]nicRecord, error) {
+	path := c.paths.at(membersDir, member, memberLinksFile)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, failf("cannot read the links of member %s: %v", member, err)
+	}
+	var out []nicRecord
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if rerr != nil {
-			return nil, failf("cannot read the links of member %s: %v", e.Name(), rerr)
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			return nil, failf("%s holds a line that is not '<link> <end> <mac>': '%s'", path, line)
 		}
-		for line := range strings.SplitSeq(string(data), "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			f := strings.Fields(line)
-			if len(f) != 3 {
-				return nil, failf("%s holds a line that is not '<link> <end> <mac>': '%s'", path, line)
-			}
-			out = append(out, nicRecord{member: e.Name(), link: f[0], end: f[1], mac: f[2]})
-		}
+		out = append(out, nicRecord{member: member, link: f[0], end: f[1], mac: f[2]})
 	}
 	return out, nil
 }

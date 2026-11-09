@@ -331,7 +331,7 @@ func (c *cli) memberUp(ctx context.Context, l *lab, got memberUpArgs, nics []mem
 	}
 	c.sayf("VMTEST-MEMBER-UP %s domain=%s", name, domain)
 	for _, n := range nics {
-		c.sayf("VMTEST-MEMBER-NIC %s link=%s end=%s mac=%s", name, n.link, n.end, n.mac)
+		c.sayNIC(name, n.link, n.end, n.mac)
 	}
 	return nil
 }
@@ -377,33 +377,94 @@ func (c *cli) memberTeardown(ctx context.Context, name, dir, domain string) {
 	c.logf("member not started; its console log is kept in %s until: vmtest member-down %s", dir, name)
 }
 
-// cmdMemberSSH runs a command in a member, bounded, and exits with its status (E58).
-func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
-	if len(args) < 2 {
-		return usagef("usage: vmtest member-ssh <name> <command>")
+// sshUserRE is a login name, what --as takes (E73). It cannot start with '-', so an option
+// cannot ride in as a user.
+var sshUserRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+
+const memberSSHUsage = "usage: vmtest member-ssh [--as <user>] <name> <command>"
+
+// memberEndpoint is where a member's SSH is reached: the loopback port it is forwarded to and the
+// lab key; a member that is not up, or a lab with no key, is a failure (E58, E72).
+type memberEndpoint struct {
+	port int
+	key  string
+}
+
+func (c *cli) endpointOf(name string) (memberEndpoint, error) {
+	portFile := c.paths.at(membersDir, name, memberPortFile)
+	body, err := os.ReadFile(portFile)
+	if err != nil {
+		return memberEndpoint{}, failf("no member %s is up (no %s); start one with: vmtest member-up %s <base-key>", name, portFile, name)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil || port <= 0 {
+		return memberEndpoint{}, failf("%s does not hold a port", portFile)
+	}
+	key := c.paths.at(sshKeyFile)
+	if !readable(key) {
+		return memberEndpoint{}, failf("no lab SSH key at %s; deploy the lab first", key)
+	}
+	return memberEndpoint{port: port, key: key}, nil
+}
+
+// cmdMemberAddress prints how to reach a member without reading the lab's layout (E72).
+func (c *cli) cmdMemberAddress(_ context.Context, args []string) error {
+	if len(args) != 1 {
+		return usagef("usage: vmtest member-address <name>")
 	}
 	name := args[0]
 	if err := memberName(name); err != nil {
 		return err
 	}
-	portFile := c.paths.at(membersDir, name, memberPortFile)
-	body, err := os.ReadFile(portFile)
+	ep, err := c.endpointOf(name)
 	if err != nil {
-		return failf("no member %s is up (no %s); start one with: vmtest member-up %s <base-key>", name, portFile, name)
+		return err
 	}
-	port, err := strconv.Atoi(strings.TrimSpace(string(body)))
-	if err != nil || port <= 0 {
-		return failf("%s does not hold a port", portFile)
+	nics, err := c.memberRecord(name)
+	if err != nil {
+		return err
 	}
-	key := c.paths.at(sshKeyFile)
-	if !readable(key) {
-		return failf("no lab SSH key at %s; deploy the lab first", key)
+	c.sayf("VMTEST-MEMBER-ADDRESS %s host=%s port=%d user=%s key=%s", name, guestAddress, ep.port, cloudUser, ep.key)
+	for _, n := range nics {
+		c.sayNIC(name, n.link, n.end, n.mac)
+	}
+	return nil
+}
+
+// sayNIC is the marker line for one NIC of a member (E68, E72).
+func (c *cli) sayNIC(member, link, end, mac string) {
+	c.sayf("VMTEST-MEMBER-NIC %s link=%s end=%s mac=%s", member, link, end, mac)
+}
+
+// cmdMemberSSH runs a command in a member, bounded, and exits with its status (E58); --as before
+// the name connects as another user (E73).
+func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
+	user := ""
+	if len(args) > 0 && args[0] == "--as" {
+		if len(args) < 2 {
+			return usagef("%s", memberSSHUsage)
+		}
+		user, args = args[1], args[2:]
+		if !sshUserRE.MatchString(user) {
+			return usagef("--as wants a login name of 1 to 32 of a-z, 0-9, '_' and '-', not starting with a digit or '-'; got '%s'", user)
+		}
+	}
+	if len(args) < 2 {
+		return usagef("%s", memberSSHUsage)
+	}
+	name := args[0]
+	if err := memberName(name); err != nil {
+		return err
+	}
+	ep, err := c.endpointOf(name)
+	if err != nil {
+		return err
 	}
 	limit, err := c.secondsSetting("VMTEST_MEMBER_SSH_TIMEOUT", memberSSHDefault)
 	if err != nil {
 		return err
 	}
-	g := &guest{c: c, key: key, port: port}
+	g := &guest{c: c, key: ep.key, port: ep.port, user: user}
 	// Bounded twice: keepalives end a session whose guest stopped answering, and the bound
 	// ends one whose command never finishes.
 	sshArgs := g.sshArgs([]string{"-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"}, args[1])

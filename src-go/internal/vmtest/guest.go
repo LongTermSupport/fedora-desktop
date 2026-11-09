@@ -16,7 +16,7 @@ import (
 
 const (
 	cloudUser      = "fedora"
-	guestHost      = cloudUser + "@127.0.0.1"
+	guestAddress   = "127.0.0.1"
 	libvirtURI     = "qemu:///session"
 	stateShutOff   = "shut off"
 	stateCrashed   = "crashed"
@@ -46,10 +46,20 @@ type guest struct {
 	dir string
 	// nets are the --network values of the NICs after the passt one, in order (E68).
 	nets []string
+	// user is who ssh connects as; empty is the cloud user (E73).
+	user string
+}
+
+// host is the user and address ssh connects to.
+func (g *guest) host() string {
+	if g.user == "" {
+		return cloudUser + "@" + guestAddress
+	}
+	return g.user + "@" + guestAddress
 }
 
 func (g *guest) sshArgs(extra []string, remote string) []string {
-	args := append(append(append([]string{}, guestOpts...), extra...), "-i", g.key, "-p", strconv.Itoa(g.port), guestHost)
+	args := append(append(append([]string{}, guestOpts...), extra...), "-i", g.key, "-p", strconv.Itoa(g.port), g.host())
 	return append(args, remote)
 }
 
@@ -122,7 +132,7 @@ const timedOut = 124
 
 // scp copies a local file to path in the guest (E22): the content never reaches a command line.
 func (g *guest) scp(ctx context.Context, local, remotePath string) error {
-	args := append(append([]string{}, guestOpts...), "-i", g.key, "-P", strconv.Itoa(g.port), local, guestHost+":"+remotePath)
+	args := append(append([]string{}, guestOpts...), "-i", g.key, "-P", strconv.Itoa(g.port), local, g.host()+":"+remotePath)
 	_, err := g.c.env.Runner.Run(ctx, execx.Cmd{Name: "scp", Args: args, Stdout: g.c.env.Stderr, Stderr: g.c.env.Stderr})
 	if err != nil {
 		return ctxErr(ctx, failf("could not copy %s into the guest: %v", filepath.Base(local), err))

@@ -189,6 +189,7 @@ var commands = map[string]command{
 	"ensure-base":      (*cli).cmdEnsureBase,
 	"member-up":        (*cli).cmdMemberUp,
 	"member-ssh":       (*cli).cmdMemberSSH,
+	"member-address":   (*cli).cmdMemberAddress,
 	"member-down":      (*cli).cmdMemberDown,
 	"link-up":          (*cli).cmdLinkUp,
 	"link-down":        (*cli).cmdLinkDown,
