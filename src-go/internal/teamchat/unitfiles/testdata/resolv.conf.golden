@@ -1,0 +1,4 @@
+# The teamchat homeserver's resolver (DESIGN-v2-C-host.md 3.2.3): bound over /run/systemd/resolve/
+# inside teamchat-server@.service. Nothing listens on this address and the unit's IP filter allows
+# it only on loopback, so every lookup fails inside the host.
+nameserver 127.0.0.1

@@ -1,0 +1,55 @@
+[Unit]
+Description=v2 team homeserver %i
+StartLimitIntervalSec=0
+AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block
+# stop after the LXC members at shutdown, so their goodbyes reach a live server
+Before=lxc.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=30s
+TimeoutAbortSec=30s
+TimeoutStopSec=330
+Restart=always
+RestartSec=5s
+RestartSteps=5
+RestartMaxDelaySec=60s
+DynamicUser=yes
+User=teamchat-%i
+StateDirectory=teamchat/%i
+StateDirectoryMode=0700
+LoadCredential=config.toml:/var/lib/teamchat-admin/%i/config.toml
+Environment=TUWUNEL_CONFIG=%d/config.toml
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivatePIDs=yes
+PrivateIPC=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAccounting=yes
+IPAddressDeny=any
+SocketBindDeny=any
+TemporaryFileSystem=/run/systemd/resolve:ro
+BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
+BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
+InaccessiblePaths=-/run/dbus
+InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">

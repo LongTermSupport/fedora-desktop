@@ -2,7 +2,8 @@ package paths
 
 // The names `team apply` and `team remove` add to the host (C 3.2.2-3.2.4, 3.5.2, 3.5.3).
 
-// systemdDir is where the play installs the homeserver's base unit and `team apply` its drop-in.
+// systemdDir is where the play installs the base units and the host's timers, and `team apply`
+// a team's drop-ins.
 const systemdDir = "/etc/systemd/system"
 
 // ServerUnitTemplateFile is the installed base unit of every team's homeserver.
@@ -10,6 +11,14 @@ const ServerUnitTemplateFile = systemdDir + "/" + ServerUnitTemplate
 
 // TLSUnitTemplateFile is the installed base unit of every team's TLS terminator.
 const TLSUnitTemplateFile = systemdDir + "/" + TLSUnitTemplate
+
+// The installed health and backup units, one of each for the host (C 3.11.1, 3.12.1).
+const (
+	HealthServiceFile = systemdDir + "/" + HealthService
+	HealthTimerFile   = systemdDir + "/" + HealthTimer
+	BackupServiceFile = systemdDir + "/" + BackupService
+	BackupTimerFile   = systemdDir + "/" + BackupTimer
+)
 
 // UnitsRecord is the team's restart and reload digest sets, with the Tuwunel version, port and
 // listen set last started.

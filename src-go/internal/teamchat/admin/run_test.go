@@ -105,6 +105,7 @@ func specVerbs() map[string]Class {
 	add(ClassOther, "declare", "check")
 	add(ClassOther, "element", "check", "apply")
 	add(ClassOther, "status")
+	add(ClassAny, "units", "list", "print")
 	add(ClassAny, "version")
 	return out
 }
@@ -164,7 +165,7 @@ func TestEveryVerbEveryClass(t *testing.T) {
 				if got.code != ExitClass || got.stderr != want || got.stdout != "" {
 					t.Errorf("%s by %v = %+v, want 77 %q", name, caller, got, want)
 				}
-			case name == "version" || name == "ctl-child":
+			case name == "version" || name == "ctl-child" || strings.HasPrefix(name, "units "):
 			default:
 				if want := unbuilt(name); got.code != term.ExitFailure || got.stderr != want || got.stdout != "" {
 					t.Errorf("%s by %v = %+v, want 1 %q", name, caller, got, want)

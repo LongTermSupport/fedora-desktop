@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/unitfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
 )
 
@@ -51,7 +52,9 @@ func properties(argv []string) []string {
 
 // madeUnits is every unit text the Go code makes today that D 4.2 names or that inherits from
 // one: the base unit's sandbox (bare and for a team), the restore's staging unit made from a
-// team's sandbox the way the wiring makes it, its secure unit, and the backup service.
+// team's sandbox the way the wiring makes it, its secure unit, the backup service, and every
+// service the play installs (the homeserver's and the terminator's base units, the health and
+// backup services).
 func madeUnits(t *testing.T) []unit {
 	t.Helper()
 	team, err := paths.ParseTeamID("ops")
@@ -70,12 +73,45 @@ func madeUnits(t *testing.T) []unit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []unit{
+	return slices.Concat([]unit{
 		{"the base unit's sandbox", host.BaseSandbox()},
 		{"a team's sandbox", host.TeamSandbox(team)},
 		{"the restore's staging unit", properties(staging)},
 		{"the restore's secure unit", properties(secure)},
 		{"the backup service", strings.Split(backup.ServiceUnit, "\n")},
+	}, installedServices())
+}
+
+// installedServices is every file the play installs that runs a process (it has a [Service]
+// section), as the play installs it: the text `teamchat-admin units print` writes. The other
+// files are timers, which start a service and run nothing themselves, and the resolver stub.
+func installedServices() []unit {
+	var out []unit
+	for _, f := range unitfiles.Files() {
+		if strings.Contains(f.Text, "[Service]") {
+			out = append(out, unit{"the installed " + f.Name, strings.Split(f.Text, "\n")})
+		}
+	}
+	return out
+}
+
+// Every installed file that is a unit is a service or a timer, so installedServices holds every
+// installed unit that runs a process: a new kind of unit file must say here how it is judged.
+func TestEveryInstalledFileIsJudgedOrRunsNothing(t *testing.T) {
+	var services []string
+	for _, f := range unitfiles.Files() {
+		switch {
+		case strings.Contains(f.Text, "[Service]"):
+			services = append(services, f.Name)
+		case strings.HasSuffix(f.Name, ".timer") && strings.Contains(f.Text, "[Timer]"):
+		case f.Path == paths.ResolverStub:
+		default:
+			t.Errorf("installed file %s is neither a service, a timer nor the resolver stub", f.Name)
+		}
+	}
+	want := []string{paths.ServerUnitTemplate, paths.TLSUnitTemplate, paths.HealthService, paths.BackupService}
+	if !slices.Equal(services, want) {
+		t.Errorf("installed services %q, want %q", services, want)
 	}
 }
 
@@ -186,8 +222,9 @@ var unitSources = []struct{ file, why string }{
 	{"backup/units.go", "the backup service, in madeUnits"},
 	{"host/lxc/unit/unit.go", "a seat's session unit, which runs inside an LXC guest (C 3.9.4): not a host unit D 4.2 names"},
 	{"host/render.go", "a team's drop-in, which extends the base unit that carries the six paths; its filter is judged alone, in filteredUnits"},
-	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ (X18a: the homeserver's hardening lines, which host.BaseSandbox holds); no Go code or play makes that base unit's text yet, so nothing judges its six paths: the code that does must add it to madeUnits; the drop-in's filter is judged alone, in filteredUnits"},
+	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ that unitfiles makes, in madeUnits; the drop-in's filter is judged alone, in filteredUnits"},
 	{"restore/argv.go", "the restore's staging and secure units, in madeUnits"},
+	{"unitfiles/unitfiles.go", "every file the play installs: each service (the homeserver's and the terminator's base units, the health and backup services) in madeUnits as installedServices; the timers run nothing and the resolver stub is no unit (TestEveryInstalledFileIsJudgedOrRunsNothing)"},
 }
 
 // A file that makes unit text and is in no row of unitSources is a unit nobody has judged: a new
