@@ -2,7 +2,7 @@
 
 **Status**: In Progress (landing on F44 is Plan 00246; the plan of record for v2, `teamchat`, a separate system beside v1; N0's
 design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
-session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
+session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md); what N0 and N1 built: [DONE-n0-n1.md](DONE-n0-n1.md))
 **Created**: 2026-10-19
 **Owner**: joseph
 **Priority**: High
