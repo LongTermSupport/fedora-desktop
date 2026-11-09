@@ -365,30 +365,41 @@ human's event, bound to a question the coordinator itself handed over, never fro
   write lives in a per-seat host directory outside the checkout, seeded at launch:
 
   - **its `.claude/ccy/`**, mounted over `/workspace/.claude/ccy`, holding only the user-level
-    files (`settings.json`, `plugins/`, `skills/`) and its session state (transcripts, todos,
-    `sessions/`, the token file the launcher hands every seat). The project's tracked launch
-    files listed above are bound `ro` from the checkout over it, file by file, and
-    `ccy.env.local` keeps its `ro` bind, ordered after the per-seat mount (Task 5.1's fixture pins
-    the order). So the liaison shares no transcript or session with another seat (it cannot edit
+    files (`settings.json`, `plugins/`, `skills/`) and its session state (transcripts under
+    `projects/`, todos, `sessions/`, `state/`). The project's tracked launch files listed above
+    are bound `ro` from the checkout over it, file by file, and `ccy.env.local` keeps its `ro`
+    bind (nested binds land after their parent; Task 5.1's fixture pins each destination and its
+    options). So the liaison shares no transcript or session with another seat (it cannot edit
     a coordinator's transcript before a `--resume`), and the entrypoint still sources and runs
     the project's own `ccy.env` and wrapper;
-  - **its daemon state**: a per-seat directory bound over the daemon's socket, pid, lock, log
-    and ledger paths, and, where the daemon must build code at run time (its virtualenv), a
-    per-seat copy bound over that one path, so a write there reaches only the liaison's own
-    session; `bin/hooks-relay` and every other executable entry stay `ro`;
-  - **its scratch**: a per-seat directory for `untracked/scratch/`.
+  - **its daemon directory**: a per-seat directory mounted over the whole of
+    `.claude/hooks-daemon/untracked/`, so the daemon finds it writable (its bootstrap requires
+    that), names its sockets, pid and lock files after the container's hostname as it does today,
+    writes its ledgers by rename, and builds its own virtualenv there, all reaching only the
+    liaison's own session. `bin/` and every other executable entry Task 0.1 finds are bound `ro`
+    over it from the checkout's copy, which the liaison cannot write. Directory-level, never per
+    file, so it does not depend on names known only after the container exists or on a daemon
+    upgrade's file list;
+  - **its scratch**: a per-seat directory mounted over `untracked/scratch/`.
 
-  At every liaison launch the launcher (in Go, new: `ccy-teams internal launch-mounts`) resets
-  the per-seat user-level files from the same sources the entrypoint uses today, so nothing the
-  liaison wrote there carries over (a `disableAllHooks` set in one session is gone at the next
-  launch). Within a session the liaison can still change its own `settings.json`; that reaches
+  At every liaison launch the launcher (in Go, new: `ccy-teams internal launch-mounts`) wipes
+  each per-seat directory except a named state allowlist (in `.claude/ccy/`: `projects/`, todos,
+  `sessions/`, `state/`; in the daemon directory: logs and ledgers, never `bin/` or a
+  virtualenv), so nothing executable the liaison wrote carries over: not a `disableAllHooks`, not
+  `shell-snapshots/` the Bash tool sources, not a stale `__pycache__/` of the wrapper, not a
+  planted virtualenv. The entrypoint then rewrites the user-level files from its usual sources.
+  Task 0.1's classification covers the per-seat copies too. Within a session the liaison can still change its own `settings.json`; that reaches
   only itself, its checkout stays `ro` and it holds no write credentials (LZ17a), so the guard is
   then a control against mistakes, as on `cc` (LZ19). The host reads the launcher makes at the
   checkout's `.claude/ccy/` are listed by Task 0.1. For a liaison seat,
   `state/restart-request.json`, `config.json`, `sessions/` and `.last-launch.conf` are read from
   the per-seat directory (so the supervisor's restart request lands where the launcher looks);
   `mounts`, `ccy.env.local`, `Dockerfile` and `allowed-hostnames` are read from the checkout,
-  never per-seat.
+  never per-seat. Those reads are in bash files on the bash-limits ratchet (`claude-yolo`,
+  `lib/restart-request.bash`), which may not grow: the Go front prints the seat's `.claude/ccy/`
+  directory, and each read takes it in place of the fixed path it uses today, at no net line;
+  where that cannot be done at net zero, that read moves to Go first. `qa-bash-limits` proves
+  it.
 
   **The user-level files read-only within the session as well (optional, LD12).** The entrypoint
   writes `settings.json`, `plugins/` and `skills/` at every launch, so they cannot be `ro` from the
@@ -447,9 +458,11 @@ human's event, bound to a question the coordinator itself handed over, never fro
   live one). Documented as a control against mistakes, as Plan 00207's Non-Goals say of every
   same-uid session.
 
-- **LZ20. LXC: a read-only bind in the unit.** v2's LXC apply (`host/lxc`) writes
-  `BindReadOnlyPaths=<checkout>` and `BindPaths=` binding each measured state path to itself
-  into the member's unit when the member's role is `liaison`, and removes them otherwise; a role
+- **LZ20. LXC: a read-only bind in the unit.** v2's LXC apply (`host/lxc`) writes, into the
+  member's unit when the member's role is `liaison`, `BindReadOnlyPaths=<checkout>` and the same
+  directory-level shape as LZ17: a per-member state directory bound over the daemon's
+  `untracked/` and over `untracked/scratch/` (created by the apply before the unit starts), with
+  `bin/` and the other executable entries in `BindReadOnlyPaths=`; it removes them otherwise; a role
   change restarts the unit (the apply reports it). No SSH keys or write token are placed in a
   liaison guest's home (LZ17a). Plus LZ15's guard. The liaison reads the code of its own
   checkout only; other repositories' code is LD7.
@@ -494,7 +507,7 @@ reverse that ruling first; LD1 puts it to the owner only in that form.
 | Requirement                                                                  | v2 code                                                                                                                           |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | role `liaison`, at most one, needs a coordinator; sender-class rules (LZ1-4) | `proto` (roster roles, the sender-class table), `declare` and `apply` (`role apply` refusals)                                     |
-| questions-room membership and outcomes (LZ4a, LZ9)                           | `proto/rooms.go` (`questionsSpec` gains the liaison), the member's question fold and delivery                                     |
+| questions-room membership and outcomes (LZ4a, LZ9)                           | `proto/rooms.go` (`questionsSpec` gains the liaison), `proto.SyncFilter` (the liaison syncs questions and the reports timeline; unchanged with no liaison), the member's question fold and delivery |
 | `relays`, `handoff`, `handed-off`, `liaison_note`, `mirror` keys (LZ5-LZ7b)  | `proto` content keys and their grammar; `member/cli` verbs `relay`, `ask --handoff/--update/--direct`, `handoffs`, `verify-human` |
 | the receiver's check and the envelope's `relays:` block (LZ6)                | `member/deliver` and the envelope text, built on `verify`'s fetch                                                                 |
 | the quiet store, `liaison.json`, the keeper's relay wake (LZ9-LZ11)          | `member/state`, `member/keeper`, `member/teamsync`                                                                                |

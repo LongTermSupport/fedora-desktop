@@ -1,6 +1,6 @@
 # Plan 00225: team liaison role
 
-**Status**: Not Started (plan only; retargeted to agent bus v2, `teamchat`, since v1 is feature-frozen; the round-5 review's three blockers and the owner's Element input are folded in, review in [subagent-reports/](subagent-reports/); decisions LD1-LD13 carry coordinator defaults the owner may change; no real team can use it before Plan 00209 Phase 6 migrates it to v2)
+**Status**: Not Started (plan only; retargeted to agent bus v2, `teamchat`, since v1 is feature-frozen; the blockers of review rounds 5-7 and the owner's Element input are folded in, review in [subagent-reports/](subagent-reports/); decisions LD1-LD13 carry coordinator defaults the owner may change; no real team can use it before Plan 00209 Phase 6 migrates it to v2)
 **Created**: 2026-10-23
 **Owner**: joseph
 **Priority**: Medium
@@ -105,6 +105,8 @@ Every build task is test first: the failing test is committed or recorded before
     of `.claude/ccy/` and of the hooks daemon's `untracked/` (`bin/hooks-relay` and the virtualenvs
     configuration; sockets, pid and lock files, logs and ledgers state), and the files the
     entrypoint writes at launch listed;
+  - that the hooks daemon starts and hooks fire with a per-seat directory mounted over its
+    `untracked/` and `bin/` bound `ro` over that (LZ17), and in an LXC unit of the same shape;
   - every file the host launcher reads at the checkout's `.claude/ccy/` (`mounts` and
     `ccy.env.local` among them), and which are per-seat for a liaison (LZ17);
   - whether `git status` and `git log` work on a `ro` checkout, and that a host commit shows
@@ -132,7 +134,9 @@ Every build task is test first: the failing test is committed or recorded before
   sender-class rules of LZ4 (refused on send, dropped `role` on receipt); the `relays`, `handoff`,
   `handed-off`, `liaison_note` and `mirror` content keys and their grammar; LZ4a's questions-room
   outcomes (the liaison receives; its post is ignored `liaison-post` at a coordinator, never
-  dropped); `questionsSpec` gains the liaison. Tests over every role and verb pair, refusal tests
+  dropped); `questionsSpec` gains the liaison; `proto.SyncFilter` gives the liaison the questions
+  room and the reports timeline, with a golden that the filter is unchanged for a team with no
+  liaison (LZ0). Tests over every role and verb pair, refusal tests
   first.
 - [ ] ⬜ **Task 1.2**: `docs/agent-bus-protocol.md`'s v2 part: the role, the keys, and the
   receiver's check (LZ5, LZ6). A note to Plan 00209's owner for its A design (Task 7.2).
@@ -225,7 +229,8 @@ Every build task is test first: the failing test is committed or recorded before
   liaison's per-seat directory mounted over `/workspace/.claude/ccy` (user-level files and its
   own session state), with the project's tracked launch files bound `ro` from the checkout over
   it and `ccy.env.local`'s `ro` bind ordered after it; per-seat daemon state and virtualenv and
-  per-seat scratch (LZ17). The per-seat user-level files are reset at every liaison launch, and
+  per-seat scratch, each mounted at directory level with the executables `ro` over it (LZ17).
+  Every per-seat directory is wiped at each liaison launch except its named state allowlist, and
   the launcher's reads of the restart request, `config.json`, `sessions/` and
   `.last-launch.conf` point at the per-seat directory while `mounts`, `ccy.env.local`,
   `Dockerfile` and `allowed-hostnames` stay the checkout's. If Task 0.1 and the owner keep the
@@ -233,7 +238,8 @@ Every build task is test first: the failing test is committed or recorded before
   writes binds the user-level files `ro`, stops the launch naming any that fails, then drops
   `CAP_SYS_ADMIN` from every set and sets `no_new_privs` before `exec`, and the launcher adds
   `--cap-add SYS_ADMIN` for a liaison seat only. Tests first, on a fixture, for a liaison launch:
-  the mount order is pinned; no configuration path is writable once the session starts (the
+  each destination and its options are pinned; the hooks daemon starts and hooks fire in a
+  liaison container built this way; no configuration path is writable once the session starts (the
   project's `.claude/settings*`, hooks and daemon config, `bin/hooks-relay` and the shared
   virtualenvs, the project's `untracked/`, and the tracked `claude-supervise*`, `mounts`,
   `ccy.env`, `Dockerfile` and `allowed-hostnames`); no other seat's transcript or session is
@@ -252,7 +258,9 @@ Every build task is test first: the failing test is committed or recorded before
 - [ ] ⬜ **Task 5.3**: LZ18: the board's `relaunch for read-only` state and the role-notice text,
   in Go with tests.
 - [ ] ⬜ **Task 5.4**: v2's LXC apply: tests on the rendered unit come first. The unit gets
-  `BindReadOnlyPaths=` and the `BindPaths=` lines for a liaison and none otherwise; a role change
+  `BindReadOnlyPaths=` for the checkout and the executables, and directory-level `BindPaths=` of
+  the per-member state directories (created before the unit starts), for a liaison and none
+  otherwise; a role change
   restarts the unit and the apply says so (LZ20).
 - [ ] ⬜ **Task 5.5**: For `cc --teams` launched as the liaison, Go computes
   `--disallowedTools Edit Write NotebookEdit` (LZ19). The launchers do not grow.
@@ -338,7 +346,7 @@ Every build task is test first: the failing test is committed or recorded before
 | The liaison writes code another seat or the host runs     | H      | M           | Anything executed is configuration, `ro`; the liaison's writable paths are per-seat, never shared (LZ17)                        |
 | The liaison undoes its own read-only binds                | M      | M           | Optional only (LD12); trusted only with `CAP_SYS_ADMIN` dropped and `no_new_privs` set, probed, `unshare` included (LZ17)       |
 | The liaison is offline, and questions go unanswered       | M      | M           | Inactive after `liaison_offline_s`: the old route comes back, the coordinator is woken, nothing blocks (LZ10)                   |
-| The `ro` mount breaks a session's own writes              | M      | M           | Task 0.1 measures and classifies them; state bound `rw` at its real path, configuration `ro` (LZ17)                             |
+| The `ro` mount breaks a session's own writes              | M      | M           | Task 0.1 measures and classifies them; writable state in per-seat directories, executables `ro` over them (LZ17, LZ20)          |
 | A host `cc` liaison writes through Bash                   | L      | L           | Stated as guard-only (LZ19); ccy or LXC for a liaison with a boundary                                                           |
 | Old members misread a roster naming `liaison`             | H      | M           | Upgrade-first; `role apply` refuses while a running member is old (DESIGN section 9)                                            |
 | Teams stay on v1 for long, so the liaison is unused       | M      | M           | Stated as a dependency (Plan 00209 Phase 6); built and accepted on a throwaway v2 team                                          |
@@ -376,3 +384,7 @@ Every build task is test first: the failing test is committed or recorded before
   writable state, and a per-seat configuration directory that did not match what the launcher
   and the entrypoint read. Both fixed by LZ17's rule (anything executed is configuration) and
   per-seat writable paths, with the six should-fix and seven minor findings.
+- Round 7 (CHANGES): one blocker, per-file binds of the daemon's state inside a read-only
+  `untracked/`, which the daemon cannot start on. Fixed with directory-level per-seat mounts and
+  the executables `ro` over them, in ccy and LXC alike; with the launch wipe inverted to a state
+  allowlist, the bash reads redirected at net zero, and `SyncFilter` named.
