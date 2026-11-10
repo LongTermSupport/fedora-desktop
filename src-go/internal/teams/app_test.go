@@ -306,6 +306,30 @@ func TestDispatchSystemIsTheSystemCommandAndItsPayloadIsStdout(t *testing.T) {
 	}
 }
 
+// C 3.7.5, DC21: `ccy-teams seats` is the owner's seat sweep and the units that run it; the
+// play captures the units' text, so stdout is kept for it.
+func TestDispatchSeatsIsTheSweepCommandAndItsPayloadIsStdout(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"seats", "units", "list"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.Out.String(), "teamchat-seats.service\t") {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+	h = newHarness(t)
+	if code := h.app.Run([]string{"seats", "sweep"}); code != term.ExitOK || h.Out.Len() != 0 {
+		t.Fatalf("a sweep with no pool: exit %d: %q %q", code, h.Out.String(), h.ErrOut.String())
+	}
+	h = newHarness(t)
+	if code := h.app.Run([]string{"seats"}); code != term.ExitUsage || !strings.Contains(h.ErrOut.String(), "seats sweep") {
+		t.Fatalf("no verb: exit %d: %q", code, h.ErrOut.String())
+	}
+	a := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"seats", "units", "list"})
+	if a.Payload != os.Stdout || a.Stdout != os.Stderr {
+		t.Fatalf("payload %v stdout %v", a.Payload, a.Stdout)
+	}
+}
+
 func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"internal", "go-cache", "proj", "z"}); code != term.ExitOK {
@@ -361,6 +385,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",
 		"ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]",
 		"ccy-teams session repair <session> [--yes]",
+		"ccy-teams seats sweep", "ccy-teams seats units list", "ccy-teams seats units print <name>",
 		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
 	for _, want := range wants {

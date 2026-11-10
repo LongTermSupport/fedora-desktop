@@ -20,6 +20,7 @@
 //	discover the one lookup of which session names a seat (records and desired memberships)
 //	hot     session list, add, remove, move, role and repair: a running session's teams and roles
 //	system  system: which bus (agent-bus or teamchat) each team of a launch is live on
+//	seatsweep seats sweep: the owner's teamchat seat sweep, and the user units that run it
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -53,6 +54,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/restart"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seatsweep"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
@@ -98,6 +100,8 @@ type App struct {
 	// Launch is the launcher's `internal launch-args`, `seat-check`, `seat-take` and
 	// `bus-disconnected`, over both systems.
 	Launch *teamchatlaunch.Verbs
+	// Sweep is `ccy-teams seats`, the owner's teamchat seat sweep and its user units.
+	Sweep *seatsweep.Cmd
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -110,7 +114,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // captures (choose-teams) is given a host that prints everything else on stderr, so a play's
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
-	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem) ||
+	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem || args[0] == subSeats) ||
 		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck) {
 		return Wire(host.NewDiverted(cfg))
 	}
@@ -125,6 +129,9 @@ const subLaunchSummary = "launch-summary"
 
 // subSystem is `ccy-teams system`, whose stdout is its payload too.
 const subSystem = "system"
+
+// subSeats is `ccy-teams seats`: the sweep, and the units text the play captures from stdout.
+const subSeats = "seats"
 
 // The launcher's verbs whose stdout is their payload: the run arguments and the canonical list.
 const (
@@ -179,6 +186,7 @@ func Wire(h *host.Host) *App {
 		Session: session,
 		System:  sys,
 		Launch:  newLaunch(h, membershipInit, sys),
+		Sweep:   newSweep(h),
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -225,7 +233,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
-		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession, subSystem:
+		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession, subSystem, subSeats:
 	case "-l", "--list", subGraph:
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -246,6 +254,8 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		return a.Session.Run(ctx, args[1:])
 	case subSystem:
 		return a.System.Run(ctx, args[1:])
+	case subSeats:
+		return a.Sweep.Run(ctx, args[1:])
 	}
 	return a.dispatch(ctx, sub, args[min(1, len(args)):])
 }
@@ -388,7 +398,6 @@ func newSystem(h *host.Host) *system.Cmd {
 // owner's seat store on the real machine (placeissued.OS's clock, credential and reach), ccy's
 // session registry as its session records and area B's disconnected verb run in process.
 func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *teamchatlaunch.Verbs {
-	machine := placeissued.OS("", "", paths.CheckoutKey{})
 	return &teamchatlaunch.Verbs{
 		Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
 		Resolve: func(ctx context.Context, checkout string, teams []string) ([]system.Line, error) {
@@ -398,10 +407,7 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 		},
 		Membership: membershipInit.Prepare, Status: system.StatusRecord, Exec: h.Echo.Execer(h.Execer),
 		NowMS: func() int64 { return time.Now().UnixMilli() },
-		Parts: seat.Config{
-			Clock: machine.Clock, Credential: machine.Credential, Reach: machine.Reach,
-			Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry}, Announcer: teamchatlaunch.Announcer{},
-		},
+		Parts: storeParts(h),
 		Taker: func(cfg seat.Config) teamchatlaunch.Taker {
 			return teamchatlaunch.StoreTaker{Open: func() (*seat.Store, error) { return seat.Open(cfg) }}
 		},
@@ -420,4 +426,20 @@ func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *
 			return store.Remove(session)
 		},
 	}
+}
+
+// storeParts is the owner's seat store on the real machine, as the launcher and the sweep use
+// it: placeissued.OS's clock, credential and reach, ccy's session registry as its session
+// records and area B's disconnected verb run in process.
+func storeParts(h *host.Host) seat.Config {
+	machine := placeissued.OS("", "", paths.CheckoutKey{})
+	return seat.Config{
+		Clock: machine.Clock, Credential: machine.Credential, Reach: machine.Reach,
+		Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry}, Announcer: teamchatlaunch.Announcer{},
+	}
+}
+
+// newSweep is `ccy-teams seats` over h: the sweep of every checkout of the owner's seat store.
+func newSweep(h *host.Host) *seatsweep.Cmd {
+	return &seatsweep.Cmd{Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Parts: storeParts(h), Open: seatsweep.OpenStore}
 }

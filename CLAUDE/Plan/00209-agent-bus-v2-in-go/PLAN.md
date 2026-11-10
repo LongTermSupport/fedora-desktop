@@ -217,8 +217,9 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   (ccy-teams', Task 4.3), the units and timers (gate A), and `restore` in production, which stays
   refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15). The verbs no slice
   specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
-  Of six N2 packages with no caller, n2f gave four one; `declare/hostvars` and `sweep` wait on
-  ccy-teams (Task 4.3): [BUILT-n2.md](BUILT-n2.md#the-six-n2-packages-and-their-callers).
+  Of six N2 packages with no caller, n2f gave four one and `ccy-teams seats sweep` gave `sweep`
+  one (Task 4.2); `declare/hostvars` waits on ccy-teams (Task 4.3):
+  [BUILT-n2.md](BUILT-n2.md#the-six-n2-packages-and-their-callers).
 
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
@@ -315,7 +316,7 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [x] ✅ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump (3.114.0,
   container 2.81.0; `tasks/teamchat-ccy-kit.yml`). Gate A met (Plan 00246 INSTALL-PATH.md).
-- [ ] 🔄 **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
+- [x] ✅ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
   For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it
   relaunches and records it in `held/notice.json`, and the same change turns RS2's switch on.
@@ -324,8 +325,9 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   Built since: `ccy-teams system` (seam 55, L3) and the launch take, mount guard and seat
   adapters as Go (`teams/teamchatlaunch`), then wired (CCY 3.116.0): the `ccy-teams internal`
   verbs `launch-args`, `seat-check`, `seat-take` and `bus-disconnected`, the exit release, RS3
-  with RS2's switch on. Open: the seat sweep and its user units. Decisions L1-L5:
-  [LAUNCH-ccy.md](LAUNCH-ccy.md).
+  with RS2's switch on. Then the owner's seat sweep, `ccy-teams seats sweep`, and its
+  `teamchat-seats.{service,timer}` user units, installed by `play-claude-yolo.yml` (C 3.7.5,
+  DC21). A real launch on a v2 team is Task 4.4's. Decisions L1-L6: [LAUNCH-ccy.md](LAUNCH-ccy.md).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy

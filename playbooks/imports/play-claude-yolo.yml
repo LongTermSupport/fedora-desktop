@@ -920,6 +920,55 @@
             and (ccy_set_going_readback.rc != 0
                  or 'ccy-sessions-set-going.service' not in ccy_set_going_readback.stdout))
 
+    # =========================================================================
+    # The owner's teamchat seat sweep (Plan 00209 DESIGN-v2-C-host.md 3.7.5, DC21)
+    # =========================================================================
+    # `ccy-teams seats sweep` once a minute, as you: it releases the teamchat pool seats of
+    # sessions that are over and announces a session that ended without its goodbye. Root's
+    # health tick cannot, since these seats are your files. The units' text is Go's: the
+    # ccy-teams just installed prints the list and each unit, as teamchat-admin does for
+    # play-teamchat.yml. The timer is enabled on every desktop; the service's
+    # ConditionPathIsDirectory skips it, starting no process, until a teamchat seat is placed
+    # here (LAUNCH-ccy.md decision L6). It runs while your user manager runs.
+    - name: List the Seat Sweep's User Units
+      ansible.builtin.command:
+        argv: ["/home/{{ user_login }}/.local/bin/ccy-teams", seats, units, list]
+      changed_when: false
+      check_mode: false
+      register: ccy_seat_units
+
+    - name: Print Each Seat Sweep Unit's Text
+      ansible.builtin.command:
+        argv: ["/home/{{ user_login }}/.local/bin/ccy-teams", seats, units, print, "{{ item.split('\t')[0] }}"]
+      loop: "{{ ccy_seat_units.stdout_lines }}"
+      changed_when: false
+      check_mode: false
+      register: ccy_seat_unit_text
+
+    # A command's stdout loses its trailing newline in Ansible, so the end is made explicit.
+    - name: Write Each Seat Sweep Unit
+      ansible.builtin.copy:
+        content: "{{ item.stdout | trim }}\n"
+        dest: "/home/{{ user_login }}/{{ item.item.split('\t')[1] }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      loop: "{{ ccy_seat_unit_text.results }}"
+      loop_control:
+        label: "{{ item.item.split('\t')[0] }}"
+      register: ccy_seat_units_written
+
+    # The reload runs before the enable, so the manager knows a unit file written just now.
+    - name: Run the Seat Sweep Timer
+      ansible.builtin.systemd:
+        name: teamchat-seats.timer
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: "{{ ccy_seat_units_written.changed }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy/tokens
