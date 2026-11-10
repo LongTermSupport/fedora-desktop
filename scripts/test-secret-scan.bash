@@ -316,6 +316,24 @@ assert_filter "unit-name-with-suffix-read-as-email: a real address under a servi
 assert_filter "unit-name-with-suffix-read-as-email: an @. shape that is not a unit type is flagged" \
     "1: ${UNIT_AT}.corp.${RESERVED_TLD}" "${REPO_ROOT}" "1: ${UNIT_AT}.corp.${RESERVED_TLD}"
 
+# ── exempt-token-shields-glued-address ───────────────────────────────────────────────────
+#
+# The email pattern stops at the next `@`, so an address glued straight onto an exempt name
+# splits into an exempt prefix and an orphan `@domain` the pattern does not match. Each case
+# glues one; the filter must judge the token with what is glued to it, never the prefix alone.
+# Failures here: CLAUDE/QA.md#exempt-token-shields-glued-address.
+assert_filter "exempt-token-shields-glued-address: after a template unit file" \
+    "1: ${UNIT_AT}.service.${REAL_ADDRESS}" "${REPO_ROOT}" "1: ${UNIT_AT}.service.${REAL_ADDRESS}"
+assert_filter "exempt-token-shields-glued-address: after an instance unit" \
+    "1: ${UNIT_AT}tty1.service${REAL_ADDRESS}" "${REPO_ROOT}" "1: ${UNIT_AT}tty1.service${REAL_ADDRESS}"
+GIT_AT="git@"
+assert_filter "exempt-token-shields-glued-address: after a git remote host" \
+    "1: ${GIT_AT}host.${REAL_ADDRESS}" "${REPO_ROOT}" "1: ${GIT_AT}host.${REAL_ADDRESS}"
+assert_filter "exempt-token-shields-glued-address: a git remote is still exempt" \
+    "" "${REPO_ROOT}" "1: url = ${GIT_AT}github.com:org/repo.git"
+assert_filter "exempt-token-shields-glued-address: a git remote with a host alias is still exempt" \
+    "" "${REPO_ROOT}" "1: url = ${GIT_AT}github.com-work:org/repo.git"
+
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
 # A structural assertion, because the behaviour above is only reached through this call and
