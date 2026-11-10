@@ -204,6 +204,11 @@ after the sweep, and this section is where the wait is recorded.
 this gate; it would also be a no-op there. `--policy FILE` reads the policy from another file,
 for a checkout that does not carry it yet.
 
+- The [command-always-changed](#command-always-changed) rule (issue #224;
+  `src-go/qa/ansible/alwayschanged.go`) is built and proven against its fixtures, but is not
+  yet called by `qa-ansible`'s scan: the tree held 54 instances when it was written. It joins
+  the scan when its sweep has emptied the tree.
+
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
 ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit
@@ -1855,6 +1860,38 @@ environment, not templated into the shell line:
     KVER: "{{ boot_kernel_version }}"
   changed_when: true
 ```
+
+### command-always-changed
+
+**What it is.** A `command`, `shell`, `raw`, `script` or `expect` task whose `changed_when`
+is absent or the constant `true` (`yes`, `on`, quoted or not), in a play's tasks or a task
+list, blocks opened. A `when` does not excuse it: a guard says when the command runs, not
+whether that run changed anything. Not reported: any other `changed_when` (`false`, an
+expression, a list, a template), a task with `creates` or `removes` (Ansible skips it, with no
+change, once that path says the work is done), and a handler (it runs only after a change).
+Proven against `tests/fixtures/ansible-command-always-changed/`.
+
+**Why it exists.** Ansible cannot see what a command did, so such a task reports changed on
+every run. A second run with nothing to do is never clean, and the recap hides the run that
+did change something. Two host runs of play-ftp-camera in a row reported its
+`systemd-tmpfiles --create`, `restorecon -R` and `nmcli connection modify` tasks changed with
+nothing to change (issue #224). ansible-lint's `no-changed-when` is no defence here: no gate
+runs ansible-lint, `.ansible-lint` only warns on it, and it passes `changed_when: true` and
+any task with a `when`.
+
+**How to fix a finding.** Decide changed from what was observed, never from a constant:
+
+- A command that changes nothing (a query, a probe): `changed_when: false`.
+- A command that says what it did: register it and key on its output, for example
+  `restorecon -v` prints one `Relabeled` line per file it relabels, and `systemd-tmpfiles --create` prints nothing unless asked, so read the state before it instead.
+- A command that says nothing: read the state first (a `stat`, a query command with
+  `changed_when: false`), run the command only when the state is wrong, and key
+  `changed_when` on the command's own result (`result.rc == 0`), so a guarded run that did
+  act is the only one reported.
+- A command that only makes a path: `creates:` that path.
+
+A finding whose right probe cannot be shown without running the command on a host is
+referred to the owner, never suppressed or given a constant.
 
 ### offline-member-blocks
 

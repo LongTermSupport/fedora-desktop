@@ -1,0 +1,65 @@
+---
+# Fixture for the command-always-changed rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. The first three tasks are the three
+# play-ftp-camera.yml tasks a host saw report changed on two runs in a row with nothing to do
+# (GitHub issue 224). The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Create vsftpd secure chroot dir now (tmpfiles.d only fires at boot)
+      ansible.builtin.command:  # EXPECT-FINDING
+        cmd: systemd-tmpfiles --create /etc/tmpfiles.d/vsftpd-camera.conf
+      changed_when: true
+
+    - name: Apply SELinux file context to upload directory
+      ansible.builtin.command:  # EXPECT-FINDING
+        cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
+      changed_when: true
+
+    - name: Provision the hotspot
+      block:
+        - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
+          ansible.builtin.command:  # EXPECT-FINDING
+            argv: [nmcli, connection, modify, Hotspot, 802-11-wireless.band, bg]
+          when: ftp_camera_hotspot_exists or ftp_camera_wifi_devs | length > 0
+          changed_when: true
+
+    - name: No changed_when at all
+      ansible.builtin.shell: |  # EXPECT-FINDING
+        set -euo pipefail
+        dconf update
+
+    - name: A short module name, changed_when spelt yes
+      command: fc-cache -f  # EXPECT-FINDING
+      changed_when: yes
+
+    - name: A quoted true is still the constant
+      ansible.builtin.raw: echo hi  # EXPECT-FINDING
+      changed_when: "true"
+
+    - name: A script
+      ansible.builtin.script: files/do-it.bash  # EXPECT-FINDING
+
+    - name: A guard alone does not say whether the command changed anything
+      ansible.builtin.command: mv /a /b  # EXPECT-FINDING
+      when: legacy.stat.exists
+
+    - name: A block with a rescue and an always
+      block:
+        - name: Read-only, so not reported
+          ansible.builtin.command: /bin/true
+          changed_when: false
+      rescue:
+        - name: In a rescue
+          ansible.builtin.command: logger failed  # EXPECT-FINDING
+      always:
+        - name: In an always
+          ansible.builtin.command: logger done  # EXPECT-FINDING
+
+- hosts: localhost
+  pre_tasks:
+    - name: In pre_tasks
+      ansible.builtin.command: /bin/true  # EXPECT-FINDING
+  post_tasks:
+    - name: In post_tasks
+      ansible.builtin.command: /bin/true  # EXPECT-FINDING

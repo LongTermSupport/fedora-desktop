@@ -1,0 +1,56 @@
+---
+# Fixture for the command-always-changed rule of src-go/qa/ansible: none of these may be
+# reported. Each is a command whose changed result is decided by what it observed, or a task
+# that cannot report changed on a run where nothing changed. The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: A read-only probe
+      ansible.builtin.command:
+        argv: [nmcli, -t, -f, NAME, connection, show]
+      register: nm_conns
+      changed_when: false
+
+    - name: Keyed on the command's own output
+      ansible.builtin.command:
+        cmd: "restorecon -R -v {{ upload_dir }}"
+      register: restorecon_result
+      changed_when: restorecon_result.stdout | length > 0
+
+    - name: Keyed on a list
+      ansible.builtin.shell: |
+        set -euo pipefail
+        thing --apply
+      register: thing_result
+      changed_when:
+        - thing_result.rc == 0
+        - "'applied' in thing_result.stdout"
+
+    - name: A command Ansible skips once its file exists
+      ansible.builtin.command:
+        cmd: make install
+        creates: /usr/local/bin/thing
+
+    - name: Creates in args
+      ansible.builtin.command: make install
+      args:
+        removes: /tmp/thing.tar
+
+    - name: Creates in the free form
+      ansible.builtin.command: make install creates=/usr/local/bin/thing
+
+    - name: Not a command module
+      ansible.builtin.copy:
+        content: x
+        dest: /tmp/x
+        mode: "0644"
+
+    - name: A templated decision
+      ansible.builtin.command: thing
+      register: thing_two
+      changed_when: "{{ thing_two.rc == 0 }}"
+
+  handlers:
+    - name: A handler runs only when a task changed something
+      ansible.builtin.command: systemctl daemon-reload
