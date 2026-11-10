@@ -54,4 +54,12 @@
 # And the Go caches (ccy 3.113.4, same play's launcher and ccy-teams): each launch binds
 # ~/.cache/ccy/<project>/go for the Go build, module, golangci-lint and go-qa tool caches,
 # bounded at 8 GiB and cleared at launch when over; no image rebuild beyond Plan 00243's.
+# And issue #220 (no secret on a command line): play-github-cli-multi.yml checks, makes and
+# strips the GitHub SSH keys through helpers/ssh_passphrase (the passphrase on stdin, then
+# SSH_ASKPASS) and writes no /tmp/.github_ssh_pp; play-basic-configs.yml deploys
+# ssh-keys-rekey, now its own SSH_ASKPASS. Of the optional plays, those that have run here:
+# nvidia and displaylink (the MOK password reaches expect on stdin, only when a key is
+# imported), ftp-camera (the hotspot profile is made in nmcli's editor from stdin, only when it
+# does not exist yet), unifi-controller and unifi-firmware (the admin password and its hash on
+# stdin instead of environment:).
 changed-plays

@@ -305,31 +305,21 @@
           loop_control:
             label: "{{ item.item.key }}"
 
-        # A copy module's msg names the file and the error, never the content, so the
-        # rescue can print it.
-        - name: Create passphrase file for SSH key operations
-          block:
-            - name: Create passphrase file for SSH key operations
-              ansible.builtin.copy:
-                content: "{{ github_ssh_passphrase }}"
-                dest: "/tmp/.github_ssh_pp"
-                mode: "0600"
-                owner: "{{ user_login }}"
-              no_log: true
-          rescue:
-            - name: Stop because the passphrase file could not be written
-              ansible.builtin.fail:
-                msg: >-
-                  Could not write the temporary passphrase file /tmp/.github_ssh_pp:
-                  {{ ansible_failed_result.msg | default('no reason given') }}. No SSH key
-                  was checked or generated. Fix the cause above and run the play again.
-
+        # The passphrase reaches ssh-keygen only through helpers/ssh_passphrase, on the task's
+        # stdin and then as ssh-keygen's SSH_ASKPASS: never in a file under /tmp, and never on a
+        # command line, where any local user could read it (CLAUDE/QA.md secret-in-argv).
+        # stdin: is a module argument, so each such task is under no_log.
         - name: Verify existing keys work with vault passphrase
-          ansible.builtin.shell: |
-            ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" \
-              -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" >/dev/null 2>&1
-          args:
-            executable: /bin/bash
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.ssh_passphrase.cli
+              - unlocks
+              - "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}"
+            chdir: "{{ root_dir }}"
+            stdin: "{{ github_ssh_passphrase }}"
+          no_log: true
           when: item.stat.exists
           loop: "{{ ssh_key_status.results }}"
           loop_control:
@@ -350,19 +340,26 @@
 
               Or update the vault passphrase to match:
                 ./vault.bash set github_ssh_passphrase
-          when: item.rc is defined and item.rc != 0
+
+              ssh-keygen said: {{ item.stderr | default('') }}
+          when:
+            - passphrase_verify is not skipped
+            - item.rc is defined and item.rc != 0
           loop: "{{ passphrase_verify.results | default([]) }}"
           loop_control:
             label: "{{ item.item.item.key | default('unknown') }}"
 
         - name: Generate SSH keys for missing accounts
-          ansible.builtin.shell: |
-            set -euo pipefail
-            ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
-              -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" \
-              -N "{{ github_ssh_passphrase }}" 2>&1
-          args:
-            executable: /bin/bash
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.ssh_passphrase.cli
+              - generate
+              - "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}"
+              - "{{ item.item.value }}@github"
+            chdir: "{{ root_dir }}"
+            stdin: "{{ github_ssh_passphrase }}"
           register: ssh_key_generated
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
@@ -371,15 +368,14 @@
           loop_control:
             label: "{{ item.item.key }}"
 
-        # Only the account and the exit code: the passphrase is on ssh-keygen's command line,
-        # so its output is not printed.
+        # The helper's stderr names the key and ssh-keygen's reason, never the passphrase.
         - name: Fail fast if an SSH key could not be generated
           ansible.builtin.fail:
             msg: >-
               ssh-keygen could not generate ~/.ssh/github_{{ item.item.item.key }} (exit
-              {{ item.rc | default('none') }}). No key was made for this account. Check that
-              ~/.ssh exists and is writable by {{ user_login }} and that the disk is not full,
-              then run the play again.
+              {{ item.rc | default('none') }}): {{ item.stderr | default('') }}. No key was made
+              for this account. Check that ~/.ssh exists and is writable by {{ user_login }} and
+              that the disk is not full, then run the play again.
           when:
             - ssh_key_generated is not skipped
             - item.rc is defined
@@ -551,7 +547,9 @@
             trap 'rm -f "$tmp_key"' EXIT
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
-            if ! ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1; then
+            # The vault passphrase is this task stdin, read by the helper alone; ssh below
+            # reads /dev/null, so nothing of it can reach the remote.
+            if ! python3 -m helpers.ssh_passphrase.cli strip "$tmp_key"; then
               ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1
             fi
             # IdentityAgent=none + IdentitiesOnly=yes force ssh to use ONLY the
@@ -560,7 +558,7 @@
             # and ssh hangs until the outer timeout fires (rc=124, no output).
             out=$(timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
               -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-              -i "$tmp_key" -p {{ github_ssh_port }} -T git@{{ github_ssh_hostname }} 2>&1)
+              -i "$tmp_key" -p {{ github_ssh_port }} -T git@{{ github_ssh_hostname }} </dev/null 2>&1)
             # Port-agnostic fallback: if the primary endpoint did not authenticate
             # (e.g. a network that firewalls port 22), retry over ssh.github.com:443,
             # which serves the SAME host keys and identity. This keeps verification
@@ -569,7 +567,7 @@
             if ! printf '%s' "$out" | grep -q "successfully authenticated"; then
               alt=$(timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
                 -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-                -i "$tmp_key" -p 443 -T git@ssh.github.com 2>&1)
+                -i "$tmp_key" -p 443 -T git@ssh.github.com </dev/null 2>&1)
               if printf '%s' "$alt" | grep -q "successfully authenticated"; then
                 out="$alt"
               fi
@@ -577,13 +575,30 @@
             printf '%s\n' "$out"
           args:
             executable: /bin/bash
+            chdir: "{{ root_dir }}"
+            stdin: "{{ github_ssh_passphrase }}"
+          no_log: true
           timeout: 45
           register: ssh_test
           changed_when: false
-          failed_when: ssh_test.rc not in [0, 1, 124, 255]
+          failed_when: false  # FAIL-FAST-OK: probe under no_log (its stdin is the passphrase); the fail below gives the reason
           loop: "{{ github_accounts | default({}) | dict2items }}"
           loop_control:
             label: "{{ item.key }}"
+
+        # ssh exits 1 for GitHub's no-shell greeting, 124 on the timeout, 255 when it cannot
+        # authenticate: those are results the assert below explains. Anything else is a fault.
+        - name: Stop if the SSH access check could not run
+          ansible.builtin.fail:
+            msg: >-
+              The SSH access check for github_{{ item.item.key }} could not run (exit
+              {{ item.rc | default('none') }}): {{ item.stderr | default('') }}
+          when:
+            - ssh_test is not skipped
+            - item.rc | default(1) not in [0, 1, 124, 255]
+          loop: "{{ ssh_test.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
 
         - name: Display SSH access test results
           ansible.builtin.debug:
@@ -607,7 +622,8 @@
               this account, so failure here is most likely passphrase-related.
 
               Diagnose:
-                ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_{{ item.item.key }}
+                ssh-keygen -y -f ~/.ssh/github_{{ item.item.key }}
+              and type the vault passphrase when it asks.
 
               If that fails, the key has a passphrase that differs from the
               one in the vault. Either update the vault passphrase or delete
@@ -661,11 +677,6 @@
           changed_when: false
           when: original_active_account.stdout | default('') | length > 0
 
-      always:
-        - name: Clean up SSH askpass helper (always runs, even on failure)
-          ansible.builtin.file:
-            path: "/tmp/.github_ssh_pp"
-            state: absent
       when: github_accounts_configured
 
     # COMMIT SIGNING WITH THE LOGIN KEYS (Plan 00139 D5)
