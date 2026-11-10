@@ -376,6 +376,19 @@ for f in "${builder_files[@]:3:1}" qa/x/x.go internal/unrelated/unrelated.go; do
         "0 no" "$(hook_status) $(has 'container version bump requirement')"
     builder_restore
 done
+# A Go build the hook cannot read would leave its sources unguarded, so it stops the commit.
+for form in 'go install ./cmd/start' 'sh -c "go build ./cmd/start"' 'go build -o /out/start cmd/start' \
+    'true || go build ./cmd/start' 'go run ./cmd/start'; do
+    write_dockerfile 2.1
+    write_launcher 1.0.1 2.1
+    awk -v form="RUN $form" '{ print } $1 == "WORKDIR" { print form }' "$ccy/Dockerfile" >"$work/Dockerfile.form"
+    mv "$work/Dockerfile.form" "$ccy/Dockerfile"
+    want="1 yes" what="rejected as unreadable"
+    if [ "$form" = 'true || go build ./cmd/start' ]; then want="0 no" what="read, after ||"; fi
+    check "a builder stage running '$form' is $what" "$want" \
+        "$(hook_status) $(has 'CCY-IMAGE-INPUT]: the ccy-builder stage')"
+    baseline
+done
 builder_stage=""
 baseline
 git -C "$repo" commit -q --no-verify -m 'drop the builder stage'

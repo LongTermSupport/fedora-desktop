@@ -267,7 +267,7 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
             /^(---|\+\+\+) (a\/|b\/|\/dev\/null)/ { next }
             /^[+-]/ && (prose ? $0 !~ /^[+-][[:space:]]*$/ : $0 !~ /^[+-][[:space:]]*(#([^!]|$)|$)/) { found = 1; exit }
             END { exit !found }' <<<"$image_diff"; then
-            echo -e "${RED}COMMIT REJECTED: CCY container version bump required${NC}"
+            echo -e "${RED}COMMIT REJECTED [CCY-IMAGE-INPUT]: CCY container version bump required${NC}"
             echo ""
             echo "These files are baked into the image, and a running container only"
             echo "picks up a change through a container version bump:"

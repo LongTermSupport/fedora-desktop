@@ -30,7 +30,9 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
             if (!from) for (i = 1; i < n; i++) { s = args[i]; sub(/\/$/, "", s); print s }
         }' <<<"$staged")
     for src in "${sources[@]}"; do paths+=("$context/$src" "files/opt/claude-yolo/$src"); done
-    # The builder stage's RUN lines joined over their continuations, split into commands.
+    # The builder stage's RUN lines joined over their continuations, split into commands. A Go
+    # command read any other way (no ./ package, or go install, run or generate) prints "!", so
+    # a build form this does not understand stops the commit instead of going unguarded.
     mapfile -t packages < <(awk '
         $1 == "FROM" { builder = ($NF == "ccy-builder"); line = ""; next }
         !builder { next }
@@ -38,13 +40,20 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
         /\\$/ { sub(/\\$/, "", line); next }
         {
             sub(/^[[:space:]]*RUN[[:space:]]+/, "", line)
-            n = split(line, commands, /;|&&/)
+            n = split(line, commands, /;|&&|\|\|/)
             for (i = 1; i <= n; i++) {
                 m = split(commands[i], w, " ")
-                if (w[1] == "go" && w[2] == "build") for (j = 3; j <= m; j++) if (w[j] ~ /^\.\//) print w[j]
+                found = 0
+                if (w[1] == "go" && w[2] == "build") for (j = 3; j <= m; j++) if (w[j] ~ /^\.\//) { print w[j]; found = 1 }
+                if (w[1] == "go" && w[2] ~ /^(build|install|run|generate)$/ && !found) print "!"
+                if (w[1] != "go" && w[1] !~ /^#/ && commands[i] ~ /(^|[^[:alnum:]_])go (build|install|run|generate) /) print "!"
             }
             line = ""
         }' <<<"$staged")
+fi
+if [[ " ${packages[*]} " == *" ! "* ]]; then
+    echo "COMMIT REJECTED [CCY-IMAGE-INPUT]: the ccy-builder stage of $dockerfile runs Go in a form this hook cannot read; build ./ packages with plain go build commands (see scripts/git-hooks/lib/ccy-image-staged.bash)." >&2
+    exit 1
 fi
 
 for file in "$@"; do

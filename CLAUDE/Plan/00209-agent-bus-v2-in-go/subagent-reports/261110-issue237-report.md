@@ -5,9 +5,12 @@ Addresses #237. Not plan work of its own; filed here because Plan 00209 owns the
 Commits on the work branch:
 
 - `e38ef1271`: the defence, red
-- `be8141162`: the fix, green. This is the last work commit.
+- `be8141162`: the fix, green
+- the review follow-up, which carries this report's final text: unreadable builder forms
+  rejected, and the `CCY-IMAGE-INPUT` tag (see "Conformance review" below)
 
-Nothing was pushed.
+The stop guard put a park commit, `8729e8dca`, between the fix and the follow-up. Its own push
+was refused by the QA push gate. Nothing was pushed.
 
 # Defence Before Fix report
 
@@ -73,8 +76,18 @@ Nothing was pushed.
   - Packages no builder command imports.
 
 - **Wider rule considered: "all of src-go".** This is the issue's fallback. It was not built
-  because it would demand a bump for host-only tools and for tests. The brief also forbids a
-  bump for tests and qa. See the decision referred to the owner below about the teamchat digest.
+  because it would demand a bump for host-only tools and for tests. The coordinator's brief
+  also said tests and qa must not demand a bump.
+
+  - The brief is not the owner's decision. The teamchat digest (decision 1 below) is the one
+    known way a test-only or qa-only change still reaches the image.
+  - The blocking rule is the build-closure rule, which is narrower. Whether it stays that
+    narrow is referred.
+
+- **Unreadable builder forms are rejected.** These are `go install`, `go run`, `go generate`, a
+  `go build` with no `./` package, and Go inside another command such as `sh -c "go build ..."`.
+  They are rejected with `COMMIT REJECTED [CCY-IMAGE-INPUT]: the ccy-builder stage ... runs Go in a form this hook cannot read`, so no build form is left unguarded without a message.
+  Commands split on `;`, `&&` and `||`.
 
 ## Proof
 
@@ -107,11 +120,23 @@ Nothing was pushed.
 
 - **Scope.** The whole real tree, through the real-tree section. This counts every file the
   Dockerfile's builder stage builds from:
+
   - 61 packages of the three commands;
   - their assembly and embedded files;
   - the module files.
-- **Count.** 65 real probes (one per package plus the asm, embed and module files) stood for
-  every file of those packages. All were unguarded.
+
+- **Count.** The closure is:
+
+  - 61 packages;
+  - 296 compiled Go files, 1 assembly file and 1 embedded file;
+  - go.mod and go.sum.
+
+  That is 300 inputs. All 300 were unguarded before the fix: the old hook guarded no path under
+  src-go, so the probes, one source file per package, were a sample of an exhaustive fact.
+  The 65 real probes ran against the hook, red before the fix and green after it.
+  `go-staged.bash` judges a file by its package directory, so one file per package exercises
+  that package's whole entry.
+
 - **The other Go gate.** The CCY_VERSION gate over the launcher's Go front already derived its
   inputs with `go list`. In the same class it lacked only `vendor/modules.txt`, which is now
   guarded through the shared library.
@@ -163,29 +188,44 @@ Nothing was pushed.
      comparison that this breaks. I did not read every digest consumer, such as host LXC kits.
    - If the digest must match a host build of the same commit, the owner should choose between
      guarding all of src-go and changing the digest to cover only the build closure.
-   - Open: 1. Fixed: 0.
-2. **`CCY_SOURCE_COMMIT` is not a file.** The searcher was unsure about this one. The image is
-   built from a commit, but a rebuild is triggered only by the label or the Dockerfile hash.
-   That is what this gate exists for, and no hook can guard a commit id. Recorded, not acted on.
+   - Open: 1, the digest. Fixed: all 300 closure inputs.
+   - What stopped me: the brief, and the owner's authority under SPEC section 4.
+   - What to try next, either of:
+     - (a) widen `go-staged.bash` to every src-go file outside `src-go/qa/` for teamchat. A
+       one-line case change, but it makes every test edit bump the container.
+     - (b) compute the digest in the builder from the build closure, for example the hash of
+       `go list -deps -f` files, instead of `rev-parse HEAD:src-go`. This keeps the rule as it
+       is.
+2. **`CCY_SOURCE_COMMIT` is not a file.** The searcher was unsure about this one.
+   - The image is built from a commit, but a rebuild is triggered only by the label or the
+     Dockerfile hash. That is what this gate exists for.
+   - Count: 1. A hook cannot guard a commit id.
+   - What to try next: have the launcher compare the image's recorded source commit with the
+     checkout's last commit touching the closure, and warn or rebuild. That belongs to Plan
+     00209's launcher work, not this gate.
+3. **Staged versus working tree.** `go list` reads the working tree, not the index, so a
+   partially staged import change is judged on the working tree's import graph.
+   - Count: unknown, and no instance was seen. The launcher's front gate had the same limit
+     before this change.
+   - What to try next: run `go list` on a `git checkout-index` copy of staged src-go, as
+     `staged-scan-list.bash` already does for qa-go-deps. It costs one tree copy per commit
+     that stages src-go.
 
 ## Permanence
 
 - **Blocking.** The suite is blocking: `scripts/qa-gates.tsv` gate `ccy-container-version-hook`,
   run by qa-changed, qa-all and CI.
-- **Green run.** Through the project's entry point:
-  `./scripts/qa-changed.bash --files <the 9 changed files>`. It printed
-  `✓ suite test-ccy-container-version-hook.bash: passed: 206`,
-  `✓ suite test-qa-changed.bash: passed: 191`, bash-limits, shellcheck and semgrep green, and
-  `qa-changed passed`.
+- **Green run.** Through the project's entry point,
+  `./scripts/qa-changed.bash --files <the changed files>`. Each run's output is recorded under
+  that commit in "Conformance review" below.
 - **Not run.** qa-all was not run, by instruction.
 
 ## Toolchain and detector gaps
 
-- **No stable rule identifier.** The suite has no per-rule identifier or resolver. The gate name
-  `ccy-container-version-hook` and the `CLAUDE/QA.md` row are the closest equivalent.
-- **Staged versus working tree.** `go list` reads the working tree, not the index. A commit that
-  stages only part of an import change is judged on the working tree's import graph. The CCY
-  front gate had the same limit before this change. It is not fixed here.
+- **Rule identifier.** Rejections now carry `CCY-IMAGE-INPUT`, and the `CLAUDE/QA.md` row of
+  the suite names it. The project has no resolver tool for such identifiers. The tag
+  is found by searching `CLAUDE/QA.md`.
+- **Staged versus working tree.** Referred above, as decision 3.
 - **Dogfooding.** Running the suite and qa-changed found no fault in the tooling itself. Two
   rough edges were mine, and both are fixed:
   - the stand-in path for qa-go-deps in the test;
@@ -193,5 +233,27 @@ Nothing was pushed.
 
 ## The original defect
 
-Fixed in `be8141162`. The proof is the 65 real-tree probes and the 7 synthetic cases that were
-red in `e38ef1271`; they are now green, with all 206 cases of the suite passing.
+- **Fixed in `be8141162`.** The proof is the 65 real-tree probes and the 7 synthetic cases that
+  were red in `e38ef1271`. They are now green.
+
+## Conformance review
+
+`defence-before-fix:conformance-reviewer` reviewed `e38ef1271` to `be8141162`.
+
+- **Its limits.** Its sandbox refused to run bash, so it judged from the logs and the diffs.
+- **Its findings, and what was done:**
+  1. **The narrowing is acted on.** It is referred as decision 1, with options. The narrow rule
+     stays blocking, because the wider one is the owner's call.
+  2. **The count is a sample.** The full closure count was added: 300 inputs, all unguarded
+     before the fix.
+  3. **No stable identifier.** `CCY-IMAGE-INPUT` was added to the rejection messages and to
+     QA.md.
+  4. **Defeatable by Dockerfile phrasing.** Unreadable Go forms are now rejected, and `||` is
+     split. Five synthetic cases cover `go install`, `go run`, `sh -c "go build ..."`, a
+     package with no `./` and `|| go build`. The four rejection cases are red on `be8141162`
+     by construction: the old parser printed nothing for those forms, and the hook passed with
+     the versions bumped. They were added with the fix and not committed red on their own.
+  5. **Staged versus working tree.** Referred as decision 3.
+  6. **`CCY_SOURCE_COMMIT`.** Referred as decision 2, with a count and a next step.
+
+The suite now passes 211 cases.
