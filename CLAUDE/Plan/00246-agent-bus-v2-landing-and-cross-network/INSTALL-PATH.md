@@ -88,37 +88,66 @@ So stage A's play makes these changes to the design, and says so:
    `CGO_ENABLED=0 GOOS=linux GOARCH=<from the table>`, `-trimpath -buildvcs=false`,
    `GOFLAGS=-mod=vendor`, into a controller-side temporary directory removed at the end of the
    run. (Both commands cross-build for `amd64` and `arm64` from one host, checked in the
-   container.) A sha256 of each output is taken on the controller; the kit directory
-   `kit/<digest>/` is named from it. The files are copied to the target as root straight to their
-   digest-named homes (`/usr/local/lib/teamchat/teamchat-admin-<digest>` and
-   `kit/<digest>/teamchat`, 0755 root; nothing links to them yet), and the play compares the
-   target's sha256 of each with the controller's before anything uses it.
-3. **`declare check` runs unprivileged, as it must, and not as the login user.** The verb is
-   refused to root and to the `teamchat-ctl` account (`ClassOther`, `admin/class.go`), so the
-   play runs the copied binary as `nobody` with `setpriv` (`--reuid`, `--regid`, `--groups` of
-   `teamchat_owner_group`, so it can read the set records the v1-name rule needs), from the
-   digest-named file. The design had the login user run it; a remote host's login user may be
-   root, and `nobody` is the unprivileged account every Fedora host has. Nothing is linked,
-   rendered or installed before it passes. The copy's integrity check replaces step 03's
-   `O_NOFOLLOW` hand-over, which guarded a root copy out of a user-writable directory; the
-   transfer now lands in a root-owned one. K9's boundary moves from "the owner's checkout" to "the
-   controller's checkout", and stays stated, not solved.
+   container.) The source digest baked into both (`-X main.SourceDigest`) is the git tree id of
+   `src-go` at the checkout's commit, and the play refuses a `src-go` that differs from that
+   commit, so a digest always names the bytes built. (The closure-based digest of 3.13 does not
+   exist yet; it replaces this when the board is built, and the kit and program names change with
+   it.) The files are copied to the target as root straight to their digest-named homes
+   (`/usr/local/lib/teamchat/teamchat-admin-<digest>` and `kit/<digest>/bin/teamchat`, 0755
+   root; nothing links to them yet), and the play compares the target's sha256 of each with the
+   controller's before it links anything.
+3. **`declare check` is not built, so this play does not run it.** The verb is a row of the
+   admin table with no code (`teamchat-admin declare check` answers "not built yet"; only the
+   library `declare.Check` exists), and nothing yet turns a host's declaration into the input
+   `team apply` reads. The play hands each team's entry to `team apply` as `{"team": <entry>, "lxc_members": []}`, which the Go reader judges strictly and fills the defaults of, and
+   `team apply` itself refuses a security field that has no matching approval (AG4, exit 70), so
+   the gate still holds. What is missing is the cross-team checks `declare check` makes (a port
+   another team declares, the v1-name rule) and the `SECURITY` listing before a run. It is built
+   next, as its own piece (A1b); it is a caller class `ClassOther` (refused to root and to
+   `teamchat-ctl`), so the play will run it as `nobody` through `setpriv` with the owner group as
+   the one supplementary group, not as the login user. Until then a host that declares one team
+   is covered; a host that declares several is not. The play calls the verb, unprivileged and
+   before the first approval, in the change that builds it; that change is Task 8.10 of
+   [PLAN.md](PLAN.md) (with the health unit's per-host IP drop-in, decision 1).
+   **The approval** is the owner's gate (DC18) and the owner is not on a remote host. The play
+   approves exactly the teams `teamchat_approve_teams` names, as declared, with `team approve`
+   before `team apply`: listing a team is the operator's act, so the review of the inventory
+   change that adds it is the approval. A new or changed team that is not listed is refused by
+   `team apply`. The copy's integrity check replaces step 03's `O_NOFOLLOW` hand-over, which
+   guarded a root copy out of a user-writable directory; the transfer now lands in a root-owned
+   one. K9's boundary moves from "the owner's checkout" to "the controller's checkout", and stays
+   stated, not solved.
 4. **No login user on the target.** Where the design reads one (`/etc/teamchat/owner-group`, the
    owner-readable group of `/var/lib/teamchat-status`, step 05; the user units `teamchat-seats.*`,
    step 07), the play takes the group from a variable, `teamchat_owner_group`, with no default
    and a failure that names it, and installs the user units only where a member user is declared
    (`teamchat_member_user`). A bus server host with no member on it installs neither.
-5. **Packages and downloads are the target's own.** Step 04's packages are installed on the
-   target. Step 06's `get_url` of the pinned Tuwunel asset runs on the target and needs its
-   egress; a target without it is not established here and would move the download to the
-   controller.
+5. **Packages and downloads are the target's own, and no firewall is started.** `zstd` is
+   installed on the target. Step 06's `get_url` of the pinned Tuwunel asset runs on the target
+   and needs its egress; a target without it is not established here and would move the
+   download to the controller. Design step 04 installed `firewalld`; this play neither installs
+   nor starts it, and does not assume it runs: its first change is preceded by a task that fails,
+   with a message saying so, unless `firewall-cmd --state` answers `running`. The first start of
+   a firewall can cut off the ssh that runs the play (the LXC play guards the same hazard), and
+   a host's firewall is its owner's configuration.
+6. **Not in this play yet, and refused by name when set:** the `teamchat0` bus address
+   (`teamchat_address`), the LXC members (`teamchat_lxc_members`), and `installed.json` (no
+   program reads it yet; the board that does is later). The Element team list has its own play.
 
 This conflicts with design step 01 ("built as the login user") and with `build-go-command.yml`.
 The conflict is the design's, and it is resolved here: the existing task keeps serving the
-desktop plays that build on their own machine; stage A adds `tasks/build-go-command-cross.yml`
-for the controller build. Whether the two merge into one with a `go_command_goarch` input is for
-review. DESIGN-v2-C-host.md 3.5.1 steps 01 to 03 and 05 get the amended text in the commit that
-builds this.
+desktop plays that build on their own machine; stage A adds `tasks/teamchat-build-go-commands.yml`
+for the controller build (a v2-owned name, since the `teamchat-keeps-off-v1` gate lets a v2 play
+name only v2 files and the shared build task). Whether the two merge into one with a
+`go_command_goarch` input is for review. DESIGN-v2-C-host.md 3.5.1 steps 01 to 03 and 05 get the
+amended text in the commit that lands the verb.
+
+The Tuwunel pin is v2's own file, `files/usr/local/share/teamchat/tuwunel.pin` (the gate also
+forbids reading v1's), in the same `var: value` form and with the same values, listed in
+`vars/version-pins.yml` so `update-versions` finds it. Until v1 is retired a bump changes both
+files. The server pin file `teamchat-admin` reads (`ServerPinFile`) is written from it with
+`memory_high` 512M and `cache_capacity_modifier` 0.5 as defaults: starting values that H-C1 has
+not measured on a real host, overridable per host.
 
 ### No architecture lock
 
@@ -190,20 +219,37 @@ do not care:
    existing backup units. A root-free `teamchat-admin` verb (any caller; the design has none)
    prints a named unit: `units print <name>` writes the text and `units list` writes one line
    per unit, its name and its install path, so the play holds neither a text nor a path of its
-   own and the Go `paths` stay the one source. The resolver stub is a file, not a unit, and is
-   listed and printed the same way. The verb runs on the target from the copied binary.
+   own and the Go `paths` stay the one source. The resolver stub and the tmpfiles entry are
+   files, not units, and are listed and printed the same way. The verb runs on the target from
+   the copied binary. The play writes each text trimmed and followed by exactly one newline,
+   because a command's stdout loses its trailing newline in Ansible; the lab compares every
+   installed file with `units print` byte for byte (X30, item 3).
 2. **`teamchat-tls@.service` carries X18a's lines itself**: no `ExecStart=` and no `User=`;
    `DynamicUser=yes`; `After=` and `Wants=` `teamchat-server@%i.service`, not bound to it;
-   `Restart=always`; the bus server's hardening lines; `RestrictAddressFamilies=AF_INET AF_INET6`;
+   `Restart=always`; `Before=lxc.service`, with the reason in the unit (the homeserver listens on
+   loopback alone, so a guest's member reaches it only through the terminator, which must
+   therefore outlive the guests at shutdown as the homeserver does); the bus server's hardening lines; `RestrictAddressFamilies=AF_INET AF_INET6`;
    `IPAddressDeny=any`; `SocketBindDeny=any`; a descriptor limit above twice
    `tlsterm.DefaultMaxConns` (256, so above 512). The drop-ins keep their own denies as well: the
    B3 fix put `IPAddressDeny=any` and `SocketBindDeny=any` in both drop-ins, because systemd
    never applies one template's base text to another template's drop-in, and a drop-in is judged
    alone.
 3. **The health unit is written with what S12 and S13 need**, which the design text lacks:
-   - its `ReadWritePaths` include the teams' TLS directories. `paths.TLSDir` is under
-     `/var/lib/teamchat-admin`, which the design's `ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin` does not cover, and S12's tick writes the renewed leaf where apply
-     writes it;
+   - the teams' leaves live in their own state root, `/var/lib/teamchat-tls/<team>/`
+     (`paths.TLSDir`), apart from the CA, which stays in the admin state (`paths.CADir`). The
+     health unit's `ReadWritePaths=` is the status records, the lock directory and that root
+     alone, so S12's tick can renew a leaf where apply wrote it and cannot write the CA key, the
+     approvals or any other record (the CA key it reads to sign is readable under
+     `ProtectSystem=strict`, never writable). Writing the whole admin state, or one drop-in per
+     team, were the two rejected routes: the first gives the tick the approvals, the second goes
+     stale. `team apply` and a purge make and remove the leaf's directory; the backup and
+     restore carry the CA only, as before, and their paths follow `CADir`;
+   - the lock directory under `/run` is empty after a boot and the leaves' root is new, so a
+     `ReadWritePaths=` entry would name a directory that does not exist, which fails the unit's
+     namespace setup; a `-` prefix would hide that. The units name both without it, and a
+     tmpfiles entry (`/etc/tmpfiles.d/teamchat.conf`, rendered by Go like the units, installed
+     by the play, which then runs `systemd-tmpfiles --create` on it) makes them at every boot.
+     The backup unit's `/run` entry is covered by the same file;
    - its IP filter lets S13's probe reach the team's listen addresses. The design has
      `IPAddressDeny=any` with `IPAddressAllow=localhost`, and the probe dials each derived listen
      address (X32), which is not loopback, so the filter would drop it. The health unit is one
@@ -216,11 +262,13 @@ do not care:
    fails.
 5. **The play `playbooks/imports/play-teamchat.yml`**, design steps 01 to 13 as far as X30 needs
    them, as amended above: both binaries built on the controller for the target's architecture
-   and copied over, `declare check`, `teamchat-admin` and the kit installed with
-   `/usr/local/bin/teamchat` pointing at the kit's `current` binary, the packages, the
-   `teamchat-ctl` user and state roots, the pinned Tuwunel for the target's architecture, the
-   units with one `daemon_reload`, the bus address (`teamchat0`), `installed.json`, then
-   `team remove` and `team apply` per team. Timers are enabled only while a team is present
+   and copied over, `teamchat-admin` and the kit installed with `/usr/local/bin/teamchat`
+   pointing at the kit's `current` binary, the owner group, the `teamchat-ctl` account and state
+   roots, the pinned Tuwunel for the target's architecture and the server pin, the units and the
+   resolver stub as `units print` gives them with one `daemon_reload`, then `team approve` (the
+   teams the operator names), `team remove` and `team apply` per team. Built: all of that.
+   Not built: `declare check` (the verb does not exist), the bus address, the LXC phases,
+   `installed.json` (item 3 above). Timers are enabled only while a team is present
    (C40), so the same play on a member-only machine installs the binaries and starts nothing.
    The fence unit is the migration's (area D) and stays out. The play is edited in the repository
    only; a host run of this checkout's own host goes into `meta-deploy.list`, and a remote host's
@@ -248,12 +296,21 @@ the team removed. The same runs first on a VM-lab guest (X30, item 3).
   unit written as a static file or a Jinja template under `files/` or `templates/` escapes it.
   Detector: extend the walk to every tracked file whose name is a `teamchat` unit, failing on one
   not made by Go; red on a fixture unit file.
-- **Built and tested, reachable from no production entry point.** `deadcode -test` cannot see
-  it: a unit whose `ExecStart=` names a path no play installs (the terminator's
-  `/usr/local/bin/teamchat` today) passes every Go test. Detector: a test that every binary path
-  a Go-made unit names is a destination the play installs (the play read as YAML). Whether the
-  class can be detected more generally than for unit `ExecStart=` lines is not established;
-  where it cannot, the rule's doc says so.
+- **Built and tested, reachable from no production entry point.** go-qa's built-in dead-code
+  stage runs `deadcode -test -json ./...` (it is built in, so `qa/go-qa.toml` and QA.md do not
+  name it): a function only a test calls is not reported, and a unit whose `ExecStart=` names a
+  path no play installs (the terminator's `/usr/local/bin/teamchat` before stage A) passes every
+  Go test and the stage. Detector, built with the play: `TestEveryBinaryAUnitRunsIsInstalledByThePlay`
+  reads every `ExecStart=` binary of the units Go makes and of a team's two drop-ins, and holds
+  each equal to a destination the play (read as YAML) installs; `unitfiles.ExecBinaries` is
+  exported for it and is called by it in the same change. Whether the class can be detected
+  more generally than for unit `ExecStart=` lines is not established; where it cannot, the
+  rule's doc says so.
+- **A unit that writes a directory nothing makes.** A `ReadWritePaths=` entry without a `-`
+  fails the unit's start when the directory is missing, and the lock directory under `/run` is
+  missing after every boot. Detector: `TestEveryDirectoryAUnitWritesIsMadeBeforeItRuns` holds
+  each such entry of the installed services to a directory the play or the tmpfiles entry makes;
+  red with the lock directory left out of the entry.
 - **A play that works only where its checkout is.** A task that reads `user_login`, a home
   directory or `root_dir` as a path on the target runs fine against `desktop` and fails against
   a remote host. Detector: a test over `play-teamchat.yml` and the task files it imports that
@@ -362,10 +419,39 @@ only by the default route is refused, naming the CIDR).
 The lab is Plan 00110's (`vars/vm-test-scenarios.yml`, the `vmtest` CLI in
 `src-go/internal/vmtest`). Today every guest, a run's or a `member-up` one, is on its own passt
 user-mode network with one ssh port forward (`passtNetwork`): two guests cannot reach each other
-and no guest has two networks. **The scenario needs a lab capability that does not exist**:
-isolated libvirt networks a guest can join, several per guest. That is a change to the lab (its
-`SPEC-vmtest.md` and the manifest gate), with its own tests, before the scenario. The lab is
+and no guest has two networks. **The scenario needs a lab capability that does not exist**: a
+guest with more than one network, and guests that reach each other. That is a change to the lab
+(`SPEC-vmtest.md` expectations E67 onward), with its own tests, before the scenario. The lab is
 x86_64 only (see above).
+
+The design report is
+[subagent-reports/261109-vmlab-multinet-design-opus.md](subagent-reports/261109-vmlab-multinet-design-opus.md)
+(research, nothing in it tried on a real libvirt). It corrects this section as follows, each
+point awaiting the coordinator's decision where it says so:
+
+- **No libvirt network is needed.** Every segment of the topology below has exactly two
+  endpoints, so each is a point-to-point link: a UDP socket pair between two rootless guests
+  (libvirt's `udp` interface), with no network object, no bridge, no host interface and no
+  privilege change on the owner's host. Plan 00161's system-libvirt question stays open for 00161
+  only. The subnets are an input of the lab with no default (a host_vars mapping the lab play
+  validates and writes into `lab.env`), so the documentation ranges below stay examples.
+- **The manifest gate does not change.** The manifest describes single-guest `run` scenarios;
+  members (`member-up`, `member-ssh`, `member-down`) are not manifest-driven, so X30 is a
+  plan-local script like Plan 00161's U23, run by the host agent through `meta-deploy.list`.
+- **Two-endpoint links cannot carry "move to a second guest"**, which needs three endpoints on
+  one network at once; the rebuild case below can run, and the move is a host run.
+- **The lab's RAM ceiling is per guest, not for all guests together**, though the manifest's
+  comment says otherwise (`retention.go`'s `ramFloor` compares one guest with 75% of the host's
+  memory). An all-guests check is added first, as a defect fixed with its detector.
+- **Running the play from the checkout against lab guests writes a false play-ledger record** on
+  the controller; the ledger is fixed as a defect class (record only plays whose hosts include the
+  local host), and until then the scenario disables the ledger callback and says so.
+- **`ansible.cfg` runs the play locally** (`transport=local`, YAML inventories only), so the
+  scenario's inventory is YAML and sets `ansible_connection: ssh` on every host, and the
+  fact cache is flushed per run.
+- **Not run on stage A:** the host's own `/32` check (the play refuses `teamchat_address`) and
+  `team apply`'s refusal of a permissive zone (not built); the scenario makes the rejecting zone
+  itself on the bus guest, and its verdict says these two were not run.
 
 **One topology.** Three isolated networks and five guests:
 
@@ -392,8 +478,12 @@ observable: the prober's connection fails at once with the reject, not after its
 
 Asserted:
 
-- the member joins: the owner's pipe `teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued ...` places the seat (X21, X22), and the member sends and
-  receives a message over TLS with the CA pinned (X16);
+- the member joins by X21's relay form, with the bus guest's outbound ssh blocked (its egress
+  to port 22 dropped, as the first real host's is) and a password sudo on the guest, no
+  NOPASSWD: `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued ...` places the seat (X22), and the
+  member sends and receives a message over TLS with the CA pinned (X16). The guest-prepare
+  fixture gives the issuing user a throwaway sudo password. The pull form runs the same way from
+  the member guest;
 - the prober's TCP connection to the team port is refused at the firewall, with the time it took
   bounded well below the connect timeout. The terminator's unit filter is not what refuses it
   (the firewall answers first); the filter is proven from `systemctl show` of the instance, as
@@ -402,6 +492,31 @@ Asserted:
   bus server answers on loopback alone);
 - the negative route case of item 2, on the same bus server guest: a team that also declares a
   network no specific route covers (only the default route does) is refused, naming that CIDR.
+
+**The installed files are the printed ones.** After the play, the scenario reads every file
+`units list` names from the guest and compares it byte for byte with `units print` of the same
+name: the play's trim-plus-newline write is judged here, not assumed (decision 11).
+
+**A host move.** The first real team's `url` is a DNS name, so a seat's bundle names the team
+by that name and pins its CA, and neither changes when the host does. A move or a rebuild is:
+
+1. On the old host, take a team backup (the CA goes with it, B1) and copy it off the host.
+2. On the new host, run the play with the team left out of the declaration, restore the backup,
+   then run the play with the team. As first written this step ran the play with the team and
+   then restored, but the play's `team approve` and `team apply` make a fresh CA before the
+   restore. A restore never replaces a CA (the cross-network doc), so the documented order should
+   be refused and every bundle would need a reissue; that is read from the docs, not observed.
+   The scenario runs both orders and records what the documented one does. The
+   team's CA comes back unchanged and is never replaced; `team apply` then makes a new leaf
+   under it, naming the new host's listen addresses and the `url`'s DNS name.
+3. Repoint the DNS name at the new host.
+4. A member that was placed before the move, with no reissue, reconnects and sends a message.
+
+The scenario runs it on the lab's two networks with the bus server guest rebuilt from the
+backup (the rebuild case); the move to a second guest follows if the lab's guest count allows.
+Asserted: the CA's fingerprint is the same before and after, the member's bundle is untouched,
+and the leaf differs. The order of the restore against the first apply on the new host is
+established by this scenario, not assumed here; a result that needs a reissue is a finding.
 
 ### 4. The further checks the review asked for
 
@@ -455,6 +570,58 @@ Answered by the coordinator on #193 (the recommendation taken, except where note
 4. **X30 at seat level** (a `teamchat run --plain` member on the member machine, stage A only);
    the lab proves it at seat level, and the real second-machine run for a ccy member waits for
    stage C.
+
+Raised while building the play, answered by the coordinator on #193:
+
+05. **`declare check` is not built** (a verb-table row with no code), and nothing turns a host's
+    declaration into the cross-team checks it is meant to make. Answered: the play skips it for
+    now; Task 8.10 builds it and the play calls it in that change. `team apply` already holds the
+    approval gate, so one team on one host is safe without it.
+06. **The source digest** in stage A is the git tree id of `src-go` at a clean commit, not the
+    closure-based digest of 3.13 (which nothing computes yet). Accepted for stage A; the closure
+    digest replaces it with the board.
+07. **Approval by IaC**: `teamchat_approve_teams` approves a listed team exactly as declared. The
+    owner's gate (DC18) assumes the owner is at the host; for a host managed from another
+    repository the reviewed change is the approval. Accepted, and said in the play's header.
+08. **A second Tuwunel pin file** (v2's own) beside v1's, with the same values, because the
+    separation gate forbids v2 reading a v1 file. Accepted until v1 is retired.
+09. **MemoryHigh 512M and cache modifier 0.5** are starting values, not measured (H-C1). Left as
+    stated defaults; H-C1 measures them on the first real host.
+10. **Firewalld**: the play asserts it is running and fails with the reason; it neither starts it
+    nor assumes it (item 5 above).
+11. **The unit files' trailing newline**: the play writes each text trimmed plus one newline
+    instead of relying on how Ansible hands back a command's stdout, and the lab compares every
+    installed file with `units print` byte for byte.
+
+Answered by the coordinator on #193 after the units were built:
+
+12. **`Before=lxc.service` on the terminator**: kept, with the reason in the unit's comment.
+
+13. **The health unit writes the leaves' root alone**: the TLS leaves move to
+    `/var/lib/teamchat-tls/<team>/` and the CA stays in the admin state, read-only to the tick
+    (deliverable 3). Neither whole-admin-state write access nor per-team drop-ins.
+
+14. **The lock directory at boot**: a tmpfiles entry, rendered by Go and installed by the play,
+    with no `-` on the units' paths; the backup unit shares it.
+
+15. **`deadcode -test`**: go-qa's built-in stage runs it; `ExecBinaries` is exported with its
+    consumer in the same change (Defence Before Fix classes).
+
+16. **The first real team's `url` is a DNS name**, so that a host move or rebuild does not mean
+    reissuing seats; the lab scenario carries the move procedure (item 3, "A host move").
+
+17. **X3 stays as written** for the first real host, which has one NIC on its own segment and
+    reaches its member networks by one explicit route each, through the gateway, on the NIC that
+    also holds the default route. Such a network is routed by its explicit route and is served by
+    the NIC's address (`TestAMemberNetworkRoutedThroughTheDefaultInterfaceIsServedByIt`, and
+    `TestAnExplicitRouteThroughTheDefaultInterfaceIsNotTheDefaultRoute` for the route reader),
+    each red against a mutation that marks the whole interface as the default's.
+
+18. **X21 is inverted**: nothing ssh-es out of the bus server's host (egress is DNS, NTP and
+    web), and its owner allows no standing NOPASSWD. The issue is `member add`'s stdout through
+    an ssh into the host from the member machine or the owner's machine, with the sudo password
+    on the ssh's stdin (`sudo -S`), no tty. SPEC X21, the cross-network doc and the lab scenario
+    carry the forms; the scenario proves the relay form with the bus guest's outbound ssh blocked.
 
 Open for review: whether the controller build task merges into `build-go-command.yml` (a
 `go_command_goarch` input) or stays its own file.

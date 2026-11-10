@@ -22,8 +22,8 @@ Wants=sys-subsystem-net-devices-eth0.device
 
 [Service]
 ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10
-LoadCredential=leaf.crt:/var/lib/teamchat-admin/ops/tls/leaf.crt
-LoadCredential=leaf.key:/var/lib/teamchat-admin/ops/tls/leaf.key
+LoadCredential=leaf.crt:/var/lib/teamchat-tls/ops/leaf.crt
+LoadCredential=leaf.key:/var/lib/teamchat-tls/ops/leaf.key
 IPAddressDeny=any
 IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.10/32 192.0.2.0/24
 SocketBindDeny=any

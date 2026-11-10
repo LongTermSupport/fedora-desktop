@@ -103,3 +103,22 @@ for pair in "${pairs[@]}"; do
 done
 exit "$status"
 ''']
+
+# playbooks/imports/play-teamchat.yml builds teamchat and teamchat-admin on its controller for each
+# architecture of vars/teamchat-arch.yml (Plan 00246 INSTALL-PATH.md, "No architecture lock"),
+# while the built-in build judges the host's own architecture alone. The loop's architectures are
+# held equal to that table by internal/teamchat/installplay.
+[[stage]]
+name = "teamchat-cross-build"
+phase = "detectors"
+says = "teamchat and teamchat-admin built static for every architecture of vars/teamchat-arch.yml"
+fix = "Make the command build for the architecture named above the failure, or take the architecture out of vars/teamchat-arch.yml and this loop together"
+command = ["bash", "-c", '''
+set -euo pipefail
+for arch in amd64 arm64; do
+  for cmd in teamchat teamchat-admin; do
+    echo "cross build: linux/$arch $cmd" >&2
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=false -o /dev/null "./cmd/$cmd"
+  done
+done
+''']

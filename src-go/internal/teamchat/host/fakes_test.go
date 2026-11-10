@@ -126,7 +126,7 @@ func newWorld(t *testing.T) *world {
 	w := &world{t: t, root: t.TempDir(), clock: newClock(), faults: map[string]error{}, approved: map[string]*declare.Gated{}}
 	w.rand = io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), &stream{})
 	for _, dir := range []string{
-		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.StatusRoot, paths.HomeserverPrivateStateRoot,
+		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.TLSStateRoot, paths.StatusRoot, paths.HomeserverPrivateStateRoot,
 	} {
 		if err := os.MkdirAll(w.at(dir), 0o700); err != nil {
 			t.Fatal(err)

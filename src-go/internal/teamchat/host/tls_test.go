@@ -22,7 +22,7 @@ import (
 )
 
 // The tests are Plan 00246 SPEC-cross-network X13 and X14 at the host: the team's CA and the
-// homeserver's leaf, made at `team apply`, kept in root/<team>/tls/, and the CA carried by the
+// homeserver's leaf, made at `team apply`, kept in the TLS state root, and the CA carried by the
 // team's backup.
 
 func bytesOf(t *testing.T, w *world, p string) []byte {
@@ -56,7 +56,7 @@ func sameNames(got pki.Names, ips []string, dns string) bool {
 	return got.DNS == dns && slices.Equal(got.IPs, addrs(ips...))
 }
 
-// certificateFiles are the four files of root/<team>/tls/ as bytes, by path.
+// certificateFiles are the four files of the CA directory and the leaf's as bytes, by path.
 func certificateFiles(t *testing.T, w *world) map[string][]byte {
 	t.Helper()
 	team := ops(t)
@@ -81,7 +81,7 @@ type wall0 struct{ c *fakeClock }
 
 func (w wall0) WallMS() int64 { return w.c.Now().UnixMilli() }
 
-// X13, X14: a first apply makes the CA and the leaf under root/<team>/tls/, with the modes the
+// X13, X14: a first apply makes the CA in the admin state and the leaf in the TLS state, with the modes the
 // secrets need, the validity from the host's clock and the names from the derived addresses.
 func TestFirstApplyMakesTheCAAndTheLeaf(t *testing.T) {
 	w := newWorld(t)
@@ -95,8 +95,8 @@ func TestFirstApplyMakesTheCAAndTheLeaf(t *testing.T) {
 	before(t, w.log, "approvals.load", "add")
 	team := ops(t)
 	for p, m := range map[string]os.FileMode{
-		paths.TLSDir(team): 0o700, paths.CAKeyFile(team): 0o600, paths.CACertFile(team): 0o644,
-		paths.LeafKeyFile(team): 0o600, paths.LeafCertFile(team): 0o644,
+		paths.CADir(team): 0o700, paths.CAKeyFile(team): 0o600, paths.CACertFile(team): 0o644,
+		paths.TLSDir(team): 0o700, paths.LeafKeyFile(team): 0o600, paths.LeafCertFile(team): 0o644,
 	} {
 		if got := mode(t, w.at(p)); got != m {
 			t.Errorf("%s: mode %v, want %v", p, got, m)
@@ -310,7 +310,7 @@ func deleteAt(t *testing.T, w *world, p string) {
 }
 
 // X13: a CA that cannot be used is refused, naming the file, and never replaced; nothing after the
-// step runs and nothing in root/<team>/tls/ changes.
+// step runs and nothing in the team's CA or leaf directory changes.
 type badCA struct {
 	damage func(t *testing.T, w *world)
 	file   string
@@ -382,32 +382,35 @@ func TestACAThatCannotBeUsedIsRefusedAndNeverReplaced(t *testing.T) {
 				t.Errorf("after the refusal: lines %q, calls %q", lines, w.log)
 			}
 			if got := heldFiles(t, w); !maps.Equal(got, held) {
-				t.Errorf("root/<team>/tls/ changed: now %d files, was %d, or a file's bytes differ", len(got), len(held))
+				t.Errorf("the team's CA or leaf directory changed: now %d files, was %d, or a file's bytes differ", len(got), len(held))
 			}
 			lockIsFree(t, w)
 		})
 	}
 }
 
-// heldFiles is every file in root/<team>/tls/ by name, with its bytes (a link read through).
+// heldFiles is every file in the team's CA directory and its leaf's, by path, with its bytes (a
+// link read through).
 func heldFiles(t *testing.T, w *world) map[string]string {
 	t.Helper()
-	dir := w.at(paths.TLSDir(ops(t)))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	held := make(map[string]string, len(entries))
-	for _, e := range entries {
-		name := filepath.Join(dir, e.Name())
-		info, statErr := os.Stat(name)
-		if statErr != nil {
-			t.Fatal(statErr)
+	held := map[string]string{}
+	for _, d := range []string{paths.CADir(ops(t)), paths.TLSDir(ops(t))} {
+		dir := w.at(d)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !info.Mode().IsRegular() {
-			t.Fatalf("%s is not a regular file, nor a link to one", name)
+		for _, e := range entries {
+			name := filepath.Join(dir, e.Name())
+			info, statErr := os.Stat(name)
+			if statErr != nil {
+				t.Fatal(statErr)
+			}
+			if !info.Mode().IsRegular() {
+				t.Fatalf("%s is not a regular file, nor a link to one", name)
+			}
+			held[filepath.Join(d, e.Name())] = string(readFile(t, name))
 		}
-		held[e.Name()] = string(readFile(t, name))
 	}
 	return held
 }
@@ -500,11 +503,14 @@ func TestTheBackupOfNoCAOrABadCA(t *testing.T) {
 	}
 }
 
-// restored removes root/<team>/tls/, restores the backup's files into it, and answers the files.
+// restored removes the team's CA directory and its leaf's, restores the backup's files into the CA
+// directory, and answers the files.
 func restored(t *testing.T, w *world, files []BackupFile) {
 	t.Helper()
-	if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{paths.CADir(ops(t)), paths.TLSDir(ops(t))} {
+		if err := os.RemoveAll(w.at(dir)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := CheckRestoreCA(w.root, ops(t), self(t), files); err != nil {
 		t.Fatalf("the check before the restore: %v", err)
@@ -540,7 +546,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if !sameFiles(before, now, paths.CACertFile(team), paths.CAKeyFile(team)) {
 		t.Error("the restored CA is not the one backed up")
 	}
-	for p, m := range map[string]os.FileMode{paths.TLSDir(team): 0o700, paths.CAKeyFile(team): 0o600, paths.CACertFile(team): 0o644} {
+	for p, m := range map[string]os.FileMode{paths.CADir(team): 0o700, paths.CAKeyFile(team): 0o600, paths.CACertFile(team): 0o644} {
 		if got := mode(t, w.at(p)); got != m {
 			t.Errorf("%s: mode %v, want %v", p, got, m)
 		}
@@ -655,7 +661,7 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := applied(t)
 			files := c.edit(good(t, w))
-			if err := os.RemoveAll(w.at(paths.TLSDir(ops(t)))); err != nil {
+			if err := os.RemoveAll(w.at(paths.CADir(ops(t)))); err != nil {
 				t.Fatal(err)
 			}
 			if err := CheckRestoreCA(w.root, ops(t), self(t), files); err == nil || !strings.Contains(err.Error(), c.text) {
@@ -665,8 +671,8 @@ func TestRestoreRefusesABadBackup(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.text) {
 				t.Fatalf("got %v, want a refusal saying %q", err, c.text)
 			}
-			if w.exists(paths.TLSDir(ops(t))) {
-				t.Error("a refused restore made root/<team>/tls/")
+			if w.exists(paths.CADir(ops(t))) {
+				t.Error("a refused restore made the team's CA directory")
 			}
 		})
 	}

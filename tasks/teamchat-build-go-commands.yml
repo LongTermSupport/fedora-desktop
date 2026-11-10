@@ -1,0 +1,60 @@
+# Build Go commands from src-go/ on the CONTROLLER, once per target architecture, for a play that
+# installs them on another machine. tasks/build-go-command.yml builds on the machine it installs
+# to, as the login user, from the checkout beside it; a remote inventory host has none of those
+# (no checkout, no Go toolchain, maybe no login user), so a play that runs against one builds
+# here and copies the files over (CLAUDE/Plan/00246-.../INSTALL-PATH.md, "The play runs against a
+# remote inventory host").
+#
+#   - name: Build the commands for the targets' architectures
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
+#     vars:
+#       go_cross_commands: [foo, bar]
+#       go_cross_goarches: [amd64, arm64]
+#       go_cross_dir: "{{ a controller-side directory the caller made }}"
+#       go_cross_ldflags: "-X main.SourceDigest={{ digest }}"   # optional
+#
+# Needs the Go toolchain on the controller (play-golang.yml installs it where a desktop is the
+# controller). Every task runs on the controller, once, as the controller's own user.
+#
+# Static, offline and reproducible: CGO_ENABLED=0 so the binary links no libc and runs on any Linux
+# of its architecture; GOFLAGS=-mod=vendor so every byte compiled is in the checkout;
+# -trimpath and -buildvcs=false so the same source builds the same bytes. A failed build stops
+# the play before anything is copied.
+#
+# Inputs
+#   go_cross_commands  required; directories under src-go/cmd
+#   go_cross_goarches  required; GOARCH values, each built for linux
+#   go_cross_dir       required; an existing directory, mode 0700, that this file fills with
+#                      <goarch>/<command>
+#   go_cross_ldflags   optional; one -ldflags value, omitted when unset or empty
+
+- name: Make the Cross Build Directory for Each Architecture
+  ansible.builtin.file:
+    path: "{{ go_cross_dir }}/{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: "{{ go_cross_goarches }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Build Each Command for Each Architecture
+  ansible.builtin.command:
+    # argv is a LIST (see tasks/build-go-command.yml): the optional -ldflags pair and each path
+    # stay single arguments whatever they contain.
+    argv: >-
+      {{ ['go', 'build', '-trimpath', '-buildvcs=false']
+      + (['-ldflags', go_cross_ldflags] if (go_cross_ldflags | default('')) != '' else [])
+      + ['-o', go_cross_dir ~ '/' ~ item.0 ~ '/' ~ item.1, './cmd/' ~ item.1] }}
+    chdir: "{{ root_dir }}/src-go"
+  environment:
+    CGO_ENABLED: "0"
+    GOOS: linux
+    GOARCH: "{{ item.0 }}"
+    GOFLAGS: -mod=vendor
+    GOTOOLCHAIN: local
+  loop: "{{ go_cross_goarches | product(go_cross_commands) | list }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false # a build into a scratch directory changes nothing installed; the copy reports the change

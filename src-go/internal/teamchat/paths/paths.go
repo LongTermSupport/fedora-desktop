@@ -92,8 +92,12 @@ const (
 	AdminStateRoot             = "/var/lib/" + AdminBinary
 	// AdminLXCDir holds C's LXC guest records. It starts with an underscore, which no team id
 	// can, so it never meets a team's AdminState (C 3.9).
-	AdminLXCDir         = AdminStateRoot + "/_lxc"
-	CtlStateRoot        = "/var/lib/" + CtlUser
+	AdminLXCDir  = AdminStateRoot + "/_lxc"
+	CtlStateRoot = "/var/lib/" + CtlUser
+	// TLSStateRoot holds each team's leaf certificate and key, the one place under /var/lib besides
+	// the status records that the health tick writes: it renews a leaf there while it can only read
+	// the admin state root, which holds the CA key and the approvals (SPEC-cross-network X31).
+	TLSStateRoot        = "/var/lib/" + Product + "-tls"
 	StatusRoot          = "/var/lib/" + Product + "-status"
 	StatusInstalledFile = StatusRoot + "/installed.json"
 	// LXCRecordDir holds every team's LXC record, which `lxc restart` searches by seat key.
@@ -271,18 +275,24 @@ func FenceFile(t TeamID) string { return MigrationDir(t) + "/fence.nft" }
 // FirewallRecord is the record of the firewalld rules v2 added for the team.
 func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
 
-// TLSDir is the team's certificates, a root-only directory: its CA and the leaf its homeserver
-// is reached by (Plan 00246 SPEC-cross-network X13, X14).
-func TLSDir(t TeamID) string { return AdminState(t) + "/tls" }
+// CADir is the team's CA, a root-only directory of the admin state: nothing but `team apply` writes
+// it, and the health tick, which has CAP_DAC_READ_SEARCH and a read-only view of the admin state,
+// reads the key to sign a renewed leaf (Plan 00246 SPEC-cross-network X13, X31).
+func CADir(t TeamID) string { return AdminState(t) + "/tls" }
 
 // CACertFile is the team's CA certificate. It is not secret (every member bundle carries it) and
-// is mode 0644 in the root-only TLSDir, so the admin issuing a bundle reads it as root.
-func CACertFile(t TeamID) string { return TLSDir(t) + "/ca.crt" }
+// is mode 0644 in the root-only CADir, so the admin issuing a bundle reads it as root.
+func CACertFile(t TeamID) string { return CADir(t) + "/ca.crt" }
 
 // CAKeyFile is the team's CA key, mode 0600: the one secret that signs the leaf. Every team
 // backup carries it with CACertFile (backup.Take, through host.CABackupFiles), and a restore puts
 // both back where the team has no CA (host.RestoreCA).
-func CAKeyFile(t TeamID) string { return TLSDir(t) + "/ca.key" }
+func CAKeyFile(t TeamID) string { return CADir(t) + "/ca.key" }
+
+// TLSDir is the team's leaf, the certificate its homeserver is reached by (X14): a root-only
+// directory in its own state root, which `team apply` and the health tick both write and the
+// admin state, with the CA key and the approvals, is not.
+func TLSDir(t TeamID) string { return TLSStateRoot + "/" + t.text() }
 
 // LeafCertFile is the certificate the team's homeserver is reached by, signed by the CA. It is made
 // again at every apply that needs it, so no backup carries it.

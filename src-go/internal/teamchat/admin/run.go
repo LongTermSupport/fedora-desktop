@@ -141,6 +141,7 @@ func buildTable() []verb {
 	group(ClassOther, "declare", "check")
 	group(ClassOther, "element", "check", "apply")
 	group(ClassOther, "status")
+	group(ClassAny, "units", "list", "print")
 	return append(table, verb{name: "version", class: ClassAny, run: version})
 }
 

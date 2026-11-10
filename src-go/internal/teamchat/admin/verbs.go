@@ -100,6 +100,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 		"lxc apply": lxcApply, "lxc restart": lxcRestart,
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
+		"units list": unitsList, "units print": unitsPrint,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)

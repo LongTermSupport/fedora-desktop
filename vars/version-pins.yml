@@ -173,6 +173,22 @@ version_pins:
         agent-bus-install have the binary; whether to hold every host to it is a
         decision for the play (U22), not taken here.
 
+  # Not a playbook: playbooks/imports/play-teamchat.yml reads the same Tuwunel release's pin
+  # from this file (Plan 00246 INSTALL-PATH.md), written in the same `var: value` line form.
+  # Its two per-architecture sha256 lines change with every bump. The v2 pin is its own file,
+  # not a read of the one above, so v2 touches nothing v1 uses; until v1 is retired a bump
+  # changes both files.
+  - playbook: files/usr/local/share/teamchat/tuwunel.pin
+    var: tuwunel_version
+    github: matrix-construct/tuwunel
+    installed:
+      kind: untracked
+      why: >-
+        `/usr/local/lib/teamchat/server/tuwunel-<version>` names the installed version, but a
+        tracked non-DKMS pin is compared on every host, servers included, and only a bus
+        server host has the binary; whether to hold every host to it is a decision for the
+        play, not taken here.
+
   # Not a playbook: tasks/install-fzf.yml and the ccy image build both read the fzf release
   # from this file, in the same `var: value` line form. Its per-architecture sha256 lines
   # change with every bump.

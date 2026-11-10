@@ -18,7 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
-// The modes of the files in root/<team>/tls/ (SPEC-cross-network X13): the keys are root's alone,
+// The modes of the files in the CA directory and the leaf's (SPEC-cross-network X13): the keys are root's alone,
 // and the certificates, which every member bundle carries, are readable so that a tool running as
 // root and one reading a copy of the directory are not told apart by their bytes.
 const (
@@ -46,8 +46,10 @@ func (a *applying) tls(_ context.Context) error {
 	if err != nil {
 		return a.fail(StepTLS, err)
 	}
-	if err = mkdirOwned(a.path(paths.TLSDir(a.team)), -1, -1); err != nil {
-		return a.fail(StepTLS, err)
+	for _, dir := range []string{paths.CADir(a.team), paths.TLSDir(a.team)} {
+		if err = mkdirOwned(a.path(dir), -1, -1); err != nil {
+			return a.fail(StepTLS, err)
+		}
 	}
 	maker := pki.Maker{Clock: wallClock{a.d.Clock}, Rand: a.d.Rand}
 	ca, found, err := loadCA(a.d.Root, a.team, a.d.StateOwnerUID)
@@ -216,7 +218,7 @@ var ErrCANotMade = errors.New("the team CA is not made yet")
 
 // CAPEM is the team's CA certificate in PEM, for the admin issuing a member bundle or an LXC reach
 // fact (X15); `teamchat-admin`'s production System serves it as its team CA. It is read as root
-// from root/<team>/tls/ and judged with the key beside it, so a bundle never carries a certificate
+// from the team's CA directory and judged with the key beside it, so a bundle never carries a certificate
 // the host could not sign a leaf with. A team whose CA is not made yet is ErrCANotMade. owner owns
 // the CA key (root, 0, on a host).
 func CAPEM(root string, team paths.TeamID, owner uint32) (string, error) {
@@ -238,7 +240,7 @@ type BackupFile struct {
 }
 
 // CABackupFiles are the files of the team's CA that its backup carries, the certificate and then
-// the key, named as they are in root/<team>/tls/ and with the modes they have there (X13). The
+// the key, named as they are in the team's CA directory and with the modes they have there (X13). The
 // leaf is not among them: the next apply makes it again. A team with no CA yet has none to carry;
 // a CA the host could not use is an error, since a backup of it could not be restored.
 func CABackupFiles(root string, team paths.TeamID, owner uint32) ([]BackupFile, error) {
@@ -263,7 +265,7 @@ func RestoreCA(root string, team paths.TeamID, owner uint32, files []BackupFile)
 	if err != nil || !write {
 		return false, err
 	}
-	if err = mkdirOwned(root+paths.TLSDir(team), -1, -1); err != nil {
+	if err = mkdirOwned(root+paths.CADir(team), -1, -1); err != nil {
 		return false, err
 	}
 	return true, writeCA(root, team, ca)

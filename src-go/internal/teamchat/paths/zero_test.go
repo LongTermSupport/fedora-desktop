@@ -64,6 +64,7 @@ func zeroDerivations() map[string]func() string {
 		"MigrationDir":           func() string { return MigrationDir(team) },
 		"FenceFile":              func() string { return FenceFile(team) },
 		"FirewallRecord":         func() string { return FirewallRecord(team) },
+		"CADir":                  func() string { return CADir(team) },
 		"TLSDir":                 func() string { return TLSDir(team) },
 		"CACertFile":             func() string { return CACertFile(team) },
 		"CAKeyFile":              func() string { return CAKeyFile(team) },

@@ -76,16 +76,28 @@ anything but loopback.
 
 ## A member on another machine
 
-The credential is issued on the homeserver host and sent to the machine that will use it, over
-ssh, run as the person issuing it with their own keys and agent. The member machine holds no
-credential for the homeserver host, and nothing runs as root over ssh:
+The credential is issued on the homeserver host and sent to the machine that will use it. Nothing
+ssh-es out of the homeserver host (its egress is DNS, NTP and web only): the ssh runs into it,
+from the member machine or from the issuing person's own machine, with their own keys and agent,
+and nothing runs as root over ssh. The sudo is a password sudo, its password given on the ssh's
+stdin with `sudo -S`: there is no tty (never `ssh -t`, which would put the document through a
+pty) and no NOPASSWD rule. `member add` reads no stdin, so the password line is all that goes in.
+
+Pull from the member machine:
 
 ```
-sudo teamchat-admin member add ... --credential token | ssh <alias> teamchat seat place-issued --checkout <dir>
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | teamchat seat place-issued --checkout <dir>; unset pw
 ```
 
-`<alias>` is an entry in the issuing person's own ssh configuration; no hostname belongs in a
-declaration, a file of this repository or a handle. `seat place-issued` reads one issued
+Relay from the issuing person's machine:
+
+```
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued --checkout <dir>; unset pw
+```
+
+`<bus>` and `<member>` are entries in the issuing person's own ssh configuration; no hostname
+belongs in a declaration, a file of this repository or a handle. A sudoers rule for the verb is
+the homeserver host's own configuration to make or not; the play installs none. `seat place-issued` reads one issued
 document on stdin, checks it, and places the seat in that machine's pool for the checkout: the
 password or token only in the pool, mode 0600. Nothing secret is in its arguments or its
 output. `--credential password` works as for any seat. If the ssh step fails, the seat was not

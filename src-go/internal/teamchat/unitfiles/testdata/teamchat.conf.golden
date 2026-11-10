@@ -1,0 +1,3 @@
+# The directories the teamchat units write that nothing else makes (Plan 00246 INSTALL-PATH.md).
+d /run/teamchat-admin 0700 root root -
+d /var/lib/teamchat-tls 0700 root root -

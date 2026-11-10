@@ -466,6 +466,48 @@ The tests cite these numbers.
   never "absent". The directory is removed. Nothing there is not an error. The command prints
   `VMTEST-MEMBER-DOWN <name>`.
 
+#### Links: members on networks of their own (Plan 00246 X30, E67 to E73)
+
+Guests in the lab are each on a passt user-mode network with one ssh port forward, so two guests
+cannot reach each other. A link is a point-to-point network between exactly two member NICs: a
+UDP socket pair on 127.0.0.1 between two rootless guests (libvirt's `udp` interface type), with no
+libvirt network object, no bridge, no host interface and no root. The lab stays rootless. The
+host still reaches every guest over its passt forward and has no presence on a link. The design,
+its alternatives and what only a host run proves are in Plan 00246's
+`subagent-reports/261109-vmlab-multinet-design-opus.md`; the options for the interface (the
+libvirt `udp` sub-options) are not verified in this container and are proven by the first
+`member-up --link` on the host.
+
+- E67. `link-up <link>`: the name as E55. It chooses two distinct free UDP ports on 127.0.0.1
+  (`Env.FreeUDPPort`, as `Env.FreePort`), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
+  lines) through `fsx.WriteAtomic`, and prints `VMTEST-LINK-UP <link> a=<p> b=<q>`. An existing
+  `links/<link>/` is refused with the `link-down` hint. It makes no libvirt object.
+- E68. `member-up <name> <key> [--ram-mib N] [--link <link>:<a|b>]...`: an option repeated that
+  may not be (`--ram-mib`), a malformed option, or a link with no `ports` file is `usage:` (for
+  the last, `no link <l>; make it with: vmtest link-up <l>`). An end already recorded by another
+  member under `members/*/links` is refused naming that member. At most four links. Before the
+  boot, `members/<name>/links` records `<link> <end> <mac>` per NIC (the MAC `52:54:00:` plus
+  three bytes from `Env.Random`, refused if another member's record holds it). Each link adds one
+  `--network type=udp,...` after the passt NIC, in the order given, so the passt NIC stays first.
+  After `VMTEST-MEMBER-UP` the command prints one `VMTEST-MEMBER-NIC <name> link=<l> end=<e> mac=<m>` per link, in order. The guest's addresses are not the lab's: a scenario sets them over
+  ssh by MAC.
+- E69. `--ram-mib N`: a whole number from 768 up to the base's `ram_mib`; it replaces the base's
+  figure in `--memory` and in the RAM check. Below 768 is `usage:`. The floor is a starting
+  value, unverified on a real guest.
+- E70. The RAM check of `member-up` and `run` counts every running lab guest: the memory of each
+  listed `vmtest-*` domain (`virsh -c qemu:///session dominfo`, "Max memory") plus this guest may
+  not exceed 75% of MemTotal: `the host cannot carry a member on <name>: guests <sum> MiB and this <n> MiB exceed the <ceiling> MiB ceiling of a <host> MiB host`. A failed `dominfo` is a failure,
+  never zero. E33's check was per guest alone, though the manifest's comment promised the sum.
+- E71. `link-down <link>`: refused while any member records the link, naming the members and the
+  `member-down` hint; otherwise it removes `links/<link>/`. Nothing there is not an error. It
+  prints `VMTEST-LINK-DOWN <link>`.
+- E72. `member-address <name>`: it needs no lab load (as E58). It prints `VMTEST-MEMBER-ADDRESS <name> host=127.0.0.1 port=<p> user=<user> key=<lab-key>` and the `VMTEST-MEMBER-NIC` lines of
+  the member's record, so an inventory is built without reading the lab's layout.
+- E73. `member-ssh [--as <user>] <name> <command...>`: `<user>` matches
+  `^[a-z_][a-z0-9_-]{0,31}$` and defaults to the guest user of E22. Everything else is E58.
+- E57, extended: a member-up that does not finish also removes `members/<name>/links`, so a
+  failed member never holds a link end.
+
 ### verify
 
 - E60. `verify <run-id>`: needs `VMTEST_CHECKOUT` (E7). The slug is `systemd-escape --path <checkout>`,

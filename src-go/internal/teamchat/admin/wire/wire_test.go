@@ -210,7 +210,7 @@ func plantCA(t *testing.T, root string, team paths.TeamID) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.MkdirAll(root+paths.TLSDir(team), 0o700); err != nil {
+	if err = os.MkdirAll(root+paths.CADir(team), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(root+paths.CAKeyFile(team), ca.KeyPEM(), 0o600); err != nil {
