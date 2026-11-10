@@ -58,6 +58,7 @@ func InScope(p string) bool {
 // why it is shared rather than v2's own.
 var SharedFiles = map[string]string{
 	"tasks/build-go-command.yml": "the one build of every Go command in this repository (src-go/CLAUDE.md)",
+	"vars/golang.yml":            "the oldest Go every Go build in this repository accepts; v2's controller build checks it like play-golang.yml",
 }
 
 // reference is a tasks/, files/ or vars/ path from the repository root, at the start of a value,
