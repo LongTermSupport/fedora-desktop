@@ -30,8 +30,9 @@ import (
 )
 
 // restartSwitch is RS2's one switch: on, a `restart` end posts nothing and the next run carries
-// on (n3-D2); off, it is decided as an exit (RS1). RS3's commit (Task 4.2) turns it on.
-const restartSwitch = false
+// on (n3-D2); off, it is decided as an exit (RS1). On since RS3: the ccy launcher records the run
+// a relaunch ended in held/notice.json, so the host posts no disconnected notice for it either.
+const restartSwitch = true
 
 // HowKeeperDied is the end the link makes itself when its keeper's control socket closes (LN1).
 const HowKeeperDied = "keeper-died"

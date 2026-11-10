@@ -6,7 +6,9 @@
 # ccy_tmux_current_session, never the name of a pane it was merely run from). It is
 # labelled ccy-session=<name>, the host's only map from a session to its container, bus or not.
 # Unless launched with --no-bus it also carries the agent team bus kit, even on no team, so the
-# owner can put it in one later: `ccy-teams internal membership-init` writes generation 1 of its
+# owner can put it in one later: `ccy-teams internal launch-args` decides each team's system
+# (Plan 00209 Task 4.2; a teamchat launch's seats and mounts are its own, LAUNCH-ccy.md) and,
+# on agent-bus, runs membership-init, which writes generation 1 of its
 # desired membership (the launch's seats, or none) into a directory only the owner's tools
 # write, $XDG_RUNTIME_DIR/ccy/membership/<name>/, and prints it; the container gets it mounted
 # read-only at /run/ccy/membership, relabelled per session on SELinux, and
@@ -59,13 +61,17 @@ ccy_membership_args() {
         [ -z "$session" ] || rm -rf -- "${XDG_RUNTIME_DIR:?}/ccy/membership/$session"
         return
     fi
-    dir=$(ccy-teams internal membership-init "${session:-$container}" "$PWD" "$canonical") || {
+    # launch-args prints the exit's root, then the run arguments one per line: agent-bus's
+    # membership mount, or a teamchat launch's seats taken, its mounts guarded against the seat
+    # store (the launcher's DOCKER_MOUNTS, SSH_MOUNTS and GUI_MOUNTS) and its two directories.
+    dir=$(ccy-teams internal launch-args "${session:-$container}" "$PWD" "$canonical" "${CCY_MOUNT_RELABEL:+Z}" -- \
+        ${DOCKER_MOUNTS[@]+"${DOCKER_MOUNTS[@]}"} ${SSH_MOUNTS[@]+"${SSH_MOUNTS[@]}"} ${GUI_MOUNTS[@]+"${GUI_MOUNTS[@]}"}) || {
         rc=$?
-        print_error "Not starting: ccy-teams internal membership-init failed (exit $rc; the reason is above)."
+        print_error "Not starting: ccy-teams internal launch-args failed (exit $rc; the reason is above)."
         return "$rc"
     }
-    CCY_SEAT_RUN_ARGS+=(-v "$dir:/run/ccy/membership:ro${CCY_MOUNT_RELABEL:+,Z}" -e PINGBUS_MEMBERSHIP=/run/ccy/membership)
-    CCY_BUS_DISCONNECT=("$PWD/.claude/ccy/pingbus/seats" "${session:-$container}" "$(date +%s%3N)" "$container")
+    mapfile -s 1 -t -O "${#CCY_SEAT_RUN_ARGS[@]}" CCY_SEAT_RUN_ARGS <<<"$dir"
+    CCY_BUS_DISCONNECT=("${dir%%$'\n'*}" "${session:-$container}" "$(date +%s%3N)" "$container")
 }
 
 # The most `pingbus seat disconnected` may take: its wait for each seat (15 s) and the posts.
@@ -102,7 +108,9 @@ ccy_bus_disconnected() {
         _ccy_bus_log "the container $container still ran at the launcher's exit (a hangup or a TERM): stopping it first"
         container_cmd stop -t 10 "$container" >/dev/null || _ccy_bus_log "podman stop $container failed (exit $?)" --error
     fi
-    timeout "$CCY_BUS_DISCONNECT_TIMEOUT_S" "$CCY_PINGBUS_COMMAND" seat disconnected \
+    # The status ccy-teams is given: the container id while it still ran (a signal: a teamchat
+    # session keeps its seats), else its exit status (75 a relaunch, RS3).
+    timeout "$CCY_BUS_DISCONNECT_TIMEOUT_S" ccy-teams internal bus-disconnected "${running:-${container_rc-}}" "$CCY_PINGBUS_COMMAND" seat disconnected \
         --root "${CCY_BUS_DISCONNECT[0]}" --session "${CCY_BUS_DISCONNECT[1]}" \
         --since "${CCY_BUS_DISCONNECT[2]}" || rc=$?
     if [ "$rc" -eq 0 ]; then

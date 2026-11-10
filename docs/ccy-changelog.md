@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.117.0 — container 2.83.0
+
+- **A ccy launch can join a teamchat (v2) team** (Plan 00209 Task 4.2). The launcher's bus
+  steps are now `ccy-teams internal` verbs that decide each team's system: `seat-check` and
+  `seat-take` run `agent-bus seat check` and `seat take` for an agent-bus list, as before; for a
+  teamchat list (named by seat, `--teams <seat>@<team>`) `launch-args` takes the seats from
+  your seat store, refusing any mount that reaches the store, writes the session's
+  `desired.json` and mounts its seat and control directories. A list on both systems is
+  refused (exit 64).
+- **At exit** `bus-disconnected` runs pingbus for an agent-bus session, as before. A teamchat
+  session that ended has its record removed, then its seats released (a disconnected notice
+  for a run that ended without its goodbye). One that relaunches (exit 75) keeps its seats and
+  records the ended run, so no notice is posted for it. One whose launcher left while its
+  container ran keeps its seats and is announced.
+- The launch block names a teamchat seat as on teamchat instead of reading agent-bus's roster.
+- Container 2.83.0 (from 3.116.0, not yet released on its own) also carries the teamchat
+  member that reports a relaunch as a restart (RS2).
+
 ## 3.116.0 — container 2.83.0
 
 - **The image builds what it needs from this repository's source itself** (issue 235). A

@@ -125,13 +125,28 @@ bus_calls() { if [ -s "$FAKE_BUS_LOG" ]; then paste -sd'|' "$FAKE_BUS_LOG"; else
 # empty is the owner leaving the chooser) and exits FAKE_CHOOSE_TEAMS_RC.
 cat >"$bus_bin/ccy-teams" <<'FAKE'
 #!/usr/bin/env bash
-printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
-# `internal membership-init <session> <checkout> <seats>`: prints the directory, or fails.
-if [ "$1 $2" = "internal membership-init" ]; then
-    [ "${FAKE_INIT_RC:-0}" -eq 0 ] || { echo "ccy-teams: membership-init refused (fake)" >&2; exit "$FAKE_INIT_RC"; }
-    printf '/run/user/1000/ccy/membership/%s\n' "$3"
+# The launcher's agent-bus verbs are what they were for an agent-bus list: `internal seat-check`
+# and `seat-take` are agent-bus's own seat check and take, and `internal bus-disconnected
+# <status> <pingbus> ...` is that pingbus call. Each is forwarded with no line of its own, so the
+# log holds the calls the launcher's own verbs make, as before. Its status goes to
+# $FAKE_BUS_LOG.status.
+case "$1 $2" in
+"internal seat-check") shift 2 && exec agent-bus seat check "$@" ;;
+"internal seat-take") shift 2 && exec agent-bus seat take "$@" ;;
+"internal bus-disconnected") printf '%s\n' "$3" >>"$FAKE_BUS_LOG.status" && shift 3 && exec "$@" ;;
+esac
+# `internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts>`: an agent-bus
+# list's lines (the exit's root, then membership-init's mount), or fails. Logged as its first
+# three arguments; the whole call goes to $FAKE_BUS_LOG.launch.
+if [ "$1 $2" = "internal launch-args" ]; then
+    printf 'ccy-teams internal launch-args %s %s %s\n' "$3" "$4" "$5" >>"$FAKE_BUS_LOG"
+    printf '%s\n' "$*" >>"$FAKE_BUS_LOG.launch"
+    [ "${FAKE_INIT_RC:-0}" -eq 0 ] || { echo "ccy-teams: launch-args refused (fake)" >&2; exit "$FAKE_INIT_RC"; }
+    printf '%s\n' "$4/.claude/ccy/pingbus/seats" -v "/run/user/1000/ccy/membership/$3:/run/ccy/membership:ro${6:+,Z}" \
+        -e PINGBUS_MEMBERSHIP=/run/ccy/membership
     exit 0
 fi
+printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
 if [ "$1 $2" = "describe-seats --block" ]; then
     printf 'This session is on teams (fake block): %s\n' "$3"
     exit "${FAKE_BLOCK_RC:-0}"
@@ -226,6 +241,11 @@ take_and_show() {
     printf '%s|' "${CCY_SEAT_RUN_ARGS[@]}"
     return "$s"
 }
+# The launch with the launcher's three mount arrays set, as they are by the time it takes seats.
+mounts_then_take() {
+    local DOCKER_MOUNTS=(-v /a:/b) SSH_MOUNTS=(-v /k:/k:ro) GUI_MOUNTS=(-v /g:/g)
+    ccy_seats_take "$@"
+}
 # The launch, then the launcher's cleanup once the container has gone.
 take_then_disconnect() {
     ccy_seats_take "$@" >/dev/null || return
@@ -261,7 +281,7 @@ lib_run_own_group() {
         CCY_TEAMS_PINGBUS="$bus_bin/pingbus" XDG_RUNTIME_DIR="$work/run" \
         setsid --wait bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
 }
-INIT="ccy-teams internal membership-init"
+INIT="ccy-teams internal launch-args"
 MOUNT="-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership"
 
 check "seat check prints the canonical list" "dev1@team-a,qa2@team-b
@@ -286,6 +306,14 @@ check "take with a list in ccy's tmux: the label, the read-only relabelled mount
     "$(lib_run take_and_show dev1@team-a,qa2@team-b false false yolo-1)"
 check "take, interactive: the membership first, no --no-prompt, then the launch block for the list" \
     "$INIT ccy-proj-1 $work dev1@team-a,qa2@team-b|seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
+rm -f "$FAKE_BUS_LOG.launch"
+lib_run take_and_show dev1@team-a false false yolo-1 >/dev/null
+check "launch-args is given the relabel, then -- and the launcher's mounts (none set here)" \
+    "internal launch-args ccy-proj-1 $work dev1@team-a Z --" "$(cat "$FAKE_BUS_LOG.launch")"
+rm -f "$FAKE_BUS_LOG.launch"
+CCY_MOUNT_RELABEL='' DOCKER_MOUNTS_SET=1 lib_run mounts_then_take dev1@team-a false false yolo-1 >/dev/null
+check "  no relabel is an empty argument; DOCKER_MOUNTS, SSH_MOUNTS and GUI_MOUNTS follow --" \
+    "internal launch-args ccy-proj-1 $work dev1@team-a  -- -v /a:/b -v /k:/k:ro -v /g:/g" "$(cat "$FAKE_BUS_LOG.launch")"
 check "the PINGBUS_SEATS variable and the ccy-seats label are retired (H2)" "no" \
     "$(grep -q 'PINGBUS_SEATS\|ccy-seats' <<<"$(lib_run take_and_show dev1@team-a false false yolo-1)" && echo yes || echo no)"
 check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false false yolo-1)"
@@ -402,11 +430,15 @@ check "a hangup while the container runs: the container is stopped, then pingbus
     "podman ps -q --filter name=^yolo-1\$|podman stop -t 10 yolo-1|pingbus|pingbus done" \
     "$(awk '/^(podman|pingbus)/ { sub(/^pingbus seat disconnected .*/, "pingbus"); print }' "$FAKE_BUS_LOG" | paste -sd'|')"
 check "  the container's process has ended" "no" "$(yes_no kill -0 "$container_pid" 2>/dev/null)"
+check "  ccy-teams is told the container still ran (its id, not an exit status)" "0123456789ab" \
+    "$(tail -n 1 "$FAKE_BUS_LOG.status")"
 check "  the disconnect log says so, owner-only" "600|1|1" \
     "$(stat -c %a "$disconnect_log")|$(grep -c 'launcher session=ccy-proj-1 the container yolo-1 still ran at the launcher.s exit' "$disconnect_log")|$(grep -c 'launcher session=ccy-proj-1 pingbus seat disconnected exited 0$' "$disconnect_log")"
 
 rm -f "$disconnect_log"
-lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+container_rc=75 lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+check "a container already gone: ccy-teams is told its exit status (75, a relaunch)" "75" \
+    "$(tail -n 1 "$FAKE_BUS_LOG.status")"
 check "a container already gone is not stopped; the disconnect log has pingbus's exit" "0|1" \
     "$(grep -c '^podman stop' "$FAKE_BUS_LOG")|$(grep -c 'pingbus seat disconnected exited 0$' "$disconnect_log")"
 rm -f "$disconnect_log"

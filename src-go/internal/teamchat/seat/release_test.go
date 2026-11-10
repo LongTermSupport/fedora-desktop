@@ -758,3 +758,33 @@ func TestAnnounceKeepsTheSeatHeld(t *testing.T) {
 		t.Errorf("an outcome neither posted nor with a why: %v", err)
 	}
 }
+
+// SPEC-n3 RS3: the run a relaunch ended is recorded as not posted, for the reason restart, and
+// the seat stays held; no notice is asked, and an announce of that run asks none later. A later
+// run of the same claim is still announced.
+func TestRestartedRecordsTheRunAndKeepsTheSeat(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	end := w.keep("s1", lockRecord)
+	if err := w.store.Restarted(t.Context(), w.seat, mustSession(t, "s1")); err != nil || exists(t, w.pool().HeldNotice()) {
+		t.Fatalf("a held lock was recorded: %v", err)
+	}
+	end()
+	if err := w.store.Restarted(t.Context(), w.seat, mustSession(t, "s1")); err != nil {
+		t.Fatal(err)
+	}
+	if rec := w.heldNotice(); rec.Run.String() != testRun || rec.Posted || rec.Why != WhyRestart || rec.UntilMS != 0 {
+		t.Fatalf("the record: %+v", rec)
+	}
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err != nil || len(w.notices.calls()) != 0 || !exists(t, taken.Dir) {
+		t.Fatalf("the restarted run was announced: %v %v", err, w.notices.calls())
+	}
+	if err := w.store.Restarted(t.Context(), w.seat, mustSession(t, "s2")); !errors.Is(err, ErrHeld) {
+		t.Errorf("another session's seat: %v", err)
+	}
+	w.keep("s1", `{"v":1,"run":"fedcba9876543210","started_ms":2}`)()
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err != nil || len(w.notices.calls()) != 1 {
+		t.Errorf("the later run's crash: %v %v", err, w.notices.calls())
+	}
+}

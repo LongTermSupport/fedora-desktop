@@ -1,6 +1,7 @@
 package choose
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -502,6 +503,26 @@ func TestDescribeBlockFailsWhenTheCheckoutCannotBeListed(t *testing.T) {
 	}
 	if h.stdout() != "" || !strings.Contains(h.ErrOut.String(), list) {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
+	}
+}
+
+// Plan 00209 Task 4.2: a teamchat team's seat is not on agent-bus, so its role is not read there
+// (where it would read as a new seat); the block says which bus it is on. A team the launch could
+// not resolve stops the block.
+func TestDescribeBlockNamesATeamchatSeatWithoutAskingAgentBus(t *testing.T) {
+	h := newRig(t)
+	h.c.Teamchat = func(_ context.Context, team string) (bool, error) { return team == "beta", nil }
+	h.On(teamtest.SudoBus+"list alpha", roster("coordinator", "worker"), 0)
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha,3@beta"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.stdout(), "  beta   seat 3 ("+teamchatSeatWords+")  ") || h.Fake.Called(teamtest.SudoBus+"list beta") {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	h = newRig(t)
+	h.c.Teamchat = func(context.Context, string) (bool, error) { return false, errors.New("undecided") }
+	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitFailure || h.stdout() != "" {
+		t.Fatalf("exit %d, stdout %q", code, h.stdout())
 	}
 }
 

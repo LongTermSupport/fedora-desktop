@@ -246,6 +246,29 @@ func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalLaunchArgsIsTheLaunchVerbsAndItsPayloadIsStdout(t *testing.T) {
+	h := newHarness(t)
+	runtime := t.TempDir()
+	h.Env["XDG_RUNTIME_DIR"] = runtime
+	if code := h.app.Run([]string{"internal", "launch-args", "ccy-proj", "/c", "", "Z", "--"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	dir := filepath.Join(runtime, "ccy", "membership", "ccy-proj")
+	want := "/c/.claude/ccy/pingbus/seats\n-v\n" + dir + ":/run/ccy/membership:ro,Z\n-e\nPINGBUS_MEMBERSHIP=/run/ccy/membership\n"
+	if h.Out.String() != want {
+		t.Fatalf("stdout %q, want %q", h.Out.String(), want)
+	}
+	for _, verb := range []string{"launch-args", "seat-check"} {
+		a := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"internal", verb})
+		if a.Payload != os.Stdout || a.Stdout != os.Stderr || a.Launch.Stdout != os.Stdout {
+			t.Fatalf("%s: payload %v stdout %v", verb, a.Payload, a.Stdout)
+		}
+	}
+	if b := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"internal", "seat-take"}); b.Stdout != os.Stdout {
+		t.Fatalf("seat-take's stdout is agent-bus's: %v", b.Stdout)
+	}
+}
+
 func TestDispatchInternalRestartArgsPassesThroughForAnUnnamedLaunch(t *testing.T) {
 	h := newHarness(t)
 	h.app.Stdin = strings.NewReader("--no-ssh\x00")
@@ -330,6 +353,9 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
 		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
 		"ccy-teams internal go-cache <project> [z]",
+		"ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>",
+		"ccy-teams internal seat-check <list> [--resolved]", "ccy-teams internal seat-take <list> [--no-prompt]",
+		"ccy-teams internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",

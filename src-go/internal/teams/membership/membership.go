@@ -150,37 +150,47 @@ func ParseSeats(list string) ([]Seat, error) {
 }
 
 // Run is `ccy-teams internal membership-init [--kind=cc] <session> <checkout> <seats>`.
-func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
+func (m *Init) Run(ctx context.Context, args []string) term.ExitCode {
+	dir, code := m.Prepare(ctx, args)
+	if code != term.ExitOK {
+		return code
+	}
+	m.Host.Print(m.Host.Stdout, dir+"\n")
+	return term.ExitOK
+}
+
+// Prepare is Run without the print, for `internal launch-args`: the membership directory it
+// wrote, or the exit code with the reason said on stderr.
+func (m *Init) Prepare(_ context.Context, args []string) (string, term.ExitCode) {
 	ready, err := m.desired(args)
 	if err != nil {
 		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". Nothing was written. Correct that and launch again.")
-		return term.ExitUsage
+		return "", term.ExitUsage
 	}
 	desired := *ready.d
 	runtimeDir := m.Host.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtimeDir) {
 		m.say("ccy-teams: internal " + sub + ": XDG_RUNTIME_DIR is not an absolute path (" + fmt.Sprintf("%q", runtimeDir) +
 			"), so there is nowhere to keep the session's membership. Launch from a desktop login session.")
-		return term.ExitFailure
+		return "", term.ExitFailure
 	}
 	dir := DirOf(runtimeDir, desired.Kind, desired.Session)
 	if err := writeDesired(dir, ready); err != nil {
 		m.Host.ReportErr(err)
-		return term.ExitFailure
+		return "", term.ExitFailure
 	}
 	if desired.Kind == KindCC {
 		if err := m.recordSeats(desired); err != nil {
 			m.Host.ReportErr(err)
-			return term.ExitFailure
+			return "", term.ExitFailure
 		}
 	}
 	// A launch answers any relaunch the host asked of the session before it (H22).
 	if err := removeRelaunch(dir); err != nil {
 		m.Host.ReportErr(err)
-		return term.ExitFailure
+		return "", term.ExitFailure
 	}
-	m.Host.Print(m.Host.Stdout, dir+"\n")
-	return term.ExitOK
+	return dir, term.ExitOK
 }
 
 func (m *Init) desired(args []string) (checked, error) {

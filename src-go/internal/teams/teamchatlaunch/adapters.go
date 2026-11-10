@@ -72,7 +72,9 @@ func (a Announcer) Disconnected(_ context.Context, n seat.Notice) (seat.Outcome,
 }
 
 // StoreTaker takes a launch's seats from the real seat store, under one allocation lock; a take
-// that fails releases the seats taken before it, so a refused launch holds nothing.
+// that fails releases the seats taken before it, so a refused launch holds nothing. A seat the
+// launch's session already holds (a relaunch, a restore: its record and seat directory kept) is
+// kept as it is and not taken again.
 type StoreTaker struct {
 	Open func() (*seat.Store, error)
 }
@@ -88,8 +90,15 @@ func (s StoreTaker) TakeAll(ctx context.Context, takes []seat.Take) (err error) 
 	if err != nil {
 		return err
 	}
+	holdings, err := store.Holdings()
+	if err != nil {
+		return errors.Join(err, alloc.Unlock())
+	}
 	var taken []seat.Take
 	for _, t := range takes {
+		if heldBy(holdings, t) {
+			continue
+		}
 		if _, err = store.Take(ctx, alloc, t); err != nil {
 			err = fmt.Errorf("take seat %s of team %s: %w", t.Seat.Name, t.Seat.Team, err)
 			break
@@ -106,4 +115,14 @@ func (s StoreTaker) TakeAll(ctx context.Context, takes []seat.Take) (err error) 
 		err = errors.Join(err, store.Release(ctx, seat.Release{Seat: t.Seat, Session: t.Session}))
 	}
 	return err
+}
+
+// heldBy is whether the take's session already holds its seat.
+func heldBy(holdings []seat.Holding, t seat.Take) bool {
+	for _, h := range holdings {
+		if h.Complete && h.Seat == t.Seat && h.Record.Session == t.Session {
+			return true
+		}
+	}
+	return false
 }

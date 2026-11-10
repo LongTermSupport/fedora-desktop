@@ -169,6 +169,11 @@ var dynamicNames = []allowance{
 		reason: "the ccy session's own command as the container was started with it, behind the bus claim or teamchat run and the supervisor wrapper: the entrypoint's final exec (Plan 00209 Task 4.2)",
 	},
 	{
+		pkg:    "internal/teams/teamchatlaunch",
+		fn:     "Verbs.busDisconnected",
+		reason: "the host pingbus the ccy launcher names (its CCY_PINGBUS_COMMAND, the agent-bus kit's or CCY_TEAMS_PINGBUS), exec'd with the launcher's own arguments for an agent-bus session's exit (Plan 00209 Task 4.2)",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",

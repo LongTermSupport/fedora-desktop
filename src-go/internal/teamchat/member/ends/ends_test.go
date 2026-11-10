@@ -15,13 +15,14 @@ import (
 
 var txnRe = regexp.MustCompile(`^tc[0-9a-f]{32}$`)
 
-// RS1: the restart switch ships off; RS3's commit turns it on.
-func TestTheRestartSwitchShipsOff(t *testing.T) {
-	if restartSwitch {
-		t.Fatal("restartSwitch is on")
+// RS2: the restart switch ships on, now that the launcher records the run a relaunch ended
+// (RS3, Plan 00209 Task 4.2), so a relaunch posts neither `left` nor `disconnected`.
+func TestTheRestartSwitchShipsOn(t *testing.T) {
+	if !restartSwitch {
+		t.Fatal("restartSwitch is off")
 	}
-	if newEnds(t, nil).e.switchOn() {
-		t.Fatal("the ends' switch is on with no override")
+	if !newEnds(t, nil).e.switchOn() {
+		t.Fatal("the ends' switch is off with no override")
 	}
 }
 

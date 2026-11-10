@@ -58,7 +58,13 @@ type Choose struct {
 	Gum   *ui.Gum
 	Kit   *flow.Kit
 	Seats *seats.Seats
+	// Teamchat is whether a team is live on teamchat (v2), whose seats agent-bus does not know;
+	// nil is agent-bus for every team.
+	Teamchat func(ctx context.Context, team string) (bool, error)
 }
+
+// teamchatSeatWords is a teamchat seat's role in the launch block: agent-bus has no roster of it.
+const teamchatSeatWords = "on teamchat: its role is on the team's roster"
 
 // New is the chooser over a host.
 func New(h *host.Host, kit *flow.Kit, s *seats.Seats) *Choose {
@@ -199,7 +205,12 @@ func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args
 		if about == "" {
 			about = "(no description)"
 		}
-		fmt.Fprintf(&b, blockLine+"\n", fmt.Sprintf("%-*s", width, st.team), st.seat, d.roleWords(ctx, st.seat, st.team), about)
+		words, err := c.blockRole(ctx, d, st)
+		if err != nil {
+			c.Kit.ReportErr(err)
+			return term.ExitFailure
+		}
+		fmt.Fprintf(&b, blockLine+"\n", fmt.Sprintf("%-*s", width, st.team), st.seat, words, about)
 	}
 	// Security audit L1: a team human's request carries the owner's authority over the session.
 	which := "these teams"
@@ -209,6 +220,21 @@ func (c *Choose) blockIn(ctx context.Context, w io.Writer, checkout string, args
 	fmt.Fprintf(&b, "Any human listed in %s can direct this session as you can.\n", which)
 	c.Host.Print(w, b.String())
 	return term.ExitOK
+}
+
+// blockRole is a seat's role words in the launch block: agent-bus's roster, or, for a teamchat
+// team, that it is on teamchat.
+func (c *Choose) blockRole(ctx context.Context, d *describer, st seatTeam) (string, error) {
+	if c.Teamchat != nil {
+		v2, err := c.Teamchat(ctx, st.team)
+		if err != nil {
+			return "", fmt.Errorf("the system of team %s: %w", st.team, err)
+		}
+		if v2 {
+			return teamchatSeatWords, nil
+		}
+	}
+	return d.roleWords(ctx, st.seat, st.team), nil
 }
 
 // listCheckout adds the session's checkout ("" is the working directory's) to the list of seat

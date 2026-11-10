@@ -118,7 +118,7 @@ DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
 | Plan 00201 Task 2.16                      | rename a team end to end                                                                                                                                                   | the stable team id (TID): a rename edits `name` and runs the play; nothing restarts, nothing is re-issued (C44, C 3.5.2) | N4        |
 | Plan 00211                                | reports, questions, threads and asking a human, the side rooms and their drift check (its [SPEC.md](../00211-agent-bus-reports-and-questions-rooms/SPEC.md), as behaviour) | A 4.3, 6.3, 10; B6                                                                                                       | N1-N3     |
-| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye                                                                                                                                       | B28's goodbye: the N3 spec skips `left` when ccy's CMD exits 75 (RS2), turned on with Task 4.2                           | N3        |
+| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye                                                                                                                                       | closed: RS2 on and RS3 built (Task 4.2, CCY 3.116.0); in images from the next container bump                             | N3        |
 | Plan 00194 Task 2.0g                      | an addressed reply that is only the quote fallback is ignored as `empty` and logged by no one                                                                              | A 7.5 (`empty`, the unheard count) and B18-B24: the N3 spec decides whether `empty` counts as unheard                    | N3        |
 | Plan 00194 Tasks 2.1, 2.1b, 2.2           | the supervisor-plugin delivery path                                                                                                                                        | specified on v2 when #119 ships (D4)                                                                                     | later     |
 | Plan 00194 SPEC-inject E1-E26, Plan 00203 | delivery into a session; hot control                                                                                                                                       | B18-B24, B31-B35                                                                                                         | N3        |
@@ -322,8 +322,10 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   Built: the end of `entrypoint.sh` ported to Go (`ccy-start-claude`, v1 byte for byte by a
   parity test), which starts a v2 member under `teamchat run` (CCY 3.115.0, container 2.82.0).
   Built since: `ccy-teams system` (seam 55, L3) and the launch take, mount guard and seat
-  adapters as Go (`teams/teamchatlaunch`), not wired. Open: the launcher's wiring, the exit
-  release, RS3. Decisions L1-L3 and the handoff: [LAUNCH-ccy.md](LAUNCH-ccy.md).
+  adapters as Go (`teams/teamchatlaunch`), then wired (CCY 3.116.0): the `ccy-teams internal`
+  verbs `launch-args`, `seat-check`, `seat-take` and `bus-disconnected`, the exit release, RS3
+  with RS2's switch on. Open: the seat sweep and its user units. Decisions L1-L5:
+  [LAUNCH-ccy.md](LAUNCH-ccy.md).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy

@@ -75,12 +75,37 @@ container 2.82.0.
   run in process, its exit judged as the store wants), `StoreTaker` (one allocation lock; a
   failed take releases the seats before it).
 
-## Left (the handoff)
+## Built: the launcher's wiring (CCY 3.116.0)
 
-The launcher does not pass `TEAMCHAT_MEMBERSHIP` yet, so no session starts on v2. The two bash
-libraries are at their limits (`agent-bus-membership.bash` and `agent-bus-seats.bash` each
-about 57 code lines and 4 functions), so every v2 step replaces a call and adds no line. In
-order:
+Items 1-5 of the handoff below are built: a ccy launch whose list names teamchat seats starts on
+v2. `teamchatlaunch.Verbs` is the four `ccy-teams internal` verbs; the bash libraries swapped a
+command word each and stay within the limits.
+
+- **L4. The exit is told the container's state.** `bus-disconnected <status> <pingbus> ...`:
+  `ccy_bus_disconnected` passes the container's id while it still ran (the launcher left on a
+  signal), else the launcher's `container_rc`. An exit status of 75 is a relaunch (RS3:
+  `seat.Store.Restarted` records the run in `held/notice.json` as `restart`, not posted, and keeps
+  the seat). Any other status is a session that is over: its record is removed, then each seat
+  it holds in the checkout is released (seam 54). A status that is not a number is the
+  signal case: each seat is announced and kept (the crash path; the record stays, as the
+  trampoline does not run). A returned launcher is an ended session whatever its status, as the
+  registry already treats it (`ccy_registry_trampoline`), so a crash with podman returning is
+  released, not kept. The disconnect log of a v2 session is `<seat store>/control/disconnect.log`.
+- **L5. A relaunch or a restore keeps its seats.** `seat.Take` refuses a seat whose `held/`
+  names a restorable session, and the session's own seat directory, so a relaunch could not
+  take its seats again. `StoreTaker` skips a seat the launch's session already holds (complete
+  `held/` naming it) and takes the rest.
+- **RS2 is on** (`ends.restartSwitch`), with RS3. It reaches a running session with the next
+  container version bump, as the switch is in the image's `teamchat`; an image before that
+  posts `left exit` for a relaunch (RS1) and the host now posts nothing for it.
+- `describe-seats --block` names a teamchat seat as on teamchat rather than asking agent-bus's
+  roster. `choose-teams` still knows v1 teams only, so a v2 launch names its seat.
+
+## Left
+
+6. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).
+
+## The handoff items 1-5 (built, kept for the record)
 
 1. The verb `ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mount args>`: resolve the system (`system.Cmd.Lines`). For agent-bus, run
    `membership-init` in process (split `membership.Init.Run` into a `Prepare` that returns the
@@ -109,4 +134,3 @@ order:
 5. RS3 and RS2: on a relaunch (exit 75) skip `seat disconnected` and record `held/notice.json`;
    in the same commit set `ends.restartSwitch = true`, flip RS1's pinned test and close PLAN.md's
    2.0e row.
-6. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).

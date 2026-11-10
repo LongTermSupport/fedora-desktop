@@ -5,7 +5,9 @@
 # DESIGN.md sections 5.3, 5.5 and 5.6). The seat and team grammar is pingbus's own, so this
 # library holds no copy of it: `agent-bus seat check` validates a list and prints its
 # canonical form, and `agent-bus seat take` creates each named seat that does not exist yet
-# (one `sudo agent-bus add-member`) and refuses a seat another session holds. The launcher
+# (one `sudo agent-bus add-member`) and refuses a seat another session holds. Both are run by
+# `ccy-teams internal seat-check` and `seat-take`, which answer a teamchat list themselves
+# (Plan 00209 Task 4.2). The launcher
 # calls check right after its argument parsing and take just before the container starts, and
 # exits with their code when either refuses: 64 a malformed list, 75 a held seat, 78 anything
 # else that stops the seats being had (a team not running here, a seat that cannot be made).
@@ -45,7 +47,7 @@ _ccy_seats_need_agent_bus() {
 ccy_seats_check() {
     local list="${1?ccy_seats_check requires a list}" canonical rc=0
     local attended="${2:?ccy_seats_check requires true or false}"
-    local check=("$CCY_AGENT_BUS_COMMAND" seat check "$list")
+    local check=(ccy-teams internal seat-check "$list")
     if [ "$attended" != true ]; then
         check+=(--resolved)
     fi
@@ -82,7 +84,7 @@ ccy_seats_take() {
         "${4:?ccy_seats_take requires the container name}" || return
     [ -n "$canonical" ] || return 0
     _ccy_seats_need_agent_bus || return
-    local take=("$CCY_AGENT_BUS_COMMAND" seat take "$canonical")
+    local take=(ccy-teams internal seat-take "$canonical")
     [ "$unattended" != true ] || take+=(--no-prompt)
     "${take[@]}" >&2 || { rc=$?; print_error "Not starting: agent-bus seat take could not seat this session in $canonical (exit $rc; the reason is above).
   End the session that holds a seat, choose another seat, or launch without --teams."; return "$rc"; }

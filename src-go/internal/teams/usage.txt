@@ -295,6 +295,24 @@ Usage:
                                    The same for CONTAINER_ENGINE=podman and docker.
                                    ccy calls it at each launch, so --rm no longer deletes the
                                    caches at exit
+  ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>
+                                   print, one per line, the root ccy's exit is given and the
+                                   run arguments for the bus. On agent-bus: membership-init's
+                                   mount. On teamchat: the seats taken from your seat store
+                                   (refused when a mount reaches the store), desired.json
+                                   written, then the session and control directory mounts
+  ccy-teams internal seat-check <list> [--resolved]
+  ccy-teams internal seat-take <list> [--no-prompt]
+                                   agent-bus seat check or take for an agent-bus list; for a
+                                   teamchat list, check prints the canonical <seat>@<team> list
+                                   and take does nothing (launch-args took the seats)
+  ccy-teams internal bus-disconnected <status> <pingbus> seat disconnected --root <dir> --session <name> --since <ms>
+                                   ccy's exit: pingbus for an agent-bus root. For a teamchat
+                                   session, by the container's exit status: 75 (a relaunch)
+                                   records each seat's ended run and keeps it; another ends the
+                                   session, its record removed and its seats released; none
+                                   (the launcher left on a signal) announces each seat and
+                                   keeps it
   ccy-teams session list
   ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
   ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]

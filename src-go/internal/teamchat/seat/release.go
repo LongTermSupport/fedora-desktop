@@ -297,6 +297,42 @@ func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.Sessi
 	return s.announce(ctx, h, pool, rec, lock, false)
 }
 
+// WhyRestart is the why of a run a relaunch ended (SPEC-n3 RS3): the member skipped its goodbye
+// (RS2), so no disconnected notice is due for that run.
+const WhyRestart = "restart"
+
+// Restarted is the relaunch path (SPEC-n3 RS3): the launcher that relaunches its session records
+// the run that ended, not posted for the reason restart, so neither a release nor an announce of
+// that run posts a disconnected notice. The seat stays held for the relaunch. A held lock, or one
+// naming no run, records nothing.
+func (s *Store) Restarted(ctx context.Context, seat Seat, session paths.SessionName) error {
+	pool := s.store.PoolSeat(s.checkout, seat.Team, seat.Name)
+	h, rec, err := s.heldRecord(ctx, seat, pool, s.underLock)
+	if err != nil || h == nil {
+		return err
+	}
+	return errors.Join(s.restartedHeld(seat, session, pool, h, rec), h.close())
+}
+
+func (s *Store) restartedHeld(seat Seat, session paths.SessionName, pool paths.PoolSeat, h *dir, rec HeldRecord) error {
+	if rec.Session != session {
+		return fmt.Errorf("%w: %s by session %s, not %s", ErrHeld, seat.Name, rec.Session, session)
+	}
+	own, err := s.mayOwnCopy(Release{Seat: seat, Session: session}, rec)
+	if err != nil || !own {
+		return err
+	}
+	lock, err := s.probe(s.store.SessionSeat(session, seat.Team))
+	if err != nil {
+		return err
+	}
+	run, ok := runOf(lock)
+	if !ok {
+		return nil
+	}
+	return s.recordNotice(h, pool, NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: WhyRestart})
+}
+
 // noticeBound is how long a transient notice failure holds a release (n2e-D7): a member that
 // makes its own notice fail, by spending its rate limit, delays its token's retirement this long
 // at most.

@@ -30,7 +30,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/placeissued"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/chooser"
@@ -52,6 +56,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamchatlaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/winddown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -90,6 +95,9 @@ type App struct {
 	Session *hot.Hot
 	// System is `ccy-teams system`, each team's live system, the launcher's.
 	System *system.Cmd
+	// Launch is the launcher's `internal launch-args`, `seat-check`, `seat-take` and
+	// `bus-disconnected`, over both systems.
+	Launch *teamchatlaunch.Verbs
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -102,7 +110,8 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // captures (choose-teams) is given a host that prints everything else on stderr, so a play's
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
-	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem) {
+	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem) ||
+		len(args) > 1 && args[0] == subInternal && (args[1] == verbLaunchArgs || args[1] == verbSeatCheck) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -116,6 +125,12 @@ const subLaunchSummary = "launch-summary"
 
 // subSystem is `ccy-teams system`, whose stdout is its payload too.
 const subSystem = "system"
+
+// The launcher's verbs whose stdout is their payload: the run arguments and the canonical list.
+const (
+	verbLaunchArgs = "launch-args"
+	verbSeatCheck  = "seat-check"
+)
 
 // subChooseSeat is the launcher's seat and role question.
 const subChooseSeat = "choose-seat"
@@ -148,12 +163,22 @@ func Wire(h *host.Host) *App {
 	list.Session = session
 	chosen := chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked)
 	chosen.Probe = pick.Probe
+	membershipInit := membership.New(h)
+	sys := newSystem(h)
+	pick.Teamchat = func(ctx context.Context, team string) (bool, error) {
+		lines, err := sys.Lines(ctx, []string{team})
+		if err != nil {
+			return false, err
+		}
+		return len(lines) == 1 && lines[0].System == system.Teamchat, nil
+	}
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chosen,
-		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), GoCache: gocache.New(h),
+		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membershipInit, ContainerName: containername.New(h), GoCache: gocache.New(h),
 		Session: session,
-		System:  newSystem(h),
+		System:  sys,
+		Launch:  newLaunch(h, membershipInit, sys),
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -315,11 +340,15 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		case "go-cache":
 			return a.GoCache.Run(ctx, rest[1:])
+		case verbLaunchArgs, verbSeatCheck, "seat-take", "bus-disconnected":
+			return a.Launch.Run(ctx, rest)
 		}
 	}
 	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, internal claim-container-name <project> <suffix> <owner-pid>, " +
-		"or internal go-cache <project> [z].")
+		"internal go-cache <project> [z], internal launch-args <session> <checkout> <seats> <Z or empty> -- <mounts...>, " +
+		"internal seat-check <list> [--resolved], internal seat-take <list> [--no-prompt], " +
+		"or internal bus-disconnected <status> <pingbus> <pingbus arguments>.")
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).
@@ -352,5 +381,43 @@ func newSystem(h *host.Host) *system.Cmd {
 			return names, nil
 		},
 		Status: system.StatusRecord,
+	}
+}
+
+// newLaunch is the launcher's verbs over h: membership-init for agent-bus, and for teamchat the
+// owner's seat store on the real machine (placeissued.OS's clock, credential and reach), ccy's
+// session registry as its session records and area B's disconnected verb run in process.
+func newLaunch(h *host.Host, membershipInit *membership.Init, sys *system.Cmd) *teamchatlaunch.Verbs {
+	machine := placeissued.OS("", "", paths.CheckoutKey{})
+	return &teamchatlaunch.Verbs{
+		Stdout: h.Payload, Stderr: h.Stderr, Getenv: h.Getenv, Getwd: os.Getwd,
+		Resolve: func(ctx context.Context, checkout string, teams []string) ([]system.Line, error) {
+			in := *sys
+			in.Getwd = func() (string, error) { return checkout, nil }
+			return in.Lines(ctx, teams)
+		},
+		Membership: membershipInit.Prepare, Status: system.StatusRecord, Exec: h.Echo.Execer(h.Execer),
+		NowMS: func() int64 { return time.Now().UnixMilli() },
+		Parts: seat.Config{
+			Clock: machine.Clock, Credential: machine.Credential, Reach: machine.Reach,
+			Sessions: teamchatlaunch.RegistrySessions{Open: h.Registry}, Announcer: teamchatlaunch.Announcer{},
+		},
+		Taker: func(cfg seat.Config) teamchatlaunch.Taker {
+			return teamchatlaunch.StoreTaker{Open: func() (*seat.Store, error) { return seat.Open(cfg) }}
+		},
+		Holder: func(cfg seat.Config) (teamchatlaunch.Holder, error) {
+			store, err := seat.Open(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return store, nil
+		},
+		Forget: func(session string) error {
+			store, err := h.Registry()
+			if err != nil {
+				return err
+			}
+			return store.Remove(session)
+		},
 	}
 }
