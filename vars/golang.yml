@@ -1,0 +1,10 @@
+---
+# The oldest Go the repository's Go builds accept. They run with GOTOOLCHAIN=local, so they never
+# download a newer toolchain, and src-go/go.mod's toolchain line is the version they need. Move
+# this with that line once Fedora ships the release; the ccy image pins the same version as
+# GO_VERSION in .claude/ccy/Dockerfile.
+#
+# Read by play-golang.yml, which installs Go on the desktop and fails below this version, and by
+# play-teamchat.yml, which builds on the controller and refuses a controller without Go, or with
+# an older one, before it changes anything.
+golang_min_version: "1.26.10"

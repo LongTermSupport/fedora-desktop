@@ -169,12 +169,14 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   build until host checks H-C5 and H-C15 pass (DC8 is decided, option (a); Plan 00209 Task 2.5),
   so the host move ends COULD NOT ESTABLISH until those checks have run. That is a proof to run,
   not an owner decision, and the rest of X30 does not need the host move.
-  Issue 227 (the stage A play's follow-ups): item 1, a deleted Tuwunel binary never put back, is
-  under Defence Before Fix as the rule `install-guard-trusts-record` (qa-ansible; red on
-  play-teamchat, play-self-update and play-rpm-fusion); item 3, an approval dropped when its
-  team is outside `teamchat_only_teams`, as `filter-list-unchecked` (red on play-teamchat's
-  approve and only-teams lists). Item 2 follows; items 4 (pruning) and 5 (nothing runs the
-  play) stay open. Report:
+  Issue 227 (the stage A play's follow-ups): items 1 to 3 are fixed. Item 1, a deleted Tuwunel
+  binary never put back, went through Defence Before Fix as the qa-ansible rule
+  `install-guard-trusts-record` (three instances fixed: play-teamchat, play-self-update,
+  play-rpm-fusion); item 3, an approval dropped when its team is outside
+  `teamchat_only_teams`, as `filter-list-unchecked` (two fixed, both play-teamchat; the play
+  refuses either list naming a team it does not apply); item 2, the play now refuses a
+  controller without Go at `golang_min_version` (`vars/golang.yml`). Items 4 (pruning) and 5
+  (nothing runs the play) stay open. Report:
   `subagent-reports/261110-issue227-report.md`.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,

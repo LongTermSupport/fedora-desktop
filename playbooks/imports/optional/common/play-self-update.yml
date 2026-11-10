@@ -715,6 +715,23 @@
         - self_update_on
         - self_update_stamp_stat.stat.exists
 
+    # The stamp says which requirements were installed, not that they still are: each
+    # collection the requirements name is looked for, so one deleted from the path is
+    # installed again (install-guard-trusts-record, CLAUDE/QA.md).
+    - name: Read the Deploy Clone's Requirements
+      ansible.builtin.slurp:
+        src: "{{ self_update_clone }}/requirements.yml"
+      register: self_update_requirements_text
+      when: self_update_on
+
+    - name: Look for Each Required Collection in the Root-Owned Path
+      ansible.builtin.stat:
+        path: "{{ self_update_collections_dir }}/ansible_collections/{{ item | replace('.', '/') }}/MANIFEST.json"
+      loop: >-
+        {{ ((self_update_requirements_text.content | b64decode | from_yaml).collections | default([])
+        | map(attribute='name') | list) if self_update_on else [] }}
+      register: self_update_collection_manifests
+
     # chdir outside the clone so no ansible.cfg shapes the install, and the collections
     # path in the environment so galaxy writes where the cycle will read.
     - name: Install the Collections into the Root-Owned Path
@@ -735,10 +752,12 @@
       changed_when: >-
         (not self_update_stamp_stat.stat.exists)
         or ((self_update_stamp.content | default('') | b64decode | trim) != self_update_requirements.stat.checksum)
+        or (self_update_collection_manifests.results | rejectattr('stat.exists') | list | length > 0)
       when:
         - self_update_on
         - (not self_update_stamp_stat.stat.exists)
           or ((self_update_stamp.content | default('') | b64decode | trim) != self_update_requirements.stat.checksum)
+          or (self_update_collection_manifests.results | rejectattr('stat.exists') | list | length > 0)
 
     - name: Record the Installed Requirements Hash
       ansible.builtin.copy:

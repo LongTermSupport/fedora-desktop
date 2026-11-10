@@ -475,6 +475,7 @@ open across a font upgrade can draw the wrong emoji (Plan 00185, issue #60).
 **Purpose**: Go toolchain, imported by `play-python.yml`, `play-claude-yolo.yml` and `play-podman.yml` (not optional)
 
 - Golang compiler and standard tools from DNF repositories
+- Fails below `golang_min_version`, which `vars/golang.yml` holds (`play-teamchat.yml` checks its controller against the same value)
 - The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update
 - `golangci-lint` and `gcc` (for `go test -race`) are installed by `play-python.yml`, the QA toolchain play, which also imports this one so its toolchain check finds `go`
 

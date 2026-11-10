@@ -370,7 +370,7 @@ func (s *filterScope) checkedAgainst(list string) map[string]bool {
 	check := regexp.MustCompile(`(?:^|[^\w.])` + regexp.QuoteMeta(list) +
 		`\b(?:\s*\|\s*default\((?:[^()]|\([^()]*\))*\))?(?:\s*\|\s*list)?\s*(?:\|\s*difference|is\s+subset)\(`)
 	against := map[string]bool{}
-	for _, text := range s.checks {
+	for _, text := range s.checkTexts() {
 		for _, m := range check.FindAllStringIndex(text, -1) {
 			for _, id := range identifier.FindAllStringSubmatch(argumentOf(text[m[1]:]), -1) {
 				against[id[1]] = true
@@ -378,6 +378,18 @@ func (s *filterScope) checkedAgainst(list string) map[string]bool {
 		}
 	}
 	return against
+}
+
+// checkTexts is every check's text, and the definition of each variable a check reads (an
+// assert's task vars holding the difference).
+func (s *filterScope) checkTexts() []string {
+	texts := slices.Clone(s.checks)
+	for _, text := range s.checks {
+		for _, id := range identifier.FindAllStringSubmatch(text, -1) {
+			texts = append(texts, s.defs[id[1]]...)
+		}
+	}
+	return texts
 }
 
 // argumentOf is the text up to the parenthesis that closes the one just opened.

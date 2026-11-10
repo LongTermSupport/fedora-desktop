@@ -14,7 +14,8 @@
 #       go_cross_ldflags: "-X main.SourceDigest={{ digest }}"   # optional
 #
 # Needs the Go toolchain on the controller (play-golang.yml installs it where a desktop is the
-# controller). Every task runs on the controller, once, as the controller's own user.
+# controller); the including play checks for it, at golang_min_version (vars/golang.yml), before
+# it changes anything. Every task runs on the controller, once, as the controller's own user.
 #
 # Static, offline and reproducible: CGO_ENABLED=0 so the binary links no libc and runs on any Linux
 # of its architecture; GOFLAGS=-mod=vendor so every byte compiled is in the checkout;

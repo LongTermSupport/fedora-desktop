@@ -30,12 +30,13 @@
 # Inputs (inventory variables of the target; the names are paths.HostVar*):
 #   teamchat_owner_group     required: the group that may read the status records. Made if absent.
 #   teamchat_teams           optional list, DESIGN-v2-C-host.md 3.8; teamchat_only_teams scopes
-#                            step 5 to the teams it names.
+#                            step 5 to the teams it names, each of which must be declared.
 #   teamchat_approve_teams   optional list of team ids whose declared security fields the OPERATOR
 #                            approves in this run. This is the owner's gate (DC18) done by IaC: a
 #                            listed team is approved exactly as declared, so the review of the
 #                            inventory change is the approval. Unlisted new or changed teams are
-#                            refused by `team apply`.
+#                            refused by `team apply`. Each listed team must be present and, in a
+#                            scoped run, in teamchat_only_teams; the play refuses any other.
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
@@ -77,6 +78,7 @@
     tc_changed_re: "^CHANGED\t"
   vars_files:
     - "{{ root_dir }}/vars/teamchat-arch.yml"
+    - "{{ root_dir }}/vars/golang.yml"
   tasks:
     # Every input is judged before anything changes.
     - name: Check the Play's Inputs
@@ -93,16 +95,68 @@
           - tc_teams | map(attribute='team') | unique | list | length == tc_teams | length
           - teamchat_only_teams is not defined or (teamchat_only_teams is sequence and teamchat_only_teams is not string)
           - teamchat_approve_teams is not defined or (teamchat_approve_teams is sequence and teamchat_approve_teams is not string)
-          - teamchat_approve_teams | default([]) | difference(tc_present | map(attribute='team') | list) | length == 0
           - teamchat_address | default('') == ''
           - teamchat_lxc_members | default([]) | length == 0
         fail_msg: >-
           play-teamchat.yml refused its inputs. The target's architecture ({{ tc_arch }}) needs a row
           in vars/teamchat-arch.yml and a tuwunel_sha256_{{ tc_arch }} line in the Tuwunel pin;
           teamchat_owner_group must be a group name; teamchat_teams must be a list of mappings with
-          a unique team each; teamchat_approve_teams may name only present teams; teamchat_address
-          and teamchat_lxc_members are not built in this play yet and must be unset or empty.
+          a unique team each; teamchat_only_teams and teamchat_approve_teams must be lists;
+          teamchat_address and teamchat_lxc_members are not built in this play yet and must be
+          unset or empty.
         quiet: true
+
+    # Both lists pick teams by name, so a name that matches nothing would be dropped without a
+    # word (filter-list-unchecked, CLAUDE/QA.md): a misspelt scope applies nothing, and a team
+    # approved outside the scope is never approved. Each is refused here, by name.
+    - name: Refuse a Scope or an Approval Naming a Team This Run Does Not Apply
+      ansible.builtin.assert:
+        that:
+          - tc_unknown_scoped | length == 0
+          - tc_unapplied_approvals | length == 0
+        fail_msg: >-
+          play-teamchat.yml refused its team lists.
+          {% if tc_unknown_scoped %}teamchat_only_teams names {{ tc_unknown_scoped | join(', ') }},
+          which teamchat_teams does not declare. {% endif %}
+          {% if tc_unapplied_approvals %}teamchat_approve_teams names
+          {{ tc_unapplied_approvals | join(', ') }}, which this run does not apply: each approved
+          team must be declared present{{ ' and named in teamchat_only_teams' if teamchat_only_teams is defined else '' }}. {% endif %}
+          Correct the names, or widen teamchat_only_teams to the teams to approve.
+        quiet: true
+      vars:
+        tc_unknown_scoped: "{{ teamchat_only_teams | default([]) | difference(tc_teams | map(attribute='team') | list) }}"
+        tc_unapplied_approvals: "{{ teamchat_approve_teams | default([]) | difference(tc_scoped_present | map(attribute='team') | list) }}"
+
+    # The programs are built on the controller (step 1), which this play does not manage: it may
+    # be a desktop whose play-golang.yml installed Go, or a machine of another deploy route. So it
+    # does not install Go there; a controller without Go, or with an older one, stops the play
+    # here, before any change.
+    - name: Read the Controller's Go Version
+      ansible.builtin.command:
+        argv: [go, env, GOVERSION]
+      environment:
+        GOTOOLCHAIN: local
+      delegate_to: localhost
+      become: false
+      run_once: true
+      changed_when: false
+      check_mode: false
+      register: tc_controller_go
+      failed_when: false # FAIL-FAST-OK: the registered result is checked by the next task, which fails with the reason
+
+    - name: Refuse a Controller Without the Go the Build Needs
+      ansible.builtin.assert:
+        that:
+          - tc_controller_go.rc | default(1) == 0
+          - (tc_controller_go.stdout | default('') | trim | regex_replace('^go', '')) is version(golang_min_version, '>=')
+        fail_msg: >-
+          The controller (the machine running this play) builds teamchat and teamchat-admin from
+          src-go, and needs Go {{ golang_min_version }} or newer on its PATH (vars/golang.yml). It
+          has: {{ (tc_controller_go.stdout | default('') | trim) or ('no usable go: ' ~ (tc_controller_go.msg | default(tc_controller_go.stderr | default('')) | trim)) }}.
+          On a Fedora desktop, run playbooks/imports/play-golang.yml; elsewhere install Go by
+          that machine's own configuration, then run this play again.
+        quiet: true
+      run_once: true
 
     # The play neither starts firewalld (the host's own configuration owns it) nor assumes it runs:
     # a missing firewall-cmd or a state other than "running" stops the play here, before any change.
@@ -300,14 +354,23 @@
         force: true
 
     # The pinned Tuwunel. The asset's hash is the pin; the record says which pin the installed
-    # binary came from, so an unchanged pin downloads nothing.
+    # binary came from, so an unchanged pin downloads nothing. The record alone is not enough: a
+    # binary deleted while its record stays is installed again (install-guard-trusts-record).
     - name: Read the Tuwunel Install Record
       ansible.builtin.stat:
         path: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
       register: tc_record
 
+    - name: Read the Installed Tuwunel Binary
+      ansible.builtin.stat:
+        path: "{{ tc_server_dir }}/tuwunel-{{ tc_version }}"
+      register: tc_binary
+
     - name: Install the Pinned Tuwunel
-      when: not tc_record.stat.exists or tc_record.stat.checksum != ((tc_pin['tuwunel_sha256_' ~ tc_arch] ~ '\n') | hash('sha1'))
+      when: >-
+        not tc_binary.stat.exists or not tc_binary.stat.executable
+        or not tc_record.stat.exists
+        or tc_record.stat.checksum != ((tc_pin['tuwunel_sha256_' ~ tc_arch] ~ '\n') | hash('sha1'))
       block:
         - name: Make a Root-Only Directory for the Download
           ansible.builtin.tempfile:

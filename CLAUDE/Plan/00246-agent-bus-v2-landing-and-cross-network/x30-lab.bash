@@ -351,13 +351,16 @@ write_inventory() {
         "-o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" >>"${file}"
 }
 
-# team_vars <file> <only-teams-json-or-empty>: the play's input for the bus.
+# team_vars <file> <only-teams-json-or-empty>: the play's input for the bus. A scoped run
+# approves nothing: the play refuses an approval of a team outside teamchat_only_teams.
 team_vars() {
     local file="$1" only="$2"
     {
-        printf '{"teamchat_owner_group": "x30owners", "teamchat_approve_teams": ["%s"],\n' "${TEAM}"
         if [[ -n "${only}" ]]; then
+            printf '{"teamchat_owner_group": "x30owners", "teamchat_approve_teams": [],\n'
             printf ' "teamchat_only_teams": %s,\n' "${only}"
+        else
+            printf '{"teamchat_owner_group": "x30owners", "teamchat_approve_teams": ["%s"],\n' "${TEAM}"
         fi
         printf ' "teamchat_teams": [{"team": "%s", "state": "present", "port": %d,\n' "${TEAM}" "${PORT}"
         printf '   "description": "X30 lab team across three networks", "networks": ["%s", "%s"],\n' "${N1}" "${N2}"

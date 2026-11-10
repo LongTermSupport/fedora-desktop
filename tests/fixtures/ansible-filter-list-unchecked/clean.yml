@@ -77,3 +77,21 @@
       ansible.builtin.assert:
         that:
           - stt_watch_folders | intersect(rclone_mounts | map(attribute='mountpoint')) | length == 0
+
+# The check through the assert's own vars, as play-teamchat.yml names the unknown teams.
+- hosts: localhost
+  vars:
+    present: "{{ declared_teams | rejectattr('state', 'defined') | list }}"
+  tasks:
+    - name: Refuse an approval of an undeclared team
+      ansible.builtin.assert:
+        that:
+          - unknown | length == 0
+        fail_msg: "approve_teams names {{ unknown | join(', ') }}"
+      vars:
+        unknown: "{{ approve_teams | default([]) | difference(present | map(attribute='team') | list) }}"
+
+    - name: Approve
+      ansible.builtin.debug:
+        msg: "{{ item.team }}"
+      loop: "{{ present | selectattr('team', 'in', approve_teams | default([])) | list }}"

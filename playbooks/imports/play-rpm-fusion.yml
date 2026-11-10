@@ -19,20 +19,37 @@
         state: present
         disable_gpg_check: true
 
-    # Multimedia codec setup is a one-time operation; the creates guard skips the whole
-    # block (openh264 enable + multimedia group) after first run.
+    # Multimedia codecs: the openh264 repository enabled, then the multimedia group. Each is
+    # checked on every run rather than skipped behind a marker of the first run, so a repository
+    # disabled or a group removed since is put back (install-guard-trusts-record, CLAUDE/QA.md).
     # The @core/@multimedia `dnf update` lines are intentionally dropped — play-AB-dnf-
     # upgrade.yml already brings every package to latest earlier in the same run.
-    - name: Configure multimedia codecs (openh264 + multimedia group)
-      ansible.builtin.shell: |
-        set -euo pipefail
-        set -x
-        dnf -y config-manager setopt fedora-cisco-openh264.enabled=1
-        dnf -y group install multimedia --allowerasing --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
-        touch /var/local/.rpmfusion-multimedia-configured
-      args:
-        executable: /bin/bash
-        creates: /var/local/.rpmfusion-multimedia-configured
+    - name: Read the Enabled Repositories
+      ansible.builtin.command:
+        argv: [dnf, -q, repolist, --enabled]
+      register: rpmfusion_enabled_repos
+      changed_when: false
+      check_mode: false
+
+    - name: Enable the openh264 Repository
+      ansible.builtin.command:
+        argv: [dnf, -y, config-manager, setopt, fedora-cisco-openh264.enabled=1]
+      when: "'fedora-cisco-openh264' not in (rpmfusion_enabled_repos.stdout_lines | map('trim') | select | map('split') | map('first') | list)"
+      changed_when: "'fedora-cisco-openh264' not in (rpmfusion_enabled_repos.stdout_lines | map('trim') | select | map('split') | map('first') | list)"
+
+    - name: Install the Multimedia Group
+      ansible.builtin.dnf:
+        name: "@multimedia"
+        state: present
+        allowerasing: true
+        install_weak_deps: false
+        exclude:
+          - PackageKit-gstreamer-plugin
+
+    - name: Remove the Marker the Codec Setup Used to Run Once Behind
+      ansible.builtin.file:
+        path: /var/local/.rpmfusion-multimedia-configured
+        state: absent
 
     # Intel GPU hardware video decode. RPM Fusion nonfree builds it for x86_64 (and i686)
     # only, as the hardware is x86 only, so it is skipped by name on any other architecture.
