@@ -115,6 +115,24 @@ printf '00003-triage\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 check "a triage-only plan passes with no verdict of its own" 0 "all 1 unit(s) passed." "$?" "${out}"
 
+# summary-counts-nongating-failure-as-pass (#203): a triage that fails does not gate the deploy
+# and leaves the exit code 0, but the summary must still name it as failed and count it, never
+# close with "all N unit(s) passed".
+mkdir -p "${SCRATCH}/CLAUDE/Plan/00005-noisy"
+printf '#!/usr/bin/env bash\nexit 1\n' >"${SCRATCH}/CLAUDE/Plan/00005-noisy/triage.bash"
+printf '#!/usr/bin/env bash\nexit 0\n' >"${SCRATCH}/CLAUDE/Plan/00005-noisy/deploy.bash"
+chmod +x "${SCRATCH}/CLAUDE/Plan/00005-noisy/triage.bash" "${SCRATCH}/CLAUDE/Plan/00005-noisy/deploy.bash"
+printf '00005-noisy\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
+status=$?
+check "a failed non-gating triage keeps the exit code 0" 0 "PASS  00005-noisy/deploy.bash" "${status}" "${out}"
+check "a failed non-gating triage is named as failed" 0 "FAIL  00005-noisy/triage.bash (before) (exit 1, non-gating" "${status}" "${out}"
+check "the closing line counts a non-gating failure" 0 \
+    "1 of 3 unit(s) passed: 0 failed, were skipped or could not establish; 2 non-gating triage run(s) failed." "${status}" "${out}"
+nonGatingClaim="no false all-passed"
+[[ "${out}" == *"all 3 unit(s) passed."* ]] && nonGatingClaim="claims all passed"
+check "the closing line never says all passed over a failed triage" "0 no false all-passed" "" "${status} ${nonGatingClaim}" "${out}"
+
 rm -f "${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" --list 2>&1)"
 check "missing list file is fatal" 1 "meta-deploy.list" "$?" "${out}"
