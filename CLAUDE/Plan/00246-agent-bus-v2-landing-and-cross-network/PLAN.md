@@ -134,6 +134,20 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   a host or VM-lab check that needs the host play and the launcher (the install path, #193
   item 2), which the coordinator queues.
 
+### Install path (for X30)
+
+What must exist, in order, for X30's second-machine run: stage A, the base units
+(`teamchat-server@`, `teamchat-tls@`, the health units) rendered by Go, judged by `madeUnits`,
+and installed by a new `play-teamchat.yml` that runs against a remote inventory host (built on
+the controller and copied over, for both x86_64 and aarch64, no architecture lock); stage B, the
+v2 kit in the ccy image with the CCY version bump (Plan 00209 Task 4.1); stage C, the launcher
+(Task 4.2). Then firewalld zones that reject by default (the LXC bridge moves out of `trusted`),
+a specific route to the member network, and a three-network VM-lab scenario with one prober
+topology, which needs a lab capability not yet built. Gate A is met; gate B binds only Task
+4.4's host run. Detail, proofs and the coordinator's answers to its four decisions:
+[INSTALL-PATH.md](INSTALL-PATH.md). The plan is reviewed and ready; stage A is built next, and
+none of it is built yet.
+
 ## Success Criteria
 
 - [ ] Pull request 124 is merged by the owner with CI green, the Go tests run by CI.
