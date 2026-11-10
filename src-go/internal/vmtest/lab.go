@@ -96,6 +96,8 @@ type lab struct {
 	repoURL  string
 	branch   string
 	checkout string
+	// vars is every line of lab.env, for the keys only some verbs read (E74).
+	vars map[string]string
 }
 
 var (
@@ -166,7 +168,7 @@ func (c *cli) loadLab() (*lab, error) {
 	}
 	l := &lab{
 		paths: p, fedora: vars["VMTEST_FEDORA_VERSION"], repoURL: vars["VMTEST_REPO_URL"],
-		branch: vars["VMTEST_REPO_BRANCH"], checkout: vars["VMTEST_CHECKOUT"],
+		branch: vars["VMTEST_REPO_BRANCH"], checkout: vars["VMTEST_CHECKOUT"], vars: vars,
 	}
 	switch {
 	case !digitsRE.MatchString(l.fedora):

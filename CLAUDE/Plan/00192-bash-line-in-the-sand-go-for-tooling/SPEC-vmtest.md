@@ -481,7 +481,11 @@ libvirt `udp` sub-options) are not verified in this container and are proven by 
 - E67. `link-up <link>`: the name as E55. It chooses two distinct free UDP ports on 127.0.0.1
   (`Env.FreeUDPPorts`, which binds both at once so they differ), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
   lines) through `fsx.WriteAtomic`, and prints `VMTEST-LINK-UP <link> a=<p> b=<q>`. An existing
-  `links/<link>/` is refused with the `link-down` hint. It makes no libvirt object.
+  `links/<link>/` is refused with the `link-down` hint. It makes no libvirt object. A link's ports
+  are bound only when its members boot, so a drawn port another link records is drawn again, up
+  to eight times, then refused (`no two free UDP ports another link does not hold`).
+- E67a. A link's `ports` file or a member's `links` record that is there but not a regular file
+  (a named pipe would block the read for ever) is refused naming it, by every verb that reads it.
 - E68. `member-up <name> <key> [--ram-mib N] [--link <link>:<a|b>]...`: an option repeated that
   may not be (`--ram-mib`), a malformed option, or a link with no `ports` file is `usage:` (for
   the last, `no link <l>; make it with: vmtest link-up <l>`). An end already recorded by another
@@ -505,6 +509,12 @@ libvirt `udp` sub-options) are not verified in this container and are proven by 
   the member's record, so an inventory is built without reading the lab's layout.
 - E73. `member-ssh [--as <user>] <name> <command...>`: `<user>` matches
   `^[a-z_][a-z0-9_-]{0,31}$` and defaults to the guest user of E22. Everything else is E58.
+- E74. `lab-network <name>`: `<name>` matches `^[a-z][a-z0-9]{0,15}$` (else `usage:`). It loads the
+  lab (E7) and prints the CIDR of lab.env's `VMTEST_NET_<NAME>`, which the lab play writes from
+  the host_vars mapping `vm_test_lab_networks` after `helpers.vmtest.lab_networks` has checked
+  the subnets miss each other and every route of the host (Plan 00246 D1). The lab has no
+  default subnet: an absent key is a failure naming `vm_test_lab_networks.<name>` and the play,
+  and a value that is not a canonical IPv4 CIDR is a failure naming it.
 - E57, extended: a member-up that does not finish also removes `members/<name>/links`, so a
   failed member never holds a link end.
 

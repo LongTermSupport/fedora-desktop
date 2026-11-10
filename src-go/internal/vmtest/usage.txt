@@ -51,6 +51,8 @@ Usage:
   vmtest link-up <link>                    make a point-to-point link: two loopback UDP ports recorded under
                                            links/<link>/ for two members' NICs; starts nothing
   vmtest link-down <link>                  remove a link no member holds; nothing there is no error
+  vmtest lab-network <name>                print the subnet host_vars vm_test_lab_networks gives <name>
+                                           (written into lab.env by the lab play); none is a failure
   vmtest help
 
 `run` provisions from a PUSHED commit of the public repo (the branch tip on the

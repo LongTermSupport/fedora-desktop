@@ -327,6 +327,29 @@
       check_mode: false
       failed_when: vm_test_branch.stdout | trim in ['', 'HEAD']
 
+    # The subnets a multi-network scenario (Plan 00246 X30) puts on the lab's links are the
+    # owner's input, never defaults: the host_vars mapping vm_test_lab_networks of a short name
+    # to an IPv4 CIDR. Unset, lab.env names none and such a scenario refuses to start, naming the
+    # variable. Set, each must miss the others and every route of this host (passt copies the
+    # host's own address onto each guest's first NIC), which the helper checks.
+    - name: Read the routes the lab's subnets must miss
+      become: false
+      ansible.builtin.command:
+        argv: [ip, -j, -4, route, show, table, all]
+      register: vm_test_routes
+      changed_when: false
+      check_mode: false
+
+    - name: Check the lab's subnets with helpers.vmtest.lab_networks
+      become: false
+      ansible.builtin.command:
+        argv: [python3, -m, helpers.vmtest.lab_networks]
+        chdir: "{{ root_dir }}"
+        stdin: "{{ {'networks': vm_test_lab_networks | default({}), 'routes': vm_test_routes.stdout | from_json} | to_json }}"
+      register: vm_test_lab_networks_env
+      changed_when: false
+      check_mode: false
+
     # The guests clone over HTTPS with no identity (DESIGN.md §3.4), so an SSH
     # origin on the host is normalised to the same repository's https URL.
     - name: Render lab.env
@@ -336,6 +359,7 @@
           VMTEST_REPO_URL={{ vm_test_origin.stdout | trim | regex_replace('^(ssh://)?git@github[.]com[:/]', 'https://github.com/') | regex_replace('[.]git$', '') }}
           VMTEST_REPO_BRANCH={{ vm_test_branch.stdout | trim }}
           VMTEST_CHECKOUT={{ root_dir }}
+          {{ vm_test_lab_networks_env.stdout }}
         dest: "{{ vm_test_lab_dir }}/lab.env"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"

@@ -83,6 +83,15 @@ user_email: "yourname@example.com"
 # stt_watch_folders:
 #   - "/home/{{ user_login }}/mnt/<drive>/<recordings folder>"
 
+# Optional (play-vm-test-lab.yml): the subnets the VM lab's multi-network scenario (Plan 00246
+# X30, x30-lab.bash) puts on its guest links. No default: unset, that scenario refuses to start.
+# IPv4 CIDRs from /8 to /27 that miss each other and every route of this host. Pick ranges your
+# LAN and VPNs never use; the documentation ranges below are examples only.
+# vm_test_lab_networks:
+#   n1: 192.0.2.0/24
+#   n2: 198.51.100.0/24
+#   n3: 203.0.113.0/24
+
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
 # mok_password: !vault |

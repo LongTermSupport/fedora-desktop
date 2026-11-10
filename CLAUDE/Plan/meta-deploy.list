@@ -87,6 +87,11 @@
 # src-go as committed at HEAD, and the image is rebuilt once for its new version label. Nothing
 # uses the kit yet. After it, a ccy session can run
 # /opt/claude-yolo/optional/teamchat/bin/teamchat version, which prints the source digest.
+# And Plan 00246 Task 8.8: play-vm-test-lab.yml rebuilds vmtest (the links, member-address,
+# member-ssh --as, lab-network) and writes the lab's subnets into lab.env from the new host_vars
+# mapping vm_test_lab_networks, checked against each other and this host's routes. Set it first
+# (n1, n2 and n3: IPv4 /8 to /27 ranges no LAN or VPN of this host uses; the example in
+# localhost.yml.dist); unset, the play passes and x30-lab.bash below stops naming it.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)
@@ -101,3 +106,14 @@ playbooks/imports/play-basic-configs.yml
 # routes the lab's subnets must avoid. It needs no sudo. Its report says which spelling of the
 # interface the host accepts, which is what the first `member-up --link` is built on.
 00246-agent-bus-v2-landing-and-cross-network/x30-triage.bash
+
+# Plan 00246 Task 8.8, X30 on the VM lab (after x30-triage: it stops the batch when no udp
+# spelling is accepted). Boots four lab guests on three point-to-point links (about 6.75 GiB of
+# RAM and 28 GiB of disk, checked first), runs stage A's teamchat play against them (never this
+# host; the play ledger is off for those runs), issues seats by the relay form under a password
+# sudo with the bus guest's outbound ssh blocked, has two workers on different networks message
+# each other with the coordinator absent, then moves the bus guest with the team's DNS url.
+# Everything it makes is removed on exit. Needs vm_test_lab_networks (above) and a clean
+# checkout. Exit 2 is expected today: restore is refused in the production build until DC8, so
+# the host move cannot finish; the report in its run directory says which checks passed.
+00246-agent-bus-v2-landing-and-cross-network/x30-lab.bash

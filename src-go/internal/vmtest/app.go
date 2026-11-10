@@ -197,6 +197,7 @@ var commands = map[string]command{
 	"member-down":      (*cli).cmdMemberDown,
 	"link-up":          (*cli).cmdLinkUp,
 	"link-down":        (*cli).cmdLinkDown,
+	"lab-network":      (*cli).cmdLabNetwork,
 	"prune-runs":       (*cli).cmdPruneRuns,
 }
 

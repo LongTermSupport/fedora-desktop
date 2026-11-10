@@ -158,8 +158,15 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   `feat/vmtest-links` under fakes (SPEC-vmtest.md E67 to E73: `link-up`, `link-down`,
   `member-up --link` and `--ram-mib`, the RAM check over every running guest, `member-address`,
   `member-ssh --as`); `x30-triage.bash` is the read-only host run that shows which spelling of
-  libvirt's `udp` interface the host takes. The lab play's subnet input, the guest fixtures and
-  `x30-lab.bash` are not built.
+  libvirt's `udp` interface the host takes. Merged to F44 (2026-11-10) with the review's fixes
+  (E67a, a link-up port another link holds). Also built, not yet run on a host: the lab's
+  subnet input (D1: host_vars `vm_test_lab_networks`, no default, checked by
+  `helpers.vmtest.lab_networks` and read by `vmtest lab-network`, E74), the guest fixture
+  `x30-guest.bash` and the scenario `x30-lab.bash` (three networks, the relay-form issue under a
+  password sudo with the bus's outbound ssh blocked, worker to worker with the coordinator
+  absent, the host move with a DNS url). Two gaps it meets: no production take of a pool seat
+  into a session (Task 4.2; the scenario copies it), and `restore` is refused in the production
+  build until DC8, so the host move ends COULD NOT ESTABLISH until the owner decides DC8.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

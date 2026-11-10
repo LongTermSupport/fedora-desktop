@@ -123,12 +123,16 @@ vmtest member-up <name> server-fast --link <link>:a [--link <other>:b] [--ram-mi
 vmtest member-address <name>                # host, SSH port, user, lab key, and each NIC's MAC
 vmtest member-ssh --as <user> <name> '<command>'   # as another login user; default is the cloud user
 vmtest link-down <link>                     # refused while a member holds an end of it
+vmtest lab-network <name>                   # the subnet host_vars vm_test_lab_networks gives <name>
 ```
 
 `link-up` starts nothing; each end (`a` or `b`) belongs to one member at a time,
 recorded in `members/<name>/links` with the NIC's MAC until `member-down`. The
 lab sets no addresses on a link: a scenario sets them over ssh, picking each NIC
-by the MAC `member-up` and `member-address` print. `--ram-mib` gives a member
+by the MAC `member-up` and `member-address` print. The subnets are the owner's, never
+the lab's: the host_vars mapping `vm_test_lab_networks` (see
+`localhost.yml.dist`), checked by the lab play against each other and the host's
+routes and written into `lab.env`. `--ram-mib` gives a member
 less than its base's memory (768 MiB up to the base's); `member-up` and `run`
 refuse a guest that, with every running lab guest, would pass 75% of the host's
 memory. That libvirt accepts the `udp` interface in a session is shown only by
