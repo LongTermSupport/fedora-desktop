@@ -109,6 +109,7 @@
   become_user: "{{ user_login }}"
   ansible.builtin.command:
     argv: [flatpak, override, --user, --persist=.pki, im.riot.Riot]
+  changed_when: element_team_ca_override.stdout is not search('(?m)^persistent=(.*;)?[.]pki(;|$)')
   when:
     - element_team_ca_store == 'nssdb' and element_team_ca_https | length > 0
     - element_team_ca_override.stdout is not search('(?m)^persistent=(.*;)?[.]pki(;|$)')
@@ -159,6 +160,7 @@
     update-ca-trust extract
   args:
     executable: /bin/bash
+  changed_when: element_team_ca_anchors is changed
   when: element_team_ca_store == 'system' and element_team_ca_anchors is changed
 
 # The check: from inside Element's sandbox, with its python3 and NSS, the store Chromium reads.
