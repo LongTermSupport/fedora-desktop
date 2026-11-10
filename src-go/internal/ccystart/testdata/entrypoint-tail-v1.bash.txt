@@ -1,0 +1,203 @@
+# >>> AGENT-BUS
+_ccy_agent_bus=/opt/claude-yolo/optional/agent-bus
+_ccy_seat_exec=()
+_ccy_bus_after=$(_ccy_bus_snapshot)
+if [ "$_ccy_bus_after" != "$_ccy_bus_before" ]; then
+    # The names on a line in one snapshot and not the other.
+    _ccy_bus_changed=$(printf '%s\n%s\n' "$_ccy_bus_before" "$_ccy_bus_after" \
+        | sort | uniq -u | awk -F= 'NF { print $1 }' | sort -u | paste -sd' ' -)
+    printf '✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets %s.\n  Neither file may touch a PINGBUS_* variable: a session'"'"'s agent team bus seats come only from the host (ccy --teams, ccy-teams).\n  Take every PINGBUS_* line out of the file.\n' "$_ccy_bus_changed" >&2
+    exit 1
+fi
+# A leftover variable makes the case below refuse, naming it.
+_ccy_bus_old=""
+for _ccy_bus_var in PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME; do
+    [ -z "${!_ccy_bus_var+set}" ] || _ccy_bus_old="$_ccy_bus_var came from the launcher, which passes only PINGBUS_MEMBERSHIP"
+done
+case "${_ccy_bus_old:+old:}${PINGBUS_MEMBERSHIP-}" in
+off) ;;
+/run/ccy/membership)
+    for _ccy_need in "$_ccy_agent_bus/pingbus" "$_ccy_agent_bus/pingbus-status-line" "$_ccy_agent_bus/plugin/pingbus/.claude-plugin/plugin.json" "$_ccy_agent_bus/plugin/pingbus/hooks/hooks.json" "$PINGBUS_MEMBERSHIP/membership.json"; do
+        if [ ! -f "$_ccy_need" ]; then
+            printf '✗ CCY: this session was launched with the agent team bus kit, but %s is missing.\n  An image older than the kit (rebuild it: ccy --rebuild), or a launch that did not mount the membership (update ccy).\n' "$_ccy_need" >&2
+            exit 1
+        fi
+    done
+    if [ "${1:-}" != claude ]; then
+        echo "✗ CCY: this session was launched with the agent team bus kit, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
+        exit 1
+    fi
+    ln -sf "$_ccy_agent_bus/pingbus" /usr/local/bin/pingbus
+    set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings /tmp/pingbus-home/settings.json "${@:2}"
+    _ccy_seat_exec=("$_ccy_agent_bus/pingbus" seat exec --)
+    ;;
+*)
+    printf '✗ CCY: %s: ccy on the host is older than this image.\n  Update ccy (play-claude-yolo.yml), then launch again.\n' "${_ccy_bus_old:-PINGBUS_MEMBERSHIP is ${PINGBUS_MEMBERSHIP-unset}, not a value ccy passes}" >&2
+    exit 1
+    ;;
+esac
+unset _ccy_bus_var _ccy_bus_old _ccy_bus_before _ccy_bus_after _ccy_bus_changed
+unset -f _ccy_bus_snapshot
+# <<< AGENT-BUS
+
+# ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
+#
+# Precedence, highest first:
+#   0. `ccy --no-supervise` (CCY_NO_SUPERVISOR=1): no wrapper at all, whatever the
+#      project's ccy.env or ccy.env.local armed, since they arm it with the
+#      ${CCY_CLAUDE_WRAPPER:-...} idiom and --no-supervise forwards no value to beat it.
+#   1. CCY_CLAUDE_WRAPPER forwarded from the host (`ccy --supervise`, or a host
+#      export) — an explicit operator instruction, always wins.
+#   2. CCY_CLAUDE_WRAPPER set by the project ccy.env (or this checkout's ccy.env.local)
+#      sourced just above — the per-project choice (this is where `--arm` is opted into).
+#   3. This default: the project supervisor, unarmed, if it is there.
+#
+# Why default ON (CCY 3.42.0). The supervisor is the ONLY remaining ctrl+z
+# guard: it strips the 0x1a SUSP byte from forwarded stdin and swallows
+# SIGTSTP/SIGQUIT, and the image-level byte patch that used to do that job was
+# retired. Leaving the guard opt-in meant every project without a ccy.env could
+# still be frozen by a keypress with no way to recover inside a container.
+#
+# Unarmed by default: without --arm the supervisor injects one harmless visible
+# marker per session instead of a real /compact. Automatic compaction changes
+# what a session DOES and stays an explicit opt-in (ccy.env --arm, or
+# `ccy --supervise`); the terminal-key guard does not, and is what we want
+# everywhere. Opt out entirely with CCY_NO_SUPERVISOR=1 / `ccy --no-supervise`.
+CCY_SUPERVISOR_PATH="${CCY_SUPERVISOR_PATH:-/workspace/.claude/ccy/claude-supervise.py}"
+
+if [[ "${CCY_NO_SUPERVISOR:-}" == "1" ]]; then
+    if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+        echo "Supervisor: off (--no-supervise); the wrapper the project set is not used: $CCY_CLAUDE_WRAPPER" >&2
+    fi
+    unset CCY_CLAUDE_WRAPPER
+elif [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+    if [ -f "$CCY_SUPERVISOR_PATH" ]; then
+        # Syntax-check before exec. A corrupt or truncated supervisor would
+        # otherwise take every session in every project down with it, and this
+        # path is now reached by default rather than only by opt-in. Parsed with
+        # ast rather than py_compile so nothing is written to the project.
+        #
+        # The probe FAILS THE LAUNCH rather than quietly running unwrapped: an
+        # unwrapped session has no ctrl+z guard, and silently downgrading the
+        # one protection left is exactly the "skip and continue" this repo bans.
+        # The message names the bypass, so the operator is never stuck.
+        if ! _ccy_sup_probe=$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' \
+            "$CCY_SUPERVISOR_PATH" 2>&1); then
+            echo "✗ CCY: the project supervisor at $CCY_SUPERVISOR_PATH does not parse." >&2
+            echo "$_ccy_sup_probe" >&2
+            echo "  Restore it from git, or re-deploy it with the hooks daemon." >&2
+            echo "  To launch without it (NO ctrl+z guard): ccy --no-supervise" >&2
+            exit 1
+        fi
+        # Invoked through python3 rather than executed directly: the exec bit on
+        # a git-tracked file is one more thing that can be wrong, and it has been.
+        CCY_CLAUDE_WRAPPER="python3 $CCY_SUPERVISOR_PATH --"
+        echo "Supervisor: on by default (ctrl+z guard active, auto-compaction unarmed)" >&2
+    else
+        # Say so. An absent supervisor is a normal state, but after 3.42.0 it is
+        # also the state with no ctrl+z guard at all — and a silence there reads
+        # as "protected" to anyone who does not know the patch was removed.
+        printf 'Supervisor: not present at %s — ctrl+z is UNGUARDED in this session.\n  Install the hooks daemon in this project to get the guard back.\n' "$CCY_SUPERVISOR_PATH" >&2
+    fi
+fi
+
+# ── Session lifecycle plugin: only when --max-age/--run-for/--until asked for it ──────
+#
+# The launcher passes the settings as CCY_LIFECYCLE_* (lib/session-lifecycle.bash on the
+# host; a project ccy.env sourced above may set them too). When none is set this block does
+# nothing and the wrapper line below is exactly what it was before the plugin existed.
+#
+# The plugin file lives in the image, outside the project mount, root owned: the supervisor
+# refuses a plugin that is group- or world-writable, and a project could not otherwise be
+# trusted not to supply its own. It is named on the supervisor's command line, before the
+# final `--`, which is where the supervisor takes `--plugin` flags.
+ccy_lifecycle_wanted() {
+    [[ -n "${CCY_LIFECYCLE_MAX_AGE_SECONDS:-}" || -n "${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" ]]
+}
+
+# ccy_lifecycle_extend_wrapper — add the plugin to the _ccy_wrapper array. Refuses, with the
+# reason on stderr, anything it cannot honour: the user asked for a session limit, and a
+# session that quietly runs without it is the "skip and continue" this project bans.
+ccy_lifecycle_extend_wrapper() {
+    local plugin="/opt/claude-yolo/supervisor-plugins/ccy_lifecycle.py"
+    local last=$((${#_ccy_wrapper[@]} - 1))
+    # The supervisor is named directly, or through the hooks daemon's own launcher
+    # (.claude/ccy/claude-supervise, what the daemon's ccy.env arms projects with from its
+    # release after 3.68.0), which execs its sibling claude-supervise.py with every argument
+    # unchanged. With no usable Python the launcher runs claude unsupervised instead, which
+    # this check cannot see; the image's python3 makes that a misconfigured CCY_PYTHON only.
+    local supervisor="" word want have
+    for word in "${_ccy_wrapper[@]}"; do
+        case "$word" in
+        *claude-supervise.py)
+            supervisor="$word"
+            break
+            ;;
+        */claude-supervise)
+            supervisor="$word.py"
+            break
+            ;;
+        esac
+    done
+    if [[ -z "$supervisor" ]] || ((last < 1)) || [[ "${_ccy_wrapper[$last]}" != "--" ]]; then
+        echo "✗ CCY: --max-age/--run-for/--until need the hooks-daemon supervisor as the claude wrapper, but the wrapper is:" >&2
+        echo "    $CCY_CLAUDE_WRAPPER" >&2
+        echo "  It must run the supervisor (claude-supervise.py, or the daemon's claude-supervise launcher) and end in --." >&2
+        echo "  Fix CCY_CLAUDE_WRAPPER, or drop the option." >&2
+        return 1
+    fi
+    if [[ ! -f "$plugin" ]]; then
+        printf '✗ CCY: the lifecycle plugin is missing from this image (%s).\n  Rebuild the image: ccy --rebuild\n' "$plugin" >&2
+        return 1
+    fi
+    # A supervisor older than the plugin API rejects --plugin as an unknown argument and the
+    # container exits with an argparse error, so read its declared API major first.
+    if [[ ! -f "$supervisor" ]]; then
+        printf '✗ CCY: the supervisor the wrapper runs is not there: %s\n    (the wrapper is: %s)\n' "$supervisor" "$CCY_CLAUDE_WRAPPER" >&2
+        return 1
+    fi
+    if ! want=$(awk '/^PLUGIN_API = [0-9]+$/ {print $3; exit}' "$plugin") || [[ -z "$want" ]]; then
+        echo "✗ CCY: the lifecycle plugin in this image declares no PLUGIN_API ($plugin). Rebuild: ccy --rebuild" >&2
+        return 1
+    fi
+    if ! have=$(awk '/^_PLUGIN_API_MAJOR = [0-9]+$/ {print $3; exit}' "$supervisor"); then
+        echo "✗ CCY: could not read the supervisor at $supervisor." >&2
+        return 1
+    fi
+    if [[ -z "$have" ]]; then
+        printf '✗ CCY: this project'\''s supervisor predates the plugin API that --max-age/--run-for/--until need.\n  upgrade the hooks daemon in this project to a release with the supervisor plugin API, or drop the option.\n' >&2
+        return 1
+    fi
+    if [[ "$have" != "$want" ]]; then
+        printf '✗ CCY: this project'\''s supervisor speaks plugin API %s, and the lifecycle plugin speaks plugin API %s.\n  Update ccy, or upgrade the hooks daemon in this project, so the two agree; or drop the option.\n' "$have" "$want" >&2
+        return 1
+    fi
+    _ccy_wrapper=("${_ccy_wrapper[@]:0:$last}" --plugin "ccy-lifecycle=$plugin" --)
+}
+
+# Execute the command.
+if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+    read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
+    # Python handed a shell script dies on a SyntaxError that names no fix. The daemon's
+    # .claude/ccy/claude-supervise is a #!/bin/sh launcher beside claude-supervise.py, so a
+    # python word before a sh/bash script is refused.
+    if [[ "${_ccy_wrapper[0]##*/}" == python* && -f "${_ccy_wrapper[1]:-}" ]] && [[ "$(head -n1 -- "${_ccy_wrapper[1]}")" =~ ^#!.*[/\ ](ba|da)?sh( |$) ]]; then
+        printf '✗ CCY: CCY_CLAUDE_WRAPPER runs a shell script through Python: %s\n  Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py, in .claude/ccy/ccy.env (or ccy.env.local).\n' "$CCY_CLAUDE_WRAPPER" >&2
+        exit 1
+    fi
+    # A bus session also gets the plugin for its first-join relaunch (Plan 00203 H22), when
+    # the supervisor takes plugins; without it the session starts, and is told why below.
+    if ccy_lifecycle_wanted; then
+        ccy_lifecycle_extend_wrapper || exit 1
+    elif [[ "${PINGBUS_MEMBERSHIP:-off}" != off ]] && ! ccy_lifecycle_extend_wrapper 2>/tmp/ccy-relaunch-plugin.why; then
+        printf '⚠ CCY: a first team join cannot relaunch this session by itself, so it will need a relaunch by hand: %s\n' "$(tr '\n' ' ' </tmp/ccy-relaunch-plugin.why)" >&2
+    fi
+    exec "${_ccy_seat_exec[@]}" "${_ccy_wrapper[@]}" "$@"
+fi
+if ccy_lifecycle_wanted; then
+    echo "✗ CCY: --max-age/--run-for/--until are carried out by the supervisor, and this session runs without one." >&2
+    echo "  Install the hooks daemon in this project (it deploys the supervisor), or drop the option." >&2
+    exit 1
+fi
+# The agent team bus claim, when the launch carries the kit (AGENT-BUS above).
+exec "${_ccy_seat_exec[@]}" "$@"

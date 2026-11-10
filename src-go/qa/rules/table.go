@@ -164,6 +164,11 @@ var dynamicNames = []allowance{
 		reason: "the bash launcher, claude-yolo.bash beside the Go front's own executable: the strangler's hand-over (Plan 00191 Task 4.5)",
 	},
 	{
+		pkg:    "internal/ccystart",
+		fn:     "Start",
+		reason: "the ccy session's own command as the container was started with it, behind the bus claim or teamchat run and the supervisor wrapper: the entrypoint's final exec (Plan 00209 Task 4.2)",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",

@@ -87,6 +87,9 @@
 # src-go as committed at HEAD, and the image is rebuilt once for its new version label. Nothing
 # uses the kit yet. After it, a ccy session can run
 # /opt/claude-yolo/optional/teamchat/bin/teamchat version, which prints the source digest.
+# And Plan 00209 Task 4.2 (ccy 3.115.0, container 2.82.0): the end of the container's start is
+# the Go ccy-start-claude, built into the image's build context; the image is rebuilt once. After
+# it, a ccy session starts as before (with its supervisor and, on a team, its seats).
 # And Plan 00246 Task 8.8: play-vm-test-lab.yml rebuilds vmtest (the links, member-address,
 # member-ssh --as, lab-network) and writes the lab's subnets into lab.env from the new host_vars
 # mapping vm_test_lab_networks, checked against each other and this host's routes. Set it first

@@ -315,10 +315,14 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [x] ✅ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump (3.114.0,
   container 2.81.0; `tasks/teamchat-ccy-kit.yml`). Gate A met (Plan 00246 INSTALL-PATH.md).
-- [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
+- [ ] 🔄 **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
   For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it
   relaunches and records it in `held/notice.json`, and the same change turns RS2's switch on.
+  Built: the end of `entrypoint.sh` ported to Go (`ccy-start-claude`, v1 byte for byte by a
+  parity test), which starts a v2 member under `teamchat run` (CCY 3.115.0, container 2.82.0).
+  Open: seam 55, the launch take and binds, the exit release, RS3. Decisions L1-L3 and the
+  handoff: [LAUNCH-ccy.md](LAUNCH-ccy.md).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy

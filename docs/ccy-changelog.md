@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.115.0 — container 2.82.0
+
+- **The end of the container's start is Go: `ccy-start-claude`** (Plan 00209 Task 4.2).
+  `entrypoint.sh` still refuses a project `ccy.env` or `ccy.env.local` that touches a bus
+  variable (now `TEAMCHAT_*` as well as `PINGBUS_*`), then execs
+  `/usr/local/bin/ccy-start-claude` with the session's command. It builds the command line the
+  bash built, byte for byte, for every v1 launch (a parity test runs the old bash against it):
+  the v1 bus kit and `pingbus seat exec`, the supervisor wrap, the lifecycle plugin and the
+  first-join relaunch plugin, with the same refusals and messages. The settings it reads that a
+  `ccy.env` may set without `export` (`CCY_CLAUDE_WRAPPER`, `CCY_SUPERVISOR_PATH`,
+  `CCY_NO_SUPERVISOR`, `CCY_LIFECYCLE_MAX_AGE_SECONDS`, `CCY_LIFECYCLE_DEADLINE_EPOCH`) are now
+  exported to it, so they are in the session's environment too.
+- **A v2 (teamchat) member can be started**: given `TEAMCHAT_MEMBERSHIP=/run/teamchat/membership`
+  beside `PINGBUS_MEMBERSHIP=off`, it links `/usr/local/bin/teamchat` and runs
+  `teamchat run --claude --kind ccy --desired /run/teamchat/membership -- <supervisor> claude ...`.
+  A launch on both systems is refused. The launcher does not pass the variable yet.
+
 ## 3.114.1 — container 2.81.0
 
 - **teamchat sends an agent's markdown as HTML as well** (Plan 00241 Phase 3): reports,

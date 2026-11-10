@@ -326,6 +326,20 @@
     - scripts
     - skills
 
+# The end of the container's start (Plan 00209 Task 4.2): entrypoint.sh execs it with the
+# session's command. Static, because the image is Debian and the host's glibc is newer.
+- name: Build the ccy-start-claude Command into Docker Build Context
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: ccy-start-claude
+    go_command_dest: /opt/claude-yolo/ccy-start-claude
+    go_command_mode: "0755"
+    go_command_owner: root
+    go_command_static: true
+  tags:
+    - scripts
+    - entrypoint
+
 # The agent team bus v2 member kit (Plan 00209 Task 4.1), beside v1's above and touching none of it.
 - name: Stage the teamchat Kit into Docker Build Context
   ansible.builtin.import_tasks: "{{ root_dir }}/tasks/teamchat-ccy-kit.yml"

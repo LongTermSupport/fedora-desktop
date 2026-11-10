@@ -2,21 +2,16 @@
 # Unit-test the entrypoint's agent team bus step (Plan 00161 DESIGN.md section 5.3).
 #
 # WHY THIS TEST EXISTS. A ccy session's teams come only from the host (Plan 00203
-# SPEC-hot-control.md H2): the launcher passes PINGBUS_MEMBERSHIP, either /run/ccy/membership
-# (the read-only directory holding the session's desired membership; the session carries the
-# agent team bus kit) or off (`ccy --no-bus`, or a launch outside ccy's tmux with no --teams).
-# Nothing the session can write may choose a team or seat, so the entrypoint refuses to start
-# when the project's ccy.env (tracked) or ccy.env.local sets, changes or unsets any PINGBUS_*
-# variable, and refuses the marker unset or unknown, or a PINGBUS_SEATS, PINGBUS_TEAMS or
-# PINGBUS_HOME from the launcher, which only a launcher older than the image would pass. With
-# the kit it links pingbus, gives claude the plugin and the session's own settings (written by
-# the claim into the session home) inside a supervisor wrapper's `--`, and puts
-# `pingbus seat exec --` in front of both final exec lines, which claims the desired seats and
-# builds the session home; with off, nothing is linked or added. The test cuts the real PROJECT-ENV block and the real tail (from the
-# AGENT-BUS marker to the end) out of entrypoint.sh, points their paths at a throwaway tree,
-# and replaces exec with a printer. The last cases then replay the printed command line
-# through the real zipapp (built by helpers/pingbus/bundle.py as the play builds it), so the
-# entrypoint's `pingbus seat exec -- ...` is parsed, claimed and exec'd by the real CLI.
+# SPEC-hot-control.md H2): the launcher passes PINGBUS_MEMBERSHIP (v1) and TEAMCHAT_MEMBERSHIP
+# (v2), and nothing the session can write may choose a team or seat, so the entrypoint refuses to
+# start when the project's ccy.env (tracked) or ccy.env.local sets, changes or unsets any
+# PINGBUS_* or TEAMCHAT_* variable (D62), and otherwise execs ccy-start-claude, which builds the
+# session's command (src-go/internal/ccystart; its parity test holds every v1 command line,
+# refusal and message to the bash it replaced). The test cuts the real PROJECT-ENV block and the
+# real tail (from the AGENT-BUS marker to the end) out of entrypoint.sh, points their paths at a
+# throwaway tree, and replaces exec with a printer. The last cases replay the v1 command line
+# ccy-start-claude builds through the real zipapp (built by helpers/pingbus/bundle.py as the play
+# builds it), so `pingbus seat exec -- ...` is parsed, claimed and exec'd by the real CLI.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -32,7 +27,7 @@ KIT_SRC="$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus"
 PLAY="$REPO_ROOT/tasks/claude-yolo-image.yml"
 
 # The caller's own bus variables must not leak into the cases.
-unset "${!PINGBUS_@}"
+unset "${!PINGBUS_@}" "${!TEAMCHAT_@}"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -101,10 +96,10 @@ step="$work/step.bash"
 check "the PROJECT-ENV block is there" "yes" "$(yes_no grep -q "for _ccy_env_file in" "$step")"
 check "the AGENT-BUS block is there" "yes" "$(yes_no grep -q '^# <<< AGENT-BUS' "$step")"
 check "every image path was redirected" "0" "$(grep -c '/opt/claude-yolo/optional\|/usr/local/bin/pingbus\|/run/ccy/membership\|/tmp/pingbus-home' "$step")"
-# Both final exec lines carry the claim; a third exec would be a path that skips it.
-check "both final exec lines start with the seat claim" "2" \
-    "$(grep -cF -- "exec \"\${_ccy_seat_exec[@]}\" " "$step")"
-check "no other exec in the tail" "2" "$(grep -c '^ *exec ' "$step")"
+# The tail's one exec hands the session's command to ccy-start-claude; a second would be a path
+# that skips it.
+check "the tail ends in the exec of ccy-start-claude" 'exec /usr/local/bin/ccy-start-claude "$@"' \
+    "$(grep '^ *exec ' "$step")"
 
 # A function named exec takes precedence over the builtin, so the tail's exec prints what the
 # session would get instead of replacing the shell. The variables are read in a child, so
@@ -115,6 +110,8 @@ exec() {
     printf '%s\0' "\$@" >"$work/argv.bin"
     printf 'argv=%s\n' "\$*"
     printf 'membership=%s\n' "\$(bash -c 'printf %s "\${PINGBUS_MEMBERSHIP-unset}"')"
+    printf 'teamchat=%s\n' "\$(bash -c 'printf %s "\${TEAMCHAT_MEMBERSHIP-unset}"')"
+    bash -c 'printf %s "\${CCY_CLAUDE_WRAPPER-unset}"' >"$work/wrapper.seen"
     printf 'home=%s\n' "\$(bash -c 'printf %s "\${PINGBUS_HOME-unset}"')"
     printf 'teams=%s\n' "\$(bash -c 'printf %s "\${PINGBUS_TEAMS-unset}"')"
     if [ -L "$bin/pingbus" ]; then printf 'link=%s\n' "\$(readlink "$bin/pingbus")"; else printf 'link=none\n'; fi
@@ -175,92 +172,20 @@ step_with() {
 }
 
 mkdir -p "$work/home"
-SUP="python3 $ccy/claude-supervise.py --"
-CLAIM="$image/pingbus|seat|exec|--"
 PLUGIN_ARGS="--plugin-dir|$image/plugin/pingbus|--settings|$work/session-home/settings.json"
-PLAIN_ENV="membership=off;home=unset;teams=unset;link=none"
-
-echo "=== PINGBUS_MEMBERSHIP=off (--no-bus, or no ccy tmux and no --teams): inert ==="
-
+START="/usr/local/bin/ccy-start-claude|claude"
+PLAIN_ENV="membership=off;teamchat=unset;home=unset;teams=unset;link=none"
+SEATED_ENV="membership=$desired;teamchat=unset;home=unset;teams=unset;link=none"
 export PINGBUS_MEMBERSHIP=off
-
 env_files "" ""
-check "no env files: argv, environment and PATH untouched" \
-    "argv=python3|$ccy/claude-supervise.py|--|claude|--dangerously-skip-permissions;$PLAIN_ENV" \
-    "$(run_step "$SUP" claude --dangerously-skip-permissions)"
-check "no supervisor: the plain exec is untouched too" \
-    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
-env_files "" 'export HOOKS_DAEMON_HOSTNAME=role-a'
-check "a ccy.env.local that sets only the role: untouched" \
-    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
-check "a command other than claude is left alone" \
-    "argv=bash|-l;$PLAIN_ENV" "$(run_step - bash -l)"
-
-echo "=== --no-supervise beats a wrapper the project's ccy.env arms ==="
-
-# This repository's own ccy.env arms the supervisor with ${CCY_CLAUDE_WRAPPER:-...}, the
-# idiom that lets a host-forwarded wrapper win. --no-supervise forwards none, so without the
-# rule the project's wrapper came back: a headless session driven through a pipe (Plan 00161
-# U20) then ran under the PTY supervisor it asked to be rid of.
-PROJECT_WRAPPER="export CCY_CLAUDE_WRAPPER=\"\${CCY_CLAUDE_WRAPPER:-python3 $ccy/claude-supervise.py --arm --}\""
-env_files "$PROJECT_WRAPPER" ""
-check "without --no-supervise the project's wrapper runs claude" \
-    "argv=python3|$ccy/claude-supervise.py|--arm|--|claude|--x;$PLAIN_ENV" "$(run_step + claude --x)"
-check "with --no-supervise claude runs unwrapped" \
-    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
-check "and says the project's wrapper was set aside" "yes" "$(err_has "--no-supervise")"
-env_files "" "$PROJECT_WRAPPER"
-check "a wrapper armed by ccy.env.local is set aside too" \
-    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
+check "no env files: the command goes to ccy-start-claude untouched" \
+    "argv=$START|--dangerously-skip-permissions;$PLAIN_ENV" "$(run_step + claude --dangerously-skip-permissions)"
+check "the launcher's variables reach it" "argv=$START;membership=off;teamchat=/run/teamchat/membership;home=unset;teams=unset;link=none" \
+    "$(step_with '' '' TEAMCHAT_MEMBERSHIP=/run/teamchat/membership)"
+env_files 'CCY_CLAUDE_WRAPPER="python3 /x.py --"' ''
+check "a wrapper ccy.env sets without export reaches it" "python3 /x.py --" \
+    "$(run_step + claude >/dev/null; cat "$work/wrapper.seen")"
 env_files "" ""
-
-echo "=== PINGBUS_MEMBERSHIP=/run/ccy/membership: the kit, its settings and the claim ==="
-
-SEATED_ENV="membership=$desired;home=unset;teams=unset;link=$image/pingbus"
-export PINGBUS_MEMBERSHIP="$desired"
-env_files "" ""
-check "the claim goes first, the plugin and settings right after claude inside the wrapper's --" \
-    "argv=$CLAIM|python3|$ccy/claude-supervise.py|--|claude|$PLUGIN_ARGS|--dangerously-skip-permissions|hi;$SEATED_ENV" \
-    "$(run_step "$SUP" claude --dangerously-skip-permissions hi)"
-check "an armed wrapper keeps its own flags before its --" \
-    "argv=$CLAIM|python3|$ccy/claude-supervise.py|--arm|--|claude|$PLUGIN_ARGS;$SEATED_ENV" \
-    "$(run_step "python3 $ccy/claude-supervise.py --arm --" claude)"
-check "no supervisor: the plain exec gets the claim and the plugin too" \
-    "argv=$CLAIM|claude|$PLUGIN_ARGS|--x;$SEATED_ENV" "$(run_step - claude --x)"
-env_files 'export CCY_X=1' 'export HOOKS_DAEMON_HOSTNAME=role-a'
-check "env files that set no bus variable: accepted" \
-    "argv=$CLAIM|claude|$PLUGIN_ARGS;$SEATED_ENV" "$(run_step - claude)"
-env_files "" ""
-
-check "with a command other than claude: refused" "rc=1" "$(run_step - bash -l)"
-check "that refusal names the command" "yes" "$(err_has "'bash'")"
-check "a refused launch links nothing" "no" "$(yes_no test -L "$bin/pingbus")"
-
-mv "$image/plugin/pingbus/hooks/hooks.json" "$work/hooks.json.away"
-check "an image without the kit: refused" "rc=1" "$(run_step - claude)"
-check "that refusal says to rebuild" "yes" "$(err_has "ccy --rebuild")"
-mv "$work/hooks.json.away" "$image/plugin/pingbus/hooks/hooks.json"
-mv "$image/pingbus-status-line" "$work/pingbus-status-line.away"
-check "an image without the Go status line (Plan 00213): refused" "rc=1" "$(run_step - claude)"
-check "that refusal names it" "yes" "$(err_has "$image/pingbus-status-line is missing")"
-mv "$work/pingbus-status-line.away" "$image/pingbus-status-line"
-mv "$desired/membership.json" "$work/membership.json.away"
-check "no membership file in the mount: refused" "rc=1" "$(run_step - claude)"
-check "that refusal names the file" "yes" "$(err_has "$desired/membership.json is missing")"
-check "a refused launch links nothing" "no" "$(yes_no test -L "$bin/pingbus")"
-mv "$work/membership.json.away" "$desired/membership.json"
-export PINGBUS_MEMBERSHIP=off
-
-echo "=== a launcher older than the image: refused, never started teamless ==="
-
-check "PINGBUS_MEMBERSHIP unset" "rc=1" "$(unset PINGBUS_MEMBERSHIP; run_step - claude)"
-check "that refusal says the launcher is older" "yes" "$(err_has "older than this image")"
-check "PINGBUS_MEMBERSHIP a value ccy never passes" "rc=1" "$(step_with '' '' PINGBUS_MEMBERSHIP=/elsewhere)"
-check "  named in the refusal" "yes" "$(err_has "PINGBUS_MEMBERSHIP is /elsewhere")"
-check "a leftover PINGBUS_SEATS beside the marker (a mixed deploy)" "rc=1" \
-    "$(step_with '' '' PINGBUS_SEATS=dev1@team-a PINGBUS_MEMBERSHIP="$desired")"
-check "  named in the refusal" "yes" "$(err_has "PINGBUS_SEATS came from the launcher")"
-check "a leftover PINGBUS_SEATS beside off" "rc=1" "$(step_with '' '' PINGBUS_SEATS=dev1@team-a)"
 
 echo "=== a bus variable set, changed or unset by ccy.env or ccy.env.local: refused ==="
 
@@ -294,24 +219,22 @@ check "a PINGBUS_ name pingbus does not read, set by ccy.env.local" "rc=1" \
     "$(step_with '' 'PINGBUS_ANYTHING=1')"
 check "PINGBUS_ENV unset by ccy.env" "rc=1" "$(step_with 'unset PINGBUS_ENV' '' PINGBUS_ENV=/x)"
 check "a bus variable from the launcher that neither file touches: accepted" \
-    "argv=$CLAIM|claude|$PLUGIN_ARGS;$SEATED_ENV" \
+    "argv=$START;$SEATED_ENV" \
     "$(step_with 'export CCY_X=1' '' PINGBUS_MEMBERSHIP="$desired" PINGBUS_FORGE_TOKEN_FILE=/run/t)"
 check "a name that only contains PINGBUS_: accepted" \
-    "argv=claude;$PLAIN_ENV" "$(step_with '' 'export MY_PINGBUS_X=1')"
-
-echo "=== PINGBUS_TEAMS or PINGBUS_HOME from the launcher: refused ==="
-
-check "PINGBUS_TEAMS passed in" "rc=1" "$(step_with '' '' PINGBUS_TEAMS=team-a)"
-check "that refusal says the launcher is older than the image" "yes" "$(err_has "older")"
-check "PINGBUS_HOME passed in" "rc=1" \
-    "$(step_with '' '' PINGBUS_HOME=/workspace/x PINGBUS_MEMBERSHIP="$desired")"
-check "PINGBUS_TEAMS passed in beside the marker" "rc=1" \
-    "$(step_with '' '' PINGBUS_TEAMS=team-a PINGBUS_MEMBERSHIP="$desired")"
-env_files "" ""
+    "argv=$START;$PLAIN_ENV" "$(step_with '' 'export MY_PINGBUS_X=1')"
+check "TEAMCHAT_MEMBERSHIP set by ccy.env.local" "rc=1" \
+    "$(step_with '' 'export TEAMCHAT_MEMBERSHIP=/run/teamchat/membership')"
+check "  named in the refusal" "yes" "$(err_has "TEAMCHAT_MEMBERSHIP")"
+check "TEAMCHAT_MEMBERSHIP unset by the tracked ccy.env" "rc=1" \
+    "$(step_with 'unset TEAMCHAT_MEMBERSHIP' '' TEAMCHAT_MEMBERSHIP=/run/teamchat/membership)"
+check "a TEAMCHAT_ name changed by ccy.env.local" "rc=1" \
+    "$(step_with '' 'export TEAMCHAT_X=2' TEAMCHAT_X=1)"
 
 echo "=== the real pingbus seat exec runs the command line the entrypoint builds ==="
 
-# The step's exec printed its argv; here that exact argv, from "seat" on, goes to the real
+# ccy-start-claude's v1 command line (its Go tests pin this shape: the claim, the wrapper with its
+# own --, then claude with the plugin and settings); here that argv, from "seat" on, goes to the real
 # zipapp's own cli.main, so its parser, the claim and the final execvpe all run. Only the
 # two paths fixed for a container (/workspace's seats, /tmp/pingbus-home) are pointed into
 # this tree. Stand-ins for the wrapper and claude print what they were given.
@@ -365,13 +288,14 @@ printf '{"statusLine":{"type":"command","command":"project-line","refreshInterva
 export PINGBUS_MEMBERSHIP="$desired"
 write_desired dev1@team-a qa2@team-b
 env_files "" ""
-run_step "$bin/wrap --arm --" claude --dangerously-skip-permissions hi >/dev/null
-check "the step put the image's zipapp in front of the command" "$image/pingbus" \
-    "$(tr '\0' '\n' <"$work/argv.bin" | awk 'NR == 1')"
+PLUGIN_ARGV=(--plugin-dir "$image/plugin/pingbus" --settings "$work/session-home/settings.json")
+# v1_argv <args...>: the command line ccy-start-claude builds for a seated session.
+v1_argv() { printf '%s\0' "$image/pingbus" seat exec -- "$@" >"$work/argv.bin"; }
+v1_argv "$bin/wrap" --arm -- claude "${PLUGIN_ARGV[@]}" --dangerously-skip-permissions hi
 check "with a wrapper: the wrapper gets its own --, then claude with the plugin" \
     "wrap=--arm|--|claude|$PLUGIN_ARGS|--dangerously-skip-permissions|hi;$REPLAYED" "$(replay)"
 check "  and pingbus said which seats it claimed" "yes" "$(err_has "agent team bus: dev1@team-a")"
-run_step - claude --x >/dev/null
+v1_argv claude "${PLUGIN_ARGV[@]}" --x
 check "no wrapper: claude itself, with the plugin" "claude=$PLUGIN_ARGS|--x;$REPLAYED" "$(replay)"
 check "  the settings claude is given exist, accepting inbound" "accept" \
     "$(jq -r .crossSessionInbound "$work/session-home/settings.json")"
@@ -379,7 +303,7 @@ check "  a seat is held, so the active flag is up" "yes" "$(yes_no test -f "$wor
 check "  and the project's own status line is kept for when no seat is held" "project-line" \
     "$(cat "$work/session-home/statusline-inner")"
 write_desired
-run_step - claude --x >/dev/null
+v1_argv claude "${PLUGIN_ARGV[@]}" --x
 check "a plain session (no seat desired): claude with the plugin, on no team" \
     "claude=$PLUGIN_ARGS|--x;home=$work/session-home;teams=" "$(replay)"
 check "  no active flag, so every hook and the status line stay in the shell" "no" \
@@ -390,7 +314,7 @@ check "  the plain session keeps the project's status line interval" "5" \
     "$(jq -r .statusLine.refreshInterval "$work/session-home/settings.json")"
 write_desired dev1@team-a qa2@team-b
 rm -rf "$seats/team-b"
-run_step - claude --x >/dev/null
+v1_argv claude "${PLUGIN_ARGV[@]}" --x
 check "a seat with no directory: the real claim refuses (78)" "rc=78" "$(replay)"
 check "  naming the seat" "yes" "$(err_has "qa2@team-b")"
 export PINGBUS_MEMBERSHIP=off
@@ -414,7 +338,7 @@ check "the Dockerfile links it onto PATH, where the seated guard runs it by name
 check "  by the name the seated guard runs" "yes" \
     "$(cd "$REPO_ROOT" && python3 -I -c 'import sys; sys.path.insert(0, "."); from helpers.pingbus import seat; print("yes" if seat.STATUS_LINE_GUARD.endswith("exec pingbus-status-line") else "no")')"
 check "the step's settings path is the claim's session home" "yes" \
-    "$(yes_no grep -qF -- '--settings /tmp/pingbus-home/settings.json' "$ENTRYPOINT")"
+    "$(yes_no grep -qF -- 'SessionHome:       "/tmp/pingbus-home"' "$REPO_ROOT/src-go/internal/ccystart/ccystart.go")"
 check "  which is pingbus's SESSION_HOME" "/tmp/pingbus-home" \
     "$(cd "$REPO_ROOT" && python3 -I -c 'import sys; sys.path.insert(0, "."); from helpers.pingbus import seat; print(seat.SESSION_HOME)')"
 for kit_file in settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json \
