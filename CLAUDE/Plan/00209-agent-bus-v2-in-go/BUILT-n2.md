@@ -132,16 +132,17 @@ Task 2.5); the review's nits 5-11.
 
 **Six N2 packages had no caller; slice n2f gives four of them one** (by import:
 `go list -deps ./cmd/teamchat-admin`). PR 124 then took the whole stack to F44, the last
-two still without a caller.
+two still without a caller; Task 4.2's `ccy-teams seats sweep` called one of them, `sweep`.
 
 - `health`: called. `teamchat-admin health` (`admin/wiring.go`, `admin/wire`); its run by
   `teamchat-health.{service,timer}` (C 3.11) is play work under gate A (Task 2.5).
 - `health/view`: called, by the child's `team.view` op (`admin/serveview.go`).
 - `notice`: called, by the child's `member.disconnected` op (`admin/serveview.go`). ccy-teams'
-  `seats sweep` is its second caller, still to come.
+  `seats sweep` reaches it too, through the launcher's announcer (area B's `seat disconnected`).
 - `element`: called. `teamchat-admin element check|apply` (`admin/wiring.go`); the optional
   Element play that runs it is gate A.
 - `declare/hostvars`: still waits, on ccy-teams, its only importer, when its flows read and
   write the v2 declarations in host_vars (HV4's writer; Task 4.3).
-- `sweep`: still waits, on ccy-teams' `seats sweep` (Task 4.3), run by the owner's
-  `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).
+- `sweep`: called, by ccy-teams' `seats sweep` (`teams/seatsweep`, Task 4.2), run by the owner's
+  `teamchat-seats.{service,timer}`, which `play-claude-yolo.yml` installs (C 3.7.5, LAUNCH-ccy.md
+  L6).

@@ -101,11 +101,44 @@ command word each and stay within the limits.
 - `describe-seats --block` names a teamchat seat as on teamchat rather than asking agent-bus's
   roster. `choose-teams` still knows v1 teams only, so a v2 launch names its seat.
 
+## Built: the owner's seat sweep (item 6)
+
+`ccy-teams seats sweep` (`internal/teams/seatsweep`, C 3.7.5, DC21) runs `teamchat/sweep` over
+every checkout of the owner's seat store (`pool/<checkout key>/`), each checkout opened as its
+own `seat.Store` with the launcher's parts (`teams.storeParts`: the clock, credential and reach
+of `placeissued.OS`, ccy's session registry, area B's disconnected verb in process). A seat whose
+session is over is released, a seat its session no longer desires is released as a leave, and a
+seat a restorable session desires is kept and announced once for a run that ended (the store's
+judgement, SW2-SW4). One line per seat released on stdout; a pool entry that is not a checkout
+key, a store that will not open or a seat that cannot be settled is said on stderr, the others
+are still swept, and the run exits 1. The desired seam reads `control/<session>/desired.json`
+(no link followed, capped, decoded strictly, its `session` checked): a missing file is still
+desired, because a launch writes it after its take; otherwise a seat is desired when its team and
+its handle's seat part are listed.
+
+The units are Go's text, as teamchat-admin's are: `ccy-teams seats units list` (name and path
+under the home) and `seats units print <name>`. `teamchat-seats.service` is a oneshot of
+`%h/.local/bin/ccy-teams seats sweep`, `TimeoutStartSec=120`; `teamchat-seats.timer` is
+`OnActiveSec=30s`, `OnUnitActiveSec=60s`, `AccuracySec=5s`. `play-claude-yolo.yml`, which
+installs ccy-teams as the login user, writes what they print into `~/.config/systemd/user/` and
+enables and starts the timer (a user `daemon_reload` when a unit changed). A Go test holds the
+play's install path and tasks to the units.
+
+- **L6. The timer is enabled on every ccy desktop; the service runs only where a seat was
+  placed.** C 3.7.5 says the play enables the timer only while a v2 team is present. On a member
+  machine (the cross-network pilot) no team is declared, and a seat placed after the play would
+  wait for the next play run. So the service carries
+  `ConditionPathIsDirectory=%S/teamchat/seats/pool`: with no pool, systemd skips it and starts no
+  process, which keeps C40's "a host with no team starts nothing", and the first placement turns
+  the sweep on with no play run. A host's play installs the units only where ccy is installed
+  (play-claude-yolo.yml), so a bus server host without ccy has neither.
+
 ## Left
 
-6. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).
+Nothing of the launcher's side. A real ccy launch on a v2 team, and the sweep announcing one, need
+the host and a placed pool seat (Task 4.4, gate B).
 
-## The handoff items 1-5 (built, kept for the record)
+## The handoff items 1-6 (built, kept for the record)
 
 1. The verb `ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mount args>`: resolve the system (`system.Cmd.Lines`). For agent-bus, run
    `membership-init` in process (split `membership.Init.Run` into a `Prepare` that returns the
@@ -117,20 +150,26 @@ command word each and stay within the limits.
    leave them unset), the same error block, one `mapfile -O` of the lines after the first into
    `CCY_SEAT_RUN_ARGS`, and `CCY_BUS_DISCONNECT` with the first line as its root: seven lines,
    as now.
+
 2. `agent-bus seat check` and `seat take` (in `agent-bus-seats.bash`) refuse a v2 team. Replace
    the command word with `ccy-teams internal seat-check` and `seat-take`, which exec agent-bus
    with the same arguments for agent-bus and, for teamchat, print the canonical list (check) or
    do nothing (take: `launch-args` took the seats). `describe-seats --block` needs a teamchat
    branch. `ccy --teams <team>` alone goes to `choose-teams`, which knows v1 teams only: until it
    learns teamchat, a v2 launch names its seat (`<seat>@<team>`).
+
 3. Exit (seams 54, 27): replace the pingbus command word in `ccy_bus_disconnected` with
    `ccy-teams internal bus-disconnected <pingbus>`, which execs pingbus as before unless the root
    is the seat store's `control/<session>`, and otherwise removes the session record, then
    `Release`s each seat of `desired.json` (a crash, record still there: `Announce`, seat kept).
+
 4. `scripts/test-ccy-teams.bash` fakes `ccy-teams`: the fake answers `internal launch-args` as
    it answered `membership-init`, and forwards `seat-check`, `seat-take` and `bus-disconnected`
    to the fake agent-bus and pingbus without a log line of its own, so the expectations keep
    their meaning. CCY version bump with the wiring (above 3.115.0, container above 2.82.0).
+
 5. RS3 and RS2: on a relaunch (exit 75) skip `seat disconnected` and record `held/notice.json`;
    in the same commit set `ends.restartSwitch = true`, flip RS1's pinned test and close PLAN.md's
    2.0e row.
+
+6. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).

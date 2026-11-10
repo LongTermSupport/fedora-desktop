@@ -102,6 +102,13 @@
 # mapping vm_test_lab_networks, checked against each other and this host's routes. Set it first
 # (n1, n2 and n3: IPv4 /8 to /27 ranges no LAN or VPN of this host uses; the example in
 # localhost.yml.dist); unset, the play passes and x30-lab.bash below stops naming it.
+# And Plan 00209 Task 4.2 item 6: play-claude-yolo.yml rebuilds ccy-teams (the new
+# `ccy-teams seats sweep`) and installs the user units teamchat-seats.service and
+# teamchat-seats.timer in ~/.config/systemd/user/, then enables and starts the timer. Until a
+# teamchat seat is placed on this machine the service is skipped by its condition and starts no
+# process: `systemctl --user list-timers teamchat-seats.timer --no-pager | cat` shows the timer,
+# and `systemctl --user status teamchat-seats.service --no-pager | cat` says the condition was
+# not met. No image rebuild.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)

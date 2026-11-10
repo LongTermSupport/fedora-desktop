@@ -672,7 +672,8 @@ and maybe no login user).
     output, so the bytes on the host are the bytes the unit gates judge. As the login user,
     `teamchat-seats.{service,timer}` in the owner's systemd user directory (3.7.5), with a user
     `daemon_reload` if either changed; a host that declares no member user (a bus server host)
-    installs neither, and this part is not built yet. The health and backup timers are enabled only while at least one team
+    installs neither. **As built:** `play-claude-yolo.yml` installs them, as the login user who
+    runs ccy, from `ccy-teams seats units` (LAUNCH-ccy.md, item 6 and L6). The health and backup timers are enabled only while at least one team
     is present, so a v2 install with no teams starts nothing (C40).
 08. The bus address: a NetworkManager dummy connection `teamchat0` with `teamchat_address`, if
     declared. **As built: not yet;** the play refuses a set `teamchat_address` by name.
@@ -1555,7 +1556,9 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   keeper not yet running) has a missing or empty lock file and is never announced. It
   takes the allocation lock only where the release does, needs no password and makes no root
   call. The play installs both units in the owner's systemd user directory and enables the
-  timer only while a v2 team is present, as for the host timers (3.5.1 step 7). The timer runs
+  timer only while a v2 team is present, as for the host timers (3.5.1 step 7). **As built**
+  (LAUNCH-ccy.md L6): the timer is enabled wherever ccy is installed, and the service carries
+  `ConditionPathIsDirectory=` on the owner's pool, so no process starts until a seat is placed. The timer runs
   while the owner's user manager runs: from the owner's login, or from boot if the owner has
   enabled lingering, which the play does not do. So a ccy or host session that never comes back
   is announced within about a minute while the owner is logged in, and after a reboot within
