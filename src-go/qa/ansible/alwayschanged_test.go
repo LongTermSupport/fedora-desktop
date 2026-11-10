@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // alwaysChangedFixtureDir is the repository's fixtures for command-always-changed.
@@ -28,7 +29,7 @@ func TestCommandAlwaysChangedProvesItselfAgainstTheFlaggedFixture(t *testing.T) 
 			want = append(want, i+1)
 		}
 	}
-	if len(want) < 12 {
+	if len(want) < 14 {
 		t.Fatalf("the flagged fixture marks only %d findings; it lost cases", len(want))
 	}
 	findings := commandAlwaysChanged("flagged.yml", body)
@@ -53,6 +54,24 @@ func TestCommandAlwaysChangedReadsATaskListOutsideAPlay(t *testing.T) {
 		"or changed_when: false if it changes nothing"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestTheScanReportsCommandAlwaysChangedOnceAndAnUnparsedFileOnce(t *testing.T) {
+	fsys := fstest.MapFS{
+		"tasks/a.yml":   {Data: []byte("- ansible.builtin.command: thing\n")},
+		"tasks/bad.yml": {Data: []byte("a: [\n")},
+	}
+	var f Findings
+	if err := scanPlayUX(fsys, []string{"tasks"}, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.PlayUX) != 2 || !strings.Contains(f.PlayUX[0], "tasks/a.yml:1: "+ruleAlwaysChanged+": ") ||
+		!strings.Contains(f.PlayUX[1], "tasks/bad.yml:") {
+		t.Fatalf("got %q", f.PlayUX)
+	}
+	if !slices.Contains(f.Out, "    Why and how to fix: CLAUDE/QA.md#"+ruleAlwaysChanged) {
+		t.Fatalf("no pointer to the rule's documentation: %q", f.Out)
 	}
 }
 

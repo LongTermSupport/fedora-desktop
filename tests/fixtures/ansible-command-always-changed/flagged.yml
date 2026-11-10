@@ -37,6 +37,15 @@
       ansible.builtin.raw: echo hi  # EXPECT-FINDING
       changed_when: "true"
 
+    - name: A template of nothing but the constant
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      changed_when: "{{ true }}"
+
+    - name: A list of nothing but the constant
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      changed_when:
+        - true
+
     - name: A script
       ansible.builtin.script: files/do-it.bash  # EXPECT-FINDING
 

@@ -141,7 +141,7 @@ func (f Findings) JSON() ([]byte, error) {
 		add(entry, "root-umask: a file users read created as root under the inherited umask")
 	}
 	for _, entry := range f.PlayUX {
-		add(entry, "play-ux: a setting checked late or demanded by hand, an Ansible CLI outside the checkout, or a failure no_log hides")
+		add(entry, "play-ux: a setting checked late or demanded by hand, an Ansible CLI outside the checkout, a failure no_log hides, or a command that reports changed on every run")
 	}
 	for _, entry := range f.Sudoers {
 		add(entry, "sudoers-rule: a sudoers rule whose target its user can modify or steer")

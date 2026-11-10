@@ -59,7 +59,8 @@ checked after the play has changed the system, a secret demanded by hand, an Ans
 outside the checkout, a failure no_log hides, a probe of a program installed only later, and
 a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late,
 vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
-module-built-for-running-kernel), and a sudoers rule whose target its user can modify or
+module-built-for-running-kernel), a command task that reports changed on every run
+(CLAUDE/QA.md, command-always-changed), and a sudoers rule whose target its user can modify or
 steer (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)

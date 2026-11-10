@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -93,12 +94,35 @@ func alwaysChanged(t uxTask) bool {
 	if !unseenChangeModules[t.module] {
 		return false
 	}
-	if cw := mappingValue(t.node, "changed_when"); cw != nil {
-		if value, plain := boolOf(cw); !plain || !value {
-			return false
-		}
+	if cw := mappingValue(t.node, "changed_when"); cw != nil && !constantTrue(cw) {
+		return false
 	}
 	return !skipsWhenDone(t)
+}
+
+// templatedConstant is a template holding nothing but a constant: "{{ true }}".
+var templatedConstant = regexp.MustCompile(`^\{\{\s*(\S+?)\s*\}\}$`)
+
+// constantTrue is whether a changed_when is the constant true: the plain boolean in any
+// spelling, a template of nothing else, or a list whose every condition is one.
+func constantTrue(v *yaml.Node) bool {
+	switch v.Kind {
+	case yaml.ScalarNode:
+		if m := templatedConstant.FindStringSubmatch(strings.TrimSpace(v.Value)); m != nil {
+			return constantTrue(&yaml.Node{Kind: yaml.ScalarNode, Value: m[1]})
+		}
+		value, plain := boolOf(v)
+		return plain && value
+	case yaml.SequenceNode:
+		for _, item := range v.Content {
+			if !constantTrue(item) {
+				return false
+			}
+		}
+		return len(v.Content) > 0
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+	}
+	return false
 }
 
 // skipsWhenDone is whether a command task has creates or removes: in its arguments, in args,

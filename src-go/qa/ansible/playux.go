@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -820,7 +821,11 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 			if err != nil {
 				return fmt.Errorf("a file could not be read: %w", err)
 			}
-			for _, v := range playUX(rel, data, repoVars) {
+			found := playUX(rel, data, repoVars)
+			if !slices.ContainsFunc(found, func(v string) bool { return strings.Contains(v, ": cannot be parsed as YAML") }) {
+				found = append(found, commandAlwaysChanged(rel, data)...)
+			}
+			for _, v := range found {
 				f.Out = append(f.Out, "  ERROR (play-ux): "+v, playUXAdvice(v))
 				f.PlayUX = append(f.PlayUX, v)
 			}

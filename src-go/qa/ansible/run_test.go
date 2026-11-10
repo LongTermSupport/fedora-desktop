@@ -155,7 +155,7 @@ func TestMainReportsEveryCheckInOrder(t *testing.T) {
 	files["roles/r/rd.yml"] = "p: /run/user/1000\n"
 	files["tasks/rb.yml"] = "v: >-\n  {{ s | regex_search('a(b)', '\\\\1') }}\n"
 	files["tasks/re.yml"] = "v: >-\n  {{ s | regex_search('\\\\d') }}\n"
-	files["tasks/rc.yml"] = "- command: fc-cache -f\n"
+	files["tasks/rc.yml"] = "- command: fc-cache -f\n  changed_when: false\n"
 	files["playbooks/b.yml"] = playbookShebang + "\n- hosts: all\n"
 	root := writeTree(t, files)
 	chmodX(t, root, "playbooks/a.yml")
