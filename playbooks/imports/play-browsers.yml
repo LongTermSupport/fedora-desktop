@@ -122,7 +122,7 @@
           - "{{ item }}"
       loop: "{{ chrome_key_state.stdout_lines | select('match', '^RPM-KEY-ENVELOPE ')
                 | map('regex_replace', '^RPM-KEY-ENVELOPE ', '') | list }}"
-      changed_when: true
+      changed_when: ('RPM-KEY-ENVELOPE ' ~ item) in chrome_key_state.stdout_lines
 
     - name: Import Google Chrome Signing Key
       ansible.builtin.rpm_key:

@@ -199,6 +199,7 @@
         - mok_key.stat.exists
         - "'is not enrolled' in mok_enrolled.stdout | default('')"
       register: mok_import
+      changed_when: mok_import.rc == 0
       failed_when: false  # FAIL-FAST-OK: probe under no_log (the session may echo the password); the fail below gives the reason
 
     # Not the output: the expect session's transcript may hold the password.

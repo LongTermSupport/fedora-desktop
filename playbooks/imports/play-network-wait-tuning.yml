@@ -109,7 +109,7 @@
           - reset-failed
           - NetworkManager-wait-online.service
       when: nm_wait_online_failed.rc == 0
-      changed_when: true
+      changed_when: nm_wait_online_failed.rc == 0
       tags:
         - systemd
         - network

@@ -926,7 +926,7 @@
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
       when: extension_enabled.rc == 0 and extension_files_changed | bool
-      changed_when: true
+      changed_when: extension_files_changed | bool
 
     # PAUSE-OK: a fixed 2 s wait for the extension to unload; asks nothing
     - name: Wait for Extension to Unload
@@ -940,7 +940,7 @@
       ansible.builtin.command:
         cmd: gnome-extensions enable {{ extension_name }}
       when: extension_enabled.rc == 0 and extension_files_changed | bool
-      changed_when: true
+      changed_when: extension_files_changed | bool
 
   handlers:
     # Stop the warm streaming server so the next dictation cold-starts it with the updated

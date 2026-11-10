@@ -64,6 +64,9 @@
         executable: /bin/bash
       become: true
       become_user: "{{ user_login }}"
+      register: markless_install
+      # The one path of the script that installs nothing prints this line and exits.
+      changed_when: "'is the same as the desired version' not in markless_install.stdout"
 
     - name: Verify markless installation
       ansible.builtin.command: "{{ marklessPath }} --version"

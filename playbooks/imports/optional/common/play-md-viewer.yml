@@ -169,7 +169,7 @@
           - update-desktop-database
           - "{{ md_viewer_desktop_dir }}"
       when: md_viewer_desktop_file is changed
-      changed_when: true
+      changed_when: md_viewer_desktop_file is changed
       tags:
         - md-viewer
 

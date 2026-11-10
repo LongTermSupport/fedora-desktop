@@ -187,6 +187,7 @@
       args:
         executable: /bin/bash
       when: firewalld_status.rc == 0 and firewall_openvpn_query.rc == 1
+      changed_when: firewall_openvpn_query.rc == 1
 
     # =========================================================================
     # Usage Instructions

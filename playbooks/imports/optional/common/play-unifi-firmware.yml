@@ -51,7 +51,7 @@
         - name: Start the UniFi controller on demand
           ansible.builtin.command:
             argv: [podman, compose, -f, "{{ unifi_compose_file }}", up, -d]
-          changed_when: true
+          changed_when: unifi_running_before.stdout != 'true'
           when: unifi_running_before.stdout != 'true'
 
         - name: Wait for the UniFi controller API
@@ -157,5 +157,5 @@
         - name: Stop the UniFi controller if this play started it
           ansible.builtin.command:
             argv: [podman, compose, -f, "{{ unifi_compose_file }}", down]
-          changed_when: true
+          changed_when: unifi_running_before.stdout != 'true'
           when: unifi_running_before.stdout != 'true'

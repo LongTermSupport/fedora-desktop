@@ -83,4 +83,4 @@
       become_user: "{{ user_login }}"
       ansible.builtin.command: update-desktop-database "/home/{{ user_login }}/.local/share/applications"
       when: text_editor_override is changed
-      changed_when: true
+      changed_when: text_editor_override is changed

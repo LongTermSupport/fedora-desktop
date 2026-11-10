@@ -111,6 +111,7 @@
             "$TOOLBOX_BIN" --install
           args:
             executable: /bin/bash
+          changed_when: not st_jetbrains_toolbox.stat.exists
       when: not st_jetbrains_toolbox.stat.exists and has_display
       always:
         - name: Delete temporary download directory
@@ -152,6 +153,7 @@
         - st_jetbrains_toolbox.stat.exists
         - has_display
         - not st_jetbrains_symlink.stat.exists or not st_jetbrains_desktop.stat.exists
+      changed_when: not st_jetbrains_symlink.stat.exists or not st_jetbrains_desktop.stat.exists
 
     # Toolbox writes its own autostart entry with the executable bit set, and rewrites it
     # whenever it likes. systemd-xdg-autostart-generator then logs "is marked executable"

@@ -328,7 +328,7 @@
         dconf update
       args:
         executable: /bin/bash
-      changed_when: true
+      changed_when: "dconf_staleness.stdout | trim != 'DCONF-STALE: none'"
       when:
         - provisioning_profile != 'server'
         # Quoted whole: the marker contains a colon-space, which YAML would otherwise read as

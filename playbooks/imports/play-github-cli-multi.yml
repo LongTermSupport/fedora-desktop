@@ -361,6 +361,7 @@
             chdir: "{{ root_dir }}"
             stdin: "{{ github_ssh_passphrase }}"
           register: ssh_key_generated
+          changed_when: ssh_key_generated.rc == 0
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
           when: not item.stat.exists
@@ -531,6 +532,7 @@
           args:
             executable: /bin/bash
           when: item.stdout is defined and item.stdout.startswith('MISSING:')
+          changed_when: item.stdout is defined and item.stdout.startswith('MISSING:')
           loop: "{{ github_key_audit.results | default([]) }}"
           loop_control:
             label: "{{ item.item.key }}"

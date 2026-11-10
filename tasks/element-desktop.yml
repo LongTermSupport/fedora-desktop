@@ -36,3 +36,4 @@
   ansible.builtin.command:
     argv: [flatpak, override, --user, --talk-name=org.freedesktop.secrets, im.riot.Riot]
   when: "'org.freedesktop.secrets=talk' not in element_desktop_override.stdout"
+  changed_when: "'org.freedesktop.secrets=talk' not in element_desktop_override.stdout"

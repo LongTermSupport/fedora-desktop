@@ -156,6 +156,7 @@
       args:
         executable: /bin/bash
       when: item.stdout != "authenticated"
+      changed_when: item.stdout != "authenticated"
       loop: "{{ auth_status.results }}"
 
     # SINGLE ACCOUNT - just set default LPASS_HOME

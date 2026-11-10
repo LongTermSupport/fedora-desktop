@@ -71,6 +71,7 @@
           ansible.builtin.command:
             argv: [flatpak, override, --filesystem=home:ro, com.slack.Slack]
           when: "'home:ro' not in slack_flatpak_override.stdout"
+          changed_when: "'home:ro' not in slack_flatpak_override.stdout"
 
         # A ~/Projects entry may be a symlink into an LXC container's filesystem. home:ro
         # shows Slack the symlink but not its target, so a file dragged from there fails the
@@ -81,3 +82,4 @@
           ansible.builtin.command:
             argv: [flatpak, override, "--filesystem={{ lxc_containers_dir }}:ro", com.slack.Slack]
           when: "(lxc_containers_dir ~ ':ro') not in slack_flatpak_override.stdout"
+          changed_when: "(lxc_containers_dir ~ ':ro') not in slack_flatpak_override.stdout"

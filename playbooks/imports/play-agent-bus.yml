@@ -188,7 +188,7 @@
         - not ansible_check_mode
         - (ansible_facts.services['agent-bus-hs@' ~ item.team ~ '.service'] | default({})).state | default('') == 'running'
       register: agent_bus_backup
-      changed_when: true
+      changed_when: agent_bus_swap | bool
       tags: [agent-bus]
 
     - name: Install the agent-bus homeserver software
@@ -379,7 +379,7 @@
       ansible.builtin.command:
         argv: [systemctl, reset-failed, "agent-bus-hs-health@*"]
       when: agent_bus_health_failed.stdout | trim | length > 0
-      changed_when: true
+      changed_when: agent_bus_health_failed.stdout | trim | length > 0
       tags: [agent-bus]
 
     # The backup timer is Persistent=true: a team removed before agent-bus-install cleared its

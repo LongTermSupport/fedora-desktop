@@ -300,6 +300,7 @@
       environment:
         HOME: "/home/{{ user_login }}"
       when: not claude_installed.stat.exists
+      changed_when: not claude_installed.stat.exists
 
     # Existing host: ensure it tracks the chosen channel. `claude install latest`
     # switches the native updater's (sticky) channel so cc's per-launch
@@ -475,7 +476,7 @@
           - go=
           - "{}"
           - +
-      changed_when: true
+      changed_when: claude_state_offenders.stdout_lines | length > 0
       when:
         - claude_state.stat.exists
         - claude_state_offenders.stdout_lines | length > 0
@@ -960,7 +961,7 @@
     - name: Remove claude-browser:latest Container Image
       ansible.builtin.command: "{{ container_engine }} rmi claude-browser:latest"
       when: claude_browser_image_probe.stdout != ''
-      changed_when: true
+      changed_when: claude_browser_image_probe.stdout != ''
       tags:
         - cleanup
         - browser
@@ -1053,7 +1054,7 @@
     - name: Remove playwright-tests Distrobox Container
       ansible.builtin.command: distrobox rm playwright-tests --force
       when: playwright_container_probe.rc == 0
-      changed_when: true
+      changed_when: playwright_container_probe.rc == 0
       tags:
         - cleanup
         - distrobox

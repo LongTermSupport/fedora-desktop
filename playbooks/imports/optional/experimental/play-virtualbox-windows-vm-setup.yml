@@ -64,6 +64,7 @@
       args:
         executable: /bin/bash
       register: windows_key
+      changed_when: false
       tags: key
 
     - name: |

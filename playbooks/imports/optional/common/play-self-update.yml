@@ -612,7 +612,7 @@
           - --add
           - safe.directory
           - "{{ self_update_clone }}"
-      changed_when: true
+      changed_when: self_update_clone not in self_update_safe_dirs.stdout_lines
       when:
         - self_update_on
         - self_update_clone not in self_update_safe_dirs.stdout_lines
@@ -732,7 +732,9 @@
       environment:
         ANSIBLE_COLLECTIONS_PATH: "{{ self_update_collections_dir }}"
       register: self_update_galaxy
-      changed_when: true
+      changed_when: >-
+        (not self_update_stamp_stat.stat.exists)
+        or ((self_update_stamp.content | default('') | b64decode | trim) != self_update_requirements.stat.checksum)
       when:
         - self_update_on
         - (not self_update_stamp_stat.stat.exists)

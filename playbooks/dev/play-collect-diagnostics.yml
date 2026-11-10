@@ -55,7 +55,9 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
+      register: collect_out_dir
 
+    # Every run writes a new capture into the directory made for it just above.
     - name: Run diagnostic collection script
       ansible.builtin.command:
         argv:
@@ -63,7 +65,7 @@
           - "{{ out_dir }}"
           - "{{ user_login }}"
       register: collect_result
-      changed_when: true
+      changed_when: collect_out_dir is changed
 
     - name: Print collection progress (stderr from the script)
       ansible.builtin.debug:

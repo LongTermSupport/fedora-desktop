@@ -24,22 +24,25 @@
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
+    # git_config sets a key only when its value differs, so a run that changes nothing reports
+    # nothing.
     - name: Setup Git Config - user
-      ansible.builtin.shell: |
-        set -euo pipefail
-        git config --global user.email "{{ user_email }}"
-        git config --global user.name "{{ user_name }}"
-        git config --global color.ui auto
-        git config --global push.default simple;
-        git config --global help.autocorrect 30;
-        git config --global core.editor "vim"
-        git config --global init.defaultBranch main
-        git config --global fetch.prune true
-        git config --global pull.rebase false
-        git config --global branch.autoSetupMerge simple
-        git config --global core.autocrlf input
-      args:
-        executable: /bin/bash
+      community.general.git_config:
+        scope: global
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+      loop:
+        - {name: user.email, value: "{{ user_email }}"}
+        - {name: user.name, value: "{{ user_name }}"}
+        - {name: color.ui, value: auto}
+        - {name: push.default, value: simple}
+        - {name: help.autocorrect, value: "30"}
+        - {name: core.editor, value: vim}
+        - {name: init.defaultBranch, value: main}
+        - {name: fetch.prune, value: "true"}
+        - {name: pull.rebase, value: "false"}
+        - {name: branch.autoSetupMerge, value: simple}
+        - {name: core.autocrlf, value: input}
 
     - name: Ensure ~/.config/git directory exists
       ansible.builtin.file:

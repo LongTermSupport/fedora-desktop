@@ -64,4 +64,14 @@
 # chpasswd, both from stdin, instead of useradd/usermod -p; it is set only when it differs, so
 # the first run reports one change and later runs none), unifi-controller and unifi-firmware
 # (the admin password and its hash on stdin instead of environment:).
+# And issue #224 (a command reports changed only when it acted): the plays whose command tasks
+# now key changed_when on a probe, of those that have run here: basic-configs, browsers,
+# claude-yolo, comms (and element-desktop's task file), git-configure-and-tools (its git
+# settings now through git_config), github-cli-multi, gnome-shell, markless,
+# network-wait-tuning, suspend-and-lid-policy, toolbox-install, agent-bus, and of the optional
+# plays docker, lastpass, md-viewer, nordvpn-openvpn, self-update, speech-to-text,
+# unifi-controller (the firewall ports are queried and only a missing one is added, and the
+# firewall reloaded only then), unifi-firmware, docker-overlay2-migration,
+# virtualbox-windows-vm-setup, displaylink and nvidia. A second run of each should report no
+# change for those tasks; one that still does is the probe to report back.
 changed-plays

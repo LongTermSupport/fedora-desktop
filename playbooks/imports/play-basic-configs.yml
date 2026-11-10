@@ -717,7 +717,7 @@
     - name: Disable GRUB Menu Auto-Hide
       ansible.builtin.command: grub2-editenv - unset menu_auto_hide
       when: grub_env_block.stdout_lines | select('match', '^menu_auto_hide=') | list | length > 0
-      changed_when: true
+      changed_when: grub_env_block.stdout_lines | select('match', '^menu_auto_hide=') | list | length > 0
       tags: grub
 
     # ABRT crash handling policy (Plan 00134). Two decisions, both stated here rather
@@ -767,7 +767,7 @@
               - abrt-auto-reporting
               - "{{ abrt_policy_reporting }}"
           when: abrt_auto_reporting_probe.stdout | trim != abrt_policy_reporting
-          changed_when: true
+          changed_when: abrt_auto_reporting_probe.stdout | trim != abrt_policy_reporting
 
         # Persist the effective values into host_vars so a `-e` override on one run is the
         # policy on every later run, and a host that never set them gets the block with the

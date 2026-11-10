@@ -210,7 +210,7 @@
 
         - name: Refresh the dynamic linker cache
           ansible.builtin.command: ldconfig
-          changed_when: true
+          changed_when: nvidia_ldsoconf is changed
           when: nvidia_ldsoconf is changed
 
     # =========================================================================
@@ -289,6 +289,7 @@
         - akmods_mok_key.stat.exists
         - "'is not enrolled' in mok_enrolled.stdout | default('')"
       register: mok_import
+      changed_when: mok_import.rc == 0
       failed_when: false  # FAIL-FAST-OK: probe under no_log (the session may echo the password); the fail below gives the reason
 
     # Not the output: the expect session's transcript may hold the password.
@@ -374,7 +375,7 @@
         KVER: "{{ nvidia_kver }}"
       register: nvidia_kmod_force
       when: nvidia_kmod_poll.rc != 0
-      changed_when: true
+      changed_when: nvidia_kmod_poll.rc != 0
 
     - name: Read built NVIDIA module version (on disk)
       ansible.builtin.shell: |

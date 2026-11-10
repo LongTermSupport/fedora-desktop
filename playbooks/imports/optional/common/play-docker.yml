@@ -67,7 +67,7 @@
       become: true
       become_user: "{{ user_login }}"
       register: rootless_uninstall
-      changed_when: true
+      changed_when: legacy_rootless.stat.exists
       when:
         - legacy_rootless.stat.exists
         - dbus_probe.rc | default(1) == 0

@@ -253,6 +253,8 @@
     # MIGRATION
     # ═══════════════════════════════════════════════════════════════════════
 
+    # docker stop prints the name or ID of each container it stops, so empty stdout means it
+    # stopped none.
     - name: Stop Running Containers
       ansible.builtin.shell: |
         set -euo pipefail
@@ -262,17 +264,29 @@
       args:
         executable: /bin/bash
       when: container_count | int > 0
-      changed_when: true
+      register: docker_containers_stopped
+      changed_when: docker_containers_stopped.stdout | trim | length > 0
+
+    # systemctl(1): is-active exits 0 when the unit is active, non-zero otherwise.
+    - name: Read Whether the Rootless Docker Service and Socket Are Active
+      ansible.builtin.command:
+        argv: [systemctl, --user, is-active, "{{ item }}"]
+      loop:
+        - docker.service
+        - docker.socket
+      register: docker_units_active
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe, a non-zero exit is the not-active answer read below
 
     - name: Stop Rootless Docker Service  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user stop docker.service
       failed_when: false  # FAIL-FAST-OK: service may not be running
-      changed_when: true
+      changed_when: docker_units_active.results[0].rc == 0
 
     - name: Stop Rootless Docker Socket  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user stop docker.socket
       failed_when: false  # FAIL-FAST-OK: socket may not be active
-      changed_when: true
+      changed_when: docker_units_active.results[1].rc == 0
 
     # PAUSE-OK: a fixed 3 s wait for Docker to stop; asks nothing
     - name: Wait for Docker to Stop

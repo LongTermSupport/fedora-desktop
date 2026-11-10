@@ -231,27 +231,37 @@
     # AP discovery requires these ports to be open on the host firewall
     # @see https://help.ui.com/hc/en-us/articles/218506997
 
-    - name: Open UniFi Ports in Firewall
-      ansible.builtin.shell: |
-        set -e
-        # STUN (AP discovery)
-        firewall-cmd --permanent --add-port=3478/udp
-        # Device communication
-        firewall-cmd --permanent --add-port=8080/tcp
-        # Web UI (HTTPS)
-        firewall-cmd --permanent --add-port=8443/tcp
-        # AP discovery (L2)
-        firewall-cmd --permanent --add-port=10001/udp
-        # DLNA/UPnP (optional)
-        firewall-cmd --permanent --add-port=1900/udp
-        # Guest portal HTTPS (optional)
-        firewall-cmd --permanent --add-port=8843/tcp
-        # Speed test (optional)
-        firewall-cmd --permanent --add-port=6789/tcp
-        firewall-cmd --reload
-      args:
-        executable: /bin/bash
-      changed_when: true
+    # firewall-cmd(1): --query-port returns 0 when the port is added, 1 otherwise. Only the
+    # missing ports are added, and the firewall is reloaded only when one was: a reload drops
+    # every runtime-only rule, which the VPNs and containers running here may hold.
+    - name: Read Which UniFi Ports the Firewall Already Allows
+      ansible.builtin.command:
+        argv: [firewall-cmd, --permanent, "--query-port={{ item }}"]
+      loop:
+        - 3478/udp    # STUN (AP discovery)
+        - 8080/tcp    # Device communication
+        - 8443/tcp    # Web UI (HTTPS)
+        - 10001/udp   # AP discovery (L2)
+        - 1900/udp    # DLNA/UPnP (optional)
+        - 8843/tcp    # Guest portal HTTPS (optional)
+        - 6789/tcp    # Speed test (optional)
+      register: unifi_firewall_ports
+      changed_when: false
+      failed_when: unifi_firewall_ports.rc not in [0, 1]
+
+    - name: Open the UniFi Ports the Firewall Does Not Allow Yet
+      ansible.builtin.command:
+        argv: [firewall-cmd, --permanent, "--add-port={{ item.item }}"]
+      loop: "{{ unifi_firewall_ports.results | selectattr('rc', 'equalto', 1) | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+      register: unifi_firewall_ports_added
+      changed_when: item.rc == 1
+
+    - name: Reload the Firewall So the Opened Ports Apply Now
+      ansible.builtin.command: firewall-cmd --reload
+      when: unifi_firewall_ports_added is changed
+      changed_when: unifi_firewall_ports_added is changed
 
     # ── Fixed Controller Address ────────────────────────────────────────────────
     # The controller re-points every device's inform URL at the host's current address,
@@ -289,7 +299,7 @@
         - unifi_controller_address is defined
         - unifi_controller_address not in item.stdout_lines[0]
       register: unifi_conn_modified
-      changed_when: true
+      changed_when: unifi_controller_address not in item.stdout_lines[0]
 
     # reapply changes a live connection in place: Wi-Fi is not dropped.
     - name: Apply the address to connections that are up now
@@ -303,7 +313,7 @@
         - item.changed | default(false)
         - item.item.stdout_lines | length > 2
         - item.item.stdout_lines[2] | length > 0
-      changed_when: true
+      changed_when: item.changed | default(false)
 
     # ── Launch Script ─────────────────────────────────────────────────────────
     # On-demand launcher: starts the stack, opens the web UI, waits for stop
@@ -517,7 +527,7 @@
           ansible.builtin.command: podman compose up -d mongodb
           args:
             chdir: "{{ unifi_data_dir }}"
-          changed_when: true
+          changed_when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'
           when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'
 
         - name: Wait for UniFi MongoDB to Answer
@@ -614,7 +624,7 @@
             UNIFI_ADMIN_ID: "{{ unifi_admin_target.id }}"
             UNIFI_ADMIN_NAME: "{{ unifi_admin_name }}"
           register: unifi_admin_update
-          changed_when: true
+          changed_when: unifi_admin_update.rc == 0
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
           when: >-
@@ -637,5 +647,5 @@
       always:
         - name: Stop UniFi MongoDB if This Play Started It
           ansible.builtin.command: podman stop unifi-mongodb
-          changed_when: true
+          changed_when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'
           when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'

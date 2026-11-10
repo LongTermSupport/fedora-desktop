@@ -207,7 +207,13 @@ for a checkout that does not carry it yet.
 - The [command-always-changed](#command-always-changed) rule (issue #224;
   `src-go/qa/ansible/alwayschanged.go`) is built and proven against its fixtures, but is not
   yet called by `qa-ansible`'s scan: the tree held 54 instances when it was written. It joins
-  the scan when its sweep has emptied the tree.
+  the scan when its sweep has emptied the tree. Two are referred to the owner, because the
+  right probe cannot be shown without a host: `play-displaylink.yml`'s `dkms autoinstall`
+  (what `dkms status -k <kernel>` prints when every module is already installed for the boot
+  kernel decides the probe), and `play-git-configure-and-tools.yml`'s gh repository task
+  (`dnf config-manager addrepo --overwrite` rewrites the repo file each run; whether it is
+  saved as `/etc/yum.repos.d/gh-cli.repo`, which a checksum-comparing `get_url` could own
+  instead, decides the fix).
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
@@ -1882,13 +1888,16 @@ any task with a `when`.
 **How to fix a finding.** Decide changed from what was observed, never from a constant:
 
 - A command that changes nothing (a query, a probe): `changed_when: false`.
-- A command that says what it did: register it and key on its output, for example
-  `restorecon -v` prints one `Relabeled` line per file it relabels, and `systemd-tmpfiles --create` prints nothing unless asked, so read the state before it instead.
+- A command that says what it did: register it and key on its output; `restorecon -v`
+  prints one `Relabeled` line per file it relabels.
 - A command that says nothing: read the state first (a `stat`, a query command with
   `changed_when: false`), run the command only when the state is wrong, and key
-  `changed_when` on the command's own result (`result.rc == 0`), so a guarded run that did
-  act is the only one reported.
-- A command that only makes a path: `creates:` that path.
+  `changed_when` on that same check. The check must be of the state the command changes:
+  a guard that only says the command can run (the profile exists) is no probe of what it
+  sets (the profile's channel), and restating it is the constant again.
+- A probe under `failed_when: false`: `changed_when: result.rc == 0`, since only there can
+  a run that failed reach `changed_when`.
+- A command that only makes or removes a path: `creates:` or `removes:` that path.
 
 A finding whose right probe cannot be shown without running the command on a host is
 referred to the owner, never suppressed or given a constant.
