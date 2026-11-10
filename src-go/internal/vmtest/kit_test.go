@@ -54,6 +54,8 @@ type kit struct {
 	// udp is the next free loopback UDP port the fake hands out, and udpErr what asking fails with.
 	udp    int
 	udpErr error
+	// udpRepeat makes the fake hand out the same ports on every ask.
+	udpRepeat bool
 	// random is what the lab draws its secrets and MAC addresses from; zeroReader when nil.
 	random io.Reader
 }
@@ -257,7 +259,9 @@ func (k *kit) environment() Env {
 			for i := range ports {
 				ports[i] = k.udp + i
 			}
-			k.udp += n
+			if !k.udpRepeat {
+				k.udp += n
+			}
 			return ports, nil
 		},
 		FreeBytes: func(path string) (int64, error) {

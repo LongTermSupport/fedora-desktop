@@ -81,12 +81,9 @@ func (c *cli) cmdLinkUp(_ context.Context, args []string) error {
 	if _, err := os.Lstat(dir); err == nil {
 		return failf("link %s exists; remove it with: vmtest link-down %s", name, name)
 	}
-	ports, err := c.env.FreeUDPPorts(2)
+	ports, err := c.drawLinkPorts()
 	if err != nil {
-		return failf("%v", err)
-	}
-	if len(ports) != 2 {
-		return failf("find a free UDP port: wanted 2, got %d", len(ports))
+		return err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return failf("cannot create %s: %v", dir, err)
@@ -97,6 +94,78 @@ func (c *cli) cmdLinkUp(_ context.Context, args []string) error {
 	}
 	c.sayf("VMTEST-LINK-UP %s a=%d b=%d", name, ports[0], ports[1])
 	return nil
+}
+
+// linkPortDraws bounds how often link-up asks again for ports when a drawn one is another link's.
+const linkPortDraws = 8
+
+// drawLinkPorts is two free loopback UDP ports no other link records (E67): a link's ports are
+// bound only when its members boot, so the free-port probe alone does not see them.
+func (c *cli) drawLinkPorts() ([]int, error) {
+	held, err := c.heldLinkPorts()
+	if err != nil {
+		return nil, err
+	}
+	for range linkPortDraws {
+		ports, ferr := c.env.FreeUDPPorts(2)
+		if ferr != nil {
+			return nil, failf("%v", ferr)
+		}
+		if len(ports) != 2 {
+			return nil, failf("find a free UDP port: wanted 2, got %d", len(ports))
+		}
+		if !held[ports[0]] && !held[ports[1]] {
+			return ports, nil
+		}
+	}
+	return nil, failf("no two free UDP ports another link does not hold after %d draws; remove an unused link with: vmtest link-down <link>", linkPortDraws)
+}
+
+// heldLinkPorts is every port a link of the lab records.
+func (c *cli) heldLinkPorts() (map[int]bool, error) {
+	entries, err := os.ReadDir(c.paths.at(linksDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[int]bool{}, nil
+	}
+	if err != nil {
+		return nil, failf("cannot read %s: %v", c.paths.at(linksDir), err)
+	}
+	held := map[int]bool{}
+	for _, e := range entries {
+		if !e.IsDir() || linkName(e.Name()) != nil {
+			continue
+		}
+		// A link directory with no ports file holds no port (a link-up that failed half way).
+		present, perr := regularOrAbsent(c.paths.at(linksDir, e.Name(), linkPortsFile))
+		if perr != nil {
+			return nil, perr
+		}
+		if !present {
+			continue
+		}
+		p, perr := c.readLinkPorts(e.Name())
+		if perr != nil {
+			return nil, perr
+		}
+		held[p.a], held[p.b] = true, true
+	}
+	return held, nil
+}
+
+// regularOrAbsent says whether path is a regular file, refusing anything else that is there: a
+// named pipe opened for reading would block for ever (project_walk_open).
+func regularOrAbsent(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, failf("cannot read %s: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, failf("%s is not a regular file", path)
+	}
+	return true, nil
 }
 
 // nicRecord is one line of a member's links file: an end of a link and the MAC of the NIC on it.
@@ -113,6 +182,9 @@ func (c *cli) recordedNICs() ([]nicRecord, error) {
 	}
 	var out []nicRecord
 	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
 		nics, rerr := c.memberRecord(e.Name())
 		if rerr != nil {
 			return nil, rerr
@@ -126,10 +198,17 @@ func (c *cli) recordedNICs() ([]nicRecord, error) {
 // file holds none.
 func (c *cli) memberRecord(member string) ([]nicRecord, error) {
 	path := c.paths.at(membersDir, member, memberLinksFile)
-	data, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, failf("cannot read the links of member %s: %v", member, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, failf("%s is not a regular file", path)
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, failf("cannot read the links of member %s: %v", member, err)
 	}
@@ -223,10 +302,17 @@ type linkPorts struct{ a, b int }
 // readLinkPorts is the two ports link-up recorded for the link.
 func (c *cli) readLinkPorts(link string) (linkPorts, error) {
 	path := c.paths.at(linksDir, link, linkPortsFile)
-	body, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return linkPorts{}, usagef("no link %s; make it with: vmtest link-up %s", link, link)
 	}
+	if err != nil {
+		return linkPorts{}, failf("cannot read %s: %v", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return linkPorts{}, failf("%s is not a regular file", path)
+	}
+	body, err := os.ReadFile(path)
 	if err != nil {
 		return linkPorts{}, failf("cannot read %s: %v", path, err)
 	}

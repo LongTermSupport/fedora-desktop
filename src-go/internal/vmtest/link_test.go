@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -83,6 +84,44 @@ func TestE71LinkDown(t *testing.T) {
 	k.wantErr("link x30-n1 is held by bus, member; remove them with: vmtest member-down <name>")
 	if !k.exists("links/x30-n1/ports") || k.out.Len() != 0 {
 		t.Fatalf("a held link was removed or reported: stdout %q", k.out.String())
+	}
+}
+
+// E71: a member's links record that is not a regular file is refused, never opened: a named pipe
+// there would block link-down for ever (project_walk_open).
+func TestE71LinkDownRefusesANonRegularRecord(t *testing.T) {
+	k := newKit(t)
+	k.write("links/x30-n1/ports", "a=1\nb=2\n")
+	k.write("members/bus/overlay.qcow2", "")
+	opened := fifotest.Plant(t, k.path("members/bus/links"))
+	k.wantCode(k.run("link-down", "x30-n1"), term.ExitFailure)
+	k.wantErr("is not a regular file")
+	if opened() {
+		t.Fatal("link-down opened a named pipe")
+	}
+	if !k.exists("links/x30-n1/ports") {
+		t.Fatal("a link was removed while a member's record could not be read")
+	}
+}
+
+// E67: link-up never records a port another link holds: a link's ports are bound only when its
+// members boot, so the free-port probe alone cannot see them. A drawn port another link holds
+// is drawn again, a bounded number of times.
+func TestE67LinkUpSkipsPortsAnotherLinkHolds(t *testing.T) {
+	k := newKit(t)
+	k.write("links/x30-n0/ports", "a=41000\nb=41003\n")
+	k.wantCode(k.run("link-up", "x30-n1"), term.ExitOK)
+	if got := k.read("links/x30-n1/ports"); got != "a=41004\nb=41005\n" {
+		t.Fatalf("ports file %q: a port of link x30-n0 was taken again", got)
+	}
+
+	k = newKit(t)
+	k.write("links/x30-n0/ports", "a=41000\nb=41001\n")
+	k.udpRepeat = true
+	k.wantCode(k.run("link-up", "x30-n1"), term.ExitFailure)
+	k.wantErr("no two free UDP ports another link does not hold")
+	if k.exists("links/x30-n1") {
+		t.Fatal("a failed link-up left its directory")
 	}
 }
 
