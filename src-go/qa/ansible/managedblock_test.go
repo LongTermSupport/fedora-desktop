@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // managedBlockFixtureDir is the repository's fixtures for duplicate-managed-block.
@@ -105,5 +106,23 @@ func TestDuplicateManagedBlockSkipsAFileThatIsNotYAML(t *testing.T) {
 	got := duplicateManagedBlocks([]yamlSource{{rel: "bad.yml", data: []byte("a: [\n")}})
 	if len(got) != 0 {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTheScanReportsDuplicateManagedBlocksAcrossFiles(t *testing.T) {
+	fsys := fstest.MapFS{
+		"tasks/a.yml": {Data: []byte("- ansible.builtin.lineinfile:\n    path: /f\n    regexp: '^a='\n    line: a=1\n")},
+		"tasks/b.yml": {Data: []byte("- ansible.builtin.lineinfile:\n    path: /f\n    regexp: '^a='\n    line: a=2\n")},
+	}
+	var f Findings
+	if err := scanPlayUX(fsys, []string{"tasks"}, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.PlayUX) != 2 || !strings.HasPrefix(f.PlayUX[0], "tasks/a.yml:1: "+ruleManagedBlock+": ") ||
+		!strings.HasPrefix(f.PlayUX[1], "tasks/b.yml:1: "+ruleManagedBlock+": ") {
+		t.Fatalf("got %q", f.PlayUX)
+	}
+	if !slices.Contains(f.Out, "    Why and how to fix: CLAUDE/QA.md#"+ruleManagedBlock) {
+		t.Fatalf("no pointer to the rule's documentation: %q", f.Out)
 	}
 }

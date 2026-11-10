@@ -805,12 +805,14 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 	return names, nil
 }
 
-// scanPlayUX runs the six rules over the YAML files under dirs (roles/vendor skipped).
+// scanPlayUX runs the six rules and command-always-changed over each YAML file under dirs
+// (roles/vendor skipped), then duplicate-managed-block over all of them together.
 func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 	repoVars, err := repositoryVars(fsys)
 	if err != nil {
 		return err
 	}
+	var sources []yamlSource
 	for _, dir := range dirs {
 		files, err := yamlFiles(fsys, dir, true)
 		if err != nil {
@@ -821,17 +823,24 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 			if err != nil {
 				return fmt.Errorf("a file could not be read: %w", err)
 			}
+			sources = append(sources, yamlSource{rel: rel, data: data})
 			found := playUX(rel, data, repoVars)
 			if !slices.ContainsFunc(found, func(v string) bool { return strings.Contains(v, ": cannot be parsed as YAML") }) {
 				found = append(found, commandAlwaysChanged(rel, data)...)
 			}
-			for _, v := range found {
-				f.Out = append(f.Out, "  ERROR (play-ux): "+v, playUXAdvice(v))
-				f.PlayUX = append(f.PlayUX, v)
-			}
+			reportPlayUX(found, f)
 		}
 	}
+	reportPlayUX(duplicateManagedBlocks(sources), f)
 	return nil
+}
+
+// reportPlayUX adds play-UX findings to the report, each with its pointer to its rule's section.
+func reportPlayUX(found []string, f *Findings) {
+	for _, v := range found {
+		f.Out = append(f.Out, "  ERROR (play-ux): "+v, playUXAdvice(v))
+		f.PlayUX = append(f.PlayUX, v)
+	}
 }
 
 // findingRule is the rule ID of a finding line.
