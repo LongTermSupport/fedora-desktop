@@ -6,6 +6,10 @@
 # checkout and a bare `git worktree add` lack it; the gate never reads it), no playbook is found,
 # or a tracked playbook is not in the checked population.
 #
+# Given playbooks (qa-ansible-syntax.bash PLAYBOOK..., relative to the root) it checks those only;
+# qa-changed runs it so over the playbooks a change selects. A named file that is not a playbook
+# is exit 2: a task or vars file is checked through a playbook that imports it.
+#
 # The tool is Go (src-go/qa/ansiblesyntax, command src-go/qa/cmd/qa-ansible-syntax);
 # lib/go-tool.bash builds it into a private directory under the cache and runs it, so the exit
 # code reaches the caller. Specification: CLAUDE/Plan/00192-.../SPEC-qa-ansible-syntax.md.

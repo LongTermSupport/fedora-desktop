@@ -138,3 +138,37 @@ func TestTheParentOfAScriptsDirectoryReachedThroughASymlinkIsResolved(t *testing
 		t.Fatalf("got %q, %v; want %q", got, err, root)
 	}
 }
+
+// A named file is made relative to the root: a relative path as it is (cleaned), an absolute
+// one through its symlinks, and one outside the root refused.
+func TestUnderNamesAFileByItsPathFromTheRoot(t *testing.T) {
+	root := repoWithScripts(t)
+	view := link(t, root)
+	if err := os.Mkdir(filepath.Join(root, "dir"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// The files need not exist: only their directories are resolved.
+	evalDir := func(p string) (string, error) {
+		dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+		return filepath.Join(dir, filepath.Base(p)), err
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"a.yml", "a.yml"},
+		{"./dir/../b.yml", "b.yml"},
+		{filepath.Join(root, "dir", "c.yml"), "dir/c.yml"},
+		{filepath.Join(view, "d.yml"), "d.yml"},
+	} {
+		got, err := Under(evalDir, root, tc.in)
+		if err != nil || got != tc.want {
+			t.Fatalf("Under(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
+		}
+	}
+	for _, out := range []string{"../x.yml", "dir/../../x.yml", filepath.Join(realDir(t), "x.yml")} {
+		if _, err := Under(evalDir, root, out); err == nil || !strings.Contains(err.Error(), "outside the repository root") {
+			t.Fatalf("Under(%q): %v", out, err)
+		}
+	}
+	if _, err := Under(filepath.EvalSymlinks, root, filepath.Join(root, "missing", "x.yml")); err == nil || !strings.Contains(err.Error(), "cannot resolve") {
+		t.Fatalf("an unresolvable path: %v", err)
+	}
+}

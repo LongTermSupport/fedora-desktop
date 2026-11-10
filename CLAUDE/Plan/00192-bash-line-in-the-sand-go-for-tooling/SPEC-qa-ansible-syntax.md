@@ -13,14 +13,15 @@ Every playbook the repository holds must parse: `ansible-playbook --syntax-check
 files are playbooks, the proof that none was missed, the check that the machine can run the engine
 at all, and the judgement. Callers: `qa-all` (`scripts/qa-gates.tsv`, stage `ansible-syntax`: run
 with `QA_JSON_OUT`, reads `.summary.{total,passed,failed}` and `.failures`; exit 2 aborts the run)
-and people. `qa-changed` runs the engine per changed playbook itself (its own check) and does not
-call this gate.
+and people. `qa-changed` runs this gate over the playbooks a change selects, named on its command
+line (S16; SPEC-qa-changed B57), and whole when the gate's own code changes.
 
 ## 2. Expectations
 
 ### Command line, environment, exit codes
 
-- S1. No argument is needed. `--root DIR` names the repository root; `--scripts DIR` names the
+- S1. No argument is needed; any argument that is not a flag or a flag's value names a playbook
+  (S16). `--root DIR` names the repository root; `--scripts DIR` names the
   scripts directory and the root is its parent (the wrapper passes this); neither: the working
   directory. The root is made absolute and cleaned. `-h`/`--help` prints the usage to stdout, exit
   0\. Any other argument, or a flag missing its value, is exit 2 with `ERROR:` and the usage on
@@ -102,6 +103,18 @@ call this gate.
   Written on exit 0 and 1, with mode 0644 whatever the umask (the bash wrote it under the umask;
   the report holds repository paths and engine errors, no secrets).
 
+### Named playbooks
+
+- S16. `qa-ansible-syntax [--root DIR] [--scripts DIR] PLAYBOOK...` checks the named playbooks
+  only (issue #222), each once, in path order. A name is relative to the root, or absolute
+  and resolved through its symlinks as the root was (`rootpath.Under`). The machine is checked
+  first as in a whole run (S4-S6); the discovery, its empty-population abort and its coverage
+  proof (S7-S9) are the whole run's and are not asked (no git runs). A name that is outside
+  the root, cannot be read, is not a regular file, or is not a playbook by S7 (a task or vars
+  file is checked through a playbook that imports it) is exit 2 naming it, with no report and
+  nothing checked: a pass over fewer files than named would vouch for one nothing parsed.
+  Output and report are S13-S15 over the named playbooks.
+
 ## 3. Departures from the bash
 
 - D1. The population is what git would publish, not everything on disk. The bash walked the file
@@ -122,6 +135,7 @@ call this gate.
 - D11. `--root` or `--scripts` given an empty value, or one that begins with `-`, is refused: exit 2, `<flag> needs a directory`, with the usage (S1); the bash took it as the value and an empty root fell back to the working directory.
 - D10. A play written name first, or with `hosts:` after other keys, is a playbook, and a
   `- hosts:` nested in a loop list is not (S7); the bash's line marker judged both wrongly.
+- D12. Named playbooks (S16); the bash checked every playbook whatever it was given.
 - D7. Not required, though the task brief assumed it: `environment/localhost/host_vars/localhost.yml`.
   Measured: a checkout without it and with only a vault password file present parses every
   playbook, so requiring it would fail a working gate.

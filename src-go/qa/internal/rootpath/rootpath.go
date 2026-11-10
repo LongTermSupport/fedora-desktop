@@ -7,7 +7,9 @@ package rootpath
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
+	"strings"
 )
 
 // Eval makes a path free of symlinks; filepath.EvalSymlinks is the real one. A gate whose tests
@@ -45,6 +47,27 @@ func RootVia(eval Eval, cwd, root, scripts string) (string, error) {
 		root = cwd
 	}
 	return ResolveVia(eval, cwd, root)
+}
+
+// Under turns a file a gate was named into a slash path under the root (which Root resolved);
+// one outside it is an error. An absolute path is resolved through symlinks the way the root
+// was, so a checkout reached by a link still holds it.
+func Under(eval Eval, root, p string) (string, error) {
+	rel := p
+	if filepath.IsAbs(p) {
+		resolved, err := eval(p)
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve path %s: %w", p, err)
+		}
+		if rel, err = filepath.Rel(root, resolved); err != nil {
+			return "", fmt.Errorf("path %s is outside the repository root", p)
+		}
+	}
+	rel = path.Clean(filepath.ToSlash(rel))
+	if rel == ".." || strings.HasPrefix(rel, "../") || path.IsAbs(rel) {
+		return "", fmt.Errorf("path %s is outside the repository root", p)
+	}
+	return rel, nil
 }
 
 // absolute makes path absolute against cwd and cleans it.

@@ -378,23 +378,26 @@ func TestEslintThatFailsToRunFailsTheCheckWithItsStderr(t *testing.T) {
 	}
 }
 
-func TestAnsibleSyntaxTriesEveryPlaybookAndNamesTheFailures(t *testing.T) {
-	runner := &scriptedRunner{replies: map[string]proc.Result{"ansible-playbook --syntax-check b.yml": {Stdout: "noise", Stderr: "bad yaml\n", Code: 4}}}
+// B57: the playbooks a change selects are checked by the gate itself, named on its command line
+// (issue #222), so they get its prerequisites (a missing password file is exit 2, not every
+// playbook failing) and its report; the gate's verdict is the check's.
+func TestAnsibleSyntaxRunsTheGateOverThePlaybooksItNames(t *testing.T) {
+	runner := &scriptedRunner{replies: map[string]proc.Result{}}
 	s := newTestSession(t, runner)
+	gate := "bash " + filepath.Join(s.scripts, "qa-ansible-syntax.bash")
+	runner.replies[gate] = proc.Result{Stdout: "✗ ansible-syntax: b.yml\nbad yaml\n", Code: 1}
 	res, err := lookupCheck("ansible-syntax").run(context.Background(), s, &checkPlan{items: []string{"a.yml", "b.yml", "c.yml"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.code == 0 || !strings.Contains(res.output, "^^ b.yml") || !strings.Contains(res.output, "bad yaml") || strings.Contains(res.output, "noise") {
+	if res.code != 1 || !strings.Contains(res.output, "✗ ansible-syntax: b.yml\nbad yaml") {
 		t.Fatalf("got %+v", res)
 	}
-	if len(runner.calls) != 3 {
-		t.Fatalf("every playbook is tried: %v", runner.argv())
+	if !reflect.DeepEqual(runner.argv(), []string{gate + " a.yml b.yml c.yml"}) {
+		t.Fatalf("one gate run over the named playbooks: %v", runner.argv())
 	}
-	for _, c := range runner.calls {
-		if !reflect.DeepEqual(ownEnv(c.Env), []string{"ANSIBLE_CONFIG=" + filepath.Join(s.root, "ansible.cfg")}) {
-			t.Fatalf("env: %v", c.Env)
-		}
+	if env := ownEnv(runner.calls[0].Env); len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
+		t.Fatalf("the gate needs QA_JSON_OUT: %v", env)
 	}
 }
 

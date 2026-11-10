@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // playKey matches a mapping key that makes a list item a play (`hosts:`) or an entrypoint that
@@ -88,6 +89,47 @@ func (sc *scan) step(line string, indent int, content string) finding {
 		}
 	}
 	return undecided
+}
+
+// population is the playbooks to check: the named ones, else every one discover finds.
+func (g *gate) population() ([]string, error) {
+	if len(g.named) == 0 {
+		return g.discover()
+	}
+	var playbooks []string
+	for _, p := range g.named {
+		rel, err := rootpath.Under(filepath.EvalSymlinks, g.root, p)
+		if err != nil {
+			return nil, err
+		}
+		if err := g.mustBePlaybook(rel); err != nil {
+			return nil, err
+		}
+		playbooks = append(playbooks, rel)
+	}
+	slices.Sort(playbooks)
+	return slices.Compact(playbooks), nil
+}
+
+// mustBePlaybook refuses a named file the gate cannot vouch for: one that cannot be read, is not
+// a regular file, or is not a playbook (S16).
+func (g *gate) mustBePlaybook(rel string) error {
+	info, err := os.Stat(filepath.Join(g.root, rel))
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", rel, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", rel)
+	}
+	body, err := os.ReadFile(filepath.Join(g.root, rel))
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", rel, err)
+	}
+	if !isPlaybook(body) {
+		return fmt.Errorf("%s is not a playbook (no top-level play or import_playbook); a task or vars file "+
+			"is checked through a playbook that imports it", rel)
+	}
+	return nil
 }
 
 // discover is the playbooks: the YAML files git would publish (the shared discovery) that carry

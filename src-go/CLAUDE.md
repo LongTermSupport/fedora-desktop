@@ -385,7 +385,8 @@ rule against `tests/fixtures/ansible-root-umask/`, the play-UX rules against
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
 `qa/ansiblesyntax` + `qa/cmd/qa-ansible-syntax` (same nested module) are
-`scripts/qa-ansible-syntax.bash`, `ansible-playbook --syntax-check` over every playbook: the script
+`scripts/qa-ansible-syntax.bash`, `ansible-playbook --syntax-check` over every playbook, or the
+named ones (S16, which `qa-changed` uses): the script
 only builds and runs the command. Ansible stays the engine; the tool owns the playbook set (the
 `yaml` list of `qa/discovery`, the `tracked-playbooks` yardstick), the prerequisites (a password
 file the config names is asked of `ansible-config`, never opened) and the judgement. Spec
@@ -608,7 +609,8 @@ refuses the whole list, naming each offender, rather than filtering it. Not a ga
 clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
 carries a symlinked-root test, because an engine that prints realpaths leaks the checkout path
 when the root is stripped unresolved. A gate whose tests run on a fake tree takes the resolver as
-a field (`rootpath.RootVia`).
+a field (`rootpath.RootVia`). `rootpath.Under` turns a file a gate was named into its path from
+that root, refusing one outside it (`qa-ansible-pause` and `qa-ansible-syntax` use it).
 
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order). Its `Priority.Ensure` is how a QA command becomes a background job

@@ -70,7 +70,7 @@ var checkDefs = []checkDef{
 	{id: "walk-open-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runWalkOpenFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
-	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
+	{id: "ansible-syntax", listed: true, noun: "playbook(s)", gate: true, tools: []string{toolBash, toolGo, toolAnsible}, run: runAnsibleSyntax},
 	{id: "ansible-patterns", fixed: "fail-fast patterns, whole gate", gate: true, tools: []string{toolBash}, run: runAnsiblePatterns},
 	{id: "ansible-syntax-gate", fixed: "every playbook, whole gate", gate: true, tools: []string{toolBash, toolGo, toolAnsible}, run: runAnsibleSyntaxGate},
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
@@ -405,22 +405,14 @@ func eslintResult(findings []js.Finding, proofErr error) checkResult {
 
 // runAnsibleSyntax checks every playbook (stdout discarded, as the gate does) and names the
 // ones that fail.
+// runAnsibleSyntax is the syntax gate over the playbooks the change selected, named on its
+// command line (SPEC-qa-changed B57).
 func runAnsibleSyntax(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	var out strings.Builder
-	code := 0
-	env := []string{"ANSIBLE_CONFIG=" + filepath.Join(s.root, "ansible.cfg")}
-	for _, pb := range cp.items {
-		res, err := s.runCmd(ctx, proc.Cmd{Argv: []string{"ansible-playbook", "--syntax-check", pb}, Dir: s.root, Env: env})
-		if err != nil {
-			return checkResult{}, err
-		}
-		if res.Code != 0 {
-			out.WriteString(res.Stderr)
-			fmt.Fprintf(&out, "^^ %s\n", pb)
-			code = 1
-		}
+	report, err := s.tempFile()
+	if err != nil {
+		return checkResult{}, err
 	}
-	return checkResult{output: out.String(), code: code}, nil
+	return s.exec(ctx, []string{"QA_JSON_OUT=" + report}, slices.Concat([]string{toolBash, filepath.Join(s.scripts, "qa-ansible-syntax.bash")}, cp.items)...)
 }
 
 // semgrepResults is the part of semgrep's JSON report that matters.

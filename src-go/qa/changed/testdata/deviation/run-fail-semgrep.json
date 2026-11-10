@@ -13,7 +13,7 @@
   "gate:qa-walk-open.bash json=",
   "ruff check --config \u003cROOT\u003e/ruff.toml --no-cache helpers/pkg/mod.py",
   "python3 -m unittest tests.helpers.pkg.test_mod | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1",
-  "ansible-playbook --syntax-check playbooks/imports/play-a.yml | ANSIBLE_CONFIG=\u003cROOT\u003e/ansible.cfg",
+  "gate:qa-ansible-syntax.bash json=1",
   "gate:qa-ansible.bash json=1",
   "gate:qa-docs.bash json=1",
   "gate:qa-go.bash json=",

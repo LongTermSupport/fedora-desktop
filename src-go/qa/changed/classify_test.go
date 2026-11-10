@@ -174,6 +174,29 @@ func TestPlaybookAndTaskAndVarsYAML(t *testing.T) {
 	}
 }
 
+// B57: a deleted play, task or vars file breaks the syntax check of a playbook that imports it
+// (ansible-playbook --syntax-check fails on an import it cannot find), so the playbooks still
+// naming it are checked (issue #222). A changed playbook is checked alone: its importers parse
+// the same text.
+func TestADeletedAnsibleFileChecksThePlaybooksThatStillNameIt(t *testing.T) {
+	w := newWorld(t)
+	w.touch("playbooks/playbook-main.yml", "- import_playbook: imports/play-x.yml\n")
+	w.touch("playbooks/imports/play-y.yml", "- hosts: all\n  tasks:\n    - import_tasks: ../../tasks/do-it.yml")
+	w.runner.replies["git ls-files -z -- *.yml *.yaml"] = proc.Result{Stdout: "playbooks/playbook-main.yml\x00playbooks/imports/play-y.yml\x00"}
+	p := w.classify(nil, "tasks/do-it.yml", "playbooks/imports/play-x.yml", "other/gone.yml")
+	want := []string{"playbooks/imports/play-y.yml", "playbooks/playbook-main.yml"}
+	if got := slices.Sorted(slices.Values(p.items("ansible-syntax"))); !reflect.DeepEqual(got, want) {
+		t.Fatalf("the importers of a deleted file: %v", got)
+	}
+	if !p.covered["tasks/do-it.yml"] || !p.covered["playbooks/imports/play-x.yml"] {
+		t.Fatalf("covered: %v", p.covered)
+	}
+	p = w.classify([]string{"playbooks/imports/play-y.yml"})
+	if !reflect.DeepEqual(p.items("ansible-syntax"), []string{"playbooks/imports/play-y.yml"}) {
+		t.Fatalf("a changed playbook is checked alone: %v", p.items("ansible-syntax"))
+	}
+}
+
 func TestTaskAndVarsYAMLMapToThePlaybooksThatNameThem(t *testing.T) {
 	w := newWorld(t)
 	w.touch("playbooks/imports/play-x.yml", "- hosts: all")

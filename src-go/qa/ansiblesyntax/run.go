@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
@@ -59,11 +60,13 @@ type Env struct {
 	WriteFile func(path string, data []byte) error
 }
 
-const usageText = `usage: qa-ansible-syntax [--root DIR] [--scripts DIR]
+const usageText = `usage: qa-ansible-syntax [--root DIR] [--scripts DIR] [PLAYBOOK...]
 
 Runs ansible-playbook --syntax-check on every playbook in the repository: a YAML file git would
 publish with a top-level "- hosts:" or "- import_playbook:" line. Parse only; no task runs.
 
+  PLAYBOOK        check these playbooks only (relative to the root), not every one; a task or
+                  vars file is checked through a playbook that imports it
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
   -h, --help      this text
@@ -71,7 +74,8 @@ publish with a top-level "- hosts:" or "- import_playbook:" line. Parse only; no
 QA_JSON_OUT       where the machine report goes (default /tmp/qa-ansible-syntax-results.json).
 
 Exit codes: 0 every playbook parses, 1 one does not, 2 bad usage, a missing prerequisite (the
-engine, ansible.cfg, a password file the config names) or the run could not complete.
+engine, ansible.cfg, a password file the config names), a named file that is not a playbook, or
+the run could not complete.
 stdout is the findings and the verdict; failure to run goes to stderr.
 `
 
@@ -80,12 +84,28 @@ type options struct {
 	help    bool
 	root    string
 	scripts string
+	// playbooks are the named playbooks; none means every one.
+	playbooks []string
 }
 
-// parseArgs reads the command line; anything unknown is a usage error.
+// parseArgs reads the command line: the shared flags, read by rootargs, and the named
+// playbooks, which are the arguments that are neither a flag nor a flag's value. Anything
+// unknown is a usage error.
 func parseArgs(args []string) (options, error) {
-	parsed, err := rootargs.Strict(args)
-	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
+	var flags, named []string
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == flagRoot || arg == flagScripts:
+			flags = append(flags, args[i:min(i+2, len(args))]...)
+			i++
+		case strings.HasPrefix(arg, "-"):
+			flags = append(flags, arg)
+		default:
+			named = append(named, arg)
+		}
+	}
+	parsed, err := rootargs.Strict(flags)
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts, playbooks: named}, err
 }
 
 // absolute makes a path absolute against cwd and cleans it.
@@ -110,6 +130,8 @@ type gate struct {
 	root    string
 	scripts string
 	report  string
+	// named are the playbooks the command line named; none means every one.
+	named []string
 	// engineEnv pins the engine to the repository: its config, and plain text output.
 	engineEnv []string
 	stdout    bytes.Buffer
@@ -128,7 +150,7 @@ func Main(args []string, env Env) ExitCode {
 	if err != nil {
 		return fail(env, err, false)
 	}
-	g := &gate{env: env, root: root}
+	g := &gate{env: env, root: root, named: opts.playbooks}
 	g.scripts = opts.scriptsDir(env.Cwd, g.root)
 	g.report = env.Getenv("QA_JSON_OUT")
 	if g.report == "" {
@@ -177,7 +199,7 @@ func (g *gate) run() (ExitCode, error) {
 	if err := g.requireMachine(ctx); err != nil {
 		return ExitCannotRun, err
 	}
-	playbooks, err := g.discover()
+	playbooks, err := g.population()
 	if err != nil {
 		return ExitCannotRun, err
 	}

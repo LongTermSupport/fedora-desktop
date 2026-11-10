@@ -50,7 +50,7 @@ func TestHelpPrintsUsageAndExitsZero(t *testing.T) {
 
 // S1
 func TestBadArgumentsAreAUsageError(t *testing.T) {
-	for _, args := range [][]string{{"--nope"}, {"--root"}, {"--scripts"}, {"extra"}} {
+	for _, args := range [][]string{{"--nope"}, {"--root"}, {"--scripts"}, {"a.yml", "--nope"}} {
 		w := newWorld(t, nil)
 		wantStderr(t, w.main(args...), "usage: qa-ansible-syntax")
 		w.noReport()
@@ -475,5 +475,81 @@ func TestPassingReportHasAnEmptyFailureList(t *testing.T) {
 	wantExit(t, w.main(), ExitOK)
 	if rep := w.report(); rep.Status != "pass" || rep.Summary != (summary{Total: 2, Passed: 2}) || len(rep.Failures) != 0 {
 		t.Fatalf("report %+v", rep)
+	}
+}
+
+// S16: named playbooks are the only ones checked, each once, named from the root whether the
+// argument was relative, dotted or absolute; the report and the pass line count them alone.
+func TestNamedPlaybooksAreTheOnlyOnesChecked(t *testing.T) {
+	w := newWorld(t, nil)
+	w.addPlaybook("playbooks/imports/a.yml")
+	w.addPlaybook("b.yml")
+	w.addPlaybook("c.yml")
+	got := w.main("playbooks/imports/a.yml", "./b.yml", filepath.Join(w.root, "b.yml"))
+	wantExit(t, got, ExitOK)
+	if files := checkedFiles(w.report()); !slices.Equal(files, []string{"b.yml", "playbooks/imports/a.yml"}) {
+		t.Fatalf("checked %v", files)
+	}
+	if got.stdout != "✓ ansible-syntax: 2 playbooks OK (1 under playbooks/imports/, 1 elsewhere)\n" {
+		t.Fatalf("stdout %q", got.stdout)
+	}
+	if len(w.run.checks()) != 2 {
+		t.Fatalf("checks %v", w.run.calls)
+	}
+}
+
+// S16: a named playbook that fails is exit 1 with its error, as in a whole run.
+func TestANamedPlaybookThatFailsIsExitOne(t *testing.T) {
+	w := newWorld(t, nil)
+	w.addFile("b.yml", "- hosts: all\n  SYNTAX_ERROR\n")
+	got := w.main("b.yml")
+	wantExit(t, got, ExitFailed)
+	if rep := w.report(); rep.Summary != (summary{Total: 1, Failed: 1}) {
+		t.Fatalf("summary %+v", rep.Summary)
+	}
+}
+
+// S16: a named run asks git nothing; the population and its coverage proof (S7-S9) are the
+// whole run's, so a tree whose whole run cannot complete still checks a named playbook.
+func TestANamedRunSkipsDiscoveryAndTheCoverageProof(t *testing.T) {
+	w := newWorld(t, nil)
+	w.addFile("playbooks/notes.yml", "key: value\n")
+	wantStderr(t, w.main(), "not in the population")
+	w.run.calls = nil
+	wantExit(t, w.main(basePlaybook), ExitOK)
+	for _, c := range w.run.calls {
+		if c[0] == "git" {
+			t.Fatalf("a named run asked git: %v", c)
+		}
+	}
+}
+
+// S16: the machine is still checked first (S4-S6).
+func TestANamedRunStillNeedsThePasswordFile(t *testing.T) {
+	w := newWorld(t, nil)
+	w.setting(passwordSetting, filepath.Join(w.root, "absent"))
+	wantStderr(t, w.main(basePlaybook), passwordSetting)
+	w.noReport()
+}
+
+// S16: a name that cannot be checked is exit 2 naming it, never a pass over fewer files: it is
+// missing, outside the root, not a regular file, or not a playbook (a task file is checked
+// through a playbook that imports it).
+func TestANamedFileThatIsNotAPlaybookIsExitTwo(t *testing.T) {
+	for _, tc := range []struct {
+		arg  string
+		want string
+	}{
+		{"missing.yml", "cannot read missing.yml"},
+		{"../outside.yml", "outside the repository root"},
+		{"tasks", "tasks is not a regular file"},
+		{"tasks/step.yml", "tasks/step.yml is not a playbook"},
+	} {
+		w := newWorld(t, map[string]string{"tasks/step.yml": "- ansible.builtin.debug:\n    msg: x\n"})
+		wantStderr(t, w.main(basePlaybook, tc.arg), tc.want)
+		w.noReport()
+		if len(w.run.checks()) != 0 {
+			t.Fatalf("%s: checked %v", tc.arg, w.run.checks())
+		}
 	}
 }

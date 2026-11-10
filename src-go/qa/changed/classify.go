@@ -221,8 +221,12 @@ func (s *session) apply(ctx context.Context, r rule, rel string, deleted bool) e
 			s.plan.add(id, rel, r.rel)
 		}
 	}
-	if r.yaml && !deleted {
-		if err := s.classifyYAML(ctx, rel); err != nil {
+	if r.yaml {
+		classify := s.classifyYAML
+		if deleted {
+			classify = s.classifyDeletedYAML
+		}
+		if err := classify(ctx, rel); err != nil {
 			return err
 		}
 	}
@@ -275,6 +279,23 @@ func (s *session) classifyYAML(ctx context.Context, rel string) error {
 	if top == "playbooks" {
 		s.plan.add("docs", "", "")
 	}
+	return s.checkImporters(ctx, rel)
+}
+
+// classifyDeletedYAML is a deleted play, task or vars file: a playbook that still imports it no
+// longer parses (ansible-playbook --syntax-check fails on an import it cannot find), so the
+// playbooks that name it are checked (SPEC-qa-changed B57).
+func (s *session) classifyDeletedYAML(ctx context.Context, rel string) error {
+	if top, nested := topDir(rel); !nested || !slices.Contains(ansibleDirs, top) {
+		return nil
+	}
+	s.plan.covered[rel] = true
+	return s.checkImporters(ctx, rel)
+}
+
+// checkImporters plans the syntax check of every playbook whose text names the file's basename
+// (one level), and says so when none does.
+func (s *session) checkImporters(ctx context.Context, rel string) error {
 	playbooks, err := s.allPlaybooks(ctx)
 	if err != nil {
 		return err

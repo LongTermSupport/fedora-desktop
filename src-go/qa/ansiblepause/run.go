@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -154,7 +153,7 @@ func population(env Env, root string, paths []string) ([]string, error) {
 func candidates(env Env, root string, paths []string) ([]string, error) {
 	var targets []string
 	for _, p := range paths {
-		rel, err := relative(env.Resolve, root, p)
+		rel, err := rootpath.Under(env.Resolve, root, p)
 		if err != nil {
 			return nil, err
 		}
@@ -174,27 +173,6 @@ func candidates(env Env, root string, paths []string) ([]string, error) {
 		}
 	}
 	return targets, nil
-}
-
-// relative turns a PATH argument into a slash path under the root; one outside it is an error.
-// An absolute path is resolved through symlinks the way the root was, so a checkout reached by a
-// link still holds it.
-func relative(resolve rootpath.Eval, root, p string) (string, error) {
-	rel := p
-	if filepath.IsAbs(p) {
-		resolved, err := resolve(p)
-		if err != nil {
-			return "", fmt.Errorf("cannot resolve path %s: %w", p, err)
-		}
-		if rel, err = filepath.Rel(root, resolved); err != nil {
-			return "", fmt.Errorf("path %s is outside the repository root", p)
-		}
-	}
-	rel = path.Clean(filepath.ToSlash(rel))
-	if rel == ".." || strings.HasPrefix(rel, "../") || path.IsAbs(rel) {
-		return "", fmt.Errorf("path %s is outside the repository root", p)
-	}
-	return rel, nil
 }
 
 // judge scans every target and reports: findings and the summary on stderr, the count line on
