@@ -31,7 +31,7 @@ files/home/.local/bin/rclone-cache-warm	101	1	110	-
 files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
 files/home/.local/bin/rdt	90	6	70	-
 files/home/.local/bin/ssh-agent-start	109	6	111	-
-files/home/.local/bin/ssh-keys-rekey	228	5	250	-
+files/home/.local/bin/ssh-keys-rekey	224	5	249	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-
@@ -62,7 +62,7 @@ files/var/local/claude-yolo/lib/token-management.bash	1017	27	1080	-
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	667	20	525	-
 files/var/local/ps1-prompt	76	6	78	-
-run.bash	2836	66	2776	assoc,data
+run.bash	2833	66	2776	assoc,data
 scripts/check-displaylink-status.sh	211	1	231	-
 scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	364	9	365	-

@@ -499,7 +499,7 @@ headless_play_preflight() {
 # what the surrounding comments say. Calling `shred` to make the word true while the
 # effect stayed false would be worse than the mismatch it replaced.
 hl_cleanup() {
-  rm -f /tmp/.github_ssh_pp "${HL_SECRET_FILES[@]:-}"
+  rm -f "${HL_SECRET_FILES[@]:-}"
   if [[ -n "${HL_SSH_AGENT_PID:-}" ]]; then
     local _o
     if ! _o="$(SSH_AGENT_PID="$HL_SSH_AGENT_PID" ssh-agent -k 2>&1)"; then
@@ -514,6 +514,8 @@ hl_cleanup() {
 # is the ONLY non-interactive path. The passphrase is written to a 0600 file the helper
 # reads at runtime (the helper carries only the non-secret PATH, never the passphrase),
 # and both temp files are unlinked by hl_cleanup. Fails LOUD on any error.
+# With no ~/.ssh/id it first makes the key through the same helper, so the passphrase is
+# never on ssh-keygen's command line (CLAUDE/QA.md secret-in-argv); `keygen` stops there.
 hl_ssh_agent_start() {
   HL_SSH_PP_FILE="$(mktemp)" && chmod 600 "$HL_SSH_PP_FILE"
   printf '%s' "$HL_GITHUB_SSH_PASSPHRASE" > "$HL_SSH_PP_FILE"
@@ -521,20 +523,27 @@ hl_ssh_agent_start() {
   # Quoted heredoc: the helper body is written VERBATIM (the $HL_SSH_PP_FILE reference
   # is resolved at askpass RUNTIME from the inherited env, not expanded here) — so the
   # passphrase never enters the helper's own text, only the non-secret path does.
-  # It answers ONLY ssh-add's first question for the key. ssh-add asks a wrong answer
-  # "Bad passphrase, try again" for ever, so answering that too turns a wrong passphrase
-  # into a run that never ends; refusing it makes ssh-add fail at once.
+  # It answers ONLY the first question for the key (and ssh-keygen's confirmation of a new
+  # one). ssh-add asks a wrong answer "Bad passphrase, try again" for ever, so answering
+  # that too turns a wrong passphrase into a run that never ends; refusing it fails at once.
   cat > "$HL_ASKPASS" <<'HL_ASKPASS_BODY'
 #!/usr/bin/env bash
 case "$1" in
-"Enter passphrase for "*) exec cat -- "$HL_SSH_PP_FILE" ;;
+"Enter passphrase for "*|"Enter same passphrase again:"*) exec cat -- "$HL_SSH_PP_FILE" ;;
 esac
 echo "run.bash askpass: not answering: $1" >&2
 exit 1
 HL_ASKPASS_BODY
   HL_SECRET_FILES+=("$HL_SSH_PP_FILE" "$HL_ASKPASS")
   export HL_SSH_PP_FILE
-  local _agent_out
+  local _agent_out _kg_out
+  if [[ ! -f ~/.ssh/id ]]; then
+    if ! _kg_out="$(SSH_ASKPASS="$HL_ASKPASS" SSH_ASKPASS_REQUIRE=force ssh-keygen -t ed25519 -f ~/.ssh/id 2>&1 </dev/null)"; then
+      hl_abort "generate login SSH key" "ssh-keygen failed creating ~/.ssh/id" "ssh-keygen said: ${_kg_out}"
+    fi
+    success "Login SSH key generated"
+  fi
+  [[ "${1:-}" != keygen ]] || return 0
   if ! _agent_out="$(ssh-agent -s)"; then
     hl_abort "ssh-agent start" "could not start ssh-agent to load the login SSH key" \
       "ssh-agent -s failed: ${_agent_out}"
@@ -2651,19 +2660,9 @@ elif [[ "$HEADLESS" == "true" ]]; then
   # ssh-agent so the SSH clone/pull below works without a TTY (D5/V3.12/V3.13). Every
   # step fails LOUD.
   mkdir -p ~/.ssh && chmod 700 ~/.ssh
-  if [[ ! -f ~/.ssh/id ]]; then
-    info "Headless: generating passphrase-protected login SSH key (~/.ssh/id)"
-    if ! _kg_out="$(ssh-keygen -t ed25519 -f ~/.ssh/id -P "$HL_GITHUB_SSH_PASSPHRASE" 2>&1)"; then
-      hl_abort "generate login SSH key" "ssh-keygen failed creating ~/.ssh/id" "ssh-keygen said: ${_kg_out}"
-    fi
-    unset _kg_out
-    success "Login SSH key generated"
-  else
-    info "Headless: found existing ~/.ssh/id"
-  fi
   # The resolved passphrase is this key's passphrase (offered later for github_ keys).
   _ssh_key_password="$HL_GITHUB_SSH_PASSPHRASE"
-  hl_ssh_agent_start
+  hl_ssh_agent_start   # makes ~/.ssh/id first when there is none
   success "Login SSH key loaded into ssh-agent"
 elif [[ ! -f ~/.ssh/id ]]; then
   # B4: on a fresh machine ~/.ssh does not exist yet — ssh-keygen would fail.
@@ -2680,7 +2679,7 @@ elif [[ ! -f ~/.ssh/id ]]; then
       echo -e "${YELLOW}${ARROW} Enter a non-empty passphrase (your login password is a convenient choice).${NC}"
     fi
   done
-  ssh-keygen -t ed25519 -f ~/.ssh/id -P "$password"
+  HL_GITHUB_SSH_PASSPHRASE="$password" hl_ssh_agent_start keygen
   _ssh_key_password="$password"
   # L3: the passphrase now lives in _ssh_key_password (offered later as a default);
   # drop the plaintext copy from this shell as soon as the key is created.

@@ -39,7 +39,7 @@ extract() {
     fi
 }
 : >"$work/fn.bash"
-for fn in hl_abort hl_ssh_agent_start; do
+for fn in hl_abort success hl_ssh_agent_start; do
     extract "$fn"
 done
 
@@ -107,6 +107,13 @@ echo "== a wrong passphrase"
 check "the run stops, and does not hang" "stopped" "$(HOME="$work/home" start 'not the passphrase')"
 check "  saying why" "yes" "$(grep -qF 'could not be loaded' "$work/out" && echo yes || echo no)"
 check "  and never prints the passphrase" "no" "$(grep -qF 'not the passphrase' "$work/out" && echo yes || echo no)"
+
+echo "== no key yet (issue #220): made through the same helper, never with -P on argv"
+mkdir -p "$work/fresh/.ssh"
+check "the run carries on" "returned" "$(HOME="$work/fresh" start "$PASSPHRASE")"
+check "  with the new key in the agent" "yes" "$(grep -qF ED25519 "$work/listed" 2>/dev/null && echo yes || echo no)"
+check "  and the new key needs its passphrase" "no" \
+    "$(ssh-keygen -y -P '' -f "$work/fresh/.ssh/id" >"$work/probe" 2>&1 && echo yes || echo no)"
 
 echo ""
 echo "RESULT: passed: $passed failed: $failed"

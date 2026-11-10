@@ -49,18 +49,19 @@ DRY_RUN=0
 ASSUME_YES=0
 MAX_TRIES=3   # bounded retries on recoverable input mistakes (typos, mismatches)
 
+# ssh-keygen takes a passphrase only on its command line, where any local user can read it,
+# or from a prompt. So this script is its own SSH_ASKPASS: run so, it answers ssh-keygen's
+# prompt from its environment, the new passphrase for a new one, the current one otherwise.
+if [ -n "${SSH_KEYS_REKEY_ASKPASS:-}" ]; then
+    case "${1:-}" in "Enter new passphrase"*|"Enter same passphrase again"*) printf '%s\n' "${REKEY_NEW-}" ;; *) printf '%s\n' "${REKEY_OLD-}" ;; esac
+    exit 0
+fi
+export SSH_ASKPASS SSH_ASKPASS_REQUIRE=force SSH_KEYS_REKEY_ASKPASS=1
+SSH_ASKPASS="$(readlink -f "$0")"
+
+# The help is the Usage, Options and Examples part of the header above.
 usage() {
-    echo "Usage: ssh-keys-rekey [options] [KEY ...]"
-    echo ""
-    echo "  Rekey (change the passphrase on) SSH private keys in bulk. All"
-    echo "  targeted keys must currently share ONE passphrase."
-    echo ""
-    echo "  KEY ...            Key paths or globs to rekey (default: all of ~/.ssh)."
-    echo ""
-    echo "  -d, --ssh-dir DIR  Directory scanned when no KEY is given (default: ~/.ssh)."
-    echo "  -n, --dry-run      Discovery + sanity check only; make no changes."
-    echo "  -y, --yes          Skip the final confirmation prompt."
-    echo "  -h, --help         Show this help and exit."
+    awk '/^# Usage:/ {on = 1} /^set -euo/ {on = 0} on {sub(/^# ?/, ""); print}' "$0"
 }
 
 # A real SSH/OpenSSL private key file carries a "PRIVATE KEY" header line.
@@ -189,7 +190,7 @@ while :; do
     failed=()
     opened=0
     for f in "${KEYS[@]}"; do
-        if probe="$(ssh-keygen -y -P "$CUR_PASS" -f "$f" 2>&1)"; then
+        if probe="$(REKEY_OLD="$CUR_PASS" ssh-keygen -y -f "$f" 2>&1 </dev/null)"; then
             opened=$((opened + 1))
         else
             failed+=("$f")
@@ -285,7 +286,7 @@ done
 echo "Rekeying..." >&2
 i=0
 for f in "${KEYS[@]}"; do
-    if ssh-keygen -p -P "$CUR_PASS" -N "$NEW_PASS" -f "$f" > /dev/null; then
+    if REKEY_OLD="$CUR_PASS" REKEY_NEW="$NEW_PASS" ssh-keygen -p -f "$f" > /dev/null </dev/null; then
         echo "  rekeyed  $f" >&2
     else
         echo "  ERROR rekeying $f — rolling back all changes" >&2
