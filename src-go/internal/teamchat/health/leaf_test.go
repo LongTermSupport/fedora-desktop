@@ -62,8 +62,10 @@ func newTLSTree(t *testing.T, made time.Time) *tlsTree {
 		t.Fatal(err)
 	}
 	tr.end = leaf.NotAfter()
-	if err := os.MkdirAll(tr.root+paths.TLSDir(tr.team), 0o700); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{paths.CADir(tr.team), paths.TLSDir(tr.team)} {
+		if err := os.MkdirAll(tr.root+dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for p, data := range map[string][]byte{
 		paths.CACertFile(tr.team): ca.CertPEM(), paths.CAKeyFile(tr.team): ca.KeyPEM(),
