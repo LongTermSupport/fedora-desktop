@@ -47,32 +47,66 @@ container 2.82.0.
 - **L3. Seam 55 on a member machine with no status record** (the cross-network pilot's case,
   unsettled in D 3.9). Chosen, as the simplest reading consistent with D 3.9 (one Go function,
   readable without sudo, no host_vars): a team is v2-live if its status record says so (D 3.9 as
-  written), or else if the owner's seat store holds a pool seat for that team id
-  (`~/.local/state/teamchat/seats/pool/<team>/`), which only a v2 issue can have placed. Any
-  other team is v1-live. A string that is both a declared v1 team and a pool seat's team is
-  refused (exit 64), naming both, as a session on both systems is. Not built yet.
+  written), or else if the owner's seat store holds a pool seat for that team id **in the
+  session's own checkout**: `<seat store>/pool/<checkout key>/<team>/<seat>` (`paths.Store.PoolTeam`;
+  the key is the working directory's real path, as `seat.Store` and `place-issued` key it), which
+  only a v2 issue placed in this checkout can have put there. Other checkouts are not scanned: a
+  seat there cannot be taken by this launch (C 3.7.3's take is per checkout), so it would only
+  turn a launch into a refusal later. A placement's claim directory (`<seat>.new-<claim>`) is
+  not a seat. Any other team is v1-live. A string that is both a declared v1 team and v2-live is
+  refused (exit 64), naming both, as a session on both systems is. A status record that names a
+  migration set is refused (exit 78): set records are not read yet (N6), and D 3.9 forbids
+  inferring from a missing field. Built: `internal/teams/system` (`ccy-teams system`).
+
+## Built: the system decision and the launch take, as Go (not wired yet)
+
+- `internal/teams/system` and `ccy-teams system <team>...` (seam 55, D 3.9, L3): one line per
+  team, `<given> <id> <system>` on stdout, or exit 64 (both systems, or a name on both) or 78
+  (a status record naming a migration set). `system.PoolSeats` lists a checkout's pool seats.
+- `internal/teams/teamchatlaunch` (seams 53, 54, 27 as a library): `MountSources` and `Guard`
+  (every `-v`, `--volume` and `--mount` source by real path, refused when it is an ancestor of,
+  equal to or inside the seat store root; a path not made yet is judged where it would land);
+  `ChooseSeat` (the pool seat whose handle's seat part is the launch's `<seat>`, refused for none
+  or two); `HandleState` (the roster's state, `StateNoRoster` with no status record; a handle off
+  the roster or `claimed` is refused); `Desired` (generation 1, `accept`); `RunArgs` (the two
+  binds, the two variables, `--stop-timeout 20`); `Launch.Run` (guard, choose, take all or none,
+  then `control/<session>/desired.json` 0600). Adapters: `RegistrySessions` (`seat.Sessions`
+  over ccy's session registry), `Announcer` (`seat.Announcer`: area B's seat disconnected verb
+  run in process, its exit judged as the store wants), `StoreTaker` (one allocation lock; a
+  failed take releases the seats before it).
 
 ## Left (the handoff)
 
-The launcher does not pass `TEAMCHAT_MEMBERSHIP` yet, so no session starts on v2. In order:
+The launcher does not pass `TEAMCHAT_MEMBERSHIP` yet, so no session starts on v2. The two bash
+libraries are at their limits (`agent-bus-membership.bash` and `agent-bus-seats.bash` each
+about 57 code lines and 4 functions), so every v2 step replaces a call and adds no line. In
+order:
 
-1. `ccy-teams system <team>...` (seam 55, D 3.9 and L3): one line per team
-   (`<given> <id> <system>`) or exit 64 with OD-D2's refusal naming the two choices.
-2. The launch take, a `ccy-teams internal` verb replacing the `membership-init` call in
-   `lib/agent-bus-membership.bash` with one line that reads back the podman arguments
-   (`mapfile` over its output; the library has 4 functions and no room for a fifth): for v2,
-   open `seat.Store` (`StateNoRoster` with no status record), choose the seat (C 3.7.4), `Take`
-   into `sessions/<session>/`, write `control/<session>/desired.json` (C 3.7.5, generation 1,
-   `inbound`), and print the two binds (`sessions/<session>` read-write at
-   `/run/teamchat/seats`, `control/<session>` read-only at `/run/teamchat/membership`),
-   `-e PINGBUS_MEMBERSHIP=off -e TEAMCHAT_MEMBERSHIP=/run/teamchat/membership`, and
-   `--stop-timeout 20`. The mount guard (seam 53) over the launch's `-v` list belongs in the
-   same verb, so it needs the launcher's mount list as input.
-3. Exit (seams 54, 27): `ccy_bus_disconnected` calls a `ccy-teams internal` verb for a v2
-   session instead of `pingbus seat disconnected`: remove the session record, then `Release`
-   each held seat; a crash (record still there) runs `Announce` and keeps the seat. The
-   `seat.Sessions` and `seat.Announcer` adapters are needed (handoff of stage B/C, items 4-5).
-4. RS3 and RS2: on a relaunch (exit 75) skip `seat disconnected` and record `held/notice.json`;
+1. The verb `ccy-teams internal launch-args <session> <checkout> <seats> <Z or empty> -- <mount args>`: resolve the system (`system.Cmd.Lines`). For agent-bus, run
+   `membership-init` in process (split `membership.Init.Run` into a `Prepare` that returns the
+   directory) and print `<checkout>/.claude/ccy/pingbus/seats`, then the four arguments the
+   bash builds today. For teamchat, open the store (`placeissued.OS` gives the clock, the
+   credential and the reach; plus `RegistrySessions` and `Announcer`), run `Launch.Run`, and
+   print `store.Control(session)` then `RunArgs`. In `ccy_membership_args`, lines 62-68 become
+   that call (the mount arrays passed with the `${A[@]+"${A[@]}"}` form, as the lib tests
+   leave them unset), the same error block, one `mapfile -O` of the lines after the first into
+   `CCY_SEAT_RUN_ARGS`, and `CCY_BUS_DISCONNECT` with the first line as its root: seven lines,
+   as now.
+2. `agent-bus seat check` and `seat take` (in `agent-bus-seats.bash`) refuse a v2 team. Replace
+   the command word with `ccy-teams internal seat-check` and `seat-take`, which exec agent-bus
+   with the same arguments for agent-bus and, for teamchat, print the canonical list (check) or
+   do nothing (take: `launch-args` took the seats). `describe-seats --block` needs a teamchat
+   branch. `ccy --teams <team>` alone goes to `choose-teams`, which knows v1 teams only: until it
+   learns teamchat, a v2 launch names its seat (`<seat>@<team>`).
+3. Exit (seams 54, 27): replace the pingbus command word in `ccy_bus_disconnected` with
+   `ccy-teams internal bus-disconnected <pingbus>`, which execs pingbus as before unless the root
+   is the seat store's `control/<session>`, and otherwise removes the session record, then
+   `Release`s each seat of `desired.json` (a crash, record still there: `Announce`, seat kept).
+4. `scripts/test-ccy-teams.bash` fakes `ccy-teams`: the fake answers `internal launch-args` as
+   it answered `membership-init`, and forwards `seat-check`, `seat-take` and `bus-disconnected`
+   to the fake agent-bus and pingbus without a log line of its own, so the expectations keep
+   their meaning. CCY version bump with the wiring (above 3.115.0, container above 2.82.0).
+5. RS3 and RS2: on a relaunch (exit 75) skip `seat disconnected` and record `held/notice.json`;
    in the same commit set `ends.restartSwitch = true`, flip RS1's pinned test and close PLAN.md's
    2.0e row.
-5. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).
+6. `ccy-teams seats sweep` and the `teamchat-seats` user units (C 3.7.5, DC21).

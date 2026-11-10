@@ -133,6 +133,11 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   `claude-yolo.bash`, it answers `--version`, `--help` and the standalone flags its package doc
   lists, and execs the bash for every other run, and for those wherever the bash might answer
   otherwise; `CCY_LEGACY=1` sends every run to the bash. Its `difftest` package is the launcher's differential harness.
+- `internal/ccystart/` — `ccy-start-claude`, the end of the ccy container's start (Plan 00209
+  Task 4.2, `LAUNCH-ccy.md`): the supervisor wrap, the lifecycle and first-join relaunch plugins,
+  the v1 bus kit step and the final exec, ported from `entrypoint.sh` (v1 byte for byte, held by
+  `parity_test.go` against the frozen bash tail), and a v2 session's `teamchat run`. Built
+  static into the ccy image's build context by `tasks/claude-yolo-image.yml`.
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.

@@ -19,6 +19,7 @@
 //	gocache internal go-cache: the launcher's Go caches, on the host and bounded
 //	discover the one lookup of which session names a seat (records and desired memberships)
 //	hot     session list, add, remove, move, role and repair: a running session's teams and roles
+//	system  system: which bus (agent-bus or teamchat) each team of a launch is live on
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -50,6 +51,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/system"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/winddown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -86,6 +88,8 @@ type App struct {
 	GoCache *gocache.Cache
 	// Session is `ccy-teams session ...`, hot control of a running session.
 	Session *hot.Hot
+	// System is `ccy-teams system`, each team's live system, the launcher's.
+	System *system.Cmd
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -98,7 +102,7 @@ func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
 // captures (choose-teams) is given a host that prints everything else on stderr, so a play's
 // output cannot reach the value.
 func NewAppFor(cfg config.Config, args []string) *App {
-	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary) {
+	if len(args) > 0 && (args[0] == subChooseTeams || args[0] == subLaunchSummary || args[0] == subSystem) {
 		return Wire(host.NewDiverted(cfg))
 	}
 	return NewApp(cfg)
@@ -109,6 +113,9 @@ const subChooseTeams = "choose-teams"
 
 // subLaunchSummary is the launch summary, whose stdout is its payload too.
 const subLaunchSummary = "launch-summary"
+
+// subSystem is `ccy-teams system`, whose stdout is its payload too.
+const subSystem = "system"
 
 // subChooseSeat is the launcher's seat and role question.
 const subChooseSeat = "choose-seat"
@@ -146,6 +153,7 @@ func Wire(h *host.Host) *App {
 		Chooser: chosen,
 		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), GoCache: gocache.New(h),
 		Session: session,
+		System:  newSystem(h),
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -192,7 +200,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
-		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession:
+		subChooseSeat, subDescribeSeats, subChooseTeams, subLaunchSummary, subInternal, subSession, subSystem:
 	case "-l", "--list", subGraph:
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -211,6 +219,8 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		return a.internal(ctx, args[1:])
 	case subSession:
 		return a.Session.Run(ctx, args[1:])
+	case subSystem:
+		return a.System.Run(ctx, args[1:])
 	}
 	return a.dispatch(ctx, sub, args[min(1, len(args)):])
 }
@@ -323,4 +333,24 @@ func (a *App) inCheckout(run func() term.ExitCode) term.ExitCode {
 func (a *App) usageError(msg string) term.ExitCode {
 	a.Print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
 	return term.ExitUsage
+}
+
+// newSystem is `ccy-teams system` over h: the declared v1 teams from the host_vars, the status
+// records under the status root, the working directory as the checkout.
+func newSystem(h *host.Host) *system.Cmd {
+	return &system.Cmd{
+		Getenv: h.Getenv, Getwd: os.Getwd, Stdout: h.Payload, Stderr: h.Stderr,
+		Declared: func(ctx context.Context) ([]string, error) {
+			teams, err := h.Declare.Declared(ctx)
+			if err != nil {
+				return nil, err
+			}
+			names := make([]string, 0, len(teams))
+			for _, t := range teams {
+				names = append(names, t.Name)
+			}
+			return names, nil
+		},
+		Status: system.StatusRecord,
+	}
 }

@@ -269,6 +269,20 @@ func TestDispatchInternalClaimContainerNameIsTheClaimCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchSystemIsTheSystemCommandAndItsPayloadIsStdout(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"system", "alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Out.String() != "alpha alpha agent-bus\n" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+	a := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"system", "alpha"})
+	if a.Payload != os.Stdout || a.Stdout != os.Stderr {
+		t.Fatalf("payload %v stdout %v", a.Payload, a.Stdout)
+	}
+}
+
 func TestDispatchInternalGoCacheIsTheCacheCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"internal", "go-cache", "proj", "z"}); code != term.ExitOK {
