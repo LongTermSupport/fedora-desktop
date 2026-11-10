@@ -1,8 +1,10 @@
 """Check or apply desired access-point radio state on the local UniFi controller.
 
-Reads the desired state as JSON on stdin (the play passes `network.yml` through
-`to_json`), the admin password from UNIFI_ADMIN_PASSWORD, and talks to the controller's
-API. `--check` only reports; `--apply` first adopts each device listed under `adopt`
+Reads the admin password from the first line of stdin and the desired state as JSON
+from the rest (a play passes the vaulted password, a newline and `network.yml` through
+`to_json`, all on its task's `stdin:`), and talks to the controller's API. Never the
+environment: a play's `environment:` is rendered onto a command line any local user can
+read (CLAUDE/QA.md "secret-in-argv"). `--check` only reports; `--apply` first adopts each device listed under `adopt`
 that is awaiting adoption (the controller then provisions it: a switch may restart its
 ports and with them any PoE-powered devices), then sends each changed device's radio
 table, which makes the controller re-provision that access point (its radios restart).
@@ -22,12 +24,11 @@ exits 0 with UNIFI-SETTLED, or 3 with one UNIFI-UNSETTLED <reason> line per gap,
 so a play can retry it until the devices have caught up.
 
 Usage: python3 -m helpers.unifi.apply_network (--check | --apply | --settled)
-           [--url URL] [--user NAME] < desired.json
+           [--url URL] [--user NAME] < password-line-then-desired.json
 """
 
 import argparse
 import json
-import os
 import sys
 
 from helpers.unifi.client import UnifiClient
@@ -37,7 +38,7 @@ DEFAULT_URL = "https://localhost:8443"
 DEFAULT_USER = "unifi-admin"
 
 
-def main(argv, stdin, stdout, stderr, environ, client_factory=UnifiClient):
+def main(argv, stdin, stdout, stderr, client_factory=UnifiClient):
     parser = argparse.ArgumentParser(prog="apply_network")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="report differences only")
@@ -48,10 +49,10 @@ def main(argv, stdin, stdout, stderr, environ, client_factory=UnifiClient):
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
 
-    password = environ.get("UNIFI_ADMIN_PASSWORD", "")
+    password = stdin.readline().removesuffix("\n")
     if not password:
-        print("UNIFI_ADMIN_PASSWORD is not set; the play passes the vaulted password in it",
-              file=stderr)
+        print("no UniFi admin password on the first line of stdin; the play passes the vaulted"
+              " password there, before the desired state", file=stderr)
         return 2
 
     desired = json.load(stdin)
@@ -99,4 +100,4 @@ def main(argv, stdin, stdout, stderr, environ, client_factory=UnifiClient):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:], sys.stdin, sys.stdout, sys.stderr, os.environ))
+    sys.exit(main(sys.argv[1:], sys.stdin, sys.stdout, sys.stderr))

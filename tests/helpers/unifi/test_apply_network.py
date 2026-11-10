@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -50,17 +51,21 @@ DESIRED = {"devices": {"AP1": {"radios": {"na": {"channel": 36}}}}}
 
 
 class ApplyNetworkTest(unittest.TestCase):
-    def run_main(self, args, devices, desired=DESIRED, env=None):
+    def run_main(self, args, devices, desired=DESIRED, password="secret"):
         client = FakeClient(devices)
         out, err = io.StringIO(), io.StringIO()
-        environ = {"UNIFI_ADMIN_PASSWORD": "secret"} if env is None else env
+        self.passwords = []
+
+        def factory(url, user, password):
+            self.passwords.append(password)
+            return client
+
         code = main(
             args,
-            stdin=io.StringIO(json.dumps(desired)),
+            stdin=io.StringIO(password + "\n" + json.dumps(desired)),
             stdout=out,
             stderr=err,
-            environ=environ,
-            client_factory=lambda url, user, password: client,
+            client_factory=factory,
         )
         return code, out.getvalue(), err.getvalue(), client
 
@@ -129,9 +134,21 @@ class ApplyNetworkTest(unittest.TestCase):
                 self.run_main(args, [])
 
     def test_a_missing_password_is_fatal(self):
-        code, _, err, _ = self.run_main(["--check"], [], env={})
+        code, _, err, _ = self.run_main(["--check"], [], password="")
         self.assertEqual(code, 2)
-        self.assertIn("UNIFI_ADMIN_PASSWORD", err)
+        self.assertIn("no UniFi admin password on the first line of stdin", err)
+
+    def test_the_password_is_the_first_stdin_line_exactly(self):
+        # Never the environment: a play's environment: is on a command line (issue #220).
+        code, _, _, _ = self.run_main(["--check"], [ap("AP1", "1", 36)], password=" p w ")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.passwords, [" p w "])
+
+    def test_the_environment_is_not_read(self):
+        with unittest.mock.patch.dict("os.environ", {"UNIFI_ADMIN_PASSWORD": "from-env"}):
+            code, _, err, _ = self.run_main(["--check"], [], password="")
+        self.assertEqual(code, 2)
+        self.assertNotIn("from-env", err)
 
     def test_a_desired_state_error_is_fatal_and_names_the_problem(self):
         desired = {"devices": {"nope": {"radios": {}}}}
