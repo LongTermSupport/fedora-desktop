@@ -139,7 +139,7 @@ its first caller.
 
 ### Phase 0: N0, the design
 
-Tasks 0.1 to 0.4 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
+Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 - [x] ✅ **Task 0.1**: Research v1; DESIGN.md, reviewed and reworked once.
 
