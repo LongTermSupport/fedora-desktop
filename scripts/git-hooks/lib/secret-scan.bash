@@ -167,11 +167,13 @@ hook_filter_match_lines() {
                 fi
             fi
             # A unit name ends at its type; a template's `@.` (never an address) may carry
-            # further suffixes, a file named after it (CLAUDE/ExampleValues.md).
-            hook_keep_unwhitelisted "$pattern" \
+            # further suffixes, a file named after it (CLAUDE/ExampleValues.md). The token
+            # takes whatever is glued on after a further `@`, so an exemption judges it whole
+            # and an address glued to an exempt name is refused with it (CLAUDE/QA.md#exempt-token-shields-glued-address).
+            hook_keep_unwhitelisted "${pattern}(@[A-Za-z0-9.@-]*)?" \
                 'i:@([A-Za-z0-9-]+\.)*example\.(com|org|net)$' \
                 'i:@[A-Za-z0-9.-]+\.(example|test|invalid|localhost)$' \
-                '^git@[A-Za-z0-9.-]+' \
+                '^git@[A-Za-z0-9.-]+$' \
                 '@[A-Za-z0-9_.:-]+\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$|@\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)(\.[A-Za-z0-9_-]+)*$' \
                 ${extension_res[@]+"${extension_res[@]}"}
             ;;

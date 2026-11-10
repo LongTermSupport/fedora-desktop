@@ -2395,6 +2395,24 @@ anchored, and add a case beside it that a real address in the nearest shape is s
 A name whose tail is domain-shaped (an instance unit followed by a suffix) cannot be told from
 an address: build it in code from its parts.
 
+### exempt-token-shields-glued-address
+
+**What it is.** The email pattern stops at the next `@`, so a real address glued straight onto
+an exempt name (a template unit file, a `git@host` remote) split into an exempt prefix and an
+orphan `@domain` the pattern does not match, and the address passed both commit hooks. Run by
+`scripts/test-secret-scan.bash` (gate `secret-scan-tests`), whose cases carry this identifier.
+
+**Why it exists.** Found by the conformance review of
+[unit-name-with-suffix-read-as-email](#unit-name-with-suffix-read-as-email): its new allowance
+took any further suffixes, so a glued local part read as one, and the older `^git@host`
+allowance had no end anchor at all. The filter now extracts each token with whatever is glued
+on after a further `@`, and the git allowance is anchored, so every exemption judges the whole
+token. Run over every tracked line the email pattern matches, the filter keeps the same lines as
+before. The detector is a test, for the reason the parent entry gives.
+
+**How to fix a finding.** Anchor every exemption at both ends of the token, and never shorten
+the token the exemptions see.
+
 ---
 
 ## Changing a Gate
