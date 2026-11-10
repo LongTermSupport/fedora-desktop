@@ -28,6 +28,37 @@ more than 3 days is warned about and for more than 7 days fails the daily CI job
 parked with a reason and a review date. The policy and how to park:
 [QA.md, Branch hygiene](QA.md#branch-hygiene--the-repositorys-branches-judged-daily).
 
+### What filled the cap, and the rule against each cause
+
+The cap reached 28 branches on 2026-11-10 (owner: "no more branch sprawl"). Each cause has a rule.
+Never meet the cap by exempting branches or raising it. Fix the cause.
+
+- **Rescue copies kept as branches** (`rescue/*`, `wip-rescue/*`). A copy made during a
+  recovery goes to `refs/archive/<name>` (`git push origin <ref>:refs/archive/<name>`) or a
+  bundle under `untracked/deleted-branches/`, never to a branch. The cap counts branches only,
+  so an archive ref costs nothing, and it stays on GitHub.
+- **Stacked PR chains**, one branch per slice, each waiting on the one below. Do not stack. Put
+  each piece of a stream as commits on that stream's one branch and PR, or land the bottom of the
+  stack before starting the next. A stack that exists is collapsed: retarget the top PR to F44
+  (it holds every lower commit) and close the lower PRs as superseded.
+- **Agent worktrees left behind.** Reap after every agent that had one:
+  `hooks-daemon worktree-reap --reap --reap-branches` (with `--base-branch` set to the line the
+  work was for, e.g. `F44-arm`). Create a worktree from the main checkout only, never inside
+  another worktree's `.claude/worktrees/`.
+- **Finished work never put up for review.** A branch whose work is done gets a PR the same day.
+  Paused work is parked with `hooks-daemon branch-park <name> --reason ...`, never left to go
+  dormant.
+- **PRs left open for review rounds.** A PR gets one review and one round of fixes. What is left
+  goes to the owner or an issue. It lands when its CI is green: in GitHub with
+  `gh pr merge --merge` (organisation admins bypass the required review with `--admin`), or by a
+  local `--no-ff` merge and a passing full QA run when its CI is stale against F44.
+
+The daemon commands, in order: `branch-sweep` (report), `worktree-reap`, `branch-sweep --clean`
+(local, bundled), `branch-sweep --clean --remote` (only branches merged into F44),
+`delete-branch` (local, proven against `--protected-ref`). An agent may delete a remote branch
+only when it is merged into F44. Any other remote delete is the owner's, after its tip is in
+`refs/archive/`.
+
 ### One `.git`, two path worlds: the host and the ccy containers
 
 The host and every ccy container share this checkout's `.git`, but see it at different
