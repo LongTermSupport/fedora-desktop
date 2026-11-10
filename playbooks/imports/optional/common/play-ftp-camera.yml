@@ -400,39 +400,25 @@
           # makes the camera fail to associate on newer wpa_supplicant builds.
           # proto/pairwise/group are pinned to plain WPA2-CCMP for the same
           # compatibility reason — no WPA3 transition mode.
+          # The profile is built in nmcli's editor, its commands on stdin: the Wi-Fi password on
+          # nmcli's command line would be readable by any local user (CLAUDE/QA.md secret-in-argv).
           ansible.builtin.command:
-            argv:
-              - nmcli
-              - connection
-              - add
-              - type
-              - wifi
-              - ifname
-              - "{{ ftp_camera_wifi_devs | first | split(':') | first }}"
-              - con-name
-              - "{{ ftp_camera_hotspot_connection }}"
-              - autoconnect
-              - "no"
-              - ssid
-              - "{{ ftp_camera_hotspot_ssid }}"
-              - "802-11-wireless.mode"
-              - ap
-              - "802-11-wireless-security.key-mgmt"
-              - wpa-psk
-              - "802-11-wireless-security.proto"
-              - rsn
-              - "802-11-wireless-security.pairwise"
-              - ccmp
-              - "802-11-wireless-security.group"
-              - ccmp
-              - "802-11-wireless-security.pmf"
-              - "1"
-              - "802-11-wireless-security.psk"
-              - "{{ ftp_camera_hotspot_password }}"
-              - ipv4.method
-              - shared
-              - ipv6.method
-              - ignore
+            argv: [nmcli, connection, edit, type, wifi, con-name, "{{ ftp_camera_hotspot_connection }}"]
+            stdin: |
+              set connection.interface-name {{ ftp_camera_wifi_devs | first | split(':') | first }}
+              set connection.autoconnect no
+              set 802-11-wireless.ssid {{ ftp_camera_hotspot_ssid }}
+              set 802-11-wireless.mode ap
+              set 802-11-wireless-security.key-mgmt wpa-psk
+              set 802-11-wireless-security.proto rsn
+              set 802-11-wireless-security.pairwise ccmp
+              set 802-11-wireless-security.group ccmp
+              set 802-11-wireless-security.pmf 1
+              set 802-11-wireless-security.psk {{ ftp_camera_hotspot_password }}
+              set ipv4.method shared
+              set ipv6.method ignore
+              save persistent
+              quit
           when:
             - not ftp_camera_hotspot_exists
             - ftp_camera_wifi_devs | length > 0
@@ -441,7 +427,8 @@
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
 
-        # Only stderr: the command line holds the Wi-Fi password.
+        # Only stderr: the editor's stdout may echo the Wi-Fi password. The editor can exit 0
+        # without saving, so its saved line is required too.
         - name: Stop if the hotspot AP profile could not be created
           ansible.builtin.fail:
             msg: >-
@@ -453,7 +440,9 @@
               fix the reason above and run this play again.
           when:
             - ftp_camera_hotspot_created is not skipped
-            - ftp_camera_hotspot_created.rc | default(1) != 0
+            - >-
+              ftp_camera_hotspot_created.rc | default(1) != 0
+              or 'successfully saved' not in ftp_camera_hotspot_created.stdout | default('')
 
         - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
           # Runs for a profile this play just created AND for one the user made
