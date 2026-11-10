@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.114.0 — container 2.81.0
+
+- **The image carries the agent team bus v2 member kit, `teamchat`**, at
+  `/opt/claude-yolo/optional/teamchat` (Plan 00209 Task 4.1): `bin/teamchat`, its plugin
+  (four hooks and the `teamchat:teamchat` skill) and `settings.json` with its status line. The
+  play builds the binary static from `src-go` as committed at HEAD (`git archive`, so a change
+  not yet committed in the checkout neither enters the image nor stops the play) with the
+  tree id of `HEAD:src-go` as its source digest, which `teamchat version` prints. The rest of the
+  kit is kept in the repository under `files/opt/claude-yolo/optional/teamchat/`, held equal by
+  a Go test to what the kit's assembler writes for that path. The image build fails unless the
+  binary runs and prints its digest. Nothing uses the kit yet: no session links `teamchat` onto
+  PATH or loads its plugin until the launcher's v2 membership (Task 4.2). v1's kit under
+  `optional/agent-bus/` is untouched.
+
 ## 3.113.4 — container 2.80.1
 
 Follows 3.113.1 (container 2.80.1). 3.113.2, 3.113.3 and an earlier 3.113.0 and 3.113.1 were

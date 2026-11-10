@@ -313,9 +313,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
 ### Phase 4: N4, ccy members and the board
 
-- [ ] ⬜ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump. **Gate A**
-  (Task 0.5): the image change carrying the kit merges to F44 only after the owner has confirmed
-  the irreversible decisions, since any later CCY bump would deploy it.
+- [x] ✅ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump (3.114.0,
+  container 2.81.0; `tasks/teamchat-ccy-kit.yml`). Gate A met (Plan 00246 INSTALL-PATH.md).
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
   For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it

@@ -82,6 +82,11 @@
 # block that sources ~/.bashrc-includes, and now stops before any change if that block is
 # missing; lastpass writes its configuration block from one task (it asks only when not yet
 # configured, so a configured host sees no prompt).
+# And Plan 00209 Task 4.1 (ccy 3.114.0, container 2.81.0): play-claude-yolo.yml stages the agent
+# team bus v2 member kit (teamchat) into the ccy image's build context, building the binary from
+# src-go as committed at HEAD, and the image is rebuilt once for its new version label. Nothing
+# uses the kit yet. After it, a ccy session can run
+# /opt/claude-yolo/optional/teamchat/bin/teamchat version, which prints the source digest.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)

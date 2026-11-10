@@ -1,0 +1,140 @@
+---
+# The agent team bus v2 member kit (teamchat) in the ccy image's build context, at
+# /opt/claude-yolo/optional/teamchat (Plan 00209 Task 4.1, DESIGN-v2-D-migration.md 3.6). The
+# Dockerfile's COPY of optional/ takes it into the image. Imported by the ccy image's task file.
+#
+# The kit is the binary, its plugin (hooks.json, plugin.json and the teamchat:teamchat skill)
+# and settings.json with the status line. Every file but the binary is kept in the repository
+# under files/opt/claude-yolo/optional/teamchat/, and a Go test of internal/teamchat/member/kit
+# holds those files equal to what kit.Assemble writes for this path. The binary is built here.
+#
+# The binary is built from src-go as COMMITTED at HEAD, exported by git archive into a scratch
+# directory, never from the work tree: its source digest (-X main.SourceDigest, what
+# `teamchat version` prints) is the git tree id of HEAD:src-go, so a digest always names the bytes
+# built, and an uncommitted change in the checkout neither enters the image nor stops the play.
+# Static (CGO_ENABLED=0), because the image is Debian and links no host glibc; for the host's own
+# architecture, which is the image's, with no architecture named here.
+#
+# The kit is v2's alone and add-only beside v1's kit, which it does not touch. Each
+# session links /usr/local/bin/teamchat only when it is a v2 member (the launcher, Task 4.2).
+#
+# Needs root_dir, user_login, the Go toolchain (play-golang.yml) and git.
+
+- name: Create the teamchat Kit Directories in Docker Build Context
+  become: true
+  ansible.builtin.file:
+    path: "/opt/claude-yolo/optional/teamchat/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - bin
+    - plugin/teamchat/.claude-plugin
+    - plugin/teamchat/hooks
+    - plugin/teamchat/skills/teamchat
+  tags:
+    - scripts
+    - skills
+
+- name: Copy the teamchat Kit Plugin and Settings into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/opt/claude-yolo/optional/teamchat/{{ item }}"
+    dest: "/opt/claude-yolo/optional/teamchat/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - settings.json
+    - plugin/teamchat/.claude-plugin/plugin.json
+    - plugin/teamchat/hooks/hooks.json
+    - plugin/teamchat/skills/teamchat/SKILL.md
+  tags:
+    - scripts
+    - skills
+
+- name: Build the teamchat Program from the Committed src-go
+  block:
+    - name: Make the Scratch Directory for the teamchat Build
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: teamchat-ccy-kit-
+      become: false
+      register: tc_ccy_scratch
+
+    - name: Read the Source Tree Id of src-go at HEAD
+      ansible.builtin.command:
+        argv: [git, -C, "{{ root_dir }}", rev-parse, "HEAD:src-go"]
+      become: false
+      changed_when: false
+      register: tc_ccy_tree
+
+    - name: Refuse a Source Tree Id That Is Not One
+      ansible.builtin.assert:
+        that:
+          - tc_ccy_tree.stdout is match('^[0-9a-f]{40,64}$')
+        fail_msg: git rev-parse HEAD:src-go did not answer a tree id, so the kit has no source digest.
+        quiet: true
+
+    - name: Make the Source Directory for the teamchat Build
+      ansible.builtin.file:
+        path: "{{ tc_ccy_scratch.path }}/src"
+        state: directory
+        mode: "0700"
+      become: false
+
+    - name: Export src-go as Committed at HEAD
+      ansible.builtin.command:
+        argv: [git, -C, "{{ root_dir }}", archive, --format=tar, -o, "{{ tc_ccy_scratch.path }}/src-go.tar", "{{ tc_ccy_tree.stdout }}"]
+      become: false
+      changed_when: false # a scratch export changes nothing installed
+
+    - name: Unpack the Exported src-go
+      ansible.builtin.unarchive:
+        src: "{{ tc_ccy_scratch.path }}/src-go.tar"
+        dest: "{{ tc_ccy_scratch.path }}/src"
+        remote_src: true
+      become: false
+
+    - name: Build the teamchat Program
+      ansible.builtin.command:
+        argv:
+          - go
+          - build
+          - -trimpath
+          - -buildvcs=false
+          - -ldflags
+          - "-X main.SourceDigest={{ tc_ccy_tree.stdout }}"
+          - -o
+          - "{{ tc_ccy_scratch.path }}/teamchat"
+          - ./cmd/teamchat
+        chdir: "{{ tc_ccy_scratch.path }}/src"
+      environment:
+        HOME: "/home/{{ user_login }}"
+        GOCACHE: "/home/{{ user_login }}/.cache/go-build"
+        GOTOOLCHAIN: local
+        GOFLAGS: -mod=vendor
+        CGO_ENABLED: "0"
+      become: false
+      changed_when: false # a build into the scratch directory changes nothing installed; the copy reports the change
+
+    - name: Install the teamchat Program into Its Kit in Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ tc_ccy_scratch.path }}/teamchat"
+        remote_src: true
+        dest: /opt/claude-yolo/optional/teamchat/bin/teamchat
+        owner: root
+        group: root
+        mode: "0755"
+  always:
+    - name: Remove the Scratch Directory of the teamchat Build
+      ansible.builtin.file:
+        path: "{{ tc_ccy_scratch.path }}"
+        state: absent
+      become: false
+      when: tc_ccy_scratch is defined and tc_ccy_scratch.path is defined
+  tags:
+    - scripts
+    - skills

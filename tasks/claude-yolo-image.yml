@@ -326,6 +326,10 @@
     - scripts
     - skills
 
+# The agent team bus v2 member kit (Plan 00209 Task 4.1), beside v1's above and touching none of it.
+- name: Stage the teamchat Kit into Docker Build Context
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/teamchat-ccy-kit.yml"
+
 - name: Remove Obsolete Browsing Skill Files from Docker Build Context
   become: true
   ansible.builtin.file:

@@ -357,6 +357,9 @@ from helpers.pingbus import bundle
 
 CONTEXT = "/opt/claude-yolo/"
 READERS = {"Calculate Dockerfile Hash for Build", "Build Claude YOLO Container Image with Hash"}
+# Copies of a program the play builds from src-go into a scratch directory, not of a repo file.
+# The gate does not judge src-go: the image's teamchat records its source as its digest.
+BUILT = {"Install the teamchat Program into Its Kit in Docker Build Context"}
 INCLUDES = ("ansible.builtin.include_tasks", "ansible.builtin.import_tasks")
 sources = []
 for line in (root / "files/var/local/claude-yolo/Dockerfile").read_text().splitlines():
@@ -409,7 +412,9 @@ def teach(task, why):
 found = []
 play = yaml.safe_load((root / "playbooks/imports/play-claude-yolo.yml").read_text())
 for task in walk([t for p in play for t in (p.get("pre_tasks") or []) + (p.get("tasks") or [])]):
-    if CONTEXT.rstrip("/") not in json.dumps(task) or any(k in task for k in INCLUDES):
+    # A block's own tasks are walked one by one; the block is only their container.
+    if CONTEXT.rstrip("/") not in json.dumps(task) or any(k in task for k in INCLUDES) \
+            or "block" in task or task.get("name") in BUILT:
         continue
     copy, command = task.get("ansible.builtin.copy"), task.get("ansible.builtin.command")
     argv = command.get("argv") or [] if isinstance(command, dict) else []
