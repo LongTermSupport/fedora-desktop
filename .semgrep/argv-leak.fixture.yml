@@ -2,7 +2,16 @@
 # below it as the start of a finding; each "ok" line marks the line below it as clean. It is YAML
 # so that the Ansible rule reads it; the shell examples sit in block scalars, as in a play.
 
-# The issue #220 tasks, as they were.
+# The issue #220 tasks, as they were (tests/helpers/ssh_passphrase/test_github_cli_multi_play.py
+# reads them too, as its red case).
+- name: Create passphrase file for SSH key operations
+  ansible.builtin.copy:
+    # ok: secret-in-argv-ansible
+    content: "{{ github_ssh_passphrase }}"
+    dest: "/tmp/.github_ssh_pp"
+    mode: "0600"
+  no_log: true
+
 - name: Verify existing keys work with vault passphrase
   ansible.builtin.shell: |
     # ruleid: secret-in-argv
@@ -96,6 +105,27 @@
   environment:
     # ruleid: secret-in-argv-ansible
     UNIFI_ADMIN_HASH: "{{ unifi_admin_password_hash.stdout }}"
+# The issue #220 search finding as it was: the hash registered under a step name.
+- name: Set the admin hash, pre-rename
+  ansible.builtin.command:
+    argv: [podman, exec, -e, UNIFI_ADMIN_HASH, mongosh]
+  environment:
+    # ruleid: secret-in-argv-ansible
+    UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout | trim }}"
+- name: A secret-named key carries a secret whatever the value is called
+  ansible.builtin.command:
+    argv: [some-tool]
+  environment:
+    # ruleid: secret-in-argv-ansible
+    API_TOKEN: "{{ lookup('ansible.builtin.env', 'X') }}"
+    # ruleid: secret-in-argv-ansible
+    SALT: "{{ stored.stdout }}"
+    # ok: secret-in-argv-ansible
+    XDG_RUNTIME_DIR: "/run/user/{{ uid }}"
+- name: A file checksum is public
+  ansible.builtin.shell: |
+    # ok: secret-in-argv-ansible
+    test "$(sha256sum Dockerfile | cut -d' ' -f1)" = "{{ dockerfile_hash.stdout }}"
 
 # Ansible: what never reaches a command line, and what is not a secret.
 - name: Hash on stdin

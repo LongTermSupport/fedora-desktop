@@ -60,26 +60,36 @@ rules:
   # Ansible: a Jinja expression naming a secret inside the text of a task that runs a command
   # (shell, command, raw, script, expect) or inside environment:. Both reach a command line, as
   # the header says. stdin: and expect's responses: do not.
+  #
+  # In environment: the variable name is evidence too: a secret-named key (UNIFI_ADMIN_HASH)
+  # given any Jinja value is flagged whatever the value is called, so a register named for
+  # the step (unifi_admin_hash) cannot carry a hash past the value's name.
   - id: secret-in-argv-ansible
     patterns:
       - pattern-either:
-          - pattern-inside: 'environment: ...'
-          - pattern-inside: 'ansible.builtin.shell: ...'
-          - pattern-inside: 'ansible.builtin.command: ...'
-          - pattern-inside: 'ansible.builtin.raw: ...'
-          - pattern-inside: 'ansible.builtin.script: ...'
-          - pattern-inside: 'ansible.builtin.expect: ...'
-          - pattern-inside: 'shell: ...'
-          - pattern-inside: 'command: ...'
-          - pattern-inside: 'raw: ...'
-          - pattern-inside: 'script: ...'
-          - pattern-inside: 'expect: ...'
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: 'environment: ...'
+                  - pattern-inside: 'ansible.builtin.shell: ...'
+                  - pattern-inside: 'ansible.builtin.command: ...'
+                  - pattern-inside: 'ansible.builtin.raw: ...'
+                  - pattern-inside: 'ansible.builtin.script: ...'
+                  - pattern-inside: 'ansible.builtin.expect: ...'
+                  - pattern-inside: 'shell: ...'
+                  - pattern-inside: 'command: ...'
+                  - pattern-inside: 'raw: ...'
+                  - pattern-inside: 'script: ...'
+                  - pattern-inside: 'expect: ...'
+              # A name that holds a secret: a password, passphrase, secret, token, key, PSK,
+              # shadow entry or hash of one. Not the passwd database (getent_passwd), the openssl
+              # passwd command word, or the name, label, file or path of a secret. A checksum
+              # of a file (dockerfile_hash, sha256_hash) is public and is not a secret.
+              - pattern-regex: '\{\{(?:(?!\}\})[^\n])*?(?<!\w)(?!getent_passwd\b|passwd[''"])(?!\w*?(?:file|sha\d*|md5|checksum|commit|image|content)_hash\b)\w*?(?:password|passphrase|passwd|secret|token|psk|credential|api_?key|private_?key|shadow|_pp\b|hash|salt)(?!_name\b|_label\b|_file\b|_path\b)\w*(?:(?!\}\})[^\n])*\}\}'
+          - patterns:
+              - pattern-inside: 'environment: ...'
+              - pattern-regex: '(?im)^[ \t]*-?[ \t]*\w*?(?:password|passphrase|passwd|secret|token|psk|credential|api_?key|private_?key|shadow|hash|salt)\w*[ \t]*:[^\n]*\{\{[^\n]*\}\}'
       - pattern-not-inside: 'stdin: ...'
       - pattern-not-inside: 'responses: ...'
-      # A name that holds a secret: a password, passphrase, secret, token, key, PSK or password
-      # hash. Not the passwd database (getent_passwd), the openssl passwd command word, or the
-      # name, label, file or path of a secret, which are not the secret.
-      - pattern-regex: '\{\{(?:(?!\}\})[^\n])*?(?<!\w)(?!getent_passwd\b|passwd[''"])\w*?(?:password|passphrase|passwd|secret|token|psk|credential|api_?key|private_?key|shadow|_pp\b)(?!_name\b|_label\b|_file\b|_path\b)\w*(?:(?!\}\})[^\n])*\}\}'
     message: >
       secret-in-argv: a secret rendered into a command line or environment: of a task, readable
       by any local user while it runs (no_log does not change that). Pass it with stdin:. See
