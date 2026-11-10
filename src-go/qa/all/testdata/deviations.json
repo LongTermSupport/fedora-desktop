@@ -14,15 +14,17 @@
  },
  "zero-count": {
   "bugs": [
-   "B21"
+   "B21",
+   "B33"
   ],
-  "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion; the bash ticked it, the Go fails the gate"
+  "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion; the bash ticked it, the Go fails the gate; and the headline counts the failed gates and stages first (B33)"
  },
  "count-line-reports-failures": {
   "bugs": [
-   "B22"
+   "B22",
+   "B33"
   ],
-  "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite; the bash ticked it, the Go fails the gate"
+  "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite; the bash ticked it, the Go fails the gate; and the headline counts the failed gates and stages first (B33)"
  },
  "stage-forges-verdict": {
   "bugs": [
@@ -32,69 +34,80 @@
  },
  "fail-bash": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-python": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-patterns": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-ansible": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-ansible-syntax": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-js": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "fail-docs": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "gate-and-stage-fail": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "stage-fail-without-failures": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "stage-failures-merge": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "many-fail": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; and the headline counts the failed gates and stages first (B33)"
  },
  "stale-report-then-abort": {
   "bugs": [
@@ -105,93 +118,108 @@
  },
  "no-count": {
   "bugs": [
-   "B2"
+   "B2",
+   "B33"
   ],
-  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed; and the headline counts the failed gates and stages first (B33)"
  },
  "no-count-empty": {
   "bugs": [
-   "B2"
+   "B2",
+   "B33"
   ],
-  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed; and the headline counts the failed gates and stages first (B33)"
  },
  "detail-miss-go": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; and the headline counts the failed gates and stages first (B33)"
  },
  "detail-miss-toolchain": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; and the headline counts the failed gates and stages first (B33)"
  },
  "detail-miss-manifest-second": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; and the headline counts the failed gates and stages first (B33)"
  },
  "drift-empty": {
   "bugs": [
-   "B12"
+   "B12",
+   "B33"
   ],
-  "reason": "deployed-drift passing with no stage line is a failed gate, not a blank line"
+  "reason": "deployed-drift passing with no stage line is a failed gate, not a blank line; and the headline counts the failed gates and stages first (B33)"
  },
  "helpers-counts-empty": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; and the headline counts the failed gates and stages first (B33)"
  },
  "helpers-counts-no-skipped": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; and the headline counts the failed gates and stages first (B33)"
  },
  "helpers-counts-wrong-token": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; and the headline counts the failed gates and stages first (B33)"
  },
  "helpers-counts-duplicate": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; and the headline counts the failed gates and stages first (B33)"
  },
  "helpers-counts-non-numeric": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; and the headline counts the failed gates and stages first (B33)"
  },
  "stage-report-empty-shifts": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); and the headline counts the failed gates and stages first (B33)"
  },
  "stage-report-malformed": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); and the headline counts the failed gates and stages first (B33)"
  },
  "stage-report-no-summary": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); and the headline counts the failed gates and stages first (B33)"
  },
  "stage-exit0-with-failures": {
   "bugs": [
-   "B5"
+   "B5",
+   "B33"
   ],
-  "reason": "a stage that exits 0 while its report counts failures is a failed stage"
+  "reason": "a stage that exits 0 while its report counts failures is a failed stage; and the headline counts the failed gates and stages first (B33)"
  },
  "exit2-ansible-syntax": {
   "bugs": [
@@ -234,5 +262,569 @@
    "B30"
   ],
   "reason": "the patterns stage's exit-2 text names the failure and points at the ERROR line above instead of telling the reader to install semgrep"
+ },
+ "fail-toolchain": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-go": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-bash-limits": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-nokill-containerwatch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-deployed-drift": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-helper-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-secret-scan-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-planlib-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-rootless-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-token-mode": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-token-usage-output": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-token-usage-command": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-token-import-cleanup": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-ssh-handling": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-git-signing": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-git-signing-declared": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-qa-tool-pin-converges": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-browser-session-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-gh-scope-outside-ssot": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-speech-to-text-rules": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ready-wait-rules": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-pause-without-register": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-selinux-verdict": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-relabel-preflight": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-agent-mailbox-watch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-gpu-device": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-container-menus": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-flag-check": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-restart-request": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-container-version-hook": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-project-env": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-git-preflight": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-agent-bus": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-teams": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-cc-teams": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-gitignore-safety": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-env-local-dist": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-lifecycle": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-wsi-stop-grace": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-stt-limits": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-host-hostname": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-host-time-zone": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-network-disconnect": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-info-flags": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ssh-suspend-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-session-registry": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-compose-restore": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-sessions-reboot": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-sessions-take-over": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-tmux-targets": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-teams-command": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-ccy-restore-askpass": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-host-only-gate": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-reboot-dispatch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-kernel-selection": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-build-dir-cleanup": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-member": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-prepare-record": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-panel-sections": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-headless-localhost-yml": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-ssh-agent-teardown": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-single-play": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-changed": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-rerun": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-gh-scopes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-config-repo": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-bash-ssh-agent-start": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-gh-alias-wrappers": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-self-update-cycle": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-agent-bus-install": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-release": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-run-log-scrub": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-host-health-login-snippet": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-bash-history-search": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-bash-history-session": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-terminal-modes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-fedora-desktop-health": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-failfast-pattern-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-docs-exit-codes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-qa-changed-mapping": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-extension-compat": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-panel-contract": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-vmtest-manifest": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-plan-script-logging": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "fail-version-pins": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "exit2-toolchain": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "exit2-go": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "two-gates-fail": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "drift-fails": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "drift-exit2": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "helpers-stdout-noise": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "helpers-fails-with-output": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "hard-gate-stderr-only": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
+ },
+ "hard-gate-no-output-fail": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "the bash's headline counted only the lint reports' errors, so a run that failed on a gate or stage alone read 'QA FAILED: 0 errors'; the Go headline counts the failed gates and stages first and the lint errors after (B33)"
  }
 }

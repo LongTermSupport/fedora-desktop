@@ -2316,6 +2316,22 @@ the reason printed. It exists for the owner's tools that push commits no qa-all 
 `scripts/mark-branches-superseded.bash`, which stamps retired branches). An agent never sets it,
 and never pushes with `--no-verify`.
 
+### summary-count-omits-failure-source
+
+**What it is.** A summary count that leaves out some of the failure sources it summarises, so a
+failure reads as a failure of nothing. Run by `src-go/qa/all/headline_test.go` (in the Go gate),
+which fails every gate of `scripts/qa-gates.tsv` alone in turn and requires qa-all's headline
+to count that failure by its kind. A test is the detector because whether a count covers every
+source is a property of the run, which no reading of the format string shows.
+
+**Why it exists.** qa-all's headline printed the merged lint reports' error count, `✗ QA FAILED: 0 errors in 1814 files`, when the only failure was a helper-tests case (issue #183): a hard gate,
+the helper suite or the drift check adds no lint error, and a failed stage was not counted at
+all. Whoever read only the headline saw a failure with zero errors. Found and defended under
+Defence Before Fix; `qa-changed`'s summary (it names every failing check) has no count to omit.
+
+**How to fix a finding.** Count every kind of failure the summary covers, first, and label a
+partial count as what it is: qa-all's headline is now `✗ QA FAILED: <K> gate(s) and <S> stage(s) failed; <E> lint errors in <N> files`, each kind named only when it failed.
+
 ---
 
 ## Changing a Gate

@@ -70,7 +70,7 @@ func TestTheVerdictNamesEveryFailedGateAndStageInRunOrder(t *testing.T) {
 	}
 	tail := stdoutLines(w.out.String())
 	want := []string{
-		"✗ QA FAILED: 1 errors in 7 files",
+		"✗ QA FAILED: 2 gate(s) and 1 stage(s) failed; 1 lint errors in 7 files",
 		"  2 gate(s) failed: suite-a manifest",
 		"  1 stage(s) failed: docs",
 		"  Details: jq '.failures[]' " + w.env["QA_RESULTS_JSON"],

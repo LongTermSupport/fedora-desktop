@@ -260,7 +260,7 @@ func TestAStagePassesItsOutputThroughAndItsFailureNeedsNoLineOfOurs(t *testing.T
 	if strings.Count(w.out.String(), "bash:") != 1 || !strings.Contains(w.errOut.String(), "detail\n") {
 		t.Fatalf("stdout:\n%s\nstderr:\n%s", w.out.String(), w.errOut.String())
 	}
-	if !strings.Contains(w.out.String(), "✗ QA FAILED: 1 errors in 7 files\n  1 stage(s) failed: bash\n") {
+	if !strings.Contains(w.out.String(), "✗ QA FAILED: 1 stage(s) failed; 1 lint errors in 7 files\n  1 stage(s) failed: bash\n") {
 		t.Fatalf("stdout:\n%s", w.out.String())
 	}
 }

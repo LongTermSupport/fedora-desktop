@@ -244,7 +244,9 @@ func (s *session) finish() ExitCode {
 		s.outf("✓ QA passed: %d files checked\n", totals.Total)
 		return ExitOK
 	}
-	s.outf("✗ QA FAILED: %d errors in %d files\n", totals.Failed, totals.Total)
+	// The headline counts what failed first, so it never reads as a failure of nothing; the lint
+	// numbers follow as what they are, the merged reports' (rule summary-count-omits-failure-source).
+	s.outf("✗ QA FAILED: %s failed; %d lint errors in %d files\n", s.failedCounts(), totals.Failed, totals.Total)
 	// Every gate ran, so these lists are the whole of what is broken, not the first thing that
 	// happened to break.
 	if n := len(s.failedGates); n > 0 {
@@ -255,6 +257,18 @@ func (s *session) finish() ExitCode {
 	}
 	s.outf("  Details: jq '.failures[]' %s\n", s.results)
 	return ExitFailed
+}
+
+// failedCounts is "N gate(s)", "M stage(s)" or both: every kind that failed, counted.
+func (s *session) failedCounts() string {
+	var parts []string
+	if n := len(s.failedGates); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d gate(s)", n))
+	}
+	if n := len(s.failedStages); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d stage(s)", n))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // tempFile makes an empty scratch file that cleanup removes on every exit path.
