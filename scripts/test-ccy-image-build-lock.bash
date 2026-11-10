@@ -158,7 +158,12 @@ build)
         -t) tag="$2"; shift 2 ;;
         --label) case "$2" in ccy-version=*) ccyv="${2#ccy-version=}" ;; esac; shift 2 ;;
         -f) dockerfile="$2"; shift 2 ;;
-        --build-arg) case "$2" in DOCKERFILE_HASH=*) hash="${2#DOCKERFILE_HASH=}" ;; esac; shift 2 ;;
+        --build-arg)
+            case "$2" in
+            DOCKERFILE_HASH=*) hash="${2#DOCKERFILE_HASH=}" ;;
+            CCY_SOURCE_COMMIT=*) echo "${2#CCY_SOURCE_COMMIT=}" >>"$TEST_STATE/commits.log" ;;
+            esac
+            shift 2 ;;
         --target) shift 2 ;;
         --*) shift ;;
         *) ctx="$1"; shift ;;
@@ -207,7 +212,10 @@ reset_world() {
     chmod 700 "$SCRATCH/run"
     : >"$SCRATCH/state/builds.log"
     printf 'FROM scratch\nLABEL claude-yolo-version="%s"\n' "${1:-9.9.9}" >"$CONTEXT/Dockerfile"
+    # The commit the play writes beside the Dockerfile; the image's builder stage clones it.
+    echo "$SOURCE_COMMIT" >"$CONTEXT/source-commit"
 }
+SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567
 
 # The self-prune writes its removal log under HOME, so HOME is the sandbox's, set after the builds.
 export HOME="$SCRATCH/home"
@@ -614,13 +622,14 @@ mapfile -t play_argv < <(awk '
     task && /^ *argv:/ { in_argv = 1; next }
     in_argv && /^ *- / { sub(/^ *- /, ""); if ($0 ~ /^".*"$/) $0 = substr($0, 2, length($0) - 2); print; next }
     in_argv { exit }' "$PLAY")
-check "the play's build argv was found" 16 "${#play_argv[@]}"
+check "the play's build argv was found" 18 "${#play_argv[@]}"
 for i in "${!play_argv[@]}"; do
     case "${play_argv[$i]}" in
     /var/local/claude-yolo/lib/image-build-lock.bash) play_argv[i]="$LIB_DIR/image-build-lock.bash" ;;
     /opt/claude-yolo) play_argv[i]="$CONTEXT" ;;
     "{{ container_engine }}") play_argv[i]=podman ;;
     *"{{ dockerfile_hash.stdout }}"*) play_argv[i]="${play_argv[$i]/"{{ dockerfile_hash.stdout }}"/x}" ;;
+    *"{{ ccy_source_commit.stdout }}"*) play_argv[i]="${play_argv[$i]/"{{ ccy_source_commit.stdout }}"/$SOURCE_COMMIT}" ;;
     *"{{ ccy_version }}"*) play_argv[i]="${play_argv[$i]/"{{ ccy_version }}"/$CCY_VERSION}" ;;
     esac
 done
@@ -630,6 +639,20 @@ check "it succeeds" 0 "$?"
 check "one build" 1 "$(builds)"
 check "the play's build is labelled with the ccy it installs" "$CCY_VERSION" "$(awk '{print $5}' "$TEST_STATE/images/claude-yolo_latest")"
 check "the record is emptied" 0 "$(wc -c <"$LOCK" | tr -d ' ')"
+check "the play's build is given the checkout's commit" "$SOURCE_COMMIT" "$(cat "$TEST_STATE/commits.log")"
+
+echo "== the source commit: the launcher's build clones what the play deployed (issue 235)"
+reset_world
+rm -f "$TEST_STATE/commits.log"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "the launch succeeds" 0 "$?"
+check "both builds are given the context's source-commit" "$SOURCE_COMMIT $SOURCE_COMMIT" "$(paste -sd' ' "$TEST_STATE/commits.log")"
+reset_world
+rm "$CONTEXT/source-commit"
+TEST_BUILD_SLEEP=0 run_launch base.bash force >>"$QUIET" 2>"$SCRATCH/a.err"
+check "with no source-commit the launch fails" 1 "$?"
+has "naming the file and the play" "$SCRATCH/a.err" "$CONTEXT/source-commit"
+check "nothing was built" 0 "$(builds)"
 
 echo "== the lock refuses a directory that is not the user's own"
 reset_world

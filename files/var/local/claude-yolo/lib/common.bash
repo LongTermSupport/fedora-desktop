@@ -1011,39 +1011,22 @@ validate_container_version() {
 }
 
 # Build container with hash
-# Args: $1 = image name, $2 = dockerfile directory, $3 = additional flags (optional)
+# Args: $1 = image name, $2 = dockerfile directory, $3 = additional flags (optional),
+# $4 = optional base image name, built first with --target base so project Dockerfiles can
+# extend the lean base and add only the LSPs they need (shares layers with the full build).
 build_container_with_hash() {
-    local image_name="$1"
-    local dockerfile_dir="$2"
-    local dockerfile_path="$dockerfile_dir/Dockerfile"
-    # Optional 4th arg: if set, also build this image name using --target base.
-    # Used to produce claude-yolo:base alongside claude-yolo:latest so project
-    # Dockerfiles can extend the lean base and add only the LSPs they need.
-    local base_image_name="${4:-}"
-
-    # Collect optional extra flags as array (avoids unquoted expansion)
-    local -a extra_flags=(${3:+"$3"})
-
-    # Calculate Dockerfile hash
-    local dockerfile_hash
-    dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
-
-    # Build base stage first if requested (shares layers with full build below)
-    if [[ -n "$base_image_name" ]]; then
-        container_cmd build \
-            "${extra_flags[@]}" \
-            --build-arg DOCKERFILE_HASH="$dockerfile_hash" --label "ccy-version=${CCY_VERSION:?the build needs CCY_VERSION}" \
-            --target base \
-            -t "$base_image_name" \
-            "$dockerfile_dir" || return
+    local image_name="$1" dockerfile_dir="$2" base_image_name="${4:-}" dockerfile_hash build extra_flags=(${3:+"$3"})
+    dockerfile_hash=$(md5sum "$dockerfile_dir/Dockerfile" | cut -d' ' -f1 | cut -c1-16)
+    # The commit the play deployed this Dockerfile from (tasks/claude-yolo-image.yml): the image's
+    # builder stage clones it and builds the image's Go commands and pingbus there (issue 235).
+    if [[ ! -f "$dockerfile_dir/source-commit" ]]; then
+        print_error "$dockerfile_dir/source-commit not found: the image build needs the commit it is built from. Run the play: playbooks/imports/play-claude-yolo.yml"
+        return 1
     fi
-
-    # Build with hash as build arg (builds final stage: full image with LSPs)
-    container_cmd build \
-        "${extra_flags[@]}" \
-        --build-arg DOCKERFILE_HASH="$dockerfile_hash" --label "ccy-version=${CCY_VERSION:?the build needs CCY_VERSION}" \
-        -t "$image_name" \
-        "$dockerfile_dir"
+    build=(container_cmd build "${extra_flags[@]}" --build-arg CCY_SOURCE_COMMIT="$(<"$dockerfile_dir/source-commit")"
+        --build-arg DOCKERFILE_HASH="$dockerfile_hash" --label "ccy-version=${CCY_VERSION:?the build needs CCY_VERSION}")
+    [[ -z "$base_image_name" ]] || "${build[@]}" --target base -t "$base_image_name" "$dockerfile_dir" || return
+    "${build[@]}" -t "$image_name" "$dockerfile_dir"
 }
 
 # Export functions for use in other scripts.
@@ -1062,7 +1045,6 @@ get_next_container_name() {
     ccy-teams internal claim-container-name "$1" "$2" "$$"
 }
 
-export -f validate_container_version
-export -f build_container_with_hash
+export -f validate_container_version build_container_with_hash
 export -f get_next_container_name
 

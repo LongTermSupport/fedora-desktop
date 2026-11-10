@@ -90,6 +90,13 @@
 # And Plan 00209 Task 4.2 (ccy 3.115.0, container 2.82.0): the end of the container's start is
 # the Go ccy-start-claude, built into the image's build context; the image is rebuilt once. After
 # it, a ccy session starts as before (with its supervisor and, on a team, its seats).
+# And issue 235 (ccy 3.116.0, container 2.83.0): play-claude-yolo.yml and
+# play-claude-code-consumer.yml no longer build ccy-start-claude, pingbus-status-line, teamchat
+# or the pingbus zipapp into the image's build context (the stale copies are removed); the
+# image's builder stage clones this checkout's HEAD from GitHub and builds them, so HEAD must be
+# pushed (it is, from the container). The commit is written to /opt/claude-yolo/source-commit for
+# ccy's own rebuilds. The image is rebuilt once; after it a ccy session starts as before, and
+# /opt/claude-yolo/optional/teamchat/bin/teamchat version prints the commit's src-go tree id.
 # And Plan 00246 Task 8.8: play-vm-test-lab.yml rebuilds vmtest (the links, member-address,
 # member-ssh --as, lab-network) and writes the lab's subnets into lab.env from the new host_vars
 # mapping vm_test_lab_networks, checked against each other and this host's routes. Set it first

@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.116.0 — container 2.83.0
+
+- **The image builds what it needs from this repository's source itself** (issue 235). A
+  builder stage in the Dockerfile, `ccy-builder`, clones the public repository at the commit
+  given as the build argument `CCY_SOURCE_COMMIT` and builds `ccy-start-claude`,
+  `pingbus-status-line` and `teamchat` (static, with the Go toolchain `src-go/go.mod` pins) and
+  the pingbus zipapp there. The build context holds repository files only, so a pipeline that
+  stages it from the repository, pinned by checksum, can build the image. The play passes its
+  checkout's HEAD and records it in `/opt/claude-yolo/source-commit`, which the launcher's own
+  rebuilds pass too; the commit must be pushed, or the build fails at the fetch, naming it.
+
 ## 3.115.0 — container 2.82.0
 
 - **The end of the container's start is Go: `ccy-start-claude`** (Plan 00209 Task 4.2).

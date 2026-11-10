@@ -84,8 +84,8 @@ podman image inspect claude-yolo:latest --format '{{.Id}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
 container-images --engine podman before claude-yolo
-podman build --build-arg 'DOCKERFILE_HASH={image_hash}' --label 'ccy-version={ccy_version}' --target base -t claude-yolo:base '{sandbox}/opt/claude-yolo'
-podman build --build-arg 'DOCKERFILE_HASH={image_hash}' --label 'ccy-version={ccy_version}' -t claude-yolo:latest '{sandbox}/opt/claude-yolo'
+podman build --build-arg CCY_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 --build-arg 'DOCKERFILE_HASH={image_hash}' --label 'ccy-version={ccy_version}' --target base -t claude-yolo:base '{sandbox}/opt/claude-yolo'
+podman build --build-arg CCY_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 --build-arg 'DOCKERFILE_HASH={image_hash}' --label 'ccy-version={ccy_version}' -t claude-yolo:latest '{sandbox}/opt/claude-yolo'
 container-images --engine podman replaced --lock '{sandbox}/run/ccy/image-builds/claude-yolo_latest.lock' claude-yolo /dev/stdin
 container-images --engine podman stale --lock '{sandbox}/run/ccy/image-builds/claude-yolo_latest.lock' --yes '{ccy_version}'
 podman run --rm --pids-limit 4096 --entrypoint claude claude-yolo:latest --version

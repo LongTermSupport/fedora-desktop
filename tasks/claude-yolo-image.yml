@@ -3,8 +3,15 @@
 # Dockerfile, the entrypoint and every file the Dockerfile COPYs), the shared bash libraries
 # (the build lock among them), and the build itself under the lock every ccy launch takes.
 # Imported by play-claude-yolo.yml and by play-claude-code-consumer.yml, which runs the same
-# image as ccc (Plan 00233). Needs root_dir, user_login and container_engine, and the Go
-# toolchain (play-golang.yml) for the pingbus-status-line build.
+# image as ccc (Plan 00233). Needs root_dir, user_login and container_engine, git, and the Go
+# toolchain (play-golang.yml) for the container-images build.
+#
+# The build context holds repository files only, copied as they are (issue 235), so a pipeline
+# that stages it from the repository's files can build the image too. What the image needs built
+# from this repository's source (ccy-start-claude, pingbus-status-line, teamchat and the pingbus
+# zipapp) is built by the Dockerfile's builder stage from the commit given as CCY_SOURCE_COMMIT.
+# scripts/test-ccy-container-version-hook.bash fails on any task here that writes anything else
+# into the context where the Dockerfile copies it.
 - name: Create Claude YOLO Base Directory
   become: true
   ansible.builtin.file:
@@ -284,61 +291,22 @@
     - scripts
     - skills
 
-# Built here from helpers/ with the builder agent-bus-install uses, so the core ccy play
-# never depends on the bus play, and the same source gives the same bytes in both places.
-- name: Build the pingbus Zipapp into Docker Build Context
+# The play used to build these into the context; the Dockerfile's builder stage builds them now
+# (issue 235). Removed so no stale copy lies under the context's optional/, which the image COPYs
+# before the builder's copies land over it.
+- name: Remove the Files the Image Now Builds Itself from Docker Build Context
   become: true
-  ansible.builtin.command:
-    argv:
-      - python3
-      - -B
-      - -s
-      - -m
-      - helpers.pingbus.bundle
-      - --source
-      - "{{ root_dir }}"
-      - --out
-      - /opt/claude-yolo/optional/agent-bus/pingbus
-      - pingbus
-    chdir: "{{ root_dir }}"
-  register: ccy_pingbus_bundle
-  changed_when: ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
-  failed_when: >-
-    ccy_pingbus_bundle.rc != 0
-    or not (ccy_pingbus_bundle.stdout.startswith('BUNDLE-CHANGED ')
-            or ccy_pingbus_bundle.stdout.startswith('BUNDLE-UNCHANGED '))
+  ansible.builtin.file:
+    path: "/opt/claude-yolo/{{ item }}"
+    state: absent
+  loop:
+    - ccy-start-claude
+    - optional/agent-bus/pingbus
+    - optional/agent-bus/pingbus-status-line
+    - optional/teamchat/bin
   tags:
     - scripts
     - skills
-
-# A seated session's status line (Plan 00213): the Go port of `pingbus status-line`, which
-# starts no Python on a refresh. The entrypoint links it beside pingbus. Static, because the
-# image is Debian and the host's glibc is newer than the image's.
-- name: Build the pingbus-status-line Command into Docker Build Context
-  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
-  vars:
-    go_command_name: pingbus-status-line
-    go_command_dest: /opt/claude-yolo/optional/agent-bus/pingbus-status-line
-    go_command_mode: "0755"
-    go_command_owner: root
-    go_command_static: true
-  tags:
-    - scripts
-    - skills
-
-# The end of the container's start (Plan 00209 Task 4.2): entrypoint.sh execs it with the
-# session's command. Static, because the image is Debian and the host's glibc is newer.
-- name: Build the ccy-start-claude Command into Docker Build Context
-  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
-  vars:
-    go_command_name: ccy-start-claude
-    go_command_dest: /opt/claude-yolo/ccy-start-claude
-    go_command_mode: "0755"
-    go_command_owner: root
-    go_command_static: true
-  tags:
-    - scripts
-    - entrypoint
 
 # The agent team bus v2 member kit (Plan 00209 Task 4.1), beside v1's above and touching none of it.
 - name: Stage the teamchat Kit into Docker Build Context
@@ -455,6 +423,33 @@
 - name: Read the Launcher's CCY_VERSION for the Image Label
   ansible.builtin.import_tasks: "{{ root_dir }}/tasks/ccy-version.yml"
 
+# The commit the image's builder stage clones (Dockerfile, ccy-builder): this checkout's HEAD, so
+# the image's Go commands and pingbus are built from the source this play deploys. The clone is
+# from GitHub, so HEAD must be pushed or the build fails at the fetch. Written beside the
+# Dockerfile, where no COPY takes it, for the launcher's own rebuilds (lib/common.bash).
+- name: Read the Checkout's Commit for the Image Build
+  ansible.builtin.command:
+    argv: [git, -C, "{{ root_dir }}", rev-parse, --verify, "HEAD^{commit}"]
+  become: false
+  changed_when: false
+  register: ccy_source_commit
+
+- name: Refuse a Checkout Commit That Is Not a Full Commit Id
+  ansible.builtin.assert:
+    that:
+      - ccy_source_commit.stdout is match('^[0-9a-f]{40}$')
+    fail_msg: git rev-parse HEAD answered '{{ ccy_source_commit.stdout }}', not a 40-hex commit id.
+    quiet: true
+
+- name: Record the Commit the Image Is Built From
+  become: true
+  ansible.builtin.copy:
+    content: "{{ ccy_source_commit.stdout }}\n"
+    dest: /opt/claude-yolo/source-commit
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Calculate Dockerfile Hash for Build
   ansible.builtin.shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
   register: dockerfile_hash
@@ -487,6 +482,8 @@
       - --
       - "{{ container_engine }}"
       - build
+      - --build-arg
+      - CCY_SOURCE_COMMIT={{ ccy_source_commit.stdout }}
       - --build-arg
       - DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
       - --label

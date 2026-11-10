@@ -336,14 +336,21 @@ check "…and prints no container check" "no" "$(has 'container version bump req
 echo "=== the gate covers exactly the repo files the real play puts into the image ==="
 
 # The gate's paths must not drift from what the image actually copies. Read the real play's
-# tasks (and the task files it includes) that write into the build context: its copy tasks and
-# its pingbus zipapp build. Keep the repo files landing under a real Dockerfile COPY source, and
-# run the real hook against a change to each one; every other tracked file under
-# files/opt/claude-yolo/ must not be judged. Any other task naming the build context must be one
-# of the known readers below, or the test fails: a new way of writing into the image is then
-# taught here deliberately, never missed.
+# tasks (and the task files it imports, with the import's vars filled in) that write into the
+# build context. Keep the repo files landing under a real Dockerfile COPY source, and run the real
+# hook against a change to each one; every other tracked file under files/opt/claude-yolo/ must
+# not be judged. The pingbus zipapp the Dockerfile's builder stage makes is judged by its sources,
+# helpers/pingbus and helpers/agent_bus. Any other task naming the build context must be one of
+# the known readers below, or the test fails: a new way of writing into the image is then taught
+# here deliberately, never missed.
+#
+# The build context holds repository files only (issue 235): a pipeline that stages the context
+# from the repository's files, pinned by checksum, must be able to build the image. So a task
+# that writes into the context anything but a copy of a tracked file (a program the play builds,
+# a copy from a scratch path) is listed in generated-files, and the check below fails on it: the
+# Dockerfile's builder stage builds such a file from the commit it is given.
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-if ! python3 -B -s - "$REPO_ROOT" >"$work/image-files" 2>"$work/image-files.err" <<'PY'; then
+if ! python3 -B -s - "$REPO_ROOT" "$work/generated-files" >"$work/image-files" 2>"$work/image-files.err" <<'PY'; then
 import json
 import pathlib
 import subprocess
@@ -357,12 +364,11 @@ from helpers.pingbus import bundle
 
 CONTEXT = "/opt/claude-yolo/"
 READERS = {"Calculate Dockerfile Hash for Build", "Build Claude YOLO Container Image with Hash"}
-# Copies of a program the play builds from src-go into a scratch directory, not of a repo file.
-# The gate does not judge src-go: the image's teamchat records its source as its digest.
-BUILT = {"Install the teamchat Program into Its Kit in Docker Build Context"}
 INCLUDES = ("ansible.builtin.include_tasks", "ansible.builtin.import_tasks")
+generated = []
 sources = []
-for line in (root / "files/var/local/claude-yolo/Dockerfile").read_text().splitlines():
+dockerfile = (root / "files/var/local/claude-yolo/Dockerfile").read_text()
+for line in dockerfile.splitlines():
     words = line.split()
     if words[:1] == ["COPY"] and not any(w.startswith("--from=") for w in words):
         args = [w for w in words[1:] if not w.startswith("--")]
@@ -377,10 +383,7 @@ def copied(rel):
 
 
 def tracked_under(path):
-    hits = [t for t in tracked if t == path or (path.endswith("/") and t.startswith(path))]
-    if not hits:
-        sys.exit(f"the play copies {path}, which git does not track")
-    return hits
+    return [t for t in tracked if t == path or (path.endswith("/") and t.startswith(path))]
 
 
 def render(text, item):
@@ -401,7 +404,10 @@ def walk(tasks):
         for key in INCLUDES:
             if key in task:
                 ref = task[key] if isinstance(task[key], str) else task[key]["file"]
-                yield from walk(yaml.safe_load((root / render(ref, None)).read_text()))
+                text = (root / render(ref, None)).read_text()
+                for name, value in (task.get("vars") or {}).items():
+                    text = text.replace("{{ %s }}" % name, str(value))
+                yield from walk(yaml.safe_load(text))
         yield task
 
 
@@ -414,36 +420,43 @@ play = yaml.safe_load((root / "playbooks/imports/play-claude-yolo.yml").read_tex
 for task in walk([t for p in play for t in (p.get("pre_tasks") or []) + (p.get("tasks") or [])]):
     # A block's own tasks are walked one by one; the block is only their container.
     if CONTEXT.rstrip("/") not in json.dumps(task) or any(k in task for k in INCLUDES) \
-            or "block" in task or task.get("name") in BUILT:
+            or "block" in task:
         continue
-    copy, command = task.get("ansible.builtin.copy"), task.get("ansible.builtin.command")
-    argv = command.get("argv") or [] if isinstance(command, dict) else []
+    copy = task.get("ansible.builtin.copy")
     if copy:
         for item in task.get("loop") or [None]:
             dest = render(copy["dest"], item)
             if not dest.startswith(CONTEXT):
                 continue
             if "src" not in copy:
-                teach(task, "writes content into the build context")
+                # Content no COPY takes (the commit the launcher's rebuilds pass) is not image content.
+                if copied(dest[len(CONTEXT):]):
+                    generated.append(f"{dest} (task '{task.get('name')}')")
+                continue
             src, rel = render(copy["src"], item), dest[len(CONTEXT):]
+            if copy.get("remote_src") or not tracked_under(src):
+                generated.append(f"{dest} (task '{task.get('name')}')")
+                continue
             if dest.endswith("/") and not src.endswith("/"):
                 rel += src.rsplit("/", 1)[-1]
             directory = src.endswith("/")
             found += [f for f in tracked_under(src) if copied(rel + f[len(src):] if directory else rel)]
-    elif "helpers.pingbus.bundle" in argv:
-        out = argv[argv.index("--out") + 1]
-        if out.startswith(CONTEXT) and copied(out[len(CONTEXT):]):
-            found += [f for package in bundle.PACKAGES for f in tracked_under(package + "/")]
     elif "ansible.builtin.file" in task:
         if task["ansible.builtin.file"].get("state") not in ("directory", "absent"):
             teach(task, "makes something other than a directory or a removal in the build context")
     elif task.get("name") not in READERS and "ansible.builtin.debug" not in task:
-        teach(task, "names the build context in a way this test cannot read")
+        generated.append(f"task '{task.get('name')}' writes into the build context")
+# The builder stage builds the pingbus zipapp from the commit's helpers, so their changes are judged.
+if "helpers.pingbus.bundle" in dockerfile:
+    found += [f for package in bundle.PACKAGES for f in tracked_under(package + "/")]
+pathlib.Path(sys.argv[2]).write_text("".join(f"{g}\n" for g in generated))
 print("\n".join(dict.fromkeys(found)))
 PY
     cat "$work/image-files.err"
     check "the play's image files can be listed" "0" "1"
 fi
+check "the build context holds only copies of tracked repository files (issue 235)" "" \
+    "$(cat "$work/generated-files")"
 check "the play copies files from files/opt/claude-yolo into the image" "yes" \
     "$(if grep -q '^files/opt/claude-yolo/' "$work/image-files"; then echo yes; else echo no; fi)"
 check "the pingbus zipapp's sources are found (helpers/pingbus and helpers/agent_bus)" "2" \

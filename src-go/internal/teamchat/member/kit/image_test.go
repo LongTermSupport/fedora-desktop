@@ -13,7 +13,7 @@ import (
 
 // imageKitFiles is where the repository keeps the ccy image's kit, all of it but the binary
 // (Plan 00209 Task 4.1, D 3.6): tasks/teamchat-ccy-kit.yml copies these files into the image's
-// build context and builds bin/teamchat beside them.
+// build context, and the Dockerfile's builder stage builds bin/teamchat beside them.
 const imageKitFiles = "../../../../../files/opt/claude-yolo/optional/" + paths.Product
 
 // tree is every regular file below root, by its path relative to root, with its bytes.

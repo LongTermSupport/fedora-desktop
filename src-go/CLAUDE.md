@@ -137,7 +137,9 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   Task 4.2, `LAUNCH-ccy.md`): the supervisor wrap, the lifecycle and first-join relaunch plugins,
   the v1 bus kit step and the final exec, ported from `entrypoint.sh` (v1 byte for byte, held by
   `parity_test.go` against the frozen bash tail), and a v2 session's `teamchat run`. Built
-  static into the ccy image's build context by `tasks/claude-yolo-image.yml`.
+  static by the ccy Dockerfile's builder stage (`ccy-builder`), as are the image's
+  `pingbus-status-line` and `teamchat`: it clones this repository at the commit the build is
+  given (`CCY_SOURCE_COMMIT`) and builds with the toolchain `go.mod` pins (issue 235).
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
@@ -296,9 +298,8 @@ the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
 `play-cli-tools.yml` for `open`, `convert` and `reclaim`, `play-podman.yml` for `container-images`, `play-nordvpn-openvpn.yml` for `nord`, `play-rclone.yml` for `rclone-cache-status` and `rclone-tail`,
 `play-basic-configs.yml` for `git-fetch-age` and the `ssh-with-key` family, and `play-git-configure-and-tools.yml` for
-`git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
-`play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
-built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions
+`git-prompt-fetch`, and `play-agent-bus.yml` (into the member kit, which LXC members copy) for
+`pingbus-status-line`, built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions
 (each imports `play-golang.yml` too); `watermark`, `git-fetch-age` and
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands

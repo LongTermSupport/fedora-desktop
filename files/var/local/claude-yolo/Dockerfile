@@ -21,6 +21,57 @@ RUN target="$(uname -m)-unknown-linux-musl" \
     && cp "target/${target}/release/phpantom_lsp" /build/phpantom_lsp
 # The static binary will be copied into the runtime image below
 
+# ============================================================================
+# Build stage: the files of this image built from fedora-desktop's own source
+# ============================================================================
+# ccy-start-claude, pingbus-status-line and teamchat (Go, src-go/cmd/) and the pingbus zipapp
+# (helpers.pingbus.bundle) are built here, from the public repository cloned at the commit
+# CCY_SOURCE_COMMIT names, so the build context stays the repository's own files and a pipeline
+# that stages them, pinned by checksum, can build this image (issue 235). The play passes its
+# checkout's HEAD and writes it to source-commit for the launcher's rebuilds; a files-only
+# pipeline passes the commit it pins. The commit must be on GitHub (pushed) for the fetch to
+# find it. A new commit changes the ARG, so this stage is built again and the runtime stage
+# takes the new files.
+#
+# The image's tag is the Go toolchain src-go/go.mod pins on its toolchain line; the build fails
+# when they differ (GOTOOLCHAIN=local never downloads another). Go builds for the build's own
+# architecture (x86_64 or aarch64; golang images are published for both), static
+# (CGO_ENABLED=0), because the runtime image is Debian and must link no host glibc, and offline
+# from the committed src-go/vendor (-mod=vendor). teamchat's source digest is the git tree id of
+# the commit's src-go, as `teamchat version` prints it.
+FROM golang:1.26.10 AS ccy-builder
+RUN apt-get update && apt-get install -y --no-install-recommends python3 git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ARG CCY_SOURCE_COMMIT=""
+RUN set -eu; \
+    if [ -z "${CCY_SOURCE_COMMIT}" ]; then \
+        echo "CCY_SOURCE_COMMIT is not set: pass --build-arg CCY_SOURCE_COMMIT=<the full 40-hex fedora-desktop commit to build from>" >&2; exit 1; \
+    fi; \
+    if ! printf '%s\n' "${CCY_SOURCE_COMMIT}" | grep -Eqx '[0-9a-f]{40}'; then \
+        echo "CCY_SOURCE_COMMIT='${CCY_SOURCE_COMMIT}' is not a full 40-hex commit id" >&2; exit 1; \
+    fi; \
+    git init -q /src; \
+    if ! git -C /src fetch -q --depth 1 https://github.com/LongTermSupport/fedora-desktop.git "${CCY_SOURCE_COMMIT}"; then \
+        echo "cannot fetch commit ${CCY_SOURCE_COMMIT} from GitHub: is it pushed?" >&2; exit 1; \
+    fi; \
+    git -C /src checkout -q --detach FETCH_HEAD; \
+    test "$(git -C /src rev-parse HEAD)" = "${CCY_SOURCE_COMMIT}"
+WORKDIR /src/src-go
+ENV GOTOOLCHAIN=local GOFLAGS=-mod=vendor CGO_ENABLED=0
+RUN set -eu; \
+    pinned="$(awk '$1 == "toolchain" { print $2 }' go.mod)"; \
+    have="$(go env GOVERSION)"; \
+    if [ "${pinned}" != "${have}" ]; then \
+        echo "src-go/go.mod pins toolchain '${pinned}', this stage has ${have}: move FROM golang: to it" >&2; exit 1; \
+    fi; \
+    digest="$(git -C /src rev-parse HEAD:src-go)"; \
+    mkdir -p /out/optional/agent-bus /out/optional/teamchat/bin; \
+    go build -trimpath -buildvcs=false -o /out/ccy-start-claude ./cmd/ccy-start-claude; \
+    go build -trimpath -buildvcs=false -o /out/optional/agent-bus/pingbus-status-line ./cmd/pingbus-status-line; \
+    go build -trimpath -buildvcs=false -ldflags "-X main.SourceDigest=${digest}" \
+        -o /out/optional/teamchat/bin/teamchat ./cmd/teamchat; \
+    cd /src && python3 -B -s -m helpers.pingbus.bundle --source /src --out /out/optional/agent-bus/pingbus pingbus
+
 # Track the latest Node LTS rather than pinning a major. Claude Code raises its
 # minimum Node engine over time (e.g. 2.1.x requires >=22); a floating LTS tag
 # auto-satisfies that at build time so we don't chase it by hand. node:lts-slim
@@ -38,7 +89,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.82.0"
+LABEL claude-yolo-version="2.83.0"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -459,9 +510,9 @@ RUN arch="$(dpkg --print-architecture)" \
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
-# The end of the start (src-go/cmd/ccy-start-claude, built static into the build context by the
-# play): entrypoint.sh execs it, and it builds and execs the session's command.
-COPY ccy-start-claude /usr/local/bin/ccy-start-claude
+# The end of the start (src-go/cmd/ccy-start-claude, built static by the ccy-builder stage):
+# entrypoint.sh execs it, and it builds and execs the session's command.
+COPY --from=ccy-builder /out/ccy-start-claude /usr/local/bin/ccy-start-claude
 RUN chmod 755 /usr/local/bin/ccy-start-claude
 
 # Copy startup info and documentation
@@ -495,9 +546,9 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 # be switched on but never off.
 #
 # optional/agent-bus/ is the agent team bus member kit (Plan 00161): the pingbus zipapp,
-# which play-claude-yolo.yml builds from helpers/ with the same reproducible builder as
+# which the ccy-builder stage builds from helpers/ with the same reproducible builder as
 # agent-bus-install, pingbus-status-line (the Go status line, Plan 00213, built static by the
-# same play), the Claude Code plugin and its settings. pingbus-status-line is linked onto PATH
+# same stage), the Claude Code plugin and its settings. pingbus-status-line is linked onto PATH
 # here: a seated session's status line guard runs it by name, and nothing else does. The
 # entrypoint links pingbus, loads the plugin and claims the desired seats (none for a session on no team) when the
 # launch passed PINGBUS_MEMBERSHIP=/run/ccy/membership, and does nothing with off (Plan 00203).
@@ -507,10 +558,12 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 # older than pingbus's minimum (helpers/pingbus/config.py MIN_PYTHON).
 #
 # optional/teamchat/ is the agent team bus v2 member kit (Plan 00209 Task 4.1): bin/teamchat
-# (static, built by the play from the committed src-go), its plugin and settings.json. It is not
+# (static, built by the ccy-builder stage), its plugin and settings.json. It is not
 # linked onto PATH here: the launcher links /usr/local/bin/teamchat for a session that is a v2
 # member. The build fails unless the kit's binary runs and prints its source digest.
+# The context's optional/ holds the repository's files; the builder's are copied in beside them.
 COPY optional/ /opt/claude-yolo/optional/
+COPY --from=ccy-builder /out/optional/ /opt/claude-yolo/optional/
 RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude \
     && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus /opt/claude-yolo/optional/agent-bus/pingbus-status-line \
     && ln -s /opt/claude-yolo/optional/agent-bus/pingbus-status-line /usr/local/bin/pingbus-status-line \

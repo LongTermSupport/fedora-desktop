@@ -405,8 +405,12 @@ func (s sandbox) baseEnv() map[string]string {
 // engine in it are.
 const startupText = "difftest startup info: the engine is __CONTAINER_ENGINE__.\n"
 
+// sourceCommit stands in for the commit the play records in source-commit beside the Dockerfile,
+// which the launcher's image builds pass as CCY_SOURCE_COMMIT.
+const sourceCommit = "0123456789abcdef0123456789abcdef01234567"
+
 // stageBuildContext copies the checkout's Dockerfile into the sandbox's build context, as the
-// play stages it, with startupText beside it, and returns the marks a rule's output may use for
+// play stages it, with startupText and sourceCommit beside it, and returns the marks a rule's output may use for
 // the image the Dockerfile would build: {image_version}, its claude-yolo-version label, and
 // {image_hash}, the hash the launcher compares (the first 16 hex digits of its md5).
 func (s sandbox) stageBuildContext(t *testing.T) imageMarks {
@@ -418,6 +422,7 @@ func (s sandbox) stageBuildContext(t *testing.T) imageMarks {
 	dockerfile := readFile(t, filepath.Join(bashLauncherDir(t), "Dockerfile"))
 	writeFile(t, filepath.Join(dir, "Dockerfile"), dockerfile, libMode)
 	writeFile(t, filepath.Join(dir, "ccy-startup-info.txt"), startupText, libMode)
+	writeFile(t, filepath.Join(dir, "source-commit"), sourceCommit+"\n", libMode)
 	label := imageLabel.FindStringSubmatch(dockerfile)
 	if label == nil {
 		t.Fatal("the Dockerfile has no claude-yolo-version label")

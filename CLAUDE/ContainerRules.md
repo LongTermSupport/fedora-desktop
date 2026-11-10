@@ -123,6 +123,16 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   and blank lines are exempt. The host-kit files under `optional/agent-bus/` that the play
   never stages (`README.*`, `agent-bus-claude`) are excluded. `test-ccy-container-version-hook.bash`
   checks the gate covers exactly the files `play-claude-yolo.yml` puts into the image.
+- **The build context is repository files only** (issue 235). Where a `COPY` takes from it, the
+  play only copies tracked files, as they are; it builds nothing there. What the image needs
+  built from this repository (`ccy-start-claude`, `pingbus-status-line`, `teamchat`, the pingbus
+  zipapp) is built by the Dockerfile's `ccy-builder` stage, which clones the public repository at
+  the commit given as `CCY_SOURCE_COMMIT` (a full 40-hex id, or the build fails). The play passes
+  its checkout's HEAD, so **that commit must be pushed** before the play builds the image, and
+  records it in `/opt/claude-yolo/source-commit` for the launcher's own rebuilds. A new commit
+  rebuilds that stage on the play's build (which always builds); the Dockerfile hash does not
+  include it. `test-ccy-container-version-hook.bash` fails on a play task that writes anything
+  else where a `COPY` takes from the context.
 - Any file with version tracking
 
 ### Check the layers before adding a mechanism

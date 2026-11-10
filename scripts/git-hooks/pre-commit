@@ -235,9 +235,10 @@ fi
 # sources (a --from copy takes from a build stage, not the repo), so a file the
 # image starts copying is guarded without anyone remembering to list it here.
 #
-# The play fills the build context from two repo roots, copies the fzf pin (vars/fzf-pin.yml)
-# into it, and builds the pingbus zipapp in it from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
-# checks these lists against every file play-claude-yolo.yml puts into the image.
+# The play fills the build context from two repo roots and copies the fzf pin (vars/fzf-pin.yml)
+# into it; the Dockerfile's builder stage builds the pingbus zipapp from the packages
+# helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash checks these
+# lists against every file play-claude-yolo.yml puts into the image.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"

@@ -10,8 +10,8 @@
 # refusal and message to the bash it replaced). The test cuts the real PROJECT-ENV block and the
 # real tail (from the AGENT-BUS marker to the end) out of entrypoint.sh, points their paths at a
 # throwaway tree, and replaces exec with a printer. The last cases replay the v1 command line
-# ccy-start-claude builds through the real zipapp (built by helpers/pingbus/bundle.py as the play
-# builds it), so `pingbus seat exec -- ...` is parsed, claimed and exec'd by the real CLI.
+# ccy-start-claude builds through the real zipapp (built by helpers/pingbus/bundle.py as the
+# image's builder stage builds it), so `pingbus seat exec -- ...` is parsed, claimed and exec'd by the real CLI.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
@@ -325,14 +325,18 @@ echo "=== the image and the play ship what the step needs ==="
 
 check "the Dockerfile makes the zipapp executable" "yes" \
     "$(yes_no grep -q 'chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus' "$CCY_DIR/Dockerfile")"
-check "the play builds the zipapp with the shared builder into the build context" "yes" \
-    "$(yes_no grep -q 'helpers.pingbus.bundle' "$PLAY")"
-check "the play builds it where the image COPYs it from" "yes" \
-    "$(yes_no grep -q -- '- /opt/claude-yolo/optional/agent-bus/pingbus' "$PLAY")"
-check "the play builds the Go status line static, where the image COPYs it from" "yes" \
-    "$(yes_no awk '/go_command_name: pingbus-status-line/ { n = NR } n && NR <= n + 4 && /go_command_static: true/ { s = 1 }
-        n && NR <= n + 1 && /go_command_dest: \/opt\/claude-yolo\/optional\/agent-bus\/pingbus-status-line$/ { d = 1 }
-        END { exit !(s && d) }' "$PLAY")"
+# The zipapp and the Go status line are built by the Dockerfile's builder stage (issue 235), into
+# /out/optional/, which the runtime stage copies over the context's optional/.
+check "the builder stage builds the zipapp with the shared builder" "yes" \
+    "$(yes_no grep -qF -- '-m helpers.pingbus.bundle --source /src --out /out/optional/agent-bus/pingbus pingbus' "$CCY_DIR/Dockerfile")"
+check "the image copies the builder's optional/ over the context's" "yes" \
+    "$(yes_no grep -qxF 'COPY --from=ccy-builder /out/optional/ /opt/claude-yolo/optional/' "$CCY_DIR/Dockerfile")"
+check "the builder stage builds the Go status line static" "yes" \
+    "$(yes_no awk '/^ENV / && / CGO_ENABLED=0/ { s = 1 }
+        s && /-o \/out\/optional\/agent-bus\/pingbus-status-line \.\/cmd\/pingbus-status-line/ { d = 1 }
+        END { exit !(s && d) }' "$CCY_DIR/Dockerfile")"
+check "the play no longer builds either into the build context" "no" \
+    "$(yes_no grep -qE 'helpers.pingbus.bundle|go_command_name: pingbus-status-line' "$PLAY")"
 check "the Dockerfile links it onto PATH, where the seated guard runs it by name" "yes" \
     "$(yes_no grep -qF 'ln -s /opt/claude-yolo/optional/agent-bus/pingbus-status-line /usr/local/bin/pingbus-status-line' "$CCY_DIR/Dockerfile")"
 check "  by the name the seated guard runs" "yes" \
