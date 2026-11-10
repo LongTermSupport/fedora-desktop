@@ -70,7 +70,7 @@ func (a *applying) leafNames() (pki.Names, error) { return leafNames(a.in.Team.U
 // crash between the two files leaves a key that signed nothing and no certificate any bundle
 // could carry, which the next apply refuses by name.
 func (a *applying) makeCA(m pki.Maker) (pki.CA, error) {
-	ca, err := m.NewCA("teamchat " + a.team.String() + " CA")
+	ca, err := m.NewCA(caName(a.team))
 	if err != nil {
 		return pki.CA{}, err
 	}
@@ -80,6 +80,9 @@ func (a *applying) makeCA(m pki.Maker) (pki.CA, error) {
 	a.note("ca made")
 	return ca, nil
 }
+
+// caName is the name a team's CA is made with, by apply and by a rotation alike.
+func caName(team paths.TeamID) string { return "teamchat " + team.String() + " CA" }
 
 // writeCA creates the CA's two files, the key before the certificate, each only if absent.
 func writeCA(root string, team paths.TeamID, ca pki.CA) error {

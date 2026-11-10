@@ -312,6 +312,48 @@ the builder takes where this text is silent goes in its report.
   listed and no other; a client holding an old bundle refuses the new leaf with X16's message; a
   failure at each step leaves everything as it was; a restore recorded refuses; stdout holds
   only the handles; stderr names the Element play.
+  **As built** (`subagent-reports/261106-crossnet-s14-opus-report.md`): `teamchat-admin team rotate-ca --team T`, a root verb beside `team apply`. The new CA and the leaf for the names
+  the last apply made it for (`host.AppliedLeafNames`) are made by apply's own steps
+  (`leafStep.make` is shared with X31, never a second copy) and checked before anything is
+  replaced: the leaf verifies under the new CA and not the old, and the two fingerprints differ.
+  Five writes follow, each file whole with apply's modes: the CA key, the CA certificate, the
+  leaf key, the leaf certificate, and the LXC record. A failed write puts back every file
+  written before it and the failed one itself, since a write can land and still report failure;
+  a file that cannot be put back is named, and the error says the files are mixed and a team
+  backup must be restored. An active terminator is then restarted; an inactive one is not
+  started, and a failed restart leaves the rotation in place for X31's tick to retry. A restore
+  recorded refuses the verb (exit 70). stdout is the handles of the enrolled agent seats the
+  host does not place, one per line and nothing else; stderr has the two fingerprints, the
+  reissue pipe for each handle, the LXC seats the next `lxc apply` reissues, the Element play
+  to run again, and that a backup taken before the rotation undoes it.
+  **Three readings the coordinator may overturn.** First, the premise "the seats on the
+  homeserver host are reachable" does not hold: no pool seat is placed by root, on the
+  homeserver host or off it, because the pool is the owner's and every such seat is placed by
+  the owner's own `seat place-issued` pipe (X22), so a podman seat on the homeserver host is
+  listed on stdout like a remote one. The seats root does place are the LXC seats, which `lxc apply` places through `guest place-bundle` and records, so that record is what tells the two
+  apart and no issue-time flag is needed. Second, the verb does not reissue the LXC seats
+  itself: a reissue revokes the old credential and cannot be undone if a later step fails, so
+  the verb marks each LXC entry holding a handle `deferred` with `lxc.WhyCARotated`, as part of
+  the same all-or-nothing replacement, and the next `lxc apply` reissues and places the new
+  bundle. "Every reachable seat's `tls_ca` is the new CA" therefore holds after the next `lxc apply`, not when the verb returns, and is proven as a chain (the record is marked, a marked
+  seat makes `joinOf` answer `member reissue`, and `host.CAPEM`, which bundles are issued from,
+  is the new CA); there is no end-to-end test through `lxc apply`. Third, a crash between two
+  writes (power loss, not an error) can leave the files mixed, the same window apply's two-file
+  CA write has; `loadCA` refuses a key and certificate that do not match, by name, and the
+  recovery is to restore a backup and rotate again. No journal was added.
+  **Two gaps found, one since fixed.** `admin/wire` served `teamCANotMade` for `System.TeamCA`
+  and for the bundles' CA, so in the production build no `https` bundle or LXC reach fact could
+  be issued at all, before or after a rotation, and the LXC reissue X33 relies on would have
+  failed at the bundle step. Review blocker B2 of pull request 128 fixed it by serving
+  `host.CAPEM(root, team)` (S16, see Build order), so the reissue now has its CA. The other
+  stands: the verb names the Element play by v2's name, `paths.ElementPlayFile`
+  (`play-teamchat-element.yml`), because `teamchat-keeps-off-v1` refuses v1's file name, but
+  that play does not exist: X34's tasks are in v1's `play-agent-bus-element.yml`, so until the
+  Element step is ported the play the verb names is not the play that holds them. Not proven by
+  a plant: `checkRotation`'s refusal of a new leaf that verifies under the old CA, which a leaf
+  from a fresh CA cannot reach on its own. The old CA is read as every CA read is (X13, review
+  S8): a `ca.key` that is not the owner's alone with mode 0600 refuses the rotation, naming the
+  `chmod` or `chown` that fixes it, and nothing is replaced.
 - **X34** (S15) **Element trusts the CA.** X20 says only that the CA must be trusted.
   The play now installs the team CA where the Flatpak build of Element Desktop reads it, so no
   hand step is needed, and fails loudly if the CA is not trusted afterwards: its last task
