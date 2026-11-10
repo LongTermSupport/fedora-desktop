@@ -222,9 +222,23 @@
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - mok_import is changed
 
+    # dkms status lists each module and its state for the kernel, so the run changed something
+    # only if that list differs after it.
     - name: Run DKMS autoinstall
-      ansible.builtin.command:
-        argv: [dkms, autoinstall, -k, "{{ boot_kernel_version }}"]
+      ansible.builtin.shell: |
+        set -euo pipefail
+        before="$(dkms status -k "$KVER")"
+        dkms autoinstall -k "$KVER"
+        after="$(dkms status -k "$KVER")"
+        if [ "$before" != "$after" ]; then
+          echo DKMS-STATUS-CHANGED
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        KVER: "{{ boot_kernel_version }}"
+      register: displaylink_dkms_autoinstall
+      changed_when: "'DKMS-STATUS-CHANGED' in displaylink_dkms_autoinstall.stdout_lines"
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"

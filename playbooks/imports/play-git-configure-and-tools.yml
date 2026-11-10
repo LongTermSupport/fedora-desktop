@@ -309,13 +309,24 @@
     # the retired key, so `dnf update` fails signature verification on new gh RPMs.
     - name: Configure GitHub CLI Repository
       become: true
+      # The repo files are compared before and after, so a rewrite with the same content is no
+      # change.
       ansible.builtin.shell: |
         set -euo pipefail
-        dnf -y install 'dnf-command(config-manager)'
+        if ! rpm -q --quiet --whatprovides 'dnf-command(config-manager)'; then
+          dnf -y install 'dnf-command(config-manager)'
+          echo GH-REPO-CHANGED
+        fi
+        before="$(sha256sum /etc/yum.repos.d/*.repo)"
         dnf -y config-manager addrepo --overwrite --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+        after="$(sha256sum /etc/yum.repos.d/*.repo)"
+        if [ "$before" != "$after" ]; then
+          echo GH-REPO-CHANGED
+        fi
       args:
         executable: /bin/bash
-      changed_when: true
+      register: gh_cli_repo
+      changed_when: "'GH-REPO-CHANGED' in gh_cli_repo.stdout_lines"
 
     - name: Install Github Client
       become: true

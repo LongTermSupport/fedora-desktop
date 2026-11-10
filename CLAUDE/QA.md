@@ -215,6 +215,11 @@ for a checkout that does not carry it yet.
   saved as `/etc/yum.repos.d/gh-cli.repo`, which a checksum-comparing `get_url` could own
   instead, decides the fix).
 
+- The [checkout-ref-bypass](#checkout-ref-bypass) suite (issue #225;
+  `scripts/test-run-bash-git-ref.bash`) is red on `run.bash`'s account path until its fix
+  routes every clone and pull through `fd_checkout`; its `scripts/qa-gates.tsv` row lands
+  with that fix.
+
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
 not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
 ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit
@@ -808,6 +813,35 @@ play. Found and defended under Defence Before Fix (Plan 00139).
 - **Never** add an exclude to the rule to clear a finding. Excludes are only for files that
   cannot carry the hazard, such as a plan's prose or a changelog. Adding one is the
   owner's decision.
+
+### checkout-ref-bypass
+
+**What it is.** `scripts/test-run-bash-git-ref.bash` (issue #225) holds three facts about how
+`run.bash` gets the fedora-desktop checkout:
+
+1. **One acquirer.** Every `git clone`, `pull`, `fetch`, `checkout`, `reset` or `switch` in
+   `run.bash` sits in `fd_checkout`. It clones when the
+   checkout is absent. With `RUN_BASH_GIT_REF` set it pins the checkout to that ref and never
+   pulls.
+2. **Pin before use.** Before the repository step converges, a line that runs checkout code
+   (`python3 -m helpers.…` or a checkout's `scripts/`) must follow a call to `fd_checkout`, or
+   to a function that calls it, in its own `title` section. Both repository steps (no-GitHub
+   and account mode) must call `fd_checkout`.
+3. **Behaviour.** `fd_checkout` is run against a local origin with a 40-hex ref and with a
+   branch ref, on an absent checkout and on an existing one whose origin is migrated.
+
+**Why it exists.** A caller that verifies a signed commit passes it as `RUN_BASH_GIT_REF`.
+Only the no-GitHub path honoured the ref. The account path cloned or pulled the branch tip,
+and `helpers.github443` and `helpers.github_scopes` ran from an unpinned checkout. A push
+that landed after the caller's check was therefore provisioned unverified, while the log
+claimed the declared ref was used.
+
+**How to fix a finding.**
+
+- **A new way to obtain or update the checkout:** call `fd_checkout <dir> <url> [git update args]`. Never call `git` directly.
+- **New code run from a checkout before the repository step:** put an `fd_checkout` call
+  ahead of it in the same section.
+- **Never** narrow the patterns to clear a finding. Narrowing is the owner's decision.
 
 ### arch-pinned-artefact
 

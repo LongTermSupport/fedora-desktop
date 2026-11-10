@@ -221,11 +221,21 @@
     - name: Pull UniFi Container Images
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.command: podman compose pull
+      # A pull that fetched an image adds its ID to the list; one that found every image current
+      # leaves the list as it was.
+      ansible.builtin.shell: |
+        set -euo pipefail
+        before="$(podman images --no-trunc --quiet | sort)"
+        podman compose pull
+        after="$(podman images --no-trunc --quiet | sort)"
+        if [ "$before" != "$after" ]; then
+          echo UNIFI-IMAGES-CHANGED
+        fi
       args:
         chdir: "{{ unifi_data_dir }}"
+        executable: /bin/bash
       register: compose_pull
-      changed_when: "'Pull complete' in compose_pull.stdout or 'Downloaded' in compose_pull.stdout or compose_pull.rc == 0"
+      changed_when: "'UNIFI-IMAGES-CHANGED' in compose_pull.stdout_lines"
 
     # ── Firewall Rules ──────────────────────────────────────────────────────────
     # AP discovery requires these ports to be open on the host firewall
