@@ -105,3 +105,23 @@ func TestAFileThatCannotBeReadWhenItsLanguageDecidesIsAnError(t *testing.T) {
 		t.Fatal("an unreadable file was judged")
 	}
 }
+
+func TestWithoutDropsTheNamedRowsFromBothLists(t *testing.T) {
+	got, err := parsed(t).Without("both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Shell, ",") != ".claude/hooks,CLAUDE/Plan/mkplan.bash" || strings.Join(got.Python, ",") != "pyonly" {
+		t.Fatalf("%+v", got)
+	}
+	if strings.Join(parsed(t).Shell, ",") != ".claude/hooks,CLAUDE/Plan/mkplan.bash,both" {
+		t.Fatal("Without changed the table it was called on")
+	}
+}
+
+// A name that is no row is a stale exception: it would hide that the row it meant has gone.
+func TestWithoutARowTheTableDoesNotHaveIsAnError(t *testing.T) {
+	if _, err := parsed(t).Without("gone"); err == nil || !strings.Contains(err.Error(), "gone") {
+		t.Fatalf("got %v", err)
+	}
+}

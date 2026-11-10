@@ -30,7 +30,8 @@ func (e excludes) matches(path string) bool {
 // all gates (the daemon-deployed files, vendored trees, the semgrep fixtures), which is never
 // handed to semgrep, and the files the rule's own excludes drop, which semgrep drops itself. The
 // table is the one list of trees that are not ours; a rule's excludes name only what is
-// particular to that rule (qa-trees-drift, issue #217).
+// particular to that rule (qa-trees-drift, issue #217). The rows the spec still scans
+// (Spec.stillScans) are taken out of the table first.
 type scope struct {
 	repo  fs.FS
 	trees qatrees.Table
@@ -40,7 +41,11 @@ type scope struct {
 // loadScope reads the trees table and the rule's excludes.
 func (g *gate) loadScope() (scope, error) {
 	repo := os.DirFS(g.root)
-	trees, err := qatrees.Load(repo)
+	table, err := qatrees.Load(repo)
+	if err != nil {
+		return scope{}, err
+	}
+	trees, err := table.Without(g.spec.stillScans...)
 	if err != nil {
 		return scope{}, err
 	}

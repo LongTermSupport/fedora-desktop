@@ -1,6 +1,7 @@
 package ghscopes
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -92,7 +93,8 @@ func tableExcluded(t *testing.T) (string, []string) {
 }
 
 // qa-trees-drift (issue #217, CLAUDE/QA.md "qa-trees-drift"): on this repository, every gate of
-// this engine leaves out every published file scripts/qa-trees.tsv keeps out of all gates; the
+// this engine leaves out every published file scripts/qa-trees.tsv keeps out of all gates, but
+// the rows its spec still scans, which it must then really open; the
 // daemon-deployed files above all, which the owner ruled are never gated here. A gate that
 // keeps a second list of trees that are not ours drifts from the table; this is the proof that
 // it has not.
@@ -111,15 +113,68 @@ func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var opened []string
-			for _, rel := range excluded {
-				if slices.Contains(handed, rel) && !within.rule.matches(rel) {
-					opened = append(opened, rel)
-				}
+			opened, stillScanned := openedOf(excluded, handed, within.rule, spec.stillScans)
+			if len(spec.stillScans) > 0 && len(stillScanned) == 0 {
+				t.Errorf("%s declares it still scans %v but opens nothing there", spec.short, spec.stillScans)
 			}
 			if len(opened) > 0 {
 				t.Errorf("qa-trees-drift: %s opens %d file(s) scripts/qa-trees.tsv keeps out of every gate (see CLAUDE/QA.md \"qa-trees-drift\"):\n%s", spec.short, len(opened), indent(opened))
 			}
 		})
+	}
+}
+
+// openedOf splits the table-excluded files the gate hands to semgrep and its rule does not drop:
+// those in a row the spec still scans, and the rest, which are drift.
+func openedOf(excluded, handed []string, rule excludes, stillScans []string) ([]string, []string) {
+	var opened, stillScanned []string
+	for _, rel := range excluded {
+		switch {
+		case !slices.Contains(handed, rel) || rule.matches(rel):
+		case inRow(rel, stillScans):
+			stillScanned = append(stillScanned, rel)
+		default:
+			opened = append(opened, rel)
+		}
+	}
+	return opened, stillScanned
+}
+
+// inRow is whether rel lies in one of the table rows dirs, matched as the table matches: whole
+// segments anywhere in the path.
+func inRow(rel string, dirs []string) bool {
+	return slices.ContainsFunc(dirs, func(dir string) bool { return strings.Contains("/"+rel+"/", "/"+dir+"/") })
+}
+
+// The exception to the table is the semgrep tree and nothing else (owner ruling Q18 of issue
+// #217 pending): a daemon-deployed or vendored row added here would reopen what the ruling
+// keeps out, so it fails this test rather than pass the drift test above.
+func TestOnlySemgrepIsStillScanned(t *testing.T) {
+	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak} {
+		for _, dir := range spec.stillScans {
+			if dir != ".semgrep" {
+				t.Errorf("%s still scans %q; only .semgrep may be an exception to scripts/qa-trees.tsv", spec.short, dir)
+			}
+		}
+	}
+	for _, spec := range []Spec{GHScopes, FindRace, ArchPin} {
+		if !slices.Equal(spec.stillScans, []string{".semgrep"}) {
+			t.Errorf("%s still scans %v, want [.semgrep]: the coverage it had before the table governed it", spec.short, spec.stillScans)
+		}
+	}
+}
+
+// An exception naming a row the table does not have is exit 2, and nothing is scanned.
+func TestAStillScannedRowTheTableLacksIsExitTwo(t *testing.T) {
+	w := newWorld(t, nil)
+	spec := GHScopes
+	spec.stillScans = []string{"gone"}
+	var stdout, stderr bytes.Buffer
+	code := spec.Main(nil, Env{Stdout: &stdout, Stderr: &stderr, Cwd: w.root, Runner: w.run})
+	got := result{code, stdout.String(), stderr.String()}
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, "ERROR:", "gone")
+	if w.run.scanArgv != nil {
+		t.Fatalf("semgrep scanned %v", w.run.scanArgv)
 	}
 }

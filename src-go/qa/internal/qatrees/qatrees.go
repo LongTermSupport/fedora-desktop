@@ -70,6 +70,21 @@ func Parse(r io.Reader, name string) (Table, error) {
 	return t, nil
 }
 
+// Without is the table less the rows naming dirs, from both lists: for a gate that still reads
+// a tree the table keeps out of the others. A dir that is no row is an error, since a stale
+// exception would hide that the row it meant has gone.
+func (t Table) Without(dirs ...string) (Table, error) {
+	for _, dir := range dirs {
+		if !slices.Contains(t.Shell, dir) && !slices.Contains(t.Python, dir) {
+			return Table{}, fmt.Errorf("%s has no row '%s' to leave out", File, dir)
+		}
+	}
+	keep := func(list []string) []string {
+		return slices.DeleteFunc(slices.Clone(list), func(dir string) bool { return slices.Contains(dirs, dir) })
+	}
+	return Table{Shell: keep(t.Shell), Python: keep(t.Python)}, nil
+}
+
 // ExcludesFile is whether the table keeps the file at rel out of every gate. A gate that reads
 // files of any language judges each by the list of its language, as the discovery gates do:
 // Python (a .py name or a python shebang) by the Python list, anything else by the shell list.

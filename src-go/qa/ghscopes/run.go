@@ -52,7 +52,17 @@ type Spec struct {
 	ruleName    string
 	finding     string
 	usage       string
+	// stillScans names the rows of scripts/qa-trees.tsv this gate scans all the same. Only
+	// `.semgrep`, for gh-scopes, find-race and arch-pin: they scanned the other rules and
+	// fixtures before the table governed them, and narrowing a gate is the owner's call (Q18 of
+	// issue #217, accept the narrowing or keep the coverage; pending). Each still drops its own
+	// rule and fixture by its paths.exclude. TestOnlySemgrepIsStillScanned holds the list.
+	stillScans []string
 }
+
+// semgrepTree is the rule and fixture tree of scripts/qa-trees.tsv, the one row a gate may still
+// scan (Spec.stillScans).
+const semgrepTree = ".semgrep"
 
 // GHScopes is the gh-scope-outside-ssot gate.
 var GHScopes = Spec{
@@ -62,6 +72,7 @@ var GHScopes = Spec{
 	ruleName:    ruleName,
 	finding:     "name a GitHub scope outside vars/github-required-scopes.yml",
 	usage:       usageText,
+	stillScans:  []string{semgrepTree},
 }
 
 // FindRace is the find-race-negated-stat-test gate (issue #152).
@@ -72,6 +83,7 @@ var FindRace = Spec{
 	ruleName:    "find-race-negated-stat-test",
 	finding:     "run find -ignore_readdir_race with a negated stat test",
 	usage:       findRaceUsageText,
+	stillScans:  []string{semgrepTree},
 }
 
 // ArchPin is the arch-pinned-artefact gate (Plan 00243).
@@ -82,6 +94,7 @@ var ArchPin = Spec{
 	ruleName:    "arch-pinned-artefact",
 	finding:     "fix a download, package or image to one CPU architecture",
 	usage:       archPinUsageText,
+	stillScans:  []string{semgrepTree},
 }
 
 // ArgvLeak is the secret-in-argv gate (issue #220). Its fixture is YAML so that the rule

@@ -32,8 +32,9 @@ var rulesText = strings.NewReplacer("DSTAR", "**", "STAR", "*").Replace(`rules:
 `)
 
 // treesText is a trees table shaped like scripts/qa-trees.tsv: a daemon-deployed tree for both
-// lists, one for shell only (whose Python is ours), and a single daemon-deployed file.
-const treesText = "# comment\nshell\t.claude/ccy\nshell\t.claude/hooks\nshell\tCLAUDE/Plan/mkplan.bash\npython\t.claude/ccy\n"
+// lists, one for shell only (whose Python is ours), a single daemon-deployed file, and the
+// semgrep tree the gate still scans.
+const treesText = "# comment\nshell\t.claude/ccy\nshell\t.claude/hooks\nshell\tCLAUDE/Plan/mkplan.bash\nshell\t.semgrep\npython\t.claude/ccy\n"
 
 // world is a repository on disk plus the fake git and semgrep that look at it.
 type world struct {

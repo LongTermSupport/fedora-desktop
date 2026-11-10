@@ -35,6 +35,8 @@
 #   byte for byte what go.mod and go.sum describe) and qa-go-vuln, never edited, so never linted.
 # .semgrep: annotated rule FIXTURES, deliberately full of the broken patterns the rules must
 #   catch; validated by `semgrep --test` in qa-patterns.bash, which is the check that belongs to it.
+#   gh-scopes, find-race and arch-pin still scan it, pending the owner's ruling (CLAUDE/QA.md
+#   "qa-trees-drift").
 shell	.git
 shell	.ansible
 shell	.claude/hooks-daemon
