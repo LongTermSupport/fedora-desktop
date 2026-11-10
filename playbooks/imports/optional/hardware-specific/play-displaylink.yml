@@ -177,22 +177,29 @@
         - mok_key.stat.exists
 
     - name: Import MOK key for enrollment
+      # The password goes to expect on stdin, never into its script: the script is on the
+      # command line of expect and of the task's shell (CLAUDE/QA.md secret-in-argv).
       ansible.builtin.shell: |
-        expect -c "
+        expect -c '
+        gets stdin mok_password
         spawn mokutil --import /var/lib/dkms/mok.pub
-        expect \"input password:\"
-        send \"{{ mok_password }}\r\"
-        expect \"input password again:\"
-        send \"{{ mok_password }}\r\"
+        expect "input password:"
+        send -- "$mok_password\r"
+        expect "input password again:"
+        send -- "$mok_password\r"
         expect eof
-        "
+        catch wait result
+        exit [lindex $result 3]
+        '
+      args:
+        stdin: "{{ mok_password }}"
       no_log: true
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - mok_key.stat.exists
         - "'is not enrolled' in mok_enrolled.stdout | default('')"
       register: mok_import
-      failed_when: false  # FAIL-FAST-OK: probe under no_log (the password is in the script); the fail below gives the reason
+      failed_when: false  # FAIL-FAST-OK: probe under no_log (the session may echo the password); the fail below gives the reason
 
     # Not the output: the expect session's transcript may hold the password.
     - name: Stop if the MOK key could not be queued for enrolment
