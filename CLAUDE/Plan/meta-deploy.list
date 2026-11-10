@@ -60,6 +60,8 @@
 # ssh-keys-rekey, now its own SSH_ASKPASS. Of the optional plays, those that have run here:
 # nvidia and displaylink (the MOK password reaches expect on stdin, only when a key is
 # imported), ftp-camera (the hotspot profile is made in nmcli's editor from stdin, only when it
-# does not exist yet), unifi-controller and unifi-firmware (the admin password and its hash on
-# stdin instead of environment:).
+# does not exist yet, and the camera FTP user password is hashed by openssl and set by
+# chpasswd, both from stdin, instead of useradd/usermod -p; it is set only when it differs, so
+# the first run reports one change and later runs none), unifi-controller and unifi-firmware
+# (the admin password and its hash on stdin instead of environment:).
 changed-plays

@@ -63,6 +63,26 @@
     # ok: secret-in-argv
     # ssh-keygen -y -P "$pass" in a comment is prose
 
+# rclone rc's --pass, and a password as a filter's argument (found by the issue #220
+# saturation search).
+- shell: |
+    # ruleid: secret-in-argv
+    rclone rc --user "$RC_USER" --pass "$RC_PASS" core/version
+    # ruleid: secret-in-argv
+    grep -qF "$RC_PASS" "$LOG"
+    # ruleid: secret-in-argv
+    awk -v secret="$RC_PASS" '$0 ~ secret' "$LOG"
+    # ruleid: secret-in-argv
+    grep -qF "${PASSPHRASE}" "$f"
+    # ok: secret-in-argv
+    grep -qF -f <(printf '%s\n' "$RC_PASS") "$LOG"
+    # ok: secret-in-argv
+    grep -qF "Enter passphrase for $K" "$ASKPASS_LOG"
+    # ok: secret-in-argv
+    grep -nE "$RC_BYPASS_RE" "$f"
+    # ok: secret-in-argv
+    RCLONE_PASS="$RC_PASS" rclone rc core/version
+
 # A list, in a play and in code.
 - ansible.builtin.command:
     argv:
@@ -122,6 +142,15 @@
     SALT: "{{ stored.stdout }}"
     # ok: secret-in-argv-ansible
     XDG_RUNTIME_DIR: "/run/user/{{ uid }}"
+- name: The user module runs usermod -p HASH
+  ansible.builtin.user:
+    name: camera
+    # ruleid: secret-in-argv-ansible
+    password: "{{ ftp_camera_password | password_hash('sha512') }}"
+- name: A user with no password given
+  ansible.builtin.user:
+    # ok: secret-in-argv-ansible
+    name: "{{ ftp_camera_user }}"
 - name: A file checksum is public
   ansible.builtin.shell: |
     # ok: secret-in-argv-ansible

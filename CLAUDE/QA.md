@@ -848,14 +848,17 @@ the Ansible rule reads it too), report under this one name:
 
 - `secret-in-argv`, in any file: an option that takes a passphrase or password given an
   expanded value (`$var`, `$(...)`, a backtick, a Jinja `{{ }}`, a code identifier): ssh-keygen's
-  `-P` and `-N`; `--password`, `--passphrase` and `--passwd`; openssl's `-pass` with `pass:`. A literal
+  `-P` and `-N`; `--password`, `--passphrase`, `--passwd` and `--pass`; openssl's `-pass` with
+  `pass:`; a password-named variable (`$RC_PASS`, `${PASSPHRASE}`) given to grep, awk, sed or
+  perl as an argument, outside a process substitution. A literal
   empty value (`-N ""`) is not a secret. The command is followed across line continuations and
   YAML or code list items; comment lines are prose.
 - `secret-in-argv-ansible`, in YAML: a Jinja expression naming a secret (password, passphrase,
   passwd, secret, token, psk, credential, api key, private key, shadow, hash, salt, `_pp`) inside
   a task's `shell`, `command`, `raw`, `script` or `expect` text or argv, or inside
   `environment:`; and in `environment:`, any Jinja value given to a key so named
-  (`UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout }}"`), whatever the value is called. Not
+  (`UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout }}"`), whatever the value is called; and
+  any Jinja `password:` of the user module, which runs `useradd`/`usermod -p HASH`. Not
   under `stdin:` or expect's `responses:`, and not the passwd database (`getent_passwd`), a
   secret's name, label, file or path, or a file checksum (`dockerfile_hash`, `sha256_hash`).
 
@@ -879,7 +882,10 @@ Ansible's `environment:`. ssh-keygen has no stdin option for `-P`/`-N`: let it a
 `SSH_ASKPASS=<helper> SSH_ASKPASS_REQUIRE=force` and a helper that prints the passphrase from
 its environment; `helpers/ssh_passphrase` does this for the plays, taking the passphrase on the
 task's `stdin:`. A tool that reads a secret from the environment is changed to read it from
-stdin when a play runs it. A name-based rule cannot see a secret under an innocent name: name a
+stdin when a play runs it. A filter takes the pattern from a process substitution
+(`grep -F -f <(printf '%s\n' "$pw")`) or from its environment (`s="$pw" awk '... ENVIRON["s"]'`).
+A local user's password is hashed by `openssl passwd -6 -stdin` and set by `chpasswd --encrypted`
+from `stdin:`, never through the user module's `password:`. A name-based rule cannot see a secret under an innocent name: name a
 variable that holds one for what it holds. **Never** add an exclude to clear a finding; that is
 the owner's decision.
 

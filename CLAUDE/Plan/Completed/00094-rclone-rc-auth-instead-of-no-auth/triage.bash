@@ -72,7 +72,8 @@ fi
 # which is defeated by payload position (the Plan 00066 lesson).
 redact() {
     if [ -n "$RC_PASS" ]; then
-        awk -v secret="$RC_PASS" '{ gsub(secret, "<redacted>"); print }'
+        # Through awk's environment, not -v: argv is readable by any local user.
+        secret="$RC_PASS" awk '{ gsub(ENVIRON["secret"], "<redacted>"); print }'
     else
         cat
     fi
@@ -211,7 +212,7 @@ probe_endpoint() {
     fi
 
     if [ -n "$RC_USER" ] && [ -n "$RC_PASS" ]; then
-        if reason="$(rclone rc --user "$RC_USER" --pass "$RC_PASS" \
+        if reason="$(RCLONE_USER="$RC_USER" RCLONE_PASS="$RC_PASS" rclone rc \
             --url="http://localhost:${port}" "$endpoint" 2>&1)"; then
             state_auth="auth ok "
         else
@@ -274,7 +275,8 @@ verify_no_secret() {
     if [ -z "$RC_PASS" ]; then
         return 0
     fi
-    if grep -qF "$RC_PASS" "$LOG"; then
+    # The pattern from a process substitution, not argv (readable by any local user).
+    if grep -qF -f <(printf '%s\n' "$RC_PASS") "$LOG"; then
         rm -f "$LOG"
         echo "ERROR: redaction check FAILED — the RC password reached the report." >&2
         echo "  Report deleted. Fix redact() before re-running." >&2

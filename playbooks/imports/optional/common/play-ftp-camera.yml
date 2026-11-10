@@ -150,25 +150,82 @@
         state: present
       tags: packages
 
+    # The password is never given to the user module: it runs useradd/usermod -p HASH,
+    # which puts the hash on a command line any local user can read (CLAUDE/QA.md
+    # secret-in-argv). The hash is made by openssl from stdin and set by chpasswd from stdin.
     - name: Create camera FTP user
-      block:
-        - name: Create camera FTP user
-          ansible.builtin.user:
-            name: "{{ ftp_camera_user }}"
-            password: "{{ ftp_camera_password | password_hash('sha512') }}"
-            home: "{{ ftp_camera_upload_dir }}"
-            shell: /sbin/nologin
-            create_home: false
-            comment: "Camera FTP upload user — managed by Ansible"
-          no_log: true
-      # Only the module message: the task arguments hold the password hash.
-      rescue:
-        - name: Stop because the camera FTP user could not be created
-          ansible.builtin.fail:
-            msg: >-
-              The camera FTP user {{ ftp_camera_user }} could not be created or updated:
-              {{ ansible_failed_result.msg | default('no reason given') }}. The camera
-              cannot log in until it exists; fix the reason above and run this play again.
+      ansible.builtin.user:
+        name: "{{ ftp_camera_user }}"
+        home: "{{ ftp_camera_upload_dir }}"
+        shell: /sbin/nologin
+        create_home: false
+        comment: "Camera FTP upload user — managed by Ansible"
+
+    - name: Read the Camera FTP User Password Hash
+      ansible.builtin.command:
+        argv: [getent, shadow, "{{ ftp_camera_user }}"]
+      register: ftp_camera_shadow
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe under no_log (stdout is the shadow entry); the fail below gives the reason
+      no_log: true
+
+    - name: Stop if the Camera FTP User Password Hash Could Not Be Read
+      ansible.builtin.fail:
+        msg: >-
+          getent shadow could not read the camera FTP user {{ ftp_camera_user }} (exit
+          {{ ftp_camera_shadow.rc | default('none') }}): {{ ftp_camera_shadow.stderr | default('') }}.
+          The user was created but its password was not set; fix the reason above and run
+          this play again.
+      when: ftp_camera_shadow.rc | default(1) != 0
+
+    # Hashed with the stored salt, so an unchanged password gives the stored hash and the
+    # update below is skipped. A new user has no usable hash and gets a fresh salt.
+    - name: Hash the Camera FTP Password
+      ansible.builtin.command:
+        argv: "{{ ['openssl', 'passwd', '-6']
+                  + (['-salt', ftp_camera_stored_hash.split('$')[2]]
+                     if ftp_camera_stored_hash is match('^[$]6[$][./0-9A-Za-z]{1,16}[$]') else [])
+                  + ['-stdin'] }}"
+        stdin: "{{ ftp_camera_password }}"
+      vars:
+        ftp_camera_stored_hash: "{{ ftp_camera_shadow.stdout.split(':')[1] }}"
+      register: ftp_camera_password_hashed
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
+      no_log: true
+
+    # The password went in on stdin; openssl's stderr and exit code never carry it.
+    - name: Stop if the Camera FTP Password Could Not Be Hashed
+      ansible.builtin.fail:
+        msg: >-
+          openssl could not hash the camera FTP password (exit
+          {{ ftp_camera_password_hashed.rc | default('none') }}):
+          {{ ftp_camera_password_hashed.stderr | default('') }}. The camera FTP user exists
+          but its password was not set; check that openssl is installed, then run this play
+          again.
+      when: ftp_camera_password_hashed.rc | default(1) != 0
+
+    - name: Set the Camera FTP Password
+      ansible.builtin.command:
+        argv: [chpasswd, --encrypted]
+        stdin: "{{ ftp_camera_user }}:{{ ftp_camera_password_hashed.stdout | trim }}"
+      when: ftp_camera_password_hashed.stdout | trim != ftp_camera_shadow.stdout.split(':')[1]
+      register: ftp_camera_password_set
+      changed_when: true
+      failed_when: false  # FAIL-FAST-OK: probe under no_log (stdin is the hash); the fail below gives the reason
+      no_log: true
+
+    # chpasswd prints the user name and its own error, never the hash.
+    - name: Stop if the Camera FTP Password Could Not Be Set
+      ansible.builtin.fail:
+        msg: >-
+          chpasswd could not set the camera FTP user password (exit
+          {{ ftp_camera_password_set.rc | default('none') }}):
+          {{ ftp_camera_password_set.stderr | default('') }}. The camera cannot log in with the
+          vaulted password; fix the reason above and run this play again.
+      when:
+        - ftp_camera_password_set is not skipped
+        - ftp_camera_password_set.rc | default(1) != 0
 
     - name: Ensure /sbin/nologin is listed in /etc/shells (required for FTP auth via PAM)
       ansible.builtin.lineinfile:

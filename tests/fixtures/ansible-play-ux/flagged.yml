@@ -166,9 +166,9 @@
       no_log: true
 
     - name: A templated no_log is taken as on
-      ansible.builtin.user:  # EXPECT-FINDING no-log-hides-failure
-        name: camera
-        password: "{{ camera_password | password_hash('sha512') }}"
+      ansible.builtin.copy:  # EXPECT-FINDING no-log-hides-failure
+        dest: /etc/camera.pw
+        content: "{{ camera_password }}"
       no_log: "{{ hide | default(true) }}"
 
     - name: A probe read only by a task that is itself no_log

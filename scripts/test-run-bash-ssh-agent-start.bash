@@ -101,7 +101,7 @@ echo "== the right passphrase"
 rm -f "$work/listed" "$work/helper.copy"
 check "the run carries on" "returned" "$(HOME="$work/home" start "$PASSPHRASE")"
 check "  with the key in the agent" "yes" "$(grep -qF test-key "$work/listed" 2>/dev/null && echo yes || echo no)"
-check "  and the helper's text holds no passphrase" "no" "$(grep -qF "$PASSPHRASE" "$work/helper.copy" && echo yes || echo no)"
+check "  and the helper's text holds no passphrase" "no" "$(grep -qF -f <(printf '%s\n' "$PASSPHRASE") "$work/helper.copy" && echo yes || echo no)"
 
 echo "== a wrong passphrase"
 check "the run stops, and does not hang" "stopped" "$(HOME="$work/home" start 'not the passphrase')"

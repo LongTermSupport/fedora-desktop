@@ -31,8 +31,15 @@ rules:
       - pattern-either:
           # ssh-keygen -P / -N: the old and the new passphrase.
           - pattern-regex: '\bssh-keygen\b(?:\\\n|\n(?=[ \t]*(?:- |[''"]))|[^\n;|&#])*?(?<![\w-])[''"]?-[PN](?:[ \t]+|[ \t]*=|[''"][ \t]*,[ \t]*|[''"]?[ \t]*\n[ \t]*-[ \t]+)(?:[''"]?(?:\$|`|\{\{)|(?![''"]{2})[A-Za-z_(])'
-          # --password / --passphrase / --passwd, and openssl's -pass/-passin/-passout pass:.
-          - pattern-regex: '(?<![\w-])(?:--?(?:password|passphrase|passwd)(?:[ \t]*=[ \t]*|[ \t]+)|-pass(?:in|out)?[ \t]+[''"]?pass:)[''"]?(?:\$(?!\{?\w*(?:FILE|PATH|file|path)\b)|`|\{\{)'
+          # --password / --passphrase / --passwd / --pass (rclone rc), and openssl's
+          # -pass/-passin/-passout pass:.
+          - pattern-regex: '(?<![\w-])(?:(?:--?(?:password|passphrase|passwd)|--pass)(?:[ \t]*=[ \t]*|[ \t]+)|-pass(?:in|out)?[ \t]+[''"]?pass:)[''"]?(?:\$(?!\{?\w*(?:FILE|PATH|file|path)\b)|`|\{\{)'
+          # A password-named variable handed to a text filter as its pattern or a variable:
+          # grep -F "$RC_PASS" log, awk -v s="$RC_PASS". The filter is a process like any
+          # other. Only a name that ENDS in the password word: $ASKPASS_LOG and $PASS_RE
+          # name a file and a pattern. Token and secret names are not taken here: in this
+          # repository they are the throwaway values the test suites grep their logs for.
+          - pattern-regex: '\b(?:grep|egrep|fgrep|awk|gawk|sed|perl)\b[^\n;|&#(]*?[ \t](?:-v[ \t]+\w+=)?[''"]?\$\{?\w*?(?:PASS|PASSWORD|PASSWD|PASSPHRASE|_PP|pass|password|passwd|passphrase|_pp)\}?(?!\w)'
       # A comment line is prose.
       - pattern-not-regex: '(?m)^[ \t]*(?:#|//)[^\n]*'
     message: >
@@ -88,6 +95,12 @@ rules:
           - patterns:
               - pattern-inside: 'environment: ...'
               - pattern-regex: '(?im)^[ \t]*-?[ \t]*\w*?(?:password|passphrase|passwd|secret|token|psk|credential|api_?key|private_?key|shadow|hash|salt)\w*[ \t]*:[^\n]*\{\{[^\n]*\}\}'
+          # The user module runs useradd/usermod -p HASH: its password: is on a command line.
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: 'ansible.builtin.user: ...'
+                  - pattern-inside: 'user: ...'
+              - pattern-regex: '(?m)^[ \t]*password:[^\n]*\{\{[^\n]*\}\}'
       - pattern-not-inside: 'stdin: ...'
       - pattern-not-inside: 'responses: ...'
     message: >
