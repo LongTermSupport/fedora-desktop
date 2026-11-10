@@ -180,3 +180,9 @@ user_email: "yourname@example.com"
 # agent_bus_element_teams:
 #   - team: <team>
 #     base_url: http://<bus_ip>:<port>
+#
+# Where the same play puts the CA of a v2 team whose approved url is https, so Element trusts
+# it (Plan 00246 SPEC-cross-network X34): nssdb (the default; Element's own NSS database, only
+# Element trusts the CA) or system (the host's trust anchors; every program trusts it). The
+# play's last task checks a handshake from Element's sandbox and fails if the CA is not trusted.
+# agent_bus_element_ca_store: nssdb

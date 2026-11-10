@@ -370,8 +370,19 @@ the builder takes where this text is silent goes in its report.
   and `apply` stop saying the CA must be trusted by hand for a team whose CA the play placed.
   Tests: the Go side (what `element check` and `apply` say, with the CA placed and not
   placed); the play passes the project's Ansible gates, and its check task is proven to fail
-  on a store without the CA by a fixture. What was built is recorded with the slice, in pull
-  request 172.
+  on a store without the CA by a fixture. **As built** (`subagent-reports/261106-crossnet-s15-opus-report.md`):
+  the play imports `tasks/element-team-ca.yml` as its last step, for each team whose approved
+  url is `https`; the variable `agent_bus_element_ca_store` is `nssdb` by default, Chromium's
+  NSS database kept in Element's Flatpak data (`flatpak override --user --persist=.pki`), with
+  `system` (the host's trust anchors) as the alternative, which makes every program on the host
+  trust a CA that has no name constraints; `helpers/element_ca/nss.py` places and checks through
+  NSS and is tested against a real TLS server and real NSS stores. Not proven: that Element's
+  Chromium honours the store; the host check has to see Element sign in to the team with no
+  certificate warning. The order to try if it fails is in the report. Not built: removing a
+  team's CA and record when the team is undeclared, a fallback for a runtime with no `python3`,
+  and a host run (no v2 `https` team is deployed on any host, so none is queued). The play is
+  still v1's profile step (`helpers.agent_bus.element`); the new tasks key on v2's
+  `approved.json` and need no change when that step is ported.
 
 ## Acceptance
 

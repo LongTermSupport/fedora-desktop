@@ -356,6 +356,16 @@ func ElementConfigDir(home string, t TeamID) (string, error) {
 	return home + "/.var/app/im.riot.Riot/config/Element-teamchat-" + t.text(), nil
 }
 
+// ElementCAPlaced is the team's CA certificate as the Element play's check left it, inside
+// Element's own Flatpak config directory, once a handshake from Element's sandbox to the team's
+// url succeeded with the CA it placed (SPEC-cross-network X34).
+func ElementCAPlaced(home string, t TeamID) (string, error) {
+	if err := checkBase("home", home); err != nil {
+		return "", err
+	}
+	return home + "/.var/app/im.riot.Riot/config/" + Product + "-ca/" + t.text() + ".pem", nil
+}
+
 // ElementLauncher is the team's Element desktop launcher under a home.
 func ElementLauncher(home string, t TeamID) (string, error) {
 	if err := checkBase("home", home); err != nil {

@@ -118,12 +118,21 @@ is best effort, and the guarantee is that no code path reads a hostname into a h
 
 ## Element
 
-An Element Desktop profile for an `https` team only works if Element trusts the team CA. Whether
-the Flatpak build honours a CA added for it has not been checked on a real machine, so
-`teamchat-admin element apply` says on its error output, for each `https` team, that the CA must be
-trusted and where it is: the CA certificate is in the team's root-only state directory
-(`/var/lib/teamchat-admin/<team>/tls/ca.crt`), which only root reads, so copy it out as root to
-import it. The same file is in every member bundle.
+An Element Desktop profile for an `https` team only works if Element trusts the team CA. The
+Element play (`play-agent-bus-element.yml`) places it, with nothing done by hand: for each team it
+names whose approved `url` is `https`, it reads the CA (`/var/lib/teamchat-admin/<team>/tls/ca.crt`)
+as root and puts it where the Flatpak build of Element reads it. Where that is, is the play's
+`agent_bus_element_ca_store`: `nssdb` (the default) is Chromium's own certificate database inside
+Element's Flatpak data, so only Element trusts the CA; `system` is the host's trust anchors, which
+every program on the host then trusts. The play's last step makes a TLS handshake from inside
+Element's sandbox to the team's address and checks the certificate against the stores Element
+reads; it fails the play, naming the CA file and the store, when the CA is not trusted. Until the
+play has passed for a team, `teamchat-admin element check` and `apply` say on their error output
+that Element does not trust the team's CA yet and to run the play.
+
+Whether the Flatpak build honours each store has not yet been seen on a real desktop: that host
+check decides which store the play uses. The play runs only on the homeserver host, where the
+team's `approved.json` is; Element on another machine has no profile from this repository.
 
 ## What is proven, and what is not
 
