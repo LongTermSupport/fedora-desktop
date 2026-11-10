@@ -17,7 +17,8 @@
 # Not run, and the report says so: the /32 check and the permissive-zone refusal (D8), C11, C12.
 # Bridged: no production code takes a placed pool seat into a session (Task 4.2), so
 # x30-guest.bash stage-seat copies it. Met: restore is refused in the production build until
-# DC8, so M1-M4 end as COULD NOT ESTABLISH until that is decided.
+# host checks H-C5 and H-C15 pass (DC8, decided as option (a)), so M1-M4 end as COULD NOT
+# ESTABLISH until those checks have run.
 # Every statement of a leg ends in `|| return 1`: plan_deploy_leg runs a leg as an `if`
 # condition, where bash ignores errexit (issue #233).
 #

@@ -166,7 +166,9 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   password sudo with the bus's outbound ssh blocked, worker to worker with the coordinator
   absent, the host move with a DNS url). Two gaps it meets: no production take of a pool seat
   into a session (Task 4.2; the scenario copies it), and `restore` is refused in the production
-  build until DC8, so the host move ends COULD NOT ESTABLISH until the owner decides DC8.
+  build until host checks H-C5 and H-C15 pass (DC8 is decided, option (a); Plan 00209 Task 2.5),
+  so the host move ends COULD NOT ESTABLISH until those checks have run. That is a proof to run,
+  not an owner decision, and the rest of X30 does not need the host move.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged
