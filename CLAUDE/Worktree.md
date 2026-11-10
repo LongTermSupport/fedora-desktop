@@ -44,7 +44,12 @@ Never meet the cap by exempting branches or raising it. Fix the cause.
 - **Agent worktrees left behind.** Reap after every agent that had one:
   `hooks-daemon worktree-reap --reap --reap-branches` (with `--base-branch` set to the line the
   work was for, e.g. `F44-arm`). Create a worktree from the main checkout only, never inside
-  another worktree's `.claude/worktrees/`.
+  another worktree's `.claude/worktrees/`. An agent that edits files works in its own worktree
+  (Agent `isolation: "worktree"`), so the main checkout stays clean for `qa-all`.
+- **Merge a sub-agent branch at its last work commit, never at its park commit.** The stop guard
+  makes a sub-agent park its branch, and `branch-park` commits unsigned (a daemon fault), while
+  F44 accepts only signed commits. One merged park commit blocks the push of everything above it,
+  and every later agent worktree inherits it. Merge `<work-sha>`, not the branch name, then reap.
 - **Finished work never put up for review.** A branch whose work is done gets a PR the same day.
   Paused work is parked with `hooks-daemon branch-park <name> --reason ...`, never left to go
   dormant.
