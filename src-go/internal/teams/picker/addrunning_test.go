@@ -2,12 +2,15 @@ package picker
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
 // Plan 00203 SPEC-team-add-and-restart.md A1-A9: a running session is added to a team from the
@@ -141,7 +144,7 @@ func TestAddARunningSessionToATeamThatCannotBeJoinedRefusesBeforeListing(t *test
 // The help describes the add lines and the team restart (B1).
 func TestHelpDescribesTheAddLinesAndTheRestart(t *testing.T) {
 	for _, want := range []string{
-		"Add a running session to <team>", "Add this\nsession to another team",
+		"Add a running session to <team>", "Add this\nsession to another team", "Add a running session to this seat",
 		"Restart the team's desktop sessions", "`ccy-teams restart <team>`", "LXC members",
 		"Wind down the team's sessions", "`ccy-teams wind-down <team>`", "/goal clear",
 	} {
@@ -195,5 +198,177 @@ func TestAddThisSessionThatCannotBeChangedSaysWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.wantErr(t, "ccy-proj cannot be changed while it runs (old or --no-bus: relaunch it to change it while it runs).")
+	h.wantRuns(t)
+}
+
+// A11-A15: a seat with no running session takes one, its team and seat fixed.
+
+const addToSeat = "Add a running session to this seat"
+
+// devRecord writes a stopped session record that names alpha's seat dev, restored or not.
+func (h rig) devRecord(t *testing.T, restore string) {
+	t.Helper()
+	teamtest.MustWrite(t, filepath.Join(h.Root, "home/.local/state/ccy/sessions/ccy-old"),
+		"ccy-session-record 1\nname=ccy-old\ndir="+h.Checkout()+"\nlauncher=/x/ccy\nprefix=ccy\nrestore="+restore+"\narg=--teams\narg=dev@alpha\n")
+}
+
+// A11: the line is on a seat row whose session is not running, with the add actions, before
+// Remove seat; a running seat has Add this session to another team instead.
+func TestASeatWithNoRunningSessionOffersAddingARunningSessionToIt(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, "dev"))
+	at := index(t, labels, addToSeat)
+	if lxc := index(t, labels, "Add an LXC container's agent to alpha"); at != lxc+1 {
+		t.Fatalf("the add follows the LXC add: %q", labels)
+	}
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat ") }); remove < 0 || at > remove {
+		t.Fatalf("destructive lines stay last: %q", labels)
+	}
+	if slices.Contains(h.labels(r, h.row(t, r.snap, "1")), addToSeat) {
+		t.Fatal("a seat whose session runs has Add this session to another team, not this")
+	}
+}
+
+// A12, A13: the sessions are listed with A4's refusals and those of the seat (another
+// checkout, another kind); the chosen one goes on to the role only, and `session add` names
+// the seat.
+func TestAddARunningSessionToASeatAsksTheSessionAndTheRoleOnly(t *testing.T) {
+	h := newRig(t)
+	elsewhere := h.other()
+	elsewhere.Name, elsewhere.Checkout = "ccy-far", filepath.Join(h.Root, "far")
+	cc := h.other()
+	cc.Name, cc.Kind = "cc-proj", "cc"
+	h.ses.list = []hot.Session{h.seated(), elsewhere, cc, h.other()}
+	h.Script.Fzf = []string{"|ccy-far", "|cc-proj", "|ccy-other", "|worker", "|ABORT"}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantRuns(t, []string{"add", "ccy-other", "alpha/dev", "--role=worker"})
+	h.wantErr(t,
+		"ccy-far runs in "+h.p.Kit.Abbrev(elsewhere.Checkout)+", and seat dev is a seat of "+h.p.Kit.Abbrev(h.Checkout())+".",
+		"cc-proj is a cc session, and seat dev is a ccy seat.")
+	for i, want := range []string{
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 1/2 Session\nteam alpha · seat dev",
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 1/2 Session\nteam alpha · seat dev",
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 1/2 Session\nteam alpha · seat dev",
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 2/2 Role\nteam alpha · session ccy-other · seat dev",
+	} {
+		h.Script.HeadingAt(i, want)
+	}
+}
+
+// A14: with none that can take the seat, each one's reason is said and nothing is asked.
+func TestAddARunningSessionToASeatWhenNoneCanTakeItSaysWhyForEach(t *testing.T) {
+	h := newRig(t)
+	stuck := h.other()
+	stuck.Controllable, stuck.State = false, "old or --no-bus: relaunch it to change it while it runs"
+	cc := h.other()
+	cc.Name, cc.Kind = "cc-proj", "cc"
+	h.ses.list = []hot.Session{h.seated(), stuck, cc}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "No running session can be added to seat dev of alpha:",
+		"ccy-proj is already in alpha", "ccy-other cannot be changed while it runs",
+		"cc-proj is a cc session, and seat dev is a ccy seat")
+	h.wantRuns(t)
+	if len(h.Script.Rows) != 0 {
+		t.Fatalf("nothing to choose is not a question: %q", h.Script.Rows)
+	}
+}
+
+// A15: a seat a stopped session's record starts again after a reboot, or one a process holds,
+// cannot take a running session: the line stays, says why, and choosing it asks nothing. A
+// record that is not restored does not claim the seat.
+func TestASeatClaimedElsewhereSaysWhyItCannotTakeARunningSession(t *testing.T) {
+	for name, want := range map[string]string{
+		"restored record": "session ccy-old's record starts it again after a reboot (Stop starting its session again after a reboot frees it)",
+		"held":            "another process holds it",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			if name == "held" {
+				h.HoldSeat(t, h.Checkout(), "alpha", "dev", true)
+			} else {
+				h.devRecord(t, "yes")
+			}
+			h.ses.list = []hot.Session{h.other()}
+			r := h.run1(t)
+			row := h.row(t, r.snap, "dev")
+			if !slices.Contains(h.labels(r, row), addToSeat+": unavailable, "+want) {
+				t.Fatalf("menu %q", h.labels(r, row))
+			}
+			if _, err := r.do(context.Background(), actAddToSeat, row); err != nil {
+				t.Fatal(err)
+			}
+			h.wantErr(t, "Seat dev of alpha cannot take a running session: "+want+".")
+			if h.ses.listed != 0 || len(h.Script.Rows) != 0 {
+				t.Fatalf("refused before listing: listed %d, questions %q", h.ses.listed, h.Script.Rows)
+			}
+			h.wantRuns(t)
+		})
+	}
+	h := newRig(t)
+	h.devRecord(t, "no")
+	r := h.run1(t)
+	if !slices.Contains(h.labels(r, h.row(t, r.snap, "dev")), addToSeat) {
+		t.Fatalf("a record not restored leaves the seat free: %q", h.labels(r, h.row(t, r.snap, "dev")))
+	}
+}
+
+// A14: the seat add says why the sessions cannot be listed, and says when none runs.
+func TestAddARunningSessionToASeatWithNoListOrNoneRunningSaysSo(t *testing.T) {
+	h := newRig(t)
+	h.ses.err = errors.New("tmux is gone")
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "The running sessions cannot be listed: tmux is gone.")
+	h.ses.err = nil
+	if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "No session is running, so none can be added to seat dev of alpha.")
+	h.wantRuns(t)
+}
+
+// Leaving the seat add's session or role question changes nothing.
+func TestLeavingTheSeatAddChangesNothing(t *testing.T) {
+	for name, answers := range map[string][]string{
+		"session": {"|ABORT"},
+		"role":    {"|ccy-other", "|ABORT"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			h.ses.list = []hot.Session{h.other()}
+			h.Script.Fzf = answers
+			r := h.run1(t)
+			if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+				t.Fatal(err)
+			}
+			h.wantRuns(t)
+		})
+	}
+}
+
+// A8: a seat whose session has ended since the list was drawn, or whose sessions cannot be
+// listed, says so and asks nothing.
+func TestAddThisSessionThatIsNoLongerListedSaysWhy(t *testing.T) {
+	h := newRig(t)
+	h.ses.list = []hot.Session{h.other()}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddThis, h.row(t, r.snap, "1")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "ccy-proj is not among the running sessions ccy-teams can change")
+	h.ses.err = errors.New("tmux is gone")
+	if _, err := r.do(context.Background(), actAddThis, h.row(t, r.snap, "1")); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "The running sessions cannot be listed: tmux is gone.")
 	h.wantRuns(t)
 }

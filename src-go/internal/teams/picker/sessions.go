@@ -238,6 +238,12 @@ func (r *run) addSeatAndRole(ctx context.Context, s hot.Session, team string, h 
 	if !ok {
 		return res, err
 	}
+	return r.addInRole(ctx, s, team, seat, h.AtStep(3, 3, "Role"), about)
+}
+
+// addInRole is the last step of an add, once the session, the team and the seat are known: the
+// role, then `session add`. h is the role's screen, and about what was chosen so far.
+func (r *run) addInRole(ctx context.Context, s hot.Session, team string, seat option, h ui.Heading, about string) (flow.Result, error) {
 	holder := coordinator.Holding(r.snap.Members[team], seat.handle, seats.SnapshotRunning(r.snap))
 	current := ""
 	if seat.handle != "" && r.snap.RoleOf(team, seat.handle) == roleCoordinator {
@@ -247,7 +253,7 @@ func (r *run) addSeatAndRole(ctx context.Context, s hot.Session, team string, h 
 	if seat.value != "" {
 		seatWord = "seat " + seat.value
 	}
-	role, res, ok, err := r.ask(ctx, h.AtStep(3, 3, "Role").About(about+" · "+seatWord),
+	role, res, ok, err := r.ask(ctx, h.About(about+" · "+seatWord),
 		"Role in "+team+":", roleOptions(team, current, holder))
 	if !ok {
 		return res, err

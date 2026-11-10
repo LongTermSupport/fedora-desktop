@@ -68,6 +68,32 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
 - A10. LXC members get no such line: a hot add changes a session on ccy's tmux, and an LXC
   agent is not one (`lxc-add` is its route).
 
+The owner, later: "when hitting enter on a stale seat - should have an option to assign that
+seat directly to a running session ... if i know exactly which seat and the seat is already
+configured i should be able to select the seat".
+
+- A11. A ccy or cc seat row of a known checkout whose session is not running (no record, or
+  its record's tmux session stopped; whatever its STATE, stale included) has **Add a running
+  session to this seat**, after the LXC line and before Remove seat. A running seat has A7's
+  line instead.
+- A12. It is A3-A6 with the team and the seat fixed: the screens are Teams › `<team>` ›
+  `<seat's handle>` › Add a running session, steps 1/2 Session and 2/2 Role. A session is
+  refused by A4's words, and also when it runs in another checkout ("`<s>` runs in `<dir>`,
+  and seat `<n>` is a seat of `<dir>`.") or is of another kind than the seat ("`<s>` is a cc
+  session, and seat `<n>` is a ccy seat."): a seat's member is one checkout's and one kind's.
+- A13. The seat is not asked again. The role is asked, by the same code as A5's step 3: the
+  add passes the role to the seat (`--role=worker` for an existing seat, as A5 does), so
+  skipping the question would make a coordinator's seat a worker; the question starts on the
+  role the seat has, and offers the takeover when another member holds the coordinator's
+  role. Then `ccy-teams session add <s> <team>/<seat>` runs with the role.
+- A14. With no running session, or none that can take the seat, nothing is asked and each
+  session's reason is said (A6).
+- A15. A seat `session add` would refuse (H22) says why on the line itself, and choosing it
+  asks nothing: one a live process holds ("another process holds it"), and one a stopped
+  session's record names and restores after a reboot (pointing at Stop starting its session
+  again after a reboot, which frees it). A stopped record that is not restored does not
+  claim the seat.
+
 ## 3. Each session's conversation, recorded (C)
 
 - C1. The pingbus SessionStart hook (`helpers/pingbus/hooks.py`), in every session that carries

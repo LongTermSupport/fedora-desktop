@@ -36,6 +36,8 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.addRunningTo(ctx, row.Team)
 	case actAddThis:
 		return r.addThisSession(ctx, row)
+	case actAddToSeat:
+		return r.addToSeat(ctx, row)
 	}
 	return r.doTeam(ctx, id, row)
 }

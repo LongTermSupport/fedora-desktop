@@ -225,7 +225,10 @@ menu of what can be done to it, in words, and that menu is the only way to an ac
 are no shortcut keys. Its lines include starting a session, updating every team out of date
 (on a team row), turning a seat's restore off (after a yes/no) or on, removing a seat,
 parking a member (after a yes/no) or taking a team down (as `remove`), a person's new
-password, opening Element, and a help line that explains the columns and the lines. The last
+password, opening Element, and a help line that explains the columns and the lines. A seat
+whose session is not running (stopped, stale or never started) has Add a running session to
+this seat: it lists the running sessions, refusing with why each one of another checkout or
+kind, already in the team or not changeable while it runs, then asks only the role. The last
 row, Running sessions, lists the running sessions. Enter on one lists, in words, what can be done to it
 while it runs: Add to a team, Remove from `<team>`, Change role in `<team>`, Move to another
 team, Attach, and Repair when its seat keeper has stopped. Each is the `ccy-teams session`
