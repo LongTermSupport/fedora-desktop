@@ -86,27 +86,24 @@
             (config_choice.user_input == "1" and (single_email.user_input | default('') | trim | length == 0))
             or (config_choice.user_input == "2" and ((parsed_accounts | string | trim) in ['{}', '']))
 
-        - name: Write single account configuration
+        # One task owns the block: the choice picks its content, not which task writes it.
+        - name: Write the account configuration
           ansible.builtin.blockinfile:
             path: "{{ vault_file }}"
             marker: "# {mark} ANSIBLE MANAGED: LastPass Configuration"
             block: |
+              {% if config_choice.user_input == "1" %}
               # LastPass single account
               lastpass_accounts:
                 default: "{{ single_email.user_input }}"
-          when: config_choice.user_input == "1"
-
-        - name: Write multi-account configuration
-          ansible.builtin.blockinfile:
-            path: "{{ vault_file }}"
-            marker: "# {mark} ANSIBLE MANAGED: LastPass Configuration"
-            block: |
+              {% else %}
               # LastPass accounts
               lastpass_accounts:
               {% for name, email in parsed_accounts.items() %}
                 {{ name }}: "{{ email }}"
               {% endfor %}
-          when: config_choice.user_input == "2"
+              {% endif %}
+          when: config_choice.user_input in ["1", "2"]
 
         - name: Reload variables
           ansible.builtin.include_vars: "{{ vault_file }}"

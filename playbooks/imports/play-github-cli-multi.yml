@@ -10,6 +10,8 @@
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+    # The BEGIN line of the block play-basic-configs.yml writes to source ~/.bashrc-includes.
+    bashrc_includes_marker: "# BEGIN ANSIBLE MANAGED: Source bashrc includes"
     # GitHub SSH-over-443 ALWAYS-ON toggle. Default off. Set github_ssh_over_443:
     # true in host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when
     # port 22 is firewall-blocked. ssh.github.com:443 serves the SAME host keys as
@@ -56,6 +58,22 @@
           - gh_version_output.stdout is version('2.40.0', '>=')
         fail_msg: "GitHub CLI v2.40.0+ required for multi-account support. Current: {{ gh_version_output.stdout | default('not installed') }}"
         success_msg: "GitHub CLI {{ gh_version_output.stdout }} supports multi-account"
+
+    # The aliases this play writes into ~/.bashrc-includes are read only through the loop
+    # play-basic-configs.yml owns in ~/.bashrc; this play checks for it and never writes it.
+    - name: Read the user's bashrc to confirm includes are sourced
+      ansible.builtin.slurp:
+        src: "/home/{{ user_login }}/.bashrc"
+      register: gh_bashrc
+
+    - name: Assert the bashrc includes loop is present
+      ansible.builtin.assert:
+        that:
+          - bashrc_includes_marker in (gh_bashrc['content'] | b64decode)
+        fail_msg: >-
+          /home/{{ user_login }}/.bashrc does not source ~/.bashrc-includes, so the gh and git
+          aliases this play deploys would never be loaded. Run playbook-main.yml (or
+          playbooks/imports/play-basic-configs.yml) first, which owns that loop.
 
     # Before anything changes: the GitHub SSH keys are generated with this passphrase.
     - name: Ask for the GitHub SSH key passphrase when it is missing
@@ -1649,15 +1667,3 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
-
-    - name: Ensure bashrc sources includes directory
-      ansible.builtin.blockinfile:
-        path: "/home/{{ user_login }}/.bashrc"
-        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
-        block: |-
-          # Source all bash includes
-          if [ -d ~/.bashrc-includes ]; then
-              for f in ~/.bashrc-includes/*.bash; do
-                  [ -r "$f" ] && source "$f"
-              done
-          fi

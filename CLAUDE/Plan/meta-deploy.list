@@ -78,4 +78,12 @@
 # restorecon or the hotspot tuning changed. If the tuning still reports changed, the third
 # line of nmcli -g 802-11-wireless.channel-width for the hotspot is not the 40 the probe
 # expects: report that line.
+# And issue #228 (one owner per managed block): github-cli-multi no longer writes the ~/.bashrc
+# block that sources ~/.bashrc-includes, and now stops before any change if that block is
+# missing; lastpass writes its configuration block from one task (it asks only when not yet
+# configured, so a configured host sees no prompt).
 changed-plays
+# Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
+# writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)
+# again rather than only *.bash. Its block should report changed once, then never again.
+playbooks/imports/play-basic-configs.yml
