@@ -2333,6 +2333,37 @@ Defence Before Fix; `qa-changed`'s summary (it names every failing check) has no
 **How to fix a finding.** Count every kind of failure the summary covers, first, and label a
 partial count as what it is: qa-all's headline is now `✗ QA FAILED: <K> gate(s) and <S> stage(s) failed; <E> lint errors in <N> files`, each kind named only when it failed.
 
+### summary-counts-nongating-failure-as-pass
+
+**What it is.** A run's closing line computed from the count of failures that gate the exit code
+alone, so a unit that failed but deliberately does not gate (a read-only triage, an advisory
+check, an upload that finished with errors) is reported as passed. Run by
+`scripts/test-meta-deploy.bash` (gate `meta-deploy-queue`, and `qa-changed` when
+`CLAUDE/Plan/meta-deploy.bash` changes): a plan whose triage exits 1 around a passing deploy
+must keep exit 0, name the triage `FAIL ... non-gating`, count both triage runs in the closing
+line and never close with "all N unit(s) passed". Its failing cases carry this identifier.
+
+**Why it exists.** meta-deploy recorded a failed triage as a `note` row and closed `all 3 unit(s) passed.` over it (issue #203); a reader who stopped at the last line missed the failure. The
+sweep found the same shape in `ftp-camera --copy` (a green "all uploads complete" over errored
+files; `TestCopy` pins the fix) and `scripts/setup.bash` ("All preflight checks passed." after
+an accepted version mismatch; host-only, fixed by reading). Sibling of
+[summary-count-omits-failure-source](#summary-count-omits-failure-source).
+
+**Toolchain gap, for the owner.** The defence is a test, which the method does not accept as a
+detector, and it covers meta-deploy only. Two static forms were tried and neither holds the
+class: a bash syntax-tree rule for a failure row appended to a results list with no counter
+increment in the same branch matches meta-deploy's shape only (the ftp-camera and setup.bash
+instances have no results list), and a text rule on closing lines (`all ... passed|complete`)
+fires on every correctly guarded closing line, because whether the guard covers every failure
+branch is data flow no detector here models (bash has no data-flow analyser; the Go analyzers
+would need one per tool's own counters). Leaving the class undefended outside meta-deploy, and
+not building that per-language data-flow rule, are the owner's decisions (issue #203).
+
+**How to fix a finding.** Count every outcome the run records, gating or not, and derive the
+closing line from all the counts: "all N passed" only when nothing failed, otherwise the passes
+and each kind of failure by number (meta-deploy: `P of N unit(s) passed: B failed, were skipped or could not establish; T non-gating triage run(s) failed.`). Keep the exit code as it is; a
+non-gating failure is still a failure in the words.
+
 ---
 
 ## Changing a Gate

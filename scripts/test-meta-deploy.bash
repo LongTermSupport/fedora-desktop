@@ -125,13 +125,15 @@ chmod +x "${SCRATCH}/CLAUDE/Plan/00005-noisy/triage.bash" "${SCRATCH}/CLAUDE/Pla
 printf '00005-noisy\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 status=$?
-check "a failed non-gating triage keeps the exit code 0" 0 "PASS  00005-noisy/deploy.bash" "${status}" "${out}"
-check "a failed non-gating triage is named as failed" 0 "FAIL  00005-noisy/triage.bash (before) (exit 1, non-gating" "${status}" "${out}"
-check "the closing line counts a non-gating failure" 0 \
+# The identifier and its documentation, printed with each case so a failure says what to read.
+NG_ID="[summary-counts-nongating-failure-as-pass: CLAUDE/QA.md#summary-counts-nongating-failure-as-pass]"
+check "a failed non-gating triage keeps the exit code 0 ${NG_ID}" 0 "PASS  00005-noisy/deploy.bash" "${status}" "${out}"
+check "a failed non-gating triage is named as failed ${NG_ID}" 0 "FAIL  00005-noisy/triage.bash (before) (exit 1, non-gating" "${status}" "${out}"
+check "the closing line counts a non-gating failure ${NG_ID}" 0 \
     "1 of 3 unit(s) passed: 0 failed, were skipped or could not establish; 2 non-gating triage run(s) failed." "${status}" "${out}"
 nonGatingClaim="no false all-passed"
 [[ "${out}" == *"all 3 unit(s) passed."* ]] && nonGatingClaim="claims all passed"
-check "the closing line never says all passed over a failed triage" "0 no false all-passed" "" "${status} ${nonGatingClaim}" "${out}"
+check "the closing line never says all passed over a failed triage ${NG_ID}" "0 no false all-passed" "" "${status} ${nonGatingClaim}" "${out}"
 
 rm -f "${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" --list 2>&1)"
