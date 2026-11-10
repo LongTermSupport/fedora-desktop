@@ -93,7 +93,7 @@ printf '#!/usr/bin/env bash\nexit 2\n' >"${SCRATCH}/CLAUDE/Plan/00001-demo/accep
 printf '00001-demo/acceptance.bash\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 check "an acceptance script's exit 2 is COULD NOT ESTABLISH" 1 "UNSET 00001-demo-acceptance.bash (exit 2 — COULD NOT ESTABLISH" "$?" "${out}"
-check "the closing line counts it" 1 "1 of 1 unit(s) failed, were skipped or could not establish." 1 "${out}"
+check "the closing line counts it" 1 "0 of 1 unit(s) passed: 1 failed, were skipped or could not establish; 0 non-gating triage run(s) failed." 1 "${out}"
 printf '#!/usr/bin/env bash\nexit 2\n' >"${SCRATCH}/CLAUDE/Plan/00001-demo/deploy-stage-2.bash"
 chmod +x "${SCRATCH}/CLAUDE/Plan/00001-demo/deploy-stage-2.bash"
 printf '00001-demo/deploy-stage-2.bash\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"

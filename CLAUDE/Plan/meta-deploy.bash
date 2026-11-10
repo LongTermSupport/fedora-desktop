@@ -135,8 +135,10 @@ RESULTS=()
 
 # A COUNT of bad units, not a sum of their exit codes. Summing would wrap at 256, so a
 # batch whose codes happened to total exactly that would exit 0 and report success for a
-# run that failed. Counting cannot alias.
-BAD=0
+# run that failed. Counting cannot alias. NONGATING counts failed triage runs: they do not
+# fail the batch, but the summary counts them, so a failure is never reported as a pass.
+# Every RESULTS row is exactly one of a pass, a BAD or a NONGATING.
+BAD=0 NONGATING=0
 
 for planDir in "${PLAN_DIRS[@]}"; do
     planName="$(basename "${planDir}")"
@@ -183,7 +185,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
             if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-before.log"; then
                 RESULTS+=("PASS  ${planName}/triage.bash (before)")
             else
-                RESULTS+=("note  ${planName}/triage.bash (before) exit ${PIPESTATUS[0]} — read-only, does not gate the deploy")
+                RESULTS+=("FAIL  ${planName}/triage.bash (before) (exit ${PIPESTATUS[0]}, non-gating: read-only, does not gate the deploy)"); NONGATING=$((NONGATING + 1))
             fi
         fi
 
@@ -192,7 +194,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
             printf '\n===> %s / deploy.bash\n' "${planName}"
             # PIPESTATUS[0] is the script's status, not tee's; the `||` branch runs only when the
             # pipeline failed (pipefail), and keeps errexit from ending the batch before the verdict.
-            status=0
+            # status is still the 0 set at the top of the loop: triage never writes it.
             "${planDir}/deploy.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-deploy.log" || status="${PIPESTATUS[0]}"
             if [[ "${status}" == "0" ]]; then
                 RESULTS+=("PASS  ${planName}/deploy.bash")
@@ -210,7 +212,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
             if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
                 RESULTS+=("PASS  ${planName}/triage.bash (after)")
             else
-                RESULTS+=("note  ${planName}/triage.bash (after) exit ${PIPESTATUS[0]} — read-only, does not gate acceptance")
+                RESULTS+=("FAIL  ${planName}/triage.bash (after) (exit ${PIPESTATUS[0]}, non-gating: read-only, does not gate acceptance)"); NONGATING=$((NONGATING + 1))
             fi
         fi
 
@@ -256,11 +258,9 @@ done
 # The summary is written into the capture directory as well as the terminal, so the agent
 # that asked for the run reads the verdict itself instead of the owner pasting it back.
 # summary.txt appearing is also the marker that the whole batch has finished.
-if [[ "${BAD}" -gt 0 ]]; then
-    closing="$(printf '%d of %d unit(s) failed, were skipped or could not establish.' "${BAD}" "${#RESULTS[@]}")"
-else
-    closing="$(printf 'all %d unit(s) passed.' "${#RESULTS[@]}")"
-fi
+closing="all ${#RESULTS[@]} unit(s) passed."
+[[ $((BAD + NONGATING)) -eq 0 ]] || closing="$(printf '%d of %d unit(s) passed: %d failed, were skipped or could not establish; %d non-gating triage run(s) failed.' \
+    "$((${#RESULTS[@]} - BAD - NONGATING))" "${#RESULTS[@]}" "${BAD}" "${NONGATING}")"
 {
     printf '\n==============================================================\n'
     printf 'Summary\n'
