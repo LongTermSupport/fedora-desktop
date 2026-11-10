@@ -288,6 +288,34 @@ mkdir -p "${ABSENT_ROOT}"
 assert_filter "an absent vars file yields no exemption and no error" \
     "1: uuid: ${DECLARED_UUID}" "${ABSENT_ROOT}" "1: uuid: ${DECLARED_UUID}"
 
+# ── unit-name-with-suffix-read-as-email (issue #204) ─────────────────────────────────────
+#
+# A systemd unit name is exempt (`name@instance.service`), but the exemption was anchored at the
+# unit type, so a file NAMED after a template unit (the unit name plus `.golden`, `.j2`, `.in`)
+# was refused as an email address. A template's `@` is followed directly by `.`, which no address
+# can be (a domain never starts with a dot), so that shape is exempt with any further suffixes.
+# Failures here: CLAUDE/QA.md#unit-name-with-suffix-read-as-email.
+#
+# Assembled from halves, like REAL_ADDRESS: before the fix these were exactly what the hook
+# refused, so a literal here would have blocked the commit that added the cases.
+UNIT_AT="demo-unit@"
+for unitFile in ".service.golden" ".socket.j2" ".timer.in" ".service.golden.orig"; do
+    assert_filter "unit-name-with-suffix-read-as-email: a template unit file ${unitFile} is not an email" \
+        "" "${REPO_ROOT}" "1:     golden: ${UNIT_AT}${unitFile}"
+done
+assert_filter "unit-name-with-suffix-read-as-email: a template file does not shield a real address" \
+    "1: ${UNIT_AT}.service.golden and ${REAL_ADDRESS}" "${REPO_ROOT}" \
+    "1: ${UNIT_AT}.service.golden and ${REAL_ADDRESS}"
+# The boundary, deliberately: an INSTANCE unit with a further suffix has a domain-shaped tail
+# (`tty1.service.golden`), and so has a real address under a `service` label, so both stay
+# flagged. Only the template's `@.` is provably not an address.
+assert_filter "unit-name-with-suffix-read-as-email: an instance unit with a suffix is still flagged" \
+    "1: ${UNIT_AT}tty1.service.golden" "${REPO_ROOT}" "1: ${UNIT_AT}tty1.service.golden"
+assert_filter "unit-name-with-suffix-read-as-email: a real address under a service label is flagged" \
+    "1: someone@help.service.${RESERVED_TLD}" "${REPO_ROOT}" "1: someone@help.service.${RESERVED_TLD}"
+assert_filter "unit-name-with-suffix-read-as-email: an @. shape that is not a unit type is flagged" \
+    "1: ${UNIT_AT}.corp.${RESERVED_TLD}" "${REPO_ROOT}" "1: ${UNIT_AT}.corp.${RESERVED_TLD}"
+
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
 # A structural assertion, because the behaviour above is only reached through this call and
