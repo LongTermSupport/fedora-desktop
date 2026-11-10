@@ -129,6 +129,8 @@
         - name: Rename legacy upload directory to new path
           ansible.builtin.command:
             cmd: mv "{{ ftp_camera_upload_dir_legacy }}" "{{ ftp_camera_upload_dir }}"
+            removes: "{{ ftp_camera_upload_dir_legacy }}"
+            creates: "{{ ftp_camera_upload_dir }}"
           when:
             - legacy_upload_dir.stat.exists
             - not new_upload_dir.stat.exists
@@ -211,7 +213,7 @@
         stdin: "{{ ftp_camera_user }}:{{ ftp_camera_password_hashed.stdout | trim }}"
       when: ftp_camera_password_hashed.stdout | trim != ftp_camera_shadow.stdout.split(':')[1]
       register: ftp_camera_password_set
-      changed_when: true
+      changed_when: ftp_camera_password_set.rc == 0
       failed_when: false  # FAIL-FAST-OK: probe under no_log (stdin is the hash); the fail below gives the reason
       no_log: true
 
@@ -291,10 +293,30 @@
         group: root
         mode: "0644"
 
+    # The entry's two d lines: each a directory, mode 0755, owned by root. tmpfiles.d(5) says a
+    # d line creates the directory and adjusts its mode and owner, so it changes something only
+    # when a directory is missing or differs; that is what is read first.
+    - name: Read the vsftpd secure chroot dirs
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /run/vsftpd
+        - /run/vsftpd/empty
+      register: ftp_camera_chroot_dirs
+
+    - name: Note whether a vsftpd secure chroot dir is missing or differs from the entry
+      ansible.builtin.set_fact:
+        ftp_camera_chroot_dirs_wrong: >-
+          {% set ns = namespace(wrong=false) %}{% for dir in ftp_camera_chroot_dirs.results %}{%
+          if not (dir.stat.isdir | default(false) and dir.stat.mode == '0755'
+                  and dir.stat.pw_name == 'root' and dir.stat.gr_name == 'root')
+          %}{% set ns.wrong = true %}{% endif %}{% endfor %}{{ ns.wrong }}
+
     - name: Create vsftpd secure chroot dir now (tmpfiles.d only fires at boot)
       ansible.builtin.command:
         cmd: systemd-tmpfiles --create /etc/tmpfiles.d/vsftpd-camera.conf
-      changed_when: true
+      when: ftp_camera_chroot_dirs_wrong | bool
+      changed_when: ftp_camera_chroot_dirs_wrong | bool
 
     - name: Set SELinux file context on upload directory (allows vsftpd write access)
       # public_content_rw_t is the designated type for FTP-writable directories.
@@ -304,10 +326,13 @@
         setype: public_content_rw_t
         state: present
 
+    # restorecon(8): -v shows changes in file labels, one "Relabeled <path> from <old> to <new>"
+    # line for each file it relabels, so a run that relabels nothing prints none.
     - name: Apply SELinux file context to upload directory
       ansible.builtin.command:
-        cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
-      changed_when: true
+        argv: [restorecon, -R, -v, "{{ ftp_camera_upload_dir }}"]
+      register: ftp_camera_restorecon
+      changed_when: "'Relabeled' in ftp_camera_restorecon.stdout"
 
     - name: Enable SELinux boolean for vsftpd passive mode
       # Without this, SELinux blocks vsftpd from binding to passive data ports
@@ -480,7 +505,9 @@
             - not ftp_camera_hotspot_exists
             - ftp_camera_wifi_devs | length > 0
           register: ftp_camera_hotspot_created
-          changed_when: true
+          changed_when: >-
+            ftp_camera_hotspot_created.rc == 0
+            and 'successfully saved' in ftp_camera_hotspot_created.stdout
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
 
@@ -501,6 +528,27 @@
               ftp_camera_hotspot_created.rc | default(1) != 0
               or 'successfully saved' not in ftp_camera_hotspot_created.stdout | default('')
 
+        # nmcli -g prints each field asked for on its own line, in the order asked.
+        - name: Read the hotspot profile's band, channel and channel width
+          ansible.builtin.command:
+            argv:
+              - nmcli
+              - -g
+              - 802-11-wireless.band,802-11-wireless.channel,802-11-wireless.channel-width
+              - connection
+              - show
+              - "{{ ftp_camera_hotspot_connection }}"
+          register: ftp_camera_hotspot_radio
+          changed_when: false
+          when: ftp_camera_hotspot_exists or ftp_camera_wifi_devs | length > 0
+
+        - name: Note whether the hotspot profile needs the throughput tuning
+          ansible.builtin.set_fact:
+            ftp_camera_hotspot_untuned: >-
+              {{ ftp_camera_hotspot_radio is not skipped
+                 and (ftp_camera_hotspot_radio.stdout_lines[:2] != ['bg', '6']
+                      or not ((ftp_camera_hotspot_radio.stdout_lines[2] | default('')) is match('40'))) }}
+
         - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
           # Runs for a profile this play just created AND for one the user made
           # in GNOME, so a hand-made hotspot still gets the throughput tuning.
@@ -516,10 +564,8 @@
               - "6"
               - "802-11-wireless.channel-width"
               - "40"
-          when: ftp_camera_hotspot_exists or ftp_camera_wifi_devs | length > 0
-          # nmcli modify writes to disk unconditionally; no idempotency check
-          # short of reading every field back, which isn't worth it.
-          changed_when: true
+          when: ftp_camera_hotspot_untuned | bool
+          changed_when: ftp_camera_hotspot_untuned | bool
 
         - name: Warn when no WiFi device is present to host an AP
           ansible.builtin.debug:

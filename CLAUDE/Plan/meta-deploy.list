@@ -73,5 +73,9 @@
 # unifi-controller (the firewall ports are queried and only a missing one is added, and the
 # firewall reloaded only then), unifi-firmware, docker-overlay2-migration,
 # virtualbox-windows-vm-setup, displaylink and nvidia. A second run of each should report no
-# change for those tasks; one that still does is the probe to report back.
+# change for those tasks; one that still does is the probe to report back. ftp-camera is the
+# play the issue came from: run twice, its second run must report none of systemd-tmpfiles,
+# restorecon or the hotspot tuning changed. If the tuning still reports changed, the third
+# line of nmcli -g 802-11-wireless.channel-width for the hotspot is not the 40 the probe
+# expects: report that line.
 changed-plays
