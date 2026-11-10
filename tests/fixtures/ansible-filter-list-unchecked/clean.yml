@@ -1,0 +1,79 @@
+---
+# Fixture for the filter-list-unchecked rule of src-go/qa/ansible: none of these may be
+# reported. Each list that picks by membership is checked against the list it picks from (or a
+# list that one is cut from by no other list), or is no input. The plays are valid for
+# ansible-playbook --syntax-check.
+
+# The fix for play-teamchat.yml.
+- hosts: localhost
+  vars:
+    tc_teams: "{{ teamchat_teams | default([]) }}"
+    tc_present: "{{ tc_teams | rejectattr('state', 'defined') | list }}"
+    tc_absent: "{{ tc_teams | selectattr('state', 'defined') | list }}"
+    tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"
+    tc_scoped_absent: "{{ tc_absent if teamchat_only_teams is not defined else tc_absent | selectattr('team', 'in', teamchat_only_teams) | list }}"
+  tasks:
+    - name: Check the Play's Inputs
+      ansible.builtin.assert:
+        that:
+          - teamchat_only_teams is not defined or teamchat_only_teams | difference(tc_teams | map(attribute='team') | list) | length == 0
+          - teamchat_approve_teams | default([]) | difference(tc_scoped_present | map(attribute='team') | list) | length == 0
+
+    - name: Approve the Teams the Operator Names
+      ansible.builtin.command:
+        argv: [teamchat-admin, team, approve, --team, "{{ item.team }}"]
+      loop: "{{ tc_scoped_present | selectattr('team', 'in', teamchat_approve_teams | default([])) | list }}"
+      register: tc_approved
+      changed_when: tc_approved.stdout_lines | length > 0
+
+# play-agent-bus.yml's shape: the scope is checked against the declared teams, which the
+# present and absent lists are cut from by state, not by another list; the LXC members are
+# picked by the same scope, and a team with none is by design.
+- hosts: localhost
+  vars:
+    agent_bus_team_list: "{{ agent_bus_teams | default([]) }}"
+    agent_bus_present: "{{ agent_bus_team_list | rejectattr('state', 'defined') | list }}"
+    agent_bus_apply_present: "{{ agent_bus_present | selectattr('team', 'in', agent_bus_only_teams) | list }}"
+    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) | selectattr('team', 'in', agent_bus_only_teams) | list }}"
+  tasks:
+    - name: Check the scope
+      ansible.builtin.assert:
+        that:
+          - agent_bus_only_teams | difference(agent_bus_team_list | map(attribute='team')) | length == 0
+
+# Lists the play makes itself are no input: a non-match is the play's own arithmetic.
+- hosts: localhost
+  vars:
+    absent_names: "{{ declared | selectattr('state', 'defined') | map(attribute='team') | list }}"
+    profiles: "{{ declared | rejectattr('team', 'in', absent_names) | list }}"
+  tasks:
+    - name: Read the locks
+      ansible.builtin.command:
+        argv: [cat, /proc/locks]
+      register: proc_locks
+      changed_when: false
+
+    - name: Held locks
+      ansible.builtin.debug:
+        msg: "{{ guard_locks | selectattr('inode', 'in', held_inodes) | list }}"
+      vars:
+        held_inodes: "{{ proc_locks.stdout | regex_findall('[0-9]+') }}"
+
+    - name: A literal list
+      ansible.builtin.debug:
+        msg: "{{ users | rejectattr('name', 'in', ['root', 'nobody']) | list }}"
+
+    # The subset test is a check too.
+    - name: Check the wanted hosts
+      ansible.builtin.assert:
+        that: wanted_hosts is subset(known_hosts_list)
+
+    - name: Select by a checked list
+      ansible.builtin.debug:
+        msg: "{{ known_hosts_list | select('in', wanted_hosts) | list }}"
+
+    # A filter inside a check is the check: play-speech-to-text.yml's deny test.
+    - name: No watch folder may be a mountpoint
+      ansible.builtin.assert:
+        that:
+          - stt_watch_folders | intersect(rclone_mounts | map(attribute='mountpoint')) | length == 0

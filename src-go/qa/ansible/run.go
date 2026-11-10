@@ -61,7 +61,9 @@ a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late
 vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
 module-built-for-running-kernel), a command task that reports changed on every run
 (CLAUDE/QA.md, command-always-changed), an install skipped on its own record without a
-stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), two tasks that write the same block or line of a file
+stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), an input list that
+picks by membership with no check that its names exist (CLAUDE/QA.md, filter-list-unchecked),
+two tasks that write the same block or line of a file
 with different content (CLAUDE/QA.md, duplicate-managed-block), and a sudoers rule whose target its user can modify or
 steer (CLAUDE/QA.md, sudoers-rule).
 

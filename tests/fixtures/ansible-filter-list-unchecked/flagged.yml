@@ -1,0 +1,47 @@
+---
+# Fixture for the filter-list-unchecked rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. The first play is play-teamchat.yml as
+# GitHub issue 227 found it: teamchat_approve_teams is checked against the present teams, but
+# picks from the scoped ones, so a team outside teamchat_only_teams is never approved and
+# nothing says so; and teamchat_only_teams is checked against nothing. The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  vars:
+    tc_teams: "{{ teamchat_teams | default([]) }}"
+    tc_present: "{{ tc_teams | rejectattr('state', 'defined') | list }}"
+    tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"  # EXPECT-FINDING
+  tasks:
+    - name: Check the Play's Inputs
+      ansible.builtin.assert:
+        that:
+          - teamchat_only_teams is not defined or (teamchat_only_teams is sequence and teamchat_only_teams is not string)
+          - teamchat_approve_teams | default([]) | difference(tc_present | map(attribute='team') | list) | length == 0
+
+    - name: Approve the Teams the Operator Names
+      ansible.builtin.command:
+        argv: [teamchat-admin, team, approve, --team, "{{ item.team }}"]
+      loop: "{{ tc_scoped_present | selectattr('team', 'in', teamchat_approve_teams | default([])) | list }}"  # EXPECT-FINDING
+      register: tc_approved
+      changed_when: tc_approved.stdout_lines | length > 0
+
+- hosts: localhost
+  tasks:
+    # No check at all, by each spelling of a membership filter.
+    - name: Select by a plain list
+      ansible.builtin.debug:
+        msg: "{{ known_hosts_list | select('in', wanted_hosts) | list }}"  # EXPECT-FINDING
+
+    - name: Reject by a list
+      ansible.builtin.debug:
+        msg: "{{ users | rejectattr('name', 'in', excluded_users) | list }}"  # EXPECT-FINDING
+
+    - name: Intersect with a list
+      ansible.builtin.debug:
+        msg: "{{ installed_fonts | intersect(requested_fonts) }}"  # EXPECT-FINDING
+
+    - name: A loop filtered by its condition
+      ansible.builtin.debug:
+        msg: "{{ item.name }}"
+      loop: "{{ services }}"
+      when: item.name in enabled_services  # EXPECT-FINDING
