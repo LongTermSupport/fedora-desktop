@@ -33,6 +33,11 @@ The consumer hand-off goes through it too. The scope list's cache clone is no lo
 shallow, so it can be pinned. Defended by `scripts/test-run-bash-git-ref.bash`
 ([checkout-ref-bypass](../CLAUDE/QA.md#checkout-ref-bypass)).
 
+A caller that verifies a commit can tell this fix is in it by one exact comment line,
+`# run-bash-capability: git-ref-account-mode`, at column 0, above `fd_checkout`. Versions
+diverge across branches, so callers key on the line, not on a version number. Pass a 40-hex
+commit, not a branch name, to get a verified pin: a branch can move between steps.
+
 ## 1.36.2 — headless `--changed --yes` runs its plays like one play (Plan 00214 Task 4.3d)
 
 Run headless (an agent shell has no terminal, so a set `RUN_BASH_*` turns it on),

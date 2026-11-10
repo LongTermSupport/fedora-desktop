@@ -811,6 +811,9 @@ hl_reconcile_vault() {
 # runs. A ref that does not resolve aborts LOUD, never falling back to what was checked out.
 # All output goes to stderr: gh_scopes_repo's stdout is a path. Defended by
 # scripts/test-run-bash-git-ref.bash.
+# Callers that verify a commit before handing it to run.bash match the next line exactly
+# (column 0, once): never reword, move into code, or duplicate it.
+# run-bash-capability: git-ref-account-mode
 fd_checkout() {
   local dir="$1" url="$2" ref="${RUN_BASH_GIT_REF:-}" _out
   shift 2

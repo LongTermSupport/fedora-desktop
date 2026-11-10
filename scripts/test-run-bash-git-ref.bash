@@ -227,6 +227,12 @@ else
     check "a branch origin does not hold: aborts" "aborted" "$(run_fd no-such-branch "$d" "$origin" pull)"
 fi
 
+# 4. Capability marker. A caller that verifies a commit refuses to hand off unless run.bash
+#    declares this fix with exactly one column-0 comment line. It must stay a comment: a
+#    RUN_BASH_* variable would be read as configuration by the headless autodetect.
+check "the capability marker line is present exactly once" "1" \
+    "$(grep -c '^# run-bash-capability: git-ref-account-mode$' "$RUN_BASH")"
+
 echo
 echo "RESULT: passed: $passed failed: $failed"
 if [ "$failed" -ne 0 ] && [ -s "$log" ]; then
