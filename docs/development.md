@@ -92,7 +92,10 @@ gh repo edit --default-branch F44
 # 5. Mark every older branch superseded (see below — do not skip)
 ./scripts/mark-branches-superseded.bash
 
-# 6. Update branch-specific changes
+# 6. Retire the version that fell out of support (see Branch Lifecycle):
+#    tag it, then lock it. Never delete it.
+
+# 7. Update branch-specific changes
 # - Test all playbooks
 # - Update package versions if needed
 # - Fix any compatibility issues
@@ -187,12 +190,40 @@ The two must agree. If they disagree, the local symref is stale — re-run the
 
 ### Branch Lifecycle
 
-- **Active**: Current Fedora version branch
-- **Maintenance**: Previous version (critical fixes only)
-- **Archive**: Older versions (reference only)
+**Two Fedora versions are supported at a time, never more:**
 
-Everything other than **Active** carries the superseded banner described above.
-A retired branch without one is a bug — run `mark-branches-superseded.bash`.
+- **Active**: the current Fedora version branch, the GitHub default.
+- **Maintenance**: the previous version (critical fixes only).
+- **Retired**: anything older. Reference only, and locked.
+
+When a new version branch is cut, the active branch becomes maintenance, and the
+old maintenance branch is retired in the same release.
+
+**A retired branch is kept, never deleted.** Machines still checked out on it must
+keep pulling, and old links must keep working. Retiring one is three steps:
+
+1. **Banner it:** `./scripts/mark-branches-superseded.bash` (step 5 above).
+
+2. **Tag its last commit** `F<VERSION>-final`, signed and annotated, so it is visible
+   under Tags. It is not a release tag: the self-update reads only
+   `<major>.<minor>.<patch>` tags. Copy `refs/heads/F<VERSION>` to
+   `refs/archive/F<VERSION>` as well, as the existing retired branches have.
+
+3. **Lock it:** add the branch to the ruleset **Lock retired F-version branches**
+   (rules: update, deletion, non-fast-forward; organisation admins bypass, so the
+   banner script can still re-stamp it):
+
+   ```bash
+   id=$(gh api repos/LongTermSupport/fedora-desktop/rulesets \
+     --jq '.[] | select(.name=="Lock retired F-version branches") | .id')
+   gh api repos/LongTermSupport/fedora-desktop/rulesets/"$id" > ruleset.json
+   # add "refs/heads/F<VERSION>" to .conditions.ref_name.include, then:
+   gh api -X PUT repos/LongTermSupport/fedora-desktop/rulesets/"$id" --input ruleset.json
+   ```
+
+Every retired branch carries the superseded banner, the `-final` tag and the lock.
+A retired branch missing any of them is a bug. `--check` above finds a missing or
+stale banner.
 
 ## Ansible Style Guide
 
