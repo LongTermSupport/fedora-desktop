@@ -626,7 +626,8 @@ probe_go() {
     git -C "$repo" show "HEAD:$launcher" >"$repo/$launcher"
     git -C "$repo" add -A
 }
-for path in "${go_probes[@]}" src-go/go.mod src-go/go.sum; do
+# The sum file's name is assembled for the reason the module file's is (above).
+for path in "${go_probes[@]}" "src-go/$modfile" "src-go/go.s""um"; do
     probe_go "$path" "1 yes" "a change to $path, which the builder stage builds from, without a container bump is rejected"
 done
 test_probe=""

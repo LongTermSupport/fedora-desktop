@@ -68,7 +68,7 @@ scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	364	9	365	-
 scripts/git-hooks/commit-msg	117	0	134	-
 scripts/git-hooks/lib/secret-scan.bash	225	6	126	assoc,data
-scripts/git-hooks/pre-commit	273	0	278	-
+scripts/git-hooks/pre-commit	245	0	260	-
 scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
