@@ -15,6 +15,24 @@ the index, not the record.
 
 ---
 
+## 1.36.3 — `RUN_BASH_GIT_REF` is honoured with a GitHub account too (issue #225)
+
+`RUN_BASH_GIT_REF` used to work only when no GitHub account was configured. With an account
+configured, `run.bash` cloned or pulled the branch tip, and it ran `helpers.github443` and
+`helpers.github_scopes` from an unpinned checkout. It then logged that the checkout was
+already at the declared ref. A caller that verified a signed commit could therefore be
+provisioned from a later, unverified one.
+
+Every clone and pull of the checkout now goes through `fd_checkout`, which does two things:
+
+- It clones the checkout when it is absent.
+- With the ref set, it puts the checkout on that ref instead of pulling. This happens on
+  every path, before any code from the checkout runs.
+
+The consumer hand-off goes through it too. The scope list's cache clone is no longer
+shallow, so it can be pinned. Defended by `scripts/test-run-bash-git-ref.bash`
+([checkout-ref-bypass](../CLAUDE/QA.md#checkout-ref-bypass)).
+
 ## 1.36.2 — headless `--changed --yes` runs its plays like one play (Plan 00214 Task 4.3d)
 
 Run headless (an agent shell has no terminal, so a set `RUN_BASH_*` turns it on),

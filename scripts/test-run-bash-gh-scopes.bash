@@ -36,7 +36,7 @@ extract() {
 }
 
 : >"$work/fn.bash"
-for fn in info success warning error hl_abort fatal promptChoice gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes choose_primary_gh_account; do
+for fn in info success warning error hl_abort fatal assert_clean_worktree fd_checkout promptChoice gh_scopes_repo_complete gh_scopes_repo gh_request_missing_scopes choose_primary_gh_account; do
     extract "$RUN_BASH" "$fn"
 done
 mv "$work/fn.bash" "$work/run-fn.bash"

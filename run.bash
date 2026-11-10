@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.36.2"
+RUN_BASH_VERSION="1.36.3"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -802,36 +802,48 @@ hl_reconcile_vault() {
   fi
 }
 
-# hl_checkout_ref — put the fedora-desktop checkout on RUN_BASH_GIT_REF (Plan 00106): a branch
-# name (tracks that branch's remote tip on every run) or a 40-hex commit (a detached,
-# reproducible pin). Composer semantics: the ref names WHAT to provision from, and a consumer
-# that pins a commit gets exactly that commit. Unset = the default branch's tip, as before.
-# Every failure aborts LOUD: a ref that does not resolve must not fall back to whatever was
-# checked out, because the caller declared a source and would otherwise be provisioned from
-# a different one while every later step reports success.
-hl_checkout_ref() {
-  local repo="$1" ref="$2" _out
-  if ! _out="$(command git -C "$repo" fetch --quiet origin 2>&1)"; then
-    hl_abort "fetch fedora-desktop" "git fetch failed while resolving RUN_BASH_GIT_REF=${ref}" \
-      "git said: ${_out}"
+# fd_checkout <dir> <origin-url> [git update args...] — the one way run.bash obtains or
+# updates a fedora-desktop checkout (#225). Clones when absent; an existing checkout being
+# updated or pinned is checked clean and its origin moved to <origin-url>. With
+# RUN_BASH_GIT_REF set (Plan 00106) the checkout is put on that ref INSTEAD of the update: a
+# branch name tracks that branch's origin tip, a 40-hex commit is a detached, reproducible
+# pin, so a caller that verified a commit gets exactly that commit and no branch tip's code
+# runs. A ref that does not resolve aborts LOUD, never falling back to what was checked out.
+# All output goes to stderr: gh_scopes_repo's stdout is a path. Defended by
+# scripts/test-run-bash-git-ref.bash.
+fd_checkout() {
+  local dir="$1" url="$2" ref="${RUN_BASH_GIT_REF:-}" _out
+  shift 2
+  if [[ ! -d "$dir" ]]; then
+    mkdir -p "$(dirname "$dir")"
+    command git clone "$url" "$dir" >&2 || fatal "clone fedora-desktop" "git clone ${url} ${dir} failed" "see git's error above"
+  elif [[ -n "$ref" || $# -gt 0 ]]; then
+    assert_clean_worktree "$dir" >&2
+    if [[ "$(command git -C "$dir" remote get-url origin)" != "$url" ]]; then
+      info "Setting the origin of ${dir} to ${url}" >&2
+      command git -C "$dir" remote set-url origin "$url"
+    fi
   fi
+  if [[ -z "$ref" ]]; then
+    if [[ $# -gt 0 ]]; then
+      command git -C "$dir" "$@" >&2 || fatal "update fedora-desktop" "git $* in ${dir} failed" "see git's error above"
+    fi
+    return 0
+  fi
+  _out="$(command git -C "$dir" fetch --quiet origin 2>&1)" ||
+    fatal "fetch fedora-desktop" "git fetch failed while resolving RUN_BASH_GIT_REF=${ref}" "git said: ${_out}"
   if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
-    if ! _out="$(command git -C "$repo" checkout --quiet --detach "$ref" 2>&1)"; then
-      hl_abort "check out ${ref:0:12}" "RUN_BASH_GIT_REF names a commit that is not in origin" \
-        "git said: ${_out}"
-    fi
-    info "Headless: checkout pinned at commit ${ref:0:12} (detached, RUN_BASH_GIT_REF)"
-  else
-    if ! command git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
-      hl_abort "check out ${ref}" \
-        "RUN_BASH_GIT_REF=${ref} is neither a 40-hex commit nor a branch on origin" \
-        "name a branch that exists upstream, or a full commit sha"
-    fi
-    if ! _out="$(command git -C "$repo" checkout --quiet -B "$ref" "origin/${ref}" 2>&1)"; then
-      hl_abort "check out ${ref}" "git checkout -B ${ref} origin/${ref} failed" "git said: ${_out}"
-    fi
-    info "Headless: checkout on branch ${ref} at its origin tip $(command git -C "$repo" rev-parse --short HEAD) (RUN_BASH_GIT_REF)"
+    _out="$(command git -C "$dir" checkout --quiet --detach "$ref" 2>&1)" ||
+      fatal "check out ${ref:0:12}" "RUN_BASH_GIT_REF names a commit that is not in origin" "git said: ${_out}"
+    info "Checkout pinned at commit ${ref:0:12} (detached, RUN_BASH_GIT_REF)" >&2
+    return 0
   fi
+  command git -C "$dir" show-ref --verify --quiet "refs/remotes/origin/${ref}" ||
+    fatal "check out ${ref}" "RUN_BASH_GIT_REF=${ref} is neither a 40-hex commit nor a branch on origin" \
+      "name a branch that exists upstream, or a full commit sha"
+  _out="$(command git -C "$dir" checkout --quiet -B "$ref" "origin/${ref}" 2>&1)" ||
+    fatal "check out ${ref}" "git checkout -B ${ref} origin/${ref} failed" "git said: ${_out}"
+  info "Checkout on branch ${ref} at its origin tip $(command git -C "$dir" rev-parse --short HEAD) (RUN_BASH_GIT_REF)" >&2
 }
 
 # hl_run_optional_playbooks — headless replacement for the interactive optional-playbook
@@ -1101,7 +1113,6 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
                                    (default: unset, localhost.yml is left as it is)
   RUN_BASH_GIT_REF=...             Branch name (tracks its tip) or 40-hex commit (pinned,
                                    detached) to provision from. (default: default branch)
-                                   HTTPS/no-identity path only.
   RUN_BASH_OPTIONAL_PLAYBOOKS=...  Space/comma list of optional plays, or 'none'.
                                    'server-recommended' expands to a curated, generic
                                    dev/server bundle (see
@@ -1287,6 +1298,46 @@ if [[ -z "$HEADLESS" ]]; then
   esac
 fi
 
+# The message helpers and the clean-tree check are defined before the consumer hand-off
+# below, the first caller of fd_checkout.
+info(){
+  echo -e "${CYAN}${INFO} $1${NC}"
+}
+
+success(){
+  echo -e "${GREEN}${CHECK} $1${NC}"
+}
+
+warning(){
+  echo -e "${YELLOW}${WARN} $1${NC}"
+}
+
+error(){
+  echo -e "${RED}${CROSS} $1${NC}"
+}
+
+# Abort the script if the given repo has uncommitted changes: a pull fails on a dirty tree
+# with an unhelpful error, and a pin would carry the changes onto the declared ref.
+assert_clean_worktree(){
+  local dir="$1"
+  local dirty
+  dirty="$(git -C "$dir" status --porcelain)"
+  if [[ -n "$dirty" ]]; then
+    error "Working tree at $dir has uncommitted changes"
+    echo -e "${YELLOW}${ARROW} run.bash needs a clean working tree before pulling updates.${NC}"
+    echo -e "${YELLOW}${ARROW} Inspect:${NC}   ${BOLD}cd $dir && git status${NC}"
+    echo -e "${YELLOW}${ARROW} Resolve by committing:${NC}"
+    echo -e "     ${BOLD}git add -p && git commit${NC}"
+    echo -e "${YELLOW}${ARROW} Or by temporarily stashing (remember to restore afterwards):${NC}"
+    echo -e "     ${BOLD}git stash push -m 'pre-run.bash' && ./run.bash && git stash pop${NC}"
+    exit 1
+  fi
+}
+
+# The repository is public: every bootstrap that runs before an SSH key is on GitHub
+# clones it over this URL.
+fedora_desktop_https_url="https://github.com/LongTermSupport/fedora-desktop.git"
+
 # Consumer install (Plan 00228): chosen by --consumer, or by the host_vars a consumer install
 # wrote (CONSUMER_BOX, which also keeps a failed play from offering a GitHub issue). A
 # developer box asked for --consumer is refused before anything runs. Otherwise git and Go
@@ -1307,8 +1358,7 @@ if [[ -z "$PLAY_PATH" && "$CHANGED_PLAYS" != "true" && "$RERUN_PLAYS" != "true" 
   fi
   echo -e "${CYAN}${INFO} Consumer install: installing git and Go (the installer is built with Go), then fetching fedora-desktop${NC}" >&2
   _sudo dnf -y install git golang
-  [[ -d ~/Projects/fedora-desktop ]] || command git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
-  command git -C ~/Projects/fedora-desktop pull --ff-only
+  fd_checkout ~/Projects/fedora-desktop "$fedora_desktop_https_url" pull --ff-only
   exec ~/Projects/fedora-desktop/scripts/consumer-install.bash --optional-only="$OPTIONAL_ONLY"
 fi
 # Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never hang)
@@ -1389,22 +1439,6 @@ completed(){
   echo -e "${GREEN}${CHECK} Completed successfully${NC}"
 }
 
-info(){
-  echo -e "${CYAN}${INFO} $1${NC}"
-}
-
-success(){
-  echo -e "${GREEN}${CHECK} $1${NC}"
-}
-
-warning(){
-  echo -e "${YELLOW}${WARN} $1${NC}"
-}
-
-error(){
-  echo -e "${RED}${CROSS} $1${NC}"
-}
-
 wait_for_network(){
   info "Checking network connectivity..."
   local attempts=0
@@ -1420,25 +1454,6 @@ wait_for_network(){
     sleep 2
   done
   success "Network connectivity confirmed"
-}
-
-# Abort the script if the given repo has uncommitted changes. run.bash
-# does `git pull` at two points and a dirty working tree causes the pull
-# to fail with an unhelpful error. Fail fast with a clear remediation.
-assert_clean_worktree(){
-  local dir="$1"
-  local dirty
-  dirty="$(git -C "$dir" status --porcelain)"
-  if [[ -n "$dirty" ]]; then
-    error "Working tree at $dir has uncommitted changes"
-    echo -e "${YELLOW}${ARROW} run.bash needs a clean working tree before pulling updates.${NC}"
-    echo -e "${YELLOW}${ARROW} Inspect:${NC}   ${BOLD}cd $dir && git status${NC}"
-    echo -e "${YELLOW}${ARROW} Resolve by committing:${NC}"
-    echo -e "     ${BOLD}git add -p && git commit${NC}"
-    echo -e "${YELLOW}${ARROW} Or by temporarily stashing (remember to restore afterwards):${NC}"
-    echo -e "     ${BOLD}git stash push -m 'pre-run.bash' && ./run.bash && git stash pop${NC}"
-    exit 1
-  fi
 }
 
 # confirm <msg> [default] — y/n confirmation with a visible safe default.
@@ -2711,10 +2726,6 @@ if [[ "$(hostname)" == "fedora" ]]; then
   fi
 fi
 
-# The repository is public: every bootstrap that runs before an SSH key is on GitHub
-# clones it over this URL.
-fedora_desktop_https_url="https://github.com/LongTermSupport/fedora-desktop.git"
-
 if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
   # Headless empty-GitHub path (Plan 00082): no GitHub identity is configured, so
   # skip gh install/auth entirely, skip uploading an SSH key (none was generated —
@@ -2726,39 +2737,10 @@ if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
   primary_gh_username=""
 
   title "Setting up Project Directory and Repository (HTTPS — no GitHub identity)"
-  mkdir -p ~/Projects
-  if [[ ! -d ~/Projects/fedora-desktop ]]; then
-    info "Headless: cloning fedora-desktop over HTTPS (no GitHub identity configured)"
-    if ! _clone_out="$(git clone "$fedora_desktop_https_url" ~/Projects/fedora-desktop 2>&1)"; then
-      hl_abort "clone fedora-desktop" "git clone (HTTPS) failed" "git said: ${_clone_out}"
-    fi
-    unset _clone_out
-    success "Repository cloned (HTTPS)"
-  else
-    info "Headless: pulling latest changes"
-    assert_clean_worktree ~/Projects/fedora-desktop
-    # Migrate any pre-existing SSH origin to HTTPS so this and future pulls do not
-    # need a GitHub identity. Idempotent: only rewrites when the URL differs.
-    current_origin=$(command git -C ~/Projects/fedora-desktop remote get-url origin)
-    if [[ "$current_origin" != "$fedora_desktop_https_url" ]]; then
-      info "Headless: setting origin remote to HTTPS"
-      command git -C ~/Projects/fedora-desktop remote set-url origin "$fedora_desktop_https_url"
-    fi
-    # With a declared ref the fetch+checkout below is the update; `git pull` would also fail
-    # outright on a checkout a previous run left detached at a pinned commit.
-    if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
-      info "Headless: RUN_BASH_GIT_REF set — the declared ref replaces git pull"
-    else
-      if ! _pull_out="$(command git -C ~/Projects/fedora-desktop pull 2>&1)"; then
-        hl_abort "update fedora-desktop" "git pull (HTTPS) failed" "git said: ${_pull_out}"
-      fi
-      unset _pull_out
-      success "Repository updated (HTTPS)"
-    fi
-  fi
-  if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
-    hl_checkout_ref ~/Projects/fedora-desktop "$RUN_BASH_GIT_REF"
-  fi
+  # Over HTTPS, so neither the clone nor the update needs a GitHub identity; an existing SSH
+  # origin is moved to HTTPS.
+  fd_checkout ~/Projects/fedora-desktop "$fedora_desktop_https_url" pull
+  success "Repository ready (HTTPS)"
   cd ~/Projects/fedora-desktop || hl_abort "cd into fedora-desktop" "cannot cd into ~/Projects/fedora-desktop" "check the clone succeeded"
 
   # Fail fast: verify Fedora version matches this branch (same check as the
@@ -2804,7 +2786,7 @@ fi
 # shipped with. Streamed (the README curl install), it is ~/Projects/fedora-desktop,
 # cloned over HTTPS if absent; the repository step below moves its origin to SSH once
 # the key is on GitHub. An existing checkout from before the helper existed cannot be
-# pulled yet (that also needs the key), so a shallow HTTPS clone in the cache answers
+# pulled yet (that also needs the key), so an HTTPS clone in the cache answers
 # instead, and the repository step brings the checkout up to date. stdout is the path;
 # chatter is stderr.
 gh_scopes_repo_complete() {
@@ -2820,14 +2802,9 @@ gh_scopes_repo() {
     fi
   fi
   dir="$HOME/Projects/fedora-desktop"
-  if [[ ! -d "$dir" ]]; then
-    mkdir -p "$HOME/Projects"
-    info "Cloning fedora-desktop over HTTPS (public) for its GitHub scope list" >&2
-    if ! git clone "$fedora_desktop_https_url" "$dir" >&2; then
-      error "Could not clone fedora-desktop over HTTPS" >&2
-      return 1
-    fi
-  fi
+  # Cloned over HTTPS if absent, and put on RUN_BASH_GIT_REF when one is declared, before
+  # its helper runs.
+  fd_checkout "$dir" "$fedora_desktop_https_url"
   if gh_scopes_repo_complete "$dir"; then
     printf '%s\n' "$dir"
     return 0
@@ -2835,11 +2812,7 @@ gh_scopes_repo() {
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/fedora-desktop-scopes"
   info "$dir predates the GitHub scopes helper; reading the scope list from a fresh clone" >&2
   rm -rf "$cache"
-  mkdir -p "$(dirname "$cache")"
-  if ! git clone --depth 1 "$fedora_desktop_https_url" "$cache" >&2; then
-    error "Could not clone fedora-desktop over HTTPS" >&2
-    return 1
-  fi
+  fd_checkout "$cache" "$fedora_desktop_https_url"
   if ! gh_scopes_repo_complete "$cache"; then
     error "$cache has no vars/github-required-scopes.yml and helpers/github_scopes" >&2
     return 1
@@ -3116,35 +3089,17 @@ fedora_desktop_ssh_url="git@github.com:LongTermSupport/fedora-desktop.git"
 # reconciles later, so the play finds it in place). On a fresh box that module does not
 # exist yet: the repository is public, so it is bootstrapped over HTTPS, then routed.
 if [[ "$HEADLESS" == "true" && "$HL_GITHUB_SSH_443" == "1" ]]; then
-  if [[ ! -d ~/Projects/fedora-desktop ]]; then
-    info "Headless 443: bootstrapping the repository over HTTPS (port 22 is not assumed reachable)"
-    git clone "$fedora_desktop_https_url" ~/Projects/fedora-desktop
-  fi
   info "Headless 443: applying the ssh.github.com:443 override before any SSH use of GitHub"
+  # Bootstrapped over HTTPS when absent, and on RUN_BASH_GIT_REF before its helper runs.
+  fd_checkout ~/Projects/fedora-desktop "$fedora_desktop_https_url"
   (cd ~/Projects/fedora-desktop && python3 -m helpers.github443.cli on --ssh-dir ~/.ssh --no-teardown)
   success "GitHub SSH routed over 443"
 fi
-if [[ ! -d ~/Projects/fedora-desktop ]]; then
-  info "Cloning fedora-desktop repository via SSH"
-  git clone "$fedora_desktop_ssh_url" ~/Projects/fedora-desktop
-  success "Repository cloned"
-else
-  info "Pulling latest changes"
-  assert_clean_worktree ~/Projects/fedora-desktop
-  # Migrate any pre-existing HTTPS origin to SSH so subsequent pulls /
-  # pushes use the user's SSH key, not a (possibly-absent) cached HTTPS
-  # credential. Idempotent: only rewrites when the URL is not already SSH.
-  current_origin=$(command git -C ~/Projects/fedora-desktop remote get-url origin)
-  if [[ "$current_origin" != "$fedora_desktop_ssh_url" ]]; then
-    info "Migrating origin remote from '$current_origin' to SSH"
-    command git -C ~/Projects/fedora-desktop remote set-url origin "$fedora_desktop_ssh_url"
-  fi
-  # Use `command git` to bypass any git() bash wrapper function (e.g. from
-  # gh-aliases.inc.bash). Wrappers that run subcommands and assign to vars
-  # can propagate non-zero exits under `set -e` even when they're benign.
-  command git -C ~/Projects/fedora-desktop pull
-  success "Repository updated"
-fi
+# Cloned over SSH, or an existing checkout moved to the SSH origin and pulled; with
+# RUN_BASH_GIT_REF set it is put on that ref instead of pulled. fd_checkout uses
+# `command git`, past any git() wrapper gh-aliases.inc.bash defines.
+fd_checkout ~/Projects/fedora-desktop "$fedora_desktop_ssh_url" pull
+success "Repository ready"
 cd ~/Projects/fedora-desktop || { error "Cannot cd into ~/Projects/fedora-desktop"; exit 1; }
 
 # Fail fast: verify Fedora version matches this branch
@@ -3544,18 +3499,11 @@ unset _github_ssh_passphrase
 completed
 
 title "Running Ansible Playbooks"
-if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
-  # The checkout was put on the declared ref in the repository step and a pinned commit
-  # leaves HEAD detached, where `git pull` has nothing to merge with and exits 1. The ref
-  # replaces the pull here for the same reason it does there.
-  info "Headless: RUN_BASH_GIT_REF set — the checkout is already at the declared ref, no pull"
-else
-  info "Pulling latest changes before running playbooks"
-  assert_clean_worktree ~/Projects/fedora-desktop
-  # See note above on `command git` — bypass any sourced git() wrapper.
-  command git pull
-  success "Repository up to date"
-fi
+# Pulled again before the plays, or with RUN_BASH_GIT_REF set put on that ref again (a
+# commit stays where it is; a branch moves to its origin tip). The origin is left as the
+# repository step set it: HTTPS with no GitHub identity, SSH otherwise.
+fd_checkout ~/Projects/fedora-desktop "$(command git -C ~/Projects/fedora-desktop remote get-url origin)" pull
+success "Repository ready for the plays"
 
 # V3.12: this pull is the LAST git op needing the login SSH key. Kill the ssh-agent
 # NOW (not at EXIT) so the unlocked key is not reachable via $SSH_AUTH_SOCK across

@@ -27,6 +27,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"run-bash-consumer", "Plan 00228: run.bash hands a consumer install to the Go consumer-install command, and its own suite proves it"},
 	{"run-bash-optional", "Plan 00228 Task 6.6: run.bash's optional plays go on past a failure and end in a summary, and its own suite proves it"},
 	{"run-bash-upgrade-first", "Plan 00229 Task 2.2: run.bash upgrades every package before any Ansible process starts, and its own suite proves it"},
+	{"run-bash-git-ref", "issue #225, Defence Before Fix: run.bash obtains the checkout only through fd_checkout, which honours RUN_BASH_GIT_REF on every path, and its own suite proves it"},
 	{"ccy-token-handoff", "Plan 00191 Task 4.4b: an exported GH_TOKEN handed to the launcher ccy re-runs inside tmux, by a private file, and its own suite proves it"},
 	{"ccy-image-build-lock", "Plan 00216: one ccy image build at a time, raced for real against a fake podman, and ccy --build-lock"},
 	{"ccy-network-version-probes", "Plan 00191 Task 4.10: ccy's network check and Claude Code version probes say what failed, through the real Go front"},
