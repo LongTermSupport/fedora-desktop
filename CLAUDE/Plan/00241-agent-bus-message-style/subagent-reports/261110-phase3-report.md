@@ -40,18 +40,17 @@ Tasks 3.1-3.3 are done on F44. The code is in `src-go/internal/teamchat/richtext
   ported. The bare-HTML hazard is removed by design: only `richtext` writes markup. No
   detector rule was added.
 
-## Commit status: not committed
+## Commit status: committed as c4e7f5f1a (not pushed)
 
-- The pre-commit hook refused the commit because `go.mod` and `go.sum` count as CCY files, so
-  CCY_VERSION must be bumped.
-- CCY_VERSION is in `files/var/local/claude-yolo/claude-yolo`, which the launcher agent has
-  changed and not committed. A pathspec commit of that file would take their hunks too, so the
-  bump was left to the coordinator.
-- Everything is staged. The message is
-  `untracked/scratch/commit-00241-phase3-261110.txt`.
+- The first attempt was refused: `go.mod` and `go.sum` count as CCY files, so CCY_VERSION had
+  to be bumped.
+- On the coordinator's word, CCY_VERSION went from 3.114.0 to 3.114.1 (a patch; the container
+  is unchanged), with an entry in `docs/ccy-changelog.md`. The launcher file was clean, so the
+  commit carries only that line.
 - `qa-changed` is red only on the Go analyzers stage, at `internal/vmtest/link.go:146,188`
-  (`project_walk_open`). That file is another agent's uncommitted work. Every other check
-  passed, including go-deps, go-vuln, docs, teamchat-keeps-off-v1 and all the suites.
+  (`project_walk_open`). That file is the VM-lab lane's uncommitted work, and the commit message
+  says so. Every other check passed, including go-deps, go-vuln, docs, teamchat-keeps-off-v1
+  and all the suites.
 
 ## Verification
 
