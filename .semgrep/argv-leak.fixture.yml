@@ -96,6 +96,34 @@
     # ok: secret-in-argv
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)
 
+# Prose that names the hazard is not code (issue #221): a docstring, a comment after code. A
+# module docstring is proven in src-go/qa/cmd/qa-argv-leak, as this file cannot start with one.
+- code: |
+    def unlocks(key: str) -> bool:
+        # ok: secret-in-argv
+        """Never run ssh-keygen -y -P "$pass" -f key: it puts the passphrase on argv."""
+        # ok: secret-in-argv
+        return run(["ssh-keygen", "-y", "-f", key])  # not ssh-keygen -y -P "$pass" -f key
+
+
+    def rekey(
+        key: str,
+    ) -> None:
+        '''Hand the passphrase to ssh-keygen through askpass.
+
+        # ok: secret-in-argv
+        mysql --password="$PW" and grep -F "$RC_PASS" log are the same hazard.
+        '''
+    # ok: secret-in-argv
+    x=1  # never openssl enc -pass pass:"$KEY" -in f
+    # A triple-quoted string that is not a docstring is code, and a "#" in quotes no comment.
+    SCRIPT = """
+    # ruleid: secret-in-argv
+    ssh-keygen -y -P "$pass" -f key
+    """
+    # ruleid: secret-in-argv
+    echo "step # 2"; ssh-keygen -y -P "$pass" -f key
+
 # Ansible: the script text, an argv item and environment: are all on a command line.
 - name: Enroll the MOK
   ansible.builtin.shell: |

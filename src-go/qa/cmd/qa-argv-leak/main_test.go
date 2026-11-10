@@ -65,6 +65,20 @@ const (
 	stdinPlay      = "- name: Pin\n  ansible.builtin.command:\n    argv: [python3, -m, helper]\n    stdin: \"{{ admin_password }}\"\n"
 )
 
+// A module docstring that names the hazard is prose (issue #221); the same text as a string a
+// program assigns may be a script, and is judged. The fixture cannot start with a docstring.
+func TestAModuleDocstringIsProseAndAnAssignedStringIsCode(t *testing.T) {
+	const prose = "Never run ssh-keygen -y -P \"$pass\" -f key: the passphrase is then on argv.\n"
+	code, stdout, stderr := realRun(t, map[string]string{
+		"helpers/doc.py":    "#!/usr/bin/env python3\n# A helper.\n\"\"\"Rekey a key.\n\n" + prose + "\"\"\"\n\nimport os\n",
+		"helpers/script.py": "import os\n\nSCRIPT = \"\"\"\n" + prose + "\"\"\"\n",
+	})
+	if code != ghscopes.ExitFailed || !strings.Contains(stdout, "helpers/script.py:4  secret-in-argv") ||
+		strings.Contains(stdout, "helpers/doc.py") || !strings.Contains(stdout, "passed: 2 failed: 1") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}
+
 func TestTheRealEngineFindsTheSecretOnTheCommandLineAndPassesStdin(t *testing.T) {
 	code, stdout, stderr := realRun(t, map[string]string{
 		"clean/askpass.bash": promptedScript,

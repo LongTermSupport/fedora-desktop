@@ -40,8 +40,14 @@ rules:
           # name a file and a pattern. Token and secret names are not taken here: in this
           # repository they are the throwaway values the test suites grep their logs for.
           - pattern-regex: '\b(?:grep|egrep|fgrep|awk|gawk|sed|perl)\b[^\n;|&#(]*?[ \t](?:-v[ \t]+\w+=)?[''"]?\$\{?\w*?(?:PASS|PASSWORD|PASSWD|PASSPHRASE|_PP|pass|password|passwd|passphrase|_pp)\}?(?!\w)'
-      # A comment line is prose.
+      # Prose that names the hazard is not code (issue #221). A comment line; a comment after
+      # code, from a blank and "#" or "//" outside quotes to the end of the line (\K starts the
+      # excluded range at the comment, so the code before it is still judged); a Python
+      # docstring, the triple-quoted string that opens a file or follows a def or class line.
+      # Any other triple-quoted string is code: it may hold a script.
       - pattern-not-regex: '(?m)^[ \t]*(?:#|//)[^\n]*'
+      - pattern-not-regex: '(?m)^(?:[^"''\n#]|"[^"\n]*"|''[^''\n]*'')*?[ \t]\K(?:#|//)[^\n]*'
+      - pattern-not-regex: '(?m)(?:\A(?:[ \t]*(?:#[^\n]*)?\n)*|(?:^[ \t]*(?:async[ \t]+)?(?:def|class)[ \t][^\n]*|\)[ \t]*(?:->[^\n]*)?):[ \t]*(?:#[^\n]*)?\n(?:[ \t]*(?:#[^\n]*)?\n)*)[ \t]*[rRuU]{0,2}(?:"""(?s:.*?)"""|''''''(?s:.*?)'''''')'
     message: >
       secret-in-argv: a passphrase or password on a command line, readable by any local user
       while it runs. Hand it over on stdin, or through SSH_ASKPASS for ssh-keygen. See
