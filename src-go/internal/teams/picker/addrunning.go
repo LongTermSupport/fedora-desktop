@@ -7,6 +7,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -39,17 +40,23 @@ func (r *run) addActions(row board.Row) []action {
 	return nil
 }
 
-// seatTaken is why the seat of row cannot take a running session, "" when it can: the claims
-// `session add` refuses (H22), read from the same pass. A stopped session's record claims it
-// only when a restore starts that session again.
+// seatTaken is why the seat of row cannot take a running session, "" when it can: a live
+// process holds it, which `session add` refuses (H22), read from the same pass. A stopped
+// session's record that restores it is taken over instead (restoredBy).
 func (r *run) seatTaken(row board.Row) string {
-	switch {
-	case row.Held:
+	if row.Held {
 		return "another process holds it"
-	case row.Record != "" && r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]:
-		return "session " + row.Record + "'s record starts it again after a reboot (Stop starting its session again after a reboot frees it)"
 	}
 	return ""
+}
+
+// restoredBy is the stopped session whose record starts it again after a reboot into the seat
+// of row, "" for none: `session add` refuses that seat (H22) until the record's restore is off.
+func (r *run) restoredBy(row board.Row) string {
+	if row.Record == "" || r.live(row.Record) || !r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team] {
+		return ""
+	}
+	return row.Record
 }
 
 // live is whether the tmux session name is running.
@@ -92,12 +99,18 @@ func (r *run) addRunningTo(ctx context.Context, team string) (flow.Result, error
 // addToSeat is a seat row's Add a running session to this seat: the team and the seat are the
 // row's, so only the session and the role are asked. A session is refused as addRunningTo
 // refuses it, and also when it runs in another checkout or is of another kind than the seat,
-// whose member belongs to one checkout and one kind (A12-A15).
+// whose member belongs to one checkout and one kind (A12-A15). A seat a stopped session's
+// record restores is taken over after a confirm (A16).
 func (r *run) addToSeat(ctx context.Context, row board.Row) (flow.Result, error) {
 	k := r.p.Kit
 	team, seat := row.Team, "seat "+row.Member
 	if why := r.seatTaken(row); why != "" {
 		return k.Refuse(ctx, "Seat "+row.Member+" of "+team+" cannot take a running session: "+why+".")
+	}
+	old := r.restoredBy(row)
+	steps := 2
+	if old != "" {
+		steps = 3
 	}
 	h := flow.Here(team, row.Crumb(), addRunningCrumb)
 	about := "team " + team + " · " + seat
@@ -115,12 +128,51 @@ func (r *run) addToSeat(ctx context.Context, row board.Row) (flow.Result, error)
 		}
 		return ""
 	}
-	s, res, ok, err := r.chooseRunning(ctx, team, seat+" of "+team, h.AtStep(1, 2, "Session").About(about), refuse)
+	s, res, ok, err := r.chooseRunning(ctx, team, seat+" of "+team, h.AtStep(1, steps, "Session").About(about), refuse)
 	if !ok {
 		return res, err
 	}
 	fixed := option{value: row.Member, handle: row.Handle, exists: true}
-	return r.addInRole(ctx, s, team, fixed, h.AtStep(2, 2, "Role"), "team "+team+" · session "+s.Name)
+	args, res, ok, err := r.addInRole(ctx, s, team, fixed, h.AtStep(2, steps, "Role"), "team "+team+" · session "+s.Name)
+	if !ok {
+		return res, err
+	}
+	if old == "" {
+		return r.session(ctx, args)
+	}
+	where := seat + " of " + team
+	return r.takeOver(ctx, old, s.Name, where, h.AtStep(3, 3, "Take over").About(where+" · session "+s.Name+" · "+old+" restarts into it"), args)
+}
+
+// takeOver is A16: the seat where is named by the stopped session old's record, which starts it
+// again after a reboot, so `session add` would refuse it. After a confirm (default No) that
+// names old, its restore is turned off, as the seat menu's Stop starting its session again
+// after a reboot does, and the add runs. An add that does not finish turns it on again.
+func (r *run) takeOver(ctx context.Context, old, name, where string, h ui.Heading, args []string) (flow.Result, error) {
+	k := r.p.Kit
+	yes, err := k.Confirm(ctx, h, old+" is set to restart into this seat after a reboot; attaching "+name+" stops that. "+
+		old+" will not come back after a reboot, and "+name+" takes "+where+".", "take over "+where, false)
+	if err != nil {
+		return flow.Done, err
+	}
+	if !yes {
+		return k.Note(ctx, "Nothing was changed: session "+old+" will still be started again after a reboot into "+where+".")
+	}
+	if err := r.p.Seats.SetRestore(old, false); err != nil {
+		k.Term.PrintError(err.Error())
+		return k.Note(ctx, "Nothing was changed.")
+	}
+	k.Tell("Session " + old + " will not be started again after a reboot.")
+	code := r.p.Session.Run(ctx, args)
+	if code != term.ExitOK {
+		if err := r.p.Seats.SetRestore(old, true); err != nil {
+			k.Term.PrintError("the add did not finish, and session " + old + "'s restore could not be turned on again: " + err.Error() +
+				". Start its session again after a reboot, on the seat's menu, turns it on.")
+		} else {
+			k.Tell("The add did not finish, so session " + old + " will be started again after a reboot, as before.")
+		}
+	}
+	return r.ran(ctx, args, code)
 }
 
 // chooseRunning is A3-A6 for an add to the place named by into (team, or a seat of it): the

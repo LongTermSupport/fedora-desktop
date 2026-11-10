@@ -75,8 +75,10 @@ already in the team, or one that cannot be changed while it runs, says why), the
 seat and the role as Add to a team does. A seat row whose session is running has Add this
 session to another team, the same Add to a team for that session. A seat row whose session is
 not running has Add a running session to this seat: the same list, each session of another
-checkout or kind also refused, then only the role. A seat a process holds, or one a stopped
-session's record starts again after a reboot, says so instead.
+checkout or kind also refused, then only the role. A seat a process holds says so instead. A
+seat a stopped session's record starts again after a reboot is taken over: after the role, a
+question (default No) names that session, and yes stops it restarting after a reboot, as Stop
+starting its session again after a reboot does, then adds the running session.
 
 Restart the team's desktop sessions is in a team row's menu (`ccy-teams restart <team>`):
 each ccy and cc member's session on this desktop resumes its own conversation. A running ccy

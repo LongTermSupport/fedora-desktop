@@ -212,8 +212,12 @@ func (r *run) ask(ctx context.Context, h ui.Heading, question string, opts []opt
 // session runs `ccy-teams session <args>`: it asks its own question and prints each step; the
 // list then waits until what it printed has been read.
 func (r *run) session(ctx context.Context, args []string) (flow.Result, error) {
+	return r.ran(ctx, args, r.p.Session.Run(ctx, args))
+}
+
+// ran is what the list does once `ccy-teams session <args>` has ended with code.
+func (r *run) ran(ctx context.Context, args []string, code term.ExitCode) (flow.Result, error) {
 	k := r.p.Kit
-	code := r.p.Session.Run(ctx, args)
 	if err := k.InPicker("ccy-teams session "+strings.Join(args, " "), code); err != nil {
 		return flow.Done, err
 	}
@@ -238,12 +242,17 @@ func (r *run) addSeatAndRole(ctx context.Context, s hot.Session, team string, h 
 	if !ok {
 		return res, err
 	}
-	return r.addInRole(ctx, s, team, seat, h.AtStep(3, 3, "Role"), about)
+	args, res, ok, err := r.addInRole(ctx, s, team, seat, h.AtStep(3, 3, "Role"), about)
+	if !ok {
+		return res, err
+	}
+	return r.session(ctx, args)
 }
 
-// addInRole is the last step of an add, once the session, the team and the seat are known: the
-// role, then `session add`. h is the role's screen, and about what was chosen so far.
-func (r *run) addInRole(ctx context.Context, s hot.Session, team string, seat option, h ui.Heading, about string) (flow.Result, error) {
+// addInRole is the last question of an add, once the session, the team and the seat are known:
+// the role, and so the `session add` arguments. h is the role's screen, and about what was
+// chosen so far. When ok is false, res and err are what the flow returns.
+func (r *run) addInRole(ctx context.Context, s hot.Session, team string, seat option, h ui.Heading, about string) ([]string, flow.Result, bool, error) {
 	holder := coordinator.Holding(r.snap.Members[team], seat.handle, seats.SnapshotRunning(r.snap))
 	current := ""
 	if seat.handle != "" && r.snap.RoleOf(team, seat.handle) == roleCoordinator {
@@ -256,7 +265,7 @@ func (r *run) addInRole(ctx context.Context, s hot.Session, team string, seat op
 	role, res, ok, err := r.ask(ctx, h.About(about+" · "+seatWord),
 		"Role in "+team+":", roleOptions(team, current, holder))
 	if !ok {
-		return res, err
+		return nil, res, false, err
 	}
 	where := team
 	if seat.value != "" {
@@ -271,7 +280,7 @@ func (r *run) addInRole(ctx context.Context, s hot.Session, team string, seat op
 	case seat.exists:
 		args = append(args, "--role="+roleWorker)
 	}
-	return r.session(ctx, args)
+	return args, flow.Done, true, nil
 }
 
 // teamOptions is every team, each refused when s cannot join it now; leaving is left out.

@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // Plan 00203 SPEC-team-add-and-restart.md A1-A9: a running session is added to a team from the
@@ -280,43 +282,121 @@ func TestAddARunningSessionToASeatWhenNoneCanTakeItSaysWhyForEach(t *testing.T) 
 	}
 }
 
-// A15: a seat a stopped session's record starts again after a reboot, or one a process holds,
-// cannot take a running session: the line stays, says why, and choosing it asks nothing. A
-// record that is not restored does not claim the seat.
-func TestASeatClaimedElsewhereSaysWhyItCannotTakeARunningSession(t *testing.T) {
-	for name, want := range map[string]string{
-		"restored record": "session ccy-old's record starts it again after a reboot (Stop starting its session again after a reboot frees it)",
-		"held":            "another process holds it",
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newRig(t)
-			if name == "held" {
-				h.HoldSeat(t, h.Checkout(), "alpha", "dev", true)
-			} else {
-				h.devRecord(t, "yes")
-			}
-			h.ses.list = []hot.Session{h.other()}
-			r := h.run1(t)
-			row := h.row(t, r.snap, "dev")
-			if !slices.Contains(h.labels(r, row), addToSeat+": unavailable, "+want) {
-				t.Fatalf("menu %q", h.labels(r, row))
-			}
-			if _, err := r.do(context.Background(), actAddToSeat, row); err != nil {
-				t.Fatal(err)
-			}
-			h.wantErr(t, "Seat dev of alpha cannot take a running session: "+want+".")
-			if h.ses.listed != 0 || len(h.Script.Rows) != 0 {
-				t.Fatalf("refused before listing: listed %d, questions %q", h.ses.listed, h.Script.Rows)
-			}
-			h.wantRuns(t)
-		})
-	}
+// A15: a seat a process holds cannot take a running session: the line stays, says why, and
+// choosing it asks nothing. A seat only a stopped session's record names is free, restored or
+// not: a restored one is taken over (A16).
+func TestASeatAProcessHoldsSaysWhyItCannotTakeARunningSession(t *testing.T) {
 	h := newRig(t)
-	h.devRecord(t, "no")
+	h.HoldSeat(t, h.Checkout(), "alpha", "dev", true)
+	h.ses.list = []hot.Session{h.other()}
 	r := h.run1(t)
-	if !slices.Contains(h.labels(r, h.row(t, r.snap, "dev")), addToSeat) {
-		t.Fatalf("a record not restored leaves the seat free: %q", h.labels(r, h.row(t, r.snap, "dev")))
+	row := h.row(t, r.snap, "dev")
+	if !slices.Contains(h.labels(r, row), addToSeat+": unavailable, another process holds it") {
+		t.Fatalf("menu %q", h.labels(r, row))
 	}
+	if _, err := r.do(context.Background(), actAddToSeat, row); err != nil {
+		t.Fatal(err)
+	}
+	h.wantErr(t, "Seat dev of alpha cannot take a running session: another process holds it.")
+	if h.ses.listed != 0 || len(h.Script.Rows) != 0 {
+		t.Fatalf("refused before listing: listed %d, questions %q", h.ses.listed, h.Script.Rows)
+	}
+	h.wantRuns(t)
+	for _, restore := range []string{"yes", "no"} {
+		h := newRig(t)
+		h.devRecord(t, restore)
+		r := h.run1(t)
+		if !slices.Contains(h.labels(r, h.row(t, r.snap, "dev")), addToSeat) {
+			t.Fatalf("restore=%s: a stopped record leaves the line available: %q", restore, h.labels(r, h.row(t, r.snap, "dev")))
+		}
+	}
+}
+
+// oldRestores is whether the stopped session ccy-old, which names seat dev, is started again
+// after a reboot.
+func (h rig) oldRestores(t *testing.T) bool {
+	t.Helper()
+	store, err := h.p.Seats.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := store.Get("ccy-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec.Restore
+}
+
+const takeOverQuestion = "ccy-old is set to restart into this seat after a reboot; attaching ccy-other stops that"
+
+// takeOver is the seat add on seat dev, which the stopped session ccy-old's record restores,
+// answered with answers.
+func (h rig) takeOver(t *testing.T, answers ...string) {
+	t.Helper()
+	h.devRecord(t, "yes")
+	h.ses.list = []hot.Session{h.other()}
+	h.Script.Fzf = answers
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actAddToSeat, h.row(t, r.snap, "dev")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A16: a seat a stopped, restored record names is taken over in one step: after the session and
+// the role, a confirm naming the old session; yes turns the old record's restore off (the
+// seat menu's Stop starting its session again after a reboot), then the add runs.
+func TestAddingToASeatARestoredRecordNamesTakesItOverAfterAConfirm(t *testing.T) {
+	h := newRig(t)
+	h.takeOver(t, "|ccy-other", "|worker", "|YES")
+	h.wantRuns(t, []string{"add", "ccy-other", "alpha/dev", "--role=worker"})
+	if h.oldRestores(t) {
+		t.Fatal("the old session still restarts into the seat")
+	}
+	if !strings.Contains(h.HeaderOf(2), takeOverQuestion) {
+		t.Fatalf("header %q", h.HeaderOf(2))
+	}
+	h.wantErr(t, "Session ccy-old will not be started again after a reboot.")
+	for i, want := range []string{
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 1/3 Session\nteam alpha · seat dev",
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 2/3 Role\nteam alpha · session ccy-other · seat dev",
+		"Teams › alpha › proj.dev+local.podman › Add a running session\n· step 3/3 Take over\nseat dev of alpha · session ccy-other · ccy-old restarts into it",
+	} {
+		h.Script.HeadingAt(i, want)
+	}
+}
+
+// A16: cancelling the confirm, by No or Esc, changes nothing.
+func TestCancellingTheTakeoverChangesNothing(t *testing.T) {
+	for _, answer := range []string{"|EXIT", "|ABORT"} {
+		h := newRig(t)
+		h.takeOver(t, "|ccy-other", "|worker", answer)
+		h.wantRuns(t)
+		if !h.oldRestores(t) {
+			t.Fatalf("%s: the old session's restore was turned off", answer)
+		}
+	}
+}
+
+// A16: an add that fails after the takeover puts the old session's restore back, so a failure
+// leaves the seat as it was.
+func TestATakeoverWhoseAddFailsPutsTheRestoreBack(t *testing.T) {
+	h := newRig(t)
+	h.ses.code = term.ExitFailure
+	h.takeOver(t, "|ccy-other", "|worker", "|YES")
+	h.wantRuns(t, []string{"add", "ccy-other", "alpha/dev", "--role=worker"})
+	if !h.oldRestores(t) {
+		t.Fatal("the failed add left the old session's restore off")
+	}
+	h.wantErr(t, "The add did not finish, so session ccy-old will be started again after a reboot, as before.")
+}
+
+// A16: when the old record's restore cannot be turned off, nothing is added.
+func TestATakeoverWhoseRestoreCannotBeTurnedOffAddsNothing(t *testing.T) {
+	h := newRig(t)
+	h.p.Seats.Registry = func() (*registry.Store, error) { return nil, &registry.RelativeBaseError{Value: "x"} }
+	h.takeOver(t, "|ccy-other", "|worker", "|YES")
+	h.wantRuns(t)
+	h.wantErr(t, "ERROR: session registry base 'x' is not an absolute path.", "Nothing was changed.")
 }
 
 // A14: the seat add says why the sessions cannot be listed, and says when none runs.
@@ -371,4 +451,22 @@ func TestAddThisSessionThatIsNoLongerListedSaysWhy(t *testing.T) {
 	}
 	h.wantErr(t, "The running sessions cannot be listed: tmux is gone.")
 	h.wantRuns(t)
+}
+
+// A16: when the restore cannot be turned on again after a failed add, the error says how to.
+func TestATakeoverWhoseRestoreCannotBePutBackSaysHow(t *testing.T) {
+	h := newRig(t)
+	h.ses.code = term.ExitFailure
+	open, calls := h.p.Seats.Registry, 0
+	h.p.Seats.Registry = func() (*registry.Store, error) {
+		calls++
+		if calls > 1 {
+			return nil, &registry.RelativeBaseError{Value: "x"}
+		}
+		return open()
+	}
+	h.takeOver(t, "|ccy-other", "|worker", "|YES")
+	h.wantRuns(t, []string{"add", "ccy-other", "alpha/dev", "--role=worker"})
+	h.wantErr(t, "the add did not finish, and session ccy-old's restore could not be turned on again",
+		"Start its session again after a reboot, on the seat's menu, turns it on.")
 }

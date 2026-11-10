@@ -224,21 +224,26 @@ func (s *Seats) ToggleRestore(ctx context.Context, snap *board.Snapshot, row boa
 			return s.Kit.Note(ctx, "Nothing was changed: session "+name+" will still be started again after a reboot.")
 		}
 	}
-	store, err := s.Registry()
-	if err != nil {
+	want := !current
+	if err := s.SetRestore(name, want); err != nil {
 		s.Kit.Term.PrintError(err.Error())
 		return s.Kit.Note(ctx, "Nothing was changed.")
-	}
-	want := !current
-	if err := store.SetRestore(name, want); err != nil {
-		s.Kit.Term.PrintError(err.Error())
-		s.Kit.BackToList(ctx)
-		return flow.Done, nil
 	}
 	if want {
 		return s.Kit.Note(ctx, "Session "+name+" will be started again after a reboot.")
 	}
 	return s.Kit.Note(ctx, "Session "+name+" will not be started again after a reboot.")
+}
+
+// SetRestore is the change ToggleRestore makes once agreed, and the picker's seat takeover too:
+// whether session name's record starts it again after a reboot. It writes nothing when the
+// registry or the record cannot be had.
+func (s *Seats) SetRestore(name string, want bool) error {
+	store, err := s.Registry()
+	if err != nil {
+		return err
+	}
+	return store.SetRestore(name, want)
 }
 
 // RemoveOrPark takes down a team, removes a seat, or parks a member, each after asking.

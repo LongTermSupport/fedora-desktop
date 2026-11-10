@@ -228,7 +228,10 @@ parking a member (after a yes/no) or taking a team down (as `remove`), a person'
 password, opening Element, and a help line that explains the columns and the lines. A seat
 whose session is not running (stopped, stale or never started) has Add a running session to
 this seat: it lists the running sessions, refusing with why each one of another checkout or
-kind, already in the team or not changeable while it runs, then asks only the role. The last
+kind, already in the team or not changeable while it runs, then asks only the role. A seat a
+stopped session's record starts again after a reboot (a stale seat after a crash) is taken
+over: a last question, default No, names that session, and yes turns its restore off before
+the add. A seat a live process holds is refused. The last
 row, Running sessions, lists the running sessions. Enter on one lists, in words, what can be done to it
 while it runs: Add to a team, Remove from `<team>`, Change role in `<team>`, Move to another
 team, Attach, and Repair when its seat keeper has stopped. Each is the `ccy-teams session`

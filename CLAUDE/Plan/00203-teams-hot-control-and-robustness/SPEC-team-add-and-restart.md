@@ -88,11 +88,23 @@ configured i should be able to select the seat".
   role. Then `ccy-teams session add <s> <team>/<seat>` runs with the role.
 - A14. With no running session, or none that can take the seat, nothing is asked and each
   session's reason is said (A6).
-- A15. A seat `session add` would refuse (H22) says why on the line itself, and choosing it
-  asks nothing: one a live process holds ("another process holds it"), and one a stopped
-  session's record names and restores after a reboot (pointing at Stop starting its session
-  again after a reboot, which frees it). A stopped record that is not restored does not
-  claim the seat.
+- A15. A seat a live process holds, which `session add` refuses (H22), says so on the line
+  itself ("another process holds it"), and choosing it asks nothing. A stopped session's
+  record that is not restored does not claim the seat; one that is restored is taken over
+  (A16).
+
+The owner, later (2026-11-10), on a seat a stopped, restored record names, the usual shape of a
+stale seat after a crash: take it over.
+
+- A16. A seat no live process holds, which a stopped session's record names and starts again
+  after a reboot, is taken over in one step. Its add has three steps: 1/3 Session, 2/3 Role,
+  then 3/3 Take over, a confirm that starts on No: "`<old>` is set to restart into this seat
+  after a reboot; attaching `<new>` stops that." Yes turns that record's restore off, by the
+  same code as the seat menu's Stop starting its session again after a reboot
+  (`seats.SetRestore`), then runs A13's `session add`, which then takes the seat (H22 counts
+  only restored records). No or Esc changes nothing. A restore that cannot be turned off
+  adds nothing. An add that does not finish turns the restore on again and says so; if even
+  that fails, the error names the seat menu's line that does it.
 
 ## 3. Each session's conversation, recorded (C)
 

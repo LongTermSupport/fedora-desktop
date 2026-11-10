@@ -327,6 +327,30 @@ func TestAddRefusesASeatAStoppedSessionsRecordRestores(t *testing.T) {
 	}
 }
 
+// The picker's seat takeover (SPEC-team-add-and-restart.md A16): once the stopped session's
+// record is set not to restore, the same add takes the seat it refused.
+func TestAddTakesASeatOnceTheRecordThatRestoresItIsTurnedOff(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	if err := r.store.Write(registry.Record{
+		Name: "ccy-old", Dir: r.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Restore: true,
+		Args: []string{"--teams", "3@alpha"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != exitBusy {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if err := r.store.SetRestore("ccy-old", false); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if !slices.Equal(r.desired(t).Seats, []membership.Seat{{Team: "beta", Seat: "1"}, {Team: "alpha", Seat: "3"}}) {
+		t.Fatalf("desired %+v", r.desired(t).Seats)
+	}
+}
+
 func TestAddTakesASeatThatOnlyAnotherCheckoutOrAnUnrestoredRecordNames(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
 	for _, rec := range []registry.Record{
