@@ -53,6 +53,21 @@ The private ranges (the `10/8` and `192.168/16` blocks) are **not**
 placeholders — they name real LAN hosts, so the scanner blocks them. Use the
 RFC 5737 ranges above instead.
 
+## Names that are shaped like an address but are not one
+
+The email pattern also matches some names that are not addresses, and the scanner lets these
+through, each in one exact shape:
+
+- a systemd unit, `name@instance.service` (any unit type), ending at the unit type;
+- a template unit or a file named after one, `name@.service` followed by any further suffixes
+  (a fixture `.golden`, a template `.j2`): `@` directly followed by `.` is never an address;
+- a GNOME Shell extension UUID declared under a `uuid` key in `vars/gnome-shell-extensions.yml`,
+  exactly as declared.
+
+An instance unit with a further suffix (`name@tty1.service` then `.golden`) is still refused,
+because its tail is shaped like a real domain; build such a name in code from its parts.
+Background and the boundary: [QA.md](QA.md#unit-name-with-suffix-read-as-email).
+
 ## If the scanner blocks you
 
 The rejection message names the offending value, the issue type, and the exact

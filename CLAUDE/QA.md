@@ -2364,6 +2364,37 @@ closing line from all the counts: "all N passed" only when nothing failed, other
 and each kind of failure by number (meta-deploy: `P of N unit(s) passed: B failed, were skipped or could not establish; T non-gating triage run(s) failed.`). Keep the exit code as it is; a
 non-gating failure is still a failure in the words.
 
+### unit-name-with-suffix-read-as-email
+
+**What it is.** The commit hooks' email pattern refusing a name that is not an address because
+its exemption is anchored at the last suffix of the allowed shape: a systemd unit was exempt only
+when the token ended at the unit type, so a file named after a template unit (the unit name, then
+`.golden`) was refused by `pre-commit` and by `commit-msg`, which share
+`scripts/git-hooks/lib/secret-scan.bash`. Run by `scripts/test-secret-scan.bash` (gate
+`secret-scan-tests`), whose cases carry this identifier: template unit files with further
+suffixes pass, and an instance unit with a suffix, a real address under a `service` label, an
+`@.` shape that is not a unit type and a real address beside a template file are all still
+flagged.
+
+**Why it exists.** Plan 00246 keeps each template unit's golden text beside its test, and a test
+naming that file was refused as "Email address" (issue #204); its author built the name in code
+rather than bypass the hook, and the next author might not. A template's `@` is followed
+directly by `.`, which no address can be, so that shape with any further suffixes is exempt.
+`ExampleValues.md` lists the exempt shapes.
+
+**Toolchain gap, for the owner.** The defence is a test, which the method does not accept as a
+detector. Two static forms were tried: a rule over the scanner's allowance regexes for one
+anchored at its last suffix fires on the reserved-domain allowances, which must stay anchored
+(`example.com` then another label is a real domain); and the scanner itself run over every
+tracked line its pattern matches (703 lines) finds no instance, because the hook refuses each
+one at commit, so the tree never holds them. Whether to record this as an undefended class is
+the owner's decision (issue #204).
+
+**How to fix a finding.** Exempt a non-address name only in a shape no real address can take,
+anchored, and add a case beside it that a real address in the nearest shape is still refused.
+A name whose tail is domain-shaped (an instance unit followed by a suffix) cannot be told from
+an address: build it in code from its parts.
+
 ---
 
 ## Changing a Gate

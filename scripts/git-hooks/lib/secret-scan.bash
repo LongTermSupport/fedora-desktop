@@ -166,11 +166,13 @@ hook_filter_match_lines() {
                     mapfile -t extension_res <<<"$extension_list"
                 fi
             fi
+            # A unit name ends at its type; a template's `@.` (never an address) may carry
+            # further suffixes, a file named after it (CLAUDE/ExampleValues.md).
             hook_keep_unwhitelisted "$pattern" \
                 'i:@([A-Za-z0-9-]+\.)*example\.(com|org|net)$' \
                 'i:@[A-Za-z0-9.-]+\.(example|test|invalid|localhost)$' \
                 '^git@[A-Za-z0-9.-]+' \
-                '@[A-Za-z0-9_.:-]+\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$' \
+                '@[A-Za-z0-9_.:-]+\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$|@\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)(\.[A-Za-z0-9_-]+)*$' \
                 ${extension_res[@]+"${extension_res[@]}"}
             ;;
         */home/*)
