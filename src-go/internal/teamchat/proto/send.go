@@ -2,6 +2,8 @@ package proto
 
 import (
 	"slices"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/richtext"
 )
 
 // Outgoing is one composed event: the room it goes to (a purpose), its content, and the forge
@@ -112,7 +114,7 @@ func (c Composer) Text(t Text, replyTo, display string) (Outgoing, error) {
 		rel = ReplyTo(replyTo)
 	}
 	obj := Obj(M("v", Int(WireMajor)), M("to", strArray(t.To)), M("text", Str(t.Text)))
-	content := agentContent(msgtype, display, t.To, rel, KeyText, obj)
+	content := formatted(agentContent(msgtype, display, t.To, rel, KeyText, obj))
 	if _, err := c.checkMain(class, content); err != nil {
 		return Outgoing{}, err
 	}
@@ -192,7 +194,7 @@ func (c Composer) Report(text string) (Outgoing, error) {
 	if _, err := ReportForm(text); err != nil {
 		return Outgoing{}, err
 	}
-	content := Obj(M("msgtype", Str(MsgNotice)), M("body", Str(text)), M(keyMentions, Obj()), M(KeyReport, Obj(M("v", Int(WireMajor)))))
+	content := formatted(Obj(M("msgtype", Str(MsgNotice)), M("body", Str(text)), M(keyMentions, Obj()), M(KeyReport, Obj(M("v", Int(WireMajor))))))
 	if _, err := decodeSent(content, ReportKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -220,7 +222,7 @@ func (c Composer) Question(q QuestionPost) (Outgoing, error) {
 	if q.RemindAfterS != 0 {
 		obj = append(obj, M("remind_after_s", Int(q.RemindAfterS)))
 	}
-	content := agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, Obj(obj...))
+	content := formatted(agentContent(MsgText, body, c.Roster.Humans, Relation{}, KeyQuestion, Obj(obj...)))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -265,7 +267,7 @@ func (c Composer) Thread(t ThreadPost) (Outgoing, error) {
 	if t.Ask {
 		msgtype, mentioned = MsgText, c.Roster.Humans
 	}
-	content := agentContent(msgtype, body, mentioned, rel, KeyThread, Obj(obj...))
+	content := formatted(agentContent(msgtype, body, mentioned, rel, KeyThread, Obj(obj...)))
 	if _, err := decodeSent(content, QuestionKeys); err != nil {
 		return Outgoing{}, err
 	}
@@ -421,6 +423,24 @@ func decodeSent(content Value, keys []string) (Content, error) {
 		return Content{}, refused(reason, "")
 	}
 	return c, nil
+}
+
+// formatted is content with its body's HTML added beside the body (A 7.1 `format`, Plan 00241
+// Phase 3), for the posts a person reads as an agent wrote them: reports, questions, thread posts
+// and agent text. The HTML is display only, so when it would take the content past MaxContent
+// the content goes as it was, its plain body complete, rather than being refused for it.
+func formatted(content Value) Value {
+	members := make([]Member, 0, len(content.Members())+2)
+	for _, m := range content.Members() {
+		members = append(members, m)
+		if m.Key == "body" {
+			members = append(members, M(keyFormat, Str(richtext.Format)), M(keyFormattedBody, Str(richtext.HTML(m.Val.Str()))))
+		}
+	}
+	if with := Obj(members...); with.Size() <= MaxContent {
+		return with
+	}
+	return content
 }
 
 // agentContent is A 7.1's shape: msgtype, body, the mentions of the addressees sorted, the

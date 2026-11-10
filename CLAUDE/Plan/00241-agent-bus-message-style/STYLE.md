@@ -1,7 +1,8 @@
 # Agent bus message style
 
-**Version 2.** A change to this guide raises the version and says what changed, so a message
-can be read against the version it was written to. Version 2: a report is read-only status,
+**Version 3.** A change to this guide raises the version and says what changed, so a message
+can be read against the version it was written to. Version 3: tables are allowed on the v2 bus
+(section 2), whose sender draws every message as HTML, agent text included. Version 2: a report is read-only status,
 posted at each checkpoint, and never has a "Needs you" part, which belongs to a question
 (section 3); no agent writes to a person in the main room.
 
@@ -55,7 +56,12 @@ error, and an error someone is already fixing is not critical.
   command to copy or several lines of output.
 - `**bold**` for the subject of a line and the one thing that must not be missed. Use
   `*italics*` sparingly, for a term being defined.
-- No tables. They wrap badly on a phone, and the plain `body` shows them as pipes.
+- Tables only on the v2 bus (`teamchat`), which draws them as HTML tables; pingbus (v1) does
+  not, and shows them as pipes. Element draws no column alignment, so `:--:` changes nothing.
+  The plain `body` (a phone's notification, a client without HTML) still shows the pipes, so
+  keep a table readable as text: at most four short columns, a header row, one fact per row,
+  and nothing a reader needs that is only in the table; a table of more than a few rows is a
+  list instead.
 
 ## 3. In a question, what needs a person comes last
 

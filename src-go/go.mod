@@ -10,6 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/godbus/dbus/v5 v5.2.4
+	github.com/yuin/goldmark v1.8.6
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.39.0

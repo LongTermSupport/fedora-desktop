@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/richtext"
 )
 
 // The typed keys of A 7.1 and 7.7: exactly one is the meaning of an agent event.
@@ -63,6 +65,12 @@ const (
 	keyMentions   = "m.mentions"
 	relThread     = "m.thread"
 	relReplace    = "m.replace"
+)
+
+// The pair that carries a body's HTML for Element (A 7.1 `format`, Plan 00241 Phase 3).
+const (
+	keyFormat        = "format"
+	keyFormattedBody = "formatted_body"
 )
 
 // The notice events of A 7.4, in its table's order.
@@ -289,7 +297,7 @@ func DecodeContent(content Value, keys []string) (Content, string) {
 		return Content{}, ReasonEdit
 	}
 	c := Content{Key: key, Body: f.str("body", true, ReasonSchema)}
-	if f.has("format") || f.rule != "" || !decodeContentRelation(f, &c) {
+	if !formatPair(f) || f.rule != "" || !decodeContentRelation(f, &c) {
 		return Content{}, ReasonSchema
 	}
 	if reason := objectDecoders[key](&c, obj); reason != "" {
@@ -299,6 +307,17 @@ func DecodeContent(content Value, keys []string) (Content, string) {
 		return Content{}, ReasonSchema
 	}
 	return c, ""
+}
+
+// formatPair is A 7.1's `format`: absent with `formatted_body`, or org.matrix.custom.html with
+// a string `formatted_body`, which no receiver reads.
+func formatPair(f *fields) bool {
+	if !f.has(keyFormat) && !f.has(keyFormattedBody) {
+		return true
+	}
+	format := f.str(keyFormat, true, ReasonSchema)
+	f.str(keyFormattedBody, true, ReasonSchema)
+	return format == richtext.Format
 }
 
 func decodeContentRelation(f *fields, c *Content) bool {

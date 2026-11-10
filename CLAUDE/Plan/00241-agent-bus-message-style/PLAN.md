@@ -82,11 +82,29 @@ v2 (`teamchat`, Plan 00209) sends no `formatted_body` at all, so moving to it wo
 report and question as plain text again. The owner also saw markdown tables shown as pipes in
 Element: the v1 converter has no tables (STYLE.md says to avoid them), and `say` is sent plain.
 
-- [ ] ⬜ **Task 3.1**: v2's sender draws markdown as Matrix HTML for reports, questions and
-  thread posts, the Task 2.1 subset, escaped first, as v1 does.
-- [ ] ⬜ **Task 3.2**: v2 also draws free text to the team (v1's `say`) as HTML.
-- [ ] ⬜ **Task 3.3**: Tables are drawn as HTML tables; STYLE.md says how to write one so it
-  still reads in the plain `body` on a phone.
+- [x] ✅ **Task 3.1**: v2's sender draws markdown as Matrix HTML for reports, questions and
+  thread posts, the Task 2.1 subset, escaped first, as v1 does. Built as
+  `src-go/internal/teamchat/richtext` (R1-R12 in its package doc), called by `proto`'s
+  composer; receivers accept the `format` pair (DESIGN-v2-A 7.1, OD-A9 now (b)).
+- [x] ✅ **Task 3.2**: v2 also draws free text to the team (v1's `say`, `teamchat.text`) as
+  HTML. Pings, notices and carried items are generated lines and stay plain.
+- [x] ✅ **Task 3.3**: Tables are drawn as HTML tables; STYLE.md (version 3) says how to write
+  one so it still reads in the plain `body` on a phone.
+
+Decisions (Phase 3):
+
+- **Parser: goldmark** (CommonMark with GitHub's tables), the parser the QA module's docs gate
+  already uses, added to the main module's allowlist and vendored. It has no dependencies. Its
+  own HTML renderer is not used: `richtext` writes the HTML node by node, so only Matrix's
+  recommended tags can appear, and any node it does not draw (raw HTML, inline or a block) is
+  shown as escaped text. v1's regex converter was read for its subset only.
+- **Links** go only to `http`/`https` with a host, or `mailto`; any other destination draws its
+  text alone. An image becomes a link to it, since Matrix's `<img>` takes only `mxc://`.
+- **No column alignment**: the Matrix subset gives `th`/`td` no attribute for it.
+- **Size**: the HTML is display only; when it would take an event past the 16384-byte content
+  limit, the event goes with its plain body alone, never refused for the HTML.
+- **Rollout**: a v2 receiver before this change drops an event carrying `format` as `schema`,
+  so every v2 member must run the new binary before any member sends formatted posts.
 
 ## Success Criteria
 

@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.114.1 — container 2.81.0
+
+- **teamchat sends an agent's markdown as HTML as well** (Plan 00241 Phase 3): reports,
+  questions, thread posts and agent text carry `formatted_body` (`org.matrix.custom.html`)
+  beside the plain markdown `body`, so Element draws headings, lists, code and tables. The
+  `src-go` module now vendors `github.com/yuin/goldmark` for it. The launcher itself is
+  unchanged; the kit's binary changes at the next image build from `src-go`.
+
 ## 3.114.0 — container 2.81.0
 
 - **The image carries the agent team bus v2 member kit, `teamchat`**, at
