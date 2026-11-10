@@ -101,3 +101,20 @@ says to set the mapping first. Then `x30-triage.bash`, then `x30-lab.bash`.
 - **The qa-reviewer agent was not run.** It is the required final step of a plan, and this
   brief did not ask for it.
 - **Nothing was pushed**, as the brief says.
+
+## QA and commits
+
+- Commits on F44, none pushed:
+  - `4551a5bb5`: the merge.
+  - `14ae2a728`: the review fixes.
+  - `263eb51d7`: D1, E74, the fixture, the scenario and the queue.
+- Both `qa-changed` runs failed only on another agent's uncommitted work. That work is the ccy
+  launcher's `src-go/internal/ccystart` (a red test-first package, plus 2 project-rule findings)
+  and the bash-limits record for `files/var/local/claude-yolo/entrypoint.sh`.
+- Every check of these files passed:
+  - ansible-syntax, ansible-patterns, ruff, unit-tests, shellcheck, semgrep, docs, arch-pin
+    and argv-leak;
+  - the suites;
+  - a scoped run of the Go gate over `./internal/vmtest` and `./cmd/vmtest`: the project
+    rules, vet, golangci-lint, and `go test -race`, with 90.7% coverage.
+- The full gate cannot be green until the ccy agent's tree is green.
