@@ -1,0 +1,22 @@
+---
+# Fixture for the duplicate-managed-block rule: a task list outside a play is an owner too.
+
+- name: Remove the line play-a.yml writes
+  ansible.builtin.lineinfile:  # EXPECT-FINDING
+    path: "/home/{{ user_login }}/.profile"
+    regexp: "^export EDITOR="
+    state: absent
+
+- name: The second owner of the custom-marker block
+  ansible.builtin.blockinfile:  # EXPECT-FINDING
+    path: /etc/hosts
+    marker: "# {mark} hosts block"
+    marker_begin: START
+    marker_end: STOP
+    block: 192.0.2.2 example.test
+
+- name: The second owner of the looped block
+  ansible.builtin.blockinfile:  # EXPECT-FINDING
+    path: /etc/one.conf
+    marker: "# {mark} one"
+    block: second

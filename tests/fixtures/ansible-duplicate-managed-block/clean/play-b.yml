@@ -1,0 +1,30 @@
+---
+# Fixture for the duplicate-managed-block rule, the other half of play-a.yml: nothing here may
+# be reported.
+
+- hosts: localhost
+  tasks:
+    - name: The same marker in a third file
+      ansible.builtin.blockinfile:
+        path: /etc/b.conf
+        marker: "# {mark} shared marker"
+        block: c
+
+    - name: Another regexp on the same file
+      ansible.builtin.lineinfile:
+        path: /etc/b.conf
+        regexp: "^two="
+        line: two=2
+
+    - name: The same content as play-a
+      ansible.builtin.blockinfile:
+        path: /etc/c.conf
+        block: |-
+          same
+          text
+
+    - name: Another loop that cannot be read here
+      ansible.builtin.blockinfile:
+        path: "{{ item }}"
+        block: different
+      loop: "{{ other_files }}"

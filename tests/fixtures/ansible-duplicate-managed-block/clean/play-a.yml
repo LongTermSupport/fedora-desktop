@@ -1,0 +1,50 @@
+---
+# Fixture for the duplicate-managed-block rule of src-go/qa/ansible, read together with
+# play-b.yml: none of these may be reported. Each block or line has one owner, or owners that
+# write the same content, so no run rewrites another's. The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: One owner of the bashrc includes block
+      ansible.builtin.blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
+        block: |
+          for file in ~/.bashrc-includes/*; do
+            [ -r "$file" ] && source "$file"
+          done
+        path: "{{ item }}"
+      loop:
+        - /root/.bashrc
+        - /home/{{ user_login }}/.bashrc
+
+    - name: The same marker in another file
+      ansible.builtin.blockinfile:
+        path: /etc/a.conf
+        marker: "# {mark} shared marker"
+        block: a
+
+    - name: Another marker in the same file
+      ansible.builtin.blockinfile:
+        path: /etc/a.conf
+        marker: "# {mark} other marker"
+        block: b
+
+    - name: Two regexps on one file
+      ansible.builtin.lineinfile:
+        path: /etc/b.conf
+        regexp: "^one="
+        line: one=1
+
+    - name: Same block as play-b, differing only by its trailing newline
+      ansible.builtin.blockinfile:
+        path: /etc/c.conf
+        block: |
+          same
+          text
+
+    - name: A loop that cannot be read here names no file
+      ansible.builtin.blockinfile:
+        path: "{{ item }}"
+        block: anything
+      loop: "{{ some_files }}"

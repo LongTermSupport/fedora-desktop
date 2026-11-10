@@ -1,0 +1,56 @@
+---
+# Fixture for the duplicate-managed-block rule of src-go/qa/ansible, read together with
+# play-b.yml and tasks-c.yml: every line marked EXPECT-FINDING must be reported, and nothing
+# else. The first task is play-basic-configs.yml's copy of the bashrc includes block, which
+# play-github-cli-multi.yml also wrote with a different glob (GitHub issue 228). The plays are
+# valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Add bashrc includes sourcing
+      ansible.builtin.blockinfile:  # EXPECT-FINDING
+        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
+        block: |
+          if [ -d ~/.bashrc-includes ]; then
+            for file in ~/.bashrc-includes/*; do
+              [ -r "$file" ] && source "$file"
+            done
+          fi
+        path: "{{ item }}"
+        create: false
+      loop:
+        - /root/.bashrc
+        - /home/{{ user_login }}/.bashrc
+
+    - name: The default marker, written by two plays
+      blockinfile:  # EXPECT-FINDING
+        dest: /etc/example.conf
+        block: "setting = 1"
+
+    - name: A lineinfile regexp owned twice
+      ansible.builtin.lineinfile:  # EXPECT-FINDING
+        path: /etc/sysctl.d/90-example.conf
+        regexp: '^vm\.swappiness'
+        line: vm.swappiness = 10
+
+    - name: A line one play writes and another removes
+      ansible.builtin.lineinfile:  # EXPECT-FINDING
+        path: "/home/{{user_login}}/.profile"
+        regexp: "^export EDITOR="
+        line: export EDITOR=vim
+
+    - name: A custom marker_begin, owned twice
+      ansible.builtin.blockinfile:  # EXPECT-FINDING
+        path: /etc/hosts
+        marker: "# {mark} hosts block"
+        marker_begin: START
+        marker_end: STOP
+        block: 192.0.2.1 example.test
+
+    - name: Loop items that are mappings
+      ansible.builtin.blockinfile:  # EXPECT-FINDING
+        path: "{{ item.path }}"
+        marker: "# {mark} {{ item.name }}"
+        block: "{{ item.body }}"
+      loop:
+        - {path: /etc/one.conf, name: one, body: first}

@@ -200,6 +200,9 @@ after the sweep, and this section is where the wait is recorded.
   stores are a warning count), a local branch with commits no remote holds, a linked work tree
   with old uncommitted changes, any stash. It waits on Plan 00245 Task 2.2, the sweep of
   `untracked/` and of the local branches and work trees.
+- The rule [duplicate-managed-block](#duplicate-managed-block) of `qa-ansible.bash` (issue
+  #228) is proven against its fixtures but not yet called by the scan: the tree holds two
+  instances, and it joins the scan when they are fixed.
 
 **Local only:** a clean checkout has no `untracked/` and no work in progress, so CI cannot run
 this gate; it would also be a no-op there. `--policy FILE` reads the policy from another file,
@@ -1931,6 +1934,29 @@ any task with a `when`.
 
 A finding whose right probe cannot be shown without running the command on a host is
 referred to the owner, never suppressed or given a constant.
+
+### duplicate-managed-block
+
+**What it is.** Two tasks, in any plays or task files the gate reads (handlers included),
+that own the same region of the same file with different content. A `blockinfile` owns its
+`path` (or `dest`) and `marker` (with `marker_begin` and `marker_end`; the default marker
+when none is named); a `lineinfile` owns its `path` and `regexp` (else `search_string`, else
+`line`). The content is the `state` and the `block` or `line`; a trailing newline of a block
+does not count. A loop or `with_items` given as a literal list is expanded into its items; a
+task whose path or region reads a loop the gate cannot read (a variable) is not judged.
+Template whitespace does not count (`{{user_login}}` is `{{ user_login }}`). Run by
+`qa-ansible.bash`; proven against `tests/fixtures/ansible-duplicate-managed-block/`.
+
+**Why it exists.** Each run of one task rewrites what the other wrote. Both report changed on
+every run, and what the file holds depends on which play ran last. play-basic-configs and
+play-github-cli-multi both wrote the `~/.bashrc` block that sources `~/.bashrc-includes`, one
+with `*` and one with `*.bash`; after github-cli-multi ran, an include not named `*.bash`
+(play-qobuz's `qobuz-players`) was not sourced by new shells (issue #228).
+
+**How to fix a finding.** Give the region one owner. The other play depends on the owner
+(import or document the order, or assert the owner's marker as play-host-health-login-report
+does) and drops its copy. Where one play chooses between contents, it does so in one task
+whose content is a template, not in two tasks with opposite `when` conditions.
 
 ### offline-member-blocks
 

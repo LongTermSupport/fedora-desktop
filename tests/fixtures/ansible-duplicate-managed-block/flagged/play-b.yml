@@ -1,0 +1,33 @@
+---
+# Fixture for the duplicate-managed-block rule, the second owner of each block in play-a.yml.
+# The first task is play-github-cli-multi.yml's copy of the bashrc includes block (issue 228).
+
+- hosts: localhost
+  tasks:
+    - name: Ensure bashrc sources includes directory
+      ansible.builtin.blockinfile:  # EXPECT-FINDING
+        path: "/home/{{ user_login }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
+        block: |-
+          # Source all bash includes
+          if [ -d ~/.bashrc-includes ]; then
+              for f in ~/.bashrc-includes/*.bash; do
+                  [ -r "$f" ] && source "$f"
+              done
+          fi
+
+    - name: Inside a block, under args
+      block:
+        - name: The default marker, spelt out
+          ansible.builtin.blockinfile:  # EXPECT-FINDING
+          args:
+            path: /etc/example.conf
+            marker: "# {mark} ANSIBLE MANAGED BLOCK"
+            block: "setting = 2"
+
+  handlers:
+    - name: A handler is an owner too
+      ansible.builtin.lineinfile:  # EXPECT-FINDING
+        path: /etc/sysctl.d/90-example.conf
+        regexp: '^vm\.swappiness'
+        line: vm.swappiness = 60
