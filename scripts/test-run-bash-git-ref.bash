@@ -69,7 +69,8 @@ code_lines() {  # code_lines <ERE> — "N:text" for non-comment lines of run.bas
 }
 
 echo "=== 1. every clone/pull/fetch/checkout of the checkout is in fd_checkout ==="
-git_re='(^|[^[:alnum:]_.-])git( +-C +[^ ]+)? +(clone|pull|fetch|checkout|reset|switch)([^[:alnum:]_-]|$)'
+# git with any global options before the subcommand (-C, -c, --git-dir…), and gh's clone.
+git_re='(^|[^[:alnum:]_.-])(git([[:space:]]+[^[:space:];|&)]+)*[[:space:]]+(clone|pull|fetch|checkout|reset|switch)|gh[[:space:]]+repo[[:space:]]+clone)([^[:alnum:]_-]|$)'
 msg_re='^[0-9]+:[[:space:]]*(info|success|warning|error|echo|hl_abort|fatal|headless_fail)[[:space:]]'
 outside=""
 while IFS= read -r hit; do
@@ -98,14 +99,42 @@ section_has_acquirer() {  # section_has_acquirer <line> — an acquirer call bet
     from="$(awk -v l="$line" 'NR < l && /^[[:space:]]*title "/ { t = NR } END { print t + 0 }' "$RUN_BASH")"
     code_lines "$acq_re" | awk -F: -v a="$from" -v b="$line" '$1 > a && $1 < b { f = 1 } END { exit !f }'
 }
-runner_re='python3 (-I )?-m helpers\.|(^|[[:space:];&(])(exec +)?(\./|~/Projects/fedora-desktop/)scripts/[^ ]+'
+runs_from_acquired_dir() {  # runs_from_acquired_dir <line> <text> — the line names a variable an earlier main-flow line set from an acquirer
+    local line="$1" text="$2" var
+    while read -r var; do
+        code_lines "^[[:space:]]*(if ! )?${var}=\"\\\$\\((${acquirers// /|})\\)\"" |
+            awk -F: -v b="$line" '$1 < b { f = 1 } END { exit !f }' && return 0
+    done < <(grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*' <<<"$text" | tr -d "\$\{" | sort -u)
+    return 1
+}
+runner_re='python3([[:space:]]+-[[:alpha:]]+)*[[:space:]]+(-m[[:space:]]+helpers\.|[^[:space:]]*helpers/)|(^|[[:space:];&(])(exec +)?(\./|~/Projects/fedora-desktop/)scripts/[^ ]+'
+# A function that runs checkout code is judged where it is called: runner functions are the
+# functions holding a runner line, then, to a fixed point, the functions calling one.
+runner_fns=""
+while :; do
+    calls_re="$runner_re"
+    [ -z "$runner_fns" ] || calls_re+="|(^|[^[:alnum:]_])($(tr ' ' '|' <<<"${runner_fns# }"))([^[:alnum:]_(]|$)"
+    grown="$runner_fns"
+    while read -r name start end; do
+        [[ " $grown " == *" $name "* ]] && continue
+        if code_lines "$calls_re" | awk -F: -v s="$start" -v e="$end" '$1 > s && $1 <= e { f = 1 } END { exit !f }'; then
+            grown+=" $name"
+        fi
+    done <"$work/fnranges"
+    [ "$grown" = "$runner_fns" ] && break
+    runner_fns="$grown"
+done
+calls_re="$runner_re"
+[ -z "$runner_fns" ] || calls_re+="|(^|[^[:alnum:]_])($(tr ' ' '|' <<<"${runner_fns# }"))([^[:alnum:]_(]|$)"
 unpinned=""
 while IFS= read -r hit; do
     n="${hit%%:*}"
     [ "$n" -lt "$converge" ] || continue
     in_fn "$n" && continue
-    section_has_acquirer "$n" || unpinned+="${n} "
-done < <(code_lines "$runner_re")
+    section_has_acquirer "$n" && continue
+    runs_from_acquired_dir "$n" "${hit#*:}" && continue
+    unpinned+="${n} "
+done < <(code_lines "$calls_re")
 check "checkout code before the repository step is preceded by a pin in its section (run.bash lines)" "" "${unpinned% }"
 
 while IFS= read -r t; do

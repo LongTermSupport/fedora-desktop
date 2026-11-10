@@ -805,13 +805,23 @@ play. Found and defended under Defence Before Fix (Plan 00139).
 `run.bash` gets the fedora-desktop checkout:
 
 1. **One acquirer.** Every `git clone`, `pull`, `fetch`, `checkout`, `reset` or `switch` in
-   `run.bash` sits in `fd_checkout`. It clones when the
+   `run.bash` sits in `fd_checkout`, whatever global options come before the subcommand (`-C`,
+   `-c`, `--git-dir`). The same holds for `gh repo clone`. `fd_checkout` clones when the
    checkout is absent. With `RUN_BASH_GIT_REF` set it pins the checkout to that ref and never
    pulls.
-2. **Pin before use.** Before the repository step converges, a line that runs checkout code
-   (`python3 -m helpers.…` or a checkout's `scripts/`) must follow a call to `fd_checkout`, or
-   to a function that calls it, in its own `title` section. Both repository steps (no-GitHub
-   and account mode) must call `fd_checkout`.
+
+2. **Pin before use.** This applies before the repository step converges, in the main flow,
+   to two kinds of line:
+
+   - a line that runs checkout code: `python3 [flags] -m helpers.…`, `python3 …helpers/…`, or a
+     checkout's `scripts/`;
+   - a call of a function that runs checkout code, directly or through other functions.
+
+   Such a line must follow a call to `fd_checkout`, or to a function that calls it, in its own
+   `title` section. It may instead run from a variable that an earlier line set from such a
+   call (`gh_scopes_dir="$(gh_scopes_repo)"`). Both repository steps (no-GitHub and account
+   mode) must call `fd_checkout`.
+
 3. **Behaviour.** `fd_checkout` is run against a local origin with a 40-hex ref and with a
    branch ref, on an absent checkout and on an existing one whose origin is migrated.
 
