@@ -23,7 +23,6 @@ Usage: python3 -m helpers.unifi.upgrade_firmware (--check | --apply)
 """
 
 import argparse
-import os
 import sys
 import time
 from dataclasses import dataclass
@@ -91,7 +90,7 @@ def _wait_for(client, upgrade, timeout, interval, clock):
     return False
 
 
-def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
+def main(argv, stdout, stderr, stdin, client_factory=UnifiClient, clock=time):
     parser = argparse.ArgumentParser(prog="upgrade_firmware")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="report upgrades only")
@@ -107,9 +106,10 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
 
-    password = environ.get("UNIFI_ADMIN_PASSWORD", "")
+    # On stdin, never in the environment: the play's environment: is on a command line.
+    password = stdin.read().removesuffix("\n")
     if not password:
-        print("UNIFI_ADMIN_PASSWORD is not set; the play passes the vaulted password in it",
+        print("no UniFi admin password on stdin; the play passes the vaulted password there",
               file=stderr)
         return 2
 
@@ -147,4 +147,4 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr, os.environ))
+    sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr, sys.stdin))

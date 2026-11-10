@@ -55,11 +55,11 @@ class PlanTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
-    def run_main(self, args, data, env=None):
+    def run_main(self, args, data, password=None):
         client = FakeClient(data)
         out, err = io.StringIO(), io.StringIO()
-        environ = {"UNIFI_ADMIN_PASSWORD": "secret"} if env is None else env
-        code = main(args, stdout=out, stderr=err, environ=environ,
+        stdin = io.StringIO("secret\n" if password is None else password)
+        code = main(args, stdout=out, stderr=err, stdin=stdin,
                     client_factory=lambda url, user, password: client)
         return code, out.getvalue(), err.getvalue(), client
 
@@ -82,10 +82,18 @@ class MainTest(unittest.TestCase):
         self.assertIn("INFORM-HOST-OK", out)
         self.assertEqual(client.puts, [])
 
+    def test_the_password_is_stdin_less_one_newline(self):
+        seen = []
+        client = FakeClient(settings())
+        main(["--check", "--host", "192.0.2.254"], stdout=io.StringIO(), stderr=io.StringIO(),
+             stdin=io.StringIO(" pass word \n"),
+             client_factory=lambda url, user, password: seen.append(password) or client)
+        self.assertEqual(seen, [" pass word "])
+
     def test_a_missing_password_is_fatal(self):
-        code, _, err, _ = self.run_main(["--check", "--host", "192.0.2.254"], [], env={})
+        code, _, err, _ = self.run_main(["--check", "--host", "192.0.2.254"], [], password="")
         self.assertEqual(code, 2)
-        self.assertIn("UNIFI_ADMIN_PASSWORD", err)
+        self.assertIn("no UniFi admin password on stdin", err)
 
 
 if __name__ == "__main__":

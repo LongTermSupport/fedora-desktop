@@ -583,7 +583,7 @@
                          if unifi_admin_target.x_shadow.startswith('$6$') else [])
                       + ['-stdin'] }}"
             stdin: "{{ unifi_admin_password_effective }}"
-          register: unifi_admin_hash
+          register: unifi_admin_password_hash
           changed_when: false
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
@@ -593,31 +593,35 @@
           ansible.builtin.fail:
             msg: >-
               openssl could not hash the UniFi admin password (exit
-              {{ unifi_admin_hash.rc | default('none') }}):
-              {{ unifi_admin_hash.stderr | default('') }} {{ unifi_admin_hash.msg | default('') }}.
+              {{ unifi_admin_password_hash.rc | default('none') }}):
+              {{ unifi_admin_password_hash.stderr | default('') }} {{ unifi_admin_password_hash.msg | default('') }}.
               The admin login was not changed. Check that openssl is installed, then run this
               play again.
-          when: unifi_admin_hash.rc | default(1) != 0
+          when: unifi_admin_password_hash.rc | default(1) != 0
 
         - name: Set the UniFi Admin Name and Password
           ansible.builtin.command:
-            argv: [podman, exec, -e, UNIFI_ADMIN_ID, -e, UNIFI_ADMIN_NAME, -e, UNIFI_ADMIN_HASH,
-                   unifi-mongodb, mongosh, --quiet, -u, unifi, -p, unifi,
+            # The hash reaches mongosh on stdin and then its own environment, inside the
+            # container: environment: here would put it on the command line that starts the
+            # module (CLAUDE/QA.md secret-in-argv).
+            argv: [podman, exec, -i, -e, UNIFI_ADMIN_ID, -e, UNIFI_ADMIN_NAME, unifi-mongodb,
+                   sh, -c, 'IFS= read -r UNIFI_ADMIN_HASH && export UNIFI_ADMIN_HASH && exec "$@"', sh,
+                   mongosh, --quiet, -u, unifi, -p, unifi,
                    --authenticationDatabase, unifi, unifi, --eval,
                    "const r = db.admin.updateOne({_id: ObjectId(process.env.UNIFI_ADMIN_ID)}, {$set: {name: process.env.UNIFI_ADMIN_NAME, x_shadow: process.env.UNIFI_ADMIN_HASH}}); if (r.matchedCount !== 1) { quit(1) }"]
+            stdin: "{{ unifi_admin_password_hash.stdout | trim }}"
           environment:
             UNIFI_ADMIN_ID: "{{ unifi_admin_target.id }}"
             UNIFI_ADMIN_NAME: "{{ unifi_admin_name }}"
-            UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout | trim }}"
           register: unifi_admin_update
           changed_when: true
           failed_when: false  # FAIL-FAST-OK: probe under no_log; the fail below gives the reason
           no_log: true
           when: >-
             unifi_admin_target.name != unifi_admin_name
-            or unifi_admin_target.x_shadow != (unifi_admin_hash.stdout | trim)
+            or unifi_admin_target.x_shadow != (unifi_admin_password_hash.stdout | trim)
 
-        # The hash went in through the environment; mongosh's stderr and exit code never carry it.
+        # The hash went in on stdin; mongosh's stderr and exit code never carry it.
         - name: Stop if the UniFi Admin Name and Password Could Not Be Set
           ansible.builtin.fail:
             msg: >-

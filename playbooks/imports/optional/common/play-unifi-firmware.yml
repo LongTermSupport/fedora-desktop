@@ -83,11 +83,22 @@
               - --host
               - "{{ unifi_controller_address.split('/') | first }}"
             chdir: "{{ root_dir }}"
-          environment:
-            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+            # On stdin: environment: would put it on the command line that starts the module.
+            stdin: "{{ unifi_admin_password }}"
           register: unifi_inform_host
           changed_when: "'INFORM-HOST-CHANGED' in unifi_inform_host.stdout"
+          failed_when: false  # FAIL-FAST-OK: probe under no_log (its args hold the password); the fail below gives the reason
+          no_log: true
           when: unifi_controller_address is defined
+
+        - name: Stop if the inform address could not be pinned
+          ansible.builtin.fail:
+            msg: >-
+              helpers.unifi.inform_host failed (exit {{ unifi_inform_host.rc | default('none') }}):
+              {{ unifi_inform_host.stderr | default('') }}
+          when:
+            - unifi_inform_host is not skipped
+            - unifi_inform_host.rc | default(1) != 0
 
         # The upgrade refuses a device that is not connected, so wait for all of them:
         # after a pin or a controller start they re-provision and reconnect.
@@ -95,13 +106,22 @@
           ansible.builtin.command:
             argv: [python3, -m, helpers.unifi.upgrade_firmware, --check]
             chdir: "{{ root_dir }}"
-          environment:
-            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+            # On stdin: environment: would put it on the command line that starts the module.
+            stdin: "{{ unifi_admin_password }}"
           register: unifi_devices_ready
           changed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe under no_log (its args hold the password); the fail below gives the reason
+          no_log: true
           until: unifi_devices_ready.rc == 0
           retries: 40
           delay: 15
+
+        - name: Stop if a device never connected
+          ansible.builtin.fail:
+            msg: >-
+              Not every UniFi device connected (exit {{ unifi_devices_ready.rc | default('none') }}):
+              {{ unifi_devices_ready.stdout | default('') }} {{ unifi_devices_ready.stderr | default('') }}
+          when: unifi_devices_ready.rc | default(1) != 0
 
         - name: Check (or upgrade) device firmware
           ansible.builtin.command:
@@ -115,10 +135,19 @@
               - --kinds
               - "{{ unifi_firmware_kinds | default([]) | join(',') }}"
             chdir: "{{ root_dir }}"
-          environment:
-            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+            # On stdin: environment: would put it on the command line that starts the module.
+            stdin: "{{ unifi_admin_password }}"
           register: unifi_firmware_result
           changed_when: "'FIRMWARE-STARTED' in unifi_firmware_result.stdout"
+          failed_when: false  # FAIL-FAST-OK: probe under no_log (its args hold the password); the fail below gives the reason
+          no_log: true
+
+        - name: Stop if the firmware check or upgrade failed
+          ansible.builtin.fail:
+            msg: >-
+              helpers.unifi.upgrade_firmware failed (exit {{ unifi_firmware_result.rc | default('none') }}):
+              {{ unifi_firmware_result.stdout | default('') }} {{ unifi_firmware_result.stderr | default('') }}
+          when: unifi_firmware_result.rc | default(1) != 0
 
         - name: Show the firmware result
           ansible.builtin.debug:

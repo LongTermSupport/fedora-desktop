@@ -113,16 +113,16 @@ class UpgradeDoneTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
-    def run_main(self, args, snapshots, env=None, timeout="900"):
+    def run_main(self, args, snapshots, password=None, timeout="900"):
         client = FakeClient(snapshots)
         clock = FakeClock()
         out, err = io.StringIO(), io.StringIO()
-        environ = {"UNIFI_ADMIN_PASSWORD": "secret"} if env is None else env
+        stdin = io.StringIO("secret\n" if password is None else password)
         code = main(
             [*args, "--timeout", timeout, "--interval", "10"],
             stdout=out,
             stderr=err,
-            environ=environ,
+            stdin=stdin,
             client_factory=lambda url, user, password: client,
             clock=clock,
         )
@@ -197,9 +197,9 @@ class MainTest(unittest.TestCase):
         self.assertEqual(client.posts, [])
 
     def test_a_missing_password_is_fatal(self):
-        code, _, err, _ = self.run_main(["--check"], [[]], env={})
+        code, _, err, _ = self.run_main(["--check"], [[]], password="")
         self.assertEqual(code, 2)
-        self.assertIn("UNIFI_ADMIN_PASSWORD", err)
+        self.assertIn("no UniFi admin password on stdin", err)
 
     def test_exactly_one_mode_is_required(self):
         for args in ([], ["--check", "--apply"]):

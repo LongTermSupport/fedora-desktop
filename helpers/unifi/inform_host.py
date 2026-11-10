@@ -14,7 +14,6 @@ Usage: python3 -m helpers.unifi.inform_host (--check | --apply) --host ADDRESS
 """
 
 import argparse
-import os
 import sys
 
 from helpers.unifi.client import UnifiClient
@@ -42,7 +41,7 @@ def plan(data, host):
     return puts
 
 
-def main(argv, stdout, stderr, environ, client_factory=UnifiClient):
+def main(argv, stdout, stderr, stdin, client_factory=UnifiClient):
     parser = argparse.ArgumentParser(prog="inform_host")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true")
@@ -52,9 +51,10 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient):
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
 
-    password = environ.get("UNIFI_ADMIN_PASSWORD", "")
+    # On stdin, never in the environment: the play's environment: is on a command line.
+    password = stdin.read().removesuffix("\n")
     if not password:
-        print("UNIFI_ADMIN_PASSWORD is not set; the play passes the vaulted password in it",
+        print("no UniFi admin password on stdin; the play passes the vaulted password there",
               file=stderr)
         return 2
 
@@ -78,4 +78,4 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr, os.environ))
+    sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr, sys.stdin))
