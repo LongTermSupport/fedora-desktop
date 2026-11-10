@@ -145,9 +145,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   item 2), which the coordinator queues. S12's health tick renews the leaf by apply's own step
   (`host.LeafRenewer`, with the project rule `project_problem_error_text`); the health unit's
   write paths must include the team's TLS directory when that unit is written (report
-  `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S15's Element play places the team
-  CA and checks it from inside Element's sandbox; whether Element's Chromium honours the store is
-  the host check, and two owner questions (SPEC 6 and 7) stand.
+  `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S13's health tick probes each
+  listen address through the terminator with the team CA (`matrix.Reach`), one problem per
+  silent address (report `subagent-reports/261106-crossnet-s13-opus-report.md`). S15's Element
+  play places the team CA and checks it from inside Element's sandbox; whether Element's
+  Chromium honours the store is the host check, and two owner questions (SPEC 6 and 7) stand.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

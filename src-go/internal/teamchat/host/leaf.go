@@ -144,32 +144,42 @@ func leafNames(rawURL string, listen []netip.Addr) (pki.Names, error) {
 // units.json records and the url host of team.json, both written by the same apply.
 func AppliedLeafNames(root string) func(paths.TeamID) (pki.Names, error) {
 	return func(team paths.TeamID) (pki.Names, error) {
-		units, err := readUnits(root, team)
+		declared, listen, err := appliedListen(root, team)
 		if err != nil {
 			return pki.Names{}, err
-		}
-		file := root + paths.TeamDeclaration(team)
-		raw, found, err := state.ReadFile(file, fileMax)
-		if err == nil && !found {
-			err = fmt.Errorf("%s is not there: the team was never applied", file)
-		}
-		if err != nil {
-			return pki.Names{}, err
-		}
-		declared, err := declare.DecodeTeamFile(raw)
-		if err != nil {
-			return pki.Names{}, fmt.Errorf("%s: %w", file, err)
-		}
-		listen := make([]netip.Addr, 0, len(units.listen))
-		for _, text := range units.listen {
-			a, err := netip.ParseAddr(text)
-			if err != nil {
-				return pki.Names{}, fmt.Errorf("units.json: %w", err)
-			}
-			listen = append(listen, a)
 		}
 		return leafNames(declared.URL, listen)
 	}
+}
+
+// appliedListen is what the last apply under root recorded of a team's reach: team.json, and the
+// listen set of units.json.
+func appliedListen(root string, team paths.TeamID) (declare.Team, []netip.Addr, error) {
+	units, err := readUnits(root, team)
+	if err != nil {
+		return declare.Team{}, nil, err
+	}
+	file := root + paths.TeamDeclaration(team)
+	raw, found, err := state.ReadFile(file, fileMax)
+	if err == nil && !found {
+		err = fmt.Errorf("%s is not there: the team was never applied", file)
+	}
+	if err != nil {
+		return declare.Team{}, nil, err
+	}
+	declared, err := declare.DecodeTeamFile(raw)
+	if err != nil {
+		return declare.Team{}, nil, fmt.Errorf("%s: %w", file, err)
+	}
+	listen := make([]netip.Addr, 0, len(units.listen))
+	for _, text := range units.listen {
+		a, err := netip.ParseAddr(text)
+		if err != nil {
+			return declare.Team{}, nil, fmt.Errorf("units.json: %w", err)
+		}
+		listen = append(listen, a)
+	}
+	return declared, listen, nil
 }
 
 // Terminator is the team's TLS terminator as its caller read it: active, and since when.

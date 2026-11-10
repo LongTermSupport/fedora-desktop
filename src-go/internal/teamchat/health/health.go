@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
@@ -123,6 +124,10 @@ type Config struct {
 	Announcer Announcer
 	Locks     Locks
 	Leaves    Leaves
+	// Reach is a team's reach through its terminator (host.AppliedReach on the host), and Timers
+	// arm each probe's bound (X32).
+	Reach  func(paths.TeamID) (host.Reach, error)
+	Timers matrix.Timers
 	// StatusPath and LXCOnlinePath name a team's two files (paths.StatusFile and
 	// paths.LXCOnlineFile on the host).
 	StatusPath    func(paths.TeamID) string
@@ -136,8 +141,8 @@ type Tick struct{ cfg Config }
 
 // New is a tick; a config that lacks a part is refused.
 func New(cfg Config) (*Tick, error) {
-	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Restores, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks, cfg.Leaves}
-	if slices.Contains(parts, nil) || cfg.StatusPath == nil || cfg.LXCOnlinePath == nil {
+	parts := []any{cfg.Clock, cfg.Teams, cfg.Units, cfg.Prober, cfg.Viewer, cfg.Backups, cfg.Restores, cfg.Space, cfg.Guests, cfg.Announcer, cfg.Locks, cfg.Leaves, cfg.Timers}
+	if slices.Contains(parts, nil) || cfg.StatusPath == nil || cfg.LXCOnlinePath == nil || cfg.Reach == nil {
 		return nil, errors.New("health: every part of the config is required")
 	}
 	return &Tick{cfg: cfg}, nil
@@ -193,6 +198,10 @@ type facts struct {
 	restarted bool
 	// held is a caller holding the team lock (Refresh): no re-probe and no restart.
 	held bool
+	// reach is the probes through the terminator under way, nil for none (X32); tlsRestarted is a
+	// terminator the renewal restarted this tick, which is not probed.
+	reach        *reaching
+	tlsRestarted bool
 }
 
 // Team ticks one team (C 3.11.2).
@@ -221,7 +230,9 @@ func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error)
 	if hsErr := t.homeserver(ctx, team, f); hsErr != nil {
 		return nil, hsErr
 	}
-	if tlsErr := t.terminator(ctx, team, f); tlsErr != nil {
+	tlsErr := t.terminator(ctx, team, f)
+	defer f.reach.abandon()
+	if tlsErr != nil {
 		return nil, tlsErr
 	}
 	view, err := t.cfg.Viewer.View(ctx, team.ID)
@@ -236,7 +247,11 @@ func (t *Tick) gather(ctx context.Context, team Team, held bool) (*facts, error)
 	if err := t.backups(ctx, team, f); err != nil {
 		return nil, err
 	}
-	return f, t.disk(f)
+	if err := t.disk(f); err != nil {
+		return nil, err
+	}
+	f.problems = append(f.problems, f.reach.collect()...)
+	return f, nil
 }
 
 // backups is step 4's backups: older than BackupAge, a failed last run, or none BackupAge after

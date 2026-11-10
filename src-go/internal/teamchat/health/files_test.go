@@ -189,6 +189,7 @@ func statusWorld(t *testing.T) (*world, StatusFiles) {
 	tick, err := New(Config{
 		Clock: w.clock, Teams: Stamps{Root: root}, Units: w.units, Prober: w.prober, Viewer: w.viewer,
 		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
+		Reach: w.reaches.get, Timers: w.timers,
 		StatusPath:    func(team paths.TeamID) string { return root + paths.StatusFile(team) },
 		LXCOnlinePath: func(team paths.TeamID) string { return root + paths.LXCOnlineFile(team) },
 		GID:           -1,
@@ -285,6 +286,7 @@ func TestNoBackupRunIsRecorded(t *testing.T) {
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
 		Backups: noBackups{}, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
+		Reach: w.reaches.get, Timers: w.timers,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,
@@ -308,6 +310,7 @@ func TestTickRecordsAFailingGuestProbe(t *testing.T) {
 	tick, err := New(Config{
 		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
 		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: failingGuests{}, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
+		Reach: w.reaches.get, Timers: w.timers,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
 		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
 		GID:           -1,

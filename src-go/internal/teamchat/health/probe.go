@@ -89,7 +89,8 @@ func (t *Tick) homeserver(ctx context.Context, team Team, f *facts) error {
 // or failed past its start limit, and that is for a person to see. A recorded restore stops
 // units on purpose (HB3), so none is judged while one is.
 // The unit's state is then the renewal's (X31): a terminator started before its leaf was made is
-// restarted.
+// restarted. An active terminator the renewal did not restart is then probed on each listen
+// address (X32), the probes running while the tick does the rest of its work.
 func (t *Tick) terminator(ctx context.Context, team Team, f *facts) error {
 	if f.restore != nil {
 		return nil
@@ -102,7 +103,13 @@ func (t *Tick) terminator(ctx context.Context, team Team, f *facts) error {
 	case state.Active != unitActive:
 		f.problems = append(f.problems, status.Problem{What: "the TLS terminator unit is " + state.Active + ": no member can reach the homeserver", Fix: "systemctl status " + unit})
 	}
-	return t.leaf(ctx, team, f, state, read)
+	if err := t.leaf(ctx, team, f, state, read); err != nil {
+		return err
+	}
+	if read && state.Active == unitActive && f.restore == nil && !f.tlsRestarted {
+		f.reach = t.startReach(ctx, team.ID)
+	}
+	return nil
 }
 
 // reread records the state a re-probe stopped on, a unit no longer active or a new invocation,
