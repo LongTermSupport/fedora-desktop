@@ -54,12 +54,12 @@ if [[ "$RUNNING_VERSION" != "$EXPECTED_VERSION" ]]; then
     if [[ "${CONTINUE_ANYWAY,,}" != "y" ]]; then
         die "Aborted due to Fedora version mismatch."
     fi
+    PREFLIGHT_VERDICT="Preflight checks passed except the Fedora version, a mismatch you accepted."
 else
     ok "Fedora $RUNNING_VERSION"
 fi
 
-echo ""
-echo "All preflight checks passed."
+printf '\n%s\n' "${PREFLIGHT_VERDICT:-All preflight checks passed.}"
 
 # --- Discover setup-*.bash scripts ------------------------------------------
 

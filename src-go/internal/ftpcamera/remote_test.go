@@ -232,7 +232,7 @@ func TestCopy(t *testing.T) {
 		"  2 files copied to mount.\n",
 		"  [0m00s] queued: 1 · active: 1 · done: 0/2 (0B/2.0KB) · 0B/s · ETA —\n",
 		"  [0m05s] queued: 0 · active: 0 · done: 1/2 (10KB/20KB) · 2.0KB/s · ETA 2m05s\n",
-		"  [0m10s] all uploads complete\n",
+		"  [0m10s] uploads finished: 2 file(s) errored\n",
 		"All 2 files verified on Drive.\n",
 	)
 	if got := k.slept; len(got) != 3 || got[0] != 3*time.Second || got[1] != 5*time.Second {
@@ -270,6 +270,7 @@ func TestCopyVerificationFails(t *testing.T) {
 	k.fake.On([]string{"rclone", "check"}, execx.Result{Stderr: []byte("1 differences found\n"), ExitCode: 1})
 	k.wantCode(k.run("--copy"), term.ExitFailure)
 	k.wantErr("Verification failed: rclone exited 1\n1 differences found\n", "Run ftp-camera --push to push remaining files directly.\n")
+	k.wantOut("] all uploads complete\n")
 }
 
 // E35: an interrupt while waiting ends the run with 130.

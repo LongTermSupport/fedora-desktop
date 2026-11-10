@@ -211,8 +211,9 @@ The tests cite these numbers.
   and rclone's stderr, exit 1. A reply that is not JSON: `ERROR: Failed to parse rclone stats`,
   exit 1. Missing numbers are 0; `eta` may be null.
 - E33. The upload is complete on the second consecutive poll whose `diskCache` shows no upload
-  in progress and none queued: `[<elapsed>] all uploads complete`, and, when `erroredFiles` is
-  above 0, `<n> file(s) errored during upload — see rclone log` on stderr. Every other poll
+  in progress and none queued: `[<elapsed>] all uploads complete` when `erroredFiles` is 0;
+  when it is above 0, `[<elapsed>] uploads finished: <n> file(s) errored` instead (never "all
+  ... complete" over a failure, issue #203's class), and `<n> file(s) errored during upload — see rclone log` on stderr. Every other poll
   prints one progress line: elapsed time, queued, active, done/total transfers, bytes in IEC
   (E65), the rate since the previous poll (whole bytes per second over whole seconds; 0 when no
   time passed or the bytes went down), and the ETA (`—` when null or 0).
@@ -457,6 +458,7 @@ The tests cite these numbers.
 | B23 | the RC-address lookup's reason was printed before the ERROR line, prefixed with a bash function name                                               | after it, indented                                                                                                                            | E30      |
 | B24 | `mv <file> <dir>/` replaced a sorted file of the same name with no notice (cameras number files in a cycle, so it was a different shot): data loss | never replaced: identical bytes are a reported duplicate, different bytes a per-file refusal (the pass goes on, exit 1); the upload stays put | E21, E62 |
 | B25 | Ctrl+C killed the async handler with its backlog; the unsorted uploads were not mentioned                                                          | the backlog is counted and named in the async summary; none is misreported                                                                    | E66      |
+| B26 | `--copy` printed a green `all uploads complete` when rclone reported errored files, naming them only after it on stderr                            | `uploads finished: <n> file(s) errored`; the green line only when none errored                                                                | E33      |
 
 Kept as they were, and accepted: the capture date is used as exiftool prints it (an odd value
 makes an odd folder name, as before); the prune prompt treats anything but `y` as no, the

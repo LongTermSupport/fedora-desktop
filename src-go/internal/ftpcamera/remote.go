@@ -370,8 +370,11 @@ func (c *cli) waitForUploads(ctx context.Context, addr string) error {
 		if s.inProgress != 0 || s.queued != 0 {
 			empty = 0
 		} else if empty++; empty >= 2 {
-			o.f("  [%s%s%s] %sall uploads complete%s\n", o.c, minutes(secs), o.n, o.g, o.n)
-			if s.errored > 0 {
+			// Never "all uploads complete" over an errored file: the closing line counts it.
+			if s.errored == 0 {
+				o.f("  [%s%s%s] %sall uploads complete%s\n", o.c, minutes(secs), o.n, o.g, o.n)
+			} else {
+				o.f("  [%s%s%s] %suploads finished: %d file(s) errored%s\n", o.c, minutes(secs), o.n, o.r, s.errored, o.n)
 				c.err.f("  %s%d file(s) errored during upload — see rclone log%s\n", c.err.r, s.errored, c.err.n)
 			}
 			return nil
