@@ -8,10 +8,9 @@
 #   tuwunel_asset the architecture part of the pinned Tuwunel release asset's name,
 #                 <version>-release-all-<this>-linux-gnu-tuwunel.zst. Its sha256 is the pin
 #                 file's tuwunel_sha256_<ansible_architecture> line.
+#
+# Each row stays on its key's line: the arch-pinned-artefact rule (CLAUDE/QA.md) reads an
+# architecture literal as the selection only on the line of the key that selects it.
 teamchat_arch:
-  x86_64:
-    goarch: amd64
-    tuwunel_asset: x86_64-v1
-  aarch64:
-    goarch: arm64
-    tuwunel_asset: aarch64-v8
+  x86_64: {goarch: amd64, tuwunel_asset: x86_64-v1}
+  aarch64: {goarch: arm64, tuwunel_asset: aarch64-v8}

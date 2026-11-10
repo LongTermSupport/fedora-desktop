@@ -323,10 +323,11 @@
             mode: "0600"
             timeout: 600
 
+        # Unpacks into the scratch directory only; the install below reports the host change.
         - name: Unpack the Tuwunel Release Asset
           ansible.builtin.command:
             argv: [zstd, -q, -d, -f, -o, "{{ tc_download.path }}/tuwunel", "{{ tc_download.path }}/tuwunel.zst"]
-          changed_when: true
+          changed_when: false
 
         - name: Install the Tuwunel Binary
           ansible.builtin.copy:
