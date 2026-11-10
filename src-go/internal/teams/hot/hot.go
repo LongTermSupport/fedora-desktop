@@ -403,8 +403,12 @@ type target struct {
 func (t *target) cc() bool { return t.kind == membership.KindCC }
 
 // memberType is the member type of the session's seats.
-func (t *target) memberType() string {
-	if t.cc() {
+func (t *target) memberType() string { return MemberType(t.kind) }
+
+// MemberType is the member type agent-bus gives the seats of a session of kind (a Session's
+// Kind): host for a cc session, podman for a ccy one.
+func MemberType(kind string) string {
+	if kind == membership.KindCC {
 		return ccMemberType
 	}
 	return memberType

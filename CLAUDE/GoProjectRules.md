@@ -70,6 +70,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_child_exit`              | another program's exit code handed on as the tool's own, which no usage documents and no shell names                                                           | `ccy --teams`: agent-bus seat choose's 78, "Unknown error code" (Plan 00177)                                                                                              |
 | `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                               | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
 | `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                              | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
+| `project_seat_member_type`        | an agent-bus seat call for a session given a constant member type, so a cc session is offered ccy's seats                                                      | `ccy-teams` picker: Add to a team asked `seat choose --type=podman` for a cc session (Plan 00203)                                                                         |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1867,6 +1868,35 @@ flow that acts on a seat's session and asks `Kind == KindCcy` treats a cc seat a
   (`project_row_kind`), so the column is `string(r.Kind)`. The sweep over both modules and
   every tag set is clean.
 - Not caught: a `switch` whose `case` lists `KindCcy`, and a comparison with the string `"ccy"`.
+
+### project_seat_member_type
+
+A call to the agentbus client (`internal/agentbus`, matched through `types.Info`) whose
+`memberType` argument is a compile-time constant (`"podman"`, `"host"`, `""`, a named
+constant), outside the agentbus package. A checkout's seat belongs to a ccy container (member
+type `podman`) or a cc session on the desktop (`host`), and agent-bus offers, creates and
+refuses seats by that type (`seat_choices` offers only the asked type; `take_actions` refuses
+a seat of the other). The picker's Add to a team asked `seat choose --type=podman` for every
+session, so a cc session was offered ccy's seats, which `session add` then refused, and never
+its own host seats.
+
+The fix is `hot.MemberType(kind)` for a session of known kind (the one mapping, which hot
+control's own seat calls use too), or the launcher's own type passed in by its caller.
+
+- Red, fixture: `testdata/src/fix/internal/badmembertype` (`bad.go`: the picker's original,
+  a named constant, `""`, a folded constant; `good.go`: a type from the kind, one passed on)
+  and the stub client in `fix/internal/agentbus`, whose own default-taking wrapper (`""`) is
+  run through the rule and stays clean.
+- Red, real tree: `picker.askSeat` (the defect) and `chooser.handles`, which asked for host
+  seats with the constant `typeHost`; it was correct only because its one caller is a host
+  launch.
+- Green: `askSeat` asks `hot.MemberType(s.Kind)` (`TestAddOfACcSessionOffersItsHostSeats`, red
+  first); `handles` and `consent` take the launch's own member type. The sweep over the module
+  and the `ccyteamstest` and `busfailpoints` builds is clean.
+- Not caught: a type computed by a function that ignores the session's kind, and a constant
+  stored in a variable before the call. Also open, not this class: `ccy-teams session add <s> <team>/<seat>` given an existing seat of the other type is not refused by `pickSeat`
+  (H22 step 3 does not compare the seat's handle type with the session's, and `seat take`,
+  which would refuse it, runs only for a new seat); what happens after that is not traced.
 
 ## Defect classes that cannot be a rule
 

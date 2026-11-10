@@ -227,3 +227,13 @@ func TestListShowsRunningCCSessions(t *testing.T) {
 		t.Fatalf("in beta: %v %v", in, err)
 	}
 }
+
+// A session's seats are of its kind's member type: a cc session's are host seats, a ccy one's
+// podman seats. The picker asks agent-bus for a session's seats by this (project_seat_member_type).
+func TestMemberTypeIsTheSessionsKinds(t *testing.T) {
+	for kind, want := range map[string]string{membership.KindCC: "host", membership.KindCcy: "podman"} {
+		if got := MemberType(kind); got != want {
+			t.Fatalf("MemberType(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}

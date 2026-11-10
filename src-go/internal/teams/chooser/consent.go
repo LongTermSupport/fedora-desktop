@@ -32,7 +32,7 @@ const (
 // acceptance, and then the list is the payload.
 func (c *Chooser) finish(ctx context.Context, memberType string, refs []string) term.ExitCode {
 	if memberType == typeHost {
-		if code := c.consent(ctx, refs); code != term.ExitOK {
+		if code := c.consent(ctx, memberType, refs); code != term.ExitOK {
 			return code
 		}
 	}
@@ -42,7 +42,7 @@ func (c *Chooser) finish(ctx context.Context, memberType string, refs []string) 
 // consent is the owner's once-per-user acceptance that a host seat runs beside their Element
 // session, asked after the seats are chosen and before any is made. A record that is already
 // there answers it. A decline, or Ctrl-C at the question, records nothing and ends the run (1).
-func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
+func (c *Chooser) consent(ctx context.Context, memberType string, refs []string) term.ExitCode {
 	home, err := c.Host.UserHome(c.UID())
 	if err != nil {
 		c.say("ccy-teams: your home is not in the passwd database (" + err.Error() +
@@ -68,7 +68,7 @@ func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
 		c.say("ccy-teams: gum is needed to ask you this, and it is not installed: run play-claude-yolo.yml.")
 		return exitConfig
 	}
-	handles, code := c.handles(ctx, refs)
+	handles, code := c.handles(ctx, memberType, refs)
 	if code != term.ExitOK {
 		return code
 	}
@@ -162,9 +162,9 @@ func ownedBy(info fs.FileInfo, uid int) bool {
 	return ok && int(st.Uid) == uid
 }
 
-// handles are the member handles the refs will have, as agent-bus offers them for a host seat of
-// this checkout. A seat it does not offer cannot be named, and the run stops there.
-func (c *Chooser) handles(ctx context.Context, refs []string) ([]string, term.ExitCode) {
+// handles are the member handles the refs will have, as agent-bus offers them for a seat of
+// memberType (the launch's own: host, as only a host launch is asked) in this checkout. A seat it does not offer cannot be named, and the run stops there.
+func (c *Chooser) handles(ctx context.Context, memberType string, refs []string) ([]string, term.ExitCode) {
 	var handles []string
 	for _, ref := range refs {
 		seat, team, ok := strings.Cut(ref, "@")
@@ -172,7 +172,7 @@ func (c *Chooser) handles(ctx context.Context, refs []string) ([]string, term.Ex
 			c.say("ccy-teams: '" + ref + "' is not SEAT@TEAM.")
 			return nil, term.ExitUsage
 		}
-		choices, err := c.Host.Bus.SeatChooseAs(ctx, team, typeHost)
+		choices, err := c.Host.Bus.SeatChooseAs(ctx, team, memberType)
 		if err != nil {
 			c.Host.ReportErr(err)
 			return nil, exitConfig

@@ -172,12 +172,19 @@ func TestSessionKind(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SessionKind, "fix/internal/badsessionkind")
 }
 
+// A seat's member type fixed in the code offers a cc session ccy's seats: the fixture passes a
+// literal, a named constant, "" and a folded constant, beside a type computed from the session's
+// kind and one passed on; the agentbus client's own default-taking wrapper is not judged.
+func TestSeatMemberType(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SeatMemberType, "fix/internal/agentbus", "fix/internal/badmembertype")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 35 {
-		t.Fatalf("want 35 rules, got %d", got)
+	if got := len(All()); got != 36 {
+		t.Fatalf("want 36 rules, got %d", got)
 	}
 }
 

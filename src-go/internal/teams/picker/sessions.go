@@ -319,9 +319,9 @@ func (r *run) teamLine(team string) string {
 }
 
 // askSeat is the seat of team in s's checkout: the lowest free one (ccy-teams chooses, the
-// default), or one agent-bus offers that no process holds.
+// default), or one agent-bus offers that no process holds, of s's kind (a cc session's are host seats).
 func (r *run) askSeat(ctx context.Context, s hot.Session, team string, h ui.Heading) (option, flow.Result, bool, error) {
-	offered, err := r.p.Seats.Bus.SeatChooseIn(ctx, s.Checkout, team, "podman")
+	offered, err := r.p.Seats.Bus.SeatChooseIn(ctx, s.Checkout, team, hot.MemberType(s.Kind))
 	if err != nil {
 		res, refuseErr := r.p.Kit.Refuse(ctx, "The seats of "+team+" in "+r.p.Kit.Abbrev(s.Checkout)+" cannot be read: "+err.Error())
 		return option{}, res, false, refuseErr

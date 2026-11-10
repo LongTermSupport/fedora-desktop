@@ -566,3 +566,21 @@ func TestAddOfASeatWhoseHandleIsTheCoordinatorSaysItIsOneNow(t *testing.T) {
 	}
 	h.wantRuns(t, []string{"add", proj, "alpha/2", "--role=coordinator"})
 }
+
+// A cc session's seats are host seats: Add to a team asks agent-bus for those, not ccy's podman
+// seats, which session add would refuse it (project_seat_member_type).
+func TestAddOfACcSessionOffersItsHostSeats(t *testing.T) {
+	h := newRig(t)
+	h.On("agent-bus seat choose alpha --type=host", "CHOICE\t2\tfree\tproj.2+local.host\tw\nDEFAULT\t2\n", 0)
+	cc := h.plain()
+	cc.Name, cc.Kind = "cc-proj", "cc"
+	h.ses.list = []hot.Session{cc}
+	h.Script.Fzf = []string{toSessions, "|cc-proj", "|Add to a team", "|alpha", "|seat 2", "|worker", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !slices.Contains(untagged(h.Script.Rows[4]), "seat 2 (free, proj.2+local.host)") {
+		t.Fatalf("seat rows %q", h.Script.Rows[4])
+	}
+	h.wantRuns(t, []string{"add", "cc-proj", "alpha/2", "--role=worker"})
+}

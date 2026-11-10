@@ -116,7 +116,7 @@ func (c *Chooser) busOnly(ctx context.Context, memberType, list string) term.Exi
 		c.usage("'" + flagBus + "' is a host session on no team: --type=host, and no list.")
 		return term.ExitUsage
 	}
-	return c.consent(ctx, nil)
+	return c.consent(ctx, memberType, nil)
 }
 
 // attended is whether a person is at a terminal to be asked.
