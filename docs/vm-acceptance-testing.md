@@ -110,6 +110,31 @@ Every wait for a booted guest to answer SSH is bounded by
 `VMTEST_SSH_WAIT_TIMEOUT` seconds (default 600, up to 86400); on a busy host,
 raise it for the call, e.g. `VMTEST_SSH_WAIT_TIMEOUT=1200 vmtest member-up …`.
 
+#### Members on networks of their own
+
+Each member sits on its own passt network, so two members cannot reach each
+other. A **link** joins two members' NICs: a pair of loopback UDP sockets that
+libvirt's `udp` interface connects, with no libvirt network, bridge, host
+interface or root. A member takes up to four, after its passt NIC:
+
+```bash
+vmtest link-up <link>                       # two loopback UDP ports, recorded under links/<link>/
+vmtest member-up <name> server-fast --link <link>:a [--link <other>:b] [--ram-mib N]
+vmtest member-address <name>                # host, SSH port, user, lab key, and each NIC's MAC
+vmtest member-ssh --as <user> <name> '<command>'   # as another login user; default is the cloud user
+vmtest link-down <link>                     # refused while a member holds an end of it
+```
+
+`link-up` starts nothing; each end (`a` or `b`) belongs to one member at a time,
+recorded in `members/<name>/links` with the NIC's MAC until `member-down`. The
+lab sets no addresses on a link: a scenario sets them over ssh, picking each NIC
+by the MAC `member-up` and `member-address` print. `--ram-mib` gives a member
+less than its base's memory (768 MiB up to the base's); `member-up` and `run`
+refuse a guest that, with every running lab guest, would pass 75% of the host's
+memory. That libvirt accepts the `udp` interface in a session is shown only by
+the first `member-up --link` on a host; the design and its options are in
+[Plan 00246's VM-lab report](../CLAUDE/Plan/00246-agent-bus-v2-landing-and-cross-network/subagent-reports/261109-vmlab-multinet-design-opus.md).
+
 A `full` base is installed by `fedora-install/ks-vm-server.cfg`, a VM-only,
 non-interactive Fedora Server kickstart: Anaconda runs in cmdline mode on the
 serial console from the one install tree the manifest names, creates the lab's

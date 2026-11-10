@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 // Retention is the lab's own disk policy: what a run, a member and a rebuild need of the host
@@ -186,6 +188,71 @@ func (c *cli) ramFloor(guestMiB int) error {
 		return fmt.Errorf("guest %d MiB exceeds the %d MiB ceiling of a %d MiB host", guestMiB, ceiling, host)
 	}
 	return nil
+}
+
+// ramBudget refuses a guest the host cannot carry beside the lab's running ones: it alone over
+// the ceiling (E33), or with every running lab guest's memory over it (E70).
+func (c *cli) ramBudget(ctx context.Context, guestMiB int) error {
+	if err := c.ramFloor(guestMiB); err != nil {
+		return err
+	}
+	host, err := c.env.HostMiB()
+	if err != nil {
+		return fmt.Errorf("cannot read the host's memory: %w", err)
+	}
+	others, err := c.runningGuestsMiB(ctx)
+	if err != nil {
+		return err
+	}
+	if ceiling := host * ramCeilingPercent / 100; others+guestMiB > ceiling {
+		return fmt.Errorf("guests %d MiB and this %d MiB exceed the %d MiB ceiling of a %d MiB host", others, guestMiB, ceiling, host)
+	}
+	return nil
+}
+
+// labDomainPrefix starts the name of every libvirt domain the lab makes (members, runs, builds).
+const labDomainPrefix = "vmtest-"
+
+// runningGuestsMiB is the memory of every running lab guest: libvirt's Max memory of each
+// vmtest-* domain it lists as running. A guest it cannot read is a failure, never zero (E70).
+func (c *cli) runningGuestsMiB(ctx context.Context) (int, error) {
+	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virshBin, Args: []string{"-c", libvirtURI, "list", flagName}})
+	if err != nil {
+		return 0, ctxErr(ctx, fmt.Errorf("virsh -c %s list failed: %w", libvirtURI, err))
+	}
+	total := 0
+	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
+		domain := strings.TrimSpace(line)
+		if !strings.HasPrefix(domain, labDomainPrefix) {
+			continue
+		}
+		mib, derr := c.domainMiB(ctx, domain)
+		if derr != nil {
+			return 0, derr
+		}
+		total += mib
+	}
+	return total, nil
+}
+
+// domainMiB is a domain's Max memory in MiB, from virsh dominfo.
+func (c *cli) domainMiB(ctx context.Context, domain string) (int, error) {
+	res, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virshBin, Args: []string{"-c", libvirtURI, "dominfo", domain}})
+	if err != nil {
+		return 0, ctxErr(ctx, fmt.Errorf("cannot read the memory of %s: %w", domain, err))
+	}
+	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[0] != "Max" || fields[1] != "memory:" {
+			continue
+		}
+		kib, perr := strconv.Atoi(fields[2])
+		if perr != nil || fields[3] != "KiB" {
+			return 0, fmt.Errorf("cannot read the memory of %s: '%s' is not a figure in KiB", domain, line)
+		}
+		return kib / 1024, nil
+	}
+	return 0, fmt.Errorf("cannot read the memory of %s: no 'Max memory' line", domain)
 }
 
 // rebuildFloor refuses a rebuild with no room beside the old base for a new one of its size

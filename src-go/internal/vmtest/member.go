@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -166,6 +167,9 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 		flagCPU, "host-passthrough", flagImport, flagDisk, disk,
 		"--osinfo", "fedora-unknown", "--boot", "uefi", "--memballoon", virtioModel, "--network", passtNetwork(g.port),
 	}
+	for _, n := range g.nets {
+		args = append(args, "--network", n)
+	}
 	args = append(append(args, tail...), "--noautoconsole")
 	if _, err := c.env.Runner.Run(ctx, execx.Cmd{Name: virtInstallBin, Args: args, Stdout: c.env.Stderr, Stderr: c.env.Stderr}); err != nil {
 		return ctxErr(ctx, failf("virt-install could not boot %s: %v", g.domain, err))
@@ -173,12 +177,88 @@ func (c *cli) virtInstall(ctx context.Context, g *guest, b baseFacts, disk strin
 	return nil
 }
 
-func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
-	if len(args) != 2 {
-		return usagef("usage: vmtest member-up <name> <base-key>")
+// memberUpUsage is the command line member-up takes.
+const memberUpUsage = "usage: vmtest member-up <name> <base-key> [--ram-mib N] [--link <link>:<a|b>]..."
+
+// minMemberRAMMiB is the least memory a member may be given with --ram-mib (E69): a starting
+// value, unverified on a real guest.
+const minMemberRAMMiB = 768
+
+// memberUpArgs is what member-up was asked: a member, its base, the link ends it joins and, when
+// not zero, the memory it is given instead of the base's.
+type memberUpArgs struct {
+	name, key string
+	refs      []linkRef
+	ramMiB    int
+}
+
+// set takes one option and its value (E68, E69); an option repeated that may not be, or a value
+// it cannot take, is a usage error.
+func (m *memberUpArgs) set(option, value string) error {
+	if option == "--ram-mib" {
+		if m.ramMiB != 0 {
+			return usagef("--ram-mib is given twice")
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < minMemberRAMMiB || strconv.Itoa(n) != value {
+			return usagef("--ram-mib wants a whole number of MiB, %d or more; got '%s'", minMemberRAMMiB, value)
+		}
+		m.ramMiB = n
+		return nil
 	}
-	name, key := args[0], args[1]
-	if err := memberName(name); err != nil {
+	ref, err := parseLinkOption(value)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(m.refs, ref) {
+		return usagef("the link end %s:%s is given twice", ref.link, ref.end)
+	}
+	m.refs = append(m.refs, ref)
+	return nil
+}
+
+// parseMemberUp splits member-up's arguments; what cannot be run is a usage error (E68).
+func parseMemberUp(args []string) (memberUpArgs, error) {
+	var got memberUpArgs
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		option := args[i]
+		if option != "--link" && option != "--ram-mib" {
+			if strings.HasPrefix(option, "-") {
+				return memberUpArgs{}, usagef("unknown option %s", option)
+			}
+			positional = append(positional, option)
+			continue
+		}
+		value := ""
+		if i+1 < len(args) {
+			i++
+			value = args[i]
+		}
+		if err := got.set(option, value); err != nil {
+			return memberUpArgs{}, err
+		}
+	}
+	if len(positional) != 2 {
+		return memberUpArgs{}, usagef("%s", memberUpUsage)
+	}
+	if len(got.refs) > maxMemberLinks {
+		return memberUpArgs{}, usagef("at most %d --link options; got %d", maxMemberLinks, len(got.refs))
+	}
+	got.name, got.key = positional[0], positional[1]
+	return got, nil
+}
+
+func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
+	got, err := parseMemberUp(args)
+	if err != nil {
+		return err
+	}
+	if err = memberName(got.name); err != nil {
+		return err
+	}
+	nics, err := c.linkNICs(got.refs)
+	if err != nil {
 		return err
 	}
 	l, err := c.loadLab()
@@ -188,12 +268,26 @@ func (c *cli) cmdMemberUp(ctx context.Context, args []string) error {
 	if err := c.diskGuard(ctx, l, memberNeed); err != nil {
 		return err
 	}
-	return c.memberUp(ctx, l, name, key)
+	return c.memberUp(ctx, l, got, nics)
+}
+
+// checkMemberFree refuses a member that exists already (E56) and NICs that cannot be given (E68).
+func (c *cli) checkMemberFree(ctx context.Context, name, dir string, nics []memberNIC) error {
+	domain := memberDomain(name)
+	listed, err := c.domainListed(ctx, domain)
+	if err != nil {
+		return err
+	}
+	if _, serr := os.Lstat(dir); serr == nil || listed {
+		return failf("member %s already exists (%s or guest %s); remove it with: vmtest member-down %s", name, dir, domain, name)
+	}
+	return c.planNICs(name, nics)
 }
 
 // memberUp boots a member and leaves it running (E56); one that does not finish is torn
-// down (E57).
-func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
+// down (E57). nics are the links it joins (E68).
+func (c *cli) memberUp(ctx context.Context, l *lab, got memberUpArgs, nics []memberNIC) error {
+	name, key := got.name, got.key
 	b, err := c.baseFacts(ctx, l, key)
 	if err != nil {
 		return err
@@ -201,16 +295,18 @@ func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
 	if b.Profile != profileServer {
 		return failf("a member boots a server base; %s is %s", b.Name, b.Profile)
 	}
+	if got.ramMiB > b.RAMMiB {
+		return usagef("--ram-mib %d is more than the %d MiB base %s has", got.ramMiB, b.RAMMiB, b.Name)
+	}
+	if got.ramMiB != 0 {
+		b.RAMMiB = got.ramMiB
+	}
 	baseDir, dir, domain := l.at(basesDir, b.Name), l.at(membersDir, name), memberDomain(name)
 	if !readable(filepath.Join(baseDir, "base.qcow2")) || !readable(filepath.Join(baseDir, "base.json")) {
 		return failf("base %s is absent; build it with: vmtest ensure-base %s", b.Name, key)
 	}
-	listed, err := c.domainListed(ctx, domain)
-	if err != nil {
+	if err = c.checkMemberFree(ctx, name, dir, nics); err != nil {
 		return err
-	}
-	if _, serr := os.Lstat(dir); serr == nil || listed {
-		return failf("member %s already exists (%s or guest %s); remove it with: vmtest member-down %s", name, dir, domain, name)
 	}
 	v, err := c.verdictOnce(ctx, l, baseDir)
 	if err != nil {
@@ -223,27 +319,34 @@ func (c *cli) memberUp(ctx context.Context, l *lab, name, key string) error {
 	if err = os.MkdirAll(l.at(membersDir), 0o755); err != nil {
 		return failf("cannot create %s: %v", l.at(membersDir), err)
 	}
-	if err = c.ramFloor(b.RAMMiB); err != nil {
+	if err = c.ramBudget(ctx, b.RAMMiB); err != nil {
 		return failf("the host cannot carry a member on %s: %v", b.Name, err)
 	}
 	if err = os.MkdirAll(dir, 0o755); err != nil {
 		return failf("cannot create %s: %v", dir, err)
 	}
-	if err = c.startMember(ctx, l, b, name, dir); err != nil {
+	if err = c.startMember(ctx, l, b, name, dir, nics); err != nil {
 		c.memberTeardown(context.WithoutCancel(ctx), name, dir, domain)
 		return err
 	}
 	c.sayf("VMTEST-MEMBER-UP %s domain=%s", name, domain)
+	for _, n := range nics {
+		c.sayNIC(name, n.link, n.end, n.mac)
+	}
 	return nil
 }
 
-// startMember boots the member's overlay of its base and waits for its SSH.
-func (c *cli) startMember(ctx context.Context, l *lab, b baseFacts, name, dir string) error {
+// startMember records the member's link ends, boots the member's overlay of its base with a NIC
+// for each and waits for its SSH.
+func (c *cli) startMember(ctx context.Context, l *lab, b baseFacts, name, dir string, nics []memberNIC) error {
 	port, err := c.env.FreePort()
 	if err != nil {
 		return failf("%v", err)
 	}
-	g := &guest{c: c, key: l.at(sshKeyFile), domain: memberDomain(name), port: port, dir: dir}
+	if err = c.recordNICs(dir, nics); err != nil {
+		return err
+	}
+	g := &guest{c: c, key: l.at(sshKeyFile), domain: memberDomain(name), port: port, dir: dir, nets: networksOfNICs(nics)}
 	overlay := filepath.Join(dir, "overlay.qcow2")
 	if err = c.overlay(ctx, l.at(basesDir, b.Name, "base.qcow2"), overlay); err != nil {
 		return err
@@ -265,7 +368,7 @@ func (c *cli) memberTeardown(ctx context.Context, name, dir, domain string) {
 	if err := c.removeListedDomain(ctx, domain); err != nil {
 		c.logf("could not remove guest %s: %v", domain, err)
 	}
-	for _, f := range []string{"overlay.qcow2", memberPortFile} {
+	for _, f := range []string{"overlay.qcow2", memberPortFile, memberLinksFile} {
 		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			c.logf("could not remove %s: %v", filepath.Join(dir, f), err)
 		}
@@ -274,33 +377,94 @@ func (c *cli) memberTeardown(ctx context.Context, name, dir, domain string) {
 	c.logf("member not started; its console log is kept in %s until: vmtest member-down %s", dir, name)
 }
 
-// cmdMemberSSH runs a command in a member, bounded, and exits with its status (E58).
-func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
-	if len(args) < 2 {
-		return usagef("usage: vmtest member-ssh <name> <command>")
+// sshUserRE is a login name, what --as takes (E73). It cannot start with '-', so an option
+// cannot ride in as a user.
+var sshUserRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+
+const memberSSHUsage = "usage: vmtest member-ssh [--as <user>] <name> <command>"
+
+// memberEndpoint is where a member's SSH is reached: the loopback port it is forwarded to and the
+// lab key; a member that is not up, or a lab with no key, is a failure (E58, E72).
+type memberEndpoint struct {
+	port int
+	key  string
+}
+
+func (c *cli) endpointOf(name string) (memberEndpoint, error) {
+	portFile := c.paths.at(membersDir, name, memberPortFile)
+	body, err := os.ReadFile(portFile)
+	if err != nil {
+		return memberEndpoint{}, failf("no member %s is up (no %s); start one with: vmtest member-up %s <base-key>", name, portFile, name)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil || port <= 0 {
+		return memberEndpoint{}, failf("%s does not hold a port", portFile)
+	}
+	key := c.paths.at(sshKeyFile)
+	if !readable(key) {
+		return memberEndpoint{}, failf("no lab SSH key at %s; deploy the lab first", key)
+	}
+	return memberEndpoint{port: port, key: key}, nil
+}
+
+// cmdMemberAddress prints how to reach a member without reading the lab's layout (E72).
+func (c *cli) cmdMemberAddress(_ context.Context, args []string) error {
+	if len(args) != 1 {
+		return usagef("usage: vmtest member-address <name>")
 	}
 	name := args[0]
 	if err := memberName(name); err != nil {
 		return err
 	}
-	portFile := c.paths.at(membersDir, name, memberPortFile)
-	body, err := os.ReadFile(portFile)
+	ep, err := c.endpointOf(name)
 	if err != nil {
-		return failf("no member %s is up (no %s); start one with: vmtest member-up %s <base-key>", name, portFile, name)
+		return err
 	}
-	port, err := strconv.Atoi(strings.TrimSpace(string(body)))
-	if err != nil || port <= 0 {
-		return failf("%s does not hold a port", portFile)
+	nics, err := c.memberRecord(name)
+	if err != nil {
+		return err
 	}
-	key := c.paths.at(sshKeyFile)
-	if !readable(key) {
-		return failf("no lab SSH key at %s; deploy the lab first", key)
+	c.sayf("VMTEST-MEMBER-ADDRESS %s host=%s port=%d user=%s key=%s", name, guestAddress, ep.port, cloudUser, ep.key)
+	for _, n := range nics {
+		c.sayNIC(name, n.link, n.end, n.mac)
+	}
+	return nil
+}
+
+// sayNIC is the marker line for one NIC of a member (E68, E72).
+func (c *cli) sayNIC(member, link, end, mac string) {
+	c.sayf("VMTEST-MEMBER-NIC %s link=%s end=%s mac=%s", member, link, end, mac)
+}
+
+// cmdMemberSSH runs a command in a member, bounded, and exits with its status (E58); --as before
+// the name connects as another user (E73).
+func (c *cli) cmdMemberSSH(ctx context.Context, args []string) error {
+	user := ""
+	if len(args) > 0 && args[0] == "--as" {
+		if len(args) < 2 {
+			return usagef("%s", memberSSHUsage)
+		}
+		user, args = args[1], args[2:]
+		if !sshUserRE.MatchString(user) {
+			return usagef("--as wants a login name of 1 to 32 of a-z, 0-9, '_' and '-', not starting with a digit or '-'; got '%s'", user)
+		}
+	}
+	if len(args) < 2 {
+		return usagef("%s", memberSSHUsage)
+	}
+	name := args[0]
+	if err := memberName(name); err != nil {
+		return err
+	}
+	ep, err := c.endpointOf(name)
+	if err != nil {
+		return err
 	}
 	limit, err := c.secondsSetting("VMTEST_MEMBER_SSH_TIMEOUT", memberSSHDefault)
 	if err != nil {
 		return err
 	}
-	g := &guest{c: c, key: key, port: port}
+	g := &guest{c: c, key: ep.key, port: ep.port, user: user}
 	// Bounded twice: keepalives end a session whose guest stopped answering, and the bound
 	// ends one whose command never finishes.
 	sshArgs := g.sshArgs([]string{"-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"}, args[1])

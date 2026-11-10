@@ -44,6 +44,9 @@ type Env struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 	// FreePort is a loopback TCP port nothing listens on at the moment of asking.
 	FreePort func() (int, error)
+	// FreeUDPPorts is n distinct loopback UDP ports nothing is bound to at the moment of asking,
+	// for the two ends of a link.
+	FreeUDPPorts func(n int) ([]int, error)
 	// FreeBytes is the space an unprivileged user can still write on the filesystem holding path.
 	FreeBytes func(path string) (int64, error)
 	// HostMiB is the host's memory in MiB.
@@ -60,20 +63,21 @@ type Env struct {
 // NewEnv is the production environment on the process's own streams.
 func NewEnv() Env {
 	return Env{
-		Runner:    execx.OS{},
-		Stdin:     os.Stdin,
-		Stdout:    os.Stdout,
-		Stderr:    os.Stderr,
-		Getenv:    os.Getenv,
-		Home:      os.Getenv("HOME"),
-		Now:       time.Now,
-		Sleep:     sleepContext,
-		FreePort:  freeLoopbackPort,
-		FreeBytes: freeBytes,
-		HostMiB:   hostMiB,
-		Random:    rand.Reader,
-		GPGKeyDir: DefaultGPGKeyDir,
-		GOARCH:    runtime.GOARCH,
+		Runner:       execx.OS{},
+		Stdin:        os.Stdin,
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
+		Getenv:       os.Getenv,
+		Home:         os.Getenv("HOME"),
+		Now:          time.Now,
+		Sleep:        sleepContext,
+		FreePort:     freeLoopbackPort,
+		FreeUDPPorts: freeLoopbackUDPPorts,
+		FreeBytes:    freeBytes,
+		HostMiB:      hostMiB,
+		Random:       rand.Reader,
+		GPGKeyDir:    DefaultGPGKeyDir,
+		GOARCH:       runtime.GOARCH,
 	}
 }
 
@@ -189,7 +193,10 @@ var commands = map[string]command{
 	"ensure-base":      (*cli).cmdEnsureBase,
 	"member-up":        (*cli).cmdMemberUp,
 	"member-ssh":       (*cli).cmdMemberSSH,
+	"member-address":   (*cli).cmdMemberAddress,
 	"member-down":      (*cli).cmdMemberDown,
+	"link-up":          (*cli).cmdLinkUp,
+	"link-down":        (*cli).cmdLinkDown,
 	"prune-runs":       (*cli).cmdPruneRuns,
 }
 

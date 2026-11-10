@@ -27,6 +27,7 @@ const (
 	imagesDir       = "images"
 	basesDir        = "bases"
 	membersDir      = "members"
+	linksDir        = "links"
 	ksServer        = "ks-vm-server.cfg"
 	ksDesktop       = "ks-vm-desktop.cfg"
 	sessionRunner   = "vmtest-session-provision.bash"

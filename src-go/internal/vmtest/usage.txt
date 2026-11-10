@@ -29,16 +29,28 @@ Usage:
   vmtest nightly                           freshness-status --deep, then sweep — what the nightly timer runs
   vmtest ensure-base <base-key>            build the base if it is absent, or rebuild it if the freshness
                                            gate refuses it; otherwise change nothing
-  vmtest member-up <name> <base-key>       boot a server base as a guest that STAYS UP for another script to
+  vmtest member-up <name> <base-key> [--ram-mib N] [--link <link>:<a|b>]...
+                                           boot a server base as a guest that STAYS UP for another script to
                                            drive (freshness gate, overlay, boot, SSH answered); prints
-                                           VMTEST-MEMBER-UP. A failed or interrupted boot removes the guest
+                                           VMTEST-MEMBER-UP. --ram-mib gives it N MiB (768 up to the base's)
+                                           instead of the base's. Each --link (at most four) gives it a NIC on a
+                                           link made by link-up, as that link's end a or b, and prints
+                                           VMTEST-MEMBER-NIC with the NIC's MAC. A failed or interrupted boot removes the guest
                                            and its overlay, shows the console log's last lines, and keeps
                                            members/<name>/ with that log until member-down
-  vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
+  vmtest member-ssh [--as <user>] <name> <command>
+                                           run <command> in the member as the cloud user (passwordless sudo),
+                                           or as <user> (a login name, given before the member's name),
                                            stdin passed through; exits with the command's status.
                                            Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
                                            seconds (default 1800; exit 124 when it is hit)
+  vmtest member-address <name>             print how to reach the member, so an inventory is built without
+                                           the lab's layout: VMTEST-MEMBER-ADDRESS (host, SSH port, user,
+                                           lab key) and one VMTEST-MEMBER-NIC per link; reads files only
   vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
+  vmtest link-up <link>                    make a point-to-point link: two loopback UDP ports recorded under
+                                           links/<link>/ for two members' NICs; starts nothing
+  vmtest link-down <link>                  remove a link no member holds; nothing there is no error
   vmtest help
 
 `run` provisions from a PUSHED commit of the public repo (the branch tip on the
@@ -50,7 +62,8 @@ pass keeps its overlay (up to 20 GiB) for diagnosis until prune-runs removes it.
 Before anything else, `run` and `member-up` refuse when the lab's filesystem has less
 than 22 GiB free (a 20 GiB guest disk and a 2 GiB margin), and a base build (build-base,
 ensure-base, refresh-base) less than 26 GiB (the same and 4 GiB of install media),
-saying what `vmtest prune-runs` would free.
+saying what `vmtest prune-runs` would free. They also refuse a guest that, with the memory of every
+running lab guest, would pass 75% of the host's memory.
 
 Every wait for a booted guest to answer SSH (build, run, member-up) is bounded by
 VMTEST_SSH_WAIT_TIMEOUT seconds (default 600, up to 86400); raise it on a busy host.

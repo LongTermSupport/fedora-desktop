@@ -278,7 +278,7 @@ The tests cite these numbers.
   Then comes the RAM ceiling: a guest may have at most 75% of the host's memory (MemTotal of
   `/proc/meminfo`). A refusal is
   `the host cannot carry a run on <name> (stage: clone): guest <ram> MiB exceeds the <ceiling> MiB ceiling of a <host> MiB host`.
-  The disk is the guard's alone (E64).
+  The running lab guests' memory counts as well (E70). The disk is the guard's alone (E64).
 
 - E34. The run id is `<UTC %Y%m%dT%H%M%SZ>-<id>`, the directory is `runs/<run-id>`, and the domain
   is `vmtest-run-<run-id>`. The overlay is `qemu-img create -q -f qcow2 -F qcow2 -b <base>`, and
@@ -479,7 +479,7 @@ libvirt `udp` sub-options) are not verified in this container and are proven by 
 `member-up --link` on the host.
 
 - E67. `link-up <link>`: the name as E55. It chooses two distinct free UDP ports on 127.0.0.1
-  (`Env.FreeUDPPort`, as `Env.FreePort`), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
+  (`Env.FreeUDPPorts`, which binds both at once so they differ), writes `links/<link>/ports` (`a=<p>` and `b=<q>`
   lines) through `fsx.WriteAtomic`, and prints `VMTEST-LINK-UP <link> a=<p> b=<q>`. An existing
   `links/<link>/` is refused with the `link-down` hint. It makes no libvirt object.
 - E68. `member-up <name> <key> [--ram-mib N] [--link <link>:<a|b>]...`: an option repeated that

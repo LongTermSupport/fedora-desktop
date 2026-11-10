@@ -176,7 +176,7 @@ func (c *cli) runScenario(ctx context.Context, l *lab, ra runArgs) (err error) {
 		c.p.Print(c.env.Stderr, v.line+"\n")
 		return failf("base %s may not be used (freshness: %s); rebuild it with: vmtest build-base %s", b.Name, v.decision, s.BaseKey)
 	}
-	if err = c.ramFloor(b.RAMMiB); err != nil {
+	if err = c.ramBudget(ctx, b.RAMMiB); err != nil {
 		return failf("the host cannot carry a run on %s (stage: clone): %v", b.Name, err)
 	}
 	r := &running{c: c, l: l, s: s, b: b, baseDir: baseDir, commit: commit, cr: ra.cr, verdict: v}

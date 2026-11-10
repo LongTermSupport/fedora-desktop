@@ -154,6 +154,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   that B2 now serves. S15's Element play places the team CA and checks it from inside Element's
   sandbox; whether Element's Chromium honours the store is the host check, and two owner
   questions (SPEC 6 and 7) stand.
+  The lab's side of it is built on branch
+  `feat/vmtest-links` under fakes (SPEC-vmtest.md E67 to E73: `link-up`, `link-down`,
+  `member-up --link` and `--ram-mib`, the RAM check over every running guest, `member-address`,
+  `member-ssh --as`); `x30-triage.bash` is the read-only host run that shows which spelling of
+  libvirt's `udp` interface the host takes. The lab play's subnet input, the guest fixtures and
+  `x30-lab.bash` are not built.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

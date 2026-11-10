@@ -51,6 +51,11 @@ type kit struct {
 	hostErr error
 	// goarch is the host's architecture as Go names it; the lab's guests are this architecture.
 	goarch string
+	// udp is the next free loopback UDP port the fake hands out, and udpErr what asking fails with.
+	udp    int
+	udpErr error
+	// random is what the lab draws its secrets and MAC addresses from; zeroReader when nil.
+	random io.Reader
 }
 
 // stubBuild replaces build-base with a recorder, for the commands that call it.
@@ -82,6 +87,7 @@ func newKit(t *testing.T) *kit {
 		fake:     &execx.Fake{},
 		now:      time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC),
 		port:     40123,
+		udp:      41000,
 		free:     1 << 50,
 		hostMiB:  1 << 16,
 		goarch:   "amd64",
@@ -222,6 +228,10 @@ func argAfter(args []string, flag string) string {
 }
 
 func (k *kit) environment() Env {
+	var random io.Reader = zeroReader{}
+	if k.random != nil {
+		random = k.random
+	}
 	return Env{
 		Runner: k.runner(),
 		Stdin:  strings.NewReader(k.stdin),
@@ -239,6 +249,17 @@ func (k *kit) environment() Env {
 			return nil
 		},
 		FreePort: func() (int, error) { return k.port, nil },
+		FreeUDPPorts: func(n int) ([]int, error) {
+			if k.udpErr != nil {
+				return nil, k.udpErr
+			}
+			ports := make([]int, n)
+			for i := range ports {
+				ports[i] = k.udp + i
+			}
+			k.udp += n
+			return ports, nil
+		},
 		FreeBytes: func(path string) (int64, error) {
 			if err, ok := k.freeErrAt[path]; ok {
 				return 0, err
@@ -246,7 +267,7 @@ func (k *kit) environment() Env {
 			return k.free, k.freeErr
 		},
 		HostMiB:   func() (int, error) { return k.hostMiB, k.hostErr },
-		Random:    zeroReader{},
+		Random:    random,
 		GPGKeyDir: k.gpg,
 		GOARCH:    k.goarch,
 		TempDir:   k.t.TempDir(),
