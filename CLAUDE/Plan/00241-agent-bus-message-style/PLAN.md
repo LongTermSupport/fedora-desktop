@@ -76,6 +76,18 @@ deploy is enough. Agent text (`validate_text_content`, which is exact) does not 
   the owner's verdict in Element; sessions on an older ccy image send plain text until they
   restart.
 
+### Phase 3: v2 renders it (owner's decision of 2026-11-10: v1 stays frozen, the fix is v2 only)
+
+v2 (`teamchat`, Plan 00209) sends no `formatted_body` at all, so moving to it would draw every
+report and question as plain text again. The owner also saw markdown tables shown as pipes in
+Element: the v1 converter has no tables (STYLE.md says to avoid them), and `say` is sent plain.
+
+- [ ] ⬜ **Task 3.1**: v2's sender draws markdown as Matrix HTML for reports, questions and
+  thread posts, the Task 2.1 subset, escaped first, as v1 does.
+- [ ] ⬜ **Task 3.2**: v2 also draws free text to the team (v1's `say`) as HTML.
+- [ ] ⬜ **Task 3.3**: Tables are drawn as HTML tables; STYLE.md says how to write one so it
+  still reads in the plain `body` on a phone.
+
 ## Success Criteria
 
 - [ ] The owner finds the team room readable (their verdict in Element).
