@@ -59,6 +59,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_agent_branch`            | a teamchat branch on the run's launch value outside the agent seam, so a second agent program is a refactor of every comparison and not an adapter             | teamchat `keeper` and `link`: the launch comparisons the agent seam replaced (Plan 00209)                                                                                 |
 | `project_transport_home`          | a teamchat `http.Transport` or `tls.Config` built outside package matrix, so a second place decides whom a client trusts and which name it verifies            | teamchat `hostnet` probe and `forge`: each built its own transport (Plan 00246 Task 8.8)                                                                                  |
 | `project_hostname_read`           | a teamchat read of the machine's hostname (a call, or a constant naming its variable or file) or of an address's name, so a hostname can reach a handle's site | teamchat `guestfacts`: the guest's `HOOKS_DAEMON_HOSTNAME` read into a site (Plan 00246 Task 8.8, X25)                                                                    |
+| `project_problem_error_text`      | an error's own text in a teamchat status problem, which the record refuses past 512 bytes or with a control character, losing the team's whole record          | teamchat `health`: the leaf renewal's first draft put the CA's long refusal in a problem, and the record was not written (Plan 00246 Task 8.8, X31)                       |
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                               | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                           |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner              | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                           |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                          | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                         |
@@ -1367,6 +1368,44 @@ reads it where a handle is made.
   read through the `hostname` program; one of the names inside a longer constant (a regular
   expression naming the variable, a line of file content as a test writes) or built at run
   time; reflection.
+
+### project_problem_error_text
+
+**What it is about.** The health tick writes a team's whole status record at once, and
+`status.Write` refuses a record any of whose problems is not one line of at most 512 bytes
+(`status.OneLine`). An error's own text has no such bound: it can hold a path, a wrapped chain,
+an advice sentence or a remote server's words. Put in a problem, it can lose the team's record
+for as long as the failure lasts, which is exactly when the record is needed.
+
+**Why it exists.** Plan 00246 Task 8.8, X31: the first draft of the leaf renewal's problem
+appended `err.Error()`, and with the CA key gone the cause was `loadCA`'s refusal with its
+advice: in the test's scratch tree that was over 512 bytes and the tick's record for the team was
+not written at all; with the host's own paths the same problem is 393 bytes, so a longer chain
+(a wrapped write error, a longer team name) is all it takes.
+
+**What it flags**, in `internal/teamchat`, `cmd/teamchat` and `cmd/teamchat-admin` and below,
+tests included: in the What or the Fix of a `status.Problem` literal (by name or position, a
+pointer literal too) and in the two arguments of `status.NewProblem`, a call of `Error()` on an
+error that is not a package-level variable, and an error passed to `fmt.Sprint`, `Sprintf` or
+`Sprintln`. A sentinel's text is fixed and allowed.
+
+**How to fix a violation.** Name the cause as a fixed class: a sentinel's text,
+`matrix.Class(err)`, or a cause the failing step returns beside its error (`host.LeafError`'s
+`Cause`).
+
+- Red, fixture: `testdata/problemtext/src/fix/internal/teamchat/badproblem` (`bad.go`: `Error()`
+  in What and Fix, a concatenation, `fmt.Sprintf` and `fmt.Sprint` of an error, a positional
+  literal, a pointer literal, `status.NewProblem`; `bad_test.go`: a test; the clean forms beside
+  them: a sentinel's `Error()`, a class function, a format with no error), beside
+  `outsideproblem` (outside teamchat, clean). With `problemTexts` answering nothing the test
+  failed on every flagged line, and passed with the rule.
+- Red, real tree: the three problems of `health/leaf.go`'s first draft; the sweep over
+  `./internal/teamchat/...`, untagged, `busfailpoints` and `tuwunel`, found no other instance (the
+  view's problems carry sentinels and `matrix.Class`).
+- Green: the tree after the fix (`host.LeafError`), with no finding, untagged and with each tag.
+- Not caught: an error's text put in a variable first and the variable put in the problem; an
+  error formatted by another function than fmt's three; a problem's text built in another package
+  and handed in.
 
 ### project_test_chown
 

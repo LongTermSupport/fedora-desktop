@@ -107,6 +107,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 			// HB1 reads only root's tars and records and the homeserver tree, never ctl/<team>/.
 			Backups: backup.States(backup.Deps{Root: root, StateOwnerUID: stateOwnerUID}), Restores: restore.Records{Root: root}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: m.guests(),
 			Announcer: admin.ChildAnnouncer{Child: child, Root: root}, Locks: health.TeamLocks{Dir: run, Clock: clock},
+			// X31: the leaf renewed by apply's step; the tick runs as root, which reads the CA key.
+			Leaves:        host.LeafRenewer{Root: root, Clock: clock, Rand: rand.Reader, Units: systemd.Health(), Names: host.AppliedLeafNames(root)},
 			StatusPath:    func(t paths.TeamID) string { return root + paths.StatusFile(t) },
 			LXCOnlinePath: func(t paths.TeamID) string { return root + paths.LXCOnlineFile(t) },
 			GID:           gid,

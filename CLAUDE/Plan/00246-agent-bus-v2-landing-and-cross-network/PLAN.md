@@ -142,7 +142,12 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   plain http only to a loopback address) and S3 (a url's port must be the team's) are fixed
   too. Still open from that review: S1, S4 to S8 and the nits. Then X30, the second-machine run,
   a host or VM-lab check that needs the host play and the launcher (the install path, #193
-  item 2), which the coordinator queues.
+  item 2), which the coordinator queues. S12's health tick renews the leaf by apply's own step
+  (`host.LeafRenewer`, with the project rule `project_problem_error_text`); the health unit's
+  write paths must include the team's TLS directory when that unit is written (report
+  `subagent-reports/261106-crossnet-s12-s13-opus-report.md`). S15's Element play places the team
+  CA and checks it from inside Element's sandbox; whether Element's Chromium honours the store is
+  the host check, and two owner questions (SPEC 6 and 7) stand.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

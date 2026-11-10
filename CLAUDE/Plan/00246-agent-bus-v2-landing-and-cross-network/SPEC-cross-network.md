@@ -250,6 +250,23 @@ the builder takes where this text is silent goes in its report.
   restarted once, the record clean, and the next tick does nothing; a changed SAN set renews at
   any age; the CA key unreadable at 29 days: a problem naming the date, no restart, and the same
   problem at the next tick; an expired leaf: its own problem; a restore recorded: nothing judged.
+  **As built** (`subagent-reports/261106-crossnet-s12-s13-opus-report.md`): one leaf step,
+  `host/leaf.go` `leafStep.ensure`, which apply and the tick (`host.LeafRenewer.Renew`) both
+  call; the CA key is read only when a leaf must be made, so a tick with nothing to make never
+  touches it; an active terminator that started before the leaf in force was made is
+  restarted, which also retries a failed restart at every tick with no state kept between
+  ticks; a failure is one problem with the expiry date and a fixed cause class (the file or
+  unit that failed), never the error's own text, which the record refuses past 512 bytes (the
+  project rule `project_problem_error_text` holds it); a held lock, `Refresh`, and a recorded
+  restore all mean nothing is renewed this tick. The tick is `teamchat-admin health --all` run
+  as root by `teamchat-health.service`. **That unit is not written yet, and its text must give
+  the tick what X31 and X32 need:** `ReadWritePaths` must include `/var/lib/teamchat-admin` (or
+  each team's `tls/` directory), or under `ProtectSystem=strict` every renewal fails with "the
+  leaf cannot be written" and shows as a problem while the leaf is valid; and its
+  `IPAddressAllow=localhost` must also allow the listen addresses (or the effective networks),
+  as the terminator's drop-in has them, or X32's probe of a non-loopback address is refused. The
+  code that writes that unit must add its text to `madeUnits` in
+  `internal/teamchat/v1names/units_test.go`, which judges every unit text the Go code makes.
 - **X32** (S13) **A probe through the terminator.** X18c's "not built" is built: the health tick
   makes a TLS request to each derived listen address with the team CA, as a member's client
   does (X16, the server name verified against that address), so that a terminator that shows as
