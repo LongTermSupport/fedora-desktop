@@ -34,10 +34,17 @@ check() {
 repo="$work/repo"
 ccy="$repo/files/var/local/claude-yolo"
 # The hook runs scripts/qa-private-names.bash (Plan 00245 Phase 3); these suites judge other gates, so
-# a stand-in that passes sits where the hook looks for it. The real one has its own Go tests.
+# a stand-in that passes sits where the hook looks for it. The real one has its own Go tests. So
+# does qa-go-deps.bash, which judges a staged src-go/vendor before the secret scan exempts it.
+stand_ins() {
+    local gate
+    for gate in qa-private-names qa-go-deps; do
+        printf '#!/bin/sh\nexit 0\n' >"$1/$gate.bash" && chmod 755 "$1/$gate.bash"
+    done
+}
 mkdir -p "$ccy/supervisor-plugins" "$repo/hooks"
 cp -R "$HOOK_DIR/." "$repo/hooks/"
-printf '#!/bin/sh\nexit 0\n' >"$repo/qa-private-names.bash" && chmod 755 "$repo/qa-private-names.bash"
+stand_ins "$repo"
 git -C "$repo" init -q
 git -C "$repo" config user.name test
 git -C "$repo" config user.email test@example.com
@@ -47,15 +54,23 @@ write_launcher() {
     printf '#!/usr/bin/env bash\nCCY_VERSION="%s"\nREQUIRED_CONTAINER_VERSION="%s"\n' "$1" "$2" >"$ccy/claude-yolo"
 }
 # write_dockerfile <container-version> — the image copies the entrypoint, the plugin directory
-# and one more file with a flag; a --from copy names a build-stage path, not a repo file.
+# and one more file with a flag; a --from copy names a build-stage path, not a repo file. With
+# builder_stage set, a Go builder stage comes first (issue 237); its second build is continued.
+builder_stage=""
 write_dockerfile() {
+    if [ -n "$builder_stage" ]; then
+        printf '%s\n' 'FROM golang AS ccy-builder' 'WORKDIR /src/src-go' \
+            "RUN go build -o /out/start ./cmd/start; \\" \
+            "    go build -ldflags \"-X main.D=x\" \\" \
+            '        -o /out/chat ./cmd/chat'
+    fi >"$ccy/Dockerfile"
     printf '%s\n' 'FROM scratch' "LABEL claude-yolo-version=\"$1\"" \
         'COPY entrypoint.sh /usr/local/bin/entrypoint.sh' \
         'COPY supervisor-plugins/ /opt/claude-yolo/supervisor-plugins/' \
         'COPY --chown=root:root guard-tool /opt/claude-yolo/guard-tool' \
         'COPY docs/ /opt/claude-yolo/docs/' \
         'COPY optional/ /opt/claude-yolo/optional/' \
-        'COPY --from=builder /build/not-in-repo /usr/local/bin/not-in-repo' >"$ccy/Dockerfile"
+        'COPY --from=builder /build/not-in-repo /usr/local/bin/not-in-repo' >>"$ccy/Dockerfile"
 }
 # The build context is filled from a second repo root, files/opt/claude-yolo, and the pingbus
 # zipapp in optional/ is built from helpers/pingbus and helpers/agent_bus.
@@ -307,6 +322,64 @@ printf '\nvar _ = 1\n' >>"$sg/internal/tokens/tokens_test.go"
 check "a change to a test file of a package the front builds from needs no bump" "0" "$(hook_status)"
 closure_restore
 
+echo "=== the container version gate: the Go the builder stage builds (issue 237) ==="
+
+# The image's builder stage builds commands from src-go at the commit it is given, so every file
+# those commands build from is an image input: their packages' code, embedded files, vendored
+# modules and the module files. The commands are read from the stage's own `go build` lines, a
+# build continued over lines included. Each case bumps CCY_VERSION, so only the container gate
+# judges it. Tests, the qa module and packages no built command imports are not in the image.
+mkdir -p "$sg/cmd/start" "$sg/cmd/chat" "$sg/internal/startlib" "$sg/internal/chatlib/assets" \
+    "$sg/vendor/example.org/dep" "$sg/qa/x"
+printf 'module example.test/m\n\ngo 1.21\n\nrequire example.org/dep v1.0.0\n' >"$sg/$modfile"
+printf '# example.org/dep v1.0.0\n## explicit\nexample.org/dep\n' >"$sg/vendor/modules.txt"
+printf 'package dep\n' >"$sg/vendor/example.org/dep/dep.go"
+printf 'package main\n\nimport _ "example.test/m/internal/startlib"\n\nfunc main() {}\n' >"$sg/cmd/start/main.go"
+printf 'package startlib\n\nimport _ "example.org/dep"\n' >"$sg/internal/startlib/startlib.go"
+printf 'package startlib\n' >"$sg/internal/startlib/startlib_test.go"
+printf 'package main\n\nimport _ "example.test/m/internal/chatlib"\n\nfunc main() {}\n' >"$sg/cmd/chat/main.go"
+printf 'package chatlib\n\nimport _ "embed"\n\n//go:embed assets/skill.txt\nvar skill string\n' >"$sg/internal/chatlib/chatlib.go"
+printf 'skill\n' >"$sg/internal/chatlib/assets/skill.txt"
+printf 'module example.test/qa\n\ngo 1.21\n' >"$sg/qa/$modfile"
+printf 'package x\n' >"$sg/qa/x/x.go"
+builder_stage=1
+baseline
+git -C "$repo" commit -q --no-verify -m 'a builder stage building Go commands'
+builder_files=(cmd/start/main.go cmd/chat/main.go internal/startlib/startlib.go internal/startlib/startlib_test.go
+    internal/chatlib/assets/skill.txt vendor/example.org/dep/dep.go vendor/modules.txt "$modfile" qa/x/x.go
+    internal/unrelated/unrelated.go)
+builder_restore() {
+    local f
+    for f in "${builder_files[@]}"; do git -C "$repo" show "HEAD:src-go/$f" >"$sg/$f"; done
+    baseline
+}
+for f in "${builder_files[@]:0:3}" internal/chatlib/assets/skill.txt vendor/example.org/dep/dep.go "$modfile"; do
+    printf '// changed\n' >>"$sg/$f"
+    write_launcher 1.0.1 2.0
+    check "a change to src-go/$f, which the builder stage builds from, without a container bump is rejected" \
+        "1 yes" "$(hook_status) $(has 'container version bump required')"
+    builder_restore
+done
+printf '# example.org/dep v1.0.0\n## explicit; go 1.21\nexample.org/dep\n' >"$sg/vendor/modules.txt"
+write_launcher 1.0.1 2.0
+check "a change to src-go/vendor/modules.txt without a container bump is rejected" \
+    "1 yes" "$(hook_status) $(has 'container version bump required')"
+builder_restore
+printf '// changed\n' >>"$sg/internal/startlib/startlib.go"
+write_dockerfile 2.1
+write_launcher 1.0.1 2.1
+check "a change to a package the builder stage builds from, with the container bumped, passes" "0" "$(hook_status)"
+builder_restore
+for f in "${builder_files[@]:3:1}" qa/x/x.go internal/unrelated/unrelated.go; do
+    printf '// changed\n' >>"$sg/$f"
+    check "a change to src-go/$f, which no built command builds from, needs no container bump" \
+        "0 no" "$(hook_status) $(has 'container version bump requirement')"
+    builder_restore
+done
+builder_stage=""
+baseline
+git -C "$repo" commit -q --no-verify -m 'drop the builder stage'
+
 echo "=== a diff larger than a pipe buffer is still judged ==="
 
 # Both gates read `git diff` through a pipe into a reader that stops at the first changed code
@@ -470,12 +543,14 @@ check "the host-only kit files under files/opt/claude-yolo are found" "yes" \
 repo="$work/real"
 mkdir -p "$repo/hooks"
 cp -R "$HOOK_DIR/." "$repo/hooks/"
-printf '#!/bin/sh\nexit 0\n' >"$repo/qa-private-names.bash" && chmod 755 "$repo/qa-private-names.bash"
+stand_ins "$repo"
 for path in files/var/local/claude-yolo/Dockerfile files/var/local/claude-yolo/claude-yolo \
     $(cat "$work/image-files" "$work/host-files"); do
     mkdir -p "$(dirname "$repo/$path")"
     cp "$REPO_ROOT/$path" "$repo/$path"
 done
+# The Go module the builder stage builds from (its own qa module aside), for the probes below.
+(cd "$REPO_ROOT" && git ls-files -z src-go ':(exclude)src-go/qa') | (cd "$REPO_ROOT" && xargs -0 cp --parents -t "$repo")
 git -C "$repo" init -q
 git -C "$repo" config user.name test
 git -C "$repo" config user.email test@example.com
@@ -494,6 +569,72 @@ done <"$work/image-files"
 while IFS= read -r path; do
     probe "$path" "0 no" "a change to host-only $path needs no container bump"
 done <"$work/host-files"
+
+echo "=== the gate covers every file the real builder stage builds Go from (issue 237) ==="
+
+# The builder stage's commands are read here from the real Dockerfile, independently of the hook:
+# every `go build` in the ccy-builder stage, continued lines joined. Go names every file they
+# build from; the real hook is run against a change to one source file of each package (vendored
+# ones included), each assembly and embedded file, and the module files. A test file of one of
+# those packages is not in the image. CCY_VERSION is bumped in each case, so the CCY gate (which
+# judges the launcher's own Go front) passes and only the container gate decides.
+mapfile -t builder_pkgs < <(python3 -B -s - "$REPO_ROOT/files/var/local/claude-yolo/Dockerfile" <<'PY'
+import re
+import sys
+
+stage = None
+for line in open(sys.argv[1]).read().replace("\\\n", " ").splitlines():
+    words = line.split()
+    if words[:1] == ["FROM"]:
+        stage = words[-1]
+    elif stage == "ccy-builder":
+        for command in re.split(r";|&&", line):
+            args = command.split()
+            if args[:2] == ["go", "build"]:
+                print("\n".join(a for a in args[2:] if a.startswith("./")))
+PY
+)
+check "the builder stage's Go commands are found (ccy-start-claude, pingbus-status-line, teamchat)" "3" \
+    "${#builder_pkgs[@]}"
+go_listed=0
+go_files=$(cd "$REPO_ROOT/src-go" && GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps -f \
+    '{{if not .Standard}}{{.Dir}}/{{index .GoFiles 0}}{{range .SFiles}}{{"\n"}}{{$.Dir}}/{{.}}{{end}}{{range .EmbedFiles}}{{"\n"}}{{$.Dir}}/{{.}}{{end}}{{end}}' \
+    "${builder_pkgs[@]}") || go_listed=1
+go_tests=$(cd "$REPO_ROOT/src-go" && GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps -f \
+    '{{if and (not .Standard) .TestGoFiles}}{{.Dir}}/{{index .TestGoFiles 0}}{{end}}' "${builder_pkgs[@]}") || go_listed=1
+check "go list names the builder stage's packages" "0" "$go_listed"
+go_probes=()
+while IFS= read -r f; do
+    if [ -n "$f" ]; then go_probes+=("${f#"$REPO_ROOT/"}"); fi
+done <<<"$go_files"
+embedded=no vendored=no
+for f in "${go_probes[@]}"; do
+    case "$f" in
+    src-go/internal/*.txt) embedded=yes ;;
+    src-go/vendor/*) vendored=yes ;;
+    esac
+done
+check "Go names the files the builder stage builds from, embedded and vendored ones among them" "yes yes" \
+    "$embedded $vendored"
+launcher=files/var/local/claude-yolo/claude-yolo
+# probe_go <file> <wanted> <label> — a Go-safe change to the file with CCY_VERSION bumped.
+probe_go() {
+    printf '\n// drift probe\n' >>"$repo/$1"
+    awk '/^CCY_VERSION=/ { print "CCY_VERSION=\"999.0.0\""; next } { print }' "$REPO_ROOT/$launcher" >"$repo/$launcher"
+    check "$3" "$2" "$(hook_status) $(has 'container version bump required')"
+    git -C "$repo" show "HEAD:$1" >"$repo/$1"
+    git -C "$repo" show "HEAD:$launcher" >"$repo/$launcher"
+    git -C "$repo" add -A
+}
+# The sum file's name is assembled for the reason the module file's is (above).
+for path in "${go_probes[@]}" "src-go/$modfile" "src-go/go.s""um"; do
+    probe_go "$path" "1 yes" "a change to $path, which the builder stage builds from, without a container bump is rejected"
+done
+test_probe=""
+while IFS= read -r f; do
+    if [ -z "$test_probe" ] && [[ "$f" == "$REPO_ROOT/src-go/internal/"* ]]; then test_probe=${f#"$REPO_ROOT/"}; fi
+done <<<"$go_tests"
+probe_go "$test_probe" "0 no" "a change to the test file $test_probe needs no container bump"
 
 echo "=== the secret scan's scope ==="
 # Vendored Go modules are third-party files exactly as go mod vendor writes them (Plan 00204):

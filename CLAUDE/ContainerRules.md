@@ -118,7 +118,11 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   Dockerfile `COPY` takes from the build context, which the play fills from both
   `files/var/local/claude-yolo/` and `files/opt/claude-yolo/` (docs, skills, the pingbus
   plugin and kit settings), plus `helpers/pingbus/` and `helpers/agent_bus/`, which the
-  pingbus zipapp in the image is built from. Deleting such a file needs the bump too, and
+  pingbus zipapp in the image is built from, and every non-test file the Go commands the
+  `ccy-builder` stage builds are built from (issue 237): the stage's own `go build` packages
+  are read from the staged Dockerfile and resolved with `go list -deps` (their packages,
+  vendored code, embedded files) with `src-go/go.mod`, `go.sum` and `vendor/modules.txt`;
+  `src-go/qa/` and test files are not in the image. Deleting such a file needs the bump too, and
   a `#` line counts as a change in prose files (a SKILL.md heading), so only code comments
   and blank lines are exempt. The host-kit files under `optional/agent-bus/` that the play
   never stages (`README.*`, `agent-bus-claude`) are excluded. `test-ccy-container-version-hook.bash`
