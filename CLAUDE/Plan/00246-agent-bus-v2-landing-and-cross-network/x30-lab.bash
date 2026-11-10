@@ -18,7 +18,7 @@
 # Bridged: no production code takes a placed pool seat into a session (Task 4.2), so
 # x30-guest.bash stage-seat copies it. Met: restore is refused in the production build until
 # host checks H-C5 and H-C15 pass (DC8, decided as option (a)), so M1-M4 end as COULD NOT
-# ESTABLISH until those checks have run.
+# ESTABLISH until those checks have run (if either fails, DC8 returns to the owner).
 # Every statement of a leg ends in `|| return 1`: plan_deploy_leg runs a leg as an `if`
 # condition, where bash ignores errexit (issue #233).
 #

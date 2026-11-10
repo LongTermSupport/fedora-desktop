@@ -168,7 +168,8 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   into a session (Task 4.2; the scenario copies it), and `restore` is refused in the production
   build until host checks H-C5 and H-C15 pass (DC8 is decided, option (a); Plan 00209 Task 2.5),
   so the host move ends COULD NOT ESTABLISH until those checks have run. That is a proof to run,
-  not an owner decision, and the rest of X30 does not need the host move.
+  not an owner decision, unless H-C5 or H-C15 fails, when DC8 returns to the owner
+  (Plan 00209 `DESIGN-v2-C-host.md` section 3.12). The rest of X30 does not need the host move.
   Issue 227 (the stage A play's follow-ups): items 1 to 3 are fixed. Item 1, a deleted Tuwunel
   binary never put back, went through Defence Before Fix as the qa-ansible rule
   `install-guard-trusts-record` (three instances fixed: play-teamchat, play-self-update,
