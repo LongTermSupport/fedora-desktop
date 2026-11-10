@@ -2311,10 +2311,11 @@ judges every push, however it was gated. Found and defended under Defence Before
 
 **How to fix a refusal.** Run `./scripts/qa-all.bash` on what you push and push once it passes;
 gate on its exit status, never on its text. `QA_PUSH_GATE_EXEMPT=<reason>` passes the gate with
-the reason printed. It exists for the owner's tools that push commits no qa-all run judges
+the reason printed. It is set only by the owner's tools that push commits no qa-all run judges
 (`scripts/release.bash`, whose release pull request CI judges, and
-`scripts/mark-branches-superseded.bash`, which stamps retired branches). An agent never sets it,
-and never pushes with `--no-verify`.
+`scripts/mark-branches-superseded.bash`, which stamps retired branches), and it is an exception
+awaiting the owner's decision (issue #187): keep it, narrow it, or have those tools run qa-all.
+An agent never sets it, and never pushes with `--no-verify`.
 
 ### summary-count-omits-failure-source
 
