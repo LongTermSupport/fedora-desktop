@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 // abortPrefix opens every line qa-all prints when it ends a run without a verdict. The Python
@@ -34,6 +35,9 @@ type session struct {
 	temps        []string
 	writeErr     error
 	iso          *gates.Isolation
+	// target is the commit the run judges and where its verdict goes; started is when it began.
+	target  qaverdict.Target
+	started time.Time
 }
 
 // Main is the qa-all command: it returns the exit status. Diagnostics go to env.Stderr, the
@@ -141,6 +145,9 @@ func newSession(env Env, opts options) (*session, error) {
 	if env.Umask == nil {
 		return nil, errors.New("no umask control is wired into this command")
 	}
+	if env.Locate == nil || env.Now == nil {
+		return nil, errors.New("no verdict target or clock is wired into this command")
+	}
 	root, scripts := resolvePaths(opts, env.Cwd)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("root %s is not a directory", root)
@@ -167,10 +174,20 @@ func newSession(env Env, opts options) (*session, error) {
 // run is everything after the command line: clear the last report, run every gate in table
 // order, write the report, give the verdict.
 func (s *session) run(ctx context.Context) ExitCode {
-	// A run that ends before the report is written must not leave the last run's report to be
-	// read as its own.
+	target, err := s.env.Locate(ctx, s.root)
+	if err != nil {
+		s.errf(abortPrefix+"%v\n", err)
+		return ExitCannotRun
+	}
+	s.target, s.started = target, s.env.Now()
+	// A run that ends before the report and verdict are written must not leave the last run's
+	// to be read as its own.
 	if err := os.Remove(s.results); err != nil && !errors.Is(err, os.ErrNotExist) {
 		s.errf(abortPrefix+"cannot clear the previous report %s: %v\n", s.results, err)
+		return ExitCannotRun
+	}
+	if err := qaverdict.Remove(target.Path); err != nil {
+		s.errf(abortPrefix+"%v\n", err)
 		return ExitCannotRun
 	}
 	for _, g := range s.gates {
@@ -206,9 +223,9 @@ func (s *session) runGate(ctx context.Context, g gates.Gate) (ExitCode, bool) {
 // finish writes the machine report and gives the verdict.
 func (s *session) finish() ExitCode {
 	failed := len(s.failedGates)+len(s.failedStages) > 0
-	status := "pass"
+	status := qaverdict.StatusPass
 	if failed {
-		status = "fail"
+		status = qaverdict.StatusFail
 	}
 	body, totals, err := mergeReports(status, s.reports)
 	if err == nil {
@@ -216,6 +233,11 @@ func (s *session) finish() ExitCode {
 	}
 	if err != nil {
 		s.errf(abortPrefix+"cannot write the report: %v\n", err)
+		return ExitCannotRun
+	}
+	rec := qaverdict.Record{Status: status, Commit: s.target.Commit, Started: s.started, Finished: s.env.Now()}
+	if err := qaverdict.Write(s.target.Path, rec); err != nil {
+		s.errf(abortPrefix+"%v\n", err)
 		return ExitCannotRun
 	}
 	if !failed {

@@ -4,12 +4,14 @@
 package all
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qalock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 // ExitCode is the status qa-all exits with.
@@ -49,6 +51,11 @@ type Env struct {
 	// (syscall.Umask). Every command starts under gates.SuiteUmask; a run without one is
 	// refused.
 	Umask func(mask int) (old int)
+	// Locate names the commit the run judges and where its verdict goes (qaverdict.Locate over
+	// the process seam); a run without one is refused.
+	Locate func(ctx context.Context, root string) (qaverdict.Target, error)
+	// Now is the clock the verdict's start and end are read from.
+	Now func() time.Time
 }
 
 const usageText = `usage: qa-all [--root DIR] [--scripts DIR] [--no-wait]

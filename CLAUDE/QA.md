@@ -2287,6 +2287,35 @@ Fix when the agent-bus v2 merge added its own fixture allowlists.
 condition is applied to each finding. Prove the entry with a planted value in a scratch copy of
 the tree: a different value in an allowlisted file must still be reported.
 
+### push-without-qa-verdict
+
+**What it is.** A push of commits the remote does not hold yet, made without a passing qa-all
+verdict on them. Run by the `pre-push` hook (`scripts/git-hooks/pre-push`, after the
+private-names scan) through `scripts/qa-push-gate.bash` (Go: `src-go/qa/pushgate`, command
+`qa/cmd/qa-push-gate`). Every finished qa-all run records its verdict as `qa-all-verdict.json` in
+the git common directory (`src-go/qa/internal/qaverdict`): `status`, the `commit` it judged (HEAD
+when it started), `started` and `finished`. A run clears it first, so an interrupted or aborted
+run leaves none. For each pushed ref with new commits the gate refuses (exit 1) unless the verdict
+says `pass`, its commit is in the ref's history, and every commit on top of it was committed no
+later than the run ended: the burst of commits made while qa-all ran shares its verdict, a commit
+made after it does not. No verdict is a refusal; a damaged one, or git failing, is exit 2. A
+deletion, or a push of commits the remote already holds, needs no verdict.
+
+**Why it exists.** Twice a coordinator pushed F44 after a FAILED qa-all run (Plan 00203's
+journal; issue #187). The gate was `grep -E 'QA (passed|FAILED)' log && git push`: a grep of the
+printed text matches the FAILED line as readily as the pass, and the background task's exit code
+was the `echo` after qa-all. "qa-all before every push" was discipline only. Instances of the
+class are commands typed in a session, not code in the repository, so no detector that reads the
+tree can see them (a sweep of the tracked tree found no script gating on the text); the hook
+judges every push, however it was gated. Found and defended under Defence Before Fix.
+
+**How to fix a refusal.** Run `./scripts/qa-all.bash` on what you push and push once it passes;
+gate on its exit status, never on its text. `QA_PUSH_GATE_EXEMPT=<reason>` passes the gate with
+the reason printed. It exists for the owner's tools that push commits no qa-all run judges
+(`scripts/release.bash`, whose release pull request CI judges, and
+`scripts/mark-branches-superseded.bash`, which stamps retired branches). An agent never sets it,
+and never pushes with `--no-verify`.
+
 ---
 
 ## Changing a Gate

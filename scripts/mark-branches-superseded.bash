@@ -258,7 +258,7 @@ process_branch() {
 
     # Committed detached, so push the new commit explicitly at the branch ref.
     # Never forced: a non-fast-forward means origin moved and must be re-read.
-    git -C "$WORKTREE_DIR" push --quiet origin "HEAD:refs/heads/$branch" \
+    QA_PUSH_GATE_EXEMPT="superseded banner on retired branch $branch" git -C "$WORKTREE_DIR" push --quiet origin "HEAD:refs/heads/$branch" \
         || die "push failed for $branch"
     log "  $branch: stamped and pushed (naming $active)"
     printf '%s stamped\n' "$branch"

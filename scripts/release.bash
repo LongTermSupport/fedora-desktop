@@ -231,7 +231,7 @@ if [[ "${step}" == "prepare" ]]; then
     git add CHANGELOG.md
     git commit --quiet -S -m "Release ${version}"
     committed=1
-    git push --quiet -u origin "${releaseBranch}" \
+    QA_PUSH_GATE_EXEMPT="release commit: CI judges the release pull request" git push --quiet -u origin "${releaseBranch}" \
         || refuse "pushing ${releaseBranch} failed; the release commit is on that branch locally, push it and open the pull request by hand"
     gh pr create --base "${branch}" --head "${releaseBranch}" --title "Release ${version}" \
         --body "Changelog entry for ${version}. Merge with a merge commit, then run: scripts/release.bash tag ${version}" \

@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qalock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 func main() {
@@ -46,6 +47,10 @@ func run(args []string) int {
 		Cwd:      cwd,
 		Lock:     qalock.OSTaker("qa-all", os.Stderr),
 		Umask:    syscall.Umask,
+		Locate: func(ctx context.Context, root string) (qaverdict.Target, error) {
+			return qaverdict.Locate(ctx, proc.OS{}, root)
+		},
+		Now: time.Now,
 	}
 	return int(all.Main(ctx, args, env))
 }

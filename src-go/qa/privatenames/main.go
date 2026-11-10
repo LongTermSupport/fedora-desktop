@@ -16,6 +16,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/prepush"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -39,9 +40,6 @@ const AllowlistPath = ".claude/public-token-allowlist.yml"
 
 // alwaysPublic is this repository's own name, the one self-reference CLAUDE.md permits.
 var alwaysPublic = []string{"fedora-desktop"}
-
-// zeroID is the all-zero object id a pushed ref has when the remote does not hold it.
-const zeroID = "0000000000000000000000000000000000000000"
 
 // gitTimeout bounds the whole run.
 const gitTimeout = 10 * time.Minute
@@ -287,36 +285,20 @@ func (a app) scanRange(sel []string, m *Matcher) ([]Hit, int, error) {
 	return ScanLog(m, log), strings.Count(log, "\x01"), nil
 }
 
-// scanPush reads the pre-push ref lines "LOCALREF LOCALID REMOTEREF REMOTEID" from stdin and
-// scans each pushed commit the remote does not already hold: one under none of that remote's
-// tracking refs and not behind its own old tip. A branch's old tip alone is not enough (a commit
-// another branch published since is already public), and another remote's refs are no proof
-// (refs/remotes/ can hold local archives). Pushed to a URL, which has no tracking refs, an
-// existing branch is scanned from its old tip and a new one against every tracking ref.
+// scanPush reads the pre-push ref lines from stdin and scans each pushed commit the remote does
+// not already hold (prepush.Ref.Selection says which).
 func (a app) scanPush(m *Matcher, remote string) (result, error) {
-	if a.env.Stdin == nil {
-		return result{}, errors.New("push needs the pre-push ref lines on stdin")
-	}
-	data, err := io.ReadAll(a.env.Stdin)
+	refs, err := prepush.Parse(a.env.Stdin)
 	if err != nil {
-		return result{}, fmt.Errorf("reading the pre-push ref lines: %w", err)
+		return result{}, err
 	}
 	var res result
 	commits := 0
-	for line := range strings.SplitSeq(string(data), "\n") {
-		f := strings.Fields(line)
-		if len(f) == 0 {
+	for _, ref := range refs {
+		if ref.Deletes() {
 			continue
 		}
-		if len(f) != 4 {
-			return result{}, errors.New("a pre-push ref line does not have four fields")
-		}
-		localID, remoteID := f[1], f[3]
-		if localID == zeroID {
-			continue
-		}
-		sel := pushSelection(localID, remoteID, remote)
-		hits, n, err := a.scanRange(sel, m)
+		hits, n, err := a.scanRange(ref.Selection(remote), m)
 		if err != nil {
 			return result{}, err
 		}
@@ -325,22 +307,6 @@ func (a app) scanPush(m *Matcher, remote string) (result, error) {
 	}
 	res.scanned = strconv.Itoa(commits) + " commit(s)"
 	return res, nil
-}
-
-// pushSelection is the git log revision selection scanPush scans for one ref line.
-func pushSelection(localID, remoteID, remote string) []string {
-	sel := []string{localID, "--not"}
-	named := remote != "" && !strings.ContainsAny(remote, ":/")
-	if named {
-		sel = append(sel, "--remotes="+remote)
-	}
-	if remoteID != zeroID {
-		return append(sel, remoteID)
-	}
-	if !named {
-		sel = append(sel, "--remotes")
-	}
-	return sel
 }
 
 // scanTree reads every file of a commit through one `git cat-file --batch`.

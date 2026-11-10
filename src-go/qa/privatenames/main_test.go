@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/prepush"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -357,7 +358,7 @@ func TestPushScansEachNewCommitRange(t *testing.T) {
 		logKey + "cccc --not --remotes=origin bbbb": {Stdout: logOut},
 		logKey + "dddd --not --remotes=origin":      {Stdout: ""},
 	}
-	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + zeroID + "\nrefs/heads/gone " + zeroID + " refs/heads/gone eeee\n"
+	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + prepush.ZeroID + "\nrefs/heads/gone " + prepush.ZeroID + " refs/heads/gone eeee\n"
 	r := newRig(true, answers, files{}, stdin)
 	if code := r.run("push", "origin", "url"); code != ExitFindings {
 		t.Fatalf("exit %d: %s", code, r.text())
@@ -378,7 +379,7 @@ func TestPushToAURLScansFromTheRemoteTip(t *testing.T) {
 		logKey + "cccc --not bbbb":      {Stdout: logOut},
 		logKey + "dddd --not --remotes": {Stdout: ""},
 	}
-	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + zeroID + "\n"
+	stdin := "refs/heads/a cccc refs/heads/a bbbb\nrefs/heads/n dddd refs/heads/n " + prepush.ZeroID + "\n"
 	r := newRig(true, answers, files{}, stdin)
 	if code := r.run("push", "git@example.com:org/repo.git", "git@example.com:org/repo.git"); code != ExitFindings {
 		t.Fatalf("exit %d: %s", code, r.text())

@@ -17,6 +17,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 // The golden replay: scenarios.json is a corpus of runs over a world of stub gates (defaults
@@ -196,6 +197,11 @@ func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) gold
 		NewToken: func() string { return "qa-all-1-2" },
 		Lock:     freeLock,
 		Umask:    keepUmask,
+		// The verdict is not part of the recorded oracle: it goes beside the world's root.
+		Locate: func(context.Context, string) (qaverdict.Target, error) {
+			return qaverdict.Target{Commit: worldHead, Path: filepath.Join(w.root, qaverdict.FileName)}, nil
+		},
+		Now: clock(),
 	}
 	// The bash ignored its arguments (bug B1), so the same ones are handed to the Go as they were.
 	code := Main(context.Background(), append([]string{"--root", w.root}, sc.Args...), env)

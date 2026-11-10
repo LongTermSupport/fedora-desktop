@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 // reply is what the fake runner answers for one gate: its streams, status, and the files a
@@ -167,6 +169,34 @@ type world struct {
 	errOut strings.Builder
 	env    map[string]string
 	lock   *lockRecorder
+	// verdictAt overrides where the run's verdict goes; locateErr makes the checkout unnamable.
+	verdictAt string
+	locateErr error
+}
+
+func (w *world) verdictPath() string {
+	if w.verdictAt != "" {
+		return w.verdictAt
+	}
+	return filepath.Join(w.root, qaverdict.FileName)
+}
+
+// locate is Env.Locate over this world: the commit worldHead, the verdict beside the root.
+func (w *world) locate(context.Context, string) (qaverdict.Target, error) {
+	if w.locateErr != nil {
+		return qaverdict.Target{}, w.locateErr
+	}
+	return qaverdict.Target{Commit: worldHead, Path: w.verdictPath()}, nil
+}
+
+// clock answers worldClock's times in turn, then the last one.
+func clock() func() time.Time {
+	n := 0
+	return func() time.Time {
+		at := worldClock[min(n, len(worldClock)-1)]
+		n++
+		return at
+	}
 }
 
 func newWorld(t *testing.T, table string) *world {
@@ -214,6 +244,8 @@ func (w *world) env0() Env {
 		NewToken: func() string { return "tok-1" },
 		Lock:     w.lock.take,
 		Umask:    w.runner.setUmask,
+		Locate:   w.locate,
+		Now:      clock(),
 	}
 }
 
