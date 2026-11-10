@@ -45,7 +45,8 @@ done
 
 PASSPHRASE='correct horse battery'
 mkdir -p "$work/home/.ssh"
-if ! ssh-keygen -q -t ed25519 -N "$PASSPHRASE" -C test-key -f "$work/home/.ssh/id" >"$work/keygen.out" 2>&1; then
+if ! (cd "$REPO_ROOT" && python3 -m helpers.ssh_passphrase.cli generate "$work/home/.ssh/id" test-key) \
+    <<<"$PASSPHRASE" >"$work/keygen.out" 2>&1; then
     echo "FAIL: could not make the test key: $(cat "$work/keygen.out")" >&2
     exit 1
 fi

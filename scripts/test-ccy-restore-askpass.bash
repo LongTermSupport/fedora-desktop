@@ -87,7 +87,8 @@ fi
 PP="fixture pass'phrase 7"
 KEYS="$SCRATCH/keys"
 mkdir -p "$KEYS"
-ssh-keygen -q -t ed25519 -N "$PP" -C restore-fixture -f "$KEYS/github_fixture"
+# The passphrase reaches ssh-keygen through the repository's askpass helper, never its argv.
+(cd "$REPO_ROOT" && python3 -m helpers.ssh_passphrase.cli generate "$KEYS/github_fixture" restore-fixture) <<<"$PP" || { echo "FAIL: could not make the fixture key" >&2; exit 1; }
 ssh-keygen -q -t ed25519 -N "a different passphrase" -C other-fixture -f "$KEYS/github_other"
 PPFILE="$SCRATCH/restore-ssh-passphrase"
 printf '%s' "$PP" >"$PPFILE"

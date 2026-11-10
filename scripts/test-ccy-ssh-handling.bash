@@ -655,7 +655,8 @@ hdr "ccy_askpass_passphrase_supply"
 
 PP_SECRET="fixture-passphrase-$RANDOM"
 K_LOCKED="$WORK/locked_key"
-ssh-keygen -q -t ed25519 -N "$PP_SECRET" -C fixture-locked -f "$K_LOCKED"
+(cd "$REPO_ROOT" && python3 -m helpers.ssh_passphrase.cli generate "$K_LOCKED" fixture-locked) <<<"$PP_SECRET" \
+    || { echo "FAIL: could not make the locked fixture key" >&2; exit 1; }
 ASKPASS_OK="$WORK/askpass-ok"
 ASKPASS_NONE="$WORK/askpass-none"
 ASKPASS_LOG="$WORK/askpass.prompts"

@@ -548,7 +548,7 @@ echo "== a passphrase key the agent holds, forwarded alone through ccy's one-key
 # file itself, and the copy names the public half the one-key agent offers.
 ssh-keygen -q -t ed25519 -N "" -C other -f "$WORK/other-key"
 SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ssh-add -q "$WORK/other-key" </dev/null 2>/dev/null
-REAL_PUBLIC="$(ssh-keygen -y -P test-passphrase -f "$CASE/home/.ssh/key_0" | cut -d' ' -f1,2)"
+REAL_PUBLIC="$(SSH_ASKPASS="$CASE/askpass" SSH_ASKPASS_REQUIRE=force ssh-keygen -y -f "$CASE/home/.ssh/key_0" </dev/null | cut -d' ' -f1,2)"
 CCY_AGENT_FILTER_HELPER="$REPO_ROOT/helpers/ssh_agent_filter/ssh_agent_filter.py"
 SSH_KEYS=("$CASE/home/.ssh/key_0")
 SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
