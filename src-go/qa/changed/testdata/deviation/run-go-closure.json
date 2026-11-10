@@ -1,10 +1,11 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\ncheck argv-leak\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
  "stderr": "",
  "status": 0,
  "log": [
   "gate:qa-go.bash json=",
   "gate:qa-arch-pin.bash json=",
+  "gate:qa-argv-leak.bash json=",
   "suite:test-teams.bash"
  ]
 }

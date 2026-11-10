@@ -235,6 +235,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/find-race.fixture":       "check:find-race",
 	".semgrep/arch-pin.yml":            "check:arch-pin",
 	".semgrep/arch-pin.fixture":        "check:arch-pin",
+	".semgrep/argv-leak.yml":           "check:argv-leak",
+	".semgrep/argv-leak.fixture.yml":   "check:argv-leak",
 	".semgrep/walk-open.yml":           "check:walk-open",
 	".semgrep/walk-open.py":            "check:walk-open",
 }

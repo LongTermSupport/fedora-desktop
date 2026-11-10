@@ -98,7 +98,7 @@ func tableExcluded(t *testing.T) (string, []string) {
 // it has not.
 func TestEveryGateLeavesOutWhatTheTreesTableExcludes(t *testing.T) {
 	root, excluded := tableExcluded(t)
-	for _, spec := range []Spec{GHScopes, FindRace, ArchPin} {
+	for _, spec := range []Spec{GHScopes, FindRace, ArchPin, ArgvLeak} {
 		t.Run(spec.short, func(t *testing.T) {
 			// The gate's own run: the scope it loads and the files it would hand to semgrep, over
 			// the real git; a handed file the rule's excludes drop is one semgrep never opens.

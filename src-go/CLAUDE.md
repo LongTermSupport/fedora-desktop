@@ -473,7 +473,10 @@ which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification. T
 given its `FindRace` spec, is `qa/cmd/qa-find-race` and `scripts/qa-find-race.bash`, the gate for
 `.semgrep/find-race.yml` (`find-race-negated-stat-test`, issue #152), and given its `ArchPin`
 spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semgrep/arch-pin.yml`
-(`arch-pinned-artefact`, Plan 00243); the real-semgrep tests of each are in its command package.
+(`arch-pinned-artefact`, Plan 00243), and given its `ArgvLeak` spec is
+`qa/cmd/qa-argv-leak` and `scripts/qa-argv-leak.bash`, the gate for
+`.semgrep/argv-leak.yml` (`secret-in-argv`, issue #220); the real-semgrep tests of each are
+in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
 `scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the

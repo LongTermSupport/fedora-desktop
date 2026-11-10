@@ -1231,3 +1231,35 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 		}
 	}
 }
+
+// The secret-in-argv gate runs whole for a change to any file that can start a process (a shell
+// script anywhere, a play, task or vars file, a files/ tool, a CI workflow, an installer, a
+// helper, Go outside the QA module), deleted ones included, and for its own rules, fixture
+// (which it covers), wrapper and Go source; not for prose.
+func TestTheArgvLeakGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"run.bash", "scripts/tool.bash", "CLAUDE/Plan/00001-x/triage.bash", "playbooks/imports/play-x.yml", "tasks/x.yml",
+		"vars/x.yml", "files/home/.local/bin/tool", ".github/workflows/qa.yml", "fedora-install/build-iso.bash",
+		"helpers/unifi/inform_host.py", "src-go/internal/vmtest/fetch.go", "src-go/cmd/vmtest/main.go",
+		".semgrep/argv-leak.yml", ".semgrep/argv-leak.fixture.yml",
+		"scripts/qa-argv-leak.bash", "src-go/qa/cmd/qa-argv-leak/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("argv-leak") {
+			t.Errorf("%s does not run argv-leak: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/argv-leak.yml", ".semgrep/argv-leak.fixture.yml"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	w.touch("docs/x.md", "# x")
+	if p := w.classify([]string{"docs/x.md"}); p.has("argv-leak") {
+		t.Errorf("prose runs argv-leak: %v", keys(p))
+	}
+	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("argv-leak") {
+		t.Errorf("a deleted play must run the gate: %v", keys(p))
+	}
+}

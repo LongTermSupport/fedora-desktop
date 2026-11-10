@@ -5,8 +5,9 @@
 // specification is the plan's SPEC-qa-gh-scopes.md.
 //
 // The same engine, given its FindRace spec, is the find-race-negated-stat-test gate over
-// .semgrep/find-race.yml, and given its ArchPin spec the arch-pinned-artefact gate over
-// .semgrep/arch-pin.yml: one generic rule file, every published file, the same proofs.
+// .semgrep/find-race.yml, given its ArchPin spec the arch-pinned-artefact gate over
+// .semgrep/arch-pin.yml, and given its ArgvLeak spec the secret-in-argv gate over
+// .semgrep/argv-leak.yml: one rule file, every published file, the same proofs.
 package ghscopes
 
 import (
@@ -83,6 +84,17 @@ var ArchPin = Spec{
 	usage:       archPinUsageText,
 }
 
+// ArgvLeak is the secret-in-argv gate (issue #220). Its fixture is YAML so that the rule
+// file's Ansible rule reads it too.
+var ArgvLeak = Spec{
+	short:       "secret-in-argv",
+	ruleFile:    ".semgrep/argv-leak.yml",
+	fixtureFile: ".semgrep/argv-leak.fixture.yml",
+	ruleName:    "secret-in-argv",
+	finding:     "put a secret on a command line",
+	usage:       argvLeakUsageText,
+}
+
 // Timeouts bound each process.
 const (
 	versionTimeout = time.Minute
@@ -131,6 +143,19 @@ const archPinUsageText = `usage: qa-arch-pin [--root DIR] [--scripts DIR]
 Applies the semgrep rule in .semgrep/arch-pin.yml (a download, package or image fixed to one
 CPU architecture, with no selection by the architecture the build or host runs on) to every
 file git would publish, after proving the rule against its fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const argvLeakUsageText = `usage: qa-argv-leak [--root DIR] [--scripts DIR]
+
+Applies the semgrep rules in .semgrep/argv-leak.yml (a passphrase, password or other
+secret on a process's command line, or rendered by Ansible into one) to every file git would
+publish, after proving the rules against their fixture.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

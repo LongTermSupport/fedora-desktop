@@ -136,3 +136,52 @@ func TestAFindRaceSkipIsHeadedByItsOwnName(t *testing.T) {
 	wantExit(t, got, ExitOK)
 	wantIn(t, "stdout", got.stdout, "⚠ find-race: 1 file(s) skipped by semgrep")
 }
+
+// argvLeakWorld is a repository holding the secret-in-argv rule and fixture instead of
+// gh-scopes'.
+func argvLeakWorld(t *testing.T, files map[string]string) *world {
+	t.Helper()
+	rules := strings.NewReplacer("gh-scope-outside-ssot", ArgvLeak.ruleName,
+		".semgrep/gh-scopes.*", ".semgrep/argv-leak.*").Replace(rulesText)
+	all := map[string]string{
+		ruleFile:             "",
+		fixtureFile:          "",
+		ArgvLeak.ruleFile:    rules,
+		ArgvLeak.fixtureFile: "# fixture\n# ruleid: " + ArgvLeak.ruleName + "\n",
+	}
+	maps.Copy(all, files)
+	return newWorld(t, all)
+}
+
+// The secret-in-argv gate is the same engine over its own rule file, fixture and words.
+func TestTheArgvLeakSpecRunsItsOwnRuleAndFixture(t *testing.T) {
+	w := argvLeakWorld(t, nil)
+	got := w.mainSpec(ArgvLeak)
+	wantExit(t, got, ExitOK)
+	wantTest := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ".semgrep/argv-leak.yml"), filepath.Join(w.root, ".semgrep/argv-leak.fixture.yml")}
+	if !w.run.called(wantTest...) {
+		t.Fatalf("no self-test of the secret-in-argv rule: %v", w.run.calls)
+	}
+	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/argv-leak.yml")) {
+		t.Fatalf("the scan did not use the secret-in-argv rule: %v", w.run.scanArgv)
+	}
+}
+
+func TestTheArgvLeakUsageNamesItsCommand(t *testing.T) {
+	w := argvLeakWorld(t, nil)
+	got := w.mainSpec(ArgvLeak, "--help")
+	wantExit(t, got, ExitOK)
+	wantIn(t, "stdout", got.stdout, "usage: qa-argv-leak", ".semgrep/argv-leak.yml")
+}
+
+func TestAArgvLeakFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
+	w := argvLeakWorld(t, map[string]string{"play.yml": "x\n"})
+	w.run.scan = func(files []string) string {
+		return report(scannable(files), []hit{{"play.yml", 7}}, nil)
+	}
+	got := w.mainSpec(ArgvLeak)
+	wantExit(t, got, ExitFailed)
+	wantIn(t, "stdout", got.stdout,
+		"play.yml:7  secret-in-argv\n",
+		"secret-in-argv: 1 line(s) in 1 file(s) put a secret on a command line. See CLAUDE/QA.md \"secret-in-argv\".\n")
+}

@@ -1,0 +1,134 @@
+# Fixture for .semgrep/argv-leak.yml (semgrep --test). Each "ruleid" line marks the line
+# below it as the start of a finding; each "ok" line marks the line below it as clean. It is YAML
+# so that the Ansible rule reads it; the shell examples sit in block scalars, as in a play.
+
+# The issue #220 tasks, as they were.
+- name: Verify existing keys work with vault passphrase
+  ansible.builtin.shell: |
+    # ruleid: secret-in-argv
+    ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" \
+      -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" >/dev/null 2>&1
+
+- name: Generate SSH keys for missing accounts
+  ansible.builtin.shell: |
+    set -euo pipefail
+    # ruleid: secret-in-argv, secret-in-argv-ansible
+    ssh-keygen -t ed25519 -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" -N "{{ github_ssh_passphrase }}" 2>&1
+  no_log: true
+
+# Across shell line continuations.
+- shell: |
+    # ruleid: secret-in-argv
+    ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
+      -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" \
+      -N "$pp" 2>&1
+
+- name: Strip the passphrase from a copy
+  ansible.builtin.shell: |
+    # ruleid: secret-in-argv
+    if ! ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1; then
+      # ok: secret-in-argv
+      ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1
+    fi
+
+# Shell scripts: a variable, a substitution, a backtick, an = form.
+- shell: |
+    # ruleid: secret-in-argv
+    ssh-keygen -p -P "$CUR_PASS" -N "$NEW_PASS" -f "$f" > /dev/null
+    # ruleid: secret-in-argv
+    _kg_out="$(ssh-keygen -t ed25519 -f ~/.ssh/id -P "$HL_GITHUB_SSH_PASSPHRASE" 2>&1)"
+    # ruleid: secret-in-argv
+    ssh-keygen -q -t ed25519 -N `cat pp` -f k
+    # ruleid: secret-in-argv
+    mysql --password="$DB_PASS" db
+    # ruleid: secret-in-argv
+    openssl enc -aes-256-cbc -pass pass:"$KEY" -in f
+    # ok: secret-in-argv
+    ssh-keygen -y -P '' -f "$key"
+    # ok: secret-in-argv
+    ssh-keygen -lf "$key.pub"
+    # ok: secret-in-argv
+    ansible-playbook --become-password-file "$PW_FILE" play.yml
+    # ok: secret-in-argv
+    SSH_ASKPASS="$dir/askpass" SSH_ASKPASS_REQUIRE=force ssh-keygen -y -f "$key"
+    # ok: secret-in-argv
+    # ssh-keygen -y -P "$pass" in a comment is prose
+
+# A list, in a play and in code.
+- ansible.builtin.command:
+    argv:
+      # ruleid: secret-in-argv
+      - ssh-keygen
+      - -N
+      - "{{ pp }}"
+- code: |
+    # ruleid: secret-in-argv
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", passphrase, "-f", key], check=True)
+    # ok: secret-in-argv
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)
+
+# Ansible: the script text, an argv item and environment: are all on a command line.
+- name: Enroll the MOK
+  ansible.builtin.shell: |
+    expect -c "
+      spawn mokutil --import key.der
+      expect \"input password:\"
+      # ruleid: secret-in-argv-ansible
+      send \"{{ mok_password }}\r\"
+    "
+  no_log: true
+- name: Create the hotspot
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - "802-11-wireless-security.psk"
+      # ruleid: secret-in-argv-ansible
+      - "{{ ftp_camera_hotspot_password }}"
+- name: Pin the inform host
+  ansible.builtin.command:
+    argv: [python3, -m, helpers.unifi.inform_host]
+  environment:
+    # ruleid: secret-in-argv-ansible
+    UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+- name: Set the admin hash
+  ansible.builtin.command:
+    argv: [podman, exec, mongosh]
+  environment:
+    # ruleid: secret-in-argv-ansible
+    UNIFI_ADMIN_HASH: "{{ unifi_admin_password_hash.stdout }}"
+
+# Ansible: what never reaches a command line, and what is not a secret.
+- name: Hash on stdin
+  ansible.builtin.command:
+    argv: [openssl, passwd, -6, -stdin]
+    # ok: secret-in-argv-ansible
+    stdin: "{{ unifi_admin_password_effective }}"
+- name: Write the passphrase file
+  ansible.builtin.copy:
+    # ok: secret-in-argv-ansible
+    content: "{{ github_ssh_passphrase }}"
+    dest: "{{ pp_dir }}/pp"
+- name: Save a secret
+  ansible.builtin.command:
+    argv:
+      - ansible-vault
+      - encrypt_string
+      - --name
+      # ok: secret-in-argv-ansible
+      - "{{ secret_name }}"
+    stdin: "{{ secret_value }}"
+- name: Hash with the stored salt
+  ansible.builtin.command:
+    # ok: secret-in-argv-ansible
+    argv: "{{ ['openssl', 'passwd', '-6'] + ['-stdin'] }}"
+- name: Talk to the user bus
+  ansible.builtin.command:
+    argv: [systemctl, --user, daemon-reload]
+  environment:
+    # ok: secret-in-argv-ansible
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+- name: Generate through askpass
+  ansible.builtin.command:
+    argv: [python3, -m, helpers.ssh_passphrase, generate, "{{ key }}", "{{ comment }}"]
+    # ok: secret-in-argv-ansible
+    stdin: "{{ github_ssh_passphrase }}"

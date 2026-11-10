@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-patterns\ncheck arch-pin\nsuite scripts/test-beta.bash: names vars/names.yml\nnote: vars/names.yml: no playbook names 'names.yml', so no ansible-syntax target (patterns gate only)\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-patterns\ncheck arch-pin\ncheck argv-leak\nsuite scripts/test-beta.bash: names vars/names.yml\nnote: vars/names.yml: no playbook names 'names.yml', so no ansible-syntax target (patterns gate only)\n",
  "stderr": "",
  "status": 0,
  "log": []

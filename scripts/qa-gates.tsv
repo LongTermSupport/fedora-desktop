@@ -71,6 +71,7 @@ gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
 gate	find-race-negated-stat-test	scripts/qa-find-race.bash	a find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk	count
 gate	arch-pinned-artefact	scripts/qa-arch-pin.bash	a download, package or image fixed to one CPU architecture with no selection by the architecture	count
+gate	secret-in-argv	scripts/qa-argv-leak.bash	a passphrase, password or other secret on a command line, or rendered by Ansible into one	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
 gate	hook-handler-rules	scripts/qa-hook-handler-rules.bash	hook handler rules: code the hooks daemon loads resolves a path against the daemon's working directory	count
 gate	walk-opens-non-regular-file	scripts/qa-walk-open.bash	walk-open rule: Python opens an entry a directory walk found without checking it is a regular file	count

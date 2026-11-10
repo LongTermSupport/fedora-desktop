@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck docs\ncheck bash-limits\ncheck arch-pin\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck docs\ncheck bash-limits\ncheck arch-pin\ncheck argv-leak\n",
  "stderr": "",
  "status": 0,
  "log": []
