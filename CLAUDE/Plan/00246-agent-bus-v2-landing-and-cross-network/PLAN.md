@@ -169,6 +169,11 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   build until host checks H-C5 and H-C15 pass (DC8 is decided, option (a); Plan 00209 Task 2.5),
   so the host move ends COULD NOT ESTABLISH until those checks have run. That is a proof to run,
   not an owner decision, and the rest of X30 does not need the host move.
+  Issue 227 (the stage A play's follow-ups): item 1, a deleted Tuwunel binary never put back, is
+  under Defence Before Fix as the rule `install-guard-trusts-record` (qa-ansible; red on
+  play-teamchat, play-self-update and play-rpm-fusion). Items 2 to 3 follow; items 4 (pruning)
+  and 5 (nothing runs the play) stay open. Report:
+  `subagent-reports/261110-issue227-report.md`.
 
 - [ ] **Task 8.10** (install path, A1b; [INSTALL-PATH.md](INSTALL-PATH.md)): `teamchat-admin declare check` is built (today a row of the verb table with no code: the cross-team checks,
   the `SECURITY` listing, caller class `ClassOther`), the stage A play calls it unprivileged

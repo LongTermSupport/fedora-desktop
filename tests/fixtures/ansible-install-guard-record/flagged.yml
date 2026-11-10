@@ -1,0 +1,165 @@
+---
+# Fixture for the install-guard-trusts-record rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. The first play is play-teamchat.yml's
+# Tuwunel install as it was when GitHub issue 227 found it: the guard stats only the record
+# the install writes, so a deleted binary is never put back. The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Read the Tuwunel Install Record
+      ansible.builtin.stat:  # EXPECT-FINDING
+        path: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+      register: tc_record
+
+    - name: Install the Pinned Tuwunel
+      when: not tc_record.stat.exists or tc_record.stat.checksum != (pin_sha ~ '\n') | hash('sha1')
+      block:
+        - name: Make a Root-Only Directory for the Download
+          ansible.builtin.tempfile:
+            state: directory
+          register: tc_download
+
+        - name: Download the asset
+          ansible.builtin.get_url:
+            url: https://example.com/tuwunel.zst
+            dest: "{{ tc_download.path }}/tuwunel.zst"
+            checksum: "sha256:{{ pin_sha }}"
+            mode: "0600"
+
+        - name: Install the Tuwunel Binary
+          ansible.builtin.copy:
+            src: "{{ tc_download.path }}/tuwunel"
+            remote_src: true
+            dest: "{{ tc_server_dir }}/tuwunel-{{ tc_version }}"
+            mode: "0755"
+
+        - name: Record Which Pin the Binary Came From
+          ansible.builtin.copy:
+            content: "{{ pin_sha }}\n"
+            dest: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+            mode: "0644"
+      always:
+        - name: Remove the Download Directory
+          ansible.builtin.file:
+            path: "{{ tc_download.path }}"
+            state: absent
+
+- hosts: localhost
+  tasks:
+    # The guard spread over separate tasks rather than one block.
+    - name: Read the version stamp
+      ansible.builtin.stat:  # EXPECT-FINDING
+        path: /opt/tool/VERSION
+      register: tool_stamp
+
+    - name: Unpack the tool
+      ansible.builtin.unarchive:
+        src: https://example.com/tool.tar.gz
+        dest: /opt/tool
+        remote_src: true
+      when: not tool_stamp.stat.exists
+
+    - name: Write the version stamp
+      ansible.builtin.copy:
+        content: "1.2.3\n"
+        dest: /opt/tool/VERSION
+        mode: "0644"
+      when: not tool_stamp.stat.exists
+
+- hosts: localhost
+  tasks:
+    # A marker written by a lineinfile, guarding a template; nested blocks inherit the guard.
+    - name: Read the marker
+      stat:  # EXPECT-FINDING
+        path: "{{ marker_file }}"
+      register: done_marker
+
+    - name: First-time setup
+      when: not done_marker.stat.exists
+      block:
+        - name: Inner block
+          block:
+            - name: Write the unit
+              ansible.builtin.template:
+                src: unit.j2
+                dest: /etc/systemd/system/thing.service
+                mode: "0644"
+        - name: Mark it done
+          ansible.builtin.file:
+            path: "{{ marker_file }}"
+            state: touch
+            mode: "0644"
+
+- hosts: localhost
+  tasks:
+    # The artefact is stat'ed too, but the condition does not read it.
+    - name: Read the record
+      ansible.builtin.stat:  # EXPECT-FINDING
+        path: /usr/local/share/app/app.sha256
+      register: app_record
+
+    - name: Read the binary
+      ansible.builtin.stat:
+        path: /usr/local/bin/app
+      register: app_binary
+
+    - name: Install the app
+      when: not app_record.stat.exists
+      block:
+        - name: Install the binary
+          ansible.builtin.get_url:
+            url: https://example.com/app
+            dest: /usr/local/bin/app
+            mode: "0755"
+        - name: Record it
+          ansible.builtin.copy:
+            content: "abc\n"
+            dest: /usr/local/share/app/app.sha256
+            mode: "0644"
+
+- hosts: localhost
+  tasks:
+    # play-self-update.yml's collections stamp as GitHub issue 227's search found it: a slurped
+    # stamp guards a command whose writes no path names, and the stamp is written when that
+    # command reports a change. The condition reads a probe, but of the source the record is
+    # made from, not of what was installed.
+    - name: Read the Requirements
+      ansible.builtin.stat:
+        path: "{{ clone }}/requirements.yml"
+        checksum_algorithm: sha256
+      register: requirements
+
+    - name: Read the Collections Stamp
+      ansible.builtin.stat:  # EXPECT-FINDING
+        path: "{{ collections_stamp }}"
+      register: stamp_stat
+
+    - name: Read the Recorded Requirements Hash
+      ansible.builtin.slurp:
+        src: "{{ collections_stamp }}"
+      register: stamp
+      when: stamp_stat.stat.exists
+
+    - name: Install the Collections
+      ansible.builtin.command:
+        argv: [ansible-galaxy, collection, install, -r, requirements.yml, -p, "{{ collections_dir }}"]
+      register: galaxy
+      changed_when: not stamp_stat.stat.exists
+      when: (not stamp_stat.stat.exists) or ((stamp.content | default('') | b64decode | trim) != requirements.stat.checksum)
+
+    - name: Record the Installed Requirements Hash
+      ansible.builtin.copy:
+        content: "{{ requirements.stat.checksum }}\n"
+        dest: "{{ collections_stamp }}"
+        mode: "0644"
+      when: galaxy is changed
+
+    # play-rpm-fusion.yml's codec setup: the command touches its own creates marker.
+    - name: Configure multimedia codecs
+      ansible.builtin.shell: |  # EXPECT-FINDING
+        set -euo pipefail
+        dnf -y group install multimedia
+        touch /var/local/.multimedia-configured
+      args:
+        creates: /var/local/.multimedia-configured

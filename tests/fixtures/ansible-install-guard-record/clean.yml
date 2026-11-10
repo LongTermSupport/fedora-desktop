@@ -1,0 +1,159 @@
+---
+# Fixture for the install-guard-trusts-record rule of src-go/qa/ansible: none of these may be
+# reported. Each guard reads every file the work it skips would write, or the work writes only
+# the file the guard reads, or scratch. The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    # The fix for play-teamchat.yml: the binary is stat'ed and read by the condition too.
+    - name: Read the Tuwunel Install Record
+      ansible.builtin.stat:
+        path: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+      register: tc_record
+
+    - name: Read the Installed Tuwunel Binary
+      ansible.builtin.stat:
+        path: "{{ tc_server_dir }}/tuwunel-{{ tc_version }}"
+      register: tc_binary
+
+    - name: Install the Pinned Tuwunel
+      when: >-
+        not tc_binary.stat.exists or not tc_record.stat.exists
+        or tc_record.stat.checksum != (pin_sha ~ '\n') | hash('sha1')
+      block:
+        - name: Make a Root-Only Directory for the Download
+          ansible.builtin.tempfile:
+            state: directory
+          register: tc_download
+
+        - name: Download the asset
+          ansible.builtin.get_url:
+            url: https://example.com/tuwunel.zst
+            dest: "{{ tc_download.path }}/tuwunel.zst"
+            mode: "0600"
+
+        - name: Install the Tuwunel Binary
+          ansible.builtin.copy:
+            src: "{{ tc_download.path }}/tuwunel"
+            remote_src: true
+            dest: "{{ tc_server_dir }}/tuwunel-{{ tc_version }}"
+            mode: "0755"
+
+        - name: Record Which Pin the Binary Came From
+          ansible.builtin.copy:
+            content: "{{ pin_sha }}\n"
+            dest: "{{ tc_share_dir }}/tuwunel-{{ tc_version }}-asset.sha256"
+            mode: "0644"
+      always:
+        - name: Remove the Download Directory
+          ansible.builtin.file:
+            path: "{{ tc_download.path }}"
+            state: absent
+
+- hosts: localhost
+  tasks:
+    # The guard reads the artefact itself, which is all the guarded task writes.
+    - name: Read the binary
+      ansible.builtin.stat:
+        path: /usr/local/bin/tool
+      register: tool_bin
+
+    - name: Download the binary when it is missing
+      ansible.builtin.get_url:
+        url: https://example.com/tool
+        dest: /usr/local/bin/tool
+        mode: "0755"
+      when: not tool_bin.stat.exists
+
+    # The guard reads a file the guarded work does not write: it is no record of that work.
+    - name: Read the user's config
+      ansible.builtin.stat:
+        path: /etc/thing.conf
+      register: thing_conf
+
+    - name: Write a default only where the user has none
+      ansible.builtin.copy:
+        content: "default\n"
+        dest: /etc/thing.d/default.conf
+        mode: "0644"
+      when: not thing_conf.stat.exists
+
+    # Scratch under /tmp is no artefact.
+    - name: Read the stamp
+      ansible.builtin.stat:
+        path: /var/lib/thing/stamp
+      register: thing_stamp
+
+    - name: Rebuild into scratch and stamp
+      when: not thing_stamp.stat.exists
+      block:
+        - name: Fetch to scratch
+          ansible.builtin.get_url:
+            url: https://example.com/thing
+            dest: /tmp/thing-download
+            mode: "0600"
+        - name: Stamp
+          ansible.builtin.copy:
+            content: "done\n"
+            dest: /var/lib/thing/stamp
+            mode: "0644"
+        - name: Remove scratch
+          ansible.builtin.file:
+            path: /tmp/thing-download
+            state: absent
+
+- hosts: localhost
+  tasks:
+    # The guard reads a file the work installs from a source: an artefact, not a record.
+    - name: Read the config
+      ansible.builtin.stat:
+        path: /etc/thing/thing.conf
+      register: thing_config
+
+    - name: Write the default config and restart
+      when: not thing_config.stat.exists
+      block:
+        - name: Write the config
+          ansible.builtin.template:
+            src: thing.conf.j2
+            dest: /etc/thing/thing.conf
+            mode: "0644"
+        - name: Restart
+          ansible.builtin.systemd_service:
+            name: thing
+            state: restarted
+
+    # The fix for play-self-update.yml: a probe of each installed collection, read by the
+    # condition beside the stamp.
+    - name: Read the Collections Stamp
+      ansible.builtin.stat:
+        path: "{{ collections_stamp }}"
+      register: stamp_stat
+
+    - name: Read Each Collection's Manifest
+      ansible.builtin.stat:
+        path: "{{ collections_dir }}/ansible_collections/{{ item }}/MANIFEST.json"
+      loop: [community/general, ansible/posix]
+      register: manifests
+
+    - name: Install the Collections
+      ansible.builtin.command:
+        argv: [ansible-galaxy, collection, install, -r, requirements.yml, -p, "{{ collections_dir }}"]
+      register: galaxy
+      changed_when: true
+      when: >-
+        not stamp_stat.stat.exists
+        or manifests.results | rejectattr('stat.exists') | list | length > 0
+
+    - name: Record the Installed Requirements Hash
+      ansible.builtin.copy:
+        content: "{{ requirements_sha }}\n"
+        dest: "{{ collections_stamp }}"
+        mode: "0644"
+      when: galaxy is changed
+
+    # creates names what the command makes, not a marker it touches.
+    - name: Make the key
+      ansible.builtin.command:
+        argv: [ssh-keygen, -t, ed25519, -N, "", -f, /root/.ssh/id_lab]
+        creates: /root/.ssh/id_lab

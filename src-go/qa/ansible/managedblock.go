@@ -215,7 +215,7 @@ func scalarArg(holders []*yaml.Node, key string) string {
 // loopItems is a task's loop items when its loop is a literal list; no loop is one nil item.
 // The second result is false for a loop the rule cannot read (a variable, a lookup).
 func loopItems(task *yaml.Node) ([]*yaml.Node, bool) {
-	for _, key := range []string{"loop", "with_items", "with_list"} {
+	for _, key := range loopKeys {
 		if v := mappingValue(task, key); v != nil {
 			if v.Kind != yaml.SequenceNode {
 				return nil, false
