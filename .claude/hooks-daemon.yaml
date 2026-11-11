@@ -213,7 +213,7 @@ handlers:
     # that fixture is a deliberate anti-pattern — it is the corpus the semgrep
     # rules must catch. The exemption was reported upstream when no route existed
     # and daemon 3.54.0 shipped one, so the noise is now exempted rather than
-    # tolerated. The fixture is still gated by `semgrep --test` in
+    # tolerated. The fixture is still gated by the semgrepreport self-test in
     # qa-patterns.bash, which is the check that actually belongs to it.
     lint_on_edit:
       enabled: true
