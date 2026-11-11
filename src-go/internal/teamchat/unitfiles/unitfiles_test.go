@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/tlsterm"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/v1names"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/unitsandbox"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files from the texts")
@@ -258,6 +259,39 @@ func TestTheResolverStub(t *testing.T) {
 	got := lines(file(t, filepath.Base(paths.ResolverStub)).Text)
 	if !slices.Contains(got, "nameserver 127.0.0.1") || slices.ContainsFunc(got, func(l string) bool { return l != "nameserver 127.0.0.1" && !strings.HasPrefix(l, "#") }) {
 		t.Fatalf("the resolver stub is not one loopback nameserver line: %q", got)
+	}
+}
+
+// sourceKind is what a bind source in a teamchat unit is on the host: a file the play installs,
+// a directory it makes, or neither, which the rule refuses.
+func sourceKind(src string) unitsandbox.SourceKind {
+	if slices.ContainsFunc(Files(), func(f File) bool { return f.Path == src }) {
+		return unitsandbox.File
+	}
+	if slices.Contains(installedDirs, src) {
+		return unitsandbox.Directory
+	}
+	return unitsandbox.Unknown
+}
+
+// installedDirs are the directories the play makes that a unit binds.
+var installedDirs []string
+
+// tmpfs-file-bind: no unit the play installs, and no team's transient sandbox, binds a file into
+// a TemporaryFileSystem= (systemd cannot make the file mount point in a read-only tmpfs: 226/NAMESPACE).
+func TestNoUnitBindsAFileInsideATmpfs(t *testing.T) {
+	team, err := paths.ParseTeamID("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := map[string]string{"the sandbox of a transient unit for team ops": strings.Join(host.TeamSandbox(team), "\n")}
+	for _, f := range Files() {
+		texts[f.Name] = f.Text
+	}
+	for name, text := range texts {
+		for _, f := range unitsandbox.Check(text, sourceKind) {
+			t.Errorf("%s: %s", name, f)
+		}
 	}
 }
 
