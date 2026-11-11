@@ -7,11 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
-	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/pushgate"
 )
 
@@ -27,74 +25,52 @@ var gitEnv = []string{
 	"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
 }
 
-func git(t *testing.T, dir string, extra []string, args ...string) string {
+func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: append([]string{"git", "-C", dir}, args...), Env: append(append([]string{}, gitEnv...), extra...)})
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: append([]string{"git", "-C", dir}, args...), Env: gitEnv})
 	if err != nil || res.Code != 0 {
 		t.Fatalf("git %v: %v %d\n%s", args, err, res.Code, res.Stderr)
 	}
 	return strings.TrimSpace(res.Stdout)
 }
 
-func commitAt(t *testing.T, dir string, when time.Time, msg string) string {
-	t.Helper()
-	stamp := "GIT_COMMITTER_DATE=" + when.Format(time.RFC3339)
-	git(t, dir, []string{stamp, "GIT_AUTHOR_DATE=" + when.Format(time.RFC3339)}, "commit", "-q", "--allow-empty", "-m", msg)
-	return git(t, dir, nil, "rev-parse", "HEAD")
+// noRuns is GitHub through gh with no run of any commit; it records what it was asked.
+type noRuns struct{ asked []string }
+
+func (n *noRuns) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
+	n.asked = append(n.asked, strings.Join(c.Argv, " "))
+	return proc.Result{Stdout: `{"totalCount":0,"runs":[]}`}, nil
 }
 
-// The gate over a real repository and remote: what git's rev-list, merge-base and log answer is
-// what the unit tests' fake assumes.
-func TestTheGateOverRealGit(t *testing.T) {
-	base := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+// The flow's last push, a commit already on the remote's ci/ branch pushed to F44, reaches the
+// gate as a ref line that moves F44, and the gate asks CI about it although the remote holds
+// every commit of it.
+func TestACommitAlreadyOnACIBranchIsStillJudgedForF44(t *testing.T) {
+	scripts := hookUnderTest(t)
 	remote := filepath.Join(t.TempDir(), "remote.git")
-	git(t, t.TempDir(), nil, "init", "-q", "--bare", remote)
+	git(t, t.TempDir(), "init", "-q", "--bare", remote)
 	repo := t.TempDir()
-	git(t, repo, nil, "init", "-q", "-b", "F44")
-	git(t, repo, nil, "remote", "add", "origin", remote)
-	published := commitAt(t, repo, base, "published")
-	git(t, repo, nil, "push", "-q", "origin", "F44")
-	judged := commitAt(t, repo, base.Add(time.Minute), "judged")
-	inBurst := commitAt(t, repo, base.Add(5*time.Minute), "made while qa-all ran")
-	common := git(t, repo, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	verdictPath := filepath.Join(common, qaverdict.FileName)
-	gate := func(tip string) (pushgate.ExitCode, string) {
-		var out, errOut bytes.Buffer
-		code := pushgate.Main(context.Background(), []string{"origin", remote}, pushgate.Env{
-			Stdin:  strings.NewReader("refs/heads/F44 " + tip + " refs/heads/F44 " + published + "\n"),
-			Stdout: &out, Stderr: &errOut, Runner: proc.OS{}, Cwd: repo,
-			Getenv: func(string) string { return "" },
-		})
-		return code, out.String() + errOut.String()
+	git(t, repo, "init", "-q", "-b", "F44")
+	git(t, repo, "remote", "add", "origin", remote)
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "published")
+	git(t, repo, "push", "-q", "origin", "F44")
+	published := git(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+	work := git(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "config", "core.hooksPath", filepath.Join(scripts, "git-hooks"))
+	git(t, repo, "push", "-q", "origin", "HEAD:refs/heads/ci/topic")
+	git(t, repo, "push", "-q", "origin", work+":F44")
+	line := read(t, filepath.Join(scripts, "qa-push-gate.stdin"))
+	if want := work + " refs/heads/F44 " + published + "\n"; !strings.HasSuffix(line, want) {
+		t.Fatalf("the F44 push reached the gate as %q, want a line ending %q", line, want)
 	}
-	if code, text := gate(inBurst); code != pushgate.ExitRefused {
-		t.Fatalf("no verdict: exit %d: %s", code, text)
-	}
-	write := func(status string) {
-		t.Helper()
-		rec := qaverdict.Record{Status: status, Commit: judged, Started: base.Add(2 * time.Minute), Finished: base.Add(10 * time.Minute)}
-		if err := qaverdict.Write(verdictPath, rec); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(qaverdict.StatusFail)
-	if code, text := gate(inBurst); code != pushgate.ExitRefused {
-		t.Fatalf("failed verdict: exit %d: %s", code, text)
-	}
-	write(qaverdict.StatusPass)
-	if code, text := gate(inBurst); code != pushgate.ExitOK {
-		t.Fatalf("passing verdict, same burst: exit %d: %s", code, text)
-	}
-	after := commitAt(t, repo, base.Add(time.Hour), "made after qa-all ended")
-	if code, text := gate(after); code != pushgate.ExitRefused || !strings.Contains(text, after[:12]) {
-		t.Fatalf("commit after the run: exit %d: %s", code, text)
-	}
-	git(t, repo, nil, "checkout", "-q", "-b", "side", published)
-	side := commitAt(t, repo, base.Add(3*time.Minute), "a branch the run never judged")
-	if code, text := gate(side); code != pushgate.ExitRefused || !strings.Contains(text, "not in what is pushed") {
-		t.Fatalf("unrelated branch: exit %d: %s", code, text)
-	}
-	if code, text := gate(published); code != pushgate.ExitOK {
-		t.Fatalf("nothing new: exit %d: %s", code, text)
+	gh := &noRuns{}
+	var out, errOut bytes.Buffer
+	code := pushgate.Main(context.Background(), []string{"origin", "git@github.com:o/r.git"}, pushgate.Env{
+		Stdin: strings.NewReader(line), Stdout: &out, Stderr: &errOut, Runner: gh, Cwd: "../../../..",
+		Getenv: func(string) string { return "" }, ReadFile: os.ReadFile,
+	})
+	if code != pushgate.ExitRefused || len(gh.asked) != 1 || !strings.Contains(gh.asked[0], "head_sha="+work) {
+		t.Fatalf("exit %d, asked %v: %s%s", code, gh.asked, out.String(), errOut.String())
 	}
 }

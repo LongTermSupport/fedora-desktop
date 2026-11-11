@@ -1,8 +1,8 @@
 // Package qaverdict is qa-all's verdict on a commit: whether the run passed, the commit it
 // judged (HEAD when it started) and when it started and ended. qa-all writes it to FileName in
-// the repository's git common directory, shared by every worktree of the checkout; the pre-push
-// gate (qa/pushgate, rule push-without-qa-verdict) reads it, so a push follows qa-all's result,
-// never a reading of its printed text (issue #187).
+// the repository's git common directory, shared by every worktree of the checkout, as a local
+// record of the last run read as data rather than from its printed text. It gates nothing: a
+// push to a protected branch is gated on CI's run of the commit (qa/pushgate).
 package qaverdict
 
 import (

@@ -1,4 +1,4 @@
-// Command qa-push-gate is the pre-push gate on qa-all's verdict (rule push-without-qa-verdict):
+// Command qa-push-gate is the pre-push gate on CI's QA verdict (rule push-without-qa-verdict):
 // scripts/git-hooks/pre-push runs it through scripts/qa-push-gate.bash with git's arguments and
 // ref lines. It is a QA tool, not deployed anywhere.
 package main
@@ -31,11 +31,12 @@ func run(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return int(pushgate.Main(ctx, args, pushgate.Env{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Runner: proc.OS{},
-		Cwd:    cwd,
-		Getenv: os.Getenv,
+		Stdin:    os.Stdin,
+		Stdout:   os.Stdout,
+		Stderr:   os.Stderr,
+		Runner:   proc.OS{},
+		Cwd:      cwd,
+		Getenv:   os.Getenv,
+		ReadFile: os.ReadFile,
 	}))
 }

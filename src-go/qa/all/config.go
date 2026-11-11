@@ -1,6 +1,7 @@
 // Package all is qa-all: the full QA run, every gate of scripts/qa-gates.tsv in order, never
 // stopping at the first failure, with one stage line per gate, a machine report and one verdict.
-// It is the gate before a push. SPEC-qa-all.md is its specification.
+// GitHub CI runs it on every push, and its pass there is what lets a protected branch move
+// (qa/pushgate). SPEC-qa-all.md is its specification.
 package all
 
 import (
@@ -60,9 +61,9 @@ type Env struct {
 
 const usageText = `usage: qa-all [--root DIR] [--scripts DIR] [--no-wait]
 
-The full QA run, the gate before a push. Runs every gate of scripts/qa-gates.tsv in order,
-never stopping at the first failure, prints one stage line per gate and one verdict, and
-writes the machine report (jq '.failures[]' on it names every failing file).
+The full QA run, which GitHub CI runs on every push. Runs every gate of scripts/qa-gates.tsv
+in order, never stopping at the first failure, prints one stage line per gate and one
+verdict, and writes the machine report (jq '.failures[]' on it names every failing file).
 
 QA never runs in parallel: the run holds the QA lock, shared by every worktree and container
 of the checkout, from its first gate to its verdict. While another QA run holds it this one

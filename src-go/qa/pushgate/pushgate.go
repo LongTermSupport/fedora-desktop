@@ -1,30 +1,41 @@
-// Package pushgate is the pre-push gate on qa-all's verdict (rule push-without-qa-verdict,
-// issue #187): a push of commits the remote does not hold yet goes ahead only when the last
-// qa-all run in this checkout passed, judged a commit that every pushed ref contains, and ended
-// after each commit pushed on top of it was made (the burst of commits made while it ran shares
-// its verdict). It reads the verdict qa-all wrote (qa/internal/qaverdict), never its printed
-// text, which a grep reads as readily when it says FAILED.
+// Package pushgate is the pre-push gate on CI's QA verdict (rule push-without-qa-verdict): a
+// protected branch moves only to a commit that GitHub CI's QA workflow (.github/workflows/qa.yml,
+// which runs ./scripts/qa-all.bash) passed on a push. Work reaches a protected branch through a
+// branch: the commit is pushed to ci/<topic>, CI judges it there, and that same commit is then
+// pushed to the protected branch.
+//
+// The protected branches are the release and architecture lines that scripts/branch-policy.toml
+// exempts (read by branchhygiene.ReadPolicy, as branch hygiene and branch-delete-list read it).
+// A push to any other ref, a deletion and a push that leaves a branch's tip where it was are not
+// judged. GitHub is asked through gh for the workflow runs of the commit filtered by event=push,
+// so a pull request's run, which judges a merge of the commit rather than the commit, never
+// counts. Any run of the commit that completed with success passes it; otherwise the newest run
+// is named with its state (queued, in progress, failed, cancelled) and its URL.
 package pushgate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
+	"net/url"
+	"regexp"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/branchhygiene"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/prepush"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
-	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qaverdict"
 )
 
 // ExitCode is the gate's status: git refuses the push on any but ExitOK.
 type ExitCode int
 
-// 0 the push may go, 1 refused, 2 the gate could not judge (bad usage, git failing, a damaged
-// verdict).
+// 0 the push may go, 1 refused, 2 the gate could not judge (bad usage, an unreadable policy, a
+// remote that names no GitHub repository, gh failing or unauthenticated).
 const (
 	ExitOK        ExitCode = 0
 	ExitRefused   ExitCode = 1
@@ -38,28 +49,42 @@ const RuleID = "push-without-qa-verdict"
 // as its value; the reason is printed. Agents never set it.
 const ExemptEnv = "QA_PUSH_GATE_EXEMPT"
 
+// QAWorkflow is the workflow whose push run is CI's QA verdict on a commit.
+const QAWorkflow = ".github/workflows/qa.yml"
+
+// ghTimeout bounds one question to GitHub.
+const ghTimeout = 60 * time.Second
+
 const short = 12
 
 const usageText = `usage: qa-push-gate REMOTE [URL]   (git's pre-push arguments; the ref lines on stdin)
 
-The pre-push gate on qa-all's verdict (rule ` + RuleID + `). A push of commits the remote does not
-hold yet goes ahead only when the last qa-all run in this checkout passed, judged a commit every
-pushed ref contains, and ended after each commit pushed on top of it was made. The verdict is
-qa-all-verdict.json in the git common directory, written by ./scripts/qa-all.bash.
+The pre-push gate on CI's QA verdict (rule ` + RuleID + `). A protected branch (one exempt in
+` + branchhygiene.PolicyFile + `) moves only to a commit that GitHub CI's QA workflow (` + QAWorkflow + `)
+completed with success on a push. Push the commit to a branch first, wait for CI, then push that
+same commit to the protected branch:
+
+  git push origin HEAD:refs/heads/ci/<topic>
+  gh run watch                 (or: gh run list --commit <sha>)
+  git push origin <sha>:F44
+  git push origin --delete ci/<topic>
+
+A push to any other ref, a deletion, or a push that leaves a branch where it was is not judged.
 
 ` + ExemptEnv + `=<reason>  an owner's tool pushing without a verdict; the reason is printed.
 
 Exit codes: 0 the push may go, 1 refused, 2 the gate could not judge.
 `
 
-// Env is what the gate touches: the hook's stdin, the streams, git, the checkout and the
-// environment.
+// Env is what the gate touches: the hook's stdin, the streams, gh, the checkout's policy file
+// and the environment.
 type Env struct {
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	Runner         proc.Runner
 	Cwd            string
 	Getenv         func(string) string
+	ReadFile       func(path string) ([]byte, error)
 }
 
 // refusal is a push the gate refuses; anything else that goes wrong is a run that cannot judge.
@@ -72,9 +97,10 @@ func refuse(format string, args ...any) error {
 }
 
 type gate struct {
-	env     Env
-	remote  string
-	verdict *qaverdict.Record
+	env    Env
+	remote string
+	url    string
+	pol    *branchhygiene.Policy
 }
 
 // Main judges one pre-push run: args are git's (REMOTE, then URL), the ref lines on stdin.
@@ -103,132 +129,190 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 		errOut.Line("ERROR: qa-push-gate: " + err.Error())
 		return ExitCannotRun
 	}
-	g := &gate{env: env, remote: args[0]}
-	pushed := 0
+	g := &gate{env: env, remote: args[0], url: args[len(args)-1]}
+	judged := 0
 	for _, ref := range refs {
-		n, err := g.judgeRef(ctx, ref)
+		branch, passed, err := g.judgeRef(ctx, ref)
 		if refused, ok := errors.AsType[*refusal](err); ok {
-			errOut.Line("✗ qa-push-gate [" + RuleID + "]: " + ref.LocalRef + ": " + refused.msg)
-			errOut.Line("  Run ./scripts/qa-all.bash on what you push; push when it passes. See CLAUDE/QA.md#" + RuleID)
+			g.refused(errOut, ref, branch, refused.msg)
 			return ExitRefused
 		}
 		if err != nil {
-			errOut.Line("ERROR: qa-push-gate: " + ref.LocalRef + ": " + err.Error())
+			errOut.Line("ERROR: qa-push-gate: " + ref.RemoteRef + ": " + err.Error())
 			return ExitCannotRun
 		}
-		pushed += n
+		if passed != "" {
+			out.Line("✓ qa-push-gate: " + ref.RemoteRef + " at " + ref.LocalID[:short] + ": CI's QA run passed: " + passed)
+			judged++
+		}
 	}
-	if g.verdict == nil {
-		out.Line("✓ qa-push-gate: no new commit to judge")
-		return ExitOK
+	if judged == 0 {
+		out.Line("✓ qa-push-gate: no protected branch moves")
 	}
-	out.Line(fmt.Sprintf("✓ qa-push-gate: qa-all passed at %s; %d new commit(s) pushed", g.verdict.Commit[:short], pushed))
 	return ExitOK
 }
 
-// judgeRef answers how many commits the ref pushes that the remote lacks, refusing it when the
-// verdict does not cover them.
-func (g *gate) judgeRef(ctx context.Context, ref prepush.Ref) (int, error) {
-	if ref.Deletes() {
-		return 0, nil
-	}
-	list, err := g.git(ctx, append([]string{"rev-list"}, ref.Selection(g.remote)...)...)
-	if err != nil {
-		return 0, err
-	}
-	fresh := strings.Fields(list)
-	if len(fresh) == 0 {
-		return 0, nil
-	}
-	v, err := g.load(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if v.Status != qaverdict.StatusPass {
-		return 0, refuse("the last qa-all run FAILED at %s", v.Commit[:short])
-	}
-	if err := g.contains(ctx, v, ref); err != nil {
-		return 0, err
-	}
-	if err := g.sameBurst(ctx, v, ref); err != nil {
-		return 0, err
-	}
-	return len(fresh), nil
+func (g *gate) refused(errOut *emit.Emitter, ref prepush.Ref, branch, msg string) {
+	errOut.Line("✗ qa-push-gate [" + RuleID + "]: " + ref.RemoteRef + " at " + ref.LocalID[:short] + ": " + msg)
+	errOut.Line("  " + branch + " is protected: it moves only to a commit CI passed on a push. Push the commit")
+	errOut.Line("  to a branch, wait for CI, then push that same commit to " + branch + ":")
+	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":refs/heads/ci/<topic>")
+	errOut.Line("    gh run watch    (or: gh run list --commit " + ref.LocalID + ")")
+	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":" + branch)
+	errOut.Line("  See CLAUDE/QA.md#" + RuleID)
 }
 
-// contains refuses a ref whose commit does not have the judged commit in its history.
-func (g *gate) contains(ctx context.Context, v qaverdict.Record, ref prepush.Ref) error {
-	res, err := g.run(ctx, "merge-base", "--is-ancestor", v.Commit, ref.LocalID)
+// judgeRef answers the protected branch a ref moves and the URL of CI's passing run of its new
+// tip; a ref that moves no protected branch answers "", "".
+func (g *gate) judgeRef(ctx context.Context, ref prepush.Ref) (string, string, error) {
+	if ref.Deletes() || ref.LocalID == ref.RemoteID {
+		return "", "", nil
+	}
+	pol, err := g.policy()
 	if err != nil {
-		return err
+		return "", "", err
 	}
-	switch res.Code {
-	case 0:
-		return nil
-	case 1:
-		return refuse("qa-all passed at %s, which is not in what is pushed (%s)", v.Commit[:short], ref.LocalID[:short])
-	default:
-		return fmt.Errorf("git merge-base: exit %d: %s", res.Code, strings.TrimSpace(res.Stderr))
+	branch := protected(pol, ref.RemoteRef)
+	if branch == "" {
+		return "", "", nil
 	}
+	repo, err := repoOf(g.url)
+	if err != nil {
+		return branch, "", err
+	}
+	passed, err := g.ciVerdict(ctx, repo, ref.LocalID)
+	return branch, passed, err
 }
 
-// sameBurst refuses a commit on top of the judged one that was made after the run ended.
-func (g *gate) sameBurst(ctx context.Context, v qaverdict.Record, ref prepush.Ref) error {
-	log, err := g.git(ctx, "log", "--format=%H %ct", v.Commit+".."+ref.LocalID)
-	if err != nil {
-		return err
+// protected is the branch name when ref is a branch the policy exempts, else "".
+func protected(pol branchhygiene.Policy, ref string) string {
+	name, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok || !slices.Contains(pol.Exempt, name) {
+		return ""
 	}
-	for line := range strings.SplitSeq(strings.TrimSpace(log), "\n") {
-		if line == "" {
-			continue
+	return name
+}
+
+func (g *gate) policy() (branchhygiene.Policy, error) {
+	if g.pol == nil {
+		pol, err := branchhygiene.ReadPolicy(g.env.ReadFile, g.env.Cwd)
+		if err != nil {
+			return branchhygiene.Policy{}, err
 		}
-		id, stamp, ok := strings.Cut(line, " ")
-		sec, perr := strconv.ParseInt(stamp, 10, 64)
-		if !ok || perr != nil || len(id) < short {
-			return fmt.Errorf("git log gave %q, not a commit and its time", line)
-		}
-		if sec > v.Finished.Unix() {
-			return refuse("%s was committed after the qa-all run that passed at %s ended", id[:short], v.Commit[:short])
-		}
+		g.pol = &pol
 	}
-	return nil
+	return *g.pol, nil
 }
 
-// load reads the checkout's verdict once; none is a refusal, a damaged one an error.
-func (g *gate) load(ctx context.Context) (qaverdict.Record, error) {
-	if g.verdict != nil {
-		return *g.verdict, nil
+var repoPart = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// repoOf is the OWNER/REPO a GitHub remote URL names: scp-like ([user@]host:owner/repo) or an
+// ssh, https or git URL, with or without .git.
+func repoOf(remote string) (string, error) {
+	path, ok := remotePath(remote)
+	parts := strings.Split(strings.TrimSuffix(path, ".git"), "/")
+	if !ok || len(parts) != 2 || !validPart(parts[0]) || !validPart(parts[1]) {
+		return "", fmt.Errorf("remote URL %q names no GitHub OWNER/REPO", remote)
 	}
-	target, err := qaverdict.Locate(ctx, g.env.Runner, g.env.Cwd)
-	if err != nil {
-		return qaverdict.Record{}, err
-	}
-	v, err := qaverdict.Read(target.Path)
-	if errors.Is(err, qaverdict.ErrNone) {
-		return qaverdict.Record{}, refuse("no qa-all verdict: no qa-all run has finished in this checkout since the last one started")
-	}
-	if err != nil {
-		return qaverdict.Record{}, err
-	}
-	g.verdict = &v
-	return v, nil
+	return parts[0] + "/" + parts[1], nil
 }
 
-func (g *gate) run(ctx context.Context, args ...string) (proc.Result, error) {
-	res, err := g.env.Runner.Run(ctx, proc.Cmd{Argv: append([]string{"git", "-C", g.env.Cwd}, args...)})
-	if err != nil {
-		return proc.Result{}, fmt.Errorf("git %s: %w", args[0], err)
+// remotePath is the repository path of a network remote URL, without its leading slash.
+func remotePath(remote string) (string, bool) {
+	if !strings.Contains(remote, "://") {
+		host, rest, ok := strings.Cut(remote, ":")
+		return rest, ok && host != "" && !strings.Contains(host, "/")
 	}
-	return res, nil
+	u, err := url.Parse(remote)
+	if err != nil || u.Host == "" || !slices.Contains([]string{"ssh", "https", "http", "git"}, u.Scheme) {
+		return "", false
+	}
+	return strings.TrimPrefix(u.Path, "/"), true
 }
 
-func (g *gate) git(ctx context.Context, args ...string) (string, error) {
-	res, err := g.run(ctx, args...)
+func validPart(s string) bool {
+	return repoPart.MatchString(s) && s != "." && s != ".."
+}
+
+// runsFilter is gh's --jq projection of GitHub's workflow-runs listing into the fields the gate
+// reads, renamed from GitHub's snake_case to this module's JSON case.
+const runsFilter = `{totalCount: .total_count, runs: [.workflow_runs[] | {path, event, headSha: .head_sha, status, conclusion, createdAt: .created_at, htmlUrl: .html_url}]}`
+
+type workflowRun struct {
+	Path       string `json:"path"`
+	Event      string `json:"event"`
+	HeadSHA    string `json:"headSha"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	CreatedAt  string `json:"createdAt"`
+	HTMLURL    string `json:"htmlUrl"`
+}
+
+type runList struct {
+	TotalCount *int          `json:"totalCount"`
+	Runs       []workflowRun `json:"runs"`
+}
+
+// ciVerdict is the URL of a passing push run of the QA workflow on sha, a refusal naming why
+// there is none, or an error when GitHub could not be asked.
+func (g *gate) ciVerdict(ctx context.Context, repo, sha string) (string, error) {
+	runs, err := g.qaRuns(ctx, repo, sha)
 	if err != nil {
 		return "", err
 	}
-	if res.Code != 0 {
-		return "", fmt.Errorf("git %s: exit %d: %s", args[0], res.Code, strings.TrimSpace(res.Stderr))
+	if len(runs) == 0 {
+		return "", refuse("no QA run on GitHub for %s: CI has not run %s on a push of this commit", sha[:short], QAWorkflow)
 	}
-	return res.Stdout, nil
+	if i := slices.IndexFunc(runs, func(r workflowRun) bool { return r.Status == "completed" && r.Conclusion == "success" }); i >= 0 {
+		return runs[i].HTMLURL, nil
+	}
+	newest := runs[0]
+	if newest.Status != "completed" {
+		return "", refuse("CI's QA run of %s is %s, not finished: %s", sha[:short], newest.Status, newest.HTMLURL)
+	}
+	return "", refuse("CI's QA run of %s concluded %s: %s", sha[:short], newest.Conclusion, newest.HTMLURL)
+}
+
+// qaRuns is the push runs of the QA workflow on sha, newest first.
+func (g *gate) qaRuns(ctx context.Context, repo, sha string) ([]workflowRun, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	endpoint := "repos/" + repo + "/actions/runs?head_sha=" + sha + "&event=push&per_page=100"
+	res, err := g.env.Runner.Run(ctx, proc.Cmd{Argv: []string{"gh", "api", endpoint, "--jq", runsFilter}})
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("gh api %s: %w", endpoint, err)
+	case res.TimedOut:
+		return nil, fmt.Errorf("gh api %s: no answer within %s", endpoint, ghTimeout)
+	case res.Code != 0 || res.Leftover:
+		return nil, fmt.Errorf("gh api %s: exit %d: %s", endpoint, res.Code, strings.TrimSpace(res.Stderr))
+	}
+	var list runList
+	if err := json.Unmarshal([]byte(res.Stdout), &list); err != nil {
+		return nil, fmt.Errorf("gh api %s: not a list of workflow runs: %w", endpoint, err)
+	}
+	if list.TotalCount == nil || *list.TotalCount != len(list.Runs) {
+		return nil, fmt.Errorf("gh api %s: the listing is not whole (%d runs listed of the total_count given)", endpoint, len(list.Runs))
+	}
+	type dated struct {
+		run workflowRun
+		at  time.Time
+	}
+	var found []dated
+	for _, r := range list.Runs {
+		if r.Event != "push" || r.HeadSHA != sha || (r.Path != QAWorkflow && !strings.HasPrefix(r.Path, QAWorkflow+"@")) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, r.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("gh api %s: a run's created_at: %w", endpoint, err)
+		}
+		found = append(found, dated{run: r, at: at})
+	}
+	slices.SortStableFunc(found, func(a, b dated) int { return b.at.Compare(a.at) })
+	runs := make([]workflowRun, 0, len(found))
+	for _, d := range found {
+		runs = append(runs, d.run)
+	}
+	return runs, nil
 }
