@@ -39,7 +39,7 @@ RUN target="$(uname -m)-unknown-linux-musl" \
 # (CGO_ENABLED=0), because the runtime image is Debian and must link no host glibc, and offline
 # from the committed src-go/vendor (-mod=vendor). teamchat's source digest is the git tree id of
 # the commit's src-go, as `teamchat version` prints it.
-FROM golang:1.26.10 AS ccy-builder
+FROM golang:1.26.11 AS ccy-builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ARG CCY_SOURCE_COMMIT=""
@@ -89,7 +89,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.84.2"
+LABEL claude-yolo-version="2.84.3"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that

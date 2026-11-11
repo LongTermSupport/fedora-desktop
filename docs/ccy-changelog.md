@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.4 — container 2.84.3
+
+- **The image's Go commands are built with go1.26.11** (`ccy-builder` is `golang:1.26.11`,
+  and `src-go/go.mod`'s toolchain line moves with it). go1.26.11 fixes GO-2026-6859, an HTTP/1
+  server crash in `net/http` that teamchat and the launcher's Go code reach. It runs ahead of
+  the golang Fedora 44 ships (1.26.10), which the host still builds its own tools with
+  (`vars/golang.yml`) until Fedora packages 1.26.11.
+
 ## 3.118.3 — container 2.84.2
 
 - **teamchat takes a GitHub name as GitHub shows it** (Plan 00209): a team's trust section

@@ -193,12 +193,14 @@ RUN arch="$(dpkg --print-architecture)" \
     && chmod 755 /usr/local/bin/gum
 
 # Go builds this repository's CLI tools (src-go/: ccy-teams first). Debian 12's golang is
-# 1.19, so the upstream toolchain is pinned to the version Fedora 44 ships, which is what
-# play-claude-yolo.yml builds the tools with on the host. Bump it with the host's version.
+# 1.19, so the upstream toolchain is pinned: the version src-go/go.mod's toolchain line names,
+# which the ccy image's builder stage also uses. It may run ahead of the Go Fedora 44 ships
+# (vars/golang.yml, what play-claude-yolo.yml builds the host tools with) when a Go security
+# release must reach QA before Fedora packages it, as go1.26.11 did (GO-2026-6859).
 # golangci-lint is a QA tool, so its version lives in /.qa-versions like the others.
-ARG GO_VERSION=1.26.10
-ARG GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
-ARG GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
+ARG GO_VERSION=1.26.11
+ARG GO_SHA256_AMD64=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
+ARG GO_SHA256_ARM64=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
 RUN arch="$(dpkg --print-architecture)" \
     && case "${arch}" in \
         amd64) go_sha="${GO_SHA256_AMD64}" ;; \
