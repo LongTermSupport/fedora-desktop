@@ -170,10 +170,8 @@ func held(tb testing.TB, p *Process) *Process {
 	tb.Helper()
 	p.tb = tb
 	tb.Cleanup(func() {
-		if !p.ended() {
-			if err := p.kill(); err != nil {
-				tb.Error(err)
-			}
+		if err := p.stop(); err != nil {
+			tb.Error(err)
 		}
 	})
 	return p
@@ -424,9 +422,30 @@ func (p *Process) kill() error {
 	if p.ended() {
 		return fmt.Errorf("reexec: the helper already ended: %s", describe(p.end))
 	}
+	if err := p.sigkill(); err != nil {
+		return err
+	}
+	if p.end.signal != unix.SIGKILL {
+		return fmt.Errorf("reexec: the helper was not killed: %s", describe(p.end))
+	}
+	return nil
+}
+
+// stop is the cleanup's end of a helper: it decides once whether the helper still runs and, if
+// so, kills it and waits. How the helper ended is not judged, since the test may have ended it
+// itself between any check and the signal; only that it no longer runs.
+func (p *Process) stop() error {
+	if p.ended() {
+		return nil
+	}
+	return p.sigkill()
+}
+
+// sigkill sends SIGKILL, closes the release line and waits for the runner's end.
+func (p *Process) sigkill() error {
 	err := unix.Kill(p.Pid, unix.SIGKILL)
 	// ESRCH: the child was reaped (someone else killed it) before its runner closed done, so
-	// its end, read below once done closes, says how it ended.
+	// its end, read once done closes, says how it ended.
 	if errors.Is(err, unix.ESRCH) {
 		err = nil
 	}
@@ -434,9 +453,6 @@ func (p *Process) kill() error {
 	<-p.done
 	if err != nil {
 		return fmt.Errorf("reexec: kill the helper: %w", err)
-	}
-	if p.end.signal != unix.SIGKILL {
-		return fmt.Errorf("reexec: the helper was not killed: %s", describe(p.end))
 	}
 	return nil
 }

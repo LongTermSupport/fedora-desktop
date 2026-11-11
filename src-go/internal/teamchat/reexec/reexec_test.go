@@ -293,6 +293,54 @@ func TestKillOfAHelperReapedBeforeDoneWaitsForItsEnd(t *testing.T) {
 	}
 }
 
+// The cleanup decides once whether the helper still runs. A helper the test itself killed can
+// be reaped between that decision and the signal, and that end is not the cleanup's failure,
+// however it ended: what the cleanup holds is only that no helper outlives its test.
+func TestStopOfAHelperThatHasEndedReportsNothing(t *testing.T) {
+	p, err := start("late", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.release(); err == nil {
+		t.Fatal("want the exit 4")
+	}
+	if err := p.stop(); err != nil {
+		t.Fatalf("stop of a helper that had already ended: %v", err)
+	}
+}
+
+// A helper reaped before its runner closes done, with an end that was not SIGKILL, is stopped
+// with no error: kill would call that end a failure, stop does not judge how it ended.
+func TestStopOfAHelperReapedBeforeDoneAcceptsAnyEnd(t *testing.T) {
+	gone, err := start("late", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relErr := gone.release(); relErr == nil {
+		t.Fatal("want the exit 4")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Process{Pid: gone.Pid, stdin: w, done: make(chan struct{})}
+	runnerErr := make(chan error, 1)
+	go func() {
+		_, readErr := io.ReadAll(r)
+		runnerErr <- errors.Join(readErr, r.Close())
+		p.end = gone.end
+		close(p.done)
+	}()
+	t.Cleanup(func() {
+		if e := <-runnerErr; e != nil {
+			t.Error(e)
+		}
+	})
+	if err := p.stop(); err != nil {
+		t.Fatalf("stop of a reaped helper that exited 4: %v", err)
+	}
+}
+
 func TestKillReportsAHelperThatWasNotKilled(t *testing.T) {
 	p, err := start("late", nil, nil, false)
 	if err != nil {
