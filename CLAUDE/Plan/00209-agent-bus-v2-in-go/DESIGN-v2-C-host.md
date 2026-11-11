@@ -269,7 +269,6 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-PrivatePIDs=yes
 PrivateIPC=yes
 ProtectProc=invisible
 ProcSubset=pid
@@ -293,6 +292,11 @@ BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 ```
+
+No `PrivatePIDs=`: systemd cannot start it with `DynamicUser=yes` and a `StateDirectory=`
+(systemd issue 41014; QA.md pidns-idmapped-state; found on the first deploy). Each homeserver
+is its own uid and `ProtectProc=invisible` hides every other process from it, so the PID
+namespace added little; the TLS terminator, which keeps no state, keeps it.
 
 No resolver: on Fedora `/etc/resolv.conf` is a symlink into `/run/systemd/resolve/`, so the
 directory `paths.ResolverDir` (`/usr/local/share/teamchat/resolve`, root 0755, made by the play)
@@ -2461,8 +2465,10 @@ be), and it starts the `teamchat-ctl` child for the status refresh. `backup --te
 apply already holds (3.4), never a second `flock`. Otherwise, per team, under its team lock
 (waiting up to 10 minutes):
 
-1. The homeserver must be active and ready (a signal sent before Tuwunel installs its handler is
-   dropped, because it is PID 1 of its PID namespace; H 5).
+1. The homeserver must be active and ready, its Matrix API answering (a signal sent before
+   Tuwunel installs its handler kills it, since the unit has no `PrivatePIDs=` and Tuwunel is not
+   PID 1, and `Restart=always` starts it again; an answering API makes that window unlikely but
+   is not proof the handler is installed; SPEC-n2g).
 2. Send `SIGUSR2` to the main process over D-Bus (`KillUnit`, whom `main`; DC17), which runs Tuwunel's
    database backup (`admin_signal_execute`), and wait up to 60 s for a new numbered backup.
 3. Write the control state paired with it, `root/<team>/backups/<n>.tar` (0600): from `ctl/<team>/`

@@ -12,6 +12,11 @@ import (
 // template is to be rendered from it (gate A), so the restore's staging unit cannot drift from it.
 // The lifecycle lines stay per unit, since the base unit's Restart=always would let a staging
 // restart wipe the secured copy; so do the credential and the environment, whose paths differ.
+//
+// It has no PrivatePIDs=: systemd cannot start one with DynamicUser=yes and a StateDirectory=
+// (pidns-idmapped-state, CLAUDE/QA.md; systemd issue 41014). Each team's homeserver is its own
+// dynamic user, and ProtectProc=invisible hides every other process from it, so a PID namespace
+// would add little; the TLS terminator, which keeps no state, adds it back.
 var baseSandbox = []string{
 	"DynamicUser=yes",
 	"User=" + paths.Product + "-%i",
@@ -24,7 +29,6 @@ var baseSandbox = []string{
 	"ProtectHome=yes",
 	"PrivateTmp=yes",
 	"PrivateDevices=yes",
-	"PrivatePIDs=yes",
 	"PrivateIPC=yes",
 	"ProtectProc=invisible",
 	"ProcSubset=pid",

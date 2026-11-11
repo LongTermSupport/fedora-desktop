@@ -12,9 +12,11 @@ DC14. The facts about the pinned Tuwunel 1.9.4 come from a spike run in the cont
 - Numbers start at 1 and never repeat. `database_backups_to_keep` prunes the oldest, removing
   its `meta/<n>` and `private/<n>/`.
 - A `SIGUSR2` before the handler is installed kills the process when it is not PID 1 (the
-  spike). Under the base unit's `PrivatePIDs=yes` it is PID 1, and the signal is dropped (H 5),
-  which shows only as BT2's timeout. So root signals only a homeserver that is active and
-  answers, in the same invocation it probed (BT1).
+  spike). The base unit has no `PrivatePIDs=` (systemd cannot start it with the dynamic user's
+  state directory: QA.md pidns-idmapped-state), so Tuwunel is not PID 1 and such a signal kills
+  it, and `Restart=always` starts it again. So root signals only a homeserver that is active and
+  answers, in the same invocation it probed (BT1); an answering API is not proof the handler is
+  installed.
 - `tuwunel --restore-backup <n>` restores into the configured `database_path` and then goes on
   serving. A missing `<n>` exits 1 (`Backup #<n> not found; available: ...`). It needs the
   same `database_backup_path` as the server that made the backup.

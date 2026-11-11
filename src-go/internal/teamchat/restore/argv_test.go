@@ -14,7 +14,7 @@ import (
 func sandbox() []string {
 	return []string{
 		"DynamicUser=yes", "User=teamchat-ops", "StateDirectory=teamchat/ops", "StateDirectoryMode=0700", "UMask=0077",
-		"NoNewPrivileges=yes", "CapabilityBoundingSet=", "PrivatePIDs=yes", "IPAddressDeny=any", "SocketBindDeny=any",
+		"NoNewPrivileges=yes", "CapabilityBoundingSet=", "PrivateIPC=yes", "IPAddressDeny=any", "SocketBindDeny=any",
 		"InaccessiblePaths=-/run/dbus", v1names.InaccessiblePaths,
 	}
 }

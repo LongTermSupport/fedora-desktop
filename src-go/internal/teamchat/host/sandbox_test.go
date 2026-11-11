@@ -40,7 +40,6 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-PrivatePIDs=yes
 PrivateIPC=yes
 ProtectProc=invisible
 ProcSubset=pid

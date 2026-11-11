@@ -30,7 +30,7 @@ var knownDirectories = map[string]string{
 // goRenderers are the Go files that write TemporaryFileSystem= or PrivatePIDs= into a unit, each
 // judged on its rendered text by tests that call Check and CheckPIDNamespace (teamchat/unitfiles'
 // TestNoUnitBindsAFileInsideATmpfs and TestNoUnitSetsPrivatePIDsWithAnIdmappedState).
-var goRenderers = []string{"internal/teamchat/host/sandbox.go"}
+var goRenderers = []string{"internal/teamchat/host/sandbox.go", "internal/teamchat/unitfiles/unitfiles.go"}
 
 // kindInRepo is what a bind's source is: the file or directory files/ ships at that path, or a
 // known directory.
@@ -158,7 +158,7 @@ func TestEveryGoRendererIsJudged(t *testing.T) {
 	root := openRoot(t, repo)
 	for _, path := range trackedFiles(t) {
 		rel, ok := strings.CutPrefix(path, "src-go/")
-		if !ok || !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") || rel == "internal/unitsandbox/unitsandbox.go" ||
+		if !ok || !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "internal/unitsandbox/") ||
 			strings.HasPrefix(rel, "vendor/") || strings.Contains(rel, "/testdata/") || !regularFile(t, root, path) {
 			continue
 		}

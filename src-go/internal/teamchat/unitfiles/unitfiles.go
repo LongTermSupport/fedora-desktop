@@ -92,6 +92,10 @@ func terminatorUnit() string {
 			sandbox = append(sandbox, line, "LimitNOFILE="+strconv.Itoa(terminatorFileLimit))
 		case strings.HasPrefix(line, "IPAccounting="):
 			sandbox = append(sandbox, "RestrictAddressFamilies=AF_INET AF_INET6", line)
+		case strings.HasPrefix(line, "PrivateDevices="):
+			// Its own PID namespace, which the base lacks only for its state directory
+			// (pidns-idmapped-state): the terminator keeps none.
+			sandbox = append(sandbox, line, "PrivatePIDs=yes")
 		case !terminatorDrops(line):
 			sandbox = append(sandbox, line)
 		}
