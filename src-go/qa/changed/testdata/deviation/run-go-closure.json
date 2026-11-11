@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\ncheck argv-leak\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck arch-pin\ncheck argv-leak\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: whole gate (interim qa-go.bash)\n✓ arch-pin: arch-pinned-artefact rule, whole gate\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
  "stderr": "",
  "status": 0,
  "log": [

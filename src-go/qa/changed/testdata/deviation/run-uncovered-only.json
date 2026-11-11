@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\n⚠ not covered by qa-changed: misc/other.txt\n⚠ 1 changed file(s) not covered by qa-changed — qa-all.bash is the only check\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

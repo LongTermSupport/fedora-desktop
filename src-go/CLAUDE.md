@@ -609,6 +609,17 @@ command. It reads the repo and the host through `fs.FS`; the one git question (i
 worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
 specification, proven by unit tests over in-memory trees.
 
+`qa/ciscope` + `qa/cmd/qa-ci-scope` (same nested module) are `scripts/qa-ci-scope.bash`, the
+first job of `.github/workflows/qa.yml`: it decides a CI run's QA (issue #245, C1-C12 in its
+package doc), the full `qa-all` for a protected, release or tag push, else `qa-changed` in diff
+mode against the tip of the protected line the branch contains (a pull request: its base). The
+policy is `scripts/branch-policy.toml`; git goes through `qa/internal/proc`, faked in the unit
+tests. Not a gate.
+
+`internal/testchild` (and its QA-module twin `qa/internal/testchild`) is how a test reads the
+stderr of a child that is its own test binary: without the `program not built with -cover` line
+a `-cover` build with no instrumented package writes (rule `project_self_child_stderr`).
+
 `qa/branchhygiene` + `qa/cmd/qa-branch-hygiene` (same nested module) are
 `scripts/qa-branch-hygiene.bash`, the branch-policy job (`scripts/branch-policy.toml`; cap on open
 work branches, merged branches deleted, dormancy limits, parked branches): the script only builds
