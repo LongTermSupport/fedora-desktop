@@ -245,8 +245,9 @@ ccy_registry_replay_args() {
 # fresh-if-no-conversation=yes, which provisioning writes (Plan 00135 Phase 13).
 ccy_registry_write() {
     local compose="" fresh=""
-    while [[ "${1:-}" == --compose || "${1:-}" == --fresh ]]; do
-        printf -v "${1#--}" '%s' "${2?ccy_registry_write: $1 needs a value}"
+    # An option with no value after it is not taken as one: no ${2?}, which would end the shell.
+    while [[ $# -ge 2 && ("$1" == --compose || "$1" == --fresh) ]]; do
+        printf -v "${1#--}" '%s' "$2"
         shift 2
     done
     if [[ -n "$compose" ]] && ! _ccy_registry_compose_outcome_ok "$compose"; then
@@ -261,7 +262,7 @@ ccy_registry_write() {
     shift 5
     local regdir path tmp arg
     if [[ "$restore" != yes && "$restore" != no || "$fresh" != "" && "$fresh" != yes ]]; then
-        print_error "session record for '$name': restore must be yes or no, not '$restore', and fresh yes or empty, not '$fresh'."
+        print_error "session record for '$name' was not written: it has restore='$restore' (yes or no) or --fresh='$fresh' (yes or empty)."
         return 1
     fi
     if [[ "$name" == */* ]]; then

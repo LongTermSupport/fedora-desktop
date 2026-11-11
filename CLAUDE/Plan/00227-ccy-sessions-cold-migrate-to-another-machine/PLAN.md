@@ -143,7 +143,8 @@ case by Plan 00203 Decision 13; this plan applies them across machines.
 - [ ] ⬜ **Task 3.3**: unpack and resume. Unpack owner-only, write each rewritten registry
   record, start each host member detached through the restore path with `--resume <id>`,
   never `--continue`; no `set-going` unless asked (Decision 10). Print what started and what
-  was refused.
+  was refused. A rewritten record keeps every field of the original, including
+  `FreshIfNoConversation` (Plan 00135 Phase 13: the `fresh-if-no-conversation=yes` mark).
   - Acceptance: tests through fake tmux and registry show the resume args carry the
     recorded id; a start failure for one member is reported and exits non-zero.
 

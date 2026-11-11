@@ -40,7 +40,8 @@ type Going string
 
 // The words an entry's going= may hold, and GoingKeep, which is only ever an input to Merge.
 const (
-	// GoingNone is a session found already running: a person started it, nothing is typed into it.
+	// GoingNone is a session nothing is typed into: one found already running (a person started
+	// it), or one the restore started fresh (detail "fresh": no conversation to carry on).
 	GoingNone Going = "none"
 	// GoingPending is restored, not yet decided.
 	GoingPending Going = "pending"

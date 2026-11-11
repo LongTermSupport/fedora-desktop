@@ -296,8 +296,9 @@ every `/clear`, resume or compaction (`conversation.json` beside its seat report
 restore never uses `--continue`: several sessions in one project share one transcript
 folder, so "the most recent conversation" is often another session's, and a stale
 background-session record makes `--continue` refuse outright. **A session that recorded no
-conversation is not restored** (Plan 00203 Decision 10): `ccy --no-bus`, a plain `cc`, or a
-session that ended before its first prompt. The restore names it as a failure and keeps its
+conversation is not restored** (Plan 00203 Decision 10), unless provisioning marked its
+record to start fresh (below): `ccy --no-bus`, a plain `cc`, or a session that ended before
+its first prompt. The restore names it as a failure and keeps its
 record; bring it back with `ccy --resume` in its folder, whose picker lists the
 conversations.
 
@@ -317,6 +318,41 @@ record keeps the mark. The restore says `started <name> fresh`, its manifest ent
 detail `fresh` and no resume id, `set-going` types nothing into it, and `restore --check`
 reports it `RESTORABLE`. Unmarked records are unchanged. Plan 00135 Phase 13 has the
 owner's decision.
+
+**`ccy-sessions declare` writes that record.** Run as the user whose session it is (never
+root), it writes the record a `ccy` launch with the same arguments in that folder would write
+(same name, same replayed arguments) and adds the mark when given `--fresh-if-no-conversation`:
+
+```
+ccy-sessions declare [--name ccy-NAME] [--fresh-if-no-conversation] [--replace] DIR [-- CCY-ARGS...]
+```
+
+`DIR` is absolute and must exist. The name defaults to the one `ccy` gives a session in that
+folder. Everything after the first `--` is `ccy`'s own command line. Nobody is there to answer
+the launch's prompts, so give it what it would ask for: `--ssh-key` or `--no-ssh`, `--token`,
+and `--compose start` or `skip` in a project with compose files (recorded as the compose
+answer). If `restore --check` would call the record `UNRESTORABLE`, it is refused and nothing
+is written. That covers no mark and no conversation, `--no-bus`, `--no-restore` and
+`--opencode`. stdout is one line, `<name> DECLARED`, `UNCHANGED` (the same record is already
+there, so nothing is written) or `REPLACED`. A different record under the name needs
+`--replace`. A live session's record is never written over. A provisioning task in a
+downstream repository:
+
+```yaml
+- name: Declare the dev box's first ccy session, started at boot
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv: ["/home/{{ user_login }}/.local/bin/ccy-sessions", declare, --fresh-if-no-conversation, "/home/{{ user_login }}/Projects/app",
+           --, --token, work, --ssh-key, "/home/{{ user_login }}/.ssh/id_github", --compose, start]
+  register: ccy_declare
+  changed_when: "' UNCHANGED' not in ccy_declare.stdout"
+```
+
+Once the session has run, its own launch rewrites the record. While it runs, a re-run of the
+task changes nothing when the record is still the declared one, and fails when it is not. Use
+`creates: ~/.local/state/ccy/sessions/<name>` in place of `changed_when` to leave an existing
+record alone.
 
 **A record that cannot be restored is said, never dropped.** Each one the restore could not
 start (no conversation recorded, its directory gone, an unreadable record, a start that

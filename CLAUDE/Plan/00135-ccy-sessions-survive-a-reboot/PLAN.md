@@ -306,17 +306,29 @@ askpass), so the fresh start runs on the same path as a resume.
   `TestTheFreshMarkRoundTripsAndIsWrittenOnlyWhenSet`, `TestTheFreshMarkSurvivesEveryBashRewrite`,
   `TestFreshArgsAreTheResumeArgsWithoutTheResume`, `TestReadRejectsMalformedRecords` (registry);
   `TestOnlyAnAbsentHookRecordIsNotRecorded` (conversation).
-- [x] ✅ **Task 13.2**: Reported, never hidden: the restore says \`started <name> fresh in
-  <dir>: ...`; the manifest entry is `going=none`, `detail=fresh`, no resume id, so set-going
+- [x] ✅ **Task 13.2**: Reported, never hidden: the restore prints
+  `started <name> fresh in <dir>: ...`; the manifest entry is `going=none`, `detail=fresh`, no resume id, so set-going
   types nothing into it and verify-restore judges it by its screen; `restore --check` prints
   `RESTORABLE` and says on stderr it will start fresh, so the self-update cycle's
   `unrestorable-sessions` hold does not fire for it.
 - [x] ✅ **Task 13.3**: docs/ccy.md "Sessions Survive a Reboot", `ccy-sessions --help`, the
   changelog, CCY 3.118.6 (the image is unchanged: none of its Go binaries imports these
   packages), and `meta-deploy.list` (changed-plays picks up `play-claude-yolo.yml`).
+- [x] ✅ **Task 13.5**: Provisioning's supported way to write the record:
+  `ccy-sessions declare [--name ccy-NAME] [--fresh-if-no-conversation] [--replace] DIR [-- CCY-ARGS...]`
+  (`internal/sessions/declare.go`). It writes, through `registry.Store.Write`, the record a ccy
+  launch of CCY-ARGS in DIR writes: the launcher's name (`projectName`, get_project_name),
+  `registry.ReplayArgs` (the Go twin of `ccy_registry_launch_args` + `ccy_registry_replay_args`),
+  and the compose outcome `--compose start|skip` records. It is judged by `planRestore` first,
+  so what `restore --check` calls UNRESTORABLE is refused unwritten; the same record again is
+  `UNCHANGED`, a different one needs `--replace`, a live session is never written over, and
+  root is refused. Go's `FlagClass` now drops the launcher's standalone flags as bash does
+  (`TestEveryFlagTheLauncherListsHasTheSameClassInGo` reads bash's four lists). docs/ccy.md has
+  the grammar and an Ansible task; CCY 3.119.0, image unchanged. Report:
+  `subagent-reports/261111-phase13-declare-opus.md`.
 - [ ] 🧑 **Task 13.4**: HOST: after meta-deploy, on a headless box with restore and the SSH
-  unlock on, write a record for a project that has never had a session, with
-  `fresh-if-no-conversation=yes`, then `ccy-sessions restore --check` prints it `RESTORABLE`;
+  unlock on, write a record for a project that has never had a session with
+  `ccy-sessions declare --fresh-if-no-conversation` (docs/ccy.md), then `ccy-sessions restore --check` prints it `RESTORABLE`;
   reboot, and `ccy-sessions verify-restore --wait 300` reports it `OK`, its journal says
   `started <name> fresh`, and the session is past its SSH key unlock with no prompt.
 

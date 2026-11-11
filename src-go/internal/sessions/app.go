@@ -45,6 +45,8 @@ const (
 	containerWorkspace = ccyenv.Workspace
 	// cmdReboot names the reboot subcommand, and the systemctl verb it ends in.
 	cmdReboot = "reboot"
+	// cmdDeclare names the subcommand that writes a record for a session that is not running.
+	cmdDeclare = "declare"
 	// flagDryRun is the flag that says what would be done and does none of it.
 	flagDryRun = "--dry-run"
 	// maxTries is how many refused picks end the picker.
@@ -210,7 +212,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore":
+	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -339,6 +341,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.setGoing(ctx, rest)
 	case "verify-restore":
 		return a.verifyRestore(ctx, rest)
+	case cmdDeclare:
+		return a.declareSession(ctx, rest)
 	case "-l", "--list":
 		return a.list(ctx)
 	default:
