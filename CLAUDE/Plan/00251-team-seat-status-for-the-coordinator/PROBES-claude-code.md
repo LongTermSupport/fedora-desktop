@@ -66,7 +66,7 @@ Each fact is what the docs say; "not stated" marks a gap the live probes must cl
   `docs/guides/SESSION_STATE_CONTRACT.md`. A consumer pins major 1, ignores unknown fields and
   refuses an unknown major. `resets_at` is optional: it is joined at read time from the usage
   snapshot and is absent when none is live. One call costs about 25 ms, so it can run on every
-  hook edge. Until that release is installed, a seat reads `mode-history --json --session`. Until it lands, a seat reads `mode-history --json --session` and
+  hook edge. Until that release is installed, a seat reads `mode-history --json --session`, and
   never the files.
 
 ## What the live probes must still settle
