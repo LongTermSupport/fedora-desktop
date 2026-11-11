@@ -57,10 +57,16 @@ Each fact is what the docs say; "not stated" marks a gap the live probes must cl
   happened and when it cleared), with no reset time. The reset times are held apart, from the
   status line's `rate_limits`, and must be joined to the stop; whether that join is reliable is
   the first task of the daemon's own plan.
-- A single `session-state --json` read (modes, the last turn edge with its StopFailure error,
-  the usage windows, the usage pause), ideally streamed on change, does not exist yet; it is the
-  daemon's Plan 00601 (session state contract and schemas), with a versioned JSON Schema the
-  daemon validates its own output against. Until it lands, a seat reads `mode-history --json --session` and
+- The daemon's Plan 00601 adds the read the seat needs, on its main and reaching an install with
+  its next release: `hooks-daemon session-state --json --session ID` (modes, the last turn edge
+  with its StopFailure error, the usage windows, the usage pause) and `--watch` (one JSON line
+  per change). Its JSON Schemas (2020-12) ship in the package under
+  `claude_code_hooks_daemon/schemas/` (`session-state`, `session-state-watch`, `mode-history`),
+  each with a versioned `$id` and `schema_version` 1.0.0; the contract is the daemon's
+  `docs/guides/SESSION_STATE_CONTRACT.md`. A consumer pins major 1, ignores unknown fields and
+  refuses an unknown major. `resets_at` is optional: it is joined at read time from the usage
+  snapshot and is absent when none is live. One call costs about 25 ms, so it can run on every
+  hook edge. Until that release is installed, a seat reads `mode-history --json --session`. Until it lands, a seat reads `mode-history --json --session` and
   never the files.
 
 ## What the live probes must still settle
