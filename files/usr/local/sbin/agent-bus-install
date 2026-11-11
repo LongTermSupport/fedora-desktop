@@ -472,7 +472,7 @@ cmd_software() {
     local kit_src=$files/opt/claude-yolo/optional/agent-bus
     local need kit_rel=${kit_src#"$source/"}
     for need in helpers/pingbus/bundle.py files/usr/local/bin/agent-bus files/usr/local/sbin/agent-bus-install \
-        files/usr/local/share/agent-bus/tuwunel.pin files/usr/local/share/agent-bus/resolv.conf \
+        files/usr/local/share/agent-bus/tuwunel.pin files/usr/local/share/agent-bus/resolve/{stub-resolv,resolv}.conf \
         "${KIT_FILES[@]/#/$kit_rel/}"; do
         [[ -f $source/$need ]] || die "$EXIT_CONFIG" "--source $source holds no $need: not a fedora-desktop checkout"
     done
@@ -488,11 +488,13 @@ cmd_software() {
     ensure_user
     ensure_dir "$STATE_ROOT" 0700 "$SVC_OWNER" "$SVC_GROUP"
     ensure_dir "$INSTALL_STATE_ROOT" 0700 "$ROOT_OWNER" "$ROOT_GROUP"
-    for dir in "$LIB_DIR" "$SHARE_DIR" "$KIT_DIR"; do
+    for dir in "$LIB_DIR" "$SHARE_DIR" "$SHARE_DIR/resolve" "$KIT_DIR"; do
         ensure_dir "$dir" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     done
-    put_file "tuwunel.pin" "$files/usr/local/share/agent-bus/tuwunel.pin" "$SHARE_DIR/tuwunel.pin" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
-    put_file "resolver stub" "$files/usr/local/share/agent-bus/resolv.conf" "$SHARE_DIR/resolv.conf" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    # The pin, and the resolver stub under both names: the unit binds resolve/ over
+    # /run/systemd/resolve, because a file cannot be bound into a read-only tmpfs.
+    for need in tuwunel.pin resolve/stub-resolv.conf resolve/resolv.conf; do put_file "$need" \
+        "$files/usr/local/share/agent-bus/$need" "$SHARE_DIR/$need" 0644 "$ROOT_OWNER" "$ROOT_GROUP"; done
     install_tuwunel
     build_zipapps "$source"
     put_symlink "pingbus command" ../lib/agent-bus/pingbus.pyz "$BIN_DIR/pingbus"

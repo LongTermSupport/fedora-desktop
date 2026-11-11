@@ -304,14 +304,15 @@ def log_findings(text: str) -> list[str]:
 def unit_properties(
     port: int,
     addresses: list[str],
-    binary: str,
-    toml: str,
-    secret: str,
-    stub: str,
+    inputs: str,
+    resolver: str,
     notify: bool,
 ) -> list[str]:
     """DESIGN.md section 3.5's sandbox for a transient probe unit (DynamicUser stands in for
-    the agent-bus user, which U16 creates)."""
+    the agent-bus user, which U16 creates). inputs holds tuwunel, tuwunel.toml and
+    registration_shared_secret; resolver holds the stub as stub-resolv.conf and resolv.conf.
+    Each is a directory bound whole: systemd cannot make a file mount point inside a read-only
+    tmpfs (tmpfs-file-bind, CLAUDE/QA.md)."""
     allow = ["127.0.0.1/32", "::1/128"]
     for address in addresses:
         parsed = ipaddress.ip_address(address)
@@ -323,10 +324,7 @@ def unit_properties(
         "DynamicUser=yes",
         f"RuntimeDirectory={UNIT_RUNTIME_DIR}",
         f"Environment=TUWUNEL_CONFIG={UNIT_INPUT_DIR}/tuwunel.toml",
-        f"TemporaryFileSystem={UNIT_INPUT_DIR}:ro",
-        f"BindReadOnlyPaths={binary}:{UNIT_INPUT_DIR}/tuwunel",
-        f"BindReadOnlyPaths={toml}:{UNIT_INPUT_DIR}/tuwunel.toml",
-        f"BindReadOnlyPaths={secret}:{UNIT_INPUT_DIR}/registration_shared_secret",
+        f"BindReadOnlyPaths={inputs}:{UNIT_INPUT_DIR}",
         "TimeoutStartSec=90",
         "TimeoutStopSec=330",
         "NoNewPrivileges=yes",
@@ -343,9 +341,7 @@ def unit_properties(
         "IPAccounting=yes",
         "IPAddressDeny=any",
         "IPAddressAllow=" + " ".join(allow),
-        "TemporaryFileSystem=/run/systemd/resolve:ro",
-        f"BindReadOnlyPaths={stub}:/run/systemd/resolve/stub-resolv.conf",
-        f"BindReadOnlyPaths={stub}:/run/systemd/resolve/resolv.conf",
+        f"BindReadOnlyPaths={resolver}:/run/systemd/resolve",
         "InaccessiblePaths=-/run/dbus",
     ]
 
@@ -1410,11 +1406,19 @@ def leg_h3_unit(args: argparse.Namespace, report: Report) -> None:
     )
     secret = unit_dir / "registration_shared_secret"
     secret.write_text(secrets.token_hex(64), encoding="ascii")
-    stub = unit_dir / "resolv.conf"
-    stub.write_text("nameserver 127.0.0.1\n", encoding="ascii")
-    for path in (toml, secret, stub):
+    unit_binary = unit_dir / "tuwunel"
+    shutil.copyfile(binary, unit_binary)
+    unit_binary.chmod(0o755)
+    resolver = unit_dir / "resolve"
+    resolver.mkdir(exist_ok=True)
+    stubs = [resolver / name for name in ("stub-resolv.conf", "resolv.conf")]
+    for stub in stubs:
+        stub.write_text("nameserver 127.0.0.1\n", encoding="ascii")
+    for path in (toml, secret, *stubs):
         path.chmod(0o644)  # throwaway inputs the unit's dynamic user must read
-    paths = (str(binary), str(toml), str(secret), str(stub))
+    for directory in (unit_dir, resolver):
+        directory.chmod(0o755)  # bound whole over /mnt and /run/systemd/resolve
+    paths = (str(unit_dir), str(resolver))
     unit = f"agent-bus-probe-{secrets.token_hex(4)}"
     facts: list[list[object]] = []
 

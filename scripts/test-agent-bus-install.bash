@@ -68,11 +68,11 @@ RC=0
 # ---------------------------------------------------------------- the source tree
 # A copy of what `software --source` reads, with a pin whose hash is the fixture asset's.
 SOURCE="$SCRATCH/source"
-mkdir -p "$SOURCE/helpers" "$SOURCE/files/usr/local/share/agent-bus" \
+mkdir -p "$SOURCE/helpers" "$SOURCE/files/usr/local/share/agent-bus/resolve" \
     "$SOURCE/files/etc/systemd/system" "$SOURCE/files/usr/local/bin" "$SOURCE/files/usr/local/sbin"
 cp -r "$REPO_ROOT/helpers/pingbus" "$REPO_ROOT/helpers/agent_bus" "$SOURCE/helpers/"
 cp "$REPO_ROOT"/files/etc/systemd/system/agent-bus-* "$SOURCE/files/etc/systemd/system/"
-cp "$REPO_ROOT/files/usr/local/share/agent-bus/resolv.conf" "$SOURCE/files/usr/local/share/agent-bus/"
+cp "$REPO_ROOT"/files/usr/local/share/agent-bus/resolve/*.conf "$SOURCE/files/usr/local/share/agent-bus/resolve/"
 cp "$REPO_ROOT/files/usr/local/bin/agent-bus" "$SOURCE/files/usr/local/bin/"
 mkdir -p "$SOURCE/files/opt/claude-yolo/optional"
 cp -r "$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus" "$SOURCE/files/opt/claude-yolo/optional/"
@@ -452,7 +452,9 @@ for unit in agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.ti
     agent-bus-hs-health@.service agent-bus-hs-health@.timer; do
     check "unit $unit is installed 0644" "644" "$(mode "$ROOT/etc/systemd/system/$unit")"
 done
-check "the resolver stub is installed" "nameserver 127.0.0.1" "$(grep -v '^#' "$ROOT/usr/local/share/agent-bus/resolv.conf")"
+for name in stub-resolv.conf resolv.conf; do
+    check "the resolver stub is installed as $name" "nameserver 127.0.0.1" "$(grep -v '^#' "$ROOT/usr/local/share/agent-bus/resolve/$name")"
+done
 check "the pin is installed" "yes" "$(same "$ROOT/usr/local/share/agent-bus/tuwunel.pin" "$SOURCE/files/usr/local/share/agent-bus/tuwunel.pin")"
 check "/var/lib/agent-bus is 0700" "700" "$(mode "$ROOT/var/lib/agent-bus")"
 check "the asset was downloaded once" "1" "$(count '^curl .*releases/download/v1.9.3/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst' "$(LOG)")"
@@ -875,9 +877,8 @@ check "the binary runs once with --restore-backup as agent-bus" "yes" \
 check "  as a collected transient unit" "yes" "$(says '^systemd-run --unit=agent-bus-restore-alpha.service --collect ' "$(LOG)")"
 for property in NoNewPrivileges=yes ProtectSystem=strict ReadWritePaths=/var/lib/agent-bus/alpha \
     SocketBindDeny=any IPAddressDeny=any 'IPAddressAllow=127.0.0.1/32 ::1/128' SocketBindAllow=tcp:8448 \
-    TemporaryFileSystem=/run/systemd/resolve:ro \
     TemporaryFileSystem=/var/lib/agent-bus:ro BindPaths=/var/lib/agent-bus/alpha PrivatePIDs=yes \
-    BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/resolv.conf \
+    BindReadOnlyPaths=/usr/local/share/agent-bus/resolve:/run/systemd/resolve \
     Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/alpha/tuwunel.toml; do
     check "  under the homeserver's sandbox: $property" "1" "$(grep -cF -- "--property=$property " "$(LOG)")"
 done

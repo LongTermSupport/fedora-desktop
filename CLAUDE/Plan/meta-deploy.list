@@ -109,6 +109,15 @@
 # process: `systemctl --user list-timers teamchat-seats.timer --no-pager | cat` shows the timer,
 # and `systemctl --user status teamchat-seats.service --no-pager | cat` says the condition was
 # not met. No image rebuild.
+# And the resolver bind (tmpfs-file-bind, ccy 3.118.5, container 2.84.4): play-teamchat.yml, where
+# it has run, makes /usr/local/share/teamchat/resolve (0755) holding stub-resolv.conf and
+# resolv.conf, rewrites teamchat-server@.service to bind that directory over /run/systemd/resolve
+# (no TemporaryFileSystem= line), removes the old /usr/local/share/teamchat/resolv.conf and
+# reloads systemd; a team's homeserver then starts instead of exiting 226/NAMESPACE.
+# play-agent-bus.yml re-runs agent-bus-install software, which installs the v1 stub under
+# /usr/local/share/agent-bus/resolve/ and the same directory bind in agent-bus-hs@.service; the
+# v1 homeservers pick it up at their next restart. play-claude-yolo.yml rebuilds the image once
+# for its new teamchat.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)

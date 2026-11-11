@@ -289,12 +289,20 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 IPAccounting=yes
 IPAddressDeny=any
 SocketBindDeny=any
-TemporaryFileSystem=/run/systemd/resolve:ro
-BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
-BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
+BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 ```
+
+No resolver: on Fedora `/etc/resolv.conf` is a symlink into `/run/systemd/resolve/`, so the
+directory `paths.ResolverDir` (`/usr/local/share/teamchat/resolve`, root 0755, made by the play)
+is bound read-only over that whole directory. It holds `stub-resolv.conf` and `resolv.conf`, both
+the stub (`nameserver 127.0.0.1`, where nothing listens and which the IP filter allows only on
+loopback). It is a directory, not a read-only `TemporaryFileSystem=` with the stub file bound onto
+each name: systemd cannot create a file mount point inside a read-only tmpfs (the first real run,
+systemd 259, exited 226/NAMESPACE with EACCES), and the rule `tmpfs-file-bind`
+(`internal/unitsandbox`, CLAUDE/QA.md) refuses that form in every unit the repository renders. The
+files keep the default label of `/usr/local/share` (`usr_t`), which a service may read.
 
 The second `InaccessiblePaths=` line is D 4.2's runtime confinement: the six places v1 keeps its
 state, so that a v1 path reached by mistake fails with EACCES instead of touching v1. The directive
@@ -666,7 +674,8 @@ and maybe no login user).
     pin cross-checks the hash against the checksum upstream publishes with the release (or its
     signature, if Tuwunel starts signing) before it writes the pin (security 15).
 07. Units: `teamchat-server@.service`, `teamchat-tls@.service`, `teamchat-health.{service,timer}`,
-    `teamchat-backup.{service,timer}`, the resolver stub, all 0644 root; one `daemon_reload` if any
+    `teamchat-backup.{service,timer}`, the resolver stub as `stub-resolv.conf` and `resolv.conf` in
+    `paths.ResolverDir` (made 0755 root with the other directories, 3.2.3), all 0644 root; one `daemon_reload` if any
     changed. The text of every one is Go's: the play runs the installed `teamchat-admin units list`
     (one line per file, its name and its install path) and `units print <name>`, and writes the
     output, so the bytes on the host are the bytes the unit gates judge. As the login user,

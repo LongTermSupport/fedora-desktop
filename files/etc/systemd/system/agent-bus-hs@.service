@@ -47,12 +47,12 @@ IPAccounting=yes
 IPAddressDeny=any
 SocketBindDeny=any
 
-# No resolver: /etc/resolv.conf is a symlink into /run/systemd/resolve/ on Fedora, so an
-# empty read-only tmpfs goes over that directory and the stub (nameserver 127.0.0.1, where
-# nothing listens) is bound onto both files a lookup could read. D-Bus is hidden too.
-TemporaryFileSystem=/run/systemd/resolve:ro
-BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/stub-resolv.conf
-BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/resolv.conf
+# No resolver: /etc/resolv.conf is a symlink into /run/systemd/resolve/ on Fedora, so a
+# directory holding the stub (nameserver 127.0.0.1, where nothing listens) under both names a
+# lookup could read is bound over that whole directory. Not a read-only tmpfs with the stub
+# bound onto each file: systemd cannot make a file mount point inside a read-only tmpfs
+# (226/NAMESPACE; tmpfs-file-bind in CLAUDE/QA.md). D-Bus is hidden too.
+BindReadOnlyPaths=/usr/local/share/agent-bus/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 
 [Install]
