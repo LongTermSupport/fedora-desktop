@@ -1,12 +1,13 @@
 package unitsandbox
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 // repo is the repository root, from this package's directory.
@@ -15,10 +16,10 @@ const repo = "../../.."
 // tmpfsKey is the directive whose presence makes a file one this rule reads.
 const tmpfsKey = "TemporaryFileSystem="
 
-// notUnits are the trees git does not publish (.git, the untracked scratch, the hooks daemon's
-// own install, dependencies) and src-go, whose renderers are judged on what they render
-// (goRenderers). Plan folders' probes and tests are swept: a probe starts transient units.
-var notUnits = []string{".git", ".claude", "untracked", "node_modules", "src-go"}
+// notUnits are the top-level tracked trees that hold no unit text: .claude (agent and daemon
+// configuration) and src-go, whose renderers are judged on what they render (goRenderers). Plan
+// folders' probes and tests are swept: a probe starts transient units.
+var notUnits = []string{".claude", "src-go"}
 
 // knownDirectories are the bind sources the sweep finds that the repository does not ship under
 // files/, each a directory and who makes it.
@@ -62,43 +63,58 @@ func openRoot(t *testing.T, dir string) *os.Root {
 	return root
 }
 
+// trackedFiles is every file git tracks in the repository, slash-separated from its root: the
+// sweeps judge what the repository publishes, never what a run left on disk (an ignored cache
+// another uid wrote is unreadable here and ships nowhere). The checkout may belong to another uid
+// than the test's, which git refuses unless told the directory is safe.
+func trackedFiles(t *testing.T) []string {
+	t.Helper()
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (execx.OS{}).Run(t.Context(), execx.Cmd{Name: "git", Args: []string{"-c", "safe.directory=" + abs, "-C", abs, "ls-files", "-z"}})
+	if err != nil {
+		t.Fatalf("git ls-files in %s: %v", abs, err)
+	}
+	out := strings.Split(strings.TrimSuffix(string(res.Stdout), "\x00"), "\x00")
+	if len(out) == 0 || out[0] == "" {
+		t.Fatalf("git tracks no file in %s", abs)
+	}
+	return out
+}
+
+// regularFile is whether rel is a regular file in root; a tracked symlink is not read through.
+func regularFile(t *testing.T, root *os.Root, rel string) bool {
+	t.Helper()
+	info, err := root.Lstat(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().IsRegular()
+}
+
 // The sweep: every unit text the repository ships outside src-go (files/, playbooks/, tasks/ and
 // the rest), wherever it sets a TemporaryFileSystem=.
 func TestNoShippedUnitBindsAFileInsideATmpfs(t *testing.T) {
 	root := openRoot(t, repo)
 	judged := 0
-	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(repo, path)
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if slices.Contains(notUnits, rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() || strings.HasSuffix(rel, ".md") {
-			return nil
+	for _, rel := range trackedFiles(t) {
+		inTree := func(tree string) bool { return strings.HasPrefix(rel, tree+"/") }
+		if slices.ContainsFunc(notUnits, inTree) || strings.HasSuffix(rel, ".md") || !regularFile(t, root, rel) {
+			continue
 		}
 		data, err := root.ReadFile(rel)
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
 		if !strings.Contains(string(data), tmpfsKey) {
-			return nil
+			continue
 		}
 		judged++
 		for _, f := range Check(string(data), kindInRepo) {
 			t.Errorf("%s: %s", rel, f)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	if judged == 0 {
 		t.Fatal("the sweep judged no file: it proved nothing")
@@ -107,35 +123,19 @@ func TestNoShippedUnitBindsAFileInsideATmpfs(t *testing.T) {
 
 // Every Go file that writes TemporaryFileSystem= is one whose rendered units a test judges.
 func TestEveryGoRendererIsJudged(t *testing.T) {
-	dir := filepath.Join(repo, "src-go")
-	root := openRoot(t, dir)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	root := openRoot(t, repo)
+	for _, path := range trackedFiles(t) {
+		rel, ok := strings.CutPrefix(path, "src-go/")
+		if !ok || !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") || rel == "internal/unitsandbox/unitsandbox.go" ||
+			strings.HasPrefix(rel, "vendor/") || strings.Contains(rel, "/testdata/") || !regularFile(t, root, path) {
+			continue
+		}
+		data, err := root.ReadFile(path)
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == "vendor" || d.Name() == "testdata" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") || rel == "internal/unitsandbox/unitsandbox.go" {
-			return nil
-		}
-		data, err := root.ReadFile(rel)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(string(data), tmpfsKey) && !slices.Contains(goRenderers, filepath.ToSlash(rel)) {
+		if strings.Contains(string(data), tmpfsKey) && !slices.Contains(goRenderers, rel) {
 			t.Errorf("%s writes %s but no test judges what it renders: add one that calls Check, and list it in goRenderers", rel, tmpfsKey)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
