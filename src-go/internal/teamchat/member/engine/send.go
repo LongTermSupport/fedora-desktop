@@ -318,20 +318,25 @@ func members(r proto.Roster, server, name string) []string {
 	return ids
 }
 
-// send is a resolved send's steps 3 to 8 (A 9.3's order, SD3): the team's stop, the compose,
-// the addressee bound, the forge check, the charge in one store write, and the answer: queued
-// at once for a down team or behind older sends, else posted or queued by the deadline.
-func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose composeFunc, out RecordWriter) wire.Done {
+// composedSend is a send's steps 3 to 5: its composer, its composition and its `sending` entry.
+type composedSend struct {
+	c     proto.Composer
+	o     proto.Outgoing
+	entry state.Sending
+}
+
+// composeSend is a send's team stop, compose, store size and addressee bound; false with the
+// answer when one refuses it. ending is the answer for an engine that did not answer in time.
+func (e *Engine) composeSend(ctx context.Context, st sendTeam, kind string, compose composeFunc, ending func() wire.Done) (composedSend, wire.Done, bool) {
 	var (
-		lk     storeLookup
-		lkErr  error
-		ending = func() wire.Done { return doneOf(exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))) }
+		lk    storeLookup
+		lkErr error
 	)
 	if err := e.do(ctx, func() { lk, lkErr = e.sendable(st.id) }); err != nil {
-		return ending()
+		return composedSend{}, ending(), false
 	}
 	if lkErr != nil {
-		return doneOf(lkErr)
+		return composedSend{}, doneOf(lkErr), false
 	}
 	c := proto.Composer{
 		Server: st.anchors.Server, Self: st.self, Token: st.tm.Notices().Token(), Roster: st.roster,
@@ -339,34 +344,44 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 	}
 	o, err := compose(c)
 	if err != nil {
-		return doneOf(refusal(st.id, err))
+		return composedSend{}, doneOf(refusal(st.id, err)), false
 	}
-	entry, err := sendingOf(kind, o, st.roster.Limits)
-	if err != nil {
-		return internal(err)
+	entry, d, ok := fitEntry(st, kind, o)
+	if !ok {
+		return composedSend{}, d, false
 	}
-	// A content within A's cap whose `<`, `>` or `&` make its entry too large for the store is
-	// refused as the composer refuses an over-size content, before anything is spent (n3d-D1).
-	switch err := entry.Fits(); {
-	case errors.Is(err, state.ErrTooLarge):
-		return doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize}))
-	case err != nil:
-		return internal(err)
+	return composedSend{c: c, o: o, entry: entry}, wire.Done{}, true
+}
+
+// send is a resolved send's steps 3 to 8 (A 9.3's order, SD3): the team's stop, the compose,
+// the addressee bound, the forge check, the charge in one store write, and the answer: queued
+// at once for a down team or behind older sends, else posted or queued by the deadline.
+func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose composeFunc, out RecordWriter) wire.Done {
+	ending := func() wire.Done { return doneOf(exits.New(exits.CodeTimedOut, &st.id, msgTimedOut, exits.Team(st.id))) }
+	cs, d, ok := e.composeSend(ctx, st, kind, compose, ending)
+	if !ok {
+		return d
 	}
-	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
-		return doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets)))
-	}
+	c, o, entry := cs.c, cs.o, cs.entry
 	if o.Forge != nil {
 		if d, refused := e.forgeCheck(ctx, st, *o.Forge); refused {
 			return d
 		}
+	}
+	queueAtOnce := false
+	if kind == state.SendReport {
+		d, verdict := e.reportsRoomOK(ctx, st)
+		if verdict == reportsRefused {
+			return d
+		}
+		queueAtOnce = verdict == reportsUnknown
 	}
 	var (
 		wait      chan sendResult
 		queuedNow bool
 		chargeErr error
 	)
-	if err := e.do(ctx, func() { wait, queuedNow, chargeErr = e.charge(st, c, o, &entry) }); err != nil {
+	if err := e.do(ctx, func() { wait, queuedNow, chargeErr = e.charge(st, c, o, &entry, queueAtOnce) }); err != nil {
 		return ending()
 	}
 	if chargeErr != nil {
@@ -378,34 +393,55 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 	}
 	failpoint.Hit(failpoint.LinkAfterChargeBeforeSend)
 	if queuedNow {
-		return answerSent(out, st.id, nil)
+		return answerSent(out, st.id, entry.Room, nil)
 	}
-	return e.awaitSend(ctx, out, st.id, entry.Txn, wait)
+	return e.awaitSend(ctx, out, st.id, entry, wait)
+}
+
+// fitEntry is a composed send's store entry, or its refusal before anything is spent: a content
+// within A's cap whose `<`, `>` or `&` make its entry too large for the store is refused as the
+// composer refuses an over-size content (n3d-D1), and a ping past its addressee bound.
+func fitEntry(st sendTeam, kind string, o proto.Outgoing) (state.Sending, wire.Done, bool) {
+	entry, err := sendingOf(kind, o, st.roster.Limits)
+	if err != nil {
+		return state.Sending{}, internal(err), false
+	}
+	switch err := entry.Fits(); {
+	case errors.Is(err, state.ErrTooLarge):
+		return state.Sending{}, doneOf(refusal(st.id, &proto.RefusalError{Reason: proto.ReasonSize})), false
+	case err != nil:
+		return state.Sending{}, internal(err), false
+	}
+	if kind == state.SendPing && len(contentTo(o.Content)) > state.MaxPingTargets {
+		return state.Sending{}, doneOf(exits.New(exits.CodeUsage, &st.id, msgTooMany, exits.Count(state.MaxPingTargets))), false
+	}
+	return entry, wire.Done{}, true
 }
 
 // awaitSend is a charged send's answer: posted when the sender answers by ctx's end, else queued.
-func (e *Engine) awaitSend(ctx context.Context, out RecordWriter, t paths.TeamID, txn string, wait chan sendResult) wire.Done {
+func (e *Engine) awaitSend(ctx context.Context, out RecordWriter, t paths.TeamID, entry state.Sending, wait chan sendResult) wire.Done {
 	select {
 	case r := <-wait:
-		return e.answerResult(out, t, r)
+		return e.answerResult(out, t, entry.Room, r)
 	case <-ctx.Done():
 	}
-	if r, ok := e.unwait(context.WithoutCancel(ctx), t, txn, wait); ok {
-		return e.answerResult(out, t, r)
+	if r, ok := e.unwait(context.WithoutCancel(ctx), t, entry.Txn, wait); ok {
+		return e.answerResult(out, t, entry.Room, r)
 	}
-	return answerSent(out, t, nil)
+	return answerSent(out, t, entry.Room, nil)
 }
 
-func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, r sendResult) wire.Done {
+func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, room string, r sendResult) wire.Done {
 	if r.err != nil {
 		return doneOf(r.err)
 	}
-	return answerSent(out, t, &r.id)
+	return answerSent(out, t, room, &r.id)
 }
 
-// answerSent is the sent record: the event id, or null for a send the link holds.
-func answerSent(out RecordWriter, t paths.TeamID, id *string) wire.Done {
-	if err := out.Record(records.Sent{Team: t, ID: id, Room: proto.PurposeMain, Queued: id == nil}); err != nil {
+// answerSent is the sent record: the event id, or null for a send the link holds, and the room
+// it goes to.
+func answerSent(out RecordWriter, t paths.TeamID, room string, id *string) wire.Done {
+	if err := out.Record(records.Sent{Team: t, ID: id, Room: room, Queued: id == nil}); err != nil {
 		return internal(err)
 	}
 	if err := out.Flush(); err != nil {
@@ -540,7 +576,7 @@ func sendingOf(kind string, o proto.Outgoing, l proto.Limits) (state.Sending, er
 		return state.Sending{}, fmt.Errorf("engine: draw a transaction id: %w", err)
 	}
 	s := state.Sending{
-		Txn: "tc" + hex.EncodeToString(b), Room: proto.PurposeMain, Kind: kind, Type: proto.MessageType,
+		Txn: "tc" + hex.EncodeToString(b), Room: o.Purpose, Kind: kind, Type: proto.MessageType,
 		Content: o.Content.Compact(),
 	}
 	if kind != state.SendPing {
@@ -576,7 +612,7 @@ func contentTo(content proto.Value) []string {
 // and Admit run, then in one store write the gate and the entry; nothing is written on a
 // refusal. It is the channel the sender answers on, or queued true when the send waits behind
 // a down team, older sends or the run's recovery (n3d-D19).
-func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *state.Sending) (chan sendResult, bool, error) {
+func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *state.Sending, queueAtOnce bool) (chan sendResult, bool, error) {
 	h := e.teams[st.id]
 	if h == nil || h.removed {
 		return nil, false, exits.New(exits.CodeUsage, &st.id, msgNotHeld, exits.Team(st.id))
@@ -593,17 +629,11 @@ func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *
 			return false, exits.New(exits.CodeStore, &st.id, msgOutboxFull, exits.Team(st.id), exits.Count(state.MaxPings))
 		}
 		now := e.cfg.Clock.WallMS()
-		key := o.DuplicateKey()
-		gate := sendGate(s.Outbox.Gate, key, now)
-		c.Gate, c.NowMs = &gate, now
-		if err := c.Admit(o); err != nil {
-			return false, refusal(st.id, err)
-		}
-		if err := storeGate(s, gate, key, now); err != nil {
+		if err := spend(st.id, c, o, s, now); err != nil {
 			return false, err
 		}
 		older := len(s.Outbox.Sending) > 0
-		queuedNow = h.health.Down || older || !h.recovered
+		queuedNow = h.health.Down || older || !h.recovered || queueAtOnce
 		entry.SinceMS = now
 		entry.Tried = h.recovered && !queuedNow
 		if err := s.AddSending(*entry); err != nil {
@@ -621,6 +651,29 @@ func (e *Engine) charge(st sendTeam, c proto.Composer, o proto.Outgoing, entry *
 	wait := make(chan sendResult, 1)
 	h.waiting[entry.Txn] = wait
 	return wait, false, nil
+}
+
+// spend is Admit over the store's budgets: the gate built from the outbox and, for a report, the
+// window seeded from outbox.reports (n3f-D6). Both go back into s, in the one write the charge
+// makes, only when the send is admitted; a refusal changes nothing.
+func spend(t paths.TeamID, c proto.Composer, o proto.Outgoing, s *state.Store, now int64) error {
+	key := o.DuplicateKey()
+	gate := sendGate(s.Outbox.Gate, key, now)
+	c.Gate, c.NowMs = &gate, now
+	window := proto.SeedWindow(c.Self, s.Outbox.Reports)
+	if o.Purpose == proto.PurposeReports {
+		c.Reports = &window
+	}
+	if err := c.Admit(o); err != nil {
+		return admitRefusal(t, err, c, &window, now)
+	}
+	if err := storeGate(s, gate, key, now); err != nil {
+		return err
+	}
+	if c.Reports != nil {
+		s.Outbox.Reports = window.Within(c.Self, proto.ReportWindowMs, now)
+	}
+	return nil
 }
 
 // ownPings are the answer-expecting pings in the outbox and in flight.

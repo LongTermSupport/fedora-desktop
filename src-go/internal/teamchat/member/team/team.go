@@ -41,6 +41,21 @@ type Batch struct {
 	// HeldBack is B 2.7.3's delivery budget: agent sender user id -> the items over its
 	// budget in this batch, which never entered pending (n3e-D1).
 	HeldBack map[string]int64
+	// Questions is the `questions` key as the questions room's fold leaves it (QX5, n3f-D19): an
+	// answer's SY5 write whose filter held the room and whose questions timeline was folded, or a
+	// QX1 page's write. Nil leaves the key as it was, which is every other write's.
+	Questions *proto.QuestionsState
+	// DropQuestions is QS9's demotion: the questions room's pending and handed items, the index
+	// key, `reminded_ms`, `remind_late` and the three questions keys of the outbox dropped in
+	// this one write, and a `sending` questions post with them. It excludes Questions.
+	DropQuestions bool
+	// Page is a QX1 page's write, made beside the team's sync: its items, floors and key are
+	// written, and the store's position (next_batch, restore epoch, fresh) stays as the sync left
+	// it, whatever NextBatch holds.
+	Page bool
+	// Handover sets `outbox.questions_handover`, the ready line owed (QX1): the first page write of
+	// a build begun with no `questions` key.
+	Handover bool
 }
 
 // Answer is an answer-form event to an own ping: From answered Ping with Verb in event ID, at
@@ -132,6 +147,32 @@ type Health struct {
 	Colour      *string
 	Description *string
 	Coordinator *string
+	// Questions is the questions room as this member stands to it (QS2, QS8), the zero value
+	// for a member that is not the coordinator.
+	Questions QuestionsHealth
+}
+
+// The states of the questions room for a coordinator (the `room` record's `state` and `check`).
+const (
+	// QuestionsAwaitingInvite is a join refused with 403: not invited yet (QS2).
+	QuestionsAwaitingInvite = "awaiting-invite"
+	// QuestionsLeft is this member's own leave or a kick, the roster still naming it (QS8).
+	QuestionsLeft = "left"
+	// QuestionsBuilding is a room joined and verified whose index is not at the head (QX1).
+	QuestionsBuilding = "building"
+	// QuestionsReady is a room joined, verified and its index at the head.
+	QuestionsReady = "ready"
+	// QuestionsUntrusted is a room that fails its check, or an invite still absent after 300 s.
+	QuestionsUntrusted = "untrusted"
+	// CheckInvite is the check an invite absent for 300 s fails (QS2).
+	CheckInvite = "invite"
+)
+
+// QuestionsHealth is the questions room's state on the team goroutine: State is one of the
+// Questions constants, "" while this member is not the roster's non-parked coordinator, and Check
+// the check an untrusted room fails.
+type QuestionsHealth struct {
+	State, Check string
 }
 
 // ErrRemoved is a write for a team the engine has removed.
@@ -196,6 +237,32 @@ type Team interface {
 	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
 	// engine's state goroutine calls it.
 	FloorRaised(floor int64)
+	// VerifyReports is RP4, at a `report` and again at the sender before a queued report is
+	// posted: the join tried when this member is not in the reports room (RP1), then the room's
+	// state read and judged against main's verified roster. Nil is a room that verifies; an
+	// *exits.Error of code forbidden or untrusted is a refusal, which the room's state records;
+	// any other error is transient (the homeserver did not answer, or main has not been
+	// verified yet), and a send queues. It makes the team's requests, so it is not for the
+	// engine's state goroutine.
+	VerifyReports(ctx context.Context) error
+	// ReportsRoom is the reports room's state as the team last found it, from memory, for status.
+	ReportsRoom() ReportsRoom
+}
+
+// The states of a reports room (SPEC-n3f RP1, RP4): its join is not answered yet, it is joined
+// and verified or not yet checked, its join was refused, or it fails a check.
+const (
+	ReportsJoining   = "joining"
+	ReportsJoined    = "joined"
+	ReportsRefused   = "refused"
+	ReportsUntrusted = "untrusted"
+)
+
+// ReportsRoom is a reports room's state. Check is the errcode of a refused join, or the check an
+// untrusted room failed; "" for any other state.
+type ReportsRoom struct {
+	State string
+	Check string
 }
 
 // Notices is the matrix calls the ends make, on the team's client.

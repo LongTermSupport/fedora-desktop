@@ -24,10 +24,12 @@ const (
 	trustUnverified = "unverified"
 )
 
-// The states a room record shows: the roster names the room, or not yet.
+// The states a room record shows beside the team's own (team.Questions*, the reports room's):
+// joined, the roster names no such room, or (questions) this member does not coordinate it.
 const (
-	roomJoined = "joined"
-	roomAbsent = "absent"
+	roomJoined         = "joined"
+	roomAbsent         = "absent"
+	roomNotCoordinator = "not-coordinator"
 )
 
 // failures maps the exits code that stopped a team to status.json's closed set; a stop the set
@@ -321,14 +323,45 @@ func memberRecords(v teamView, roster proto.Roster, server string) []records.Rec
 		out = append(out, records.Member{Team: v.id, Handle: hd.String(), Role: roster.Members[id].Role, Present: id == v.userID})
 	}
 	out = append(out, records.Room{Team: v.id, Purpose: proto.PurposeMain, State: roomJoined})
-	for _, r := range []struct{ purpose, id string }{
-		{proto.PurposeQuestions, roster.Rooms.Questions}, {proto.PurposeReports, roster.Rooms.Reports},
-	} {
-		st := roomAbsent
-		if r.id != "" {
-			st = roomJoined
-		}
-		out = append(out, records.Room{Team: v.id, Purpose: r.purpose, State: st})
+	out = append(out, questionsRoomRecord(v, roster))
+	return append(out, reportsRoomRecord(v, roster))
+}
+
+// questionsRoomRecord is the questions room's record (section 6; QS2, QS8, QX1): the team's own
+// reading of the room (Health.Questions), `ready` shown as `joined`; `not-coordinator` while
+// this member does not coordinate it, and `absent` while the roster names none.
+func questionsRoomRecord(v teamView, roster proto.Roster) records.Room {
+	rec := records.Room{Team: v.id, Purpose: proto.PurposeQuestions, State: roomAbsent}
+	if roster.Rooms.Questions == "" {
+		return rec
 	}
-	return out
+	q := v.health.Questions
+	switch q.State {
+	case "":
+		rec.State = roomNotCoordinator
+	case team.QuestionsReady:
+		rec.State = roomJoined
+	default:
+		rec.State = q.State
+	}
+	if q.Check != "" {
+		rec.Check = &q.Check
+	}
+	return rec
+}
+
+// reportsRoomRecord is the reports room's record (RP1, RP4): the team's own reading of the
+// room, from memory; check is the errcode of a refused join or the check an untrusted room
+// failed. A roster that names no reports room has none.
+func reportsRoomRecord(v teamView, roster proto.Roster) records.Room {
+	rec := records.Room{Team: v.id, Purpose: proto.PurposeReports, State: roomAbsent}
+	if roster.Rooms.Reports == "" {
+		return rec
+	}
+	rr := v.tm.ReportsRoom()
+	rec.State = rr.State
+	if rr.Check != "" {
+		rec.Check = &rr.Check
+	}
+	return rec
 }

@@ -76,7 +76,7 @@ func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	want := []string{
 		"hook", "status-line",
 		"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach",
-		"tls", "reply", "say", "ping",
+		"tls", "reply", "say", "ping", "report",
 	}
 	if got := Outside(); !slices.Equal(got, want) {
 		t.Fatalf("Outside() = %q", got)
@@ -87,10 +87,11 @@ func TestOutsideAreTheHooksN3csVerbsAndTheSends(t *testing.T) {
 	}
 }
 
-// The unbuilt list as n3e leaves it; n3f removes the rest.
+// The unbuilt list as n3f-b leaves it, `report` built (wired outside cli); n3f-d removes the
+// rest.
 func TestUnbuiltAreTheLaterSlices(t *testing.T) {
 	want := map[string]string{
-		"report": "n3f", "ask": "n3f", "thread": "n3f", "questions": "n3f",
+		"ask": "n3f", "thread": "n3f", "questions": "n3f",
 	}
 	for name, slice := range want {
 		if unbuilt[name] != slice {

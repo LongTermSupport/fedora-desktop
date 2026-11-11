@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/teamsync"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -183,6 +184,17 @@ func TestTheTeamsConfigCarriesTheEnginesTeamConfig(t *testing.T) {
 		got.Clock != f.cfg.Clock || got.Log != f.cfg.Log || !got.Plain ||
 		!slices.Equal(got.RemovedUserIDs, f.cfg.RemovedUserIDs) || got.FirstSessionStart != f.cfg.FirstSessionStart {
 		t.Fatalf("teamsyncConfig = %+v, from %+v", got, f.cfg)
+	}
+}
+
+// QX1: each team builds its own question index, with a builder of its own.
+func TestEachTeamHasAQuestionIndexBuilderOfItsOwn(t *testing.T) {
+	f := newFixture(t)
+	ch := &seatChanges{}
+	got := teamsyncConfig(f.cfg, ch)
+	b, ok := got.Builder.(*teamsync.Builder)
+	if !ok || b == nil || teamsyncConfig(f.cfg, ch).Builder == got.Builder {
+		t.Fatalf("the team's builder %#v: want a teamsync.Builder of each team's own", got.Builder)
 	}
 }
 

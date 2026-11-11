@@ -164,11 +164,12 @@ func (w *world) seatDir() {
 	w.place(w.tokens[w.self], nil)
 }
 
-// as makes local the member under test: its pair placed in the seat directory.
-func (w *world) as(local string) {
+// asCoordinator makes the roster's coordinator the member under test: its pair placed in the
+// seat directory.
+func (w *world) asCoordinator() {
 	w.t.Helper()
-	w.self = local
-	w.place(w.tokens[local], nil)
+	w.self = coord
+	w.place(w.tokens[coord], nil)
 }
 
 func (w *world) bundle() seat.Bundle {
@@ -452,7 +453,8 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 
 // Persist keeps the batch and answers the floor the store keeps. Its floor loop is a stand-in
 // for engine.ownedFloors, enough for the marker tests here; the rule itself is proven by the
-// engine's own tests and by the Tuwunel run over the real engine, not by these.
+// engine's own tests and by the Tuwunel run over the real engine, not by these. Main's floor is
+// set only when the store already has one, as the main tests were written against.
 func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	e.mu.Lock()
 	hook := e.persistErr
@@ -464,21 +466,33 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	}
 	e.mu.Lock()
 	s := e.store
-	s.Sync.NextBatch, s.Sync.Fresh, s.Sync.RestoreEpoch = b.NextBatch, b.Fresh, b.RestoreEpoch
+	if !b.Page {
+		s.Sync.NextBatch, s.Sync.Fresh, s.Sync.RestoreEpoch = b.NextBatch, b.Fresh, b.RestoreEpoch
+	}
+	s.Outbox.QuestionsHandover = s.Outbox.QuestionsHandover || b.Handover
 	maps.Copy(s.Sync.FloorMS, b.Floors)
 	for _, it := range b.Items {
 		if !slices.ContainsFunc(s.Pending, func(p state.Pending) bool { return p.ID == it.Pending.ID }) {
 			s.Pending = append(s.Pending, it.Pending)
 		}
 	}
+	// The questions keys as the engine's one writer leaves them (QX5, QS9): written only by a
+	// batch that holds them, dropped only by a demotion's.
+	if b.Questions != nil {
+		s.Questions = b.Questions
+	}
+	if b.DropQuestions {
+		s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return p.Room == proto.PurposeQuestions })
+		s.Questions, s.RemindedMS, s.RemindLate = nil, 0, []int64{}
+		s.Outbox.QuestionsUnechoed, s.Outbox.QuestionsUncounted, s.Outbox.QuestionsHandover = nil, state.Uncounted{}, false
+	}
 	e.persisted++
-	floor := s.Sync.FloorMS[proto.PurposeMain]
 	for _, p := range s.Pending {
-		if p.Room == proto.PurposeMain && p.SentMS <= floor {
-			floor = p.SentMS - 1
-			s.Sync.FloorMS[proto.PurposeMain] = floor
+		if floor, ok := s.Sync.FloorMS[p.Room]; p.Room == proto.PurposeQuestions && !ok || ok && p.SentMS <= floor {
+			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
 		}
 	}
+	floor := s.Sync.FloorMS[proto.PurposeMain]
 	e.mu.Unlock()
 	e.batches <- b
 	return floor, nil

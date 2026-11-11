@@ -64,10 +64,21 @@ func TestTheStatusLineIsBuiltInTheBinary(t *testing.T) {
 	}
 }
 
-// CL2: n3f's four verbs are still unbuilt, each reported as exit 1 internal naming slice n3f,
-// through the binary's own run function and its verbs.
+// n3f-b: `report` is built in the binary: with no TEAMCHAT_RUNTIME it reaches the client and is
+// 69 no-session, never "is not built in this binary" or "is not wired".
+func TestReportIsBuiltInTheBinary(t *testing.T) {
+	noSession(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"report"}, strings.NewReader("Headline\nBody\n"), &stdout, &stderr, strings.Repeat("ab", 32))
+	if code != term.ExitCode(69) || stdout.Len() != 0 || !strings.Contains(stderr.String(), `"code":"no-session"`) {
+		t.Fatalf("report: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+// CL2: n3f's three verbs not yet built (`report` is, n3f-b) are still unbuilt, each reported as
+// exit 1 internal naming slice n3f, through the binary's own run function and its verbs.
 func TestTheN3fVerbsAreStillUnbuilt(t *testing.T) {
-	for _, args := range [][]string{{"ask"}, {"thread", "Q1"}, {"questions"}, {"report"}} {
+	for _, args := range [][]string{{"ask"}, {"thread", "Q1"}, {"questions"}} {
 		var stdout, stderr bytes.Buffer
 		code := run(args, strings.NewReader(""), &stdout, &stderr, strings.Repeat("ab", 32))
 		want := "teamchat " + args[0] + " is not built in this binary; it lands with slice n3f"

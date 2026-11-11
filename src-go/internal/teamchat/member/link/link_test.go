@@ -98,10 +98,12 @@ func (*fakeTeam) History(context.Context, string, int) ([]records.History, error
 	return nil, nil
 }
 
-func (f *fakeTeam) Notices() team.Notices          { return f.notices }
-func (*fakeTeam) Wake()                            {}
-func (*fakeTeam) FlushFloor(context.Context) error { return nil }
-func (*fakeTeam) FloorRaised(int64)                {}
+func (f *fakeTeam) Notices() team.Notices             { return f.notices }
+func (*fakeTeam) Wake()                               {}
+func (*fakeTeam) FlushFloor(context.Context) error    { return nil }
+func (*fakeTeam) FloorRaised(int64)                   {}
+func (*fakeTeam) VerifyReports(context.Context) error { return nil }
+func (*fakeTeam) ReportsRoom() team.ReportsRoom       { return team.ReportsRoom{State: team.ReportsJoined} }
 
 func (f *fakeTeam) didRun() bool {
 	f.mu.Lock()

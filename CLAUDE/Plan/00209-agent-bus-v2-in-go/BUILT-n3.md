@@ -201,6 +201,120 @@ unchanged. The tick of each task, and what is still missing, stay in `PLAN.md`.
   store at its widest 3 447 379 bytes, the caps' sum as written 4 134 997, `MaxStore` 4 MiB.
   The live-equals-rebuilt property now feeds events again across both lists while each evicts.
 
+- **n3f-b, the reports room, built in part** on `feat/bus-v2-n3f-b` (from
+  `feat/bus-v2-n3f-a-int`; `subagent-reports/261105-n3f-b-sonnet.md`). Built: the team goroutine's
+  half. `team.Team` gains `VerifyReports(ctx)` (RP4: the join tried first, then the room's state
+  judged by `proto.VerifySide` against main's verified roster; a refusal is an `*exits.Error`
+  22 `forbidden` or `untrusted` naming the reports room and the check, anything else is
+  transient) and `ReportsRoom()` (the state for `status`: `joining`, `joined`, `refused` with the
+  errcode, `untrusted` with the check). `teamsync` joins the reports room eagerly beside the
+  long-poll (RP1, n3f-D12: its own goroutine, SY8's backoff on a transient failure, a refusal
+  tried again at the next start, the next roster revision and the next `report`; membership read
+  from `GET /joined_rooms`, never the error text; the join bounded at 30 s by the injected clock)
+  and judges a reports event in an answer as A 7.6 does there (RP2: a fault line once per
+  event id, a stranger dropped `sender`, never an item). Coverage: `teamsync` 95.1%, `team`
+  100%. Not built (the next builder's list is in the report): the `report` verb end to end
+  (the client's stdin rule with the cap 1500, `wire.OpReport`, the engine's op, the store write
+  of `outbox.reports`, the `report-rate` message), the sender's own verification and post to the
+  reports room, `status`'s `room` record from `ReportsRoom()`, `wiring.Verbs`, `cli`'s
+  `unbuilt`, the OF1-n3f `report` row. The release test still fails on four verbs.
+
+- **n3f-b2, the `report` verb built** on `feat/bus-v2-n3f-b2` (from `feat/bus-v2-n3f-b`;
+  `subagent-reports/261105-n3f-b2-sonnet.md`). Built: `wire.OpReport` (30 s, RP6) and
+  `ReportArgs`; the client reads at most 1502 bytes and strips one trailing newline unless it
+  read 1502 (n3f-D1), and refuses no size and no empty text, because RP3's role check (11) comes
+  before its size check (10 `body`) and only the link knows the role; the engine's `report`
+  (team by CL6, then the composer's role, size, headline and secret checks, then the room
+  verified at the verb off the state goroutine, then `Admit` with the window seeded from
+  `outbox.reports`, the window and the gate written in the charge's one store write; 14
+  `report-rate` names when the oldest slot leaves and that an unposted report still counts); a
+  failed check (22) charges nothing, a transient one queues the report at once (n3d-D2); the
+  sender re-checks a queued report with `ReportKeys`, verifies the room again bounded by 30 s on
+  the engine's clock, posts to the roster's reports room, records no own send and no `last_sent`
+  (main's recovery anchor), and removes a report whose room fails or whose PUT is a 403 alone
+  (22; the 403 stops nothing, unlike main's); the `sent` record carries the entry's room;
+  `status`'s reports `room` record is `ReportsRoom()`; `report` is wired and removed from
+  `unbuilt`, so the release test fails on `ask`, `thread` and `questions` only. Coverage:
+  `engine` 92.8%, `client` 93.5%, `wire` 94.2%, `state` 99.8%. Not built: the recovery of a
+  tried report under a reissued token (`recoverTried` reads main only, so a tried report is
+  put again, and posted twice if the first reached the room), the wiring end-to-end rows (OF1-n3f
+  `report`, n3f-D1's cases through the binary, RP5's two-member store check), and the
+  Defence-Before-Fix assessment of the defect classes met.
+
+- **n3f-b3, the recovery of a tried report** on `feat/bus-v2-n3f-b3` (from
+  `feat/bus-v2-n3f-b-int`; `subagent-reports/261105-n3f-b3-opus-report.md`). The recovery splits
+  the tried sends by room: main's are read back to the anchor as before; the reports room's are
+  read back with no anchor (at most 5 pages of 100 events, as main with none) and matched by txn,
+  or by sender and content when the server gives no txn; one found is recorded posted with no
+  own send and no `last_sent`. A 403 on that read finds nothing (the sender's verification then
+  decides); another failure fails the recovery, as main's does; a tried report with no roster to
+  name the room, or a tried send to a room no recovery reads, fails it too. Residual: a report
+  with more than 500 events newer than it in the reports room is not found and is put again under
+  a new token. Coverage: `engine` 92.9%, `teamsync` 95.1%. The wiring end-to-end rows, the real
+  binary on fakehs (`wiring/e2e_reports_test.go`): OF1-n3f's `report` row (a worker stopped, the
+  other's report exits 0 with the record it gives when all run, each report in the room once);
+  n3f-D1's three stdin cases at the cap 1500; RP5 (a report, then a say: the other member's
+  recv gives the say alone, its inbox empty); a refused reports join shows `refused` with its
+  errcode in `status`, and main still delivers. Defence Before Fix: `project_room_default` (a
+  send's room tested against one side room, every other room taking main's path) found
+  `postRoom`, `recheck` and `sendFailed`, each now a switch on the room refusing a room it does
+  not know; a fake that keeps fewer rooms than the code uses is listed as a class no rule can
+  judge (GoProjectRules.md). Not done: the skill's text for `report` (n3f-e), and the cost of
+  two reports-room state reads for a report posted at once (b2's item 5, stated in SPEC n3f-D16).
+
+- **n3f-c1 (the questions room's sync, SPEC-n3f QS1-QS10) stopped early, in part**, on
+  `feat/bus-v2-n3f-c1` (from `feat/bus-v2-n3f-a-int`; `subagent-reports/261105-n3f-c1-sonnet.md`).
+  Built and green: the engine's half of n3f-D19 and QS9 (`engine/questionswrite.go`:
+  `team.Batch.Questions` is the only way the `questions` key is written, and
+  `team.Batch.DropQuestions` is a demotion's one store write: the room's pending and handed items
+  (an item awaiting proof stays, DV4), the key, `reminded_ms`, `remind_late`, the three outbox keys
+  and a questions post in `sending`; the floor stays), with `team.Health.Questions` for `status`.
+  The first builder's red tests (`teamsync/questions_test.go`, QS1 to QS5) are made green by
+  n3f-c1b (`feat/bus-v2-n3f-c1b`, `subagent-reports/261105-n3f-c1b-opus-report.md`):
+  `teamsync/questions.go` holds the room's state (`qroom`), QS1's order in `handle`, QS2's join
+  by the roster's id (403 is `awaiting-invite`, 300 s is `untrusted` with the check `invite`,
+  judged at the call), QS4's filter (the coordinator form only when joined, verified and at the
+  head; a change ends the long-poll in flight), QS5's `VerifySide` before the first sync and
+  the index loaded at the position or the `IndexBuilder` seam's `Begin`; QS6's receive path
+  (the room's events judged after main's with its own resolver, each human post attached
+  whatever its verdict, the fold into a copy of the index made live only after the write, items
+  in `room: questions` from the room's floor, the key written at the answer's position only by an
+  answer whose filter held the room); QS9's drop in the answer's own write, and at a start over
+  a stale store; QS10's join and build at a promotion. `teamsync` 92.8, `engine` 92.7 under
+  `-race`. Open: QS7 (a limited questions timeline: no fill, no catch-up), QS8's tests (a kick
+  while still named, each failed check, recovery), per-room floor markers, `Refetch` of a
+  questions item; see the report.
+
+- **n3f-c1c, c1d and c2a** (pull requests 171, 175 and 178, each stacked on the one before;
+  reports `subagent-reports/261106-n3f-c1c-opus-report.md`, `261106-n3f-c1d-opus-report.md` and
+  `261106-n3f-c2a-opus-report.md`) built what the entry above left open, and QX1's builder:
+
+  - **c1c**: QS7 (`qgap` fills a limited questions timeline back to the page holding `q.last`;
+    when it is not reached `qcatchup` drops the head, pokes, and hands `IndexJob{Key, RoomID, Floor}` to the builder), QS8's tests (each failed check at the start, a trust event
+    re-verifies, a refused history read is `state`, a kick with the roster still naming the
+    member is `left` and restarts the 300 s clock), QS6's missing tests, two test-only flake
+    fixes, and a defect QS8's tests found: `quntrusted` dropped the head but left `begun` set, so
+    a room that passed its check again stayed `building` until a session restart.
+  - **c1d**: per-room floor markers (`markerOf` is a switch with a case per room and nil for any
+    other, after `project_room_default` caught its first form), `Refetch` of a questions item
+    (`refetchRoom`), the commit rule's test (QX4) and `status`'s questions record
+    (`questionsRoomRecord`).
+  - **c2a**: `teamsync.Builder` (the build from the room's start, a resumed build record, the
+    catch-up, a refused token as a rebuild), pages judged and folded by `qtake` under one judging
+    hold shared with answers, `Batch.Page` and `Batch.Handover`, and fakehs's `Gate`.
+  - **Open, from the reports**: the ready line itself is not in the engine (n3f-e); `Health.Questions` lags `IndexAtHead`, so `status` says `building` for up to one long-poll; `FloorRaised`
+    stays main's (the questions marker lags low, which costs a redelivery, never a lost item); a
+    post in the same millisecond as the floor is never delivered (true of main too); the
+    kill-mid-build test, QS7's end-to-end tests and a test that makes a page and an answer judge
+    at once (the hold is held by review only); QX1's `ask` during a held build (n3f-d); QX3, QX4
+    and QX7 (n3f-c2b and c2c). SPEC-n3f's OW6 stands: how a member waiting for its questions
+    invite learns it has come.
+  - **The stack's integration**: the pull request for n3f-b failed CI on a cyclop finding in
+    `engine/send.go` (n3f-b2's change and PR 164's size check merged cleanly and together made 17
+    against 15; `send`'s fit is now `fitEntry`) and, once that was fixed and the tests ran for the
+    first time, on two `teamsync` tests that wait on the fake clock while the reports join's 30 s
+    bound is armed (`reportsSettled` is the helper). Both are recorded in that pull request.
+
 - **n3d's caps measured as written** on `fix/store-size-as-written`
   (`261105-fix-storesize-opus-report.md`): the store's entry sizes, `MaxRosterCache` and
   `MaxSession` were derived from A's compact form while encoding/json writes `<`, `>`, `&`,

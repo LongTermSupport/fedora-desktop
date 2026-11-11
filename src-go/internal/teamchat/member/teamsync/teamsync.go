@@ -3,6 +3,7 @@ package teamsync
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -62,6 +63,9 @@ type Config struct {
 	Jitter func(time.Duration) time.Duration
 	// Receipts is the engine's read receipts, which the team sends (B 2.7.5); nil sends none.
 	Receipts team.Receipts
+	// Builder is QX1's builder of the question index; nil builds none, so a coordinator whose
+	// store holds no index at the position never has its questions room at the head.
+	Builder IndexBuilder
 }
 
 // Watcher is a source of seat directory changes.
@@ -87,7 +91,9 @@ type Team struct {
 	client   *matrix.Client
 	roster   proto.Roster
 	verified bool
-	floor    floorMarker
+	// floor is main's marker, qfloor the questions room's (SY10, per room: QS5).
+	floor  floorMarker
+	qfloor floorMarker
 	// savedRev is the roster rev last given to the engine's roster cache (n3d-D3).
 	savedRev int64
 	// loginSaid is forge-login said, until a forge check next answers (n3d-D10).
@@ -101,28 +107,53 @@ type Team struct {
 	authRetried bool
 	persistSaid bool
 	backStarted bool
-	markerSaid  bool
+	// markerSaid are the rooms whose undecodable marker was said.
+	markerSaid map[string]bool
 	// recoveredPair is the pair the sends were last recovered under, nil before the first: a
 	// session under another pair recovers them again (n3d-D4).
 	recoveredPair *bundle.Pair
 	pendingSaid   map[string]bool
 	unheard       *bounded[struct{}]
-	flood         proto.Window
-	spent         spentChecks
-	freeze        freezeDetector
+	// faulted are the reports events a fault line was said for (RP2); reports is the reports
+	// room's state under mu, reportsKick asks the reports loop to try the join (RP1) and
+	// reportsTry is held by the try in progress.
+	faulted     *bounded[struct{}]
+	reports     reportsState
+	reportsKick chan struct{}
+	reportsTry  chan struct{}
+	flood       proto.Window
+	spent       spentChecks
+	freeze      freezeDetector
 	// budget is B 2.7.3's delivery budget, per (team, sender); factsNote the colour note said
 	// last.
 	budget    proto.Window
 	factsNote string
+	// q is the questions room (QS); qmoved is poked when its readiness may have moved, which
+	// ends a long-poll in flight whose filter it changed (QS4).
+	q      qroom
+	qmoved chan struct{}
+	// qres resolves the questions room's relations apart from main's, so a relation there
+	// naming a main event marks nothing unknown for main (QS6).
+	qres *resolver
+	// judging is held while an answer, or a builder's page, is judged, written and committed
+	// (judgingHold).
+	judging chan struct{}
 
 	// Test seams.
-	onPoll func(since string)
-	onWait func(time.Duration)
+	// onBuildEnd is told each builder job's end, onBuildWait each of its backoff waits.
+	onBuildEnd  func()
+	onBuildWait func(time.Duration)
+	onPoll      func(since string)
+	// onFilter is told each request's filter just before the request is made.
+	onFilter func(json.RawMessage)
+	onWait   func(time.Duration)
 	// onReceiptWait is told each receipt backoff.
 	onReceiptWait func(time.Duration)
-	readPair      func(*homefs.Root, paths.Seat) (bundle.Pair, error)
-	judge         func(proto.Judge, proto.Value) proto.Verdict
-	pages         pageBound
+	// onReports is told each state the reports room is put in (RP1, RP4).
+	onReports func(team.ReportsRoom)
+	readPair  func(*homefs.Root, paths.Seat) (bundle.Pair, error)
+	judge     func(proto.Judge, proto.Value) proto.Verdict
+	pages     pageBound
 }
 
 // pageBound is a backwards read's page size and page count.
@@ -155,10 +186,13 @@ func New(cfg Config) (*Team, error) {
 	}
 	l := newLogger(cfg.Log, cfg.Team)
 	return &Team{
-		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1),
-		pendingSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize),
+		cfg: cfg, log: l, res: newResolver(l), wake: make(chan struct{}, 1), qmoved: make(chan struct{}, 1), qres: newResolver(l),
+		pendingSaid: map[string]bool{}, markerSaid: map[string]bool{}, unheard: newBounded[struct{}](memorySize), faulted: newBounded[struct{}](memorySize),
+		reportsKick: make(chan struct{}, 1), reportsTry: make(chan struct{}, 1),
 		flood: proto.Window{Times: map[string][]int64{}}, freeze: freezeDetector{clk: cfg.Clock},
-		onPoll: func(string) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {}, readPair: bundle.ReadPair,
+		onPoll: func(string) {}, onFilter: func(json.RawMessage) {}, onWait: func(time.Duration) {}, onReceiptWait: func(time.Duration) {},
+		onReports: func(team.ReportsRoom) {}, readPair: bundle.ReadPair,
+		judging: make(chan struct{}, 1), onBuildEnd: func() {}, onBuildWait: func(time.Duration) {},
 		judge: func(j proto.Judge, v proto.Value) proto.Verdict { return j.Judge(v) },
 		pages: pageBound{size: pageSize, max: maxPages},
 	}, nil
@@ -186,9 +220,11 @@ func (t *Team) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	defer cancel()
+	defer t.stopBuilder()
 	if t.cfg.Watcher != nil {
 		wg.Go(func() { t.forward(ctx) })
 	}
+	wg.Go(func() { t.reportsLoop(ctx) })
 	for {
 		err := t.session(ctx, &wg)
 		switch code, stop := stopCode(err); {

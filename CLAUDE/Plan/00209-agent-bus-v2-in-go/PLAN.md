@@ -269,7 +269,24 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 - [ ] 🔄 **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12). Built, fakes only, none installed:
   n3a-n3d; n3e in part (hooks wired, four `--claude` e2e rows, PT1 slices 1-4). Open: n3e's
-  rest (the OF1 row, PT1's unreached points, seed 57 in issue 156), n3f.
+  rest (the OF1 row, PT1's unreached points, seed 57 in issue 156), n3f
+  (n3f-a to n3f-c2a merged to F44 with pull request 178; n3f-a built: G6 and G7, G4 and G5 (the records
+  and the filter), G1 whole (the question index: fold and caps with its two post lists, OW5 (b),
+  the strict codec and load, the build record, `RedactedSlot`, the property tests) and G2 (the
+  store's seven keys, `MaxStore` 4 MiB); n3f-b built (the reports room): the team goroutine's
+  half (RP1, RP2, RP4's
+  verification) on `feat/bus-v2-n3f-b`, and on `feat/bus-v2-n3f-b2` the `report` verb end to end
+  (RP3, RP5, RP6), the sender's post to the reports room with its own verification (RP4), the
+  `status` `room` record and the wiring, so the release test fails on `ask`, `thread` and
+  `questions` only; on `feat/bus-v2-n3f-b3` the recovery of a tried report under a reissued
+  token (n3f-D16) and the end-to-end rows (OF1-n3f's `report` row, the n3f-D1 stdin cases
+  through the real binary, RP5's two-member check, a refused join in `status`); n3f-c1 (the
+  questions room's sync) built: the engine's write of the `questions` key and a demotion's
+  drop, and in `teamsync` QS1 to QS10 with QS7, QS8's tests, the per-room floor markers,
+  `Refetch` of a questions item and `status`'s questions record (n3f-c1b, c1c and c1d, pull
+  requests 168, 171 and 175); n3f-c2a built (QX1's index build and catch-up, pull request 178;
+  its kill-and-resume and QS7 end-to-end tests are not written); n3f-c2b, n3f-c2c, n3f-d and
+  n3f-e open, see BUILT-n3.md).
 
   - n3a (CLI, codecs, locks, kit layout, guest ops), n3c (the keeper, the link, receiving, the
     ends) and n3d (the sends, the outbox, TIMEOUTs, the forge check) are built, reviewed and

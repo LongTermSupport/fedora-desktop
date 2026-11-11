@@ -223,11 +223,15 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 			unknown []string
 			pruned  []string
 			lines   []proto.Answered
+			dropped questionsDrop
 		)
 		now := e.cfg.Clock.WallMS()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
 			if added, err = apply(s, b); err != nil {
+				return false, err
+			}
+			if dropped, err = applyQuestions(s, b); err != nil {
 				return false, err
 			}
 			floor = s.Sync.FloorMS[proto.PurposeMain]
@@ -248,6 +252,13 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 				delete(h.content, id)
 			}
 		}
+		for _, id := range dropped.items {
+			delete(h.content, id)
+			e.logf("team %s: the questions item %s is dropped with the questions room", b.Team, id)
+		}
+		for _, txn := range dropped.sends {
+			e.logf("team %s: the questions post sent as %s is dropped with the questions room; it may have landed", b.Team, txn)
+		}
 		h.counts = addCounts(h.counts, b.Counts)
 		h.delivery.hold(b, lines)
 		h.note(notes, pruned)
@@ -264,7 +275,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 // apply is b in a copy of its store; it is the items added, with their verdicts.
 func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 	added := map[string]proto.Verdict{}
-	s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
+	if !b.Page {
+		s.Sync.NextBatch, s.Sync.RestoreEpoch, s.Sync.Fresh = b.NextBatch, b.RestoreEpoch, b.Fresh
+	}
 	if len(b.Floors) > 0 && s.Sync.FloorMS == nil {
 		s.Sync.FloorMS = map[string]int64{}
 	}

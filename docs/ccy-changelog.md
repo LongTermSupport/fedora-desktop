@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.0 — container 2.84.0
+
+- **The image's teamchat member has the side rooms** (Plan 00209 n3f, pull request 178): the
+  `report` verb and the reports room, the questions room's sync, and the question index's build
+  and catch-up. The launcher itself is unchanged; the version moves with the container's.
+
 ## 3.117.0 — container 2.83.0
 
 - **A ccy launch can join a teamchat (v2) team** (Plan 00209 Task 4.2). The launcher's bus

@@ -32,14 +32,19 @@ type noWait struct{}
 
 func (noWait) Sleep(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
-// hsRecorder keeps the room ids rooms.Converge creates.
-type hsRecorder struct{ main string }
+// hsRecorder keeps the room ids rooms.Converge creates, every purpose's.
+type hsRecorder struct{ ids proto.RoomIDs }
 
 func (*hsRecorder) Intent(string) error { return nil }
 
 func (r *hsRecorder) Record(purpose, id string) error {
-	if purpose == proto.PurposeMain {
-		r.main = id
+	switch purpose {
+	case proto.PurposeMain:
+		r.ids.Main = id
+	case proto.PurposeReports:
+		r.ids.Reports = id
+	case proto.PurposeQuestions:
+		r.ids.Questions = id
 	}
 	return nil
 }
@@ -92,7 +97,7 @@ func (h *hs) rooms(t *testing.T) *hs {
 	if _, err := rooms.Converge(t.Context(), a, rec, rooms.Team{Server: hsServer, Team: hsTeam, Roster: roster}, proto.RoomIDs{}); err != nil {
 		t.Fatalf("Converge: %v", err)
 	}
-	h.main = rec.main
+	h.main = rec.ids.Main
 	h.token = h.mint(t, hsUser(hsWorker))
 	if _, err := h.member(t, h.token).Join(t.Context(), h.main); err != nil {
 		t.Fatalf("join main: %v", err)

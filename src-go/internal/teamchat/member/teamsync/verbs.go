@@ -243,8 +243,9 @@ func optional(s string) *string {
 
 // Refetch judges a restored item again (B 2.7.3): the event fetched, its relations resolved as
 // a sync's are, over a fresh flood window and a Lookup that does not count the item as seen. An
-// event the server answers 404 or 403 for, one that does not parse, and a room other than main
-// are team.ErrItemGone: the item can never be judged again.
+// event the server answers 404 or 403 for, one that does not parse, and a room this member
+// does not read are team.ErrItemGone: the item can never be judged again. A questions item is
+// fetched from the room the roster names and judged as that room's (QS6).
 func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, error) {
 	c, pair, err := t.current()
 	if err != nil {
@@ -254,10 +255,11 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 	if s.roster, err = t.rosterFor(ctx, c, s.a); err != nil {
 		return proto.Verdict{}, err
 	}
-	if room != proto.PurposeMain {
-		return proto.Verdict{}, gone(exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(room)))
+	roomID, res, err := t.refetchRoom(room, s.a, s.roster)
+	if err != nil {
+		return proto.Verdict{}, gone(err)
 	}
-	raw, err := c.GetEvent(ctx, s.a.MainRoom, id)
+	raw, err := c.GetEvent(ctx, roomID, id)
 	if errors.Is(err, matrix.ErrNotFound) || errors.Is(err, matrix.ErrForbidden) {
 		return proto.Verdict{}, gone(err)
 	}
@@ -277,13 +279,13 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 	for _, rid := range relIDs {
 		rels = append(rels, relation{event: id, id: rid})
 	}
-	resolved, err := t.res.resolve(ctx, s.resolveInput(view), rels)
+	resolved, err := res.resolve(ctx, s.resolveInput(view, roomID), rels)
 	if err != nil {
 		return proto.Verdict{}, err
 	}
 	flood := proto.Window{Times: map[string][]int64{}}
 	vs := []proto.Verdict{t.judge(proto.Judge{
-		Server: s.a.Server, Self: s.a.Self, RoomID: s.a.MainRoom, Purpose: proto.PurposeMain, Roster: s.roster,
+		Server: s.a.Server, Self: s.a.Self, RoomID: roomID, Purpose: room, Roster: s.roster,
 		NowMs: t.cfg.Clock.WallMS(), Lookup: &memLookup{view: view, resolved: resolved, judged: map[string]bool{}, skip: id}, Flood: &flood,
 	}, v)}
 	// The same check as a sync's (n3d-D12): a restored ping that no longer proves is a drop.
@@ -293,6 +295,23 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 	}
 	t.noteForge(news)
 	return vs[0], nil
+}
+
+// refetchRoom is the room a restored item of purpose room is fetched from, and the resolver of
+// that room's relations (a room's own, as the sync's): main, or the questions room the roster
+// names; any other room is refused.
+func (t *Team) refetchRoom(room string, a proto.Anchors, r proto.Roster) (string, *resolver, error) {
+	id, err := t.roomOf(room, a, r)
+	if err != nil {
+		return "", nil, err
+	}
+	switch room {
+	case proto.PurposeMain:
+		return id, t.res, nil
+	case proto.PurposeQuestions:
+		return id, t.qres, nil
+	}
+	return "", nil, exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(room))
 }
 
 // Notices is the team's matrix calls for the ends; it works before Run and after it returns.
