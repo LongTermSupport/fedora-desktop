@@ -131,7 +131,8 @@ play's install path and tasks to the units.
   `ConditionPathIsDirectory=%S/teamchat/seats/pool`: with no pool, systemd skips it and starts no
   process, which keeps C40's "a host with no team starts nothing", and the first placement turns
   the sweep on with no play run. A host's play installs the units only where ccy is installed
-  (play-claude-yolo.yml), so a bus server host without ccy has neither.
+  (play-claude-yolo.yml), so a bus server host without ccy has neither. Confirmed by the owner
+  (desktop Q22, option 1), over C 3.7.5's rule.
 
 ## Left
 
