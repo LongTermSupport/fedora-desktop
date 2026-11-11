@@ -2,7 +2,7 @@
 // directory and the shared directory, each mode 0644 root (Plan 00246 INSTALL-PATH.md, stage A):
 // the base units of a team's homeserver (DESIGN-v2-C-host.md 3.2.3) and of its TLS terminator
 // (SPEC-cross-network X18a), the health and backup units and timers (C 3.11.1, 3.12.1), and the
-// homeserver's resolver stub. Go is their one source: `teamchat-admin units print` writes the
+// homeserver's resolver, two files in the directory its unit binds. Go is their one source: `teamchat-admin units print` writes the
 // text the play installs, so the bytes on a host are the bytes the unit gates judge
 // (v1names' units test).
 package unitfiles
@@ -73,7 +73,7 @@ const terminatorFileLimit = 2*tlsterm.DefaultMaxConns + 64
 // terminatorDropped are the keys of host.BaseSandbox the terminator does not take (X18a): its
 // dynamic user is its own, not the homeserver's named one; it keeps no state; it resolves no
 // name, so it has no resolver and no AF_UNIX (its own address family line replaces the base's).
-var terminatorDropped = []string{"User=", "StateDirectory=", "StateDirectoryMode=", "TemporaryFileSystem=", "BindReadOnlyPaths=", "RestrictAddressFamilies="}
+var terminatorDropped = []string{"User=", "StateDirectory=", "StateDirectoryMode=", "BindReadOnlyPaths=", "RestrictAddressFamilies="}
 
 // terminatorDrops is whether the terminator leaves a line of host.BaseSandbox out.
 func terminatorDrops(line string) bool {
@@ -157,10 +157,11 @@ AccuracySec=5s
 WantedBy=timers.target
 `
 
-// resolverStub is the homeserver's resolver, bound over systemd's resolver files in its unit.
-const resolverStub = `# The ` + paths.Product + ` homeserver's resolver (DESIGN-v2-C-host.md 3.2.3): bound over /run/systemd/resolve/
-# inside ` + paths.ServerUnitTemplate + `. Nothing listens on this address and the unit's IP filter allows
-# it only on loopback, so every lookup fails inside the host.
+// resolverStub is the homeserver's resolver: the text of both files in paths.ResolverDir, which its
+// unit binds over /run/systemd/resolve.
+const resolverStub = `# The ` + paths.Product + ` homeserver's resolver (DESIGN-v2-C-host.md 3.2.3): its directory is bound over
+# /run/systemd/resolve inside ` + paths.ServerUnitTemplate + `. Nothing listens on this address and the unit's IP
+# filter allows it only on loopback, so every lookup fails inside the host.
 nameserver 127.0.0.1
 `
 
@@ -187,7 +188,8 @@ func Files() []File {
 		{paths.HealthTimer, paths.HealthTimerFile, healthTimer},
 		{paths.BackupService, paths.BackupServiceFile, backup.ServiceUnit},
 		{paths.BackupTimer, paths.BackupTimerFile, backup.TimerUnit},
-		{filepath.Base(paths.ResolverStub), paths.ResolverStub, resolverStub},
+		{filepath.Base(paths.ResolverStubFile), paths.ResolverStubFile, resolverStub},
+		{filepath.Base(paths.ResolverFile), paths.ResolverFile, resolverStub},
 		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile, tmpfilesText()},
 	}
 }

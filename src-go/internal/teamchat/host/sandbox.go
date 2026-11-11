@@ -44,9 +44,9 @@ var baseSandbox = []string{
 	"IPAccounting=yes",
 	"IPAddressDeny=any",
 	"SocketBindDeny=any",
-	"TemporaryFileSystem=/run/systemd/resolve:ro",
-	"BindReadOnlyPaths=" + paths.ResolverStub + ":/run/systemd/resolve/stub-resolv.conf",
-	"BindReadOnlyPaths=" + paths.ResolverStub + ":/run/systemd/resolve/resolv.conf",
+	// A directory over the whole of /run/systemd/resolve, not a read-only tmpfs with the stub bound
+	// onto its two files: systemd cannot make a file mount point inside a read-only tmpfs (226/NAMESPACE).
+	"BindReadOnlyPaths=" + paths.ResolverDir + ":/run/systemd/resolve",
 	"InaccessiblePaths=-/run/dbus",
 	v1names.InaccessiblePaths,
 }

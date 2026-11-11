@@ -142,7 +142,7 @@ func constNames() map[string][]string {
 		"MemberBinaryPath": MemberBinaryPath, "AdminBinaryPath": AdminBinaryPath,
 		"PluginName": PluginName, "SkillName": SkillName, "TmuxSocket": TmuxSocket,
 		"TmuxSession": TmuxSession, "CtlUser": CtlUser, "Interface": Interface,
-		"LibDir": LibDir, "ShareDir": ShareDir, "ResolverStub": ResolverStub, "EtcDir": EtcDir,
+		"LibDir": LibDir, "ShareDir": ShareDir, "ResolverDir": ResolverDir, "ResolverStubFile": ResolverStubFile, "ResolverFile": ResolverFile, "EtcDir": EtcDir,
 		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,
 		"HostKitRoot": HostKitRoot, "HostKitCurrent": HostKitCurrent().String(),
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,

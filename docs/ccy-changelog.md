@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.5 — container 2.84.4
+
+- **teamchat's homeserver unit binds its resolver as a directory** (Plan 00209): the sandbox
+  `teamchat-admin units print` writes, and a team's transient restore unit, bind
+  `/usr/local/share/teamchat/resolve` (the stub as `stub-resolv.conf` and `resolv.conf`) over
+  `/run/systemd/resolve`, in place of a read-only `TemporaryFileSystem=` with the stub file bound
+  onto each name, which systemd 259 cannot set up (`teamchat-server@` exited 226/NAMESPACE). The
+  image's teamchat changes, so the image is rebuilt once; the launcher behaves as 3.118.4.
+
 ## 3.118.4 — container 2.84.3
 
 - **The image's Go commands are built with go1.26.11** (`ccy-builder` is `golang:1.26.11`,

@@ -60,6 +60,7 @@ func TestThePlaysPathVariablesArePaths(t *testing.T) {
 		"tc_server_dir":       paths.ServerDir,
 		"tc_kit_root":         paths.HostKitRoot,
 		"tc_share_dir":        paths.ShareDir,
+		"tc_resolver_dir":     paths.ResolverDir,
 		"tc_etc_dir":          paths.EtcDir,
 		"tc_admin_state_root": paths.AdminStateRoot,
 		"tc_ctl_state_root":   paths.CtlStateRoot,

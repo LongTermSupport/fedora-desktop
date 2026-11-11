@@ -19,7 +19,7 @@
 #      /usr/local/sbin/teamchat-admin, the kit's current link and /usr/local/bin/teamchat swapped.
 #   3. The pinned Tuwunel for the target's architecture (files/usr/local/share/teamchat/tuwunel.pin,
 #      tracked by the update-versions skill), and the server pin file teamchat-admin reads.
-#   4. Every unit, the resolver stub and the tmpfiles entry, as the teamchat-admin just installed
+#   4. Every unit, the two resolver files and the tmpfiles entry, as the teamchat-admin just installed
 #      prints them (`units list`, `units print`): the text is Go's, the play holds none. The
 #      tmpfiles entry's directories are made, then one daemon-reload.
 #   5. Per team, from teamchat_teams: `team approve` for the teams teamchat_approve_teams names,
@@ -57,6 +57,7 @@
     tc_server_dir: /usr/local/lib/teamchat/server
     tc_kit_root: /usr/local/lib/teamchat/kit
     tc_share_dir: /usr/local/share/teamchat
+    tc_resolver_dir: /usr/local/share/teamchat/resolve
     tc_etc_dir: /etc/teamchat
     tc_admin_state_root: /var/lib/teamchat-admin
     tc_ctl_state_root: /var/lib/teamchat-ctl
@@ -210,6 +211,8 @@
         - {path: "{{ tc_server_dir }}", mode: "0755"}
         - {path: "{{ tc_kit_root }}", mode: "0755"}
         - {path: "{{ tc_share_dir }}", mode: "0755"}
+        # The homeserver's two resolver files: its unit binds this directory over /run/systemd/resolve.
+        - {path: "{{ tc_resolver_dir }}", mode: "0755"}
         - {path: "{{ tc_etc_dir }}", mode: "0755"}
         - {path: "{{ tc_admin_state_root }}", mode: "0700"}
         - {path: "{{ tc_ctl_state_root }}", mode: "0700", owner: "{{ tc_ctl_user }}", group: "{{ tc_ctl_user }}"}
@@ -451,6 +454,12 @@
       loop_control:
         label: "{{ item.item.split('\t')[1] }}"
       register: tc_units_written
+
+    # The resolver stub's old home, a file the unit no longer binds (it binds tc_resolver_dir).
+    - name: Remove the Resolver Stub the Resolver Directory Replaced
+      ansible.builtin.file:
+        path: "{{ tc_share_dir }}/resolv.conf"
+        state: absent
 
     # The directories the units write that nothing else makes (the lock directory under /run, the
     # leaves' root) are the tmpfiles entry's: made now, and again at every boot. A unit that writes

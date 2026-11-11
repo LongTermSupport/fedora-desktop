@@ -85,7 +85,7 @@ func madeUnits(t *testing.T) []unit {
 
 // installedServices is every file the play installs that runs a process (it has a [Service]
 // section), as the play installs it: the text `teamchat-admin units print` writes. The other
-// files are timers, which start a service and run nothing themselves, and the resolver stub.
+// files are timers, which start a service and run nothing themselves, and the resolver files.
 func installedServices() []unit {
 	var out []unit
 	for _, f := range unitfiles.Files() {
@@ -105,7 +105,7 @@ func TestEveryInstalledFileIsJudgedOrRunsNothing(t *testing.T) {
 		case strings.Contains(f.Text, "[Service]"):
 			services = append(services, f.Name)
 		case strings.HasSuffix(f.Name, ".timer") && strings.Contains(f.Text, "[Timer]"):
-		case f.Path == paths.ResolverStub, f.Path == paths.TmpfilesFile:
+		case f.Path == paths.ResolverStubFile, f.Path == paths.ResolverFile, f.Path == paths.TmpfilesFile:
 		default:
 			t.Errorf("installed file %s is neither a service, a timer, the resolver stub nor the tmpfiles entry", f.Name)
 		}

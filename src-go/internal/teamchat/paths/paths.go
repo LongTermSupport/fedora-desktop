@@ -79,9 +79,14 @@ const (
 
 // Host directories and files (D 3.5).
 const (
-	LibDir                     = "/usr/local/lib/" + Product
-	ShareDir                   = "/usr/local/share/" + Product
-	ResolverStub               = ShareDir + "/resolv.conf"
+	LibDir   = "/usr/local/lib/" + Product
+	ShareDir = "/usr/local/share/" + Product
+	// ResolverDir is bound over the whole of the homeserver's /run/systemd/resolve and holds both
+	// files a lookup could read there: a directory, because a file cannot be bound into a read-only
+	// tmpfs (systemd cannot make its mount point there; tmpfs-file-bind, CLAUDE/QA.md).
+	ResolverDir                = ShareDir + "/resolve"
+	ResolverStubFile           = ResolverDir + "/stub-resolv.conf"
+	ResolverFile               = ResolverDir + "/resolv.conf"
 	EtcDir                     = "/etc/" + Product
 	OwnerGroupFile             = EtcDir + "/owner-group"
 	ServerDir                  = LibDir + "/server"

@@ -60,9 +60,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 IPAccounting=yes
 IPAddressDeny=any
 SocketBindDeny=any
-TemporaryFileSystem=/run/systemd/resolve:ro
-BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
-BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
+BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 ` + v1names.InaccessiblePaths + "\n"
 

@@ -42,7 +42,8 @@ func TestFilesAreWhatThePlayInstalls(t *testing.T) {
 		{paths.HealthTimer, paths.HealthTimerFile},
 		{paths.BackupService, paths.BackupServiceFile},
 		{paths.BackupTimer, paths.BackupTimerFile},
-		{filepath.Base(paths.ResolverStub), paths.ResolverStub},
+		{filepath.Base(paths.ResolverStubFile), paths.ResolverStubFile},
+		{filepath.Base(paths.ResolverFile), paths.ResolverFile},
 		{filepath.Base(paths.TmpfilesFile), paths.TmpfilesFile},
 	}
 	got := make([][2]string, 0, len(want))
@@ -254,11 +255,20 @@ func TestTheTerminatorSaysWhyItStopsAfterTheGuests(t *testing.T) {
 	}
 }
 
-// The resolver stub sends every lookup to an address nothing listens on.
+// Both resolver files send every lookup to an address nothing listens on, and they are the
+// directory the server unit binds over systemd's resolver directory.
 func TestTheResolverStub(t *testing.T) {
-	got := lines(file(t, filepath.Base(paths.ResolverStub)).Text)
-	if !slices.Contains(got, "nameserver 127.0.0.1") || slices.ContainsFunc(got, func(l string) bool { return l != "nameserver 127.0.0.1" && !strings.HasPrefix(l, "#") }) {
-		t.Fatalf("the resolver stub is not one loopback nameserver line: %q", got)
+	for _, path := range []string{paths.ResolverStubFile, paths.ResolverFile} {
+		if filepath.Dir(path) != paths.ResolverDir {
+			t.Errorf("%s is not in %s", path, paths.ResolverDir)
+		}
+		got := lines(file(t, filepath.Base(path)).Text)
+		if !slices.Contains(got, "nameserver 127.0.0.1") || slices.ContainsFunc(got, func(l string) bool { return l != "nameserver 127.0.0.1" && !strings.HasPrefix(l, "#") }) {
+			t.Fatalf("%s is not one loopback nameserver line: %q", path, got)
+		}
+	}
+	if server := file(t, paths.ServerUnitTemplate).Text; !strings.Contains(server, "\nBindReadOnlyPaths="+paths.ResolverDir+":/run/systemd/resolve\n") {
+		t.Errorf("the server unit does not bind %s over /run/systemd/resolve", paths.ResolverDir)
 	}
 }
 
@@ -275,7 +285,7 @@ func sourceKind(src string) unitsandbox.SourceKind {
 }
 
 // installedDirs are the directories the play makes that a unit binds.
-var installedDirs []string
+var installedDirs = []string{paths.ResolverDir}
 
 // tmpfs-file-bind: no unit the play installs, and no team's transient sandbox, binds a file into
 // a TemporaryFileSystem= (systemd cannot make the file mount point in a read-only tmpfs: 226/NAMESPACE).
@@ -301,12 +311,12 @@ func TestLookupKnowsOnlyTheFiles(t *testing.T) {
 			t.Errorf("Lookup(%s) = %+v, %v", f.Name, got, ok)
 		}
 	}
-	for _, name := range []string{"", "teamchat-server@ops.service", "resolv", paths.ResolverStub, paths.SeatsService} {
+	for _, name := range []string{"", "teamchat-server@ops.service", "resolv", paths.ResolverFile, paths.SeatsService} {
 		if _, ok := Lookup(name); ok {
 			t.Errorf("Lookup(%q) found a file", name)
 		}
 	}
-	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer resolv.conf teamchat.conf" {
+	if got := strings.Join(Names(), " "); got != "teamchat-server@.service teamchat-tls@.service teamchat-health.service teamchat-health.timer teamchat-backup.service teamchat-backup.timer stub-resolv.conf resolv.conf teamchat.conf" {
 		t.Errorf("Names() = %s", got)
 	}
 }

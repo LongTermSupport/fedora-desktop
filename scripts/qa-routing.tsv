@@ -38,6 +38,8 @@ also	helpers/agent_bus/declare.py	go	-
 also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-
 # rclonecache's caller test reads how this script calls rclone-cache-status.
 also	files/home/.local/bin/rclone-cache-warm	go	-
+# tmpfs-file-bind's sweep (internal/unitsandbox) reads every shipped unit and the files they bind.
+also	files/*.service,files/*.service.d/*,files/usr/local/share/agent-bus/resolve/*	go	-
 # The bash-limits gate reads every bash file, template and the allowlist (whole: it is fast).
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*,src-go/qa/internal/cmdmain/*	bash-limits	-
