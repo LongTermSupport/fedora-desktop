@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 // G1
@@ -97,11 +98,10 @@ func TestAMissingRuleOrFixtureIsExitTwoNamingIt(t *testing.T) {
 // G6
 func TestARuleThatFailsItsFixtureIsExitOneAndNothingIsScanned(t *testing.T) {
 	w := newWorld(t, nil)
-	w.run.testCode = 1
-	w.run.testOut = "1 unexpected\n"
+	w.run.test = selftestfake.Missing
 	got := w.main()
 	wantExit(t, got, ExitFailed)
-	wantIn(t, "stderr", got.stderr, "ERROR: gh-scope-outside-ssot failed its fixture (.semgrep/gh-scopes.fixture):", "1 unexpected")
+	wantIn(t, "stderr", got.stderr, "ERROR: gh-scope-outside-ssot failed its fixture (.semgrep/gh-scopes.fixture):", "missed lines")
 	if w.run.scanArgv != nil || w.run.called("git") {
 		t.Fatal("a scan ran after the rule failed its fixture")
 	}
@@ -111,15 +111,8 @@ func TestARuleThatFailsItsFixtureIsExitOneAndNothingIsScanned(t *testing.T) {
 func TestTheSelfTestRunsTheRuleOverTheFixtureWithMetricsOff(t *testing.T) {
 	w := newWorld(t, nil)
 	wantExit(t, w.main(), ExitOK)
-	var test []string
-	for _, c := range w.run.calls {
-		if slices.Contains(c, "--test") {
-			test = c
-		}
-	}
-	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag}
-	if !slices.Equal(test, want) {
-		t.Fatalf("self-test argv %v, want %v", test, want)
+	if !w.run.selfTested(filepath.Join(w.root, ruleFile), filepath.Ext(fixtureFile)) {
+		t.Fatalf("no self-test of the rule over a copy of its fixture: %v", w.run.calls)
 	}
 }
 

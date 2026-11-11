@@ -106,6 +106,10 @@ func TestPollPure(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PollPure, "fix/internal/pollpure")
 }
 
+func TestSemgrepTestRunner(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SemgrepTestRunner, "fix/internal/badsemgreptest")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
@@ -183,8 +187,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 41 {
-		t.Fatalf("want 41 rules, got %d", got)
+	if got := len(All()); got != 42 {
+		t.Fatalf("want 42 rules, got %d", got)
 	}
 }
 

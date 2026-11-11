@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 const shebang = "#!/usr/bin/bash\n"
@@ -186,15 +187,14 @@ func TestP5ATodoruleidLineProvesNothingAndIsExit2(t *testing.T) {
 
 func TestP5SelfTestRunsOnRulesAndFixtureAndItsFailureIsExit2WithItsOutput(t *testing.T) {
 	w := oneScript(t)
-	w.run.testCode = 1
-	w.run.testOut = "rule bash-x: 1 missing"
+	w.run.test = selftestfake.Missing
 	got := w.main()
 	wantExit(t, got, ExitCannotRun)
-	wantStderr(t, got, "ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)", "rule bash-x: 1 missing")
+	wantStderr(t, got, "ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)", "bash-x: missed lines [3]")
 	noReport(t, w)
-	argv := w.run.callWith("semgrep", "--test")
-	if argv == nil || !strings.Contains(strings.Join(argv, " "), "--config "+filepath.Join(w.root, ".semgrep/bash-conventions.yml")) ||
-		!strings.Contains(strings.Join(argv, " "), filepath.Join(w.root, ".semgrep/bash-conventions.bash")) {
+	argv := w.run.callWith("semgrep", "scan")
+	if argv == nil || !slices.Contains(argv, "--config") ||
+		filepath.Base(argv[len(argv)-1]) != "selftest.bash" || slices.Contains(argv, "--test") {
 		t.Fatalf("self-test argv: %v", argv)
 	}
 	if !slices.Contains(argv, semgrepreport.TimeoutFlag) {
@@ -247,7 +247,7 @@ func TestP7ExcludedTreesComeFromTheShellRowsAndMatchWholeSegments(t *testing.T) 
 		"scripts/untrackedfoo/w.bash":   shebang,
 		".venv/p.bash":                  shebang, // a python-list tree: not excluded for shell
 		"scripts/qa-trees.tsv":          "shell\tuntracked\nshell\t.semgrep\n",
-		".semgrep/bash-conventions.yml": "rules: []\n",
+		".semgrep/bash-conventions.yml": "rules:\n  - id: bash-x\n",
 	})
 	wantExit(t, w.main(), ExitOK)
 	want := ".venv/p.bash,scripts/a.bash,scripts/untrackedfoo/w.bash,untracked-not/z.bash"
@@ -475,9 +475,10 @@ func TestP11SemgrepRunsInTheMirrorWithTheRules(t *testing.T) {
 }
 
 func TestP11RulesAreCopiedBesideTheMirrorSoRuleIdsAreBare(t *testing.T) {
-	w := newWorld(t, map[string]string{"scripts/a.bash": shebang, ".semgrep/bash-conventions.yml": "rules: [the-rules]\n"})
+	const rules = "rules: [{id: the-rules}]\n"
+	w := newWorld(t, map[string]string{"scripts/a.bash": shebang, ".semgrep/bash-conventions.yml": rules})
 	wantExit(t, w.main(), ExitOK)
-	if w.run.rulesBeside != "rules: [the-rules]\n" {
+	if w.run.rulesBeside != rules {
 		t.Fatalf("the rules beside the mirror: %q", w.run.rulesBeside)
 	}
 	for _, rel := range w.run.mirrorFiles {

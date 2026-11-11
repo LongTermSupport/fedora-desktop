@@ -11,6 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
@@ -184,8 +185,8 @@ func (set ruleSet) rulesFor(lang language, dir string) (string, error) {
 
 // proveRules shows every rule is still matched by its fixture. A rule that silently stops
 // matching is worse than a missing tool, so a regression here is the run failing and never
-// "0 findings". semgrep --test exits 0 on a fixture with no annotations, so the annotations are
-// required first.
+// "0 findings". A fixture that marks no line for a rule proves nothing for it, so every rule's
+// annotation is required first. The self-test is semgrepreport's, under the gate's own limit.
 func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 	for _, lang := range g.spec.languages {
 		fixture := g.spec.fixtures[lang]
@@ -200,18 +201,16 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 			}
 		}
 	}
+	run := func(argv []string) (proc.Result, error) { return g.runTool(ctx, semgrepTimeout, argv...) }
 	for _, lang := range g.spec.languages {
 		fixture := g.spec.fixtures[lang]
-		res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check",
-			"--config", g.path(g.spec.ruleFile), g.path(fixture))
+		test := semgrepreport.SelfTest{Rules: g.path(g.spec.ruleFile), Fixture: g.path(fixture), Name: fixture}
+		err := test.Prove(run)
+		if fe, ok := errors.AsType[*semgrepreport.FixtureError](err); ok {
+			return failed("%s failed its fixture %s:\n    %s", g.spec.ruleFile, fixture, g.scrub(strings.Join(fe.Problems, "\n    ")))
+		}
 		if err != nil {
-			return err
-		}
-		if res.Code >= 2 && !strings.Contains(res.Stdout+res.Stderr, "rule id mismatch") {
-			return fmt.Errorf("semgrep could not run the self-test (exit %d):\n%s%s", res.Code, g.scrub(res.Stdout), g.scrub(res.Stderr))
-		}
-		if res.Code != 0 {
-			return failed("%s failed its fixture %s:\n%s%s", g.spec.ruleFile, fixture, g.scrub(res.Stdout), g.scrub(res.Stderr))
+			return errors.New(g.scrub(err.Error()))
 		}
 	}
 	return nil

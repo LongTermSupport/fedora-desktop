@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 type failWriter struct{}
@@ -195,33 +196,48 @@ func TestOneAnnotationMayNameSeveralRules(t *testing.T) {
 	w.wantExit(ExitOK, w.run())
 }
 
-// S8
+// S8: the self-test is semgrepreport's, a scan of each fixture's copy under the gate's own
+// limit, never semgrep's test runner and its fixed 5 s (issue 206).
 func TestTheSelfTestRunsTheRulesOverEachFixtureWithMetricsOff(t *testing.T) {
 	w := newWorld(t, nil)
 	w.wantExit(ExitOK, w.run())
 	got := w.fake.tests()
-	rules := filepath.Join(w.root, ruleFile)
-	want := [][]string{
-		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, jsFixtureFile)},
-		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, pyFixtureFile)},
+	if len(got) != 2 {
+		t.Fatalf("self-tests %v", got)
 	}
-	if !slices.EqualFunc(got, want, slices.Equal) {
-		t.Fatalf("self-test argv\n%v\nwant\n%v", got, want)
+	for i, ext := range []string{".js", ".py"} {
+		argv := got[i]
+		if filepath.Base(argv[slices.Index(argv, "--config")+1]) != "selftest-rules.yml" {
+			t.Errorf("self-test rules are not the copy with paths set aside: %v", argv)
+		}
+		for _, want := range []string{"scan", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check"} {
+			if !slices.Contains(argv, want) {
+				t.Errorf("self-test argv lacks %s: %v", want, argv)
+			}
+		}
+		if slices.Contains(argv, "--test") || filepath.Base(argv[len(argv)-1]) != "selftest"+ext {
+			t.Errorf("self-test argv %v", argv)
+		}
+	}
+}
+
+// failingFor is a self-test answer that misses every marked line of the fixture with ext.
+func failingFor(ext string) func([]string) (proc.Result, error) {
+	return func(argv []string) (proc.Result, error) {
+		if filepath.Ext(argv[len(argv)-1]) == ext {
+			return selftestfake.Missing(argv)
+		}
+		return selftestfake.Passing(argv)
 	}
 }
 
 // S8
 func TestARuleThatFailsAFixtureIsExitOneAndNothingIsScanned(t *testing.T) {
-	for _, bad := range []string{jsFixtureFile, pyFixtureFile} {
+	for bad, missed := range map[string]string{jsFixtureFile: "model-present-without-weights: missed lines [2]", pyFixtureFile: "model-present-without-weights: missed lines [2]"} {
 		w := newWorld(t, nil)
-		w.fake.testFor = func(fixture string) proc.Result {
-			if strings.HasSuffix(fixture, bad) {
-				return proc.Result{Code: 1, Stdout: "1 unexpected\n", Stderr: "boom\n"}
-			}
-			return proc.Result{}
-		}
+		w.fake.test = failingFor(filepath.Ext(bad))
 		w.wantExit(ExitFailed, w.run())
-		w.wantStderr("ERROR: "+ruleFile+" failed its fixture "+bad+":", "1 unexpected", "boom")
+		w.wantStderr("ERROR: "+ruleFile+" failed its fixture "+bad+":", missed)
 		if len(w.fake.scans()) != 0 {
 			t.Fatal("a scan ran after the rule failed its fixture")
 		}
@@ -231,13 +247,25 @@ func TestARuleThatFailsAFixtureIsExitOneAndNothingIsScanned(t *testing.T) {
 // S8
 func TestASelfTestThatCannotRunIsExitTwo(t *testing.T) {
 	w := newWorld(t, nil)
-	w.fake.testEr = errors.New("permission denied")
+	w.fake.test = func([]string) (proc.Result, error) { return proc.Result{}, errors.New("permission denied") }
 	w.wantExit(ExitCannotRun, w.run())
 	w.wantStderr("ERROR: semgrep: permission denied")
 	w = newWorld(t, nil)
-	w.fake.test = proc.Result{TimedOut: true}
+	w.fake.test = func([]string) (proc.Result, error) { return proc.Result{TimedOut: true}, nil }
 	w.wantExit(ExitCannotRun, w.run())
 	w.wantStderr("ERROR: semgrep did not finish within")
+}
+
+// S8 / issue 206: a Timeout in the self-test's report is the rule not proven, exit 1 naming it.
+func TestASelfTestTimeoutIsAFailedFixture(t *testing.T) {
+	w := newWorld(t, nil)
+	w.fake.test = func(argv []string) (proc.Result, error) {
+		res, err := selftestfake.Passing(argv)
+		res.Stdout = strings.Replace(res.Stdout, `"errors":[]`, `"errors":[{"type":"Timeout","message":"timed out"}]`, 1)
+		return res, err
+	}
+	w.wantExit(ExitFailed, w.run())
+	w.wantStderr("failed its fixture", "semgrep error (Timeout): timed out")
 }
 
 // S9
@@ -300,21 +328,22 @@ func TestPassedCountsWhatSemgrepReportsRead(t *testing.T) {
 // not a rule that stopped matching.
 func TestARuleFileSemgrepCannotLoadIsExitTwoWithItsCause(t *testing.T) {
 	w := newWorld(t, nil)
-	w.fake.test = proc.Result{Code: 2, Stderr: "invalid pattern-regex\n"}
+	w.fake.test = func([]string) (proc.Result, error) {
+		return proc.Result{Code: 2, Stderr: "invalid pattern-regex\n"}, nil
+	}
 	w.wantExit(ExitCannotRun, w.run())
-	w.wantStderr("ERROR: semgrep could not run the self-test (exit 2)", "invalid pattern-regex")
+	w.wantStderr("ERROR: semgrep gave no report on "+jsFixtureFile+" (exit 2)", "invalid pattern-regex")
 	if len(w.fake.scans()) != 0 {
 		t.Fatal("a scan ran")
 	}
 }
 
-// S8: semgrep also exits 2 for a rule id that a fixture annotates and the rules do not hold
-// (a rule edited into another name); that is a fixture the rules failed, exit 1.
+// S8: a rule id that a fixture annotates and no rule reports, while others do (a rule edited
+// into another name), is a fixture the rules failed, exit 1.
 func TestARuleIdMismatchIsAFailedFixtureNotAnUnusableRuleFile(t *testing.T) {
-	w := newWorld(t, nil)
-	w.fake.test = proc.Result{Code: 2, Stderr: "Failing due to rule id mismatch.\n"}
+	w := newWorld(t, map[string]string{pyFixtureFile: pyFixtureText + "# ok: renamed-rule\nz = 2\n"})
 	w.wantExit(ExitFailed, w.run())
-	w.wantStderr("failed its fixture", "rule id mismatch")
+	w.wantStderr("failed its fixture", "rule id mismatch", "renamed-rule")
 }
 
 // S9 / B1: a new file git has not been told about is judged too.
@@ -652,14 +681,14 @@ func TestPassedCountsFilesNotFindings(t *testing.T) {
 // them before they are shown.
 func TestSemgrepOutputNamingTheCheckoutIsScrubbed(t *testing.T) {
 	w := newWorld(t, nil)
-	w.fake.testFor = func(fixture string) proc.Result {
-		return proc.Result{Code: 1, Stdout: "mismatch file=" + fixture + "\n", Stderr: "in " + w.root + "\n"}
+	w.fake.test = func([]string) (proc.Result, error) {
+		return proc.Result{Code: 2, Stderr: "bad rule file " + w.root + "/" + ruleFile + "\n"}, nil
 	}
-	w.wantExit(ExitFailed, w.run())
+	w.wantExit(ExitCannotRun, w.run())
 	if strings.Contains(w.stderr.String(), w.root) {
 		t.Fatalf("the checkout path leaked:\n%s", w.stderr.String())
 	}
-	w.wantStderr("mismatch file=.semgrep/speech-to-text.js")
+	w.wantStderr("bad rule file " + ruleFile)
 	w = newWorld(t, nil)
 	w.fake.scan = func(string, []string) proc.Result {
 		return proc.Result{Code: 2, Stderr: "bad file " + w.root + "/helpers/mod.py\n"}

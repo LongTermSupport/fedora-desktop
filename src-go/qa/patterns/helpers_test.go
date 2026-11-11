@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 const defaultTrees = "# trees\nshell\t.git\nshell\tuntracked\nshell\t.semgrep\npython\t.venv\n"
@@ -33,7 +34,7 @@ type world struct {
 func newWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	all := map[string]string{
-		".semgrep/bash-conventions.yml":   "rules: []\n",
+		".semgrep/bash-conventions.yml":   "rules:\n  - id: bash-x\n",
 		".semgrep/bash-conventions.bash":  "# fixture\n# ruleid: bash-x\n",
 		"scripts/qa-trees.tsv":            defaultTrees,
 		"scripts/" + partialAllowlistFile: "# no file may be mostly outside the parse tree\n",
@@ -137,10 +138,10 @@ type fakeRun struct {
 
 	noSemgrep   bool
 	versionCode int
-	testCode    int
-	testOut     string
-	scanCode    int
-	scanStderr  string
+	// test answers the self-test; nil is a semgrep that reports every line the fixture marks.
+	test       func(argv []string) (proc.Result, error)
+	scanCode   int
+	scanStderr string
 	// scan returns the JSON semgrep writes; "" writes no file.
 	scan func(mirror string) string
 
@@ -207,8 +208,11 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	switch {
 	case slices.Contains(c.Argv, "--version"):
 		return proc.Result{Code: f.versionCode, Stdout: "1.0.0\n"}, nil
-	case slices.Contains(c.Argv, "--test"):
-		return proc.Result{Code: f.testCode, Stdout: f.testOut}, nil
+	case selftestfake.IsSelfTest(c.Argv):
+		if f.test != nil {
+			return f.test(c.Argv)
+		}
+		return selftestfake.Passing(c.Argv)
 	}
 	f.mirror = c.Dir
 	f.mirrorFiles = nil

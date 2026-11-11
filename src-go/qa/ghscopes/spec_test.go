@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 // findRaceWorld is a repository holding the find-race rule and fixture instead of gh-scopes'.
@@ -36,8 +38,7 @@ func TestTheFindRaceSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	w := findRaceWorld(t, nil)
 	got := w.mainSpec(FindRace)
 	wantExit(t, got, ExitOK)
-	wantTest := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ".semgrep/find-race.yml"), filepath.Join(w.root, ".semgrep/find-race.fixture")}
-	if !w.run.called(wantTest...) {
+	if !w.run.selfTested(filepath.Join(w.root, ".semgrep/find-race.yml"), ".fixture") {
 		t.Fatalf("no self-test of the find-race rule: %v", w.run.calls)
 	}
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/find-race.yml")) {
@@ -66,7 +67,7 @@ func TestAFindRaceFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
 
 func TestAFindRaceRuleThatFailsItsFixtureNamesTheFindRaceFiles(t *testing.T) {
 	w := findRaceWorld(t, nil)
-	w.run.testCode = 1
+	w.run.test = selftestfake.Missing
 	got := w.mainSpec(FindRace)
 	wantExit(t, got, ExitFailed)
 	wantIn(t, "stderr", got.stderr, "ERROR: find-race-negated-stat-test failed its fixture (.semgrep/find-race.fixture):")
@@ -99,8 +100,7 @@ func TestTheArchPinSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	w := archPinWorld(t, nil)
 	got := w.mainSpec(ArchPin)
 	wantExit(t, got, ExitOK)
-	wantTest := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ".semgrep/arch-pin.yml"), filepath.Join(w.root, ".semgrep/arch-pin.fixture")}
-	if !w.run.called(wantTest...) {
+	if !w.run.selfTested(filepath.Join(w.root, ".semgrep/arch-pin.yml"), ".fixture") {
 		t.Fatalf("no self-test of the arch-pin rule: %v", w.run.calls)
 	}
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/arch-pin.yml")) {
@@ -158,8 +158,7 @@ func TestTheArgvLeakSpecRunsItsOwnRuleAndFixture(t *testing.T) {
 	w := argvLeakWorld(t, nil)
 	got := w.mainSpec(ArgvLeak)
 	wantExit(t, got, ExitOK)
-	wantTest := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ".semgrep/argv-leak.yml"), filepath.Join(w.root, ".semgrep/argv-leak.fixture.yml")}
-	if !w.run.called(wantTest...) {
+	if !w.run.selfTested(filepath.Join(w.root, ".semgrep/argv-leak.yml"), ".yml") {
 		t.Fatalf("no self-test of the secret-in-argv rule: %v", w.run.calls)
 	}
 	if !slices.Contains(w.run.scanArgv, filepath.Join(w.root, ".semgrep/argv-leak.yml")) {

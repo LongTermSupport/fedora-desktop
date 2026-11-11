@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
@@ -60,13 +61,13 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check",
-		"--config", g.path(rulesPath), g.path(pyFixturePath))
+	test := semgrepreport.SelfTest{Rules: g.path(rulesPath), Fixture: g.path(pyFixturePath), Name: pyFixturePath}
+	err = test.Prove(func(argv []string) (proc.Result, error) { return g.runTool(ctx, semgrepTimeout, argv...) })
+	if fe, ok := errors.AsType[*semgrepreport.FixtureError](err); ok {
+		return failed("%s failed its fixture %s:\n    %s", rulesPath, pyFixturePath, strings.Join(fe.Problems, "\n    "))
+	}
 	if err != nil {
 		return err
-	}
-	if res.Code != 0 {
-		return failed("%s failed its fixture %s:\n%s%s", rulesPath, pyFixturePath, res.Stdout, res.Stderr)
 	}
 	got, err := Findings(string(fixture))
 	if err != nil {
