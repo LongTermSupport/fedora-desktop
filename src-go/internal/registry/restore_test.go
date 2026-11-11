@@ -65,6 +65,33 @@ func TestResumeArgsGoldenCases(t *testing.T) {
 	}
 }
 
+// Plan 00135 Phase 13: a record marked to start fresh with no conversation recorded is started
+// with the arguments a resume would get, less the resume: no selector at all, never --continue.
+func TestFreshArgsAreTheResumeArgsWithoutTheResume(t *testing.T) {
+	cases := []struct {
+		name, compose, prefix string
+		args                  []string
+		want                  string
+	}{
+		{"ccy gets supervise", "", "ccy", []string{"--token", "work"}, "--token|work|--supervise"},
+		{"a recorded continue goes", "", "ccy", []string{"--continue", "-r", "abc"}, "--supervise"},
+		{"compose replayed", "declined", "ccy", []string{"--", "--model", "opus", "-c"}, "--compose|skip|--supervise|--|--model|opus"},
+		{"cc gets its own words only", "started", "cc", []string{"--bus", "--resume"}, "--bus"},
+	}
+	for _, c := range cases {
+		got, err := FreshArgs(c.compose, c.prefix, c.args)
+		if err != nil || joinArgs(got) != c.want {
+			t.Errorf("%s: got %q, %v; want %q", c.name, joinArgs(got), err, c.want)
+		}
+	}
+	if _, err := FreshArgs("maybe", "ccy", nil); err == nil {
+		t.Fatal("a bad compose outcome is an error")
+	}
+	if _, err := FreshArgs("", "", nil); err == nil {
+		t.Fatal("an empty prefix is an error")
+	}
+}
+
 func TestResumeArgsErrors(t *testing.T) {
 	if _, err := ResumeArgs("maybe", "ccy", nil, conversation); err == nil || err.Error() != "compose outcome 'maybe' is not one of started declined running" {
 		t.Fatalf("got %v", err)

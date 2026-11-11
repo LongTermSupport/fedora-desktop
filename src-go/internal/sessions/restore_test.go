@@ -288,6 +288,99 @@ func TestASessionWithNoRecordedConversationIsNotRestored(t *testing.T) {
 	}
 }
 
+// Plan 00135 Phase 13 (the owner's decision of 2026-11-11, revising Phase 12 ask 1): a record
+// provisioning marked fresh-if-no-conversation, with nothing recorded, is started fresh, under the
+// same askpass a resume gets, with no --resume and never --continue; a marked record whose
+// conversation is recorded is resumed by its id; an unmarked one with nothing recorded is refused
+// as before; a marked one launched without the bus, or whose hook's file is not readable, is
+// refused too (the mark covers only "nothing recorded"). The manifest says fresh, and set-going
+// leaves the fresh session alone: there is no conversation to compact or continue.
+func TestAMarkedRecordWithNoConversationIsStartedFreshUnderTheAskpass(t *testing.T) {
+	h, file := passphraseHost(t)
+	dir := realDir(t, h, "new")
+	recordOnly(t, h, registry.Record{
+		Name: "ccy-new", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true,
+		FreshIfNoConversation: true, Compose: "declined", Args: []string{"--ssh-key", "/k", "--continue"},
+	})
+	recordOnly(t, h, registry.Record{Name: "ccy-plain", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	record(t, h, registry.Record{Name: "ccy-old", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true})
+	recordOnly(t, h, registry.Record{
+		Name: "ccy-nobus", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true,
+		FreshIfNoConversation: true, Args: []string{"--no-bus"},
+	})
+	exitCodeIs(t, h.run("restore"), 1, h)
+	started := map[string]string{}
+	for _, c := range startedSessions(h) {
+		line := strings.Join(c.Args, " ")
+		for _, name := range []string{"ccy-new", "ccy-old", "ccy-plain", "ccy-nobus", "ccy-proj", "cc-proj"} {
+			if strings.Contains(line, " -s "+name+" ") {
+				started[name] = line
+			}
+		}
+	}
+	contains(t, "fresh", started["ccy-new"],
+		" ccy-tmux env CCY_SESSION_RESTORE=1 "+unlockFileEnv+"="+file+" /launch/ccy --ssh-key /k --compose skip --supervise ; ")
+	lacks(t, "fresh", started["ccy-new"], "--resume", "--continue")
+	contains(t, "marked, recorded", started["ccy-old"], "/launch/ccy --supervise --resume "+conversationOf("ccy-old")+" ")
+	if _, ok := started["ccy-plain"]; ok {
+		t.Fatal("an unmarked record with no conversation is not started")
+	}
+	if _, ok := started["ccy-nobus"]; ok {
+		t.Fatal("the mark does not cover a launch without the bus")
+	}
+	contains(t, "says", h.stderr(),
+		"started ccy-new fresh in "+dir+": no conversation is recorded and its record is marked fresh-if-no-conversation.\n",
+		"ERROR: cannot restore ccy-plain: ccy-plain: no conversation is recorded",
+		"ERROR: cannot restore ccy-nobus: ccy-nobus: it was launched without the agent team bus",
+		"ccy session restore: 4 started, 2 failed.")
+	got := map[string]string{}
+	for _, e := range manifestOf(t, h).Entries {
+		got[e.Name] = fmt.Sprintf("resume=%q %s %s", e.Resume, e.Going, e.Detail)
+	}
+	want := map[string]string{
+		"ccy-new":   `resume="" none fresh`,
+		"ccy-old":   `resume="` + conversationOf("ccy-old") + `" pending `,
+		"ccy-plain": `resume="" not-started no-conversation`,
+		"ccy-nobus": `resume="" not-started no-conversation`,
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: manifest %q, want %q", name, got[name], w)
+		}
+	}
+}
+
+func TestADryRunSaysAMarkedRecordWouldStartFresh(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	recordOnly(t, h, registry.Record{Name: "ccy-new", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true})
+	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
+	contains(t, "dry run", h.stderr(), "would start ccy-new fresh in "+a+" (no conversation is recorded): /launch/ccy --supervise\n")
+}
+
+// --check judges a marked never-run record restorable, so the self-update cycle's
+// unrestorable-sessions hold does not fire for it; an unmarked one is unrestorable.
+func TestRestoreCheckJudgesAMarkedNeverRunRecordRestorable(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	a := realDir(t, h, "a")
+	recordOnly(t, h, registry.Record{Name: "ccy-new", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true})
+	exitCodeIs(t, h.run("restore", "--check"), 0, h)
+	if h.stdout() != "ccy-new RESTORABLE\n" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	contains(t, "says fresh", h.stderr(), "ccy-new has no conversation recorded and will be started fresh (its record is marked fresh-if-no-conversation).\n")
+
+	recordOnly(t, h, registry.Record{Name: "ccy-plain", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	h.out.Reset()
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	if h.stdout() != "ccy-new RESTORABLE\nccy-plain UNRESTORABLE no-conversation\n" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+}
+
 // fedora-desktop#108: every record failing is not an empty restore. The manifest names each
 // session that did not start, and verify-restore reports them and exits 1; it never says
 // "nothing to verify" for them.

@@ -21,6 +21,7 @@ const (
 	header      = "ccy-session-record 1"
 	keyLauncher = "launcher"
 	keyPrefix   = "prefix"
+	keyFresh    = "fresh-if-no-conversation"
 	valYes      = "yes"
 	valNo       = "no"
 )
@@ -57,14 +58,18 @@ func (e *RelativeBaseError) Error() string {
 }
 
 // Record is one session's registry entry. Compose is empty when the record has no answer.
+// FreshIfNoConversation is the optional fresh-if-no-conversation=yes that provisioning writes
+// into a record for a session that has never run (Plan 00135 Phase 13): with no conversation
+// recorded, the restore starts it fresh instead of refusing it.
 type Record struct {
-	Name     string
-	Dir      string
-	Launcher string
-	Prefix   string
-	Restore  bool
-	Compose  string
-	Args     []string
+	Name                  string
+	Dir                   string
+	Launcher              string
+	Prefix                string
+	Restore               bool
+	Compose               string
+	FreshIfNoConversation bool
+	Args                  []string
 }
 
 // Listing is every record in the registry: the readable ones in name order, and the names of
@@ -175,6 +180,9 @@ func render(r Record) string {
 	b.WriteString("restore=" + term.YesNo(r.Restore) + "\n")
 	if r.Compose != "" {
 		b.WriteString("compose=" + r.Compose + "\n")
+	}
+	if r.FreshIfNoConversation {
+		b.WriteString(keyFresh + "=" + valYes + "\n")
 	}
 	for _, a := range r.Args {
 		b.WriteString("arg=" + a + "\n")
@@ -404,6 +412,11 @@ func (r *Record) setField(key, value string) string {
 			return fmt.Sprintf("has compose='%s'", value)
 		}
 		r.Compose = value
+	case keyFresh:
+		if value != valYes {
+			return fmt.Sprintf("has %s='%s'; the only value is yes", keyFresh, value)
+		}
+		r.FreshIfNoConversation = true
 	case "arg":
 		r.Args = append(r.Args, value)
 	default:

@@ -101,6 +101,40 @@ func TestWriteReadRoundTripAndFormat(t *testing.T) {
 	}
 }
 
+// Plan 00135 Phase 13: provisioning marks a record to start fresh when no conversation is
+// recorded. The key is optional, written only when set, and only "yes" is a value.
+func TestTheFreshMarkRoundTripsAndIsWrittenOnlyWhenSet(t *testing.T) {
+	s := newStore(t)
+	rec := sample()
+	rec.FreshIfNoConversation = true
+	if err := s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.Dir(), rec.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "\nrestore=yes\ncompose=started\nfresh-if-no-conversation=yes\narg=--teams\n") {
+		t.Fatalf("file %q", raw)
+	}
+	got, err := s.Get(rec.Name)
+	if err != nil || !got.FreshIfNoConversation {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if err = s.SetRestore(rec.Name, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.Get(rec.Name); err != nil || !got.FreshIfNoConversation {
+		t.Fatalf("a rewrite keeps the mark: %+v, %v", got, err)
+	}
+	if err = s.Write(sample()); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err = os.ReadFile(filepath.Join(s.Dir(), rec.Name)); err != nil || strings.Contains(string(raw), "fresh-if-no-conversation") {
+		t.Fatalf("an unmarked record has no key: %q, %v", raw, err)
+	}
+}
+
 func TestWriteOmitsEmptyComposeAndLeavesNoTemp(t *testing.T) {
 	s := newStore(t)
 	rec := sample()
@@ -159,6 +193,8 @@ func TestReadRejectsMalformedRecords(t *testing.T) {
 		"no equals":       good + "junk\n",
 		"unknown key":     good + "color=red\n",
 		"bad compose":     good + "compose=maybe\n",
+		"fresh not yes":   good + "fresh-if-no-conversation=no\n",
+		"fresh empty":     good + "fresh-if-no-conversation=\n",
 		"bad restore":     strings.Replace(good, "restore=yes", "restore=maybe", 1),
 		"missing name":    strings.Replace(good, "name=n\n", "", 1),
 		"missing dir":     strings.Replace(good, "dir=/d\n", "", 1),
@@ -535,6 +571,52 @@ func TestBashSetRestoreOnGoRecordAndGoSetRestoreOnBashRecord(t *testing.T) {
 	out := bash(t, state, `ccy_registry_read "$(ccy_registry_dir)/other"; printf '%s %s %s\n' "$REC_RESTORE" "$REC_COMPOSE" "${REC_ARGS[*]}"`)
 	if out != "yes declined --teams 2@alpha\n" {
 		t.Fatalf("bash saw %q", out)
+	}
+	bash(t, state, `ccy_registry_remove other`)
+	if _, err := s.Get("other"); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// Plan 00135 Phase 13: a record provisioning marked to start fresh is read by the launcher's
+// library, and every rewrite it makes (the restore mark, the compose outcome, the SSH key, a
+// network taken out) keeps the mark; a record the library writes with --fresh is Go's too.
+func TestTheFreshMarkSurvivesEveryBashRewrite(t *testing.T) {
+	state := t.TempDir()
+	s, err := Locate(env(map[string]string{"CCY_STATE_DIR": state}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := Record{
+		Name: "ccy-new", Dir: "/srv/new", Launcher: "/l", Prefix: "ccy", Restore: true, FreshIfNoConversation: true,
+		Args: []string{"--token", "t", "--network", "n"},
+	}
+	if err = s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	out := bash(t, state, `ccy_registry_read "$(ccy_registry_dir)/ccy-new"; printf '%s\n' "$REC_FRESH"
+ccy_registry_set_restore ccy-new no 2>/dev/null
+ccy_registry_record_compose ccy-new declined 2>/dev/null
+ccy_registry_record_ssh_key ccy-new /k 2>/dev/null
+ccy_registry_forget_network /srv/new n >/dev/null`)
+	if out != "yes\n" {
+		t.Fatalf("bash saw %q", out)
+	}
+	got, err := s.Get("ccy-new")
+	if err != nil || !got.FreshIfNoConversation || got.Restore || got.Compose != "declined" ||
+		!slices.Equal(got.Args, []string{"--token", "t", "--ssh-key", "/k"}) {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	bash(t, state, `ccy_registry_write --fresh yes other /d /l ccy yes`)
+	if got, err = s.Get("other"); err != nil || !got.FreshIfNoConversation {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	if err = os.WriteFile(filepath.Join(s.Dir(), "bad"), []byte("ccy-session-record 1\nname=bad\ndir=/d\nlauncher=/l\nprefix=ccy\nrestore=yes\nfresh-if-no-conversation=no\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out = bash(t, state, `ccy_registry_read "$(ccy_registry_dir)/bad" 2>/dev/null || echo refused
+ccy_registry_write --fresh no x /d /l ccy yes 2>/dev/null || echo refused`); out != "refused\nrefused\n" {
+		t.Fatalf("bash accepted a mark that is not yes: %q", out)
 	}
 	bash(t, state, `ccy_registry_remove other`)
 	if _, err := s.Get("other"); !errors.Is(err, ErrNoRecord) {

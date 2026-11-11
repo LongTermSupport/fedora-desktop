@@ -129,7 +129,7 @@ func checkoutOf(rec registry.Record) (string, error) {
 func readRecord(path string) (recordV1, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return recordV1{}, fmt.Errorf("no conversation is recorded (%s is not there)", path)
+		return recordV1{}, fmt.Errorf("%w (%s is not there)", ErrNotRecorded, path)
 	}
 	if err != nil {
 		return recordV1{}, fmt.Errorf("could not read %s: %w", path, err)
@@ -158,3 +158,9 @@ func readRecord(path string) (recordV1, error) {
 }
 
 var errNotARecord = errors.New("not one version 1 record")
+
+// ErrNotRecorded is For's error when the session's hook has recorded nothing: the file is not
+// there. Only this is the "no conversation recorded" a record marked fresh-if-no-conversation is
+// started fresh on (Plan 00135 Phase 13); a launch without the bus, a file that is not the
+// hook's, or a recorded conversation without its transcript is refused whatever the mark.
+var ErrNotRecorded = errors.New("no conversation is recorded")
