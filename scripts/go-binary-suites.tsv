@@ -48,3 +48,4 @@ ssh-copy-id-with-key	qa-go
 container-images	scripts/test-ccy-image-build-lock.bash
 teamchat-admin	qa-go
 teamchat	qa-go
+release-plan	qa-go

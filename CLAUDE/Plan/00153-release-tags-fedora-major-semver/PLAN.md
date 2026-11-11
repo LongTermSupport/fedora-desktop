@@ -1,6 +1,6 @@
 # Plan 00153: release tags, Fedora major plus semver
 
-**Status**: In Progress (Phases 1 and 2 done; Phase 3 built and merged; Phase 4, the first release, waits on host acceptance; nothing is tagged)
+**Status**: In Progress, blocked on the owner (Phases 1 to 3 done; Phase 5's workflow is built, reviewed and green on CI but has never run, which needs the owner's GitHub objects, D5, Tasks 5.1 and 5.3; Phase 4, the first release, waits on host acceptance and the owner, Tasks 4.1 and 4.2; nothing is tagged). Every open task's need is in the journal entry of 2026-11-04 titled "What is left".
 **Created**: 2026-10-03
 **Owner**: joseph
 **Priority**: Medium
@@ -34,7 +34,9 @@ release tag rather than the branch tip.
 - Changing the branch model (one default branch per Fedora release stays).
 - Replacing ccy's own version (`CCY_VERSION` and the container label keep their meaning;
   a release just contains whatever ccy version is on the branch).
-- Tagging automatically on every merge: a release is the owner's call.
+- Tagging without the owner's approval: a release is the owner's call. Phase 5's workflow tags
+  only after the owner approves its protected environment, and the first release of a major
+  stays by hand.
 
 ## Tasks
 
@@ -114,20 +116,53 @@ no person typing a command and nothing a server trusts weakened. This replaces t
 "tagging automatically on every merge" and Release.md's "never tag unless the owner asks";
 both change only once Task 5.1 is decided.
 
-- [ ] ⬜ **Task 5.1**: Owner decision gate and design: the semver rule from conventional
+- [ ] 🔄 **Task 5.1**: Owner decision gate and design: the semver rule from conventional
   commits (`fix` patch, `feat` minor, a breaking marker refused on an `F<major>` branch); the
   dedicated SSH release key that servers list in `self_update_signing_public_keys`; the
   protected environment with a required reviewer that alone can read it; the tag ruleset
-  that makes release tags immutable and creatable only by the workflow.
-- [ ] ⬜ **Task 5.2**: Tests first: the version computation driven against a fixture history
-  (no releasable commit means no release).
-- [ ] ⬜ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
+  that makes release tags immutable and creatable only by the workflow. The design is written,
+  from what a server demands of a release: [DESIGN-release-workflow.md](DESIGN-release-workflow.md).
+  Decided by the owner on 2026-11-04, each as proposed: D1 the release key is one more entry
+  under the owner's principal; D2 the workflow opens a pull request with the signed release
+  commit, a person merges it with a merge commit, and a second run tags it; D3 a push to
+  `F<major>` starts a run, the version step before the approval; D4 a conventional header is
+  required on the title of a pull request bound for `F<major>`, and the workflow reads the
+  merged pull request's title. Still the owner's: D5, the environment, its secret, the
+  deploy key and the tag ruleset, which only the owner can create; Task 5.3 lists them.
+- [x] ✅ **Task 5.2**: Tests first: the version computation driven against a fixture history
+  (no releasable commit means no release). Built in `src-go/internal/releasever` (rules V1-V6 in
+  its package doc), ahead of Task 5.1's decision because issue 82 states the rule; a different
+  decision changes that package. It is pure; Task 5.3's workflow is its first caller. Open for
+  5.1: this repository's commit subjects mostly carry no conventional header (`Plan 00246: ...`,
+  `Add play-...`, `Merge ...`), and only a `feat` or `fix` header releases, so without a
+  commit-message convention a merge to F44 would rarely release.
+- [ ] 🔄 **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
   the signed tag, the GitHub release with generated notes. Actions pinned by SHA, minimum
   `permissions:` per job, no `pull_request_target`, no untrusted input in a shell step.
-  Fails closed on a missing key, an unapproved run or an existing tag.
-- [ ] ⬜ **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
+  Fails closed on a missing key, an unapproved run or an existing tag. Built, as D1 to D4 decided:
+  `.github/workflows/release.yml` (a `plan` job with no secret, then `prepare` and `tag` in the
+  protected environment, each with only its own permissions), the local action
+  `.github/actions/release-key`, `.github/workflows/pr-title.yml` (D4's check), and the Go
+  command `src-go/cmd/release-plan` over `internal/release` (R1-R7: tests first, three mutations
+  turned them red and were restored) and the new `gitx` questions. `TestTheReleaseWorkflowKeepsItsPromises`
+  (`src-go/qa/toolchain`) holds the workflow's promises, each with a fixture that breaks it.
+  A `qa-reviewer` pass then found two faults, both fixed test first: the `tag` job's CI check could
+  never pass (`qa.yml`'s base check failed the `release-<version>` branch, now exempt), and R4 took
+  any commit with a release subject (now only the head of a merged pull request from
+  `release-<version>`, asked of GitHub); the promise test now pins each job's permissions exactly
+  and reads `pr-title.yml`. The task stays open until a first release has run.
+  **Not yet run:** a real run needs what only the owner can create (D5), listed in
+  [docs/releases.md](../../../docs/releases.md#set-up-once-owner): the `release` environment
+  with its reviewer and `F*` branch limit, the secret `RELEASE_SIGNING_KEY`, the same key's
+  public half as a deploy key with write access and in the servers' `self_update_signing_public_keys`,
+  the tag ruleset, and the setting that lets Actions open pull requests.
+- [x] ✅ **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
   `CLAUDE/Release.md`'s new rule, and the workflow's row in the workflow docs; the
-  `qa-reviewer` agent.
+  `qa-reviewer` agent. The three documents are written (`docs/releases.md`, `CLAUDE/Release.md`,
+  and `CLAUDE/QA.md`, which holds the workflow docs). The `qa-reviewer` pass ran on 2026-11-04
+  over Tasks 5.3 and 5.4: it found two faults in the workflow (fixed, see Task 5.3) and drift in
+  the documents (fixed: the "least permissions" claim is now what the test pins, and the title
+  check and recovery notes are written). The review of the plan's whole diff stays Task 4.2.
 
 ## Success Criteria
 

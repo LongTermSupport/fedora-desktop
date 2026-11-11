@@ -1,0 +1,197 @@
+name: Release
+
+# The release, cut by this workflow end to end (Plan 00153 Phase 5, issue 82): no person types a
+# command and nothing a server trusts is weakened. Servers take the newest signed tag of their
+# Fedora major whose commit is signed by the same key and reachable from the release branch
+# (docs/releases.md). The release branch is protected, so two runs make one release:
+#
+#   1. A push to F<major> with something releasable (a merged pull request titled feat: or
+#      fix:) opens a pull request carrying the signed "Release X.Y.Z" commit, the changelog entry,
+#      after the environment's approval.
+#   2. A person merges that pull request with a merge commit. That push signs the annotated tag on
+#      the release commit itself (GitHub's merge commit is signed by GitHub, which servers refuse),
+#      pushes it and creates the GitHub Release, after the environment's approval.
+#
+# What only the owner can create, and Task 5.3 of the plan lists (docs/releases.md has the steps):
+# the environment "release" with a required reviewer and the branch limit F*; its secret
+# RELEASE_SIGNING_KEY (an unencrypted SSH key, also listed in the servers'
+# self_update_signing_public_keys); that key's public half as a deploy key with write access, so a
+# push by the key starts CI, which a push with the workflow's own token never does; the tag ruleset
+# (release tags immutable, created only by the deploy key); and the repository setting that lets
+# Actions create pull requests. Until they exist a run stops at its first step: a missing key is a
+# failure, never a skip.
+#
+# What decides a release is src-go/cmd/release-plan (R1-R7 in internal/release): this file only
+# runs it and acts on its answer. No untrusted text reaches a shell except through an environment
+# variable, and every action is pinned by commit SHA.
+
+on:
+  push:
+    branches: ["F[0-9]*"]
+
+permissions:
+  contents: read
+
+# A run in progress is never cancelled, because a cancelled run could leave a release half made.
+# A run still waiting behind it is replaced by the newer push, which loses nothing: every run
+# decides from the whole branch.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: what this push calls for
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+      version: ${{ steps.decide.outputs.version }}
+      commit: ${{ steps.decide.outputs.commit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # The version of src-go/qa/go.mod, as qa.yml sets up Go (TestEveryWorkflowSetsUpTheGoFloor).
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: src-go/qa/go.mod
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          (cd src-go && GOFLAGS=-mod=vendor go build -trimpath -o "$RUNNER_TEMP/release-plan" ./cmd/release-plan)
+          "$RUNNER_TEMP/release-plan" decide --branch "$BRANCH" | tee -a "$GITHUB_OUTPUT"
+
+  prepare:
+    name: open the release pull request
+    needs: plan
+    if: needs.plan.outputs.action == 'prepare'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: src-go/qa/go.mod
+
+      - name: Set up the release key
+        uses: ./.github/actions/release-key
+        with:
+          key: ${{ secrets.RELEASE_SIGNING_KEY }}
+
+      # release-plan decides again and refuses unless the branch still calls for this very version.
+      - name: Write the changelog entry and commit it, signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          (cd src-go && GOFLAGS=-mod=vendor go build -trimpath -o "$RUNNER_TEMP/release-plan" ./cmd/release-plan)
+          "$RUNNER_TEMP/release-plan" prepare --branch "$BRANCH" --version "$VERSION"
+          git switch -c "release-$VERSION"
+          git add CHANGELOG.md
+          git commit -S -m "Release $VERSION"
+          git verify-commit HEAD
+          git push "git@github.com:${GITHUB_REPOSITORY}.git" "release-$VERSION"
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh pr create --base "$BRANCH" --head "release-$VERSION" --title "Release $VERSION" \
+            --body "The changelog entry for $VERSION. Merge it with a merge commit: the release workflow then tags the release commit."
+
+  tag:
+    name: tag the merged release commit
+    needs: plan
+    if: needs.plan.outputs.action == 'tag'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: src-go/qa/go.mod
+
+      - name: Set up the release key
+        uses: ./.github/actions/release-key
+        with:
+          key: ${{ secrets.RELEASE_SIGNING_KEY }}
+
+      # Every refusal here stops the run before anything is pushed: a tag that exists is never
+      # moved (ls-remote exits 2 for "no such tag", and any other answer is a failure), the commit
+      # must carry the release key's signature and be on the branch, and CI must have passed on it.
+      - name: Check the release commit and the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: |
+          set -euo pipefail
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null || status=$?
+          if [ "$status" -ne 2 ]; then
+            echo "::error::the tag $VERSION exists or could not be looked up (ls-remote exit $status); a release tag is never moved"
+            exit 1
+          fi
+          git verify-commit "$COMMIT"
+          git merge-base --is-ancestor "$COMMIT" "origin/$BRANCH"
+          state=$(gh run list --commit "$COMMIT" --workflow qa.yml --json status,conclusion --jq '
+            if length == 0 then "no run"
+            elif any(.[]; .status != "completed") then "still running"
+            elif any(.[]; .conclusion != "success" and .conclusion != "cancelled" and .conclusion != "skipped") then "failed"
+            elif any(.[]; .conclusion == "success") then "passed"
+            else "no run" end')
+          if [ "$state" != passed ]; then
+            echo "::error::CI has not passed on the release commit: $state"
+            exit 1
+          fi
+
+      # The Release is created last: if it fails the tag is already pushed and servers are
+      # unaffected, and it is created by hand (docs/releases.md).
+      - name: Tag the release commit and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: |
+          set -euo pipefail
+          (cd src-go && GOFLAGS=-mod=vendor go build -trimpath -o "$RUNNER_TEMP/release-plan" ./cmd/release-plan)
+          "$RUNNER_TEMP/release-plan" notes --version "$VERSION" --commit "$COMMIT" > "$RUNNER_TEMP/notes.md"
+          git tag -s -m "Release $VERSION" "$VERSION" "$COMMIT"
+          git verify-tag "$VERSION"
+          git push "git@github.com:${GITHUB_REPOSITORY}.git" "refs/tags/$VERSION"
+          gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md"

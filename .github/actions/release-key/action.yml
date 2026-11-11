@@ -1,0 +1,39 @@
+name: Release key
+description: >-
+  Puts the release key where git signs and pushes with it, and fails when there is none.
+  Used only by the jobs of the release workflow that run in its protected environment.
+
+inputs:
+  key:
+    description: The private key of the release key (the environment's secret), unencrypted.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up the release key
+      shell: bash
+      env:
+        RELEASE_KEY: ${{ inputs.key }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if [ -z "$RELEASE_KEY" ]; then
+          echo "::error::the release key is not set: the release environment needs its RELEASE_SIGNING_KEY secret"
+          exit 1
+        fi
+        dir="$RUNNER_TEMP/release-key"
+        mkdir -m 700 "$dir"
+        umask 077
+        printf '%s\n' "$RELEASE_KEY" > "$dir/key"
+        # The public half is derived, never configured, so it cannot disagree with the private one.
+        ssh-keygen -y -f "$dir/key" > "$dir/key.pub"
+        printf 'release %s\n' "$(cat "$dir/key.pub")" > "$dir/allowed_signers"
+        # GitHub's host keys come over the API (TLS), not from a first connection to the host.
+        gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$dir/known_hosts"
+        git config gpg.format ssh
+        git config user.signingkey "$dir/key"
+        git config gpg.ssh.allowedSignersFile "$dir/allowed_signers"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        echo "GIT_SSH_COMMAND=ssh -i $dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$dir/known_hosts -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"

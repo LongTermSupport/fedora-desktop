@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.118.1"  # Container 2.84.1: the image's teamchat member never claims "no coordinator" from a record not known current, and tells a coordinator change. See docs/ccy-changelog.md.
+CCY_VERSION="3.118.2"  # Container 2.84.1: the shared gitx adapter answers four more read-only git questions for the release command (Plan 00153); the launcher behaves as 3.118.1. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
