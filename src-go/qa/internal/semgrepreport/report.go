@@ -15,10 +15,12 @@ import (
 )
 
 // TimeoutFlag is semgrep's limit on one rule over one file (parse included), which every scan
-// passes. semgrep's default is 5 s, measured in wall time, so on a loaded host a clean file it
-// was starved on comes back as a Timeout error, which a gate must treat as not analysed. The
-// largest tracked scripts take well under a second; 120 s is far beyond any honest file and still
-// names the file that a runaway rule stalls on, inside the gates' own whole-run deadline.
+// passes, the rule self-test (SelfTest) included. semgrep's default is 5 s, measured in wall
+// time, so on a loaded host a clean file it was starved on comes back as a Timeout error, which a
+// gate must treat as not analysed. The largest tracked scripts take well under a second; 120 s is
+// far beyond any honest file and still names the file that a runaway rule stalls on, inside the
+// gates' own whole-run deadline. semgrep --test takes no limit at all (it always runs with the
+// 5 s default), which is why no gate uses it (project_semgrep_test_runner, issue 206).
 const TimeoutFlag = "--timeout=120"
 
 // Result is one match of a rule.
@@ -37,6 +39,7 @@ type Result struct {
 type Report struct {
 	Results []Result `json:"results"`
 	Errors  []struct {
+		Type    string `json:"type"`
 		Path    string `json:"path"`
 		Message string `json:"message"`
 	} `json:"errors"`
@@ -106,8 +109,8 @@ func (r Report) ScannedCount() int {
 // not one.
 var annotationRe = regexp.MustCompile(`(?:^|[^\w])ruleid:\s*([\w.-]+(?:\s*,\s*[\w.-]+)*)`)
 
-// Annotated is the rule ids a fixture marks with a ruleid annotation. semgrep --test exits 0 on a
-// fixture with none, so a gate must see at least one before it takes the self-test as a proof.
+// Annotated is the rule ids a fixture marks with a ruleid annotation. A fixture with none proves
+// nothing, so a gate must see at least one for each rule before it takes the self-test as a proof.
 func Annotated(fixture string) map[string]bool {
 	ids := map[string]bool{}
 	for _, m := range annotationRe.FindAllStringSubmatch(fixture, -1) {
