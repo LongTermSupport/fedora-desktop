@@ -6,6 +6,9 @@
 #
 # Nheko is installed from Flathub like the other desktop apps (play-comms.yml): the Flathub
 # build tracks upstream releases ahead of the Fedora RPM and runs the same way on Wayland.
+#
+# Each client has its own tag, so one can be installed alone: --tags lightning. The guards and
+# the Flathub remote are tagged always, so a tagged run is still guarded.
 - hosts: desktop
   name: Matrix clients
   become: false
@@ -24,14 +27,17 @@
           Auto-detected from `systemctl get-default`
           (see environment/localhost/group_vars/desktop.yml) or overridden
           via -e provisioning_profile=desktop|server.
+      tags: [always]
 
     - name: Scope guard — end play if provisioning_profile does not match declared scope
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+      tags: [always]
 
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
+      tags: [always]
 
     - name: Enable Flathub remote
       become: true
@@ -39,11 +45,13 @@
         name: flathub
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
+      tags: [always]
 
     - name: Install Nheko
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
       vars:
         flatpak_app_id: im.nheko.Nheko
+      tags: [nheko]
 
     # Lightning: a native Qt 6 client on the official Matrix Rust SDK, with threads in a side
     # panel; on trial as an alternative to Element Desktop. Its TLS is rustls, not NSS, so the
@@ -52,7 +60,9 @@
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
       vars:
         flatpak_app_id: org.lightning_matrix.Lightning
+      tags: [lightning]
 
     # The same tasks play-agent-bus-element.yml imports: ccy-teams runs that play on its own.
     - name: Install Element Desktop and let it reach the keyring
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-desktop.yml"
+      tags: [element]

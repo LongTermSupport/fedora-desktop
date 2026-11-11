@@ -108,6 +108,13 @@ chmod +x "${SCRATCH}/playbooks/demo.yml"
 printf 'playbooks/demo.yml\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 check "a playbook's exit 2 is a failure" 1 "FAIL  demo.yml (exit 2)" "$?" "${out}"
+# A playbook entry may carry ansible-playbook arguments, --tags above all, so one part of a
+# play runs alone; they are listed, passed to the play and named in the summary.
+printf '#!/usr/bin/env bash\nprintf "fixture play %%s\\n" "$*"\n' >"${SCRATCH}/playbooks/demo.yml"
+run_case "words after a playbook are listed" 0 "demo.yml --tags lightning" $'playbooks/demo.yml --tags lightning\n'
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
+check "words after a playbook are passed to it" 0 "fixture play --tags lightning" "$?" "${out}"
+check "a tagged playbook is named with its words" 0 "PASS  demo.yml --tags lightning" 0 "${out}"
 mkdir -p "${SCRATCH}/CLAUDE/Plan/00003-triage"
 printf '#!/usr/bin/env bash\nexit 0\n' >"${SCRATCH}/CLAUDE/Plan/00003-triage/triage.bash"
 chmod +x "${SCRATCH}/CLAUDE/Plan/00003-triage/triage.bash"

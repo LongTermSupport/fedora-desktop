@@ -10,9 +10,11 @@
 #
 # One entry per line, four kinds:
 #   <plan folder>                  its triage, deploy and acceptance scripts, in order
-#   playbooks/<path>.yml           a change no plan owns; run as one unit through its own
+#   playbooks/<path>.yml [args]    a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
-#                                  ./playbooks/imports/<play>.yml does by hand
+#                                  ./playbooks/imports/<play>.yml does by hand. Words after
+#                                  it are ansible-playbook arguments: name the play's tags
+#                                  (--tags lightning) so only the changed part runs
 #   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
@@ -32,12 +34,6 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Lightning, a native Matrix client the owner is trialling beside Element Desktop: the matrix
-# clients play installs the Flathub app org.lightning_matrix.Lightning system-wide (Nheko and
-# Element are already there and report no change). First, so the trial does not wait on the
-# long runs below. After it, Lightning is in the GNOME app grid.
-playbooks/imports/optional/common/play-matrix-clients.yml
 
 # Plan 00243: the arm64 fixes are on F44, so this x86_64 host re-runs the plays they touched
 # (basic-configs, python, rpm-fusion, comms, markless, browsers, toolbox-install,

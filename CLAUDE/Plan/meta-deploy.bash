@@ -73,8 +73,8 @@ while IFS= read -r planEntry || [[ -n "${planEntry}" ]]; do
     read -r -a entryWords <<<"${planEntry}"
     planName="${entryWords[0]}"
     if [[ ! "${planName}" =~ ${ENTRY_RE} || "${planEntry}" == *'#'* ]] \
-        || [[ ( "${planName}" == */* || "${planName}" == changed-plays ) && ( ! "${planName}" =~ ${UNIT_RE} || ${#entryWords[@]} -gt 1 ) ]]; then
-        printf '[FATAL] %s line %d is not an entry: %s (an entry is a plan folder with optional triage words, a playbooks/ path, <plan folder>/<script>.bash or changed-plays alone; a comment is a whole line starting with #)\n' "${LIST_FILE}" "${lineNo}" "${planEntry}" >&2
+        || [[ ( "${planName}" == */* || "${planName}" == changed-plays ) && ( ! "${planName}" =~ ${UNIT_RE} || ( ${#entryWords[@]} -gt 1 && "${planName}" != playbooks/* ) ) ]]; then
+        printf '[FATAL] %s line %d is not an entry: %s (an entry is a plan folder with optional triage words, a playbooks/ path with optional ansible-playbook arguments such as --tags, <plan folder>/<script>.bash or changed-plays alone; a comment is a whole line starting with #)\n' "${LIST_FILE}" "${lineNo}" "${planEntry}" >&2
         exit 1
     fi
     # changed-plays is the checkout's own run.bash, asked for every play changed since it ran
@@ -146,7 +146,7 @@ for planDir in "${PLAN_DIRS[@]}"; do
     # did not run.
     unit=""
     status=0
-    # A plan's triage words, or run.bash's arguments for changed-plays; none for the rest.
+    # A plan's triage words, a playbook's arguments, or run.bash's for changed-plays.
     triageArgs=()
     read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
 
