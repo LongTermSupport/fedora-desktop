@@ -252,6 +252,9 @@ func fails(pass *analysis.Pass, body []ast.Stmt) bool {
 	return failed
 }
 
+// builtinPanic is the name of Go's predeclared panic, which several rules treat as an end.
+const builtinPanic = "panic"
+
 // failsHere is whether n itself fails the test.
 func failsHere(pass *analysis.Pass, n ast.Node) bool {
 	switch n := n.(type) {
@@ -264,7 +267,7 @@ func failsHere(pass *analysis.Pass, n ast.Node) bool {
 			return false
 		}
 		b, isBuiltin := pass.TypesInfo.Uses[id].(*types.Builtin)
-		return isBuiltin && b.Name() == "panic"
+		return isBuiltin && b.Name() == builtinPanic
 	case *ast.ReturnStmt:
 		return len(n.Results) > 0 && !isNil(pass, n.Results[len(n.Results)-1])
 	}

@@ -1038,7 +1038,7 @@ func leaves(body *ast.BlockStmt) bool {
 			name = name[i+1:]
 		}
 		switch name {
-		case "panic", "Exit", "Fatal", "Fatalf", "Fatalln", "FailNow", "Skip", "Skipf", "SkipNow":
+		case builtinPanic, "Exit", "Fatal", "Fatalf", "Fatalln", "FailNow", "Skip", "Skipf", "SkipNow":
 			return true
 		}
 	}

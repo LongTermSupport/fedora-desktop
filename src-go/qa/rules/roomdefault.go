@@ -156,7 +156,7 @@ func endsBlock(b *ast.BlockStmt) bool {
 			return false
 		}
 		fn, isIdent := call.Fun.(*ast.Ident)
-		return isIdent && fn.Name == "panic"
+		return isIdent && fn.Name == builtinPanic
 	}
 	return false
 }
