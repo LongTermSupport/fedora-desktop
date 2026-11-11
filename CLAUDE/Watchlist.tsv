@@ -7,7 +7,7 @@
 #   last_sha  the commit last reviewed (40 hex digits), or - when never reviewed
 #   run       the run or document that recorded last_sha (no spaces), or - with it
 https://github.com/cdknorow/coral	main	e785da3baf077aa7519ad910266e4c7ecde32ce0	plan-00193-audit-coral
-https://github.com/devvmhq/devvm	main	-	-
+https://github.com/devvmhq/devvm	main	28d7eca6c8e5f5ef18e5b24a587755def2a0a254	scan-20261111T1210Z
 https://github.com/mvschwarz/openrig	main	-	-
 https://github.com/kstenerud/yoloai	main	-	-
 https://github.com/jingkaihe/matchlock	main	-	-

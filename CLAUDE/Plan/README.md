@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00252-ccy-egress-proxy-per-request-policy-and-credential-injection](00252-ccy-egress-proxy-per-request-policy-and-credential-injection/) - Not Started (research; owner decisions first). A host-side proxy in front of the ccy container, after devvm: per-request host, method and path rules (GitHub limited to named repos under one token), and credentials held by the proxy so the container has only placeholders; relates to the Claude token forwarder of Plan 00146.
+
 - [00251-team-seat-status-for-the-coordinator](00251-team-seat-status-for-the-coordinator/) - In Progress (design chosen; probes before a spec). Each v2 seat's state (working, idle, blocked, rate-limited, gone) for its coordinator, with change notices that cost a turn only when there is something to act on.
 
 - [00250-branches-cleaned-up-when-done](00250-branches-cleaned-up-when-done/) - In Progress. A done branch is deleted with its worktree: defences first (delete on merge, no hidden git mutations in scripts, scratch outside worktrees), then every instance cleaned through the tools.
