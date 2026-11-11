@@ -168,9 +168,11 @@ func withContext(event, text string) string { return string(hooktext.Context(eve
 // blocking is the answer Stop gives that blocks, for reason.
 func blocking(reason string) string { return string(hooktext.Block(reason).Line) }
 
-// frameOf is the SessionStart frame the world's one team gives a session in mode.
+// frameOf is the SessionStart frame the world's one team gives a session in mode. The team has
+// been verified by the time these runs start a session, so its role and coordinator are current
+// (issue 192: a record not verified current names neither).
 func (w *world) frameOf(mode string) string {
-	return hooktext.Frame([]hooktext.FrameTeam{{Team: w.team.id, Handle: w.self, Role: proto.RoleWorker, Coordinator: coord}}, mode)
+	return hooktext.Frame([]hooktext.FrameTeam{{Team: w.team.id, Handle: w.self, Role: proto.RoleWorker, Coordinator: coord, Current: true}}, mode)
 }
 
 // userFrames are the frames of the fake inbox that carry a delivery: the user lines.

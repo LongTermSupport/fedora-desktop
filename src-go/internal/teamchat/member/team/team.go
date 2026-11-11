@@ -147,6 +147,11 @@ type Health struct {
 	Colour      *string
 	Description *string
 	Coordinator *string
+	// Verified is whether Role and the facts above come from a verification of main this team
+	// goroutine made since it last stopped: written with them in one SetHealth, false from a
+	// stop until the next verification (issue 192). A reader states the role or the
+	// coordinator only while it holds; a server that cannot be reached does not clear it.
+	Verified bool
 	// Questions is the questions room as this member stands to it (QS2, QS8), the zero value
 	// for a member that is not the coordinator.
 	Questions QuestionsHealth

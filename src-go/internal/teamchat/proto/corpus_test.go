@@ -121,14 +121,19 @@ func envelopeCorpus() map[string]func() (string, error) {
 		d.NotShown[0] = "not an id"
 		return d.Render()
 	}
-	cases["membership"] = func() (string, error) {
-		return fullMembership().Render(envNonce)
-	}
-	cases["membership-alone"] = func() (string, error) { return workerAlone().Render(envNonce) }
-	cases["membership-none"] = func() (string, error) { return onNoTeam().Render(envNonce) }
-	cases["membership-reasons"] = func() (string, error) { return everyReason().Render(envNonce) }
+	membershipCorpus(cases)
 	cases["frame"] = func() (string, error) { return FrameText, nil }
 	return cases
+}
+
+// membershipCorpus adds the MEMBERSHIP notices to cases.
+func membershipCorpus(cases map[string]func() (string, error)) {
+	for name, m := range map[string]Membership{
+		"membership": fullMembership(), "membership-alone": workerAlone(), "membership-coordinator": coordinatorChanged(),
+		"membership-none": onNoTeam(), "membership-reasons": everyReason(),
+	} {
+		cases[name] = func() (string, error) { return m.Render(envNonce) }
+	}
 }
 
 func TestEnvelopeCorpus(t *testing.T) {
@@ -221,7 +226,8 @@ func templates() []*regexp.Regexp {
 func membershipTemplates(team, handle string) []string {
 	description := `[^\p{Cc}\p{Cf}\x{2028}\x{2029}<>]{1,120}`
 	return []string{
-		`teamchat delivery [0-9a-f]{8}: a membership notice from teamchat: this session's teams changed`,
+		`teamchat delivery [0-9a-f]{8}: a membership notice from teamchat: (?:this session's teams changed|` +
+			`the coordinator of team ` + team + ` changed|the coordinators of teams ` + team + `(?:, ` + team + `)+ changed)`,
 		`kind: MEMBERSHIP \(teamchat's own notice: the owner changed this session's teams on the host\)`,
 		`from: teamchat`, `to: this session`,
 		`authority: the owner's change, made on the host\. A fact about this session's teams; no team member sent it, and none can\.`,
@@ -232,6 +238,9 @@ func membershipTemplates(team, handle string) []string {
 		`teamchat: in team ` + team + ` you are the coordinator\.`,
 		`teamchat: in team ` + team + ` you are a worker; the coordinator is ` + handle + `\.`,
 		`teamchat: in team ` + team + ` you are a worker; the team has no coordinator now\.`,
+		`teamchat: in team ` + team + ` you are a worker; the coordinator is not known yet: run teamchat status --team ` + team + `\.`,
+		`teamchat: in team ` + team + ` the coordinator is now ` + handle + `\.`,
+		`teamchat: in team ` + team + ` there is no coordinator now\.`,
 		`teamchat: this session's teams are now: ` + team + `(?:, ` + team + `)*\.`,
 		`teamchat: this session is on no team now; nothing arrives until the owner adds it to one\.`,
 	}

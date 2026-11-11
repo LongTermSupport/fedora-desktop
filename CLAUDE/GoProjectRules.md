@@ -69,6 +69,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_shared_due`              | a teamsync test that names a fake-clock due (`AwaitDue`, `Armed`) equal to `reportsJoinLimit` before `reportsSettled`, so the reports join's bound can answer for the long-poll's hold | `teamsync` `TestARestoreUnderALongPoll`: hung to the 30-minute timeout in CI (the failpoints test stage), passing locally                                                 |
 | `project_walk_open`               | an entry a directory walk found opened with no regular-file check guarding the open, so a named pipe among the entries blocks the open for ever                                        | `stt`, `vmtest`, `registry` and 17 more of fedora-desktop#195: the Go side of #191, where `run.bash --changed` hung on a pipe under `untracked/`                          |
 | `project_zombie_exit`             | a process judged ended by its leader's zombie state in /proc stat, while its other threads still hold its files                                                                        | teamchat `wiring` `TestClaudeStatusLine`: the status line read once the killed link showed Z found link.lock held (fedora-desktop#182)                                    |
+| `project_coordinator_absence`     | an absence clause written outside the `CoordinatorAbsent` case of `proto.ClaimCoordinator`, so a seat is told it from a record not known to be current                                 | teamchat: a seat told "no coordinator" from a stale record, then acting on it (issue 192)                                                                                 |
 | `project_container_pids_limit`    | a container run with no `--pids-limit`, so a fork bomb inside a session runs to the engine's default (podman 2048, docker none)                                                        | `ccc`'s session and sign-in runs, after the ccy launcher's Go probes had taken the limit (the Go counterpart of the Semgrep rule `ccy-container-default-pids-limit`)      |
 | `project_child_exit`              | another program's exit code handed on as the tool's own, which no usage documents and no shell names                                                                                   | `ccy --teams`: agent-bus seat choose's 78, "Unknown error code" (Plan 00177)                                                                                              |
 | `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                                                       | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
@@ -1707,6 +1708,41 @@ requests are answered.
 - Not caught: a stop reached through a helper called in a literal, a server held in an
   interface, a fake named otherwise, and a literal stored and later called on the test's own
   goroutine (flagged, a false positive the same fix removes).
+
+### project_coordinator_absence
+
+**What it is about.** "The team has no coordinator" is a definite claim, true only of a team
+record verified current. A seat was told it from a record that was not known to be current, after
+a handover had happened, and acted on the absence (issue 192).
+`proto.ClaimCoordinator(current, coordinator)` is the one decision of what a session is told of
+its team's coordinator (named, absent, or not known); every clause a session reads is written in
+the `CoordinatorAbsent` case of a switch on it.
+
+**What it flags**, under `internal/teamchat` in files that are not tests: a string literal
+containing "no coordinator", "without a coordinator" or "coordinator: none" (any case) unless it is
+(a) inside a `case CoordinatorAbsent:` clause of a switch whose tag is a call to `ClaimCoordinator`,
+or (b) the value of a constant or variable that the rule's table `absenceTexts` names with its
+reason. Three are named: the frame's template (`tmplTeamNoCoordinator`, filled only in that case),
+the refusal of a send or a reply (`msgNoCoordinator`, given after the roster was judged verified),
+and the questions room's closed topic (`closedTopic`, room state built from the roster, not a claim
+made to a session).
+
+**How to fix a violation.** Decide the clause with `ClaimCoordinator` and write the text in its
+`CoordinatorAbsent` case. Text that is not a claim to a session is named in `absenceTexts`
+with the reason, which is a decision for review.
+
+- Red, fixture: `testdata/src/fix/internal/teamchat/{badabsence,proto,member/hooktext}`: a text
+  in a constant, in a returned literal, in a switch on a claim someone else decided, written
+  before the case, and in the wrong case are flagged; the case of a switch on `ClaimCoordinator`,
+  a named constant, a test file and a package outside `internal/teamchat` are clean. With the rule
+  weakened to exempt any `CoordinatorAbsent` case, the fixture test fails at the switch on a claim
+  decided elsewhere.
+- Red, real tree: with `roleLine`'s tag changed from `ClaimCoordinator(...)` to a variable
+  holding its result, the rule reported `proto/membership.go` at the clause. Reverted.
+- Green: 0 findings over `./internal/teamchat/...` as it stands; the three constants above are
+  the only absence texts outside a case.
+- Not caught: the claim in other words, a wording assembled at run time, and a named constant
+  used outside the case it was allowed for.
 
 ### project_walk_open
 

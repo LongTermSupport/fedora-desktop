@@ -95,6 +95,10 @@ func TestTheRosterIsVerifiedAgain(t *testing.T) {
 	gone.Members[user(peer)] = proto.RosterMember{Role: proto.RoleCoordinator, HumanText: true}
 	w.writeRoster(gone)
 	w.waitHealth(stoppedWith(exits.CodeUntrusted))
+	// Issue 192: a stopped team's Health keeps its last role, not verified.
+	if h := w.eng.lastHealth(); h.Verified || h.Role != proto.RoleCoordinator {
+		t.Fatalf("stopped health %+v", h)
+	}
 }
 
 // Verify's 403: a member kicked from main, and not invited, tries one join and stops forbidden.

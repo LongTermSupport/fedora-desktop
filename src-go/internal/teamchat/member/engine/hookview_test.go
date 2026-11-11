@@ -40,7 +40,7 @@ func TestTheHookViewCountsWhatIsNotPushed(t *testing.T) {
 	a := tid(t, "alpha")
 	w.held(a)
 	coord, about := "repo.2+site.podman", "Release work."
-	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker, Coordinator: &coord, Description: &about})
+	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker, Coordinator: &coord, Description: &about, Verified: true})
 	w.persist(a, humanItem(a, 1, startWall, "hi"), kindItem(a, 2, records.KindPeer), kindItem(a, 3, records.KindPing),
 		kindItem(a, 4, records.KindNotice))
 	v := w.hookView()
@@ -55,10 +55,39 @@ func TestTheHookViewCountsWhatIsNotPushed(t *testing.T) {
 	if ht.Counts != want || len(ht.NotPushed) != 4 || ht.Missing != 0 || ht.Down || ht.Failed != nil {
 		t.Fatalf("team %+v", ht)
 	}
-	if wantTeam := (TeamRole{Team: a, Role: proto.RoleWorker, Handle: "repo.1+site.podman", Coordinator: coord, Description: about}); (TeamRole{
-		Team: ht.Team, Role: ht.Role, Handle: ht.Handle, Coordinator: ht.Coordinator, Description: ht.Description,
+	if wantTeam := (TeamRole{Team: a, Role: proto.RoleWorker, Handle: "repo.1+site.podman", Coordinator: coord, Description: about, Current: true}); (TeamRole{
+		Team: ht.Team, Role: ht.Role, Handle: ht.Handle, Coordinator: ht.Coordinator, Description: ht.Description, Current: ht.Current,
 	}) != wantTeam {
 		t.Fatalf("team %+v", ht)
+	}
+}
+
+// Issue 192, class 1: a team's role and coordinator are current only from a verification this
+// link made of a team still running: before the first one, and while the team is stopped (its
+// record untrusted, its token refused), they are not, whatever Health still holds. A server
+// that cannot be reached leaves the last verification standing (its own line says so).
+func TestTheHookViewSaysWhetherTheRoleIsCurrent(t *testing.T) {
+	w := newWorld(t, state.DeliveryWait)
+	a := tid(t, "alpha")
+	w.held(a)
+	coord := "repo.2+site.podman"
+	for _, c := range []struct {
+		name string
+		h    team.Health
+		want bool
+	}{
+		{"not verified yet", team.Health{}, false},
+		{"verified, a coordinator", team.Health{Role: proto.RoleWorker, Coordinator: &coord, Verified: true}, true},
+		{"verified, none", team.Health{Role: proto.RoleWorker, Verified: true}, true},
+		{"down", team.Health{Role: proto.RoleWorker, Coordinator: &coord, Down: true, Verified: true}, true},
+		{"untrusted", team.Health{Role: proto.RoleWorker, Coordinator: &coord, Stopped: exits.CodeUntrusted}, false},
+		{"token refused", team.Health{Role: proto.RoleWorker, Stopped: exits.CodeToken}, false},
+		{"restarted after a stop, not verified again", team.Health{Role: proto.RoleWorker, Coordinator: &coord}, false},
+	} {
+		w.e.SetHealth(a, c.h)
+		if got := w.hookView().Teams[0].Current; got != c.want {
+			t.Errorf("%s: current %t, want %t", c.name, got, c.want)
+		}
 	}
 }
 
@@ -175,15 +204,15 @@ func TestOnTeamsIsToldEachChange(t *testing.T) {
 	w := newWorldWith(t, state.DeliveryWait, func(c *Config) { c.OnTeams = seen.record }, func(*Engine) {})
 	a := tid(t, "alpha")
 	w.held(a)
-	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker})
-	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker, LastSyncOKMS: startWall})
+	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker, Verified: true})
+	w.e.SetHealth(a, team.Health{Role: proto.RoleWorker, LastSyncOKMS: startWall, Verified: true})
 	_, err := w.e.Remove(t.Context(), a)
 	check(t, err)
 	got := seen.all()
 	want := [][]TeamRole{
 		{},
 		{{Team: a, Handle: "repo.1+site.podman"}},
-		{{Team: a, Role: proto.RoleWorker, Handle: "repo.1+site.podman"}},
+		{{Team: a, Role: proto.RoleWorker, Handle: "repo.1+site.podman", Current: true}},
 		{},
 	}
 	if len(got) != len(want) {

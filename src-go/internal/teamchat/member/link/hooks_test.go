@@ -185,7 +185,7 @@ func TestSessionStartAnswersTheFrame(t *testing.T) {
 	a := tid(t, "alpha")
 	w := newHookWorld(t, a)
 	coord := "repo.2+host.podman"
-	w.link().eng.SetHealth(a, team.Health{Role: proto.RoleWorker, Coordinator: &coord})
+	w.link().eng.SetHealth(a, team.Health{Role: proto.RoleWorker, Coordinator: &coord, Verified: true})
 	text := contextOf(t, w.hook(wire.OpHookSessionStart))
 	for _, want := range []string{proto.FrameText, "team alpha: you are ", "the worker (coordinator: " + coord + ")", "Deliveries arrive in this conversation by themselves."} {
 		if !strings.Contains(text, want) {
@@ -193,7 +193,7 @@ func TestSessionStartAnswersTheFrame(t *testing.T) {
 		}
 	}
 	s := w.sessionFile()
-	if !s.FrameTold || s.Told.Roles[a] != proto.RoleWorker || *s.SessionID != sessA {
+	if !s.FrameTold || s.Told.Roles[a] != proto.RoleWorker || s.Told.Coordinators[a] != coord || *s.SessionID != sessA {
 		t.Fatalf("session.json %+v", s)
 	}
 	if m := w.awaitKind(wire.KindToken); m.Token.Token != heldToken {

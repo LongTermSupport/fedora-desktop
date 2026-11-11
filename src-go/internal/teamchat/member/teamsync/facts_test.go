@@ -2,6 +2,7 @@ package teamsync
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -43,6 +44,39 @@ func TestAVerificationReadsMainsFacts(t *testing.T) {
 	h := w.eng.lastHealth()
 	if !is(h.Colour, "#ffffff") || !is(h.Description, "Ships the widgets") || !is(h.Coordinator, coord) {
 		t.Fatalf("health colour %v description %v coordinator %v", h.Colour, h.Description, h.Coordinator)
+	}
+}
+
+// Issue 192, class 1: a verification puts the role and main's facts into Health in one write,
+// so no reader of Health (SessionStart's frame, the membership notice) ever sees a role from
+// the new roster beside a coordinator from the old one, or none yet: the record is never read
+// mid-change. Both the first verification and a coordinator handed over are checked.
+func TestAVerificationNeverShowsARoleWithoutItsCoordinator(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	for i, h := range w.eng.healths() {
+		if h.Role != "" && !is(h.Coordinator, coord) {
+			t.Fatalf("health %d: role %q beside coordinator %q", i, h.Role, text(h.Coordinator))
+		}
+	}
+	if h := w.eng.lastHealth(); !h.Verified || h.Role != proto.RoleWorker {
+		t.Fatalf("verified health %+v", h)
+	}
+	mine, ok := proto.AgentHandle(user(me), server)
+	if !ok {
+		t.Fatal("no handle for me")
+	}
+	next := w.roster
+	next.Members = maps.Clone(w.roster.Members)
+	next.Members[user(me)], next.Members[user(coord)] = w.roster.Members[user(coord)], w.roster.Members[user(me)]
+	w.writeRoster(next)
+	w.waitHealth(func(h team.Health) bool { return h.Role == proto.RoleCoordinator })
+	for i, h := range w.eng.healths() {
+		if h.Role == proto.RoleCoordinator && !is(h.Coordinator, mine.String()) {
+			t.Fatalf("health %d: the new role beside the old coordinator %q", i, text(h.Coordinator))
+		}
 	}
 }
 
@@ -127,7 +161,7 @@ func TestTheFactsNoteIsSaidOncePerChange(t *testing.T) {
 	w := newWorld(t)
 	tm := w.newTeam()
 	for _, n := range []string{"one", "one", "", "one", "two"} {
-		tm.setFacts(roomFacts{}, n)
+		tm.setFacts(proto.RoleWorker, roomFacts{}, n)
 	}
 	if got := w.log.count("one"); got != 2 {
 		t.Errorf("one said %d times", got)

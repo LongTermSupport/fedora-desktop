@@ -59,7 +59,7 @@ func (e *Engine) reportingTeam(ctx context.Context, flag *paths.TeamID) (sendTea
 		active := make([]cli.ActiveTeam, 0, len(cands))
 		for _, c := range cands {
 			a := cli.ActiveTeam{ID: c.id}
-			if r, ok := c.roster(); ok {
+			if r, ok, _ := c.roster(); ok {
 				a.Description = r.Name
 			}
 			active = append(active, a)
@@ -68,7 +68,7 @@ func (e *Engine) reportingTeam(ctx context.Context, flag *paths.TeamID) (sendTea
 		return sendTeam{}, err
 	}
 	c := cands[0]
-	r, ok := c.roster()
+	r, ok, _ := c.roster()
 	if !ok {
 		return sendTeam{}, exits.New(exits.CodeUnreachable, &c.id, msgReportsNoRoster, exits.Team(c.id))
 	}

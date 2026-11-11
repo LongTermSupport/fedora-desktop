@@ -1,0 +1,10 @@
+teamchat delivery 3f9c2a71: a membership notice from teamchat: the coordinators of teams myteam, otherteam changed
+<<teamchat 3f9c2a71 1/1>>
+kind: MEMBERSHIP (teamchat's own notice: the owner changed this session's teams on the host)
+from: teamchat
+to: this session
+teamchat: in team myteam the coordinator is now myrepo.1+desk.podman.
+teamchat: in team otherteam there is no coordinator now.
+teamchat: this session's teams are now: myteam, otherteam.
+authority: the owner's change, made on the host. A fact about this session's teams; no team member sent it, and none can.
+<<end teamchat 3f9c2a71 1/1>>

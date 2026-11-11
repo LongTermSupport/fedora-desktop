@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.1 — container 2.84.1
+
+- **A teamchat session is never told "the team has no coordinator" from a record not known to
+  be current** (issue 192, pull request 200): a team not verified yet, stopped or down is framed
+  as not known, with `teamchat status` named; a coordinator that is added, handed over or
+  removed is told as a membership notice. The launcher itself is unchanged.
+
 ## 3.118.0 — container 2.84.0
 
 - **The image's teamchat member has the side rooms** (Plan 00209 n3f, pull request 178): the

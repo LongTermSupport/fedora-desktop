@@ -24,33 +24,67 @@ var farewellText = map[string]string{
 	FarewellNone:     "taken out of this session",
 }
 
+// slotCoordinator is the coordinator slot's name in a refusal.
+const slotCoordinator = "coordinator"
+
 // MembershipLeft is a team this session left, and why.
 type MembershipLeft struct{ Team, Reason string }
 
-// MembershipTeam is a team this session joined (Handle, Description) or whose role for it
-// changed, with its role there; Coordinator is the team's coordinator for a worker, empty when
-// it has none.
-type MembershipTeam struct{ Team, Handle, Role, Coordinator, Description string }
+// MembershipTeam is a team this session joined (Handle, Description), whose role for it
+// changed, or whose coordinator changed, with its role there; Coordinator is the team's
+// coordinator for a worker, empty when it has none. Current is whether Role and Coordinator
+// come from a team record verified current; the zero value is not, so a line built without
+// one never states an absence.
+type MembershipTeam struct {
+	Team, Handle, Role, Coordinator, Description string
+	Current                                      bool
+}
+
+// CoordinatorClaim is what a session may be told of its team's coordinator.
+type CoordinatorClaim int
+
+// The claims: not known (the record is not verified current), a coordinator named, or none.
+const (
+	CoordinatorNotKnown CoordinatorClaim = iota
+	CoordinatorNamed
+	CoordinatorAbsent
+)
+
+// ClaimCoordinator is the one decision of what a session is told of its team's coordinator
+// (issue 192): from a record verified current (current), the coordinator it names, or an
+// absence when it names none; from any other record (not verified yet, stopped, untrusted),
+// not known. Every coordinator clause a session reads, SessionStart's frame and this notice,
+// is decided here.
+func ClaimCoordinator(current bool, coordinator string) CoordinatorClaim {
+	switch {
+	case !current:
+		return CoordinatorNotKnown
+	case coordinator == "":
+		return CoordinatorAbsent
+	}
+	return CoordinatorNamed
+}
 
 // Membership is B's MEMBERSHIP notice (A 13.3, 00203 H12): what changed in this session's
 // teams, and Teams, the teams it is on now: each once, every joined team and every team whose
-// role changed among them, no left team. B says what changed; proto writes every line. A role
-// change's Handle and Description are not shown.
+// role or coordinator changed among them, no left team. B says what changed; proto writes
+// every line. A role change's Handle and Description are not shown. Coordinators are the
+// teams where this session is still a worker and the coordinator changed (issue 192).
 type Membership struct {
-	Left          []MembershipLeft
-	Joined, Roles []MembershipTeam
-	Teams         []string
+	Left                        []MembershipLeft
+	Joined, Roles, Coordinators []MembershipTeam
+	Teams                       []string
 }
 
 // Render is the notice as its own delivery: H12's first line and one entry of the template
-// lines, left teams, then joined ones, then role changes, then the teams now. A slot failing
-// its grammar is refused by name, nothing changed is `membership`, and a line failing A 13.3's
-// line rule (badMembershipLine) is `membership line`.
+// lines, left teams, then joined ones, then role changes, then coordinator changes, then the
+// teams now. A slot failing its grammar is refused by name, nothing changed is `membership`,
+// and a line failing A 13.3's line rule (badMembershipLine) is `membership line`.
 func (m Membership) Render(nonce string) (string, error) {
 	if !nonceRe.MatchString(nonce) {
 		return "", &SlotError{Slot: "nonce"}
 	}
-	if len(m.Left)+len(m.Joined)+len(m.Roles) == 0 {
+	if len(m.Left)+len(m.Joined)+len(m.Roles)+len(m.Coordinators) == 0 {
 		return "", &SlotError{Slot: "membership"}
 	}
 	lines, err := m.changeLines()
@@ -70,14 +104,31 @@ func (m Membership) Render(nonce string) (string, error) {
 	}
 	marker := nonce + " 1/1>>"
 	out := []string{
-		"teamchat delivery " + nonce + ": a membership notice from teamchat: this session's teams changed",
+		"teamchat delivery " + nonce + ": a membership notice from teamchat: " + m.headline(),
 		"<<teamchat " + marker, "kind: " + kindMembership, "from: teamchat", "to: this session",
 	}
 	out = append(append(out, lines...), "authority: "+authorityMembership, "<<end teamchat "+marker)
 	return strings.Join(out, "\n"), nil
 }
 
-// changeLines are the left, joined and role-change lines, in that order.
+// headline is the first line's last words: H12's "this session's teams changed", or, when the
+// only change is a coordinator's, which team's (or teams') coordinator changed. The slots were
+// checked as team ids by changeLines before it is asked.
+func (m Membership) headline() string {
+	if len(m.Left)+len(m.Joined)+len(m.Roles) > 0 || len(m.Coordinators) == 0 {
+		return "this session's teams changed"
+	}
+	teams := make([]string, 0, len(m.Coordinators))
+	for _, c := range m.Coordinators {
+		teams = append(teams, c.Team)
+	}
+	if len(teams) == 1 {
+		return "the coordinator of team " + teams[0] + " changed"
+	}
+	return "the coordinators of teams " + strings.Join(teams, ", ") + " changed"
+}
+
+// changeLines are the left, joined, role-change and coordinator-change lines, in that order.
 func (m Membership) changeLines() ([]string, error) {
 	var lines []string
 	for _, l := range m.Left {
@@ -112,11 +163,18 @@ func (m Membership) changeLines() ([]string, error) {
 		}
 		lines = append(lines, role)
 	}
+	for _, c := range m.Coordinators {
+		line, err := coordinatorLine(c)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, line)
+	}
 	return lines, nil
 }
 
-// teamsAgree is whether Teams are team IDs, each once, holding every joined team and every
-// role change's and no left team.
+// teamsAgree is whether Teams are team IDs, each once, holding every joined team, every role
+// and coordinator change's, and no left team.
 func (m Membership) teamsAgree() bool {
 	on := map[string]bool{}
 	for _, team := range m.Teams {
@@ -130,7 +188,7 @@ func (m Membership) teamsAgree() bool {
 			return false
 		}
 	}
-	for _, t := range slices.Concat(m.Joined, m.Roles) {
+	for _, t := range slices.Concat(m.Joined, m.Roles, m.Coordinators) {
 		if !on[t.Team] {
 			return false
 		}
@@ -138,7 +196,8 @@ func (m Membership) teamsAgree() bool {
 	return true
 }
 
-// roleLine is a team's role line: the coordinator's, or a worker's naming its coordinator.
+// roleLine is a team's role line: the coordinator's, or a worker's with its coordinator clause
+// as ClaimCoordinator decides it.
 func roleLine(t MembershipTeam) (string, error) {
 	switch {
 	case !ValidTeamID(t.Team):
@@ -146,13 +205,40 @@ func roleLine(t MembershipTeam) (string, error) {
 	case t.Role != RoleCoordinator && t.Role != RoleWorker:
 		return "", &SlotError{Slot: "role"}
 	case t.Coordinator != "" && (t.Role == RoleCoordinator || !validHandle(t.Coordinator)):
-		return "", &SlotError{Slot: "coordinator"}
+		return "", &SlotError{Slot: slotCoordinator}
 	case t.Role == RoleCoordinator:
 		return "teamchat: in team " + t.Team + " you are the coordinator.", nil
-	case t.Coordinator == "":
-		return "teamchat: in team " + t.Team + " you are a worker; the team has no coordinator now.", nil
 	}
-	return "teamchat: in team " + t.Team + " you are a worker; the coordinator is " + t.Coordinator + ".", nil
+	worker := "teamchat: in team " + t.Team + " you are a worker; "
+	switch ClaimCoordinator(t.Current, t.Coordinator) {
+	case CoordinatorNamed:
+		return worker + "the coordinator is " + t.Coordinator + ".", nil
+	case CoordinatorAbsent:
+		return worker + "the team has no coordinator now.", nil
+	case CoordinatorNotKnown:
+	}
+	return worker + "the coordinator is not known yet: run teamchat status --team " + t.Team + ".", nil
+}
+
+// coordinatorLine is a worker's line for its team's coordinator changed: the one named now, or
+// none. A change not known (a record not verified current) is never told, so it is refused.
+func coordinatorLine(t MembershipTeam) (string, error) {
+	switch {
+	case !ValidTeamID(t.Team):
+		return "", &SlotError{Slot: slotTeam}
+	case t.Role != RoleWorker:
+		return "", &SlotError{Slot: "role"}
+	case t.Coordinator != "" && !validHandle(t.Coordinator):
+		return "", &SlotError{Slot: slotCoordinator}
+	}
+	switch ClaimCoordinator(t.Current, t.Coordinator) {
+	case CoordinatorNamed:
+		return "teamchat: in team " + t.Team + " the coordinator is now " + t.Coordinator + ".", nil
+	case CoordinatorAbsent:
+		return "teamchat: in team " + t.Team + " there is no coordinator now.", nil
+	case CoordinatorNotKnown:
+	}
+	return "", &SlotError{Slot: slotCoordinator}
 }
 
 // badMembershipLine is A 13.3's line rule failed: empty, over MaxMembershipLine characters, not

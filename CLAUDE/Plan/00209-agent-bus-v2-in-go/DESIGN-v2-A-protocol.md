@@ -1932,7 +1932,9 @@ a sentence changes how a model treats a message, so the corpus pins each one exa
 
 MEMBERSHIP keeps v1's form, and 00203 H12 is binding for it, less the two cuts below (the role
 lines and the joined line's `seat`): always its own delivery, with H12's
-first line (a membership notice from `teamchat`: this session's teams changed), one entry with
+first line (a membership notice from `teamchat`: this session's teams changed; when the only change
+is a coordinator's, `the coordinator of team X changed`, or `the coordinators of teams X, Y changed`),
+one entry with
 `kind:` the MEMBERSHIP sentence, `from: teamchat` and `to: this session`, then H12's fixed template
 lines. Their slots are team ids and handles (2.2, 2.3), and the team description, which is
 admin-written text (R38) that may hold spaces and non-ASCII: it passes P16's grammar and H76's
@@ -1947,7 +1949,10 @@ B's farewell reasons are `released`, `removed` and `parked` (B 2.10); proto rend
 (`FarewellRemoved`, v1's one reason) and refuses any other (`reason`), so the left-line texts for
 `released` and `parked` are owed to N3 with B. The role lines are the first clause of H12's `role_*`
 templates (`in team <t> you are the coordinator.`, `... you are a worker; the coordinator is <h>.`,
-`... you are a worker; the team has no coordinator now.`), and the coordinator's line has one more
+`... you are a worker; the team has no coordinator now.`, the absence only from a record verified
+current, else `... you are a worker; the coordinator is not known yet: run teamchat status --team <t>.`),
+a worker whose role is unchanged is told a coordinator change (`in team <t> the coordinator is now <h>.`
+or `in team <t> there is no coordinator now.`, `Membership.Coordinators`), and the coordinator's line has one more
 sentence: `in team <t> you are the coordinator. Human posts made in the questions room while the coordinator changed are not delivered to you; to see them, run teamchat questions --team <t>.` That
 sentence is in the notice because a promotion's notice is where a new coordinator learns it must
 look, and nothing else delivers those posts (B's questions room, SPEC-n3f OW4); it names only the

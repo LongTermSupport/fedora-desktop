@@ -311,7 +311,7 @@ func (t *Team) retryAuth() bool {
 
 func (t *Team) stop(code string, err error) {
 	t.log.Printf("stopped (%s): %s", code, matrix.Class(err))
-	t.setHealth(func(h *team.Health) { h.Stopped = code })
+	t.setHealth(func(h *team.Health) { h.Stopped, h.Verified = code, false })
 }
 
 // backoff is SY8's transient path: a wait of the streak's delay, which a Wake ends early, and
@@ -388,13 +388,12 @@ func anchorsOf(tm paths.TeamID, p bundle.Pair) proto.Anchors {
 	return proto.Anchors{Server: b.ServerName, Team: tm.String(), MainRoom: b.MainRoom, Self: b.UserID}
 }
 
-func (t *Team) setRoster(r proto.Roster, self string) {
+// setRoster keeps r as the roster verified; Health takes its role with main's facts, in
+// setFacts.
+func (t *Team) setRoster(r proto.Roster) {
 	t.mu.Lock()
 	t.roster, t.verified = r, true
 	t.mu.Unlock()
-	if role := r.Members[self].Role; role != t.health.Role {
-		t.setHealth(func(h *team.Health) { h.Role = role })
-	}
 }
 
 // freezeDetector is SY12: a growth of boot minus mono past maxSkewGrowth since the last reading,

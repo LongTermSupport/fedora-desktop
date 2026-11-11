@@ -49,8 +49,10 @@ func foreignColour(st []proto.StateEvent, server string) bool {
 	return false
 }
 
-// setFacts puts f into Health when it changed, and says note when it is not the note said last.
-func (t *Team) setFacts(f roomFacts, note string) {
+// setFacts puts a verification's role and f into Health, verified, in one write when any of
+// them changed, so no reader sees the new role beside the old coordinator (issue 192); and
+// says note when it is not the note said last.
+func (t *Team) setFacts(role string, f roomFacts, note string) {
 	if note != t.factsNote {
 		t.factsNote = note
 		if note != "" {
@@ -58,10 +60,12 @@ func (t *Team) setFacts(f roomFacts, note string) {
 		}
 	}
 	h := t.health
-	if same(h.Colour, f.colour) && same(h.Description, f.description) && same(h.Coordinator, f.coordinator) {
+	if h.Verified && h.Role == role && same(h.Colour, f.colour) && same(h.Description, f.description) && same(h.Coordinator, f.coordinator) {
 		return
 	}
-	t.setHealth(func(h *team.Health) { h.Colour, h.Description, h.Coordinator = f.colour, f.description, f.coordinator })
+	t.setHealth(func(h *team.Health) {
+		h.Role, h.Colour, h.Description, h.Coordinator, h.Verified = role, f.colour, f.description, f.coordinator, true
+	})
 }
 
 func same(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }

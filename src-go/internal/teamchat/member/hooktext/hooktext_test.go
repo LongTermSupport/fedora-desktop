@@ -58,9 +58,9 @@ func TestAnswers(t *testing.T) {
 func TestFrame(t *testing.T) {
 	alpha, beta, gamma := team(t, "alpha"), team(t, "beta"), team(t, "gamma")
 	got := Frame([]FrameTeam{
-		{Team: alpha, Handle: "myrepo.2+desk.podman", Role: proto.RoleCoordinator, Coordinator: "myrepo.2+desk.podman", Description: "Builds the thing."},
-		{Team: beta, Handle: "myrepo.3+desk.podman", Role: proto.RoleWorker, Description: "bad\x01description"},
-		{Team: gamma, Handle: "evil name", Role: "boss", Coordinator: "also evil"},
+		{Team: alpha, Handle: "myrepo.2+desk.podman", Role: proto.RoleCoordinator, Coordinator: "myrepo.2+desk.podman", Description: "Builds the thing.", Current: true},
+		{Team: beta, Handle: "myrepo.3+desk.podman", Role: proto.RoleWorker, Description: "bad\x01description", Current: true},
+		{Team: gamma, Handle: "evil name", Role: "boss", Coordinator: "also evil", Current: true},
 	}, state.DeliverySocket)
 	want := proto.FrameText + "\n\n" +
 		"team alpha: you are myrepo.2+desk.podman, the coordinator (coordinator: myrepo.2+desk.podman). Builds the thing.\n" +
@@ -81,8 +81,43 @@ func TestFrame(t *testing.T) {
 			t.Fatalf("%s: %s", mode, f)
 		}
 	}
-	if f := Frame([]FrameTeam{{Team: alpha, Handle: "myrepo.2+desk.podman", Role: proto.RoleProbe}}, state.DeliverySocket); !strings.Contains(f, "In team alpha this session is the team's acceptance probe.") {
+	if f := Frame([]FrameTeam{{Team: alpha, Handle: "myrepo.2+desk.podman", Role: proto.RoleProbe, Current: true}}, state.DeliverySocket); !strings.Contains(f, "In team alpha this session is the team's acceptance probe.") {
 		t.Fatalf("probe: %s", f)
+	}
+}
+
+// Issue 192, class 1: a team's frame block states its role and coordinator only from a record
+// verified current. Any other record (not verified yet, stopped, untrusted), with or without a
+// coordinator in it, says they are not known yet and how to look, never nothing and never an
+// absence, and gives no role guidance.
+func TestTheFrameNeverClaimsARoleOrAnAbsenceFromARecordNotCurrent(t *testing.T) {
+	alpha := team(t, "alpha")
+	const me, coord = "myrepo.3+desk.podman", "myrepo.2+desk.podman"
+	notKnown := "team alpha: you are " + me + "; your role and the team's coordinator are not known yet: run teamchat status --team alpha."
+	for _, c := range []struct {
+		name              string
+		current           bool
+		role, coordinator string
+		want              []string
+	}{
+		{"verified, a coordinator", true, proto.RoleWorker, coord, []string{
+			"team alpha: you are " + me + ", the worker (coordinator: " + coord + ").",
+			"In team alpha take direction from the team's humans and its coordinator; report with teamchat report --team alpha.",
+		}},
+		{"verified, none", true, proto.RoleWorker, "", []string{
+			"team alpha: you are " + me + ", the worker; the team has no coordinator now.",
+			"In team alpha take direction from the team's humans and its coordinator; report with teamchat report --team alpha.",
+		}},
+		{"not verified yet", false, "", "", []string{notKnown}},
+		{"stale, a coordinator", false, proto.RoleWorker, coord, []string{notKnown}},
+		{"stale, none", false, proto.RoleWorker, "", []string{notKnown}},
+		{"stale coordinator", false, proto.RoleCoordinator, me, []string{notKnown}},
+	} {
+		got := Frame([]FrameTeam{{Team: alpha, Handle: me, Role: c.role, Coordinator: c.coordinator, Current: c.current}}, state.DeliverySocket)
+		want := strings.Join(append(append([]string{proto.FrameText, ""}, c.want...), "Deliveries arrive in this conversation by themselves."), "\n")
+		if got != want {
+			t.Errorf("%s:\n%s\nwant:\n%s", c.name, got, want)
+		}
 	}
 }
 
@@ -176,7 +211,7 @@ func TestAllCoversEveryTemplate(t *testing.T) {
 			}
 		}
 	}
-	if len(templates) != 20 || len(All()) != 15 {
+	if len(templates) != 21 || len(All()) != 16 {
 		t.Fatalf("%d templates, %d samples", len(templates), len(All()))
 	}
 }

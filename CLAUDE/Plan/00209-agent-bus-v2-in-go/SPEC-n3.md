@@ -763,9 +763,19 @@ and places every other member).
   items back `repeat` and held, out of the ledger in the same write; a late find in 24 h; a
   shrunk or moved transcript rescanned from 0 (P8-P10, faketranscript).
 - **DV5. Read receipts** for proven HUMAN items, persisted, retried, dropped with a removed team.
-- **DV6. Membership notices** (B30, B 2.10, 2.3.3): every change of the active set or of a role
-  (a join, a leave with its reason, a role change, with the teams now) is one NOTICE delivery of
-  kind membership, told once per desired generation and role; `session.json`'s `told` is the one
+- **DV6. Membership notices** (B30, B 2.10, 2.3.3): every change of the active set, of a role, or
+  of the coordinator of a team where the session is a worker (a join, a leave with its reason, a
+  role change, a coordinator named, handed over or removed, with the teams now) is one NOTICE
+  delivery of kind membership, told once per desired generation, role and coordinator. Only a
+  team record verified current (a verification this link made, the team not stopped since) is
+  told; any other is not known yet, never an absence, in the notice and in SessionStart's frame
+  (issue 192, `proto.ClaimCoordinator`). A team that cannot reach its server stays current for the
+  notice, so a network blip makes no noise, but SessionStart's frame treats it as not known yet: its
+  verification may predate a handover. A team the frame called not known yet is in `told` as such
+  (`not_known`), so when it is verified its role and coordinator are told as what changed for a team
+  the session has, never as "you joined", and a down team so framed is told only once its server
+  answers. A notice whose only change is a coordinator opens with the team (or teams) whose
+  coordinator changed, not with "this session's teams changed". `session.json`'s `told` is the one
   record, written when the socket write of that delivery completed. If the write failed, the
   next UserPromptSubmit answers the same lines and `told` is written then. Tests: a join; a leave
   with each reason; a role change; a failed socket write followed by the prompt fallback (told

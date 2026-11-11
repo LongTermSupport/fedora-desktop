@@ -147,7 +147,9 @@ func (l *link) takeToken(token string) {
 func (l *link) sessionStart(v engine.HookView) hooktext.Answer {
 	teams := make([]hooktext.FrameTeam, 0, len(v.Teams))
 	for _, t := range v.Teams {
-		teams = append(teams, hooktext.FrameTeam{Team: t.Team, Handle: t.Handle, Role: t.Role, Coordinator: t.Coordinator, Description: t.Description})
+		teams = append(teams, hooktext.FrameTeam{
+			Team: t.Team, Handle: t.Handle, Role: t.Role, Coordinator: t.Coordinator, Description: t.Description, Current: framedCurrent(t),
+		})
 	}
 	lines := []string{hooktext.Frame(teams, v.Delivery)}
 	if p := pendingLine(v); p != "" {

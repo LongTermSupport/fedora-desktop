@@ -51,7 +51,8 @@ func TestTheLargestSessionIsWritten(t *testing.T) {
 		doc := edit(t, sessionStarted, `"transcript":"`+sampleTranscript+`"`, `"transcript":`+jsonText(transcript))
 		doc = edit(t, doc, `"socket":"`+sampleSocket+`"`, `"socket":`+jsonText(socket))
 		doc = edit(t, doc, `"pid":4242,"start_ticks":99`, `"pid":4194304,"start_ticks":9007199254740991`)
-		doc = edit(t, doc, `"roles":{"alpha":"worker"}`, `"roles":{`+teamsJSON(maxTeams, `"%s":"coordinator"`)+`}`)
+		doc = edit(t, doc, `"roles":{"alpha":"worker"}`, `"roles":{`+teamsJSON(maxTeams, `"%s":"worker"`)+`}`)
+		doc = edit(t, doc, `"coordinators":{"alpha":"`+sampleCoordinator+`"}`, longestCoordinators())
 		doc = edit(t, doc, `"pending_digest":null,"failure_ms":null,"no_waker_ms":null`,
 			`"pending_digest":"`+strings.Repeat("a", 64)+`","failure_ms":253402300799999,"no_waker_ms":253402300799999`)
 		doc = edit(t, doc, `"end_reason":null`, `"end_reason":"logout"`)

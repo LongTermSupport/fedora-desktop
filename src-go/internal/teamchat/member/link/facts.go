@@ -87,7 +87,7 @@ type Session struct {
 // newSession reads session.json back. One that is missing is a session not yet started; one
 // that does not decode is logged and started afresh, losing only what the next hook re-tells.
 func newSession(d sessionDeps) (*Session, error) {
-	s := &Session{d: d, file: state.Session{Run: d.run, Told: state.Told{Roles: map[paths.TeamID]string{}}}, pidKnown: make(chan struct{})}
+	s := &Session{d: d, file: state.Session{Run: d.run, Told: newTold(0)}, pidKnown: make(chan struct{})}
 	f, err := state.Read(d.runRoot, d.layout.Run(d.run).Session(), state.MaxSession, state.DecodeSession)
 	switch {
 	case err == nil:
