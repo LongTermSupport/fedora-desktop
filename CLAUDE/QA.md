@@ -2587,30 +2587,29 @@ the token the exemptions see.
 **What it is.** A systemd sandbox that binds a file (`BindPaths=` or `BindReadOnlyPaths=`,
 `source[:dest]`) onto a destination inside a `TemporaryFileSystem=` path, or binds a source
 nobody can say is a directory there. The rule is `internal/unitsandbox` (`unitsandbox.Check`,
-over unit text: a unit file, a drop-in, a transient unit's property lines, a YAML block), run by
-the Go gate's tests: `TestNoShippedUnitBindsAFileInsideATmpfs` sweeps every file outside
-`src-go/`, `CLAUDE/`, `docs/`, `untracked/` and `.claude/` that sets `TemporaryFileSystem=`
-(a source is a file or a directory as `files/` ships it, or a directory listed with its maker in
-`knownDirectories`; anything else fails closed); teamchat's units and a team's transient sandbox
-are judged on their rendered text by `unitfiles`' `TestNoUnitBindsAFileInsideATmpfs`; and
-`TestEveryGoRendererIsJudged` refuses a Go file that writes `TemporaryFileSystem=` with no such
-test. A change to a shipped unit runs the Go gate (`scripts/qa-routing.tsv`).
+over unit text: a unit file, a drop-in, a YAML block, and a transient unit's properties written
+as string literals in code or as `systemd-run --property=` arguments), run by the Go gate's
+tests: `TestNoShippedUnitBindsAFileInsideATmpfs` sweeps every file but Markdown outside
+`src-go/` and the trees git does not publish (`untracked/`, `.claude/`, `node_modules/`) that
+sets `TemporaryFileSystem=`, plan folders included, since a plan's probe starts transient units
+(a source is a file or a directory as `files/` ships it, or a directory listed with its maker
+in `knownDirectories`; anything else, a code placeholder included, fails closed); teamchat's
+units and a team's transient sandbox are judged on their rendered text by `unitfiles`'
+`TestNoUnitBindsAFileInsideATmpfs`; and `TestEveryGoRendererIsJudged` refuses a Go file that
+writes `TemporaryFileSystem=` with no such test. A change to a shipped unit runs the Go gate
+(`scripts/qa-routing.tsv`). Run it alone with
+`go -C src-go test ./internal/unitsandbox ./internal/teamchat/unitfiles -run 'Tmpfs|GoRenderer'`.
 
 **Why it exists.** systemd must create the bind's mount point inside the tmpfs it has made, and
 on systemd 259 it cannot create a file there when the tmpfs is read only: the first real run of
 `teamchat-server@` exited 226/NAMESPACE (EACCES, no AVC). v1's `agent-bus-hs@.service` had the
-same two binds, and so, through `sandbox_properties`, did its restore's transient unit. Found and
-defended under Defence Before Fix.
+same two binds, and so, through `sandbox_properties`, did its restore's transient unit, and Plan
+00161's H3 probe bound five files so. Found and defended under Defence Before Fix.
 
 **What it does not see.** A tmpfs in one file and a bind in a drop-in of another are not joined.
-A unit built in Python or bash from pieces (not as `Key=value` lines) is read only where a
-`TemporaryFileSystem=` line appears in its text. Plan folders are out of scope: they hold
-evidence of what was run, not units a host gets.
-
-**Referred to the owner.** Plan 00161's `triage_probe.py` (probe H3's transient unit) binds the
-Tuwunel binary, its configuration, its secret and the resolver stub as files into read-only
-tmpfs paths (`/mnt` and `/run/systemd/resolve`). It is an instance on systemd 259 and is left
-as the evidence it is; rerunning it there needs a staging directory bound in their place.
+A property built from pieces (not one `Key=value` string per line), or passed as `-p` with the
+value as the next argument, is not read. No runner check reproduces the 226/NAMESPACE itself:
+that needs systemd starting a unit on a host, which no gate does.
 
 **How to fix a finding.** Put the files in one directory and bind that directory over the whole
 path, dropping the `TemporaryFileSystem=` line (`BindReadOnlyPaths=<dir>:/run/systemd/resolve`).

@@ -458,10 +458,8 @@ class UnitPropertiesTest(unittest.TestCase):
         return tp.unit_properties(
             port=18009,
             addresses=["127.0.0.1", "192.0.2.7"],
-            binary="/srv/scratch/tuwunel",
-            toml="/srv/scratch/tuwunel.toml",
-            secret="/srv/scratch/registration_shared_secret",
-            stub="/srv/scratch/resolv.conf",
+            inputs="/srv/scratch/h3-unit",
+            resolver="/srv/scratch/h3-unit/resolve",
             notify=notify,
         )
 
@@ -484,18 +482,18 @@ class UnitPropertiesTest(unittest.TestCase):
             "IPAccounting=yes",
             "IPAddressDeny=any",
             "IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.7/32",
-            "TemporaryFileSystem=/run/systemd/resolve:ro",
-            "BindReadOnlyPaths=/srv/scratch/resolv.conf:/run/systemd/resolve/stub-resolv.conf",
-            "BindReadOnlyPaths=/srv/scratch/resolv.conf:/run/systemd/resolve/resolv.conf",
+            "BindReadOnlyPaths=/srv/scratch/h3-unit/resolve:/run/systemd/resolve",
             "InaccessiblePaths=-/run/dbus",
             "Environment=TUWUNEL_CONFIG=/mnt/tuwunel.toml",
-            "TemporaryFileSystem=/mnt:ro",
-            "BindReadOnlyPaths=/srv/scratch/tuwunel:/mnt/tuwunel",
-            "BindReadOnlyPaths=/srv/scratch/tuwunel.toml:/mnt/tuwunel.toml",
-            "BindReadOnlyPaths=/srv/scratch/registration_shared_secret:/mnt/registration_shared_secret",
+            "BindReadOnlyPaths=/srv/scratch/h3-unit:/mnt",
             "RuntimeDirectory=agent-bus-probe",
         ):
             self.assertIn(expected, props)
+
+    def test_no_file_is_bound_into_a_tmpfs(self) -> None:
+        """tmpfs-file-bind (CLAUDE/QA.md): systemd 259 cannot make a file mount point inside a
+        read-only tmpfs, so the inputs and the resolver stub are directories bound whole."""
+        self.assertFalse([p for p in self.props() if p.startswith("TemporaryFileSystem=")])
 
     def test_simple_when_not_notify(self) -> None:
         self.assertIn("Type=simple", self.props(notify=False))
