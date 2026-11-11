@@ -33,6 +33,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Lightning, a native Matrix client the owner is trialling beside Element Desktop: the matrix
+# clients play installs the Flathub app org.lightning_matrix.Lightning system-wide (Nheko and
+# Element are already there and report no change). First, so the trial does not wait on the
+# long runs below. After it, Lightning is in the GNOME app grid.
+playbooks/imports/optional/common/play-matrix-clients.yml
+
 # Plan 00243: the arm64 fixes are on F44, so this x86_64 host re-runs the plays they touched
 # (basic-configs, python, rpm-fusion, comms, markless, browsers, toolbox-install,
 # AB-dnf-upgrade, claude-yolo and claude-code-consumer, and of the optional plays those that

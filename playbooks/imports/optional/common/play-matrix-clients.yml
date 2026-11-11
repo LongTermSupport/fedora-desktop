@@ -45,6 +45,14 @@
       vars:
         flatpak_app_id: im.nheko.Nheko
 
+    # Lightning: a native Qt 6 client on the official Matrix Rust SDK, with threads in a side
+    # panel; on trial as an alternative to Element Desktop. Its TLS is rustls, not NSS, so the
+    # Element NSS database for a team CA (tasks/element-team-ca.yml) does not reach it.
+    - name: Install Lightning
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: org.lightning_matrix.Lightning
+
     # The same tasks play-agent-bus-element.yml imports: ccy-teams runs that play on its own.
     - name: Install Element Desktop and let it reach the keyring
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-desktop.yml"
