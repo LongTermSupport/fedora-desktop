@@ -106,6 +106,10 @@ func TestPollPure(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), PollPure, "fix/internal/pollpure")
 }
 
+func TestSemgrepTestRunner(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SemgrepTestRunner, "fix/internal/badsemgreptest")
+}
+
 func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }

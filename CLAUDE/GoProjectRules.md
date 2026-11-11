@@ -76,6 +76,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                                                      | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
 | `project_seat_member_type`        | an agent-bus seat call for a session given a constant member type, so a cc session is offered ccy's seats                                                                              | `ccy-teams` picker: Add to a team asked `seat choose --type=podman` for a cc session (Plan 00203)                                                                         |
 | `project_identity_fold`           | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused             | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209)                                                                                      |
+| `project_semgrep_test_runner`     | a semgrep rule proven with semgrep's own test runner, whose 5 s limit per rule no flag raises, so a loaded host fails a sound rule as a Timeout or a "rule id mismatch"                | the real-semgrep tests of `qa-walk-open` and six more gates, red only under a loaded `qa-all` (fedora-desktop#206)                                                        |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -2643,6 +2644,52 @@ error or status thrown away (the bash's `|| true`, unchecked process substitutio
 Go, and the hooks' `R-ERROR-HIDING`; a path joined from a name the user gave (nord's
 `connect ../x`, B2) is gosec's G304, and nord matches the name against the listing instead; a
 shell template (open's `bash -c` handlers, B8) is `project_seam_commands`' `sh -c` finding.
+
+### project_semgrep_test_runner
+
+**What it is about.** `semgrep --test` does not pass `--timeout`, `--jobs` or any other limit on
+to the scan it runs. In semgrep 1.177.0, pysemgrep's `test_main` calls `run_scan` with its
+defaults, so every fixture is scanned with semgrep-core's `-timeout 5`: 5 s of wall time per
+rule per file. No flag and no environment variable changes that. The osemgrep `test`
+subcommand takes no limit either. On a loaded host a sound taint rule can run past 5 s. It is
+then aborted and reports nothing, and its self-test fails in one of two ways:
+
+- as a `Timeout`;
+- as a "rule id mismatch", when another rule of the same fixture still reports. pysemgrep exits
+  on the mismatch before it prints the Timeout, so the failure reads as a broken rule.
+
+**Why it exists.** The real-semgrep tests of the semgrep gates failed only under a full `qa-all`
+(`go test -race` over both modules in parallel) and passed when run alone (fedora-desktop#206).
+Running 150 semgrep-core processes at once on `.semgrep/walk-open.py` gave these results:
+
+- with `-timeout 5`, every process lost all 21 findings of `walk-opens-non-regular-file`, each
+  with a `Timeout` error;
+- with `-timeout 120`, every process found all 21.
+
+The gates passed `semgrepreport.TimeoutFlag` to `--test`, where it had no effect.
+
+**What it flags**: in a non-test file, a string constant `"--test"` anywhere in a function that
+also holds the string constant `"semgrep"`. It also flags the constant `"test"` that follows
+`"semgrep"` directly in a call's arguments or a composite literal. Constants are read by value,
+so a named constant or an argv built in parts is still seen. The rule's own matcher is the one
+row of `semgrepTestRunnerAllowances`. Not caught: an argv whose program name or flag is computed
+at run time.
+
+**How to fix a violation.** Prove the rule with `semgrepreport`'s self-test. It runs a plain
+scan with `TimeoutFlag` and judges the report against the fixture's annotations, so the gate
+sets the limit the rule is judged under. Any error in the report, a Timeout included, still
+fails the gate.
+
+- Red, fixture: `testdata/src/fix/internal/badsemgreptest` (`TestSemgrepTestRunner`). These
+  cases are flagged: the flag in a call, in a slice literal, through a named constant, appended
+  to an argv built apart from it, and the `test` subcommand. These are clean: a `scan`, another
+  program's `--test`, and a target named `test` after other arguments.
+- Red, real tree: the driver run over the `qa` module reported exactly the four sites below, and
+  found nothing in the main module:
+  - `ghscopes/scan.go:41`
+  - `patterns/semgrep.go:52`
+  - `readywait/scan.go:63`
+  - `sttrules/rules.go:205`
 
 ### project_container_pids_limit
 
