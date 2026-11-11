@@ -23,6 +23,9 @@
 # project's compose services stood when the session started (CCY_REGISTRY_COMPOSE_OUTCOMES),
 # which a restore replays as --compose. A record without it is read as having no answer, so
 # the header stays at 1; a ccy older than the key refuses a record that has it, by name.
+# `fresh-if-no-conversation=yes` is optional too, and written only by provisioning, into a
+# record for a session that has never run: with no conversation recorded, the boot's restore
+# starts it fresh instead of refusing it (Plan 00135 Phase 13). Every rewrite keeps it.
 #
 # WHAT IS REPLAYED: the arguments a restore starts the launcher with are the ORIGINAL ones
 # with the one-shot set removed. `--prevent` writes `never` into the project's
@@ -235,22 +238,21 @@ ccy_registry_replay_args() {
     done
 }
 
-# ccy_registry_write [--compose <outcome>] <name> <dir> <launcher> <prefix> <yes|no>
-# [replay-args...] — write (or replace) the record for a session. Private to the user, written
-# whole then moved into place, so a reader never sees half a record. Every rewrite of an
-# existing record passes its REC_COMPOSE back, or the outcome is lost.
+# ccy_registry_write [--compose <outcome>] [--fresh <yes|"">] <name> <dir> <launcher> <prefix>
+# <yes|no> [replay-args...] — write (or replace) the record for a session. Private to the user,
+# written whole then moved into place, so a reader never sees half a record. Every rewrite of an
+# existing record passes its REC_COMPOSE and REC_FRESH back, or they are lost. --fresh yes is
+# fresh-if-no-conversation=yes, which provisioning writes (Plan 00135 Phase 13).
 ccy_registry_write() {
-    local compose=""
-    if [[ "${1:-}" == "--compose" ]]; then
-        compose="${2-}"
-        shift 2 || {
-            print_error "ccy_registry_write: --compose needs an outcome."
-            return 1
-        }
-        if [[ -n "$compose" ]] && ! _ccy_registry_compose_outcome_ok "$compose"; then
-            print_error "session record: compose outcome '$compose' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}; the record was not written."
-            return 1
-        fi
+    local compose="" fresh=""
+    # An option with no value after it is not taken as one: no ${2?}, which would end the shell.
+    while [[ $# -ge 2 && ("$1" == --compose || "$1" == --fresh) ]]; do
+        printf -v "${1#--}" '%s' "$2"
+        shift 2
+    done
+    if [[ -n "$compose" ]] && ! _ccy_registry_compose_outcome_ok "$compose"; then
+        print_error "session record: compose outcome '$compose' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}; the record was not written."
+        return 1
     fi
     local name="${1:?ccy_registry_write requires a session name}"
     local dir="${2:?ccy_registry_write requires a directory}"
@@ -259,13 +261,10 @@ ccy_registry_write() {
     local restore="${5:?ccy_registry_write requires yes or no}"
     shift 5
     local regdir path tmp arg
-    case "$restore" in
-    yes | no) ;;
-    *)
-        print_error "session record for '$name': restore must be yes or no, not '$restore'."
+    if [[ "$restore" != yes && "$restore" != no || "$fresh" != "" && "$fresh" != yes ]]; then
+        print_error "session record for '$name' was not written: it has restore='$restore' (yes or no) or --fresh='$fresh' (yes or empty)."
         return 1
-        ;;
-    esac
+    fi
     if [[ "$name" == */* ]]; then
         print_error "session record name '$name' contains a slash and cannot name a file."
         return 1
@@ -292,9 +291,8 @@ ccy_registry_write() {
             printf 'launcher=%s\n' "$launcher"
             printf 'prefix=%s\n' "$prefix"
             printf 'restore=%s\n' "$restore"
-            if [[ -n "$compose" ]]; then
-                printf 'compose=%s\n' "$compose"
-            fi
+            [[ -z "$compose" ]] || printf 'compose=%s\n' "$compose"
+            [[ -z "$fresh" ]] || printf 'fresh-if-no-conversation=yes\n'
             for arg in "$@"; do
                 printf 'arg=%s\n' "$arg"
             done
@@ -386,7 +384,7 @@ ccy_registry_forget_network() {
             continue
         fi
         [[ -e "$file" ]] || continue
-        if ! ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
+        if ! ccy_registry_write --compose "$REC_COMPOSE" --fresh "$REC_FRESH" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
             failures=$((failures + 1))
             continue
         fi
@@ -448,7 +446,7 @@ ccy_registry_record_ssh_key() {
     fi
     [[ "$REC_PREFIX" == "ccy" ]] || return 0
     _ccy_registry_args_with_ssh_key with_key "$key" "${REC_ARGS[@]}" || return 0
-    ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${with_key[@]}" || return 1
+    ccy_registry_write --compose "$REC_COMPOSE" --fresh "$REC_FRESH" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${with_key[@]}" || return 1
     printf 'Recorded --ssh-key %s for session %s: a restore after a reboot uses it without asking.\n' \
         "$key" "$name" >&2
 }
@@ -474,7 +472,7 @@ ccy_registry_record_compose() {
         print_error "the restore record of session $name could not be read, so how its compose services stood cannot be recorded."
         return 1
     fi
-    ccy_registry_write --compose "$outcome" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${REC_ARGS[@]}" || return 1
+    ccy_registry_write --compose "$outcome" --fresh "$REC_FRESH" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${REC_ARGS[@]}" || return 1
     printf 'Recorded compose=%s for session %s: a restore after a reboot answers the compose question the same way.\n' \
         "$outcome" "$name" >&2
 }
@@ -485,18 +483,11 @@ ccy_registry_record_compose() {
 # record (one ccy did not start under tmux, or one that has ended) is a failure: there is
 # nothing to restore or keep out. A record that is gone by the time it would be rewritten
 # belongs to a session that ended meanwhile, and is not written back. The rewrite goes
-# through ccy_registry_write.
+# through ccy_registry_write, which refuses a restore that is not yes or no.
 ccy_registry_set_restore() {
     local name="${1:?ccy_registry_set_restore requires a session name}"
     local restore="${2:?ccy_registry_set_restore requires yes or no}"
     local regdir file
-    case "$restore" in
-    yes | no) ;;
-    *)
-        print_error "restore must be yes or no, not '$restore'; session $name's record is unchanged."
-        return 1
-        ;;
-    esac
     regdir=$(ccy_registry_dir) || return 1
     file="$regdir/$name"
     if [[ ! -e "$file" ]]; then
@@ -511,7 +502,7 @@ ccy_registry_set_restore() {
         print_error "session $name ended while its record was being changed; nothing was written."
         return 1
     }
-    ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$restore" "${REC_ARGS[@]}" || return 1
+    ccy_registry_write --compose "$REC_COMPOSE" --fresh "$REC_FRESH" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$restore" "${REC_ARGS[@]}" || return 1
     if [[ "$restore" == yes ]]; then
         printf 'Session %s will be started again after a reboot.\n' "$name" >&2
     else
@@ -528,13 +519,14 @@ ccy_registry_remove() {
 }
 
 # ccy_registry_read <file> — parse a record into REC_NAME, REC_DIR, REC_LAUNCHER,
-# REC_PREFIX, REC_RESTORE, REC_COMPOSE (empty when the record has none) and the REC_ARGS
-# array. Strict: a wrong header, an unknown key, an unknown compose outcome or a missing
+# REC_PREFIX, REC_RESTORE, REC_COMPOSE (empty when the record has none), REC_FRESH (yes for
+# fresh-if-no-conversation=yes, else empty) and the REC_ARGS array. Strict: a wrong header, an
+# unknown key, an unknown compose outcome, a fresh mark other than yes or a missing
 # field is a rejection, never a guess — a guessed record starts the wrong thing in the wrong
 # place.
 ccy_registry_read() {
     local file="${1:?ccy_registry_read requires a record path}" line key value first=true
-    REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE="" REC_COMPOSE=""
+    REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE="" REC_COMPOSE="" REC_FRESH=""
     REC_ARGS=()
     if [[ ! -r "$file" ]]; then
         print_error "session record $file cannot be read."
@@ -569,6 +561,7 @@ ccy_registry_read() {
             fi
             REC_COMPOSE="$value"
             ;;
+        fresh-if-no-conversation) REC_FRESH="${value:-<empty>}" ;;
         arg) REC_ARGS+=("$value") ;;
         *)
             print_error "session record $file has an unknown key '$key' and is not read."
@@ -587,13 +580,10 @@ ccy_registry_read() {
             return 1
         fi
     done
-    case "$REC_RESTORE" in
-    yes | no) ;;
-    *)
-        print_error "session record $file has restore='$REC_RESTORE'; expected yes or no."
+    if [[ "$REC_RESTORE" != yes && "$REC_RESTORE" != no || "$REC_FRESH" != "" && "$REC_FRESH" != yes ]]; then
+        print_error "session record $file has restore='$REC_RESTORE' (yes or no) or fresh-if-no-conversation='$REC_FRESH' (only yes)."
         return 1
-        ;;
-    esac
+    fi
 }
 
 # The line a failed session's window is held on, which is how verify-restore tells a pane

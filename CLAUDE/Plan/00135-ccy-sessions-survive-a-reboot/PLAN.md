@@ -273,6 +273,65 @@ and says so, when any record cannot be restored; (3) failures are loud through
   on the server lists every record, and a cycle with a session that has no recorded
   conversation ends `unrestorable-sessions` with a Slack alert and no reboot.
 
+### Phase 13: a record provisioning marks starts fresh when no conversation is recorded
+
+The owner's decision (2026-11-11, given to the coordinator), which revises Phase 12 ask (1)
+(Plan 00203 Decision 10, "no opt-in"):
+
+> A PER-RECORD OPT-IN. A record that provisioning marks "start fresh when no conversation is
+> recorded" is started fresh by the boot restore (ccy-sessions restore) instead of being
+> refused; every unmarked record still refuses exactly as now (going=not-started, why
+> no-conversation). A marked record that DOES have a recorded conversation resumes by its id as
+> now (the opt-in only covers the nothing-recorded case). Not machine-wide; no --continue.
+
+Why (fedora-desktop#108's follow-up): on a new headless dev box no session has run, and
+`ccy-sessions-restore.service` is the only unattended route that unlocks a passphrased GitHub
+SSH key (the `ssh-unlock.conf` drop-in, `CCY_RESTORE_SSH_PASSPHRASE_FILE`, the restore-only
+askpass), so the fresh start runs on the same path as a resume.
+
+- [x] ✅ **Task 13.1**: Tests first, then the build. The mark is the optional record line
+  `fresh-if-no-conversation=yes` (Go `registry.Record.FreshIfNoConversation`; any other value
+  is an unreadable record). No play in this repository writes session records: provisioning
+  that writes one for a session the box should keep running writes the line into it. The
+  launcher's `lib/session-registry.bash` reads it (`REC_FRESH`), takes `--fresh yes` in
+  `ccy_registry_write`, and every rewrite (restore mark, compose outcome, SSH key, network
+  removal) keeps it; the bash file stays within its bash-limits record. `planRestore` starts a
+  marked record fresh only on `conversation.ErrNotRecorded` (no `conversation.json`): a launch
+  without the bus, a file that is not the hook's, or a missing transcript is refused whatever
+  the mark. The fresh start is `registry.FreshArgs` (the resume's arguments without
+  `--resume`; no selector, never `--continue`) under the same `env CCY_SESSION_RESTORE=1 CCY_RESTORE_SSH_PASSPHRASE_FILE=...` command. Tests:
+  `TestAMarkedRecordWithNoConversationIsStartedFreshUnderTheAskpass`,
+  `TestADryRunSaysAMarkedRecordWouldStartFresh`,
+  `TestRestoreCheckJudgesAMarkedNeverRunRecordRestorable` (sessions);
+  `TestTheFreshMarkRoundTripsAndIsWrittenOnlyWhenSet`, `TestTheFreshMarkSurvivesEveryBashRewrite`,
+  `TestFreshArgsAreTheResumeArgsWithoutTheResume`, `TestReadRejectsMalformedRecords` (registry);
+  `TestOnlyAnAbsentHookRecordIsNotRecorded` (conversation).
+- [x] ✅ **Task 13.2**: Reported, never hidden: the restore prints
+  `started <name> fresh in <dir>: ...`; the manifest entry is `going=none`, `detail=fresh`, no resume id, so set-going
+  types nothing into it and verify-restore judges it by its screen; `restore --check` prints
+  `RESTORABLE` and says on stderr it will start fresh, so the self-update cycle's
+  `unrestorable-sessions` hold does not fire for it.
+- [x] ✅ **Task 13.3**: docs/ccy.md "Sessions Survive a Reboot", `ccy-sessions --help`, the
+  changelog, CCY 3.118.6 (the image is unchanged: none of its Go binaries imports these
+  packages), and `meta-deploy.list` (changed-plays picks up `play-claude-yolo.yml`).
+- [x] ✅ **Task 13.5**: Provisioning's supported way to write the record:
+  `ccy-sessions declare [--name ccy-NAME] [--fresh-if-no-conversation] [--replace] DIR [-- CCY-ARGS...]`
+  (`internal/sessions/declare.go`). It writes, through `registry.Store.Write`, the record a ccy
+  launch of CCY-ARGS in DIR writes: the launcher's name (`projectName`, get_project_name),
+  `registry.ReplayArgs` (the Go twin of `ccy_registry_launch_args` + `ccy_registry_replay_args`),
+  and the compose outcome `--compose start|skip` records. It is judged by `planRestore` first,
+  so what `restore --check` calls UNRESTORABLE is refused unwritten; the same record again is
+  `UNCHANGED`, a different one needs `--replace`, a live session is never written over, and
+  root is refused. Go's `FlagClass` now drops the launcher's standalone flags as bash does
+  (`TestEveryFlagTheLauncherListsHasTheSameClassInGo` reads bash's four lists). docs/ccy.md has
+  the grammar and an Ansible task; CCY 3.119.0, image unchanged. Report:
+  `subagent-reports/261111-phase13-declare-opus.md`.
+- [ ] 🧑 **Task 13.4**: HOST: after meta-deploy, on a headless box with restore and the SSH
+  unlock on, write a record for a project that has never had a session with
+  `ccy-sessions declare --fresh-if-no-conversation` (docs/ccy.md), then `ccy-sessions restore --check` prints it `RESTORABLE`;
+  reboot, and `ccy-sessions verify-restore --wait 300` reports it `OK`, its journal says
+  `started <name> fresh`, and the session is past its SSH key unlock with no prompt.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

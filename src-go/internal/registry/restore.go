@@ -43,7 +43,7 @@ const (
 // The four flag groups are one list with the launcher's parser: a value-taking flag consumes the
 // NEXT word whatever it is.
 var (
-	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", "--no-restore", "--help", "--version", "-h", "-v", "--build-lock"}
+	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", flagNoRestore, "--list-containers", "--stop-containers", "--help", "--version", "-h", "-v", "--build-lock", "--read-launch-config", "--check-token", "--check-network", "--claude-versions", "--remove-network", "--stop"}
 	dropValueFlags = []string{"--update-token", "--export-token", "--connect", "--disconnect", "--prompt", "--run-for", "--until", flagCompose}
 	keepValueFlags = []string{"--token", "--ssh-key", "--network", "--engine", "--max-age", "--teams"}
 	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus", flagOpencode, flagOpencodeShort}
@@ -92,11 +92,23 @@ func SessionID(id string) bool { return sessionID.MatchString(id) }
 // --supervise after it is claude's word rather than ccy's. --resume is claude's flag and
 // reaches claude from either side, so it is appended.
 func ResumeArgs(compose, prefix string, args []string, id string) ([]string, error) {
-	if prefix == "" {
-		return nil, errors.New("restore arguments need a launcher prefix")
-	}
 	if !SessionID(id) {
 		return nil, fmt.Errorf("refusing to resume '%s': it is not a Claude session id", id)
+	}
+	out, err := FreshArgs(compose, prefix, args)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, "--resume", id), nil
+}
+
+// FreshArgs is ResumeArgs without the resume: the arguments a restore starts a record marked
+// fresh-if-no-conversation with when no conversation is recorded (Plan 00135 Phase 13). Every
+// conversation selector is removed, so the session starts a new conversation, never the newest
+// in the folder.
+func FreshArgs(compose, prefix string, args []string) ([]string, error) {
+	if prefix == "" {
+		return nil, errors.New("restore arguments need a launcher prefix")
 	}
 	var ccyFlags []string
 	if prefix == prefixCCY && compose != "" {
@@ -120,8 +132,7 @@ func ResumeArgs(compose, prefix string, args []string, id string) ([]string, err
 		}
 		out = append(out, a)
 	}
-	out = append(out, ccyFlags...)
-	return append(out, "--resume", id), nil
+	return append(out, ccyFlags...), nil
 }
 
 // withoutSelectors is args with claude's conversation selectors removed. Before `--` a ccy flag

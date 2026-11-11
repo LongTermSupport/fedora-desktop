@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.0 — container 2.84.4
+
+- **`ccy-sessions declare`** (Plan 00135 Phase 13): provisioning's supported way to write a
+  session record for a ccy session that has never run, so the boot restore starts it. The
+  record is the one a ccy launch of the same arguments in that folder would write (the same
+  name, the same replayed arguments, the compose answer `--compose start` or `skip` gives),
+  through the registry's own writer, with `fresh-if-no-conversation=yes` when asked. A record
+  `restore --check` would call `UNRESTORABLE` is refused and nothing is written. Declaring the
+  same record again prints `UNCHANGED` and writes nothing; a different record under the name
+  needs `--replace`, and a live session's record is never written over. The Go replay filter
+  now drops the launcher's standalone flags (`--stop`, `--list-containers` and the rest) as the
+  bash one does. The container version is unchanged: no image binary uses these packages.
+
+## 3.118.6 — container 2.84.4
+
+- **A never-run session can be restored fresh** (Plan 00135 Phase 13, fedora-desktop#108): a
+  session record provisioning writes with `fresh-if-no-conversation=yes` is started fresh by
+  `ccy-sessions restore` when no conversation is recorded for it, under the same SSH key
+  unlock a resume gets, with no `--resume` and no `--continue`. Unmarked records with no
+  conversation are still refused. The manifest says `fresh`, `restore --check` calls the record
+  `RESTORABLE`, and every rewrite of the record by the launcher keeps the mark. The image is
+  unchanged.
+
 ## 3.118.5 — container 2.84.4
 
 - **teamchat's homeserver unit binds its resolver as a directory** (Plan 00209): the sandbox

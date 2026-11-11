@@ -467,6 +467,9 @@ Detail in SPEC-team-add-and-restart.md section 5.
     each is started with `--resume <its recorded id>`; a `--no-bus` or plain-`cc` record, or
     one whose hook never ran, is not started: the restore names it as a failure (exit 1),
     says to run `ccy --resume` in its folder, and keeps its record.
+    **Revised by Plan 00135 Phase 13** (the owner, 2026-11-11): a record provisioning marks
+    `fresh-if-no-conversation=yes` (`ccy-sessions declare`) is started fresh when no
+    conversation is recorded for it; every unmarked record is still refused as above.
 11. **Claude Code's agent view is off in the ccy image's environment**
     (`CLAUDE_CODE_DISABLE_AGENT_VIEW=1`), background sub-agents and shell tasks left on.
 12. **A session on no team records its conversation too: the one exception to the inert
