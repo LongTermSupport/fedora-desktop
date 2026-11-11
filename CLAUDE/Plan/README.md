@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00251-team-seat-status-for-the-coordinator](00251-team-seat-status-for-the-coordinator/) - In Progress (design chosen; probes before a spec). Each v2 seat's state (working, idle, blocked, rate-limited, gone) for its coordinator, with change notices that cost a turn only when there is something to act on.
+
 - [00250-branches-cleaned-up-when-done](00250-branches-cleaned-up-when-done/) - In Progress. A done branch is deleted with its worktree: defences first (delete on merge, no hidden git mutations in scripts, scratch outside worktrees), then every instance cleaned through the tools.
 
 - [00249-agent-bus-retention](00249-agent-bus-retention/) - Not Started (plan only; owner decisions D1-D15 open, the 14-day maximum decided). Bounds agent team bus homeserver storage: RocksDB's WAL archive, 75-90% of each database and pruned by nothing, first; then a 14-day event cap per room through Tuwunel's `purge_history`, from a per-team `retention_days` (default and ceiling 14) and a timer the play installs. Research cites Tuwunel 1.9.4; `triage.bash` measures each team's storage.
