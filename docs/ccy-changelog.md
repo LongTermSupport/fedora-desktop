@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.3 — container 2.84.2
+
+- **teamchat takes a GitHub name as GitHub shows it** (Plan 00209): a team's trust section
+  (`org`, `repos`, `exclude`) given to `teamchat-admin team apply` or `team approve`, by the
+  play or by `--set`, is folded to the canonical lower case before it is checked, so
+  `org: ExampleOrg` is the owner `exampleorg` rather than a refusal; a name that is no GitHub
+  name in any case is refused saying what one may be. The member's `ping` and `reply --ref`
+  lowercase a reference's `OWNER/REPO` before sending, as A 9.1 says a sender does. The image's
+  teamchat changes, so the image is rebuilt once; the launcher behaves as 3.118.2.
+
 ## 3.118.2 — container 2.84.1
 
 The image is unchanged, so there is no rebuild.

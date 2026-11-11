@@ -152,6 +152,11 @@ func TestSD1_2AReplyWithAVerbAnswersAPing(t *testing.T) {
 	if c := contentOf(t, lastContent(t, f)); c.Ping.Ref != reviewRef || c.Relation.Root != evID(reviewEv) {
 		t.Errorf("done --ref = %+v", c)
 	}
+	typed := verbReply(reviewEv, proto.VerbDone)
+	typed.Ref = new(strings.Replace(reviewRef, "owner/repo", "Owner/Repo", 1))
+	// Typed as GitHub shows the names, it is the canonical reference (A 9.1): the same answer, so
+	// a duplicate of the one just sent rather than a malformed reference.
+	refusedCode(t, "done --ref typed as GitHub shows it", firstOf(w.reply(typed, nil)), exits.CodeDuplicate)
 	w.forge.set(proto.ReasonProvenance, nil)
 	blocked := verbReply(reviewEv, proto.VerbBlocked)
 	blocked.Ref = new(reviewRef)

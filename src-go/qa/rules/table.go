@@ -463,7 +463,9 @@ var processBounds = []allowance{
 
 // identityFoldAllowances are the functions project_identity_fold does not judge: each reads a
 // GitHub name back from a file the program wrote in the folded form.
-var identityFoldAllowances = []allowance{}
+var identityFoldAllowances = []allowance{
+	{pkg: "internal/teamchat/member/state", fn: "validRef", reason: "validates the member's own state file, whose references the sender wrote after proto.LowercaseRefRepo folded them; a person never writes it"},
+}
 
 // realTimeAllowances are the functions project_realtime_bound does not judge.
 func realTimeAllowances() []allowance {

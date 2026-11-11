@@ -1682,7 +1682,11 @@ What changed from v1's keys, and why:
   it back unlocks (DC9).
 - The trust settings are grouped under `trust`, so the keys A owns are visibly A's. The keys
   inside `trust` above are v1's, shown as an example: their shape is area A's to decide (an
-  assumption on A, section 7), and C decodes `trust` with A's Go type.
+  assumption on A, section 7), and C decodes `trust` with A's Go type. Its GitHub names (`org`,
+  each `repos[].repo`, each `exclude`) are written as GitHub shows them, in any case; C reads them
+  with A's input decoder (`proto.DecodeForgeInput`), which folds each to the canonical lower case
+  of A 9.1 in ASCII before validating, and refuses a name that is no GitHub name in any case
+  saying what one may be. The approved and applied files hold the folded form.
 - `url` makes the members' base URL explicit when a team is reached through something other than
   the bus address.
 

@@ -448,6 +448,24 @@ func TestSD3_5TheSendOrder(t *testing.T) {
 	refusedCode(t, "a secret to nobody", firstOf(w.say(&ops, "token "+memberAccess, "nobody")), exits.CodeUnknownMember)
 }
 
+// A 9.1: a sender lowercases a reference's OWNER/REPO, so a reference typed as GitHub shows the
+// names is sent in the canonical form; its path keeps its case.
+func TestAPingsReferenceIsSentFolded(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.sending(ops)
+	posted(t, w.ping(&ops, "review", new("commit:Owner/Repo@"+strings.Repeat("a", 40)), "repo.3"))
+	if c := contentOf(t, lastContent(t, f)); c.Ping.Ref != reviewRef {
+		t.Fatalf("the ping's reference = %q, want %q", c.Ping.Ref, reviewRef)
+	}
+	path := "path:Owner/Repo@" + strings.Repeat("a", 40) + ":Docs/README.md"
+	posted(t, w.ping(&ops, "review", &path, "repo.3"))
+	want := "path:owner/repo@" + strings.Repeat("a", 40) + ":Docs/README.md"
+	if c := contentOf(t, lastContent(t, f)); c.Ping.Ref != want {
+		t.Fatalf("the ping's reference = %q, want %q", c.Ping.Ref, want)
+	}
+}
+
 // n3d-D11: the send side's forge results, each spending nothing.
 func TestN3dD11TheForgeResults(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)

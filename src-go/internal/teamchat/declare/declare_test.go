@@ -113,6 +113,35 @@ func checkDefaults(t *testing.T, d Declaration) {
 	}
 }
 
+// The play hands over a team's trust as the person wrote it, and a person writes a GitHub owner as
+// GitHub shows it: ExampleOrg is the owner exampleorg (A 9.1), read in its canonical form.
+func TestDecodeFoldsTrustNames(t *testing.T) {
+	d := validDecl()
+	trust0(d)["org"] = "ExampleOrg"
+	trust0(d)["repos"] = []any{map[string]any{"repo": "ExampleOrg/Thing", "branches": []any{"Main"}}}
+	trust0(d)["exclude"] = []any{"ExampleOrg/Private"}
+	got, err := Decode(encode(t, d))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	tr := got.Teams[0].Trust
+	if tr.Org != "exampleorg" || tr.Repos[0].Repo != "exampleorg/thing" || tr.Exclude[0] != "exampleorg/private" ||
+		tr.Repos[0].Branches[0] != "Main" {
+		t.Fatalf("trust %+v, want the GitHub names folded and the branch kept", tr)
+	}
+}
+
+// A trust name that is no GitHub name in any case is refused at its field, naming what one may be.
+func TestDecodeTrustRefusalNamesWhatIsAllowed(t *testing.T) {
+	d := validDecl()
+	trust0(d)["org"] = "Bad_Org"
+	_, err := Decode(encode(t, d))
+	wantField(t, err, "teamchat_teams[0].trust", "Bad_Org")
+	if !strings.Contains(err.Error(), "org is not a GitHub owner: 1-39 ASCII letters, digits and hyphens") {
+		t.Fatalf("err = %v, want the refusal to say what an owner may be", err)
+	}
+}
+
 func TestDecodeEmptyAndMinimal(t *testing.T) {
 	d, err := Decode([]byte(`{}`))
 	if err != nil || len(d.Teams) != 0 || d.Address != "" {

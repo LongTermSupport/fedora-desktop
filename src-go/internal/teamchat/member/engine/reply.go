@@ -89,7 +89,7 @@ func (e *Engine) answerPing(ctx context.Context, st sendTeam, a wire.ReplyArgs, 
 	}
 	p := proto.Ping{Verb: *a.Verb, To: []string{it.from}}
 	if a.Ref != nil {
-		p.Ref = *a.Ref
+		p.Ref = proto.LowercaseRefRepo(*a.Ref) // A 9.1: a sender lowercases OWNER/REPO
 	}
 	body := pingBody(p, st.namer())
 	return e.send(ctx, st, state.SendPing, func(c proto.Composer) (proto.Outgoing, error) {

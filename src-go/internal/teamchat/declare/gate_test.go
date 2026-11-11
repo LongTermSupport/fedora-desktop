@@ -330,6 +330,10 @@ func approveCases() []approveCase {
 			"set the trust", func(d map[string]any) { obj(docTeam(d)["trust"])["org"] = "other-org" },
 			Change{"trust", OpSet, `{"kind":"github","org":"other-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}`},
 		},
+		{
+			"set the trust as GitHub shows it", func(d map[string]any) { obj(docTeam(d)["trust"])["org"] = "other-org" },
+			Change{"trust", OpSet, `{"kind":"github","org":"Other-Org","repos":[{"repo":"Example-Org/Thing","branches":["main"]}]}`},
+		},
 		{"add an lxc member", func(d map[string]any) {
 			second := lxcEntry("alpha")
 			second["container"] = "box-2"
@@ -440,6 +444,7 @@ func approveRefusals(whole string) []struct {
 		{"url unchanged", true, Change{"url", OpSet, "https://192.0.2.10:8448"}},
 		{"url bad", true, Change{"url", OpSet, "http://x/path"}},
 		{"trust unchanged", true, Change{"trust", OpSet, `{"kind":"github","org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}`}},
+		{"trust unchanged in another case", true, Change{"trust", OpSet, `{"kind":"github","org":"Example-Org","repos":[{"repo":"example-org/Thing","branches":["main"]}]}`}},
 		{"trust by remove", true, Change{"trust", OpRemove, "{}"}},
 		{"trust not json", true, Change{"trust", OpSet, "{"}},
 		{"trust bad", true, Change{"trust", OpSet, `{"kind":"gitlab","repos":[]}`}},

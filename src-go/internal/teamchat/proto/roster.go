@@ -1,6 +1,8 @@
 package proto
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 )
@@ -146,7 +148,42 @@ func decodeRooms(f *fields, obj Value) SideRooms {
 	return rooms
 }
 
-// DecodeForge decodes and validates a `forge` section on its own.
+// What a GitHub name may be, in any case: the refusals of DecodeForgeInput.
+const (
+	ownerAllowed     = "is not a GitHub owner: 1-39 ASCII letters, digits and hyphens, starting and ending with a letter or digit, in any case"
+	ownerRepoAllowed = "is not a GitHub OWNER/REPO: the owner as for org, then the repository, 1-100 ASCII letters, digits, '.', '_' and '-', not '.' or '..' and not ending '.git', in any case"
+)
+
+// DecodeForgeInput decodes a `forge` section a person or a play wrote: its GitHub names (`org`,
+// each `repos[].repo`, each `exclude`) are folded to ASCII lower case, the canonical form (A 9.1,
+// A 2.3), then the section is validated as DecodeForge validates it. A name that is not a GitHub
+// name in any case is refused naming what one may be, never echoing it.
+func DecodeForgeInput(v Value) (Forge, error) {
+	f, err := decodeForgeShape(v)
+	if err != nil {
+		return Forge{}, err
+	}
+	f.Org = asciiLower(f.Org)
+	if f.Org != "" && !ValidOwner(f.Org) {
+		return Forge{}, errors.New("org " + ownerAllowed)
+	}
+	for i := range f.Repos {
+		f.Repos[i].Repo = asciiLower(f.Repos[i].Repo)
+		if !ValidOwnerRepo(f.Repos[i].Repo) {
+			return Forge{}, fmt.Errorf("repos[%d].repo %s", i, ownerRepoAllowed)
+		}
+	}
+	for i := range f.Exclude {
+		f.Exclude[i] = asciiLower(f.Exclude[i])
+		if !ValidOwnerRepo(f.Exclude[i]) {
+			return Forge{}, fmt.Errorf("exclude[%d] %s", i, ownerRepoAllowed)
+		}
+	}
+	return f, f.Validate()
+}
+
+// DecodeForge decodes and validates a `forge` section on its own, in its canonical form: a read
+// of a section a person wrote is DecodeForgeInput's.
 func DecodeForge(v Value) (Forge, error) {
 	f, err := decodeForgeShape(v)
 	if err != nil {

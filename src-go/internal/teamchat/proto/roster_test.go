@@ -272,6 +272,59 @@ func TestNextRev(t *testing.T) {
 	}
 }
 
+// A forge section a person or a play wrote names its GitHub owner and repositories as GitHub shows
+// them; the input decoder folds each to the canonical lower case (A 9.1) before the grammar judges
+// it, while the canonical decoder still refuses a name that was not folded.
+func TestDecodeForgeInputFoldsGitHubNames(t *testing.T) {
+	in := `{"kind":"github","org":"ExampleOrg","repos":[{"repo":"Other-Org/My.Repo","branches":["Main"]}],` +
+		`"exclude":["ExampleOrg/Secret"],"path_prefixes":["Docs/"]}`
+	f, err := DecodeForgeInput(mustParse(t, in))
+	if err != nil {
+		t.Fatalf("DecodeForgeInput: %v", err)
+	}
+	if f.Org != "exampleorg" || f.Repos[0].Repo != "other-org/my.repo" || f.Exclude[0] != "exampleorg/secret" {
+		t.Fatalf("names not folded: %+v", f)
+	}
+	if f.Repos[0].Branches[0] != "Main" || f.PathPrefixes[0] != "Docs/" {
+		t.Fatalf("a branch or a path is case-sensitive and was changed: %+v", f)
+	}
+	if _, err := DecodeForge(mustParse(t, in)); err == nil {
+		t.Fatal("DecodeForge accepted names that are not in their canonical form")
+	}
+}
+
+// A name that is not a GitHub name in any case is refused naming what one may be, and without
+// echoing what was written; the fold is ASCII only, so the Kelvin sign (U+212A), which Unicode
+// lowercases to k, is refused (A 2.3).
+func TestDecodeForgeInputRefusalNamesWhatIsAllowed(t *testing.T) {
+	kelvin := string(rune(0x212a))
+	cases := []struct{ in, field, allowed string }{
+		{`{"kind":"github","org":"Bad_Org"}`, "org", ownerAllowed},
+		{`{"kind":"github","org":"` + kelvin + `elvin"}`, "org", ownerAllowed},
+		{`{"kind":"github","org":"-lead"}`, "org", ownerAllowed},
+		{`{"kind":"github","repos":[{"repo":"o/r"},{"repo":"NoSlash"}]}`, "repos[1].repo", ownerRepoAllowed},
+		{`{"kind":"github","org":"o","exclude":["O/R.git"]}`, "exclude[0]", ownerRepoAllowed},
+	}
+	for _, c := range cases {
+		_, err := DecodeForgeInput(mustParse(t, c.in))
+		if err == nil {
+			t.Errorf("DecodeForgeInput(%s) accepted", c.in)
+			continue
+		}
+		if !strings.HasPrefix(err.Error(), c.field+" ") || !strings.HasSuffix(err.Error(), c.allowed) {
+			t.Errorf("DecodeForgeInput(%s) = %q, want %s refused naming %q", c.in, err, c.field, c.allowed)
+		}
+		for _, echoed := range []string{"Bad_Org", "NoSlash", "O/R.git", kelvin} {
+			if strings.Contains(err.Error(), echoed) {
+				t.Errorf("DecodeForgeInput(%s) = %q echoes the value", c.in, err)
+			}
+		}
+	}
+	if _, err := DecodeForgeInput(mustParse(t, `{"kind":"github","repos":[{"repo":"O/R"}],"exclude":["o/r"]}`)); err == nil {
+		t.Error("an excluded repository listed in another case was accepted")
+	}
+}
+
 func TestDecodeForgeAndLimitsAlone(t *testing.T) {
 	f, err := DecodeForge(mustParse(t, `{"kind":"github","repos":[{"repo":"o/r","branches":["main","dev"]}],"path_prefixes":["docs/"]}`))
 	if err != nil || f.Org != "" || len(f.Repos[0].Branches) != 2 || f.PathPrefixes[0] != "docs/" {

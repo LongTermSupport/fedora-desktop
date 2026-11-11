@@ -75,7 +75,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                                                       | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
 | `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                                                      | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
 | `project_seat_member_type`        | an agent-bus seat call for a session given a constant member type, so a cc session is offered ccy's seats                                                                              | `ccy-teams` picker: Add to a team asked `seat choose --type=podman` for a cc session (Plan 00203)                                                                         |
-| `project_identity_fold` | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209) |
+| `project_identity_fold`           | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused             | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209)                                                                                      |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -2109,6 +2109,12 @@ canonical read of the program's own file is a row in `identityFoldAllowances`, w
 - Red, real tree: four findings over both modules: `declare/values.go` (`DecodeForge`),
   `member/engine/send.go` and `member/engine/reply.go` (`Ping.Ref`), and
   `member/state/store.go` (`validRef`, a read of the member's own state file).
+- Green: `declare` reads `trust` with `proto.DecodeForgeInput`; `ping` and `reply --verb --ref`
+  fold the reference with `proto.LowercaseRefRepo`; `validRef` is an allowance row (the member's
+  own file, written folded). The rule reports nothing over either module, untagged and with every
+  build tag. `TestDecodeFoldsTrustNames`, the approve case "set the trust as GitHub shows it",
+  `TestAPingsReferenceIsSentFolded` and the typed `done --ref` of `TestSD1_2...` were each red
+  (refused as an invalid forge section, or as a malformed reference) before the fix.
 - Wider rule considered and not built: every lower-case-only grammar of a GitHub name in the
   tree, v1's `internal/bus/declare` (`isOwnerRepo`, `checkedRepo`) included. Its query entry
   points take only `GithubRemote`'s folded answer, and ccy-teams' create wizard folds its flags

@@ -128,7 +128,7 @@ func (e *Engine) ping(ctx context.Context, a wire.PingArgs, stdin *string, out R
 	}
 	p := proto.Ping{Verb: a.Verb, To: to}
 	if a.Ref != nil {
-		p.Ref = *a.Ref
+		p.Ref = proto.LowercaseRefRepo(*a.Ref) // A 9.1: a sender lowercases OWNER/REPO
 	}
 	if a.Branch != nil {
 		p.Branch = *a.Branch

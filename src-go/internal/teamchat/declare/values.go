@@ -133,12 +133,13 @@ func validSite(s string) bool {
 // trustKeys are A's forge section's keys (A 5.1); trust is that section exactly (n2b-D1).
 var trustKeys = []string{"org", "repos", "exclude", "path_prefixes"}
 
-// trust reads n as A's forge section, decoded and validated by A's own decoder (seam 16).
+// trust reads n as A's forge section, decoded and validated by A's own decoder (seam 16): the
+// input decoder, which folds the GitHub names a person wrote as GitHub shows them.
 func (n node) trust() (proto.Forge, error) {
 	if _, err := n.object([]string{"kind"}, trustKeys...); err != nil {
 		return proto.Forge{}, err
 	}
-	f, err := proto.DecodeForge(n.v)
+	f, err := proto.DecodeForgeInput(n.v)
 	if err != nil {
 		return proto.Forge{}, n.fail("is not a valid forge section (" + err.Error() + ")")
 	}
