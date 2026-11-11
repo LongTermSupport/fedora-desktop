@@ -69,9 +69,10 @@ run id; if it names no run id, make one: `scan-$(date -u +%Y%m%d-%H%M)`.
      with `gh label create watchlist` if `gh label list` lacks it).
    - The owner's standing request to file clear wins straight to issues is recorded in
      `.claude/hooks-daemon.yaml` and in Watchlist.md; it covers this scout and issues only.
-7. **Write the run report** to `untracked/watchlist-reports/<run id>.md`: per repository, the
-   range reviewed, each finding with its verdict (issue number, plan number, discarded and why,
-   not filed (cap)).
+7. **Write the run report** to `CLAUDE/Plan/00200-repo-watch-list/subagent-reports/<run id>.md`
+   (tracked; the caller commits it): per repository, the range reviewed, each finding with its
+   verdict (issue number, plan number, discarded and why, not filed (cap)). It is public, so the
+   scan rules of step 6 apply to it too.
 8. **Mark each repository reviewed only after its outcomes are filed:**
    `go run ./cmd/watchlist --root .. mark <owner>/<repo> <head sha> --run <run id>`. A repository
    whose filing failed stays unmarked, so the next scan repeats it.

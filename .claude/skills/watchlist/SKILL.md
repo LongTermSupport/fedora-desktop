@@ -22,5 +22,5 @@ the work is done by the `watchlist-scout` agent.
   for it. It will be reported as `initial: full review`.
 
 Give the scout a run id (`scan-<UTC date and time>`). When it returns, relay its summary: the
-issues and plans filed and the run report path. The scout does not commit; the plans and the
-updated `CLAUDE/Watchlist.tsv` it leaves are committed and pushed by this session.
+issues and plans filed and the run report path. The scout does not commit; the plans, the run
+report and the updated `CLAUDE/Watchlist.tsv` it leaves are committed and pushed by this session.

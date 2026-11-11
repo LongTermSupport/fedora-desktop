@@ -123,7 +123,11 @@ commit that audit read, so the first scan covers only what changed after it.
 2. The [`watchlist-scout`](../.claude/agents/watchlist-scout.md) agent reviews: the whole project
    for an initial repository, only the diff range otherwise. It judges each finding against what
    this repository already has, files issues and plans as above (checking for duplicates first),
-   and writes a run report to `untracked/watchlist-reports/`.
+   and writes a run report to Plan 00200's `subagent-reports/<run id>.md`. The report is
+   tracked: it is what the run id in `Watchlist.tsv` resolves to, and it records why each
+   finding was filed or discarded, which the next scan of that repository builds on. Only the
+   drafts of issue bodies and comments stay in `untracked/watchlist-reports/`, scanned there
+   before `gh` publishes them.
 3. Only after its outcomes are filed does the scout run `watchlist mark <repo> <sha> --run <id>`.
    A scan that dies midway leaves the repository unmarked, so the next scan repeats it rather
    than losing it. `mark` accepts only a commit on the watched branch that descends from the
