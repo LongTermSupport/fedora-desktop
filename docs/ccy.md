@@ -301,9 +301,22 @@ session that ended before its first prompt. The restore names it as a failure an
 record; bring it back with `ccy --resume` in its folder, whose picker lists the
 conversations.
 
-**A record resumes by its recorded id only.** A restore always appends `--resume <id>`, so
-a session launched without `--continue` (a fresh start) comes back on the conversation it
-recorded, not fresh; a record cannot ask for a fresh start. This is intended (fedora-desktop#108).
+**A record resumes by its recorded id.** A restore appends `--resume <id>`, so a session
+launched without `--continue` comes back on the conversation it recorded, not fresh
+(fedora-desktop#108).
+
+**Provisioning can mark a never-run session to start fresh.** A record written by
+provisioning for a session the machine should keep running, before it has ever run, can
+carry the line `fresh-if-no-conversation=yes`. If no conversation is recorded for it (no
+`conversation.json`), the restore starts it fresh instead of refusing it: the same
+arguments, `--compose` and `--supervise` as a resume, no `--resume` and never `--continue`,
+and on a headless server the same SSH key unlock. A marked record whose conversation is
+recorded is resumed by its id as usual. The mark does not cover a launch without the bus or a
+`conversation.json` that cannot be read; those are refused as before. Every rewrite of the
+record keeps the mark. The restore says `started <name> fresh`, its manifest entry has
+detail `fresh` and no resume id, `set-going` types nothing into it, and `restore --check`
+reports it `RESTORABLE`. Unmarked records are unchanged. Plan 00135 Phase 13 has the
+owner's decision.
 
 **A record that cannot be restored is said, never dropped.** Each one the restore could not
 start (no conversation recorded, its directory gone, an unreadable record, a start that

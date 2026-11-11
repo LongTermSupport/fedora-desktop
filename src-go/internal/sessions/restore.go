@@ -35,6 +35,8 @@ const (
 	whyRecordUnreadable   = "record-unreadable"
 	checkLineRestorable   = " RESTORABLE"
 	checkLineUnrestorable = " UNRESTORABLE "
+	// detailFresh is the manifest's detail for a session started fresh, not resumed.
+	detailFresh = "fresh"
 )
 
 // parseRestore reads the arguments after `restore`: nothing, --dry-run or --check.
@@ -67,32 +69,43 @@ func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 }
 
 // restorePlan is how one record would be started, or why it cannot be: why is a word from the
-// list above, empty when it can, and sentence says the same to a person.
+// list above, empty when it can, and sentence says the same to a person. fresh is a start with
+// no conversation to resume (id empty).
 type restorePlan struct {
 	id, why, sentence string
+	fresh             bool
 	args              []string
 }
 
 // planRestore decides whether a record can be restored, by the rules the restore starts it by:
 // its directory is there, its own conversation is recorded (Plan 00203 C6, Decision 10: by its
 // recorded id, or not at all; --continue would take the newest in a folder several sessions
-// share), and its arguments can be worked out. `restore` and `restore --check` both ask this, so
-// the check cannot pass a record the restore would refuse.
+// share), and its arguments can be worked out. One exception (Plan 00135 Phase 13, the owner's
+// decision): a record provisioning marked fresh-if-no-conversation, whose hook has recorded
+// nothing, is started fresh. `restore` and `restore --check` both ask this, so the check cannot
+// pass a record the restore would refuse.
 func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	if info, statErr := os.Stat(rec.Dir); statErr != nil || !info.IsDir() {
 		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
 			" (the record is kept at " + file + "; remove it if the project is gone)."}
 	}
-	id, err := conversation.For(rec, conversation.ClaudeHome(a.Getenv))
-	if err != nil {
+	plan := restorePlan{}
+	var err error
+	plan.id, err = conversation.For(rec, conversation.ClaudeHome(a.Getenv))
+	switch {
+	case err == nil:
+		plan.args, err = registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, plan.id)
+	case rec.FreshIfNoConversation && errors.Is(err, conversation.ErrNotRecorded):
+		plan.fresh = true
+		plan.args, err = registry.FreshArgs(rec.Compose, rec.Prefix, rec.Args)
+	default:
 		return restorePlan{why: whyNoConversation, sentence: err.Error() + " (the record is kept at " + file + ")."}
 	}
-	args, err := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)
 	if err != nil {
 		return restorePlan{why: whyArgumentsUnknown, sentence: "the arguments to restore it with could not be worked out: " +
 			err.Error() + " (the record is kept at " + file + ")."}
 	}
-	return restorePlan{id: id, args: args}
+	return plan
 }
 
 // restoreEnabled says whether this user's restore unit is enabled (the wants-symlink the play
@@ -150,6 +163,9 @@ func (a *App) checkRestore() term.ExitCode {
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
 			refused = append(refused, rec.Name)
 			continue
+		}
+		if plan.fresh {
+			a.sayf("%s has no conversation recorded and will be started fresh (its record is marked fresh-if-no-conversation).\n", rec.Name)
 		}
 		lines.WriteString(rec.Name + checkLineRestorable + "\n")
 		restorable++
@@ -350,8 +366,17 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	}
 	args := plan.args
 	entry.Resume = plan.id
+	if plan.fresh {
+		// Nothing to compact or continue: set-going leaves a none entry alone, and verify-restore
+		// judges it by its screen. The detail says it was not a resume.
+		entry.Going, entry.Detail = restore.GoingNone, detailFresh
+	}
 	if r.dryRun {
-		a.sayf("would start %s in %s: %s %s\n", rec.Name, rec.Dir, rec.Launcher, strings.Join(args, " "))
+		how, suffix := "", ""
+		if plan.fresh {
+			how, suffix = " fresh", " (no conversation is recorded)"
+		}
+		a.sayf("would start %s%s in %s%s: %s %s\n", rec.Name, how, rec.Dir, suffix, rec.Launcher, strings.Join(args, " "))
 		return
 	}
 	command := []string{"env", "CCY_SESSION_RESTORE=1"}
@@ -366,7 +391,11 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		r.notStarted(entry, whyStartFailed)
 		return
 	}
-	a.sayf("restored %s in %s.\n", rec.Name, rec.Dir)
+	if plan.fresh {
+		a.sayf("started %s fresh in %s: no conversation is recorded and its record is marked fresh-if-no-conversation.\n", rec.Name, rec.Dir)
+	} else {
+		a.sayf("restored %s in %s.\n", rec.Name, rec.Dir)
+	}
 	r.started++
 	r.entries = append(r.entries, entry)
 }

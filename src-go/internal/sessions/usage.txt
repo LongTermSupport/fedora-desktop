@@ -104,7 +104,10 @@ the newest conversation in a folder several sessions share. A session with none 
 (ccy --no-bus, a cc without --teams or --bus, or one whose hook never ran) is not started:
 it is named as a failure with how to bring it back by hand (ccy --resume in its folder, whose
 picker lists the conversations), and its record is kept. A record is always resumed: one whose
-launch did not continue a conversation is resumed on the one it recorded, never started fresh.
+launch did not continue a conversation is resumed on the one it recorded. The one exception
+is a record provisioning wrote with fresh-if-no-conversation=yes for a session that has never
+run: with no conversation.json, it is started fresh (no --resume, never --continue; manifest
+detail "fresh", left alone by set-going), and restore --check calls it RESTORABLE.
 Every record the restore could not start (no conversation, its folder gone, an unreadable
 record, a start that failed) is in this boot's restore manifest, so verify-restore reports it
 as NOT-STARTED and fails.

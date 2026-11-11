@@ -120,6 +120,11 @@
 # /usr/local/share/agent-bus/resolve/ and the same directory bind in agent-bus-hs@.service; the
 # v1 homeservers pick it up at their next restart. play-claude-yolo.yml rebuilds the image once
 # for its new teamchat.
+# And Plan 00135 Phase 13 (ccy 3.118.6): play-claude-yolo.yml rebuilds ccy-sessions and
+# deploys the launcher's lib/session-registry.bash, so a session record marked
+# fresh-if-no-conversation=yes by provisioning is started fresh at boot when no conversation is
+# recorded for it; no record here carries the mark, so nothing changes on this host. No image
+# rebuild. The owner's test is Plan 00135 Task 13.4, on a headless box.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)
