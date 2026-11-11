@@ -1,6 +1,6 @@
-// Command qa-all is the full QA run, the gate before a push: every gate of scripts/qa-gates.tsv
-// in order, one stage line each, a machine report and one verdict. It is a QA tool, not
-// deployed anywhere; scripts/qa-all.bash builds and runs it.
+// Command qa-all is the full QA run, which GitHub CI runs on every push: every gate of
+// scripts/qa-gates.tsv in order, one stage line each, a machine report and one verdict. It is a
+// QA tool, not deployed anywhere; scripts/qa-all.bash builds and runs it.
 package main
 
 import (

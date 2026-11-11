@@ -48,8 +48,9 @@ type Env struct {
 
 const usageText = `usage: qa-changed [--base REF] [--plan] [--files FILE...] [--no-wait]
 
-Diff-scoped QA for use while iterating. Runs only the checks the CHANGED files need; the full
-./scripts/qa-all.bash (every gate, every suite) is needed only before a push.
+Diff-scoped QA for use while iterating, before each commit. Runs only the checks the CHANGED
+files need; the full ./scripts/qa-all.bash (every gate, every suite) runs in GitHub CI on every
+push, and CI's pass is what lets a protected branch move.
 
 QA never runs in parallel: the checks run under the QA lock, shared by every worktree and
 container of the checkout. While another QA run holds it this one waits, naming that run on

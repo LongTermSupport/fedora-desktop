@@ -349,7 +349,9 @@ ansible desktop -m setup --tree /tmp/facts
 ```
 
 It checks only what the diff touches (`--base origin/F44` covers a burst of local commits).
-`./scripts/qa-all.bash` runs every gate and must pass before every push.
+`./scripts/qa-all.bash` runs every gate; GitHub CI runs it on every push, and a protected
+branch (F44) moves only to a commit CI passed: push to a `ci/<topic>` branch first, then push
+that same commit to F44 once CI is green.
 
 See `CLAUDE/QA.md` for full details on what each check covers.
 

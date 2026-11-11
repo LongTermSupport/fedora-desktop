@@ -1,6 +1,6 @@
 #!/usr/bin/bash
-# The full QA run, the gate before every push: every gate of scripts/qa-gates.tsv in order, one
-# stage line each, never stopping at the first failure, one verdict at the end.
+# The full QA run, which GitHub CI runs on every push: every gate of scripts/qa-gates.tsv in
+# order, one stage line each, never stopping at the first failure, one verdict at the end.
 #
 #   ./scripts/qa-all.bash          run every gate
 #   ./scripts/qa-all.bash --help   the full usage

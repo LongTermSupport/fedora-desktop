@@ -1,6 +1,7 @@
 #!/usr/bin/bash
-# Diff-scoped QA for use while iterating: runs only the checks the CHANGED files need, so the
-# full ./scripts/qa-all.bash (every gate, every suite) is needed only before a push.
+# Diff-scoped QA for use while iterating, before each commit: runs only the checks the CHANGED
+# files need. The full ./scripts/qa-all.bash (every gate, every suite) runs in GitHub CI on every
+# push, and CI's pass is what lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).
 #
 #   ./scripts/qa-changed.bash                 files changed vs HEAD, plus untracked (not ignored)
 #   ./scripts/qa-changed.bash --base <ref>    files changed vs <ref> (e.g. origin/F44)

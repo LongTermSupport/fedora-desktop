@@ -9,7 +9,8 @@ cap = 10
 warn_days = 3
 fail_days = 7
 
-# Release and architecture lines: never judged.
+# Release and architecture lines: never judged by branch hygiene, never deleted, and protected by
+# the pre-push gate (src-go/qa/pushgate): each moves only to a commit GitHub CI's QA passed.
 exempt = ["F44", "F42", "F43", "F44-arm"]
 
 # A branch parked on a human decision is not judged for dormancy until its review date. Each entry:

@@ -3,8 +3,8 @@
 # committed it and however (--no-verify on a commit, another clone):
 #  1. no commit being pushed may carry an install-specific name (team, seat, container, host,
 #     client project) in its message or its added lines (Plan 00245 Phase 3);
-#  2. the commits being pushed must carry a passing qa-all verdict (push-without-qa-verdict,
-#     CLAUDE/QA.md; issue #187).
+#  2. a protected branch moves only to a commit GitHub CI's QA workflow passed on a push
+#     (push-without-qa-verdict, CLAUDE/QA.md); other refs are not judged.
 # Args and stdin are git's: REMOTE URL, then one "LOCALREF LOCALID REMOTEREF REMOTEID" line per ref.
 set -euo pipefail
 

@@ -6,7 +6,7 @@ This directory contains git hooks that prevent accidental commits of sensitive i
 
 - **pre-commit**: Scans staged files for sensitive patterns (API keys, tokens, private emails, etc.)
 - **commit-msg**: Validates commit messages for sensitive information
-- **pre-push**: Scans every commit being pushed (message and added lines) for install-specific names: agent teams, seats, containers, hosts and client projects (below); then refuses a push whose new commits carry no passing qa-all verdict (`scripts/qa-push-gate.bash`, rule `push-without-qa-verdict` in [CLAUDE/QA.md](../../CLAUDE/QA.md#push-without-qa-verdict))
+- **pre-push**: Scans every commit being pushed (message and added lines) for install-specific names: agent teams, seats, containers, hosts and client projects (below); then refuses a push that moves a protected branch (F44, F43, F44-arm: the `exempt` list of `scripts/branch-policy.toml`) to a commit GitHub CI's QA workflow has not passed on a push (`scripts/qa-push-gate.bash`, rule `push-without-qa-verdict` in [CLAUDE/QA.md](../../CLAUDE/QA.md#push-without-qa-verdict)). Work goes to a `ci/<topic>` branch first; once CI is green there, that same commit is pushed to the protected branch
 - **lib/secret-scan.bash**: Sourced by *both* hooks — per-token whitelist filtering and the private-identifier denylist built from the gitignored `localhost.yml`
 
 The library exists because the two hooks had drifted: only `pre-commit` ran the

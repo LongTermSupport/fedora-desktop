@@ -6,12 +6,27 @@
 
 ```bash
 ./scripts/qa-changed.bash   # while iterating: before each commit — only the checks the diff needs
-./scripts/qa-all.bash       # before every push — all gates, all suites; must pass
+./scripts/qa-all.bash       # all gates, all suites — GitHub CI runs it on every push
 ```
 
-Push as soon as `qa-all.bash` passes; a burst of commits may share one full run.
-`qa-changed.bash` is a fast pre-commit check, not a substitute: it cannot see a gate that
-no changed file names. See [qa-changed.bash](#qa-changedbash--diff-scoped-qa-while-iterating).
+**GitHub CI's verdict is the gate for a protected branch** (F44, F43, F44-arm: the `exempt`
+list of `scripts/branch-policy.toml`). Work is pushed to a branch, CI runs the full suite
+there, and when it is green that exact commit is pushed to the protected branch; the pre-push
+hook refuses any other move ([push-without-qa-verdict](#push-without-qa-verdict)). No local
+`qa-all.bash` is required before a push; run it locally when you want the answer sooner:
+
+```bash
+git push origin HEAD:refs/heads/ci/<topic>   # 1. CI runs qa-all.bash on this commit
+gh run watch                                 # 2. or: gh run list --commit <sha>
+git push origin <sha>:F44                    # 3. the same commit, once CI is green
+git push origin --delete ci/<topic>          # 4. the branch is merged now, so it may go
+```
+
+The two checks CI does not run, the hooks-daemon handler tests (CI exempts them with
+`QA_HOOK_HANDLERS_EXEMPT`) and `qa-deployed-drift` (it reads the host), are covered by
+`qa-changed.bash` before each commit. `qa-changed.bash` is a fast pre-commit check, not a
+substitute for the full suite: it cannot see a gate that no changed file names. See
+[qa-changed.bash](#qa-changedbash--diff-scoped-qa-while-iterating).
 
 **NEVER use the individual gate scripts directly** (`qa-bash.bash`, `qa-python.bash`, `qa-patterns.bash`) — use `qa-changed.bash` or `qa-all.bash`.
 
@@ -2458,33 +2473,45 @@ the tree: a different value in an allowlisted file must still be reported.
 
 ### push-without-qa-verdict
 
-**What it is.** A push of commits the remote does not hold yet, made without a passing qa-all
-verdict on them. Run by the `pre-push` hook (`scripts/git-hooks/pre-push`, after the
-private-names scan) through `scripts/qa-push-gate.bash` (Go: `src-go/qa/pushgate`, command
-`qa/cmd/qa-push-gate`). Every finished qa-all run records its verdict as `qa-all-verdict.json` in
-the git common directory (`src-go/qa/internal/qaverdict`): `status`, the `commit` it judged (HEAD
-when it started), `started` and `finished`. A run clears it first, so an interrupted or aborted
-run leaves none. For each pushed ref with new commits the gate refuses (exit 1) unless the verdict
-says `pass`, its commit is in the ref's history, and every commit on top of it was committed no
-later than the run ended: the burst of commits made while qa-all ran shares its verdict, a commit
-made after it does not. No verdict is a refusal; a damaged one, or git failing, is exit 2. A
-deletion, or a push of commits the remote already holds, needs no verdict.
+**What it is.** A push that moves a protected branch to a commit GitHub CI has not passed. The
+protected branches are the release and architecture lines, the `exempt` list of
+`scripts/branch-policy.toml` (F44, F43, F44-arm, and F42), read as branch hygiene and
+`branch-delete-list` read it. Run by the `pre-push` hook (`scripts/git-hooks/pre-push`, after
+the private-names scan) through `scripts/qa-push-gate.bash` (Go: `src-go/qa/pushgate`, command
+`qa/cmd/qa-push-gate`). For each ref that moves a protected branch, the gate asks GitHub through
+`gh api repos/<owner>/<repo>/actions/runs?head_sha=<sha>&event=push` (owner and repo from the
+remote URL) for the runs of `.github/workflows/qa.yml` on the new tip. The commit passes when any
+of those runs completed with success; otherwise the push is refused (exit 1) with the newest
+run's state (queued, in progress, failed, cancelled) and its URL, or "no QA run" when there is
+none. Only push runs count: a pull request's run judges a merge of the commit, not the commit.
+gh failing or not logged in, a remote that names no GitHub repository, or an unreadable policy
+is exit 2. A push to any other ref, a deletion, and a push that leaves a branch's tip where it
+was are not judged. `qa-all.bash` still writes `qa-all-verdict.json` in the git common
+directory (`src-go/qa/internal/qaverdict`) as a record of the last local run; it gates nothing.
 
 **Why it exists.** Twice a coordinator pushed F44 after a FAILED qa-all run (Plan 00203's
 journal; issue #187). The gate was `grep -E 'QA (passed|FAILED)' log && git push`: a grep of the
-printed text matches the FAILED line as readily as the pass, and the background task's exit code
-was the `echo` after qa-all. "qa-all before every push" was discipline only. Instances of the
-class are commands typed in a session, not code in the repository, so no detector that reads the
-tree can see them (a sweep of the tracked tree found no script gating on the text); the hook
-judges every push, however it was gated. Found and defended under Defence Before Fix.
+printed text matches the FAILED line as readily as the pass. The first defence read a verdict
+file the local qa-all wrote; the owner then made GitHub CI's verdict the gate for a protected
+branch: a local verdict and a CI verdict do not both count. CI runs the whole suite on a clean
+checkout; the hooks-daemon handler tests (which CI exempts with `QA_HOOK_HANDLERS_EXEMPT`) and
+`qa-deployed-drift` (which reads the host) are covered by `qa-changed.bash` before each commit.
 
-**How to fix a refusal.** Run `./scripts/qa-all.bash` on what you push and push once it passes;
-gate on its exit status, never on its text. `QA_PUSH_GATE_EXEMPT=<reason>` passes the gate with
-the reason printed. It is set only by the owner's tools that push commits no qa-all run judges
-(`scripts/release.bash`, whose release pull request CI judges, and
+**How to fix a refusal.** Push the commit to a branch, wait for CI, then push that same commit:
+
+```bash
+git push origin HEAD:refs/heads/ci/<topic>
+gh run watch                       # or: gh run list --commit <sha>
+git push origin <sha>:F44
+git push origin --delete ci/<topic>
+```
+
+A failed run is fixed on the branch and pushed again; the protected branch takes only a commit
+CI passed. `QA_PUSH_GATE_EXEMPT=<reason>` passes the gate with the reason printed. It is set only
+by the owner's tools (`scripts/release.bash`, whose release pull request CI judges, and
 `scripts/mark-branches-superseded.bash`, which stamps retired branches), and it is an exception
-awaiting the owner's decision (issue #187): keep it, narrow it, or have those tools run qa-all.
-An agent never sets it, and never pushes with `--no-verify`.
+awaiting the owner's decision (issue #187). An agent never sets it, and never pushes with
+`--no-verify`.
 
 ### summary-count-omits-failure-source
 
@@ -2808,8 +2835,8 @@ nothing version-coupled left to gate — see
 
 ## `qa-changed.bash` — diff-scoped QA while iterating
 
-`./scripts/qa-changed.bash` runs only the checks the changed files need, so the slow
-`qa-all.bash` is needed once before a push rather than before every commit. It is Go
+`./scripts/qa-changed.bash` runs only the checks the changed files need, before each commit; the
+slow `qa-all.bash` runs in GitHub CI on every push. It is Go
 (`src-go/qa/changed`, command `src-go/qa/cmd/qa-changed`, in the nested QA module): the script
 is a small wrapper that builds the command into a private directory under the cache and runs it,
 through the shared `scripts/lib/go-tool.bash` (which `qa-bash-limits.bash` uses too), so callers, flags, streams and exit codes are the ones agents,
@@ -3032,11 +3059,11 @@ fails, unreadable policy). With `GITHUB_ACTIONS` set it also prints `::error::` 
 
 ## When to Run What
 
-| Changed files        | While iterating (before each commit)                           | Before every push       |
-| -------------------- | -------------------------------------------------------------- | ----------------------- |
-| Bash or Python files | `./scripts/qa-changed.bash`                                    | `./scripts/qa-all.bash` |
-| Extension JavaScript | `./scripts/qa-changed.bash` (runs eslint on the changed files) | `./scripts/qa-all.bash` |
-| Ansible playbooks    | `./scripts/qa-changed.bash` (syntax of the affected playbooks) | `./scripts/qa-all.bash` |
+| Changed files        | While iterating (before each commit)                           | Before a protected branch moves            |
+| -------------------- | -------------------------------------------------------------- | ------------------------------------------ |
+| Bash or Python files | `./scripts/qa-changed.bash`                                    | CI's `qa-all.bash` green on a `ci/` branch |
+| Extension JavaScript | `./scripts/qa-changed.bash` (runs eslint on the changed files) | CI's `qa-all.bash` green on a `ci/` branch |
+| Ansible playbooks    | `./scripts/qa-changed.bash` (syntax of the affected playbooks) | CI's `qa-all.bash` green on a `ci/` branch |
 
 ---
 
@@ -3109,20 +3136,23 @@ vim files/home/.local/bin/wsi-stream
 # 3. Run the diff-scoped QA — now the repo and the host agree
 ./scripts/qa-changed.bash
 
-# 4. Commit, then run the full gate and push once it passes
+# 4. Commit, push to a branch for CI, and move F44 once CI passes that commit
 git add files/home/.local/bin/wsi-stream
 git commit -m "fix: update wsi-stream"
-./scripts/qa-all.bash && git push
+git push origin HEAD:refs/heads/ci/wsi-stream
+gh run watch
+git push origin "$(git rev-parse HEAD)":F44
+git push origin --delete ci/wsi-stream
 ```
 
 For changes that deploy nothing to `~/.local/bin/` (playbooks, `scripts/`,
 `helpers/`, extension JS), the order does not matter — run QA whenever, as long
-as `qa-changed.bash` passes before the commit and `qa-all.bash` before the push.
+as `qa-changed.bash` passes before the commit and CI passes the commit before F44 moves.
 
 ## Rules Summary
 
 1. **Run `./scripts/qa-changed.bash` before EVERY commit** that touches Bash, Python, Ansible or extension JavaScript
-2. **Run `./scripts/qa-all.bash` before EVERY push** and push as soon as it passes; a burst of commits may share one full run
+2. **A protected branch takes only a commit CI passed**: push to a `ci/<topic>` branch, wait for CI's `qa-all.bash`, then push that same commit ([push-without-qa-verdict](#push-without-qa-verdict))
 3. **Fix all errors** before committing — QA failures indicate broken code
 4. **Do not skip QA** — even for "small" changes
 5. **Never add a suppression directive** (`# shellcheck disable`, `# noqa`, `# type: ignore`) — fix the code, or exempt in config with a stated reason
