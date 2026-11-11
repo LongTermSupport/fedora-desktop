@@ -128,6 +128,13 @@ func releaseWorkflowFindings(root fs.FS, specs []workflowSpec) ([]string, error)
 		return nil, err
 	}
 	for _, file := range actions {
+		info, statErr := fs.Stat(root, file)
+		if statErr != nil {
+			return nil, statErr
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s is not a regular file (%s), so it is no action to judge", file, info.Mode().Type())
+		}
 		action, readErr := fs.ReadFile(root, file)
 		if readErr != nil {
 			return nil, readErr
@@ -414,6 +421,19 @@ runs:
 	}
 	if len(findings) != 2 {
 		t.Fatalf("findings %q, want the unpinned action and the expression", findings)
+	}
+}
+
+// A local action that is no regular file (a named pipe would block the read for ever) is refused,
+// never read and never passed over.
+func TestALocalActionThatIsNoRegularFileIsRefused(t *testing.T) {
+	root := fstest.MapFS{
+		releaseWorkflow:                          {Data: []byte(goodWorkflow)},
+		".github/actions/release-key/action.yml": {Mode: fs.ModeNamedPipe},
+	}
+	findings, err := releaseWorkflowFindings(root, fixtureSpecs)
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("findings %q, error %v; want the named pipe refused", findings, err)
 	}
 }
 
