@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
@@ -38,12 +39,14 @@ func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
 	if len(semgrepreport.Annotated(string(fixture))) == 0 {
 		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", g.spec.fixtureFile)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(g.spec.ruleFile), g.path(g.spec.fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag)
+	// The rule's paths: exclude keeps it off its own fixture, so the self-test scans a copy.
+	test := semgrepreport.SelfTest{Rules: g.path(g.spec.ruleFile), Fixture: g.path(g.spec.fixtureFile), Name: g.spec.fixtureFile}
+	err = test.Prove(func(argv []string) (proc.Result, error) { return g.runTool(ctx, semgrepTimeout, argv...) })
+	if fe, ok := errors.AsType[*semgrepreport.FixtureError](err); ok {
+		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n    %s", g.spec.ruleName, g.spec.fixtureFile, strings.Join(fe.Problems, "\n    "))
+	}
 	if err != nil {
 		return ExitCannotRun, err
-	}
-	if res.Code != 0 {
-		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n%s%s", g.spec.ruleName, g.spec.fixtureFile, res.Stdout, res.Stderr)
 	}
 	return ExitOK, nil
 }

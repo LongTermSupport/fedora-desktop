@@ -60,7 +60,7 @@ func TestRunOnARealGitTree(t *testing.T) {
 }
 
 // A one-rule copy of the project's ruleset and its fixture: the same rule id and the same
-// annotation grammar semgrep --test reads.
+// annotation grammar the self-test reads (semgrep's test annotations).
 const realRules = `rules:
   - id: bash-error-hiding-pipe-echo
     pattern-regex: '\|\|[ \t]*echo\b'

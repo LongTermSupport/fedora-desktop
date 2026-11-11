@@ -14,6 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 const goodFixture = "#!/usr/bin/env bash\nw &\np=$!\n# ruleid: ready-wait-ignores-child-exit\nuntil [ -e r ]; do\n\tsleep 1\ndone\n"
@@ -24,9 +25,10 @@ const waitingScript = "#!/usr/bin/env bash\nw &\np=$!\nuntil [ -e r ]; do\n\tsle
 type fakeRunner struct {
 	version   proc.Result
 	versionEr error
-	test      proc.Result
-	scan      func(argv []string) proc.Result
-	argvs     [][]string
+	// test answers the self-test; nil is a semgrep that reports every line the fixture marks.
+	test  func(argv []string) (proc.Result, error)
+	scan  func(argv []string) proc.Result
+	argvs [][]string
 }
 
 func (f *fakeRunner) Run(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
@@ -37,8 +39,11 @@ func (f *fakeRunner) Run(ctx context.Context, cmd proc.Cmd) (proc.Result, error)
 	switch {
 	case slices.Contains(cmd.Argv, "--version"):
 		return f.version, f.versionEr
-	case slices.Contains(cmd.Argv, "--test"):
-		return f.test, nil
+	case selftestfake.IsSelfTest(cmd.Argv):
+		if f.test != nil {
+			return f.test(cmd.Argv)
+		}
+		return selftestfake.Passing(cmd.Argv)
 	}
 	return f.scan(cmd.Argv), nil
 }
@@ -47,7 +52,7 @@ func (f *fakeRunner) Run(ctx context.Context, cmd proc.Cmd) (proc.Result, error)
 func (f *fakeRunner) semgrepScans() [][]string {
 	var scans [][]string
 	for _, argv := range f.argvs {
-		if !slices.Contains(argv, "--version") && !slices.Contains(argv, "--test") {
+		if !slices.Contains(argv, "--version") && !selftestfake.IsSelfTest(argv[1:]) {
 			scans = append(scans, argv)
 		}
 	}
@@ -89,8 +94,8 @@ func newWorld(t *testing.T, files map[string]string) *world {
 	w.fake = &fakeRunner{version: proc.Result{Stdout: "1.0\n"}}
 	w.fake.scan = func(argv []string) proc.Result { return reportFor(t, handed(argv), nil, nil) }
 	all := map[string]string{
-		".semgrep/ready-wait.yml":     "rules: []\n",
-		".semgrep/ready-wait.py":      "# fixture\n",
+		".semgrep/ready-wait.yml":     "rules:\n  - id: ready-wait-ignores-child-exit\n",
+		".semgrep/ready-wait.py":      "# ruleid: ready-wait-ignores-child-exit\nwait()\n",
 		".semgrep/ready-wait.bash":    goodFixture,
 		"scripts/qa-trees.tsv":        "shell\t.semgrep\npython\t.venv\n",
 		"scripts/tool.bash":           "#!/usr/bin/env bash\necho hi\n",
@@ -291,20 +296,28 @@ func TestAMissingRuleOrFixtureIsExitTwoNamingIt(t *testing.T) {
 // R6
 func TestAPythonRuleThatFailsItsFixtureIsExitOneWithSemgrepsOutput(t *testing.T) {
 	w := newWorld(t, nil)
-	w.fake.test = proc.Result{Code: 1, Stdout: "SEMGREP-OUT\n", Stderr: "SEMGREP-ERR\n"}
+	w.fake.test = selftestfake.Missing
 	w.wantExit(ExitFailed, w.run())
-	w.wantStderr("ERROR: .semgrep/ready-wait.yml failed its fixture .semgrep/ready-wait.py:", "SEMGREP-OUT\n", "SEMGREP-ERR\n")
+	w.wantStderr("ERROR: .semgrep/ready-wait.yml failed its fixture .semgrep/ready-wait.py:", "ready-wait-ignores-child-exit: missed lines")
 	if len(w.fake.semgrepScans()) != 0 {
 		t.Fatal("a scan ran after the rule failed its proof")
 	}
+	tested := false
 	for _, argv := range w.fake.argvs {
-		if slices.Contains(argv, "--test") {
-			for _, want := range []string{"--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), filepath.Join(w.root, ".semgrep/ready-wait.py")} {
+		if selftestfake.IsSelfTest(argv[1:]) {
+			tested = true
+			for _, want := range []string{"--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config"} {
 				if !slices.Contains(argv, want) {
-					t.Fatalf("semgrep --test lacks %q: %v", want, argv)
+					t.Fatalf("the self-test lacks %q: %v", want, argv)
 				}
 			}
+			if slices.Contains(argv, "--test") || filepath.Base(argv[len(argv)-1]) != "selftest.py" {
+				t.Fatalf("the self-test argv %v", argv)
+			}
 		}
+	}
+	if !tested {
+		t.Fatal("no self-test ran")
 	}
 }
 

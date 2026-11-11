@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
@@ -49,14 +50,12 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if len(semgrepreport.Annotated(string(body))) == 0 {
 		return fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixturePath)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off", semgrepreport.TimeoutFlag)
-	if err != nil {
-		return err
+	test := semgrepreport.SelfTest{Rules: rules, Fixture: fixture, Name: fixturePath, TempDir: g.env.TempDir}
+	err = test.Prove(func(argv []string) (proc.Result, error) { return g.runTool(ctx, semgrepTimeout, g.root, argv...) })
+	if fe, ok := errors.AsType[*semgrepreport.FixtureError](err); ok {
+		return fmt.Errorf("semgrep rule self-tests failed (see %s)\n    %s", fixturePath, strings.Join(fe.Problems, "\n    "))
 	}
-	if res.Code != 0 {
-		return fmt.Errorf("semgrep rule self-tests failed (see %s)\n%s%s", fixturePath, res.Stdout, res.Stderr)
-	}
-	return nil
+	return err
 }
 
 // finding is one rule match in a script.

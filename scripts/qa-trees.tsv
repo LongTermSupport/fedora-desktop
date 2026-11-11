@@ -34,7 +34,7 @@
 #   their own shell scripts, YAML and READMEs; judged whole by qa-go-deps (the vendor tree must be
 #   byte for byte what go.mod and go.sum describe) and qa-go-vuln, never edited, so never linted.
 # .semgrep: annotated rule FIXTURES, deliberately full of the broken patterns the rules must
-#   catch; validated by `semgrep --test` in qa-patterns.bash, which is the check that belongs to it.
+#   catch; validated by the rule self-test in qa-patterns.bash, which is the check that belongs to it.
 #   gh-scopes, find-race and arch-pin still scan it, pending the owner's ruling (CLAUDE/QA.md
 #   "qa-trees-drift").
 shell	.git

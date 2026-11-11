@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qatrees"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 // rulesText is a rule file shaped like the real one; DSTAR and STAR stand for the glob stars.
@@ -132,14 +135,17 @@ type fakeRun struct {
 	noSemgrep   bool
 	versionCode int
 	versionErr  string
-	testCode    int
-	testOut     string
-	scanCode    int
-	scanStderr  string
-	timeout     string
+	// test answers the self-test; nil is a semgrep that reports every line the fixture marks.
+	test       func(argv []string) (proc.Result, error)
+	scanCode   int
+	scanStderr string
+	timeout    string
 	// scan returns the JSON semgrep prints, given the files it was handed; nil reads them all
 	// except the rule's own (which its excludes drop).
 	scan func(files []string) string
+
+	// selfTestRules is the rule text the last self-test handed semgrep.
+	selfTestRules string
 
 	calls    [][]string
 	dirs     []string
@@ -168,11 +174,20 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	switch {
 	case slices.Contains(c.Argv, "--version"):
 		return proc.Result{Code: f.versionCode, Stdout: "1.0.0\n", Stderr: f.versionErr}, nil
-	case slices.Contains(c.Argv, "--test"):
-		if f.timeout == "test" {
+	case selftestfake.IsSelfTest(c.Argv):
+		switch {
+		case f.timeout == "test":
 			return proc.Result{TimedOut: true}, nil
+		case f.test != nil:
+			return f.test(c.Argv)
 		}
-		return proc.Result{Code: f.testCode, Stdout: f.testOut}, nil
+		config := c.Argv[slices.Index(c.Argv, "--config")+1]
+		handed, err := fs.ReadFile(os.DirFS(filepath.Dir(config)), filepath.Base(config))
+		if err != nil {
+			return proc.Result{}, err
+		}
+		f.selfTestRules = string(handed)
+		return selftestfake.Passing(c.Argv)
 	}
 	f.scanArgv = c.Argv
 	if f.timeout == "scan" {
@@ -193,6 +208,33 @@ func handed(argv []string) []string {
 // scannable drops the files the test rule excludes by its .semgrep glob.
 func scannable(files []string) []string {
 	return slices.DeleteFunc(slices.Clone(files), func(f string) bool { return strings.HasPrefix(f, ".semgrep/") })
+}
+
+// selfTested is whether a self-test ran the rules of the rule file rules (copied, their paths set
+// aside) over a copy of a fixture with ext, with the gate's limit and never semgrep's test runner.
+func (f *fakeRun) selfTested(rules, ext string) bool {
+	want, err := fs.ReadFile(os.DirFS(filepath.Dir(rules)), filepath.Base(rules))
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(f.calls, func(c []string) bool {
+		return selftestfake.IsSelfTest(c) && handedRules(f.selfTestRules, string(want)) && slices.Contains(c, semgrepreport.TimeoutFlag) &&
+			slices.Contains(c, "--metrics=off") && !slices.Contains(c, "--test") && filepath.Base(c[len(c)-1]) == "selftest"+ext
+	})
+}
+
+// handedRules is whether the rules semgrep was handed hold every rule id of rules and no paths.
+// The self-test removes its copy when it ends, so the fake records the text when it runs.
+func handedRules(handed, rules string) bool {
+	if handed == "" || strings.Contains(handed, "paths:") {
+		return false
+	}
+	for line := range strings.SplitSeq(rules, "\n") {
+		if id, ok := strings.CutPrefix(strings.TrimSpace(line), "- id: "); ok && !strings.Contains(handed, "id: "+id) {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fakeRun) called(prefix ...string) bool {

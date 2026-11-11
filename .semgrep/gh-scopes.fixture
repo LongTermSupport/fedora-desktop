@@ -1,4 +1,4 @@
-# Fixture for .semgrep/gh-scopes.yml (semgrep --test). Each "ruleid" line marks the line
+# Fixture for .semgrep/gh-scopes.yml (the gate's self-test). Each "ruleid" line marks the line
 # below it as a finding; each "ok" line marks the line below it as clean.
 
 # ruleid: gh-scope-outside-ssot

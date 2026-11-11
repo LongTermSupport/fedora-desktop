@@ -12,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport/selftestfake"
 )
 
 // rulesText is a rule file shaped like the real one: two rules for JavaScript, one for Python,
@@ -44,10 +45,9 @@ const (
 type fakeRunner struct {
 	version   proc.Result
 	versionEr error
-	// test answers each self-test; testFor, when set, answers by fixture path.
-	test    proc.Result
-	testFor func(fixture string) proc.Result
-	testEr  error
+	// test answers each self-test, given its argv (the fixture's copy last, named selftest with the
+	// fixture's extension); nil is a semgrep that reports every line the fixture marks.
+	test func(argv []string) (proc.Result, error)
 	// scan answers each scan, given the language (js or py) judged from its rule file.
 	scan func(lang string, files []string) proc.Result
 
@@ -74,11 +74,11 @@ func (f *fakeRunner) Run(ctx context.Context, cmd proc.Cmd) (proc.Result, error)
 	switch {
 	case slices.Contains(cmd.Argv, "--version"):
 		return f.version, f.versionEr
-	case slices.Contains(cmd.Argv, "--test"):
-		if f.testFor != nil {
-			return f.testFor(cmd.Argv[len(cmd.Argv)-1]), f.testEr
+	case selftestfake.IsSelfTest(cmd.Argv):
+		if f.test != nil {
+			return f.test(cmd.Argv)
 		}
-		return f.test, f.testEr
+		return selftestfake.Passing(cmd.Argv)
 	}
 	cfg := scanConfig{argv: cmd.Argv, files: cmd.Argv[slices.Index(cmd.Argv, "--max-target-bytes=0")+1:]}
 	cfg.path = cmd.Argv[slices.Index(cmd.Argv, "--config")+1]
@@ -104,7 +104,7 @@ func (f *fakeRunner) Run(ctx context.Context, cmd proc.Cmd) (proc.Result, error)
 func (f *fakeRunner) scans() [][]string {
 	var out [][]string
 	for _, argv := range f.calls {
-		if !slices.Contains(argv, "--version") && !slices.Contains(argv, "--test") {
+		if !slices.Contains(argv, "--version") && !selftestfake.IsSelfTest(argv) {
 			out = append(out, argv)
 		}
 	}
@@ -114,7 +114,7 @@ func (f *fakeRunner) scans() [][]string {
 func (f *fakeRunner) tests() [][]string {
 	var out [][]string
 	for _, argv := range f.calls {
-		if slices.Contains(argv, "--test") {
+		if selftestfake.IsSelfTest(argv) {
 			out = append(out, argv)
 		}
 	}

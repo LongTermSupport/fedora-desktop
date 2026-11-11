@@ -1,7 +1,7 @@
 #!/bin/bash
 # Semgrep test cases for .semgrep/bash-conventions.yml
 #
-# Annotation convention (see `semgrep --test`): a line tagged with a rule id
+# Annotation convention (semgrep's test annotations): a line tagged with a rule id
 # expects a finding on the following line; a line tagged as allowed expects no
 # finding on the following line. The annotation must sit immediately above the
 # line it refers to. This fixture lives beside the rule file so semgrep can

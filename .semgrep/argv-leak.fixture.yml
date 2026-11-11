@@ -1,4 +1,4 @@
-# Fixture for .semgrep/argv-leak.yml (semgrep --test). Each "ruleid" line marks the line
+# Fixture for .semgrep/argv-leak.yml (the gate's self-test). Each "ruleid" line marks the line
 # below it as the start of a finding; each "ok" line marks the line below it as clean. It is YAML
 # so that the Ansible rule reads it; the shell examples sit in block scalars, as in a play.
 
