@@ -91,6 +91,10 @@ func TestLeakcheckOnce(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), LeakcheckOnce, "fix/internal/twicecheck")
 }
 
+func TestSelfChildStderr(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SelfChildStderr, "fix/internal/selfchild", "fix/internal/argschild", "fix/internal/fileschild", "fix/internal/otherchild")
+}
+
 func TestTestSpin(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TestSpin, "fix/internal/spin")
 }
@@ -187,8 +191,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 42 {
-		t.Fatalf("want 42 rules, got %d", got)
+	if got := len(All()); got != 43 {
+		t.Fatalf("want 43 rules, got %d", got)
 	}
 }
 

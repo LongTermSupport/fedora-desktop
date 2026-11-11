@@ -487,7 +487,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner, SelfChildStderr}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

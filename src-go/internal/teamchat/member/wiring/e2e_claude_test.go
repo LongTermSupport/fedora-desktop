@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testchild"
 )
 
 // The member end to end under --claude (SPEC-n3 n3e): the keeper, its link and the client verbs
@@ -152,11 +153,12 @@ func (s *session) startAnswered() string {
 }
 
 // answer is the one line a hook that ran answered: it exits 0, says nothing on stderr and ends
-// its answer with one newline.
+// its answer with one newline. The hook is this test binary run as teamchat, so its stderr is
+// read without the coverage runtime's line (testchild).
 func answer(t *testing.T, r ccRun) string {
 	t.Helper()
 	line, ok := strings.CutSuffix(r.Stdout, "\n")
-	if r.Exit != 0 || r.Stderr != "" || !ok || strings.Contains(line, "\n") {
+	if r.Exit != 0 || testchild.Stderr(r.Stderr) != "" || !ok || strings.Contains(line, "\n") {
 		t.Fatalf("%s: exit %d, stdout %q, stderr %q", r.Command, r.Exit, r.Stdout, r.Stderr)
 	}
 	return line
@@ -306,7 +308,7 @@ func TestClaudeStatusLine(t *testing.T) {
 	}, func() string {
 		return "the status line: " + strconv.Quote(got.Stdout) + " stderr " + strconv.Quote(got.Stderr)
 	})
-	if got.Exit != 0 || got.Stderr != "" || got.Command != w.kit+"/bin/teamchat status-line" {
+	if got.Exit != 0 || testchild.Stderr(got.Stderr) != "" || got.Command != w.kit+"/bin/teamchat status-line" {
 		t.Fatalf("the status line: %+v", got)
 	}
 	// The keeper stopped cannot restart the link or say it is restarting; the link killed has
@@ -325,7 +327,7 @@ func TestClaudeStatusLine(t *testing.T) {
 		return "the status line with the link gone: " + strconv.Quote(got.Stdout) + " stderr " +
 			strconv.Quote(got.Stderr) + ", want " + strconv.Quote(down)
 	})
-	if got.Exit != 0 || got.Stderr != "" {
+	if got.Exit != 0 || testchild.Stderr(got.Stderr) != "" {
 		t.Fatalf("the status line with the link gone: %+v", got)
 	}
 }

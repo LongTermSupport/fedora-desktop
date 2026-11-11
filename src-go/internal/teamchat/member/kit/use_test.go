@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testchild"
 )
 
 // The kit's binary in these tests is this test binary: run as the helper below, it is the
@@ -121,12 +122,6 @@ func (u *usedKit) command(file string, keys ...string) string {
 	return s
 }
 
-// notBuiltWithCover is what a test binary built with -cover whose -coverpkg names no package it
-// links writes on stderr as it ends, whatever it is run as and whether or not it is given a
-// GOCOVERDIR: it has the coverage hooks and no meta-data. It is the test binary's line, not the
-// command's, so a command's stderr is read without it.
-const notBuiltWithCover = "program not built with -cover\n"
-
 // shell runs a command as Claude Code runs a hook's or the status line's: a shell's -c string,
 // stdin the payload, in an environment of the given variables and the helper's alone.
 func (u *usedKit) shell(command, stdin string, withRuntime bool) execx.Result {
@@ -148,7 +143,8 @@ func (u *usedKit) shell(command, stdin string, withRuntime bool) execx.Result {
 	if err != nil {
 		u.t.Fatalf("%s: %v", command, err)
 	}
-	if stderr := strings.ReplaceAll(string(res.Stderr), notBuiltWithCover, ""); res.ExitCode != 0 || stderr != "" {
+	// The commands re-run this test binary, so its coverage line is read out (testchild).
+	if stderr := testchild.Stderr(res.Stderr); res.ExitCode != 0 || stderr != "" {
 		u.t.Fatalf("%s: exit %d, stderr %q", command, res.ExitCode, stderr)
 	}
 	return res
