@@ -2615,6 +2615,31 @@ that needs systemd starting a unit on a host, which no gate does.
 path, dropping the `TemporaryFileSystem=` line (`BindReadOnlyPaths=<dir>:/run/systemd/resolve`).
 A directory bound inside a tmpfs is allowed; a file never is.
 
+### pidns-idmapped-state
+
+**What it is.** A systemd unit that sets `DynamicUser=yes`, a `StateDirectory=` and
+`PrivatePIDs=yes` together, each read by its last assignment. The rule is
+`unitsandbox.CheckPIDNamespace`, over the same unit text forms as tmpfs-file-bind and run by the
+same gate: `TestNoShippedUnitSetsPrivatePIDsWithAnIdmappedState` sweeps every shipped file that
+sets `PrivatePIDs=`, `unitfiles`' `TestNoUnitSetsPrivatePIDsWithAnIdmappedState` judges
+teamchat's rendered units and a team's transient sandbox, and `TestEveryGoRendererIsJudged`
+refuses a Go file that writes `PrivatePIDs=` with no such test. Run it alone with
+`go -C src-go test ./internal/unitsandbox ./internal/teamchat/unitfiles -run 'PrivatePIDs|GoRenderer'`.
+
+**Why it exists.** Since systemd 257 a dynamic user's state directory is an idmapped mount. With
+`PrivatePIDs=`, systemd forks into the new PID namespace first and then writes the idmap's
+`uid_map` by pid through the host's `/proc`, which the kernel refuses, so the unit exits
+226/NAMESPACE (systemd issue 41014, open, reported on 257 to 262 on x86_64 and aarch64). Any two
+of the three start. `teamchat-server@` failed so on its first deploy, with the restore's staging
+unit, which copies the same sandbox, bound to fail the same way. Found and defended under
+Defence Before Fix.
+
+**What it does not see.** Directives split between a unit and its drop-ins are not joined. No
+runner check starts a unit: the proof of the fault itself is the deploy and the upstream issue.
+
+**How to fix a finding.** Drop `PrivatePIDs=`. Where the per-process isolation it gave matters,
+give the unit its own user (a dynamic user per instance) and `ProtectProc=invisible`.
+
 ---
 
 ## Changing a Gate

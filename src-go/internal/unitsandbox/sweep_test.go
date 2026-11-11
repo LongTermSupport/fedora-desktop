@@ -27,8 +27,9 @@ var knownDirectories = map[string]string{
 	"/var/lib/agent-bus/%i": "a v1 team's state directory, made by agent-bus-install's ensure_dir",
 }
 
-// goRenderers are the Go files that write TemporaryFileSystem= into a unit, each judged on its
-// rendered text by a test that calls Check (teamchat/unitfiles' TestNoUnitBindsAFileInsideATmpfs).
+// goRenderers are the Go files that write TemporaryFileSystem= or PrivatePIDs= into a unit, each
+// judged on its rendered text by tests that call Check and CheckPIDNamespace (teamchat/unitfiles'
+// TestNoUnitBindsAFileInsideATmpfs and TestNoUnitSetsPrivatePIDsWithAnIdmappedState).
 var goRenderers = []string{"internal/teamchat/host/sandbox.go"}
 
 // kindInRepo is what a bind's source is: the file or directory files/ ships at that path, or a
@@ -121,7 +122,38 @@ func TestNoShippedUnitBindsAFileInsideATmpfs(t *testing.T) {
 	}
 }
 
-// Every Go file that writes TemporaryFileSystem= is one whose rendered units a test judges.
+// pidsKey is the directive whose presence makes a file one the pidns-idmapped-state rule reads.
+const pidsKey = "PrivatePIDs="
+
+// The sweep for pidns-idmapped-state: every unit text the repository ships outside src-go that
+// sets PrivatePIDs=.
+func TestNoShippedUnitSetsPrivatePIDsWithAnIdmappedState(t *testing.T) {
+	root := openRoot(t, repo)
+	judged := 0
+	for _, rel := range trackedFiles(t) {
+		inTree := func(tree string) bool { return strings.HasPrefix(rel, tree+"/") }
+		if slices.ContainsFunc(notUnits, inTree) || strings.HasSuffix(rel, ".md") || !regularFile(t, root, rel) {
+			continue
+		}
+		data, err := root.ReadFile(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), pidsKey) {
+			continue
+		}
+		judged++
+		for _, f := range CheckPIDNamespace(string(data)) {
+			t.Errorf("%s: %s", rel, f)
+		}
+	}
+	if judged == 0 {
+		t.Fatal("the sweep judged no file: it proved nothing")
+	}
+}
+
+// Every Go file that writes TemporaryFileSystem= or PrivatePIDs= is one whose rendered units a
+// test judges.
 func TestEveryGoRendererIsJudged(t *testing.T) {
 	root := openRoot(t, repo)
 	for _, path := range trackedFiles(t) {
@@ -134,8 +166,10 @@ func TestEveryGoRendererIsJudged(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(data), tmpfsKey) && !slices.Contains(goRenderers, rel) {
-			t.Errorf("%s writes %s but no test judges what it renders: add one that calls Check, and list it in goRenderers", rel, tmpfsKey)
+		for _, key := range []string{tmpfsKey, pidsKey} {
+			if strings.Contains(string(data), key) && !slices.Contains(goRenderers, rel) {
+				t.Errorf("%s writes %s but no test judges what it renders: add one that calls Check and CheckPIDNamespace, and list it in goRenderers", rel, key)
+			}
 		}
 	}
 }

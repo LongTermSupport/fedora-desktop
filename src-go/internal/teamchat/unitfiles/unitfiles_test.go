@@ -287,9 +287,19 @@ func sourceKind(src string) unitsandbox.SourceKind {
 // installedDirs are the directories the play makes that a unit binds.
 var installedDirs = []string{paths.ResolverDir}
 
-// tmpfs-file-bind: no unit the play installs, and no team's transient sandbox, binds a file into
-// a TemporaryFileSystem= (systemd cannot make the file mount point in a read-only tmpfs: 226/NAMESPACE).
-func TestNoUnitBindsAFileInsideATmpfs(t *testing.T) {
+// pidns-idmapped-state: no unit the play installs, and no team's transient sandbox, sets
+// PrivatePIDs=yes with DynamicUser=yes and a StateDirectory= (systemd issue 41014: 226/NAMESPACE).
+func TestNoUnitSetsPrivatePIDsWithAnIdmappedState(t *testing.T) {
+	for name, text := range renderedUnits(t) {
+		for _, f := range unitsandbox.CheckPIDNamespace(text) {
+			t.Errorf("%s: %s", name, f)
+		}
+	}
+}
+
+// renderedUnits is every unit text the play installs, and team ops's transient sandbox, by name.
+func renderedUnits(t *testing.T) map[string]string {
+	t.Helper()
 	team, err := paths.ParseTeamID("ops")
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +308,13 @@ func TestNoUnitBindsAFileInsideATmpfs(t *testing.T) {
 	for _, f := range Files() {
 		texts[f.Name] = f.Text
 	}
-	for name, text := range texts {
+	return texts
+}
+
+// tmpfs-file-bind: no unit the play installs, and no team's transient sandbox, binds a file into
+// a TemporaryFileSystem= (systemd cannot make the file mount point in a read-only tmpfs: 226/NAMESPACE).
+func TestNoUnitBindsAFileInsideATmpfs(t *testing.T) {
+	for name, text := range renderedUnits(t) {
 		for _, f := range unitsandbox.Check(text, sourceKind) {
 			t.Errorf("%s: %s", name, f)
 		}
