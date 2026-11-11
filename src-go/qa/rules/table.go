@@ -461,6 +461,10 @@ var processBounds = []allowance{
 	{pkg: "qa/vmtestmanifest", fn: "gate.validate", reason: "Env.Timeout on the real Python validator; its tests fake it, and the real one runs under the minute default"},
 }
 
+// identityFoldAllowances are the functions project_identity_fold does not judge: each reads a
+// GitHub name back from a file the program wrote in the folded form.
+var identityFoldAllowances = []allowance{}
+
 // realTimeAllowances are the functions project_realtime_bound does not judge.
 func realTimeAllowances() []allowance {
 	return slices.Concat(realClocks, processBounds)
@@ -481,7 +485,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

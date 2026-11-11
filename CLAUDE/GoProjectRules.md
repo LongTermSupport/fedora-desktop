@@ -75,6 +75,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_row_kind`                | a board row with a member's handle and a constant KIND, so the board names the wrong environment                                                                                       | `ccy-teams` board: a host cc seat shown as ccy (Plan 00177)                                                                                                               |
 | `project_session_kind`            | a seat session asked as `Kind == KindCcy`, which a cc seat is not                                                                                                                      | `ccy-teams --graph`: a host seat lost its session line (Plan 00245 Task 4.4)                                                                                              |
 | `project_seat_member_type`        | an agent-bus seat call for a session given a constant member type, so a cc session is offered ccy's seats                                                                              | `ccy-teams` picker: Add to a team asked `seat choose --type=podman` for a cc session (Plan 00203)                                                                         |
+| `project_identity_fold` | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209) |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -2066,6 +2067,55 @@ does not share.
   join armed again after the settle (a second `AwaitDue` after an outage is judged settled by the
   first call); a fake whose advance is spelled otherwise; a package that bounds its join by a
   value it does not name `reportsJoinLimit`.
+
+### project_identity_fold
+
+**What it is about.** teamchat stores and sends a GitHub owner and an OWNER/REPO in one lower-case
+form (A 9.1), so proto's grammars for them (`ValidOwner`, `ValidOwnerRepo`, `ParseRef`, and
+`DecodeForge` through them) accept lower case only. GitHub shows names in mixed case and matches
+them case-insensitively, so a person writes `ExampleOrg`. Handed to the grammar unfolded, the
+name is refused, with nothing to say that only its case was wrong.
+
+**Why it exists.** The first real run of the v2 play refused a team's trust org: `team approve`
+and `team apply` read the declaration's forge section with `DecodeForge`, which validates without
+folding (Plan 00209). The sweep found the same class in the member's sender: `ping` and
+`reply --verb --ref` wrote the reference to the ping as typed, so `commit:ExampleOrg/thing@<sha>`
+was refused, though A 9.1 says a sender lowercases `OWNER/REPO`; `proto.LowercaseRefRepo` had no
+production caller.
+
+**What it flags**, in every non-test file outside `internal/teamchat/proto` and outside the
+`identityFoldAllowances` table: a use of `proto.ValidOwner`, `proto.ValidOwnerRepo`,
+`proto.ParseRef` or `proto.DecodeForge` unless it is called with a first argument that is a call
+of `proto.LowercaseRefRepo` (a function value of one is flagged); and a value written to
+`proto.Ping.Ref`, `proto.Forge.Org`, `proto.Forge.Exclude` or `proto.ForgeRepo.Repo`, in a
+composite literal or an assignment, unless it is such a call, `""` or `nil`.
+
+**Not flagged**: proto's own uses (its canonical decoders of the roster, envelopes and verdicts
+read what was folded when it was sent); test files; a function in the allowance table, each row a
+read of the program's own file, written folded.
+
+**How to fix a violation.** Fold the name where it enters: a forge section a person or a play
+wrote is read with `proto.DecodeForgeInput`, which folds `org`, `repos[].repo` and `exclude` in
+ASCII (A 2.3: never Unicode's fold) and refuses anything else naming what a GitHub name may be; a
+reference is folded with `proto.LowercaseRefRepo` before it is written to a ping or parsed. A
+canonical read of the program's own file is a row in `identityFoldAllowances`, with its reason.
+
+- Red, fixture: `testdata/identityfold/src/fix/internal/teamchat` (`declare`: the originating
+  `DecodeForge`, an unfolded `ValidOwner`, `ValidOwnerRepo` as a value, a forge section built
+  by hand; the folded forms clean; `member/engine`: the reference written as given, in an
+  assignment and a literal, and parsed unfolded; folded clean; a test file not judged;
+  `member/state`: an allowance row excusing one function and not its neighbour; `proto`: its own
+  uses not judged).
+- Red, real tree: four findings over both modules: `declare/values.go` (`DecodeForge`),
+  `member/engine/send.go` and `member/engine/reply.go` (`Ping.Ref`), and
+  `member/state/store.go` (`validRef`, a read of the member's own state file).
+- Wider rule considered and not built: every lower-case-only grammar of a GitHub name in the
+  tree, v1's `internal/bus/declare` (`isOwnerRepo`, `checkedRepo`) included. Its query entry
+  points take only `GithubRemote`'s folded answer, and ccy-teams' create wizard folds its flags
+  and answers, so no person's input reaches them; v1's Python (`helpers/agent_bus`) is outside
+  a Go rule, and is referred to the owner (Plan 00209, the owner-case report).
+- Not caught: a name compared with `==` outside these functions and fields; a name that reaches
+  a grammar through a helper of another package that is not one of the four.
 
 ## Defect classes that cannot be a rule
 
