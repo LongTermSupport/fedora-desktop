@@ -6,7 +6,7 @@
 # remote inventory host").
 #
 #   - name: Build the commands for the targets' architectures
-#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/teamchat-build-go-commands.yml"
 #     vars:
 #       go_cross_commands: [foo, bar]
 #       go_cross_goarches: [amd64, arm64]
