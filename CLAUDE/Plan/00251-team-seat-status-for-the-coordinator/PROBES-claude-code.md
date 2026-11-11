@@ -50,13 +50,15 @@ Each fact is what the docs say; "not stated" marks a gap the live probes must cl
 
 - Its files under `.claude/hooks-daemon/untracked/` are internal layout and may change; the
   supported interface is its CLI. `hooks-daemon mode-history --json [--session ID]` gives every
-  session's live modes (awaiting-human, focus, goal-blocked, usage pause) and recent mode
-  changes; `hooks-daemon session-mode get` gives one session's modes.
+  session's live modes (awaiting-human, focus, goal-blocked) and recent mode changes, and nothing
+  else; `hooks-daemon session-mode get` gives one session's modes. The usage-ceiling pause is a
+  separate record, read with `hooks-daemon usage-pause`.
 - Records carry `session_id`, so a host where several sessions share a checkout filters on it.
-- A main-thread `rate_limit` stop is recorded, as a `StopFailure` (session, error, when it
-  happened and when it cleared), with no reset time. The reset times are held apart, from the
-  status line's `rate_limits`, and must be joined to the stop; whether that join is reliable is
-  the first task of the daemon's own plan.
+- A `StopFailure` with error `rate_limit`, `authentication_failed` or `cloud_credential_error`
+  is recorded (session, error, when it was recorded and when it cleared), with no reset time,
+  and the installed release has no CLI verb that reads these records. The reset times are held
+  apart, from the status line's `rate_limits`, and must be joined to the stop; whether that join
+  is reliable is the first task of the daemon's own plan.
 - The daemon's Plan 00601 adds the read the seat needs, on its main and reaching an install with
   its next release: `hooks-daemon session-state --json --session ID` (modes, the last turn edge
   with its StopFailure error, the usage windows, the usage pause) and `--watch` (one JSON line
@@ -66,8 +68,10 @@ Each fact is what the docs say; "not stated" marks a gap the live probes must cl
   `docs/guides/SESSION_STATE_CONTRACT.md`. A consumer pins major 1, ignores unknown fields and
   refuses an unknown major. `resets_at` is optional: it is joined at read time from the usage
   snapshot and is absent when none is live. One call costs about 25 ms, so it can run on every
-  hook edge. Until that release is installed, a seat reads `mode-history --json --session`, and
-  never the files.
+  hook edge. Until that release is installed, a seat reads `mode-history --json --session` and
+  `usage-pause`, and never the files. That gives the session modes and the usage pause, but
+  not rate-limited or a reset time: the rate-limited state waits for `session-state` (installed
+  release 3.73.1 has no such verb, checked in subagent-reports/261111-fact-check-3.md).
 
 ## What the live probes must still settle
 
