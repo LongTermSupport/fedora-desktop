@@ -15,10 +15,10 @@ const repo = "../../.."
 // tmpfsKey is the directive whose presence makes a file one this rule reads.
 const tmpfsKey = "TemporaryFileSystem="
 
-// notUnits are the trees that hold no unit a host gets: history and prose (CLAUDE/, docs/),
-// scratch, other projects' code, and src-go, whose renderers are judged on what they render
-// (goRenderers).
-var notUnits = []string{".git", ".claude", "CLAUDE", "docs", "untracked", "node_modules", "src-go"}
+// notUnits are the trees git does not publish (.git, the untracked scratch, the hooks daemon's
+// own install, dependencies) and src-go, whose renderers are judged on what they render
+// (goRenderers). Plan folders' probes and tests are swept: a probe starts transient units.
+var notUnits = []string{".git", ".claude", "untracked", "node_modules", "src-go"}
 
 // knownDirectories are the bind sources the sweep finds that the repository does not ship under
 // files/, each a directory and who makes it.

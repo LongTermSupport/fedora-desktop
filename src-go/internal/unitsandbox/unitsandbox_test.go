@@ -52,6 +52,19 @@ func TestWhatIsNotAFinding(t *testing.T) {
 	}
 }
 
+// A property list in code (Python f-strings, a systemd-run --property= argument) is read too:
+// the originating class as Plan 00161's probe wrote it, its sources unknown placeholders.
+func TestQuotedAndPropertyLines(t *testing.T) {
+	unit := `        f"TemporaryFileSystem={UNIT_INPUT_DIR}:ro",` + "\n" +
+		`        f"BindReadOnlyPaths={binary}:{UNIT_INPUT_DIR}/tuwunel",` + "\n" +
+		`    '--property=TemporaryFileSystem=/run/x:ro' \` + "\n" +
+		`    "--property=BindReadOnlyPaths=/f:/run/x/y"` + "\n"
+	got := Check(unit, kinds(map[string]SourceKind{"/f": File}))
+	if len(got) != 2 || got[0].Bind.Source != "{binary}" || got[1].Bind.Dest != "/run/x/y" {
+		t.Fatalf("findings %+v", got)
+	}
+}
+
 // systemd's list syntax: several entries on a line, the - and + prefixes, a source bound onto
 // itself, options after the destination, a tmpfs given after the bind, indented (YAML) lines.
 func TestTheListSyntax(t *testing.T) {

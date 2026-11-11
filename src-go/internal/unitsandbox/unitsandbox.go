@@ -66,7 +66,7 @@ type sandbox struct {
 func parse(text string) sandbox {
 	var s sandbox
 	for i, raw := range strings.Split(text, "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(raw), "=")
+		key, value, ok := keyValue(raw)
 		if !ok {
 			continue
 		}
@@ -113,6 +113,30 @@ func judge(tmpfs []string, binds []located, kind func(src string) SourceKind) []
 		}
 	}
 	return out
+}
+
+// keyValue is a line's directive and value, a systemd-run --property= argument's included.
+func keyValue(raw string) (string, string, bool) {
+	key, value, ok := strings.Cut(unwrap(raw), "=")
+	if ok && strings.TrimSpace(key) == "--property" {
+		key, value, ok = strings.Cut(value, "=")
+	}
+	return strings.TrimSpace(key), value, ok
+}
+
+// unwrap is a line with its code wrapping taken off, so a property written as a string literal
+// in a list (Python's f"Key=value", or a quoted shell argument) reads as the unit line it is: the
+// indentation, a line continuation, a trailing comma, the closing quote, and the opening quote
+// with any string prefix letters before it.
+func unwrap(line string) string {
+	s := strings.TrimSpace(line)
+	s = strings.TrimSpace(strings.TrimSuffix(s, `\`))
+	s = strings.TrimSuffix(s, ",")
+	trimmed := strings.TrimLeft(s, "rbfuRBFU")
+	if trimmed == "" || (trimmed[0] != '"' && trimmed[0] != '\'') {
+		return s
+	}
+	return strings.TrimSuffix(trimmed[1:], trimmed[:1])
 }
 
 // fields splits a list value into its entries, honouring double quotes.
