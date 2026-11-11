@@ -2690,6 +2690,14 @@ fails the gate.
   - `patterns/semgrep.go:52`
   - `readywait/scan.go:63`
   - `sttrules/rules.go:205`
+- Green: the four gates prove their rules with `semgrepreport.SelfTest`. It ports semgrep's test
+  runner (`test.py` in semgrep 1.177.0) and judges a scan run under `TimeoutFlag`. A fixture's
+  annotations are read as that runner reads them, and the rules' `paths:` are set aside as it
+  sets them aside; `bash-conventions` needs this, because its `include` globs keep rules off the
+  fixture. Any error in the report fails the gate. The driver run then finds nothing in either
+  module, and the rule is in `All()`. All nine commands' real-semgrep tests pass. One pass ran
+  while the host was busy with a `qa-changed` Go check, and there the speech-to-text package
+  took 163 s without a limit firing.
 
 ### project_container_pids_limit
 
