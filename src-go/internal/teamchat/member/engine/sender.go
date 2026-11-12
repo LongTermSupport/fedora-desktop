@@ -358,6 +358,7 @@ func (e *Engine) sendFailed(ctx context.Context, h *held, entry state.Sending, u
 			}
 			e.refuseWaiting(h, exits.New(code, &h.id, msg, exits.Team(h.id)))
 			h.sendStop = code
+			h.noteContact()
 			e.publish()
 		}); doErr != nil {
 			return nil
@@ -507,6 +508,7 @@ func (e *Engine) RecoverSends(ctx context.Context, t paths.TeamID, n team.Notice
 	return e.do(ctx, func() {
 		if e.teams[t] == h && !h.removed {
 			h.recovered = true
+			h.noteContact()
 			h.pokeSender()
 		}
 	})

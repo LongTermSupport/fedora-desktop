@@ -14,7 +14,10 @@ import (
 )
 
 // flagToCoordinator adds the coordinator to a send's addressees.
-const flagToCoordinator = "to-coordinator"
+const (
+	flagToCoordinator = "to-coordinator"
+	flagWaitContact   = "wait-contact"
+)
 
 const (
 	msgTerminal exits.Template = "teamchat {} reads its text on stdin, which is a terminal; give the text on stdin, such as: echo text | teamchat {}"
@@ -30,7 +33,8 @@ func sendArgs(e cli.Env, inv cli.Invocation, op string) (any, *string, error) {
 	switch op {
 	case wire.OpSay:
 		text, err := readText(e, inv)
-		return wire.SayArgs{Team: inv.Team, To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator)}, text, err
+		a := wire.SayArgs{Team: inv.Team, To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator), WaitContact: inv.Has(flagWaitContact)}
+		return a, text, err
 	case wire.OpReport:
 		text, err := readReport(e, inv)
 		return wire.ReportArgs{Team: inv.Team}, text, err

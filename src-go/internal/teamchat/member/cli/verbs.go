@@ -208,7 +208,10 @@ var table = []Verb{
 		Flags: []Flag{{Name: flagVerb, Value: "V", check: checkAnswer}, {Name: "ref", Value: "R"}, {Name: flagToC}},
 		Does:  "answers one item; text on stdin. --verb answers a ping with a closed verb",
 	},
-	{Name: "say", Team: TeamOne, Agent: true, Flags: toFlags, Does: "starts a conversation with named members; text on stdin"},
+	{
+		Name: "say", Team: TeamOne, Agent: true, Flags: append(slices.Clone(toFlags), Flag{Name: "wait-contact"}),
+		Does: "starts a conversation with named members; text on stdin. --wait-contact holds it up to 10 s for the team's first contact in a session just started (a script's one-shot)",
+	},
 	{
 		Name: "ping", Team: TeamOne, Agent: true,
 		Args:  []Arg{{Name: argVerb, missing: barePing}, {Name: "ref", Optional: true}},

@@ -67,12 +67,16 @@ func (e *Engine) Serve(ctx context.Context, req wire.Request, out RecordWriter) 
 }
 
 // serveSend answers the three send ops, each with its stdin.
+// A say with --wait-contact first waits for its teams' first contact in the run (awaitContact).
 func (e *Engine) serveSend(ctx context.Context, req wire.Request, out RecordWriter) wire.Done {
 	switch req.Op {
 	case wire.OpSay:
 		var a wire.SayArgs
 		if err := wire.DecodeArgs(req.Args, &a); err != nil {
 			return doneOf(err)
+		}
+		if a.WaitContact {
+			e.awaitContact(ctx, a.Team)
 		}
 		return e.say(ctx, a, req.Stdin, out)
 	case wire.OpPing:

@@ -185,6 +185,22 @@ Fix. F44 is merged in before every push, and GitHub CI is the gate.
   before the first approval, and the health unit's per-host IP drop-in for S13 is rendered by
   `team apply`. The play runs without the verb until then; its refusals stand through `team apply`'s own gate.
 
+- [ ] 🔄 **Task 8.11** (X30's scripted message leg, asked for by a downstream estate's
+  verify-x30): a member with no session running sends and reads history from a script. No new
+  verb and no keeper-less path (Plan 00209 BD2): the keeper is the one-shot,
+  `teamchat run --plain --kind host --state DIR --seat T/S -- teamchat say --to N --wait-contact --team T`
+  (text on stdin) and the same with `-- teamchat history --team T`; `run` exits with the verb's
+  status, prints its record, and ends the session. A seat a running session holds is refused at
+  once, 75 `seat-held`, posting nothing. The gap found: a say that reaches the link before its
+  team's first contact in the run is answered 20 `unreachable` (no roster cache) or `queued`
+  (with one, then left in the outbox when the one-shot ends), as n3d-D19 decided for an agent;
+  a one-shot loses that race whenever the homeserver is a few round trips away. Added
+  `say --wait-contact`: the say waits for its teams' first contact, at most 10 s
+  (`engine/firstcontact.go`), then answers as before; a say without it is unchanged. Proven by
+  `wiring/e2e_oneshot_test.go` (red 20 behind a gated verification, green with the flag) and
+  `engine/firstcontact_test.go`; `x30-lab.bash` passes the flag. Report:
+  `subagent-reports/261111-oneshot-say-history-report.md`. Left: X30's run itself.
+
 ### Install path (for X30)
 
 What must exist, in order, for X30's second-machine run: stage A, the base units

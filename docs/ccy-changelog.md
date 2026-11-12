@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.118.7 — container 2.84.5
+
+- **A script can send from a one-shot teamchat session** (Plan 00246 Task 8.11): `teamchat say --wait-contact` holds the say up to 10 s for the link's first contact with the homeserver, so
+  `teamchat run --plain ... -- teamchat say --wait-contact ...` posts its message instead of
+  answering 20 or queued in a session that ends at once. A say without the flag is unchanged.
+  The image's teamchat changes, so the image is rebuilt once; the launcher behaves as 3.118.6.
+
 ## 3.118.6 — container 2.84.4
 
 - **A never-run session can be restored fresh** (Plan 00135 Phase 13, fedora-desktop#108): a

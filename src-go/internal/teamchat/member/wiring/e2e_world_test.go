@@ -457,8 +457,14 @@ func (w *world) start(flags ...string) *session { return w.startCmd("--plain", w
 // startCmd is `teamchat run <mode> --kind other <flags> --kit <kit> -- cmd`, started.
 func (w *world) startCmd(mode, cmd string, flags ...string) *session {
 	w.t.Helper()
+	return w.startArgv(mode, []string{cmd}, flags...)
+}
+
+// startArgv is startCmd with a CMD of several arguments.
+func (w *world) startArgv(mode string, cmd []string, flags ...string) *session {
+	w.t.Helper()
 	args := append([]string{"run", mode, "--kind", "other"}, flags...)
-	args = append(args, "--kit", w.kit, "--", cmd)
+	args = append(append(args, "--kit", w.kit, "--"), cmd...)
 	inR, inW, err := os.Pipe()
 	check(w.t, err)
 	outR, outW, err := os.Pipe()

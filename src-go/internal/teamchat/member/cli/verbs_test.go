@@ -139,7 +139,7 @@ func TestTeamUses(t *testing.T) {
 func TestUsageSpellsBsForms(t *testing.T) {
 	for name, want := range map[string]string{
 		"reply":             "teamchat reply <event-id> [--verb V] [--ref R] [--to-coordinator] [--team T]",
-		"say":               "teamchat say --to N[,N...]|--to-coordinator [--team T]",
+		"say":               "teamchat say --to N[,N...]|--to-coordinator [--wait-contact] [--team T]",
 		"ping":              "teamchat ping <verb> [<ref>] --to N[,N...]|--to-coordinator [--branch B] [--team T]",
 		"ask":               "teamchat ask [--asked-by N,...] [--re ID,...] [--remind-after S] [--team T]",
 		"thread":            "teamchat thread Q<n> [--ask] [--close] [--team T]",
