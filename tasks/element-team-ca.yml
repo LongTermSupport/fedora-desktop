@@ -10,9 +10,8 @@
 #       element_team_ca_approved_root: /var/lib/teamchat-status/teams
 #       element_team_ca_admin_root: /var/lib/teamchat-admin
 #
-# A team counts when its approved.json (written by `team approve`) names an https url; a team
-# with no approved.json is not a v2 team on this host and an http one needs no CA (X12, X15).
-# The two roots are paths.StatusRoot/teams and paths.AdminStateRoot (src-go teamchat/paths).
+# Which teams are https teams, and their CAs, is read by tasks/https-team-ca.yml (the rules
+# are there), shared with tasks/lightning-team-ca.yml.
 #
 # The store is the one choice, and the check at the end is the same whichever it is:
 #   nssdb   Chromium's own NSS database, $HOME/.pki/nssdb inside the sandbox, kept in Element's
@@ -38,59 +37,14 @@
       (agent_bus_element_ca_store in host_vars), and element_team_ca_teams a list of team ids.
     quiet: true
 
-- name: Probe each team's approved fields
-  become: true
-  ansible.builtin.stat:
-    path: "{{ element_team_ca_approved_root }}/{{ item }}/approved.json"
-  loop: "{{ element_team_ca_teams }}"
-  register: element_team_ca_approved_stat
-
-- name: Read each approved team's fields
-  become: true
-  ansible.builtin.slurp:
-    src: "{{ item.stat.path }}"
-  loop: "{{ element_team_ca_approved_stat.results | selectattr('stat.exists') | list }}"
-  loop_control:
-    label: "{{ item.item }}"
-  register: element_team_ca_approved
-
-- name: Name the teams whose approved url is https
-  ansible.builtin.set_fact:
-    element_team_ca_https: >-
-      {{ dict(element_team_ca_approved.results | map(attribute='item') | map(attribute='item')
-              | zip(element_team_ca_approved.results | map(attribute='content') | map('b64decode')
-                    | map('from_json') | map(attribute='approved') | map(attribute='url')))
-         | dict2items | selectattr('value', 'match', 'https://') | list }}
-
-# A missing CA for an https team fails here, naming the file: X13 makes it at the first apply.
+# The https teams and their CAs, and the desktop user, read the same way for every client.
 - name: Read each https team's CA
-  become: true
-  ansible.builtin.slurp:
-    src: "{{ element_team_ca_admin_root }}/{{ item.key }}/tls/ca.crt"
-  loop: "{{ element_team_ca_https }}"
-  loop_control:
-    label: "{{ item.key }}"
-  register: element_team_ca_pem
-
-- name: Resolve the desktop user's uid and home
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ user_login }}"
-    # The verdict is the assert's, so the operator reads its message, not the module's.
-    fail_key: false
-  when: element_team_ca_https | length > 0
-
-- name: Assert the desktop user exists
-  ansible.builtin.assert:
-    that:
-      - ansible_facts['getent_passwd'][user_login] is defined
-      - ansible_facts['getent_passwd'][user_login] is not none
-      - ansible_facts['getent_passwd'][user_login][1] | int > 0
-    fail_msg: >-
-      Could not resolve a uid for {{ user_login }}, so Element's sandbox cannot be run as that
-      user to check the team CA.
-    quiet: true
-  when: element_team_ca_https | length > 0
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/https-team-ca.yml"
+  vars:
+    https_team_ca_teams: "{{ element_team_ca_teams }}"
+    https_team_ca_client: Element
+    https_team_ca_approved_root: "{{ element_team_ca_approved_root }}"
+    https_team_ca_admin_root: "{{ element_team_ca_admin_root }}"
 
 # nssdb: Chromium's database is $HOME/.pki/nssdb. Kept in Element's own data, it outlives a run
 # and is Element's alone.
@@ -102,7 +56,7 @@
   register: element_team_ca_override
   changed_when: false
   check_mode: false
-  when: element_team_ca_store == 'nssdb' and element_team_ca_https | length > 0
+  when: element_team_ca_store == 'nssdb' and https_team_ca_https | length > 0
 
 - name: Keep Element's NSS database in its Flatpak data
   become: true
@@ -111,7 +65,7 @@
     argv: [flatpak, override, --user, --persist=.pki, im.riot.Riot]
   changed_when: element_team_ca_override.stdout is not search('(?m)^persistent=(.*;)?[.]pki(;|$)')
   when:
-    - element_team_ca_store == 'nssdb' and element_team_ca_https | length > 0
+    - element_team_ca_store == 'nssdb' and https_team_ca_https | length > 0
     - element_team_ca_override.stdout is not search('(?m)^persistent=(.*;)?[.]pki(;|$)')
 
 - name: Put each https team's CA in Element's NSS database
@@ -128,7 +82,7 @@
       - --nickname
       - "teamchat-{{ item.item.key }}"
     stdin: "{{ item.content | b64decode }}"
-  loop: "{{ element_team_ca_pem.results }}"
+  loop: "{{ https_team_ca_pem.results }}"
   loop_control:
     label: "{{ item.item.key }}"
   register: element_team_ca_placed
@@ -144,7 +98,7 @@
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ element_team_ca_pem.results }}"
+  loop: "{{ https_team_ca_pem.results }}"
   loop_control:
     label: "{{ item.item.key }}"
   register: element_team_ca_anchors
@@ -188,7 +142,7 @@
     element_ca_checkout: "{{ root_dir }}/helpers/element_ca"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
-  loop: "{{ element_team_ca_pem.results }}"
+  loop: "{{ https_team_ca_pem.results }}"
   loop_control:
     label: "{{ item.item.key }}"
   register: element_team_ca_check

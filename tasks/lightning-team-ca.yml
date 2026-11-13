@@ -1,0 +1,148 @@
+# The team CA placed where Lightning (the Flathub org.lightning_matrix.Lightning) reads it, then
+# proven from inside Lightning's own sandbox (Plan 00254 Phase 4). The Lightning twin of
+# tasks/element-team-ca.yml; which teams are https teams, and their CAs, is read by
+# tasks/https-team-ca.yml for both.
+#
+#   - name: Trust each https team's CA in Lightning
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/lightning-team-ca.yml"
+#     vars:
+#       lightning_team_ca_teams: [<team id>, ...]
+#       lightning_team_ca_approved_root: /var/lib/teamchat-status/teams
+#       lightning_team_ca_admin_root: /var/lib/teamchat-admin
+#
+# Lightning's Matrix TLS is rustls through rustls-native-certs, not NSS, so neither Element store
+# reaches it (Plan 00254 RESEARCH-integration.md section 3). With SSL_CERT_FILE or SSL_CERT_DIR
+# set it reads only those, and every regular file in SSL_CERT_DIR as PEM. So each https team's CA
+# is one file, <team>.pem, in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/, the app's
+# own data, which Flatpak maps into the sandbox at the same path. A team's launch sets
+# SSL_CERT_FILE to the runtime's public bundle and SSL_CERT_DIR to that directory; never
+# SSL_CERT_FILE to a team CA alone, which drops every public root. Every other file there is
+# removed, because whatever that directory holds, Lightning trusts.
+#
+# The check is tls-trust-check (src-go/cmd/tls-trust-check), built static and given to the
+# sandbox read-only: a handshake to the team's url verified against exactly those two variables,
+# with no Common Name fallback, as rustls does, run through `flatpak run --command=env`, the form
+# that sets variables inside the sandbox (Plan 00254 Task 3.2). The play's last task fails unless
+# every https team passed, naming the team, the CA file and the cause.
+#
+# The importing play defines root_dir and user_login, has installed Lightning and has imported
+# play-golang.yml (tasks/build-go-command.yml needs the toolchain).
+- name: Read each https team's CA
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/https-team-ca.yml"
+  vars:
+    https_team_ca_teams: "{{ lightning_team_ca_teams }}"
+    https_team_ca_client: Lightning
+    https_team_ca_approved_root: "{{ lightning_team_ca_approved_root }}"
+    https_team_ca_admin_root: "{{ lightning_team_ca_admin_root }}"
+
+- name: Resolve the desktop user's home for Lightning's CA directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user_login }}"
+
+- name: Name Lightning's CA directory and the check's
+  ansible.builtin.set_fact:
+    lightning_team_ca_dir: >-
+      {{ ansible_facts['getent_passwd'][user_login][4] }}/.var/app/org.lightning_matrix.Lightning/teamchat-ca
+    # Its own directory, so the sandbox is given the one binary and nothing beside it.
+    lightning_team_ca_check_dir: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.local/libexec/tls-trust-check"
+
+- name: Ensure Lightning's CA directory exists
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.file:
+    path: "{{ lightning_team_ca_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Put each https team's CA in Lightning's CA directory
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ lightning_team_ca_dir }}/{{ item.item.key }}.pem"
+    mode: "0644"
+  loop: "{{ https_team_ca_pem.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+
+- name: Find the files in Lightning's CA directory
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.find:
+    paths: "{{ lightning_team_ca_dir }}"
+    file_type: any
+    hidden: true
+  register: lightning_team_ca_found
+
+- name: Remove every file there but an https team's CA
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ lightning_team_ca_found.files | map(attribute='path') | reject('in', lightning_team_ca_keep) | list }}"
+  vars:
+    lightning_team_ca_keep: >-
+      {{ https_team_ca_https | map(attribute='key') | product(['.pem']) | map('join')
+         | map('regex_replace', '^', lightning_team_ca_dir ~ '/') | list }}
+
+- name: Ensure the check's directory exists
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.file:
+    path: "{{ lightning_team_ca_check_dir }}"
+    state: directory
+    mode: "0755"
+  when: https_team_ca_https | length > 0
+
+# Static (CGO_ENABLED=0): it runs on the sandbox's runtime, not the host's libc.
+- name: Build and install the TLS trust check
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: tls-trust-check
+    go_command_dest: "{{ lightning_team_ca_check_dir }}/tls-trust-check"
+    go_command_mode: "0755"
+    go_command_static: true
+  when: https_team_ca_https | length > 0
+
+# The check: from inside Lightning's sandbox, with exactly the two variables a team's launch sets.
+- name: Check a TLS handshake from Lightning's sandbox to each https team trusts its CA
+  become: true
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - run
+      - --command=env
+      - "--filesystem={{ lightning_team_ca_check_dir }}:ro"
+      - org.lightning_matrix.Lightning
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - "SSL_CERT_DIR={{ lightning_team_ca_dir }}"
+      - "{{ lightning_team_ca_check_dir }}/tls-trust-check"
+      - --url
+      - "{{ item.item.value }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+  loop: "{{ https_team_ca_pem.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  register: lightning_team_ca_check
+  changed_when: false
+  failed_when: false  # FAIL-FAST-OK: probe — the next task fails, naming the team, CA file and cause
+  # In --check nothing was placed or built, so there is nothing to prove.
+  when: not ansible_check_mode
+
+- name: Fail unless Lightning trusts every https team's CA
+  ansible.builtin.assert:
+    that:
+      - lightning_team_ca_check.results | rejectattr('rc', 'equalto', 0) | list | length == 0
+    fail_msg: >-
+      Lightning does not trust the team CA (directory {{ lightning_team_ca_dir }}, read through
+      SSL_CERT_DIR beside the runtime bundle in SSL_CERT_FILE).
+      {% for r in lightning_team_ca_check.results | rejectattr('rc', 'equalto', 0) %}
+      Team {{ r.item.item.key }}, CA file {{ lightning_team_ca_admin_root }}/{{ r.item.item.key }}/tls/ca.crt,
+      url {{ r.item.item.value }}: {{ r.stderr | default(r.msg | default('')) }}
+      {% endfor %}
+    quiet: true
+  when: not ansible_check_mode

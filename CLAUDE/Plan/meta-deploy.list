@@ -35,11 +35,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00254 Task 3.2: can Lightning run one instance per team? Run from a terminal in the
-# desktop session. The first run showed `flatpak run --env=` does not reach Lightning's sandbox,
-# so both probe copies only raised your running Lightning; this run launches each copy with the
-# form that does (`--command=env`). Read-only apart from a probe directory it removes: it opens
-# two Lightning windows on two empty probe profiles for about 20 seconds (each should show its
-# own login page: look), then launches a second copy on the first profile, which should only
-# raise that window and exit. Your own Lightning and its sign-in are not touched.
-00254-lightning-default-team-client
+# Plan 00254 Phase 4: team CA trust for Lightning. Installs the Lightning Flatpak (system-wide,
+# sudo) and the Go toolchain if missing, builds tls-trust-check into ~/.local/libexec, puts each
+# declared https team's CA in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/<team>.pem
+# (removing any other file there), then fails unless a TLS handshake from inside Lightning's
+# sandbox, with SSL_CERT_FILE=the runtime bundle and SSL_CERT_DIR=that directory, trusts each
+# https team. Of Element's steps only the read-only declaration check runs. Your running
+# Lightning and its sign-in are not touched. Report the play recap and, on failure, the assert's message.
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
