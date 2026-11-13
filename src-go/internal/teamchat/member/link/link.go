@@ -72,12 +72,14 @@ type Config struct {
 	UID int
 	// Kit is the link's source digest, which a request's kit must be.
 	Kit paths.Digest
-	// RuntimeDir is $XDG_RUNTIME_DIR, the inbox sockets'; Home is ~, for ~/.claude.
-	RuntimeDir, Home string
-	Log              io.Writer
-	Engine           func(engine.Config) (*engine.Engine, error)
-	NewTeam          func(engine.TeamConfig) (team.Team, error)
-	NewEnds          func(engine.EndsConfig) team.Ends
+	// Inbox is what Claude Code places its inbox socket by (paths.InboxEnvOf the session's
+	// environment); Home is ~, for ~/.claude.
+	Inbox   paths.InboxEnv
+	Home    string
+	Log     io.Writer
+	Engine  func(engine.Config) (*engine.Engine, error)
+	NewTeam func(engine.TeamConfig) (team.Team, error)
+	NewEnds func(engine.EndsConfig) team.Ends
 	// Forge is the link's one forge checker, shared by its sends and every team (n3d-D20).
 	Forge team.Forge
 
@@ -285,7 +287,7 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 	}
 	l.session, err = newSession(sessionDeps{
 		runRoot: l.cfg.RunRoot, stateRoot: l.cfg.StateRoot, layout: l.cfg.Layout, run: l.cfg.Run,
-		proc: l.cfg.Proc, clock: l.cfg.Clock, runtimeDir: l.cfg.RuntimeDir, claudeDir: claudeDir,
+		proc: l.cfg.Proc, clock: l.cfg.Clock, inbox: l.cfg.Inbox, claudeDir: claudeDir,
 		cwd: launch.Cwd, onClaude: l.tellClaude, onStarted: l.tellStarted, log: l.cfg.Log,
 	})
 	if err != nil {

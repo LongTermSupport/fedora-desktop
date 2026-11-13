@@ -39,18 +39,6 @@ func StateSeat(state string, t TeamID) (Seat, error) {
 // bundle in a member's seat directory is refused (SPEC-n3 MS3).
 func (s Seat) Password() string { return s.Dir() + "/" + passwordFile }
 
-// InboxSocket is Claude Code's per-session inbox socket for the session process pid, under the
-// runtime directory it was started with: `<runtime>/cc-socks/<pid>.sock` (B 2.4.4, 2.7.1).
-func InboxSocket(runtimeDir string, pid int) (string, error) {
-	if err := checkBase("runtime", runtimeDir); err != nil {
-		return "", err
-	}
-	if pid <= 0 {
-		return "", fmt.Errorf("%w pid: must be positive", ErrInvalid)
-	}
-	return runtimeDir + "/cc-socks/" + strconv.Itoa(pid) + ".sock", nil
-}
-
 // GuestUnitFile is a seat's session unit file in the guest, which the host writes (n3-D3,
 // C 3.9.4).
 func GuestUnitFile(team TeamID, checkout string, seat int) string {
