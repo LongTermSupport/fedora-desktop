@@ -1,6 +1,6 @@
 # Plan 00254: Lightning as the default team client
 
-**Status**: Not Started (plan only; the thread-root fix is prototyped, owner decisions D1-D4 open)
+**Status**: In Progress (the thread-root fix is prototyped; owner decisions D1-D4 open)
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: High
