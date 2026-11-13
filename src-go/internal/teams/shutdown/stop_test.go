@@ -8,6 +8,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
 // recordingCloser stands in for sessclose: it records what it was asked to close and answers.
@@ -99,17 +100,21 @@ func TestUnsentTextIsLeftAlone(t *testing.T) {
 		"alpha: 0 exited cleanly, 0 stopped, 1 failed.")
 }
 
-// SD10: the completion menu took the Enter: one more Enter.
-func TestExitLeftInTheBoxGetsOneMoreEnter(t *testing.T) {
+// SD10: the completion menu took the Enter: Enter again while /exit stays in the box, up to the
+// bound (fedora-desktop#264), then the session fails.
+func TestExitLeftInTheBoxIsEnteredAgainUpToTheBound(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
 	s := m.sessions[0]
 	s.ignoreExit = true
 	s.afterExit = paneTyped
-	m.run("alpha", "--yes")
-	if s.enters != 2 {
-		t.Fatalf("enters %d", s.enters)
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
 	}
+	if s.enters != tmuxccy.SubmitEnters {
+		t.Fatalf("enters %d, want %d", s.enters, tmuxccy.SubmitEnters)
+	}
+	m.errHas(t, "the typed text stayed in the input box of ccy-proj after 5 Enters; it is still running: attach it (ccy-sessions)")
 }
 
 // SD10a: /exit with a background task running brings up claude's "Background work is running"

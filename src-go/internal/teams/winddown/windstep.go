@@ -2,7 +2,8 @@ package winddown
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -317,16 +318,26 @@ func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, note stri
 	return nil
 }
 
-// typeLine types text, then presses Enter on its own after the submit pause, as ccy-sessions
-// types a line: an Enter arriving with the text is read as part of it. The job moves to next,
-// with fresh bounds.
+// typeLine submits text, each Enter on its own after the submit pause (an Enter arriving with
+// the text is read as part of it), checking the box took it (tmuxccy.Submit), as ccy-sessions
+// does. The job moves to next, with fresh bounds.
+// A line no Enter submitted fails the job, saying which line stayed in the box.
 func (w *WindDown) typeLine(ctx context.Context, j *job, text string, next phase) error {
-	if err := j.tmux.SendKeys(ctx, j.pane, text); err != nil {
-		return err
+	err := j.tmux.Submit(ctx, j.pane, text, tmuxccy.SubmitPace{Pause: w.Waits.Submit, Sleep: w.Sleep})
+	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		stuck := " stayed in its input box after " + strconv.Itoa(tmuxccy.SubmitEnters) + " Enters"
+		switch next {
+		case phaseGoal:
+			j.fail("/goal clear" + stuck + "; the wind-down was not typed")
+		case phaseCompact:
+			j.fail(j.after("/compact" + stuck))
+		case phaseIdle, phaseText, phaseAnswer, phaseQueued, phaseCompactWait:
+			j.fail(j.after("the wind-down" + stuck))
+		}
+		return nil
 	}
-	w.Sleep(w.Waits.Submit)
-	if err := j.tmux.SendEnter(ctx, j.pane); err != nil {
-		return fmt.Errorf("%w (the line was typed, not entered)", err)
+	if err != nil {
+		return err
 	}
 	now := w.Now()
 	j.phase, j.graced, j.reentered = next, false, false

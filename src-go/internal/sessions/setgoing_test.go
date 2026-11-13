@@ -338,7 +338,8 @@ func TestSetGoingWaitsOnABusySessionWithNoInputAndSetsItGoingWhenIdle(t *testing
 		return execx.Result{Stdout: []byte(promptScreen)}, nil
 	})
 	exitCodeIs(t, h.run("set-going"), 0, h)
-	if typedInto(h, "ccy-a") != "-l continue|Enter" || looks != 2 {
+	// Two looks before typing, and one after the Enter that sees the box empty.
+	if typedInto(h, "ccy-a") != "-l continue|Enter" || looks != 3 {
 		t.Fatalf("typed %q after %d looks", typedInto(h, "ccy-a"), looks)
 	}
 }
@@ -427,11 +428,13 @@ func TestSetGoingKeepsWaitingForAPromptThatDrawsLater(t *testing.T) {
 		return execx.Result{Stdout: []byte(promptScreen)}, nil
 	})
 	exitCodeIs(t, h.run("set-going"), 0, h)
-	if typedInto(h, "ccy-a") != "-l continue|Enter" || looks != 3 {
+	// Three looks before typing, and one after the Enter that sees the box empty.
+	if typedInto(h, "ccy-a") != "-l continue|Enter" || looks != 4 {
 		t.Fatalf("typed %q after %d looks", typedInto(h, "ccy-a"), looks)
 	}
-	// Two polls of five seconds, and the pause before Enter, which is nothing here.
-	if len(h.pauses) != 3 || h.pauses[0] != 5*time.Second || h.pauses[1] != 5*time.Second || h.pauses[2] != 0 {
+	// Two polls of five seconds, the pause before Enter, which is nothing here, and the wait
+	// before the box is read after it.
+	if len(h.pauses) != 4 || h.pauses[0] != 5*time.Second || h.pauses[1] != 5*time.Second || h.pauses[2] != 0 || h.pauses[3] != 200*time.Millisecond {
 		t.Fatalf("pauses %v", h.pauses)
 	}
 }
@@ -540,6 +543,63 @@ func TestSetGoingLeavesASessionWhoseKeysCannotBeSent(t *testing.T) {
 	})
 	exitCodeIs(t, h.run("set-going"), 1, h)
 	contains(t, "enter", h.stderr(), "pressing Enter in ccy-a failed: pane is dead", "left ccy-a untouched: send-failed\n")
+}
+
+// slowBox is a session's pane whose box takes the typed text and loses the first lost Enters
+// after it, as a TUI not yet ready did after a reboot (fedora-desktop#264); a later Enter
+// submits it and the box is empty again.
+func slowBox(h *harness, name string, lost int) {
+	typed, enters := "", 0
+	h.fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=" + name + ":"}, func(c execx.Cmd) (execx.Result, error) {
+		key := c.Args[len(c.Args)-1]
+		if c.Args[len(c.Args)-2] == "-l" {
+			typed = key
+			return execx.Result{}, nil
+		}
+		if enters++; enters > lost {
+			typed = ""
+		}
+		return execx.Result{}, nil
+	})
+	h.fake.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane", "-p", "-e", "-t", "=" + name + ":"}, func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(strings.Replace(promptScreen, "❯ ", "❯ "+typed, 1))}, nil
+	})
+}
+
+// fedora-desktop#264: the restore's /compact stayed in the box because its one Enter was lost.
+// The box is read after the Enter, and Enter is pressed again while the text is still there.
+func TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox(t *testing.T) {
+	h := goingHost(t)
+	a := realDir(t, h, "a")
+	writeTranscript(t, ccyTranscript(a), 208525)
+	writeEntries(t, h, pending("ccy-a", "ccy", a))
+	h.sessions("ccy-a 0 " + a)
+	slowBox(h, "ccy-a", 1)
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	if got, want := typedInto(h, "ccy-a"), "-l "+compactText+"|Enter|Enter"; got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+	contains(t, "set going", h.stderr(), "set ccy-a going: compact (context 208525 tokens")
+	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingCompact {
+		t.Fatalf("entry %+v, want compact", e)
+	}
+}
+
+// A /compact no Enter submits is a fault named on stderr, never recorded as set going.
+func TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox(t *testing.T) {
+	h := goingHost(t)
+	a := realDir(t, h, "a")
+	writeTranscript(t, ccyTranscript(a), 208525)
+	writeEntries(t, h, pending("ccy-a", "ccy", a))
+	h.sessions("ccy-a 0 " + a)
+	slowBox(h, "ccy-a", 1000)
+	exitCodeIs(t, h.run("set-going"), 1, h)
+	contains(t, "not submitted", h.stderr(),
+		"the typed text stayed in the input box of ccy-a after 5 Enters",
+		"left ccy-a untouched: not-submitted\n")
+	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingUntouched || e.Detail != "not-submitted" {
+		t.Fatalf("entry %+v, want untouched not-submitted", e)
+	}
 }
 
 func TestSetGoingNamesASessionGoneBeforeItsPromptDrew(t *testing.T) {

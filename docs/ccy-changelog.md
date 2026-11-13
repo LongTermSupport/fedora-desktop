@@ -17,29 +17,30 @@ Two version numbers move independently — see
 
 ---
 
-## 3.119.9 — container 2.84.13
+## 3.119.10 — container 2.84.13
 
-- **Issue #265, the last instance**: when the team's rooms cannot be read because the homeserver
-  failed, the health problem names the cause too, if it fits the record's one-line, 512-byte
-  bound. A failure the child reported as unreachable is now classed as unreachable, no longer as
-  "not a homeserver answer". The image is rebuilt once; the launcher behaves as 3.119.8.
+- **teamchat names the cause of a failed Matrix call** (issue #265). Before, the logs gave only
+  its class, "the homeserver did not answer usably". That one text covers a TLS handshake that
+  failed against the seat's pinned CA, a timeout and a refused connection alike.
+  - Every such line now gives the class, then the failed call's own text: method, path, status
+    and the fixed detail, never a token.
+  - While a team stays down, a change of its cause is logged, at most once every five minutes.
+  - A refused inbox socket is logged with the path the hook reported, the process chain the link
+    walked and the socket Claude Code would place for each pid on that chain.
+  - A health problem for rooms that could not be read names the cause, when it fits the record's
+    bound.
+  - The rule `project_class_without_detail` holds this. The image is rebuilt once; the launcher
+    behaves as 3.119.7.
 
-## 3.119.8 — container 2.84.12
+## 3.119.7 — container 2.84.10
 
-- **Issue #265, the fix**: while a team stays down, the teamchat link now logs a change of its
-  cause, at most once every five minutes, so a 30 s retry does not flood `link.log`. When the link
-  refuses a hook's inbox socket, it also logs the path the hook reported, the process chain it
-  walked and the socket Claude Code would place for each pid on that chain. The image is rebuilt
-  once; the launcher behaves as 3.119.7.
-
-## 3.119.7 — container 2.84.11
-
-- **Issue #265, the defence and its sweep**: teamchat's log lines named a failed Matrix call by
-  its class alone ("the homeserver did not answer usably"). That class reads the same for a TLS
-  handshake that failed against the seat's pinned CA, a timeout and a refused connection. Every
-  such line now names the cause too: the class, then the failed call's own text (method, path,
-  status and the fixed detail, never a token). The rule `project_class_without_detail` holds it.
-  The image is rebuilt once; the launcher behaves as 3.119.6.
+- **Every line typed into a session is checked to have been submitted** (issue #264): after a
+  reboot `ccy-sessions` restore could leave its `/compact` in a session's input box, because the
+  one Enter after it arrived before the session was ready. Now every line ccy types into a
+  session (the restore's `/compact` and `continue`, the `/compact` and `/exit` of a close and
+  `ccy --stop`, the wind-down's lines) is entered, the box read until the line has left it, and
+  Enter pressed again while it has not, up to five times; a line that never leaves is reported
+  as a failure, and the session is left running. No image rebuild.
 
 ## 3.119.6 — container 2.84.10
 

@@ -316,7 +316,7 @@ func TestACompactStuckInTheBoxFails(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	m.errHas(t, "✗ ccy-proj: /goal clear and the wind-down went in, but /compact stayed in its input box after a second Enter")
+	m.errHas(t, "✗ ccy-proj: /goal clear and the wind-down went in, but /compact stayed in its input box after 5 Enters")
 }
 
 // WC3: the transcript is written after the pane redraws, so a host session idle again with no
