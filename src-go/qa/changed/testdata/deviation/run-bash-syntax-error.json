@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: bad.bash\ncheck shellcheck: bad.bash\ncheck shell-directives: bad.bash\ncheck semgrep: bad.bash\ncheck ready-wait-files: bad.bash\ncheck bash-limits\ncheck argv-leak\ncheck hidden-bindings\ncheck lxc-attach-streams\n✓ toolchain: QA tool versions match .qa-versions\n✗ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ hidden-bindings: whole gate (no action reachable only by a key)\n✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)\n✗ qa-changed FAILED: bash-syntax\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: bad.bash\ncheck shellcheck: bad.bash\ncheck shell-directives: bad.bash\ncheck semgrep: bad.bash\ncheck ready-wait-files: bad.bash\ncheck bash-limits\ncheck argv-leak\ncheck secret-screen\ncheck hidden-bindings\ncheck lxc-attach-streams\n✓ toolchain: QA tool versions match .qa-versions\n✗ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ argv-leak: secret-in-argv rules, whole gate\n✓ secret-screen: secret-on-normal-screen rules, whole gate\n✓ hidden-bindings: whole gate (no action reachable only by a key)\n✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)\n✗ qa-changed FAILED: bash-syntax\n",
  "stderr": "bad.bash: line 1: syntax error near unexpected token `then'\nbad.bash: line 1: `if then'\n",
  "status": 1,
  "log": [
@@ -10,6 +10,7 @@
   "gate:qa-ready-wait-rules.bash json=",
   "gate:qa-bash-limits.bash json=",
   "gate:qa-argv-leak.bash json=",
+  "gate:qa-secret-screen.bash json=",
   "gate:qa-hidden-bindings.bash json=",
   "gate:qa-lxc-attach-streams.bash json="
  ]

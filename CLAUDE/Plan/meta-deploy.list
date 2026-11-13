@@ -34,3 +34,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Issue #261: ccy 3.120.0 / container 2.84.11. Installs the launcher, its lib/ and the Go front
+# (the new --secret-screen flag: ccy --create-token and the interactive token export show the
+# token on the terminal's alternate screen, cleared on Enter) and rebuilds the image once
+# (agent-bus human password shows the new password the same way).
+playbooks/imports/play-claude-yolo.yml
+# Issue #261: rewrites the gh helper functions in ~/.bashrc, so gh-token-<alias> and
+# gh-<alias>-token-phpstorm show the token on the alternate screen (plain when captured).
+playbooks/imports/play-github-cli-multi.yml

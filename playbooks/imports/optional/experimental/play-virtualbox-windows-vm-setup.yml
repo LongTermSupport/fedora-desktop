@@ -40,38 +40,18 @@
       ansible.builtin.meta: end_play
       when: ansible_facts['architecture'] != 'x86_64'
 
-    - name: Get Embedded Windows Key
-      become: true
-      ansible.builtin.dnf:
-        name: acpica-tools
-        state: present
-      tags: key
-
-    - name: Run Commands to get Windows Key
-      become: true
-      ansible.builtin.shell: |
-        set -euo pipefail
-        echo "A few different ways to get windows key"
-        echo
-        echo "Windows Key:"
-        cat /sys/firmware/acpi/tables/MSDM | grep -aPo '\w{5}-\w{5}-\w{5}-\w{5}-\w{5}'
-        echo "Windows Key, with no dashes (for copy/paste):"
-        cat /sys/firmware/acpi/tables/MSDM | grep -aPo '\w{5}-\w{5}-\w{5}-\w{5}-\w{5}' | tr -d "-"
-        echo
-        echo "Second, using acpidump:"
-        echo
-        acpidump -n MSDM | tail -4
-      args:
-        executable: /bin/bash
-      register: windows_key
-      changed_when: false
-      tags: key
-
-    - name: |
-        Show Windows Key - This is the key that is embedded on your machine, if it is present.
-        The key is the bit at the end of the outputs below.
+    # The key is a product key: printed by the play it would sit in the terminal's scrollback and
+    # the run log (rule secret-on-normal-screen, CLAUDE/QA.md), so the play only says how to see
+    # it on the terminal's alternate screen, cleared on Enter.
+    - name: Say how to see the Windows key embedded in this machine's firmware
       ansible.builtin.debug:
-        msg: "{{ windows_key.stdout_lines }}"
+        msg: |
+          If this machine came with Windows, its product key is in the firmware (the ACPI MSDM
+          table). To see it, run this in a terminal; it shows the key until you press Enter:
+
+              sudo grep -aoP '\w{5}(-\w{5}){4}' /sys/firmware/acpi/tables/MSDM | {{ root_dir }}/scripts/secret-screen.bash
+
+          A screen with no key on it means the firmware holds none.
       tags: key
 
     - name: Download Windows 11 VM

@@ -9,10 +9,13 @@ stdin; nothing prompts.
 
 Streams (CLAUDE/StderrHygiene.md): stdout is the payload only: `CHANGED <what>` marker
 lines, `list` / `human devices` lines, `check-rooms`' `PROBLEM <what>` and `OFFLINE <who>` lines, the `render` output, the bundle tar, or the
-password `human password` prints once. Diagnostics go to stderr and hold no secret.
+password `human password` prints once. On a terminal that password is shown on the alternate
+screen and cleared on Enter (screen.show_secret), so it stays in no scrollback; piped or
+redirected it is printed plainly. Diagnostics go to stderr and hold no secret.
 
 Exit codes: 0 done; 1 `check-rooms` found a problem; 64 usage; 69 homeserver unreachable; 70 refused (by the homeserver,
-or because the team's state does not allow it); 78 configuration (team file, team
+or because the team's state does not allow it); 74 the new password was shown on the terminal but no Enter
+was read from it; 78 configuration (team file, team
 directory, secret files, registry).
 """
 
@@ -25,7 +28,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import BinaryIO, TextIO
 
-from helpers.agent_bus import admin, checkout, health, registry, render, teamfile
+from helpers.agent_bus import admin, checkout, health, registry, render, screen, teamfile
 from helpers.pingbus import config, inbox, protocol
 
 PROG = "agent-bus"
@@ -37,6 +40,7 @@ EXIT_PROBLEM = 1
 EXIT_USAGE = 64
 EXIT_UNREACHABLE = 69
 EXIT_REFUSED = 70
+EXIT_IO = 74
 EXIT_BUSY = 75
 EXIT_CONFIG = 78
 
@@ -139,7 +143,7 @@ def cmd_check_rooms(args: argparse.Namespace, team: admin.Team, transport: admin
 
 def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     if args.action == "password":
-        io.lines([admin.human_password(team, transport, args.name)])
+        screen.show_secret(admin.human_password(team, transport, args.name) + "\n", io.stdout)
         io.say(f"{args.name}: new password set and printed once; it is stored nowhere, and "
                "every other session was logged out")
         io.say(health.login_limits_text())
@@ -440,6 +444,9 @@ def main(
     except admin.AdminError as exc:
         io.say(str(exc))
         return EXIT_REFUSED
+    except screen.NoEnterError as exc:
+        io.say(f"{exc}; the password is set: run human password again for a new one")
+        return EXIT_IO
     finally:
         io.stdout.flush()
 

@@ -16,7 +16,8 @@ Ansible Vault String Helper
 
 Usage: ./vault.bash <command> [args]
 
-Commands:
+Commands (get, get-raw and dump show the value on the terminal's alternate screen, cleared
+on Enter, so it stays in no scrollback; piped or redirected they print it plainly):
   get <varname>           Decrypt and display a single vault variable
   get-raw <varname>       Show exact bytes (debug whitespace/quote issues)
   dump                    Decrypt and display ALL vault variables
@@ -51,6 +52,10 @@ check_vault_pass() {
     echo "Create it first or run run.bash to set up the vault." >&2
     exit 1
   fi
+  if [[ -n "${1:-}" ]] && ! grep -qP "^${1}:.*!vault" "$VAULT_FILE" 2>/dev/null; then
+    echo "ERROR: Variable '$1' not found as vault-encrypted in $VAULT_FILE" >&2
+    exit 1
+  fi
 }
 
 # Decrypt a single vault variable using ansible CLI
@@ -75,31 +80,15 @@ else:
 
 cmd_get() {
   local varname="${1:?Usage: vault.bash get <varname>}"
-  check_vault_pass
-
-  if ! grep -qP "^${varname}:.*!vault" "$VAULT_FILE" 2>/dev/null; then
-    echo "ERROR: Variable '$varname' not found as vault-encrypted in $VAULT_FILE" >&2
-    exit 1
-  fi
-
-  _decrypt_var "$varname"
-  echo  # newline after value
+  check_vault_pass "$varname"
+  { _decrypt_var "$varname"; echo; } | scripts/secret-screen.bash
 }
 
 # Show exact bytes of a decrypted vault variable (debug whitespace/quote issues)
 cmd_get_raw() {
   local varname="${1:?Usage: vault.bash get-raw <varname>}"
-  check_vault_pass
-
-  if ! grep -qP "^${varname}:.*!vault" "$VAULT_FILE" 2>/dev/null; then
-    echo "ERROR: Variable '$varname' not found as vault-encrypted in $VAULT_FILE" >&2
-    exit 1
-  fi
-
-  echo "=== Decrypted value for '$varname' (cat -A shows exact bytes) ==="
-  _decrypt_var "$varname" | cat -A
-  echo
-  echo "=== Length: $(_decrypt_var "$varname" | wc -c) bytes ==="
+  check_vault_pass "$varname"
+  { echo "=== Decrypted value for '$varname' (cat -A shows exact bytes) ==="; _decrypt_var "$varname" | cat -A; echo; echo "=== Length: $(_decrypt_var "$varname" | wc -c) bytes ==="; } | scripts/secret-screen.bash
 }
 
 cmd_dump() {
@@ -113,14 +102,15 @@ cmd_dump() {
     return
   fi
 
-  local varname value
+  local varname value report=""
   while IFS= read -r varname; do
     value=$(_decrypt_var "$varname")
     if [[ "${#value}" -gt 80 ]]; then
       value="${value:0:77}..."
     fi
-    printf '%-30s %s\n' "$varname" "$value"
+    report+="$(printf '%-30s %s' "$varname" "$value")"$'\n'
   done <<< "$vault_vars"
+  printf '%s' "$report" | scripts/secret-screen.bash
 }
 
 cmd_list() {
@@ -174,15 +164,9 @@ cmd_set() {
     exit 1
   fi
 
-  local value
-  value=$(_read_value "$varname")
-
-  # See note in cmd_encrypt: ansible.cfg registers vault-id "localhost"
-  # already; passing --vault-id here duplicates it and breaks on
-  # ansible-core 2.20+.
+  # cmd_encrypt reads the value and encrypts it, as ansible.cfg's vault-id says.
   local encrypted
-  encrypted=$(printf '%s' "$value" | ansible-vault encrypt_string \
-    --stdin-name "$varname")
+  encrypted=$(cmd_encrypt "$varname")
 
   echo "$encrypted" >> "$VAULT_FILE"
   echo "Saved '$varname' to $VAULT_FILE (vault-encrypted)" >&2
@@ -198,15 +182,9 @@ cmd_replace() {
     exit 1
   fi
 
-  local value
-  value=$(_read_value "$varname")
-
-  # See note in cmd_encrypt: ansible.cfg registers vault-id "localhost"
-  # already; passing --vault-id here duplicates it and breaks on
-  # ansible-core 2.20+.
+  # cmd_encrypt reads the value and encrypts it, as ansible.cfg's vault-id says.
   local encrypted
-  encrypted=$(printf '%s' "$value" | ansible-vault encrypt_string \
-    --stdin-name "$varname")
+  encrypted=$(cmd_encrypt "$varname")
 
   # Rewrite the file: drop the old block (the `varname:` line plus its
   # indented `!vault |` continuation lines, up to the next unindented key),

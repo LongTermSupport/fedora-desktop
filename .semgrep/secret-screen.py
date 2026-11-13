@@ -7,7 +7,7 @@ line below it as clean.
 import getpass
 import sys
 
-from helpers import secret_screen
+from helpers.agent_bus import screen
 
 
 def human(io, admin, team, transport, args):
@@ -33,7 +33,7 @@ def other_shapes(token, gh_password, api_key, access_token, stream):
 
 def fixed(token, token_name, stream):
     # ok: secret-on-normal-screen-python
-    secret_screen.show(token, stream)
+    screen.show_secret(token, stream)
     # ok: secret-on-normal-screen-python
     print("token saved as", token_name)
     # ok: secret-on-normal-screen-python

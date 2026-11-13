@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.120.0 — container 2.84.11
+
+- **A token or password ccy shows leaves no copy in the terminal's scrollback** (issue #261): a
+  terminal keeps what its normal screen showed, and tmux a pane's history, so a secret printed
+  there "once" stayed readable long after. `ccy --create-token` now shows `claude setup-token`'s
+  output, which holds the new token, on the terminal's alternate screen, cleared when you press
+  Enter (copy the token first if it is not picked up automatically), and a token pasted by hand
+  is no longer echoed. The interactive token export does the same. The new front flag
+  `claude-yolo --secret-screen` is how the bash launcher shows a secret: on a terminal the
+  alternate screen, cleared on Enter; piped or redirected, the text as it is. In the image, the
+  agent team bus's `agent-bus human password` shows the new password the same way. The image is
+  rebuilt once.
+
 ## 3.119.7 — container 2.84.10
 
 - **Every line typed into a session is checked to have been submitted** (issue #264): after a

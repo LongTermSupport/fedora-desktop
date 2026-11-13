@@ -1277,10 +1277,11 @@
                   {% endfor %}
               }
 
-              # Helper to get token for specific account
+              # Helper to get token for specific account: plain when captured or piped; on a
+              # terminal the alternate screen, cleared on Enter (rule secret-on-normal-screen).
               {% for alias, username in github_accounts.items() %}
               function gh-token-{{ alias }}() {
-                  gh auth token --hostname github.com --user "{{ username }}"
+                  gh auth token --hostname github.com --user "{{ username }}" | "{{ root_dir }}/scripts/secret-screen.bash"
               }
               {% endfor %}
 
@@ -1356,16 +1357,13 @@
 
                   echo ""
                   echo "=================================================="
-                  echo "Your PhpStorm Token:"
-                  echo "=================================================="
-                  gh auth token
-                  echo ""
                   echo "To use in PhpStorm:"
                   echo "  1. Settings > Version Control > GitHub"
                   echo "  2. Click '+' to add account"
                   echo "  3. Select 'Log In with Token'"
-                  echo "  4. Paste the token above"
+                  echo "  4. Paste the token, shown next until you press Enter"
                   echo "=================================================="
+                  gh auth token | "{{ root_dir }}/scripts/secret-screen.bash"
               }
 
               # Clone helper that properly configures remotes
