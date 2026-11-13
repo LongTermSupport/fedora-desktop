@@ -34,3 +34,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #264: rebuild ccy-sessions, ccy-teams and the ccy launcher (Go front and bash launcher,
+# CCY 3.119.6) so every line typed into a session (the restore's /compact, a close's /exit, the
+# wind-down) is checked to have left the input box, with Enter pressed again up to five times.
+# No image rebuild. The next reboot's restore is the live check (ccy-sessions verify-restore).
+playbooks/imports/play-claude-yolo.yml --tags launchers
