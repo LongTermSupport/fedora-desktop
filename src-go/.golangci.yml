@@ -89,6 +89,10 @@ linters:
       # SPEC-team-add-and-restart C1), snake_case like the rest of pingbus's files.
       - path: internal/conversation/conversation\.go
         linters: [tagliatelle]
+      # The Matrix client list is pingbus's file (helpers/pingbus/matrix_clients.json, issue
+      # 251), snake_case like the rest of pingbus's files; the Go guards read a copy of it.
+      - path: internal/matrixclients/list\.go
+        linters: [tagliatelle]
       # The status-line oracle's scenarios.json is the pingbus oracle's literal input (Plan 00213
       # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
       - path: internal/pingbus/statusline/golden/golden_test\.go

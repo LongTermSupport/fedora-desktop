@@ -1,0 +1,7 @@
+---
+# Fixture for matrix-client-unlisted: a client the Matrix clients play installs by importing this
+# file, whose name carries no Matrix word.
+- name: Install the client
+  ansible.builtin.include_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+  vars:
+    flatpak_app_id: org.example.SomeClient

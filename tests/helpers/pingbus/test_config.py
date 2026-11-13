@@ -6,7 +6,7 @@ Run from the repo root:
 
 Spec: docs/agent-bus-protocol.md §12 (bundle, member.json, PINGBUS_HOME, PINGBUS_TEAMS, --team)
 and DESIGN.md sections 5.1, 5.2 (Python gate, human_text) and 8 (no `host` member beside
-an Element profile). Every bundle here is built in a temporary directory.
+a Matrix client profile, issue #251). Every bundle here is built in a temporary directory.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import config, limits
+from helpers.pingbus import config, limits, matrix_clients
 
 SN = "team-a.agent-bus.internal"
 HANDLE = "myrepo.1+workstation.podman"
@@ -621,7 +621,20 @@ class TestElementProfile(BundleCase):
                 self.setUp()
                 self.host_bundle()
                 (self.user_home / rel).mkdir(parents=True)
-                self.assert_refused(contains="Element")
+                refusal = self.assert_refused(contains="Element")
+                self.assertIn(config.ELEMENT_REFUSAL, str(refusal))
+                self.assertIn("run it as a dedicated agent user", str(refusal))
+                self.assertNotIn("cc --teams", str(refusal))
+
+    def test_host_member_beside_any_listed_client_refused(self) -> None:
+        """Issue #251: every client on the one list, by its Flatpak data."""
+        self.assertEqual([c.name for c in config.MATRIX_CLIENTS.clients], ["Element", "Nheko", "Lightning"])
+        for client in config.MATRIX_CLIENTS.clients:
+            with self.subTest(client=client.name):
+                self.setUp()
+                self.host_bundle()
+                (self.user_home / client.flatpak_dir).mkdir(parents=True)
+                self.assert_refused(contains=f"{client.flatpak_dir}, {client.name})")
 
     def test_element_profile_found_through_a_dangling_symlink(self) -> None:
         self.host_bundle()
@@ -644,16 +657,16 @@ class TestElementProfile(BundleCase):
         self.host_bundle()
         (self.user_home / ".config").mkdir()
         denied = PermissionError(13, "Permission denied")
-        with mock.patch.object(pathlib.Path, "iterdir", side_effect=denied):
+        with mock.patch.object(matrix_clients.os, "scandir", side_effect=denied):
             self.assert_refused(contains="Permission denied")
 
 
 class TestElementAcceptedForADesktopSeat(BundleCase):
     """Plan 00177 Task 4.10: a `cc --teams` session is a `host` member in a checkout seat,
     reached through the session home's link, and runs as the desktop's owner. The owner
-    accepts once per USER, at cc's confirm, that it runs beside their Element profile; cc
-    records that as `config.ELEMENT_ACCEPTED_FILE` under `config.ELEMENT_ACCEPTED_DIR` in
-    their home. Only that case loads: every other `host` bundle keeps the refusal, the
+    accepts once per USER, at cc's confirm, that it runs beside their Matrix clients' profiles;
+    cc records that, with the clients accepted, as `config.ELEMENT_ACCEPTED_FILE` under
+    `config.ELEMENT_ACCEPTED_DIR` in their home. Only that case loads: every other `host` bundle keeps the refusal, the
     record or not."""
 
     def host_seat(self, name: str = "3") -> pathlib.Path:
@@ -671,11 +684,11 @@ class TestElementAcceptedForADesktopSeat(BundleCase):
         (self.user_home / ".var/app/im.riot.Riot").mkdir(parents=True, exist_ok=True)
         return seat
 
-    def accept(self, mode: int = 0o600) -> pathlib.Path:
+    def accept(self, mode: int = 0o600, body: str = "accepted\n") -> pathlib.Path:
         directory = self.user_home / config.ELEMENT_ACCEPTED_DIR
         directory.mkdir(parents=True, exist_ok=True)
         record = directory / config.ELEMENT_ACCEPTED_FILE
-        record.write_text("accepted\n", encoding="utf-8")
+        record.write_text(body, encoding="utf-8")
         record.chmod(mode)
         return record
 
@@ -683,6 +696,38 @@ class TestElementAcceptedForADesktopSeat(BundleCase):
         self.host_seat()
         self.accept()
         self.assertEqual(self.load().member_type, "host")
+
+    def test_a_record_without_a_clients_line_covers_element_alone(self) -> None:
+        """Issue #251: a record written before the record named its clients was given for
+        Element; a Nheko profile beside it is refused, naming Nheko and the way to accept it."""
+        self.host_seat()
+        self.accept()
+        nheko = config.MATRIX_CLIENTS.client("Nheko")
+        (self.user_home / nheko.flatpak_dir).mkdir(parents=True)
+        refusal = self.assert_refused(contains=f"{nheko.flatpak_dir}, Nheko)")
+        self.assertIn("or accept it at cc --teams", str(refusal))
+
+    def test_a_record_naming_every_client_found_loads(self) -> None:
+        self.host_seat()
+        nheko = config.MATRIX_CLIENTS.client("Nheko")
+        (self.user_home / nheko.flatpak_dir).mkdir(parents=True)
+        element = config.MATRIX_CLIENTS.client("Element")
+        self.accept(body=f"accepted 2026-11-13T00:00:00Z\nclients {element.app_id} {nheko.app_id}\n")
+        self.assertEqual(self.load().member_type, "host")
+
+    def test_a_record_naming_another_client_does_not_cover_element(self) -> None:
+        self.host_seat()
+        nheko = config.MATRIX_CLIENTS.client("Nheko")
+        self.accept(body=f"accepted 2026-11-13T00:00:00Z\nclients {nheko.app_id}\n")
+        self.assert_refused(contains="Element)")
+
+    def test_a_record_that_is_not_a_consent_record_does_not_count(self) -> None:
+        self.host_seat()
+        for body in ("clients bad\n", "clients a.b.C\nclients a.b.D\n", "x" * (matrix_clients.CONSENT_MAX_BYTES + 1)):
+            with self.subTest(body=body[:30]):
+                self.accept(body=body)
+                self.assert_refused(contains="Element")
+        self.assertIsNone(config.accepted_clients(self.user_home, self.uid))
 
     def test_one_acceptance_covers_every_seat(self) -> None:
         self.accept()
@@ -734,17 +779,35 @@ class TestElementAcceptedForADesktopSeat(BundleCase):
     def test_a_record_owned_by_someone_else_does_not_count(self) -> None:
         self.host_seat()
         record = self.accept()
-        real_lstat = os.lstat
+        real_fstat = os.fstat
+        record_inode = record.stat().st_ino
 
-        def foreign_record(path: object, *args: object, **kwargs: object) -> os.stat_result:
-            info = real_lstat(path, *args, **kwargs)
-            if os.fspath(path) != os.fspath(record):
+        def foreign_record(fd: int) -> os.stat_result:
+            info = real_fstat(fd)
+            if info.st_ino != record_inode:
                 return info
             fields = list(info)
             fields[4] = self.uid + 1  # st_uid
             return os.stat_result(fields)
 
-        with mock.patch.object(config.os, "lstat", side_effect=foreign_record):
+        with mock.patch.object(config.os, "fstat", side_effect=foreign_record):
+            self.assert_refused(contains="Element")
+
+    def test_a_directory_owned_by_someone_else_does_not_count(self) -> None:
+        self.host_seat()
+        self.accept()
+        directory = self.user_home / config.ELEMENT_ACCEPTED_DIR
+        real_lstat = os.lstat
+
+        def foreign_directory(path: object, *args: object, **kwargs: object) -> os.stat_result:
+            info = real_lstat(path, *args, **kwargs)
+            if os.fspath(path) != os.fspath(directory):
+                return info
+            fields = list(info)
+            fields[4] = self.uid + 1  # st_uid
+            return os.stat_result(fields)
+
+        with mock.patch.object(config.os, "lstat", side_effect=foreign_directory):
             self.assert_refused(contains="Element")
 
 

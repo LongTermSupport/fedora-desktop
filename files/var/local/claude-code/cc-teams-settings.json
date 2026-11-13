@@ -7,6 +7,10 @@
       "Edit(~/.config/Element/**)",
       "Read(~/.config/Element-*/**)",
       "Edit(~/.config/Element-*/**)",
+      "Read(~/.var/app/im.nheko.Nheko/**)",
+      "Edit(~/.var/app/im.nheko.Nheko/**)",
+      "Read(~/.var/app/org.lightning_matrix.Lightning/**)",
+      "Edit(~/.var/app/org.lightning_matrix.Lightning/**)",
       "Edit(~/.config/pingbus/**)",
       "Read(~/.local/share/keyrings/**)",
       "Edit(~/.local/share/keyrings/**)",
@@ -16,6 +20,8 @@
       "Bash(*freedesktop.secrets*)",
       "Bash(*im.riot.Riot*)",
       "Bash(*.config/Element*)",
+      "Bash(*im.nheko.Nheko*)",
+      "Bash(*org.lightning_matrix.Lightning*)",
       "Bash(*IndexedDB*)",
       "Bash(*Local Storage*)"
     ]

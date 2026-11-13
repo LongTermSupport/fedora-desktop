@@ -203,6 +203,12 @@ class ExpectRecord(unittest.TestCase):
         with self.assertRaises(cc.Failed):
             cc.expect_record(str(self.path), os.getuid() + 1, 0)
 
+    def test_a_record_pingbus_cannot_read_fails(self) -> None:
+        self.path.write_text("accepted x\nclients not-an-app-id\n", encoding="ascii")
+        self.path.chmod(0o600)
+        with self.assertRaisesRegex(cc.Failed, "not a consent record"):
+            cc.expect_record(str(self.path), os.getuid(), 0)
+
     def test_a_symlink_fails(self) -> None:
         self.write()
         link = pathlib.Path(self.tmp.name) / "link"

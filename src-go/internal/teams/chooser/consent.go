@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -39,28 +42,29 @@ func (c *Chooser) finish(ctx context.Context, memberType string, refs []string) 
 	return c.printList(refs)
 }
 
-// consent is the owner's once-per-user acceptance that a host seat runs beside their Element
-// session, asked after the seats are chosen and before any is made. A record that is already
-// there answers it. A decline, or Ctrl-C at the question, records nothing and ends the run (1).
+// consent is the owner's once-per-user acceptance that a host seat runs beside the Matrix
+// clients signed in under their home (the one list, matrixclients), asked after the seats are
+// chosen and before any is made. A record that names every client found answers it; a record
+// that does not (one written before Nheko or Lightning was there, or before records named their
+// clients) is asked again, for the new clients. A decline, or Ctrl-C at the question, records
+// nothing and ends the run (1).
 func (c *Chooser) consent(ctx context.Context, memberType string, refs []string) term.ExitCode {
 	home, err := c.Host.UserHome(c.UID())
 	if err != nil {
 		c.say("ccy-teams: your home is not in the passwd database (" + err.Error() +
-			"), so the Element acceptance cannot be found or recorded.")
+			"), so the Matrix consent cannot be found or recorded.")
 		return exitConfig
 	}
-	dir := filepath.Join(home, acceptedDir)
-	record := filepath.Join(dir, acceptedFile)
-	accepted, err := recordState(dir, record, c.UID())
+	s, err := consentStateOf(home, c.UID())
 	if err != nil {
 		c.say("ccy-teams: " + err.Error())
 		return exitConfig
 	}
-	if accepted {
+	if s.again && len(s.newClients) == 0 {
 		return term.ExitOK
 	}
 	if !c.attended() {
-		c.say("ccy-teams: the Element consent needs a terminal to be asked on, and there is none: " +
+		c.say("ccy-teams: the Matrix consent needs a terminal to be asked on, and there is none: " +
 			"start cc --teams once from a terminal, and no seat has been made.")
 		return exitConfig
 	}
@@ -72,12 +76,12 @@ func (c *Chooser) consent(ctx context.Context, memberType string, refs []string)
 	if code != term.ExitOK {
 		return code
 	}
-	c.say(consentWords(handles))
+	c.say(consentWords(handles, s))
 	who := strings.Join(handles, ", ")
 	if len(handles) == 0 {
 		who = "this session on the bus"
 	}
-	head := ui.Here(flow.LaunchCrumb, "Element consent").About("host seats: " + who)
+	head := ui.Here(flow.LaunchCrumb, "Matrix consent").About("host seats: " + who)
 	yes, err := c.Gum.Confirm(ctx, head, "Accept, and start "+who+"?", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		c.say("Not started. Nothing was recorded; cc --teams asks again next time.")
@@ -87,16 +91,56 @@ func (c *Chooser) consent(ctx context.Context, memberType string, refs []string)
 		c.Host.ReportErr(err)
 		return term.ExitFailure
 	}
-	if err := c.record(dir, record); err != nil {
-		c.say("ccy-teams: could not record your answer in " + record + ": " + err.Error())
+	if err := c.record(s.dir, s.record, s.answered()); err != nil {
+		c.say("ccy-teams: could not record your answer in " + s.record + ": " + err.Error())
 		return exitConfig
 	}
 	return term.ExitOK
 }
 
-// consentWords are what the owner reads before answering, naming every handle that starts; with
-// none (cc --bus), the teams the session is added to later.
-func consentWords(handles []string) string {
+// consentState is what the consent is decided on: the list, the clients found under the home,
+// the record and what it accepts, and the clients found that it does not.
+type consentState struct {
+	list        matrixclients.List
+	found       []matrixclients.Found
+	dir, record string
+	accepted    []string
+	again       bool
+	newClients  []matrixclients.Client
+}
+
+func consentStateOf(home string, uid int) (consentState, error) {
+	list, err := matrixclients.Load()
+	if err != nil {
+		return consentState{}, err
+	}
+	found, err := list.Present(home)
+	if err != nil {
+		return consentState{}, err
+	}
+	s := consentState{list: list, found: found, dir: filepath.Join(home, acceptedDir)}
+	s.record = filepath.Join(s.dir, acceptedFile)
+	s.accepted, s.again, err = readRecord(list, s.dir, s.record, uid)
+	s.newClients = matrixclients.Uncovered(found, s.accepted)
+	return s, err
+}
+
+// answered is the app ids a yes accepts: those already accepted, then the new ones.
+func (s consentState) answered() []string {
+	ids := slices.Clone(s.accepted)
+	for _, id := range matrixclients.AppIDs(s.newClients) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// consentWords are what the owner reads before answering: every handle that starts (with none,
+// cc --bus, the teams the session is added to later), the Matrix clients found under their home,
+// and, asked again, the clients that are new since they last answered.
+func consentWords(handles []string, s consentState) string {
+	list := s.list
 	var opening string
 	switch len(handles) {
 	case 0:
@@ -107,22 +151,66 @@ func consentWords(handles []string) string {
 	default:
 		opening = strings.Join(handles, ", ") + " join their teams as its own member, and runs as you."
 	}
+	if s.again {
+		before := list.Names(s.accepted)
+		if before == "" {
+			before = "no Matrix client"
+		}
+		opening = "You accepted cc --teams seats beside " + before + ". " +
+			list.Names(matrixclients.AppIDs(s.newClients)) + " is now under your home too,\n" +
+			"  so you are asked again, for it.\n\n  " + opening
+	}
+	allNames := list.Names(matrixclients.AppIDs(list.Clients))
+	signedIn := "  No Matrix client is signed in under your home now; if one is\n" +
+		"  later, you are asked again.\n\n"
+	if len(s.found) > 0 {
+		ids := make([]string, 0, len(s.found))
+		for _, f := range s.found {
+			ids = append(ids, f.Client.AppID)
+		}
+		signedIn = "  (found under your home: " + list.Names(ids) + ")\n\n"
+	}
 	return "\n  " + opening + "\n\n" +
-		"  That means it can reach what you can, including the Element\n" +
-		"  session you are signed in to. A misbehaving agent could use it\n" +
-		"  to post as you, and every agent on the team would obey that.\n\n" +
+		"  That means it can reach what you can, including the Matrix\n" +
+		"  session you are signed in to in " + strings.Replace(allNames, " and ", " or ", 1) + ".\n" +
+		"  A misbehaving agent could use it to post as you, and every\n" +
+		"  agent on the team would obey that.\n" + signedIn +
 		"  It is told to post only through pingbus, as itself, and its\n" +
-		"  tools are denied Element's folders, the keyring and the plain\n" +
-		"  commands that reach them. That is guidance, not a wall: an agent\n" +
-		"  beside Element can still reach your session by other routes.\n" +
+		"  tools are denied those clients' folders, the keyring and the\n" +
+		"  plain commands that reach them. That is guidance, not a wall: an\n" +
+		"  agent beside them can still reach your session by other routes.\n" +
 		"  ccy --teams is the safe choice: its agent runs in a container\n" +
-		"  that cannot reach your Element sign-in.\n\n" +
+		"  that cannot reach your Matrix sign-in.\n\n" +
 		"  Any human listed in a team can direct its agents as you can.\n" +
-		"  You are asked once, for every cc --teams seat.\n"
+		"  You are asked once, for every cc --teams seat, and again only\n" +
+		"  when a Matrix client you have not accepted appears.\n"
+}
+
+// readRecord is the app ids the owner's record accepts, and whether there is one: none is not an
+// error, and a record whose place or content pingbus would not count is (recordState,
+// matrixclients.List.ParseConsent), with how to put it right.
+func readRecord(list matrixclients.List, dir, record string, uid int) ([]string, bool, error) {
+	exists, err := recordState(dir, record, uid)
+	if err != nil || !exists {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(filepath.Clean(record), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(f, matrixclients.ConsentMaxBytes+1))
+	if closeErr := errors.Join(readErr, f.Close()); closeErr != nil {
+		return nil, false, closeErr
+	}
+	accepted, err := list.ParseConsent(data)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s is not a consent record pingbus can read (%w); remove it and answer again", record, err)
+	}
+	return accepted, true, nil
 }
 
 // recordState is whether the acceptance is already recorded, by the rule pingbus applies
-// (config.element_accepted): a real folder and a plain file, both the user's, the file with no
+// (config.accepted_clients): a real folder and a plain file, both the user's, the file with no
 // group or other access. Anything else that exists is refused with how to put it right, so no
 // seat is made for a record pingbus would then not count; nothing is written through a symlink.
 func recordState(dir, record string, uid int) (bool, error) {
@@ -188,16 +276,11 @@ func (c *Chooser) handles(ctx context.Context, memberType string, refs []string)
 	return handles, term.ExitOK
 }
 
-// record writes the acceptance: the folder the owner's alone (0700), the record owner-only, a
-// symlink never followed and an existing record never overwritten.
-func (c *Chooser) record(dir, record string) error {
+// record writes the acceptance of ids: the folder the owner's alone (0700), the record
+// owner-only, replaced whole (a second yes rewrites it with the clients added).
+func (c *Chooser) record(dir, record string, ids []string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Clean(record), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
-	if err != nil {
-		return err
-	}
-	_, werr := fmt.Fprintf(f, "accepted %s\n", c.Now().UTC().Format("2006-01-02T15:04:05Z"))
-	return errors.Join(werr, f.Close())
+	return fsx.WriteAtomic(record, "Matrix consent record", matrixclients.FormatConsent(c.Now(), ids), 0o600)
 }

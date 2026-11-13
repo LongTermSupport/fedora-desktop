@@ -7,7 +7,7 @@ Run from the repo root:
 
 Plan 00161 DESIGN.md section 12, row U18: every `hooks.json` command is a real
 `pingbus hook` subcommand; SKILL.md names only real commands and carries the HUMAN/PING
-rules; the launcher's argv; the launcher refuses beside an Element profile. Section 6 says
+rules; the launcher's argv; the launcher refuses beside a Matrix client profile. Section 6 says
 which hooks the plugin needs, section 5.4 what the launcher does, and U01 (plan journal)
 why settings.json carries `crossSessionInbound: accept`. The launcher runs against a fake
 `pingbus` and a fake `claude`; nothing reads the machine's own config.
@@ -593,27 +593,34 @@ class LauncherTest(unittest.TestCase):
 
     # ── refusals ──
 
-    def test_refuses_beside_an_element_flatpak_profile(self) -> None:
-        (self.home / config.ELEMENT_FLATPAK_DIR).mkdir(parents=True)
-        self.assert_refused(self.run_launcher(), EX_CONFIG, "Element")
+    def test_refuses_beside_every_listed_clients_flatpak_profile(self) -> None:
+        """Issue #251: the launcher's arrays are the one Matrix client list's."""
+        for client in config.MATRIX_CLIENTS.clients:
+            with self.subTest(client=client.name):
+                flatpak = self.home / client.flatpak_dir
+                flatpak.mkdir(parents=True)
+                self.assert_refused(self.run_launcher(), EX_CONFIG, f"Matrix client profile ({flatpak})")
+                flatpak.rmdir()
         self.assertEqual(self.pingbus_calls(), [])
 
     def test_refuses_beside_a_dangling_element_symlink(self) -> None:
         flatpak = self.home / config.ELEMENT_FLATPAK_DIR
         flatpak.parent.mkdir(parents=True)
         flatpak.symlink_to(self.root / "gone")
-        self.assert_refused(self.run_launcher(), EX_CONFIG, "Element")
+        self.assert_refused(self.run_launcher(), EX_CONFIG, f"Matrix client profile ({flatpak})")
 
     def test_refuses_beside_a_native_element_profile(self) -> None:
-        for name in (config.ELEMENT_NATIVE_NAME, f"{config.ELEMENT_NATIVE_NAME}-team-a"):
+        native = config.MATRIX_CLIENTS.client("Element").native[0]
+        for name in (native.name, f"{native.name}-team-a"):
             with self.subTest(name=name):
-                profile = self.home / config.ELEMENT_NATIVE_PARENT / name
+                profile = self.home / native.parent / name
                 profile.mkdir()
-                self.assert_refused(self.run_launcher(), EX_CONFIG, "Element")
+                self.assert_refused(self.run_launcher(), EX_CONFIG, f"Matrix client profile ({profile})")
                 profile.rmdir()
 
     def test_an_element_lookalike_is_not_a_profile(self) -> None:
-        (self.home / config.ELEMENT_NATIVE_PARENT / "Elementary").mkdir()
+        native = config.MATRIX_CLIENTS.client("Element").native[0]
+        (self.home / native.parent / f"{native.name}ary").mkdir()
         self.assertEqual(self.run_launcher().returncode, 0)
 
     def run_launcher_unprivileged(self) -> subprocess.CompletedProcess[str]:
@@ -637,8 +644,8 @@ class LauncherTest(unittest.TestCase):
         )
 
     def test_refuses_when_a_profile_parent_cannot_be_listed_and_searched(self) -> None:
-        flatpak = pathlib.PurePath(config.ELEMENT_FLATPAK_DIR)
-        parents = (config.ELEMENT_NATIVE_PARENT, str(flatpak.parent.parent), str(flatpak.parent))
+        paths = config.MATRIX_CLIENTS.profile_paths() + config.MATRIX_CLIENTS.profile_prefixes()
+        parents = sorted({str(pathlib.PurePath(rel).parent) for rel in paths} | {rel.split("/")[0] for rel in paths})
         for parent in parents:
             for mode in (0o000, 0o100, 0o400):
                 with self.subTest(parent=parent, mode=oct(mode)):
@@ -654,7 +661,7 @@ class LauncherTest(unittest.TestCase):
     def test_refuses_beside_element_even_with_no_env_file(self) -> None:
         self.env_file.unlink()
         (self.home / config.ELEMENT_FLATPAK_DIR).mkdir(parents=True)
-        self.assert_refused(self.run_launcher(), EX_CONFIG, "Element")
+        self.assert_refused(self.run_launcher(), EX_CONFIG, "Matrix client profile")
 
     def test_refuses_without_an_absolute_home(self) -> None:
         self.assert_refused(self.run_launcher(HOME="relative"), EX_CONFIG, "HOME")

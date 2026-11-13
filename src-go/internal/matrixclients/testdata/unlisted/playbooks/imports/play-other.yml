@@ -1,0 +1,26 @@
+---
+# Fixture for matrix-client-unlisted: another play. A Matrix client installed here is found by
+# its name (a package, a loop item); an unrelated Flatpak, and Element (listed), are not reported.
+- hosts: desktop
+  name: Other things
+  vars:
+    root_dir: "{{ playbook_dir }}/../.."
+  tasks:
+    - name: Install a Matrix client as a package
+      ansible.builtin.dnf:
+        name:
+          - nheko
+          - htop
+
+    - name: Install Flatpaks in a loop
+      community.general.flatpak:
+        name: "{{ item }}"
+      loop:
+        - org.gnome.Fractal
+        - org.shotcut.Shotcut
+        - im.riot.Riot
+
+    - name: Install an unrelated Flatpak
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: com.slack.Slack

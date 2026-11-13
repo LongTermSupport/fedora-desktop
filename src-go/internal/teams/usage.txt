@@ -222,9 +222,11 @@ Usage:
                                    SEAT@TEAM[,...] on stdout, the rest on stderr. Leaving any
                                    screen prints nothing and succeeds. With --type=host (cc)
                                    it also asks, once per user, whether a host seat may run
-                                   beside your Element session, and records the answer in
-                                   ~/.config/pingbus/element-accepted; declining ends the
-                                   run (exit 1); with no terminal and no valid record
+                                   beside your Matrix session (Element, Nheko or Lightning),
+                                   and records the answer and the clients found in
+                                   ~/.config/pingbus/element-accepted; it asks again when a
+                                   client the record does not name appears; declining ends
+                                   the run (exit 1); with no terminal and no valid record
                                    (yours, mode 600, in your closed folder) it exits 78
                                    before any seat is made. ccy --teams and cc --teams call it
   ccy-teams choose-teams --type=host --bus

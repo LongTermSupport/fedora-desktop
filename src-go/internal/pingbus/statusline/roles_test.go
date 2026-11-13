@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 )
 
 const hostUser = "@myrepo.1+workstation.host:alpha.example.org"
@@ -111,8 +113,8 @@ func TestALinkedBundleNeedsAPrivateRealDirectory(t *testing.T) {
 	}
 }
 
-// S21: a host member is refused beside an Element profile, unless its bundle is linked in and
-// the user has accepted it; without a passwd home it is refused.
+// S21: a host member is refused beside a Matrix client profile, unless its bundle is linked in
+// and the user has accepted every client found; without a passwd home it is refused.
 func TestAHostMemberBesideElement(t *testing.T) {
 	rw := newRolesWorld(t)
 	rw.bundle("pingbus/alpha", hostUser)
@@ -123,7 +125,7 @@ func TestAHostMemberBesideElement(t *testing.T) {
 		t.Errorf("no passwd home: %q", problem)
 	}
 	rw.mkdir("user/.config/Element-work", 0o700)
-	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with an Element profile") {
+	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with a Matrix client profile") {
 		t.Errorf("a native profile: %q", problem)
 	}
 	if err := os.Remove(rw.path("user/.config/Element-work")); err != nil {
@@ -131,7 +133,7 @@ func TestAHostMemberBesideElement(t *testing.T) {
 	}
 	rw.mkdir("user/.var/app", 0o700)
 	rw.link("gone", "user/.var/app/im.riot.Riot")
-	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with an Element profile") {
+	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with a Matrix client profile") {
 		t.Errorf("a dangling Flatpak link: %q", problem)
 	}
 
@@ -147,9 +149,54 @@ func TestAHostMemberBesideElement(t *testing.T) {
 	if err := os.Chmod(rw.path("user/.config/pingbus/element-accepted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, problem := rw.roles(nil); !strings.Contains(problem, "Element profile") {
+	if _, problem := rw.roles(nil); !strings.Contains(problem, "Matrix client profile") {
 		t.Errorf("an acceptance others can read: %q", problem)
 	}
+}
+
+// Issue #251: a linked host seat runs only beside the clients the user's record accepts. A
+// record without a clients line was given for Element alone, so a Nheko profile beside it is
+// refused until a record names Nheko too.
+func TestAHostMemberBesideAClientTheRecordDoesNotName(t *testing.T) {
+	rw := newRolesWorld(t)
+	rw.bundle("kept", hostUser)
+	rw.mkdir("pingbus", 0o700)
+	rw.link(rw.path("kept"), "pingbus/alpha")
+	rw.mkdir("user/.config/pingbus", 0o700)
+	rw.write("user/.config/pingbus/element-accepted", "")
+	nheko := clientNamed(t, "Nheko")
+	rw.mkdir("user/"+nheko.FlatpakDir(), 0o700)
+	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with a Matrix client profile") {
+		t.Errorf("Nheko beside an Element-only record: %q", problem)
+	}
+	element := clientNamed(t, "Element")
+	for body, want := range map[string]bool{
+		"accepted x\nclients " + nheko.AppID + "\n":                       true,
+		"accepted x\nclients " + element.AppID + " " + nheko.AppID + "\n": true,
+		"clients not-an-app-id\n":                                         false,
+	} {
+		rw.write("user/.config/pingbus/element-accepted", body)
+		role, problem := rw.roles(nil)
+		if ok := role == roleWorker && problem == ""; ok != want {
+			t.Errorf("record %q: %q %q, want accepted %v", body, role, problem, want)
+		}
+	}
+}
+
+// clientNamed is the listed Matrix client called name.
+func clientNamed(t *testing.T, name string) matrixclients.Client {
+	t.Helper()
+	list, err := matrixclients.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list.Clients {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("the Matrix client list names no %s", name)
+	return matrixclients.Client{}
 }
 
 // parentOf is pathlib's parent.

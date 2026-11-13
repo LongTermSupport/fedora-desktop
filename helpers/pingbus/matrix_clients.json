@@ -1,0 +1,31 @@
+{
+  "clients": [
+    {
+      "name": "Element",
+      "app_id": "im.riot.Riot",
+      "keyring": true,
+      "native": [
+        {
+          "parent": ".config",
+          "name": "Element",
+          "profiles": true
+        }
+      ]
+    },
+    {
+      "name": "Nheko",
+      "app_id": "im.nheko.Nheko",
+      "keyring": true,
+      "native": []
+    },
+    {
+      "name": "Lightning",
+      "app_id": "org.lightning_matrix.Lightning",
+      "keyring": true,
+      "native": []
+    }
+  ],
+  "legacy_consent": [
+    "im.riot.Riot"
+  ]
+}

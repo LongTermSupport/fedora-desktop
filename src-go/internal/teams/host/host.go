@@ -86,7 +86,7 @@ type Host struct {
 	// InContainer says whether this is a CCY container, where ccy-teams has no business.
 	InContainer func() bool
 	// UserHome is the passwd database's home of a uid: where pingbus looks for its owner's
-	// Element acceptance (helpers/pingbus/config.py _home_of), whatever HOME says.
+	// Matrix consent record (helpers/pingbus/config.py _home_of), whatever HOME says.
 	UserHome func(uid int) (string, error)
 }
 

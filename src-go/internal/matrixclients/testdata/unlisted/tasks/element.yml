@@ -1,0 +1,6 @@
+---
+# Fixture for matrix-client-unlisted: a listed client, imported by the Matrix clients play.
+- name: Install Element Desktop
+  ansible.builtin.include_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+  vars:
+    flatpak_app_id: im.riot.Riot

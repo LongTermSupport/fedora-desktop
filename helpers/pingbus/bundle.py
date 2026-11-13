@@ -4,8 +4,9 @@
 
 Both archives carry every `*.py` file under `helpers/pingbus/` and `helpers/agent_bus/`
 (found by walking the trees, so a module a later unit adds is included with no edit
-here) except this bundler itself; they differ only in `__main__.py`. A symlinked module
-is refused, since its bytes would come from outside the tree. The archive's `helpers` packages get empty
+here) except this bundler itself, and the data files a module reads through
+`importlib.resources` (`DATA_FILES`, each required); they differ only in `__main__.py`. A
+symlinked module or data file is refused, since its bytes would come from outside the tree. The archive's `helpers` packages get empty
 `__init__.py` files, making them regular packages: no `helpers` directory elsewhere on
 the path can contribute modules to them.
 
@@ -39,6 +40,8 @@ APPS = {
 PACKAGES = ("helpers/pingbus", "helpers/agent_bus")
 #: Build-time only: no app imports it.
 EXCLUDE = frozenset({"helpers/pingbus/bundle.py"})
+#: Files that are not modules but are read by one at run time (the Matrix client list).
+DATA_FILES = ("helpers/pingbus/matrix_clients.json",)
 #: The system interpreter by path, never `env python3`: PATH can put a pyenv shim first, which
 #: costs more than a status-line render on every start (Plan 00213 Task 1.4).
 SHEBANG = b"#!/usr/bin/python3\n"
@@ -90,6 +93,13 @@ def collect(source: pathlib.Path) -> dict[str, bytes]:
             if name in files:
                 raise BundleError(f"{name} would replace the archive's generated package marker")
             files[name] = path.read_bytes()
+    for name in DATA_FILES:
+        path = source / name
+        if path.is_symlink():
+            raise BundleError(f"{name} is a symlink; bundle only regular files in the tree")
+        if not path.is_file():
+            raise BundleError(f"{name} is missing under {source}; a module reads it at run time")
+        files[name] = path.read_bytes()
     return files
 
 

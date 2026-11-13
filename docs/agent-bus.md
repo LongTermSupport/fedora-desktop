@@ -748,17 +748,22 @@ checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy work
 your `gh` must be logged in.
 
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
-Element session you are signed in to. A misbehaving agent could use it. The first
-`cc --teams` launch asks you once, on a terminal, after the seats are chosen and before
-any is made, for you and not for each seat, to accept this. The
-answer is kept in `~/.config/pingbus/element-accepted` (mode 0600, in a folder of mode
-0700), and pingbus runs a cc `host` seat beside an Element profile only while it exists
-(every other `host` member is still refused). Declining starts nothing and records
-nothing; delete the file to be asked again. The session never sees the question. What guards it is
+Matrix session you are signed in to in Element, Nheko or Lightning (the Matrix clients this
+repository installs, one list: `helpers/pingbus/matrix_clients.json`). A misbehaving agent
+could use it. The first `cc --teams` launch asks you once, on a terminal, after the seats are
+chosen and before any is made, for you and not for each seat, to accept this, and names the
+clients it finds under your home. The answer is kept in `~/.config/pingbus/element-accepted`
+(mode 0600, in a folder of mode 0700) with a `clients` line naming the clients you accepted,
+and pingbus runs a cc `host` seat only beside clients that record names (every other `host`
+member is still refused). A record written before records named their clients counts for
+Element alone. When a client the record does not name appears under your home (you install
+Nheko or Lightning, say), the next `cc --teams` launch asks once more, naming it, and yes adds
+it to the record; until then pingbus in a running cc seat refuses, naming the client. Declining
+starts nothing and keeps the record as it was; delete the file to be asked again. The session never sees the question. What guards it is
 guidance, not a wall: the session is told to post only through pingbus, as itself, and
-cc's own settings deny Claude's file tools Element's folders and the keyring, and deny Bash
-the plain commands that reach them (`secret-tool`, the keyring, the Element Flatpak and
-profile paths). A rule matches the command's text, so an agent beside Element can still
+cc's own settings deny Claude's file tools every listed client's folders and the keyring, and
+deny Bash the plain commands that reach them (`secret-tool`, the keyring, each client's Flatpak
+and profile paths). A rule matches the command's text, so an agent beside them can still
 reach your session by other routes, post as you, and every agent on the team would take
 that as your request. A ccy session is the safe choice. Those settings are
 cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not
@@ -818,9 +823,10 @@ sudo -iu <agent-user> agent-bus-claude
 
 That user:
 
-- holds no Matrix session: no Element profile and no browser logged in to the team.
-  `agent-bus-claude` and `pingbus config check` refuse (exit 78) when its home has an
-  Element profile; a browser session cannot be detected, so this part is a rule;
+- holds no Matrix session: no Matrix client profile (Element, Nheko or Lightning) and no
+  browser logged in to the team. `agent-bus-claude` and `pingbus config check` refuse
+  (exit 78) when its home has a profile of any client on the list; a browser session cannot
+  be detected, so this part is a rule;
 - cannot `sudo` without a password and is not in the `docker` group, either of which
   would reach the team's secrets: an agent that can become root is trusted like a human;
 - owns its bundle (`token` must be owned by the user running `pingbus`, mode 0600 or
@@ -947,7 +953,7 @@ These are known and documented rather than engineered around:
 - Any human listed in a team has your authority over its agents: a request from any of them
   is weighed as yours, including by a session that also works for another team. The
   launch block says so; list only people you would let direct your agents.
-- A `cc --teams` session runs as you beside your Element session. Its deny rules stop the
+- A `cc --teams` session runs as you beside your Matrix clients' sessions. Its deny rules stop the
   plain routes to your sign-in, not a determined agent, which could post as you; every
   agent on the team takes that as your request. Run agents in ccy sessions (or as a
   dedicated agent user) when that matters.

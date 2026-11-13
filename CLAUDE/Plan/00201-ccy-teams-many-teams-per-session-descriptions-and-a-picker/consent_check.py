@@ -18,7 +18,7 @@ Standard library only. Commands (stdout is the payload, reasons on stderr):
   seats-held SEAT_LIST SEAT@TEAM=HANDLE...   each seat held in `agent-bus seat list`, with that
                                     handle; 3 while one is absent or free
   expect-record PATH UID SINCE      the consent record: a plain file of UID's, owner-only,
-                                    written at or after SINCE (epoch seconds)
+                                    a record pingbus can read, written at or after SINCE
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
 64 usage.
@@ -179,8 +179,9 @@ def seats_held(seat_list: str, wants: Sequence[tuple[str, str]]) -> int:
 
 
 def expect_record(path: str, uid: int, since: float) -> None:
-    """The consent record as pingbus counts it (config.element_accepted): a plain file of
-    `uid`'s, open to no one else; and this run's, written at or after `since`."""
+    """The consent record as pingbus counts it (config.accepted_clients): a plain file of
+    `uid`'s, open to no one else, that reads as a consent record by this checkout's
+    matrix_clients (issue #251); and this run's, written at or after `since`."""
     try:
         info = os.lstat(path)
     except FileNotFoundError:
@@ -193,6 +194,13 @@ def expect_record(path: str, uid: int, since: float) -> None:
         raise Failed(f"{path} is mode {stat.S_IMODE(info.st_mode):o}: open to other users")
     if info.st_mtime + 1 < since:
         raise Failed(f"{path} was written before this run (mtime {info.st_mtime:.0f}, run {since:.0f})")
+    sys.path.insert(0, str(_checkout_root()))
+    from helpers.pingbus import matrix_clients
+
+    try:
+        matrix_clients.load().parse_consent(pathlib.Path(path).read_bytes())
+    except matrix_clients.ConsentError as exc:
+        raise Failed(f"{path} is not a consent record pingbus can read: {exc}") from None
 
 
 def _read(path: str) -> str:
