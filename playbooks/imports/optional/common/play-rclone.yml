@@ -391,7 +391,10 @@
         content: |
           [Unit]
           Description=rclone mount - {{ item.name }}
-          After=network-online.target
+          # After default.target too, the target that wants this unit: the start below can
+          # take minutes, and default.target (with it user@UID.service and a login) must not
+          # wait for the cache scan (CLAUDE/QA.md unit-holds-boot-target).
+          After=network-online.target default.target
           Wants=network-online.target
 
           [Service]

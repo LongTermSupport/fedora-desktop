@@ -397,7 +397,9 @@ it day to day:
   A failure also appears in `fedora-desktop-health` and the login snippet.
 - **After the reboot.** `fedora-desktop-self-update-verify.service` waits until the session
   restore has settled: every session is running and set going, or has definitely failed
-  ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. A failed
+  ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. It runs after
+  `multi-user.target`, so boot is complete while it waits and a check that waits for that
+  target is not held by it. A failed
   verify (exit 23) keeps the check owed: put the sessions right, then
   `sudo fedora-desktop-self-update verify` checks again, and the next boot's unit does too.
   A pass clears that unit's failed state, so the login banner stops naming it. If it cannot

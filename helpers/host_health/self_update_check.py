@@ -38,7 +38,7 @@ from helpers.self_update import published
 STALE_AFTER_DAYS = 3
 
 #: `fedora-desktop-self-update-verify.service` starts after the user's manager and may
-#: take up to its `TimeoutStartSec=30min`. Until then an owed check is not yet late.
+#: run for up to its `RuntimeMaxSec=30min`. Until then an owed check is not yet late.
 VERIFY_GRACE_SECONDS = 35 * 60
 
 #: A stamp this far in the future is a clock fault, not skew (the same bound, and the

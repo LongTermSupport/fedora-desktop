@@ -954,8 +954,33 @@ class TestVerifyCeiling(unittest.TestCase):
 
     def test_the_unit_outlasts_the_ceiling(self) -> None:
         unit = self._read("files/etc/systemd/system/fedora-desktop-self-update-verify.service.j2")
-        minutes = int(re.search(r"^TimeoutStartSec=(\d+)min$", unit, re.M).group(1))
+        minutes = int(re.search(r"^RuntimeMaxSec=(\d+)min$", unit, re.M).group(1))
         self.assertLess(cycle.VERIFY_WAIT_SECONDS, minutes * 60)
+
+
+class TestVerifyUnitLeavesBootComplete(unittest.TestCase):
+    """The verify waits for the restored sessions for as long as VERIFY_WAIT_SECONDS, and boot
+    must be complete while it waits: an external health check that waits for
+    multi-user.target timed out on a guest whose verify held it for 11 minutes
+    (fedora-desktop#263)."""
+
+    def setUp(self) -> None:
+        path = os.path.join(REPO_ROOT, "files/etc/systemd/system/fedora-desktop-self-update-verify.service.j2")
+        with open(path, encoding="utf-8") as handle:
+            self.unit = handle.read()
+
+    def _values(self, key: str) -> list[str]:
+        return [word for line in re.findall(rf"^{key}=(.*)$", self.unit, re.M) for word in line.split()]
+
+    def test_it_is_ordered_after_the_target_that_wants_it(self) -> None:
+        self.assertEqual(self._values("WantedBy"), ["multi-user.target"])
+        self.assertIn("multi-user.target", self._values("After"))
+
+    def test_its_start_ends_when_the_check_begins(self) -> None:
+        # oneshot, notify, dbus and forking keep their start job open until the program ends or
+        # says it is ready; exec ends it the moment the program runs.
+        self.assertEqual(self._values("Type"), ["exec"])
+        self.assertEqual(self._values("TimeoutStartSec"), [])
 
 
 class TestReleaseTag(CycleCase):

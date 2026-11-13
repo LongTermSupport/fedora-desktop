@@ -1,0 +1,185 @@
+# Fixture for .semgrep/boot-hold.yml (the gate's self-test). Each "ruleid" line marks the line
+# below it as the start of a finding; each "ok" line marks the line below it as clean.
+
+# The issue #263 unit as it was: a oneshot that waits up to 30 minutes, wanted by
+# multi-user.target and not ordered after it.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=Check the sessions came back after a self-update reboot
+Wants=user@1000.service
+After=user@1000.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fedora-desktop-self-update verify
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target
+
+# The same unit after the fix: ordered after the target, and started the moment it runs.
+# ok: unit-holds-boot-target
+[Unit]
+Description=Check the sessions came back after a self-update reboot
+Wants=user@1000.service
+After=user@1000.service multi-user.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/sbin/fedora-desktop-self-update verify
+RuntimeMaxSec=30min
+
+[Install]
+WantedBy=multi-user.target
+
+# A user oneshot that holds the user manager's default.target, and with it user@UID and a login.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=Wait for something slow
+[Service]
+Type=oneshot
+TimeoutStartSec=infinity
+ExecStart=%h/.local/bin/wait-for-it
+[Install]
+WantedBy=default.target
+
+# A notify daemon that may take ten minutes to say it is ready, required by graphical.target.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=A slow daemon
+[Service]
+Type=notify
+TimeoutStartSec=600
+ExecStart=/usr/bin/slowd
+[Install]
+RequiredBy=graphical.target
+
+# TimeoutStartSec=0 disables the start timeout.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=No start timeout
+[Service]
+Type=forking
+TimeoutStartSec=0
+ExecStart=/usr/bin/forker
+[Install]
+WantedBy=multi-user.target
+
+# Hours, and a value made of two parts.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=Two parts
+[Service]
+Type=oneshot
+TimeoutStartSec=1h 30min
+ExecStart=/usr/bin/long
+[Install]
+WantedBy=multi-user.target
+
+# Ordered after a different target from the one that wants it: still held.
+# ruleid: unit-holds-boot-target
+[Unit]
+Description=Wrong target
+After=network-online.target
+[Service]
+Type=oneshot
+TimeoutStartSec=5min
+ExecStart=/usr/bin/long
+[Install]
+WantedBy=multi-user.target
+
+# A short declared start is within the default: no wait by design.
+# ok: unit-holds-boot-target
+[Unit]
+Description=Quick
+[Service]
+Type=oneshot
+TimeoutStartSec=90
+ExecStart=/usr/bin/quick
+[Install]
+WantedBy=multi-user.target
+
+# ok: unit-holds-boot-target
+[Unit]
+Description=One minute
+[Service]
+Type=oneshot
+TimeoutStartSec=1min
+ExecStart=/usr/bin/quick
+[Install]
+WantedBy=multi-user.target
+
+# Ordered after the target that wants it (the login report pattern).
+# ok: unit-holds-boot-target
+[Unit]
+Description=Login report
+After=graphical-session.target default.target
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+ExecStart=/usr/bin/report
+[Install]
+WantedBy=default.target
+
+# A simple or exec service is started the moment it runs, however long it lives.
+# ok: unit-holds-boot-target
+[Unit]
+Description=Long-lived
+[Service]
+Type=exec
+TimeoutStartSec=30min
+ExecStart=/usr/bin/daemon
+[Install]
+WantedBy=multi-user.target
+
+# Started by a timer, not a boot target.
+# ok: unit-holds-boot-target
+[Unit]
+Description=Nightly
+[Service]
+Type=oneshot
+TimeoutStartSec=2h
+ExecStart=/usr/bin/nightly
+[Install]
+WantedBy=timers.target
+
+# No [Install] at all: nothing at boot wants it.
+# ok: unit-holds-boot-target
+[Unit]
+Description=Pulled in by another
+[Service]
+Type=oneshot
+TimeoutStartSec=20min
+ExecStart=/usr/bin/x
+
+# An Ansible task writing the unit inline.
+- name: Write the unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/slow.service
+    content: |
+      # ruleid: unit-holds-boot-target
+      [Unit]
+      Description=Slow
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=15min
+      ExecStart=/usr/bin/slow
+      [Install]
+      WantedBy=multi-user.target
+
+# A Go unit as a concatenation of quoted lines.
+// ruleid: unit-holds-boot-target
+const slowUnit = "[Unit]\n" +
+	"Description=slow\n" +
+	"[Service]\n" +
+	"Type=oneshot\n" +
+	"TimeoutStartSec=10min\n" +
+	"[Install]\n" +
+	"WantedBy=multi-user.target\n"
+
+# A Go unit in one quoted string.
+// ruleid: unit-holds-boot-target
+const oneLine = "[Unit]\nDescription=slow\n[Service]\nType=oneshot\nTimeoutStartSec=infinity\n[Install]\nWantedBy=multi-user.target\n"
+
+# ok: unit-holds-boot-target
+const oneLineFixed = "[Unit]\nDescription=slow\nAfter=multi-user.target\n[Service]\nType=oneshot\nTimeoutStartSec=infinity\n[Install]\nWantedBy=multi-user.target\n"
