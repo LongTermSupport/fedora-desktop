@@ -500,7 +500,10 @@ spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semg
 `qa/cmd/qa-place-issued-token` and `scripts/qa-place-issued-token.bash`, the gate for
 `.semgrep/place-issued-token.yml` (`token-bundle-into-place-issued`, issue #248), and given its
 `BootHold` spec is `qa/cmd/qa-boot-hold` and `scripts/qa-boot-hold.bash`, the gate for
-`.semgrep/boot-hold.yml` (`unit-holds-boot-target`, issue #263); the real-semgrep tests of each are
+`.semgrep/boot-hold.yml` (`unit-holds-boot-target`, issue #263), and given its `SecretScreen` spec
+is `qa/cmd/qa-secret-screen` and `scripts/qa-secret-screen.bash`, the gate for
+`.semgrep/secret-screen.yml` (`secret-on-normal-screen` and its three sibling rules, issue #261,
+each proven against its own fixture); the real-semgrep tests of each are
 in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are

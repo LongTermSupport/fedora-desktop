@@ -19,5 +19,5 @@ func TestSecretScrollback(t *testing.T) {
 	root := filepath.Join(analysistest.TestData(), "secretscrollback")
 	analysistest.Run(t, root, SecretScrollback,
 		"fix/internal/agentbus", "fix/internal/term", "fix/internal/teams/flow",
-		"fix/internal/teams/login", "fix/internal/ftpcamera", "fix/internal/ccc")
+		"fix/internal/teams/login", "fix/internal/ftpcamera", "fix/internal/ccc", "fix/internal/teamchat/admin")
 }

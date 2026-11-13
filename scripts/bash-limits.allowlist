@@ -58,7 +58,7 @@ files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	849	36	870	data
 files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	1695	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
-files/var/local/claude-yolo/lib/token-management.bash	1017	27	1080	-
+files/var/local/claude-yolo/lib/token-management.bash	1011	27	1080	-
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	667	20	525	-
 files/var/local/ps1-prompt	76	6	78	-
@@ -74,4 +74,4 @@ scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/release.bash	227	8	271	data
 scripts/setup.bash	74	5	107	-
-vault.bash	179	11	164	data
+vault.bash	167	11	162	data

@@ -29,6 +29,9 @@ const (
 	revealMethod   = "Reveal"
 )
 
+// teamchatAdminPkg is teamchat-admin's verbs.
+const teamchatAdminPkg = "internal/teamchat/admin"
+
 // secretSources are the places a Go program comes to hold a secret's value. Every method named
 // Reveal that returns a string is one too: it is how a secret type (matrix.Token, seat.Secret)
 // hands its value out.
@@ -51,9 +54,11 @@ type secretField struct {
 	reason          string
 }
 
-// secretFields are the fields a secret is read into from a file, with no source call between.
+// secretFields are the fields a secret is held in with no source call the rule can follow
+// between: read into from a file, or encoded into a document through types it does not follow.
 var secretFields = []secretField{
 	{pkg: ccylaunchPkg, typ: "export", field: "token", reason: "the Claude sign-in token ccy --export-token prints"},
+	{pkg: teamchatAdminPkg, typ: "work", field: "doc", reason: "a member verb's answer document, which carries the issued credential's bundle"},
 }
 
 // secretDisplays are the functions that write a secret, and so are not judged: the secret

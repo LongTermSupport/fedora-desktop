@@ -2,7 +2,9 @@
 # The MOK enrolment steps, screen by screen, for a play that has just queued its signing key
 # with mokutil --import (NVIDIA, DisplayLink). Written for a reader who has never seen the
 # blue MOK Manager screens; the password comes from the vault (mok_password), however long
-# ago it was chosen.
+# ago it was chosen. The password itself is never printed: a play's output is the terminal's
+# scrollback and the run log (rule secret-on-normal-screen, CLAUDE/QA.md), so the steps name
+# the command that shows it on the terminal's alternate screen instead.
 #
 # Usage:
 #   - name: Show the MOK enrolment steps for the next boot
@@ -11,7 +13,7 @@
 #       mok_module: the NVIDIA driver       # what is signed, in the explanation
 #     when: mok_import is changed
 
-- name: Display MOK enrollment password
+- name: Show the MOK enrolment steps and how to see the password
   ansible.builtin.debug:
     msg: |2
 
@@ -20,14 +22,17 @@
       ========================================================================
 
       {{ mok_module[:1] | upper }}{{ mok_module[1:] }} will not work until you finish one step at the
-      next boot. Write this password down now, on paper or on your phone: the
-      screen you will type it into appears before Fedora starts, so this
-      window will not be there to read.
+      next boot. Write the MOK enrollment password down now, on paper or on
+      your phone: the screen you will type it into appears before Fedora
+      starts, so this window will not be there to read.
 
-      Your MOK enrollment password is: {{ mok_password }}
+      To see it, run this in a terminal (it is not printed here, so it stays
+      out of this window's history and the play's log):
 
-      It is the MOK password you chose the first time a play asked for one,
-      stored as mok_password in your vault.
+          cd {{ root_dir }} && ./vault.bash get mok_password
+
+      It shows the password until you press Enter, then clears it. It is the
+      MOK password you chose the first time a play asked for one.
 
       WHAT YOU WILL SEE AFTER YOU REBOOT
       The screen turns blue, before Fedora starts. The mouse does not work:
@@ -40,7 +45,7 @@
       2. "Perform MOK management"   -> choose "Enroll MOK"
       3. "[Enroll MOK]"             -> choose "Continue"
       4. "Enroll the key(s)?"       -> choose "Yes"
-      5. "Password:"                -> type the password above, then Enter.
+      5. "Password:"                -> type that password, then Enter.
          Nothing appears as you type; that is normal. Type it carefully.
       6. "Perform MOK management"   -> choose "Reboot"
 

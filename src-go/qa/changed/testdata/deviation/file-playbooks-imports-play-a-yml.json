@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-syntax: playbooks/imports/play-a.yml\ncheck ansible-patterns\ncheck docs\ncheck ansible-pause\ncheck arch-pin\ncheck argv-leak\ncheck boot-hold\ncheck version-pins\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-syntax: playbooks/imports/play-a.yml\ncheck ansible-patterns\ncheck docs\ncheck ansible-pause\ncheck arch-pin\ncheck argv-leak\ncheck boot-hold\ncheck secret-screen\ncheck version-pins\n",
  "stderr": "",
  "status": 0,
  "log": []

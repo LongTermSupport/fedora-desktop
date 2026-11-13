@@ -74,6 +74,7 @@ gate	arch-pinned-artefact	scripts/qa-arch-pin.bash	a download, package or image 
 gate	secret-in-argv	scripts/qa-argv-leak.bash	a passphrase, password or other secret on a command line, or rendered by Ansible into one	count
 gate	token-bundle-into-place-issued	scripts/qa-place-issued-token.bash	a token-credential bundle piped into seat place-issued, which places only a pool seat's password	count
 gate	unit-holds-boot-target	scripts/qa-boot-hold.bash	a systemd unit whose long start holds the boot target that wants it	count
+gate	secret-on-normal-screen	scripts/qa-secret-screen.bash	a password, token or key written to the terminal's normal screen, where its scrollback keeps it	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
 gate	hook-handler-rules	scripts/qa-hook-handler-rules.bash	hook handler rules: code the hooks daemon loads resolves a path against the daemon's working directory	count
 gate	walk-opens-non-regular-file	scripts/qa-walk-open.bash	walk-open rule: Python opens an entry a directory walk found without checking it is a regular file	count
@@ -144,6 +145,7 @@ gate	bash-history-session	scripts/test-bash-history-session.bash	bash history se
 gate	terminal-modes	scripts/test-terminal-modes.bash	terminal modes prompt hook unit tests failed	count
 gate	fedora-desktop-health	scripts/test-fedora-desktop-health.bash	fedora-desktop-health command unit tests failed	count
 gate	randfile	scripts/test-randfile.bash	randfile command unit tests failed	count
+gate	secret-screen-tests	scripts/test-secret-screen.bash	scripts/secret-screen.bash tests failed	count
 gate	podman-store-probe-race	scripts/test-podman-store-probe-race.bash	the podman store ownership probe matched a file deleted during its walk	count
 gate	failfast-pattern-tests	scripts/test-qa-ansible-failfast.bash	fail-fast directive pattern unit tests failed	count
 gate	docs-exit-codes	scripts/test-qa-docs-exit-codes.bash	docs gate exit-code contract failed	count

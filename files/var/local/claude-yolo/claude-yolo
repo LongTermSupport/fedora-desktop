@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.119.10"  # Container 2.84.13: teamchat names a failed call's cause in its logs, a refused socket's paths and a failed view's problem (issue 265). See docs/ccy-changelog.md.
+CCY_VERSION="3.120.2"  # Container 2.84.14: a token or password ccy shows leaves no copy in the scrollback. See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -103,7 +103,7 @@ ccy_container_limits || exit 1
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.84.13"
+REQUIRED_CONTAINER_VERSION="2.84.14"
 
 set -e
 
@@ -180,7 +180,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
 fi
 if [[ "$1" = "--build-lock" || "$1" = "--read-launch-config" || "$1" = "--check-token" ||
     "$1" = "--check-network" || "$1" = "--claude-versions" || "$1" = "--list-containers" ||
-    "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" ]]; then
+    "$1" = "--stop-containers" || "$1" = "--remove-network" || "$1" = "--stop" || "$1" = "--secret-screen" ]]; then
     print_error "ccy $1 is answered by the Go front, $SCRIPT_DIR/claude-yolo; run it without CCY_LEGACY."
     exit 1
 fi

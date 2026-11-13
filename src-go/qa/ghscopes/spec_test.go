@@ -184,3 +184,78 @@ func TestAArgvLeakFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
 		"play.yml:7  secret-in-argv\n",
 		"secret-in-argv: 1 line(s) in 1 file(s) put a secret on a command line. See CLAUDE/QA.md \"secret-in-argv\".\n")
 }
+
+// secretScreenWorld is a repository holding the secret-on-normal-screen rule and its three
+// fixtures instead of gh-scopes'.
+func secretScreenWorld(t *testing.T, files map[string]string) *world {
+	t.Helper()
+	rules := strings.NewReplacer("gh-scope-outside-ssot", SecretScreen.ruleName,
+		".semgrep/gh-scopes.*", ".semgrep/secret-screen.*").Replace(rulesText)
+	all := map[string]string{
+		ruleFile:                 "",
+		fixtureFile:              "",
+		SecretScreen.ruleFile:    rules,
+		SecretScreen.fixtureFile: "# fixture\n# ruleid: " + SecretScreen.ruleName + "\n",
+	}
+	for _, more := range SecretScreen.moreFixtures {
+		all[more] = "# fixture\n# ruleid: " + SecretScreen.ruleName + "\n"
+	}
+	maps.Copy(all, files)
+	return newWorld(t, all)
+}
+
+// A rule file written for several languages is proven against a fixture in each: the shell
+// fixture, the Python one and the Ansible one, every run.
+func TestTheSecretScreenSpecProvesEveryFixture(t *testing.T) {
+	w := secretScreenWorld(t, nil)
+	got := w.mainSpec(SecretScreen)
+	wantExit(t, got, ExitOK)
+	rules := filepath.Join(w.root, ".semgrep/secret-screen.yml")
+	for _, ext := range []string{".bash", ".py", ".yml"} {
+		if !w.run.selfTested(rules, ext) {
+			t.Fatalf("no self-test of the secret-screen rules against its %s fixture: %v", ext, w.run.calls)
+		}
+	}
+	if !slices.Contains(w.run.scanArgv, rules) {
+		t.Fatalf("the scan did not use the secret-screen rules: %v", w.run.scanArgv)
+	}
+}
+
+// A further fixture that is missing is a gate that cannot prove its rules: exit 2, nothing
+// scanned.
+func TestAMissingFurtherFixtureIsExitTwo(t *testing.T) {
+	w := secretScreenWorld(t, map[string]string{".semgrep/secret-screen.py": ""})
+	got := w.mainSpec(SecretScreen)
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, "ERROR: cannot read .semgrep/secret-screen.py")
+	if w.run.scanArgv != nil {
+		t.Fatalf("scanned with a fixture missing: %v", w.run.scanArgv)
+	}
+}
+
+// A further fixture that marks no ruleid line proves nothing: exit 2.
+func TestAFurtherFixtureMarkingNothingIsExitTwo(t *testing.T) {
+	w := secretScreenWorld(t, map[string]string{".semgrep/secret-screen.fixture.yml": "# nothing marked\n"})
+	got := w.mainSpec(SecretScreen)
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, ".semgrep/secret-screen.fixture.yml marks no ruleid line")
+}
+
+func TestASecretScreenFindingIsNamedAndCountedInItsOwnWords(t *testing.T) {
+	w := secretScreenWorld(t, map[string]string{"vault.bash": "x\n"})
+	w.run.scan = func(files []string) string {
+		return report(scannable(files), []hit{{"vault.bash", 85}}, nil)
+	}
+	got := w.mainSpec(SecretScreen)
+	wantExit(t, got, ExitFailed)
+	wantIn(t, "stdout", got.stdout,
+		"vault.bash:85  secret-on-normal-screen\n",
+		"secret-on-normal-screen: 1 line(s) in 1 file(s) write a secret to the terminal's normal screen. See CLAUDE/QA.md \"secret-on-normal-screen\".\n")
+}
+
+func TestTheSecretScreenUsageNamesItsCommand(t *testing.T) {
+	w := secretScreenWorld(t, nil)
+	got := w.mainSpec(SecretScreen, "--help")
+	wantExit(t, got, ExitOK)
+	wantIn(t, "stdout", got.stdout, "usage: qa-secret-screen", ".semgrep/secret-screen.yml")
+}
