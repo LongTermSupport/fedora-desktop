@@ -140,6 +140,9 @@
 # `systemctl is-enabled teamchat-server@<team>.service teamchat-tls@<team>.service | cat` says
 # enabled for each, and a reboot brings the team back. play-toolbox-install.yml's download
 # and unpack into its scratch directory no longer report changed. No ccy image rebuild.
+# And issue #248 (ccy 3.119.2, container 2.84.6): play-claude-yolo.yml deploys the launcher and
+# rebuilds the image once for its new teamchat, whose seat place-issued, refusing a bundle of
+# the wrong kind, now says which credential to issue it with. Nothing else changes on this host.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)

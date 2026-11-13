@@ -35,9 +35,9 @@ its own deploy route runs stage A's play.
 - **Gate B binds only the host run of the ccy hot reissue (Task 4.4).** Plan 00209 Task 3.1
   says so in its own words: "N3's LXC seats are token seats, so gate B binds only the ccy hot
   reissue's host run (Task 4.4)". Gate B is about the first deploy that gives a process a pool
-  seat's password. X30's remote seat is issued with `--credential token` (X23), so it holds no
-  password and is not gated. If the owner chose `--credential password` for it, gate B would
-  bind that run; this plan assumes token.
+  seat's password. X30's remote seat is a pool seat, so it is issued with `--credential
+  password` (X23): `seat place-issued` refuses a token bundle (issue #248). Gate B therefore
+  binds X30's host run too, and was met on 2026-10-30 (the owner confirmed INT6).
 
 ### Who does what
 
@@ -481,7 +481,7 @@ Asserted:
 
 - the member joins by X21's relay form, with the bus guest's outbound ssh blocked (its egress
   to port 22 dropped, as the first real host's is) and a password sudo on the guest, no
-  NOPASSWD: `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued ...` places the seat (X22), and the
+  NOPASSWD: `read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential password | ssh <member> teamchat seat place-issued ...` places the seat (X22), and the
   member sends and receives a message over TLS with the CA pinned (X16). The guest-prepare
   fixture gives the issuing user a throwaway sudo password. The pull form runs the same way from
   the member guest;

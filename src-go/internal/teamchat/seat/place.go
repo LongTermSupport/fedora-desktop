@@ -110,7 +110,7 @@ func (c *Claim) Fill(ctx context.Context, is Issued) error {
 func (c *Claim) checkIssued(ctx context.Context, is Issued) ([]byte, pin, error) {
 	s := c.store
 	if is.Kind != s.credential.Kind() {
-		return nil, pin{}, invalid(fmt.Sprintf("issued bundle: a %s, not this pool's %s", is.Kind, s.credential.Kind()))
+		return nil, pin{}, invalid(fmt.Sprintf("issued bundle: a %s, not this pool's %s: issue the seat with --credential %s", is.Kind, s.credential.Kind(), s.credential.Kind()))
 	}
 	if is.Seat.Team != c.seat.Team {
 		return nil, pin{}, invalid("issued bundle: another team's seat")

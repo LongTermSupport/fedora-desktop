@@ -87,6 +87,7 @@ var checkDefs = []checkDef{
 	{id: "find-race", fixed: "find-race-negated-stat-test rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runFindRace},
 	{id: "arch-pin", fixed: "arch-pinned-artefact rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runArchPin},
 	{id: "argv-leak", fixed: "secret-in-argv rules, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runArgvLeak},
+	{id: "place-issued-token", fixed: "token-bundle-into-place-issued rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPlaceIssuedToken},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "lxc-attach-streams", fixed: "whole gate (no command reaching lxc-attach has a standard stream on a file)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runLxcAttachStreams},
@@ -190,6 +191,10 @@ func runArchPin(ctx context.Context, s *session, _ *checkPlan) (checkResult, err
 
 func runArgvLeak(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-argv-leak.bash")
+}
+
+func runPlaceIssuedToken(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-place-issued-token.bash")
 }
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.

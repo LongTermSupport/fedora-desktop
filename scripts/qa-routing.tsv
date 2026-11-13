@@ -74,6 +74,14 @@ also	playbooks/*,tasks/*,vars/*,files/*,.github/workflows/*,fedora-install/*,hel
 also	.semgrep/argv-leak.yml,.semgrep/argv-leak.fixture.yml	argv-leak	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-argv-leak/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	argv-leak	-
 also	scripts/qa-argv-leak.bash,scripts/lib/go-tool.bash	argv-leak	-
+# The token-bundle-into-place-issued gate (check place-issued-token) runs whole (one semgrep pass,
+# seconds) for a change where a teamchat issue-and-place pipe is written down: the user docs, the
+# CLAUDE/ tree (plan scripts are judged; plan prose the rule leaves out), teamchat's Go, and its
+# own rule, fixture, wrapper or tool; the rule and fixture are its own data and count as covered.
+also	docs/*,CLAUDE/*,src-go/internal/teamchat/*,src-go/cmd/teamchat*	place-issued-token	-
+also	.semgrep/place-issued-token.yml,.semgrep/place-issued-token.fixture	place-issued-token	covered
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-place-issued-token/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	place-issued-token	-
+also	scripts/qa-place-issued-token.bash,scripts/lib/go-tool.bash	place-issued-token	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
@@ -244,7 +252,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/place-issued-token.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -261,4 +269,4 @@ post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
 post	any:@sh	argv-leak	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

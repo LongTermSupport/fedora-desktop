@@ -183,7 +183,7 @@ install are listed last, under "Owner questions".
   `paths.CACertFile` and that the Flatpak build's honouring of an added CA has not been checked.
   The check itself needs an Element Desktop on a real desktop, which no agent container has.
 
-## 4. A remote seat's token is issued over ssh
+## 4. A remote seat's credential is issued over ssh
 
 - **X21** Nothing ssh-es out of the bus server's host: its egress is DNS, NTP and web only, by
   design, because a bus host that can ssh into every member is a pivot. The issued document is
@@ -210,8 +210,10 @@ install are listed last, under "Owner questions".
   seat: the password only in the pool, mode 0600, `seat.json` beside it. Nothing of the secret
   is in argv or in output.
 
-- **X23** The credential kind for a remote seat is the owner's choice at issue time
-  (`--credential password|token`), as for any seat.
+- **X23** A remote seat is a pool seat, and a pool seat keeps a password (gate B, owner
+  2026-10-30): it is issued with `--credential password`, and X22 refuses a bundle issued with
+  `--credential token` (exit 78, naming the fix), which is for an LXC guest seat the lxc apply
+  places itself (issue #248; rule token-bundle-into-place-issued).
 
 - **X24** Removing a network and running `team apply` cuts that network's reach (the filter and
   the firewall); `member park` and `member retire` revoke a seat on the homeserver as today.

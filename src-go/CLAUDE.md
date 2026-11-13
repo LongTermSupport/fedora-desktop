@@ -492,7 +492,9 @@ given its `FindRace` spec, is `qa/cmd/qa-find-race` and `scripts/qa-find-race.ba
 spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semgrep/arch-pin.yml`
 (`arch-pinned-artefact`, Plan 00243), and given its `ArgvLeak` spec is
 `qa/cmd/qa-argv-leak` and `scripts/qa-argv-leak.bash`, the gate for
-`.semgrep/argv-leak.yml` (`secret-in-argv`, issue #220); the real-semgrep tests of each are
+`.semgrep/argv-leak.yml` (`secret-in-argv`, issue #220), and given its `PlaceIssuedToken` spec is
+`qa/cmd/qa-place-issued-token` and `scripts/qa-place-issued-token.bash`, the gate for
+`.semgrep/place-issued-token.yml` (`token-bundle-into-place-issued`, issue #248); the real-semgrep tests of each are
 in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are

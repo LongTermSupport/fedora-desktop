@@ -95,22 +95,25 @@ pty) and no NOPASSWD rule. `member add` reads no stdin, so the password line is 
 Pull from the member machine:
 
 ```
-read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | teamchat seat place-issued --checkout <dir>; unset pw
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential password | teamchat seat place-issued --checkout <dir>; unset pw
 ```
 
 Relay from the issuing person's machine:
 
 ```
-read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | ssh <member> teamchat seat place-issued --checkout <dir>; unset pw
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential password | ssh <member> teamchat seat place-issued --checkout <dir>; unset pw
 ```
 
 `<bus>` and `<member>` are entries in the issuing person's own ssh configuration; no hostname
 belongs in a declaration, a file of this repository or a handle. A sudoers rule for the verb is
 the homeserver host's own configuration to make or not; the play installs none. `seat place-issued` reads one issued
 document on stdin, checks it, and places the seat in that machine's pool for the checkout: the
-password or token only in the pool, mode 0600. Nothing secret is in its arguments or its
-output. `--credential password` works as for any seat. If the ssh step fails, the seat was not
-placed on that machine: reissue it by running the command again.
+password only in the pool, mode 0600. Nothing secret is in its arguments or its output. A
+pool seat keeps a password, so it is issued with `--credential password`: `seat place-issued`
+refuses a bundle issued with `--credential token`, which is for an LXC guest seat that the lxc
+apply places itself. If the ssh step fails, the seat was issued but not placed on that machine:
+run the same pipe with `teamchat-admin member reissue --team <team> --handle <handle>
+--credential password` in place of `member add`, for the handle `member add` claimed.
 
 A seat is keyed on the homeserver's URL. The first bundle a checkout takes for a team records the
 team's server name and its canonical URL (`https`, lower-case host, explicit port); a later bundle

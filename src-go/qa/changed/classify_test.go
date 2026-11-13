@@ -1255,6 +1255,32 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 	}
 }
 
+// The token-bundle-into-place-issued gate runs whole for a change where a teamchat issue-and-place
+// pipe is written down (the user docs, the CLAUDE/ tree, teamchat's Go) and for its own rule,
+// fixture (which it covers), wrapper and Go source; not for an unrelated play.
+func TestThePlaceIssuedTokenGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"docs/agent-bus-cross-network.md", "CLAUDE/Plan/00001-x/lab.bash", "src-go/internal/teamchat/admin/rotate.go",
+		"src-go/cmd/teamchat-admin/main.go", ".semgrep/place-issued-token.yml", ".semgrep/place-issued-token.fixture",
+		"scripts/qa-place-issued-token.bash", "src-go/qa/cmd/qa-place-issued-token/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("place-issued-token") {
+			t.Errorf("%s does not run place-issued-token: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/place-issued-token.yml", ".semgrep/place-issued-token.fixture"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	w.touch("playbooks/imports/play-x.yml", "- hosts: all")
+	if p := w.classify([]string{"playbooks/imports/play-x.yml"}); p.has("place-issued-token") {
+		t.Errorf("an unrelated play runs place-issued-token: %v", keys(p))
+	}
+}
+
 // The secret-in-argv gate runs whole for a change to any file that can start a process (a shell
 // script anywhere, a play, task or vars file, a files/ tool, a CI workflow, an installer, a
 // helper, Go outside the QA module), deleted ones included, and for its own rules, fixture

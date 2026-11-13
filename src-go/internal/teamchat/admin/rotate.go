@@ -29,7 +29,7 @@ carries, so the cut is hard: every seat is cut off until its bundle carries the 
 
 stdout is the handles of the seats this host does not place itself (placed by the owner's
 ` + "`seat place-issued`" + ` pipe, here or over ssh), one per line: place each again with
-  sudo ` + paths.AdminBinary + ` member reissue --team <team> --handle <handle> --credential password|token | [ssh <alias>] teamchat seat place-issued --checkout <dir>
+  sudo ` + paths.AdminBinary + ` member reissue --team <team> --handle <handle> --credential password | [ssh <alias>] teamchat seat place-issued --checkout <dir>
 The LXC seats are reissued with the new CA by the next lxc apply (` + paths.PlayFile + `).
 Run the Element play (` + paths.ElementPlayFile + `) again afterwards: the CA it placed is the old one.
 
@@ -164,7 +164,7 @@ func rotatedText(team paths.TeamID, r rotation) string {
 	say("team " + team.String() + "'s CA is rotated: old CA sha256:" + r.ca.Old + ", new CA sha256:" + r.ca.New)
 	if len(r.byOwner) > 0 {
 		say("each handle on stdout holds a bundle with the old CA: place it again with the pipe it was placed by: " +
-			"sudo " + paths.AdminBinary + " member reissue --team " + team.String() + " --handle <handle> --credential password|token" +
+			"sudo " + paths.AdminBinary + " member reissue --team " + team.String() + " --handle <handle> --credential password" +
 			" | [ssh <alias>] teamchat seat place-issued --checkout <dir>")
 	}
 	if len(r.lxcReissue) > 0 {

@@ -7,7 +7,8 @@
 // The same engine, given its FindRace spec, is the find-race-negated-stat-test gate over
 // .semgrep/find-race.yml, given its ArchPin spec the arch-pinned-artefact gate over
 // .semgrep/arch-pin.yml, and given its ArgvLeak spec the secret-in-argv gate over
-// .semgrep/argv-leak.yml: one rule file, every published file, the same proofs.
+// .semgrep/argv-leak.yml, and given its PlaceIssuedToken spec the token-bundle-into-place-issued
+// gate over .semgrep/place-issued-token.yml: one rule file, every published file, the same proofs.
 package ghscopes
 
 import (
@@ -108,6 +109,16 @@ var ArgvLeak = Spec{
 	usage:       argvLeakUsageText,
 }
 
+// PlaceIssuedToken is the token-bundle-into-place-issued gate (issue #248).
+var PlaceIssuedToken = Spec{
+	short:       "place-issued-token",
+	ruleFile:    ".semgrep/place-issued-token.yml",
+	fixtureFile: ".semgrep/place-issued-token.fixture",
+	ruleName:    "token-bundle-into-place-issued",
+	finding:     "pipe a token bundle into seat place-issued",
+	usage:       placeIssuedUsageText,
+}
+
 // Timeouts bound each process.
 const (
 	versionTimeout = time.Minute
@@ -169,6 +180,19 @@ const argvLeakUsageText = `usage: qa-argv-leak [--root DIR] [--scripts DIR]
 Applies the semgrep rules in .semgrep/argv-leak.yml (a passphrase, password or other
 secret on a process's command line, or rendered by Ansible into one) to every file git would
 publish, after proving the rules against their fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scripts DIR]
+
+Applies the semgrep rule in .semgrep/place-issued-token.yml (a bundle issued with --credential
+token piped into teamchat seat place-issued, which places only a pool seat's password) to every
+file git would publish, after proving the rule against its fixture.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
