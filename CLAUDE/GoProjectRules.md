@@ -80,6 +80,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_unit_no_install`         | a systemd unit kept running (`Restart=always`) with no `[Install]`, so it is static: enable does nothing and no boot starts it                                                         | teamchat `unitfiles`: `teamchat-server@.service` and `teamchat-tls@.service`, down after a reboot, and `team apply` reporting `CHANGED unit enabled` every run (fedora-desktop#247) |
 | `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                 | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                 |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
+| `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -2219,6 +2220,58 @@ cannot stand in for the resolver's environment: `paths.InboxEnv` is a type of it
   the directory, which never names it; and code in another language. No Python or shell in the
   tree resolves the directory (the independent search). pingbus takes the socket from Claude
   Code's `CLAUDE_CODE_MESSAGING_SOCKET`.
+
+### project_class_without_detail
+
+**What it is about.** `matrix.Class(err)` is a failed call's class as fixed text, such as "the
+homeserver did not answer usably". A `*matrix.Error` carries more, and the matrix package wrote
+all of it, so it is safe to print (SPEC M9: the method, the path, the status, the errcode and a
+fixed detail, never a token or the server's words). A TLS handshake that failed against the seat's
+pinned CA, a timeout and a refused connection are one class with three details. A line that
+prints the class alone drops the cause an operator acts on.
+
+**Why it exists.** The teamchat link logged `down: the homeserver did not answer usably` once,
+then retried in silence, for a member whose seat did not trust the server's certificate. The
+detail that said so (`TLS verification of <host> failed against the pinned CA sha256:<fp>: ...`)
+was never printed (fedora-desktop#265).
+
+**What it flags**, in every package of both modules except teamchat's `matrix` package, which
+defines the class: a use of `matrix.Class`, whether a call or the function taken as a value. A
+helper that hands the class back is flagged where it calls it. Test files are judged as the code
+is.
+
+**Not flagged**: a use whose value, through parentheses and string concatenation, is a field of a
+literal of a bounded record in `classRecords` (`table.go`, each with its reason). These are
+`status.Problem` (one line of at most 512 bytes, `project_problem_error_text`) and
+`seat.NoticeRecord` (notice.json's `why`, one line, with the failed call returned beside it).
+There the detail is not available to the record.
+
+**How to fix a violation.** Print `matrix.Cause(err)`: the class, then the failed call's own text
+(for an error that is not a homeserver answer, its own text). Keep `matrix.Class` for a bounded
+record only.
+
+- Red, fixture: `testdata/classdetail/src/fix`. `internal/teamchat/badclass` covers the defect's
+  log line, Sprintf, a concatenated error, stderr, a helper returning the class, the function as
+  a value, a record nothing bounds, a comparison inside a bounded record, and a test's log line.
+  The cause, a method named `Class` and the two bounded records (by field and by position) are
+  clean. `internal/teamchat/seat` covers the record by field, by position and through a pointer
+  (all clean), and a variable between the class and the record (judged). `internal/teamchat/matrix`
+  is the class's own package, and `cmd/tool` is a command, which is judged.
+- Red, real tree: thirteen findings, all in teamchat. Twelve are in `member/teamsync`:
+  `teamsync.go` (`stopped`, `down`), `verbs.go`, `receipts.go` (two), `questions.go` (two),
+  `session.go` (four) and `builder.go` (`describe`). The thirteenth is `admin/serveview.go` (the
+  disconnected notice's answer). The independent search found the same thirteen, plus
+  `health/health.go`'s `status.Problem`, which is a bounded record.
+- Wider rule considered and not built: any function that reduces an error to fixed text (an
+  `errors.Is` switch to a word), wherever its value is printed. Recognising such a reducer and
+  following its value to a print needs data flow the rule does not have. In the tree, every
+  reducer whose output reaches a line wraps `matrix.Class` (`describe`), or else sits beside
+  `err.Error()` (`admin`'s `errorClass`, `homeserverClass`).
+- Not caught: a bounded record's class later printed from its field; a
+  detail dropped by a line that prints no class at all. One example is a refusal that names
+  neither of the values it compared, such as the link's "the inbox socket is not a socket of the
+  session's processes". No rule can say which values a refusal compared, so those are fixed
+  conventionally (fedora-desktop#265's socket refusal).
 
 ## Defect classes that cannot be a rule
 
