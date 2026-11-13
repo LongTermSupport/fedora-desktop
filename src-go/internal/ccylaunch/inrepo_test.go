@@ -32,7 +32,7 @@ func TestPreludeTextsAreTheLibrarysText(t *testing.T) {
 		t.Fatalf("ccy-env-local-dist.txt differs from common.bash:\n%s", firstDifference(dist+"\n", distText))
 	}
 	tokens := checkoutFile(t, "files/var/local/claude-yolo/lib/token-management.bash")
-	body := between(t, tokens, "    cat <<'BODY'\n", "BODY\n}\n")
+	body := between(t, tokens, "token='${token_content}'\nOUTER\n", "BODY\n}\n")
 	if exportBody != body {
 		t.Fatalf("export-body.txt differs from token-management.bash:\n%s", firstDifference(body, exportBody))
 	}

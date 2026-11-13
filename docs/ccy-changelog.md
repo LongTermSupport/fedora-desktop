@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.120.0 — container 2.84.11
+## 3.120.1 — container 2.84.11
 
 - **A token or password ccy shows leaves no copy in the terminal's scrollback** (issue #261): a
   terminal keeps what its normal screen showed, and tmux a pane's history, so a secret printed

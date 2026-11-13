@@ -44,7 +44,7 @@ func runFront() int {
 	}
 	front := ccylaunch.Front{
 		Version: version, Self: self, Args: os.Args[1:], Environ: os.Environ(), LookPath: exec.LookPath,
-		Runner: execx.OS{}, Execer: execx.OS{}, Stdout: os.Stdout, Stderr: os.Stderr, Clock: clock,
+		Runner: execx.OS{}, Execer: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Clock: clock,
 	}
 	return int(front.Run(context.Background()))
 }
