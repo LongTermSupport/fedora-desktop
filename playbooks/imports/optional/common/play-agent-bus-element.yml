@@ -130,18 +130,13 @@
         element_team_ca_admin_root: /var/lib/teamchat-admin
       tags: [agent-bus-element]
 
-    # Lightning, the Matrix client on trial to replace Element for a team (Plan 00254), with each
-    # https team's CA where its rustls reads it, proven from its sandbox. Installed here as well as
-    # in play-matrix-clients.yml because ccy-teams runs this play on its own. Where the Lightning
-    # steps finally live (this play generalised over the client, or a sibling) is Plan 00254 Task
-    # 5.1's decision; until then they follow Element's, for the same teams.
-    - name: Install Lightning
-      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
-      vars:
-        flatpak_app_id: org.lightning_matrix.Lightning
-      tags: [agent-bus-lightning]
-
-    - name: Trust each https team's CA in Lightning, and prove it from Lightning's sandbox
+    # Lightning, the Matrix client on trial to replace Element for a team (Plan 00254): installed,
+    # with each https team's CA where its rustls reads it, proven from its sandbox. It installs
+    # Lightning as well as play-matrix-clients.yml does because ccy-teams runs this play on its
+    # own. Where the Lightning steps finally live (this play generalised over the client, or a
+    # sibling) is Plan 00254 Task 5.1's decision; until then they follow Element's, for the same
+    # teams.
+    - name: Install Lightning, trust each https team's CA in it, and prove it from its sandbox
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/lightning-team-ca.yml"
       vars:
         lightning_team_ca_teams: "{{ agent_bus_element_profiles | map(attribute='team') | list }}"
