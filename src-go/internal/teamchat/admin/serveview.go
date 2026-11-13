@@ -132,7 +132,7 @@ func serveDisconnected(ctx context.Context, open Opener, team declare.Team, args
 		Server: team.ServerName, Team: team.ID.String(), MainRoom: main, Handle: da.handle, Token: token, Run: da.run, SinceMS: da.sinceMS,
 	})
 	if err != nil {
-		return failure(ClassUnreachable, "the disconnected notice: "+matrix.Class(err))
+		return failure(ClassUnreachable, "the disconnected notice: "+matrix.Cause(err))
 	}
 	return Answer{OK: true, Notice: &health.Notice{Posted: out.Posted, Why: out.Why}}
 }

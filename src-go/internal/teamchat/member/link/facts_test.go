@@ -207,6 +207,36 @@ func TestTheSocketIsOnlyAChainPIDsBelowTheSession(t *testing.T) {
 	}
 }
 
+// Issue 265: a refused socket is logged with what was compared, so link.log tells another
+// directory from a pid off the chain: the reported path, the chain walked from the peer to the
+// session's process, and the socket Claude Code would place for each pid on it.
+func TestARefusedSocketLogsWhatItWasComparedWith(t *testing.T) {
+	for name, sock := range map[string]string{
+		"another directory": "/elsewhere/cc-socks/101.sock",
+		"off the chain":     "",
+	} {
+		w := newFactsWorld(t)
+		w.s.SetSessionPID(state.Process{PID: pidSession, StartTicks: 1000})
+		f := w.facts(wire.OpHookSessionStart, sessA, state.SourceStartup)
+		if sock == "" {
+			sock = w.runtime + "/cc-socks/999.sock"
+		}
+		f.Socket = sock
+		refusedWith(t, w.s.AcceptFacts(f), exits.CodeRuntime, "not a socket of the session's processes")
+		log := w.log.String()
+		for _, want := range []string{
+			`"` + sock + `"`,
+			"[103 102 101 100]",
+			w.runtime + "/cc-socks/101.sock",
+			w.runtime + "/cc-socks/100.sock",
+		} {
+			if !strings.Contains(log, want) {
+				t.Errorf("%s: link.log does not name %q: %q", name, want, log)
+			}
+		}
+	}
+}
+
 // TestACCYSessionWithNoRuntimeDirIsServed is issue 266: in a ccy container XDG_RUNTIME_DIR is
 // unset, and Claude Code binds its socket under the temporary directory. The link places it by
 // the same order, so the session's hooks are served, and a socket anywhere else is refused.

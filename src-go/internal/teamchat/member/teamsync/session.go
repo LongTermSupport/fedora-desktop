@@ -426,7 +426,7 @@ func (t *Team) back(ctx context.Context, run state.StoreRun) {
 		}
 	}
 	if err := t.cfg.Ends.Back(ctx, t.cfg.Team, t.Notices(), run); err != nil && ctx.Err() == nil {
-		t.log.Printf("back not posted: %s", matrix.Class(err))
+		t.log.Printf("back not posted: %s", matrix.Cause(err))
 	}
 }
 
@@ -670,7 +670,7 @@ func (s *sess) invites(ctx context.Context, invites map[string]matrix.InvitedRoo
 				continue
 			}
 			if _, err := s.c.Join(ctx, room); err != nil {
-				t.log.Printf("invite to %s not joined: %s", room, matrix.Class(err))
+				t.log.Printf("invite to %s not joined: %s", room, matrix.Cause(err))
 				continue
 			}
 			joined = true
@@ -681,7 +681,7 @@ func (s *sess) invites(ctx context.Context, invites map[string]matrix.InvitedRoo
 			}
 		case proto.InviteReject:
 			if err := s.c.Leave(ctx, room); err != nil {
-				t.log.Printf("invite to %s not rejected: %s", room, matrix.Class(err))
+				t.log.Printf("invite to %s not rejected: %s", room, matrix.Cause(err))
 			}
 		}
 	}
@@ -1033,7 +1033,7 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 			continue
 		}
 		if err := t.putFloor(ctx, c, a.Self, r); err != nil {
-			t.log.Printf("the %s marker in %s was not put: %s", paths.FloorAccountData, r.id, matrix.Class(err))
+			t.log.Printf("the %s marker in %s was not put: %s", paths.FloorAccountData, r.id, matrix.Cause(err))
 		}
 	}
 }

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.120.1 — container 2.84.11
+## 3.120.2 — container 2.84.14
 
 - **A token or password ccy shows leaves no copy in the terminal's scrollback** (issue #261): a
   terminal keeps what its normal screen showed, and tmux a pane's history, so a secret printed
@@ -29,6 +29,21 @@ Two version numbers move independently — see
   alternate screen, cleared on Enter; piped or redirected, the text as it is. In the image, the
   agent team bus's `agent-bus human password` shows the new password the same way. The image is
   rebuilt once.
+
+## 3.119.10 — container 2.84.13
+
+- **teamchat names the cause of a failed Matrix call** (issue #265). Before, the logs gave only
+  its class, "the homeserver did not answer usably". That one text covers a TLS handshake that
+  failed against the seat's pinned CA, a timeout and a refused connection alike.
+  - Every such line now gives the class, then the failed call's own text: method, path, status
+    and the fixed detail, never a token.
+  - While a team stays down, a change of its cause is logged, at most once every five minutes.
+  - A refused inbox socket is logged with the path the hook reported, the process chain the link
+    walked and the socket Claude Code would place for each pid on that chain.
+  - A health problem for rooms that could not be read names the cause, when it fits the record's
+    bound.
+  - The rule `project_class_without_detail` holds this. The image is rebuilt once; the launcher
+    behaves as 3.119.7.
 
 ## 3.119.7 — container 2.84.10
 

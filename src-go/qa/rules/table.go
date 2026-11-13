@@ -133,6 +133,24 @@ type allowance struct {
 	reason string
 }
 
+// classRecord is a bounded record that carries a failed call's class (matrix.Class) and no
+// more: its decoder refuses any text but a short single line, so the detail is reported beside it.
+type classRecord struct {
+	pkg, typ, reason string
+}
+
+// classRecords are the records project_class_without_detail lets hold matrix.Class.
+var classRecords = []classRecord{
+	{
+		pkg: "internal/teamchat/status", typ: "Problem",
+		reason: "a problem is one line of at most 512 bytes, or the team's whole record is lost (project_problem_error_text): the class is what a problem holds when the cause does not fit (health's viewProblem tries matrix.Cause first)",
+	},
+	{
+		pkg: "internal/teamchat/seat", typ: "NoticeRecord",
+		reason: "notice.json's why is refused unless one line; the failed call itself is returned beside the record",
+	},
+}
+
 // dynamicNames are the functions that may build an execx.Cmd whose Name is not a constant,
 // because the program is chosen at run time. Every other Name is a constant, so the owner
 // table can judge it. A dynamic Name is not judged against the owner table, so each row says
@@ -487,7 +505,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner, SelfChildStderr, UnitNoInstall, SecretScrollback, InboxSocketDir, SubmitUnchecked}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner, SelfChildStderr, UnitNoInstall, SecretScrollback, InboxSocketDir, SubmitUnchecked, ClassWithoutDetail}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
