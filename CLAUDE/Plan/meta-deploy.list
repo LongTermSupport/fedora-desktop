@@ -151,6 +151,13 @@
 # refuse a host seat beside any listed client). play-agent-bus.yml rebuilds the member kit:
 # agent-bus-claude and the kit's pingbus refuse beside a Nheko or Lightning profile too. With
 # no Nheko or Lightning data under your home, the next cc --teams launch asks nothing new.
+# And issue #255 (ccy 3.119.5, container 2.84.9): play-claude-yolo.yml deploys the launcher and
+# rebuilds ccy-teams, its Go front and the image once. A new Element password (ccy-teams, a
+# person's row, Sign in or New password) is now shown on a screen of its own; the Enter after
+# signing in clears it, and scrolling up afterwards (or tmux's history) shows no password.
+# ccy --export-token NAME on a terminal does the same for the token. play-ftp-camera.yml, where
+# it has run, rebuilds ftp-camera: with a hotspot, the Wi-Fi password is shown before the
+# server starts and cleared on Enter, and the banner says how to print it again.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)

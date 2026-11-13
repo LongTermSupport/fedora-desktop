@@ -55,7 +55,7 @@ func TestHotspotOwnedBySession(t *testing.T) {
 		"                     (managed by ftp-camera, will close on exit)\n",
 		"  FTP URL:      ftp://camera@"+hotspotIP+"/\n",
 		"    Wi-Fi:       ftp-camera   (join this network on the camera first)\n",
-		"    Wi-Fi pass:  "+testWifiPass+"\n",
+		wifiPassNotShown,
 		"Deactivating hotspot 'Camera AP'...\n")
 	if k.slept[0] != 2*time.Second {
 		t.Errorf("no wait for the AP: %v", k.slept)

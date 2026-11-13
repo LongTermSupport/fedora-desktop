@@ -151,11 +151,16 @@ func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board
 	if err == nil && set {
 		err = l.offerElement(ctx, row.Team)
 	}
+	// The Enter that clears a password typed from the screen is the one that goes back to the
+	// list; a copy's clear says more, on the list's own screen, which is held to be read.
+	cleared := l.Kit.SecretShowing() && l.copied == ""
 	l.SettleClipboard(ctx)
 	if err != nil {
 		return flow.Done, err
 	}
-	l.Kit.BackToList(ctx)
+	if !cleared {
+		l.Kit.BackToList(ctx)
+	}
 	return flow.Done, nil
 }
 
@@ -214,6 +219,12 @@ func passwordHeading(snap *board.Snapshot, team, name string) ui.Heading {
 // IssuePassword sets name's password on team and shows it once, the question having been
 // asked already. It says whether one was set.
 func (l *Login) IssuePassword(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
+	if !l.Kit.CanShowSecret() {
+		l.Kit.Term.PrintError("stderr is not a terminal, so a new password would be written where a copy of it stays (a log, a file); " +
+			"run ccy-teams in a terminal to set one.")
+		l.Kit.Tell("No password was set for " + name + ".")
+		return false, nil
+	}
 	if !l.Kit.SudoReady(ctx, "A password is set as root, by agent-bus (the team's admin token is root's).") {
 		l.Kit.Tell("No password was set for " + name + ".")
 		return false, nil
@@ -281,23 +292,27 @@ func (l *Login) Open(ctx context.Context, team string) error {
 	return offerResult(l.LaunchElement(ctx, team))
 }
 
-// SettleClipboard ends a copy: it waits for Enter (at most pasteWait), then clears the
+// SettleClipboard ends a shown password: the screen it is shown on, and its copy. With no copy
+// it waits for the Enter that says the person has signed in, and leaves the password's screen.
+// With a copy it waits for Enter (at most pasteWait), leaves the screen, then clears the
 // clipboard if it still holds the password, and leaves it alone if something else was copied
 // since. A read or a clear that fails is said, with the password possibly still on the
 // clipboard. The read and the clear run even when ctx is done (Ctrl-C), so an interrupted run
-// does not leave the password behind. The primary selection is never set, so it is not touched.
-// It does nothing when no password was copied.
+// does not leave the password behind, on the clipboard or on the screen. The primary selection
+// is never set, so it is not touched. It does nothing when no password was shown.
 func (l *Login) SettleClipboard(ctx context.Context) {
 	password := l.copied
 	if password == "" {
+		l.Kit.EndSecret(ctx, "Once you have signed in to Element, press Enter here to clear the password from the screen.")
 		return
 	}
 	l.copied = ""
-	l.Kit.Tell("Paste the password into Element, then press Enter here (within " + pasteWaitWords + ") to clear it from the clipboard.")
+	l.Kit.Tell("Paste the password into Element, then press Enter here (within " + pasteWaitWords + ") to clear it from the clipboard and the screen.")
 	waitCtx, cancel := context.WithTimeout(ctx, pasteWait)
 	l.Kit.WaitForEnter(waitCtx)
 	timedOut := errors.Is(waitCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	cancel()
+	l.Kit.HideSecret()
 	if timedOut {
 		l.Kit.Tell("No Enter within " + pasteWaitWords + ".")
 	}
@@ -444,8 +459,9 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 	return flow.Done, nil
 }
 
-// showLogin prints what to sign in to Element with, to the terminal only: it is shown once and
-// kept nowhere.
+// showLogin shows what to sign in to Element with on the secret screen (the terminal's
+// alternate screen), which SettleClipboard leaves: the password is kept nowhere, not even in
+// the terminal's scrollback.
 func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	url, known := snap.URL[team], true
 	if url == "" {
@@ -455,20 +471,20 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	if server == "" {
 		server = team + ".agent-bus.internal"
 	}
-	shown := password
+	heading, shown := "Element sign-in for "+name+", team "+team, password
 	if l.Kit.Term.ColourOn(l.Kit.Stderr) {
-		shown = term.Bold + password + term.Reset
+		heading, shown = term.Bold+heading+term.Reset, term.Bold+password+term.Reset
 	}
-	l.Kit.Out.Print(l.Kit.Stderr, "\n")
-	l.Kit.Term.Say("Element sign-in for " + name + ", team " + team)
-	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Homeserver", url))
-	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Username", name))
-	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Matrix ID", "@"+name+":"+server))
-	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Password", shown))
+	l.Kit.ShowSecret("\n" + heading + "\n" +
+		fmt.Sprintf("  %-11s %s\n", "Homeserver", url) +
+		fmt.Sprintf("  %-11s %s\n", "Username", name) +
+		fmt.Sprintf("  %-11s %s\n", "Matrix ID", "@"+name+":"+server) +
+		fmt.Sprintf("  %-11s %s\n", "Password", shown))
+	const kept = "Shown on a screen of its own, which is cleared when you are done with it: it is kept nowhere. "
 	if known {
-		l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+		l.Kit.Tell(kept + "The team's Element profile has the homeserver set already.")
 	} else {
-		l.Kit.Tell("Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+		l.Kit.Tell(kept + "Without the homeserver's address the team's Element profile cannot have it: " +
 			"set it in the host_vars, then run ccy-teams apply " + team + ".")
 	}
 	// The homeserver keeps no record of a lockout a tool could read (Plan 00203 gap 10).

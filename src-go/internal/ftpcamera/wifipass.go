@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"bufio"
 	"context"
 	_ "embed" // words.txt is embedded verbatim
 	"encoding/binary"
@@ -107,7 +108,20 @@ func (c *cli) newHotspotPasswordMode() term.ExitCode {
 	if err != nil {
 		return c.fail("could not make a hotspot password: %v", err)
 	}
-	c.out.f("%s\n", pass)
+	// Piped (the play) the password is the payload, written plainly; on a terminal it is shown
+	// on the alternate screen and cleared on Enter, so no copy stays in the scrollback.
+	screen := &term.SecretScreen{W: c.out.w, Terminal: c.env.IsTerminal(c.env.Stdout)}
+	screen.Show(pass + "\n")
+	if screen.Showing() {
+		screen.Show("Press Enter to clear the password from the screen.\n")
+		if _, err := bufio.NewReader(c.env.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
+			c.err.f("ftp-camera: reading the Enter: %v\n", err)
+		}
+		screen.Close()
+	}
+	if err := screen.Err(); err != nil {
+		return c.fail("could not write the hotspot password: %v", err)
+	}
 	return term.ExitOK
 }
 

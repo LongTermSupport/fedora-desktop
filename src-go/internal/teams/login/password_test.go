@@ -24,19 +24,20 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	if err != nil || res != flow.Done {
 		t.Fatalf("%v %v", res, err)
 	}
-	want := "\nElement sign-in for owner, team alpha\n" +
+	want := term.AltScreenOn + "\nElement sign-in for owner, team alpha\n" +
 		"  Homeserver  http://192.0.2.10:6167\n" +
 		"  Username    owner\n" +
 		"  Matrix ID   @owner:alpha.agent-bus.internal\n" +
 		"  Password    a-new-password\n" +
-		"Shown this once and stored nowhere. The team's Element profile has the homeserver set already.\n"
+		shownLine + "The team's Element profile has the homeserver set already.\n"
 	if !strings.Contains(h.ErrOut.String(), want) {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if h.Out.String() != "" {
 		t.Fatalf("stdout %q: the password is not the payload", h.Out.String())
 	}
-	if !strings.HasSuffix(h.ErrOut.String(), "Press Enter to go back to the list.\n") {
+	// The Enter that clears the password from the screen is the one that goes back to the list.
+	if !strings.HasSuffix(h.ErrOut.String(), clearScreenLine+term.AltScreenOff) || strings.Contains(h.ErrOut.String(), "Press Enter to go back to the list.") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if len(h.Script.FzfArgs) != 1 || !strings.Contains(h.HeaderOf(0), "Open alpha in Element now?") {
@@ -167,7 +168,7 @@ func TestPasswordLoginOfATeamWithNoAddressSaysWhatIsMissing(t *testing.T) {
 			out := h.ErrOut.String()
 			for _, want := range []string{
 				c.want, "@owner:alpha.agent-bus.internal\n",
-				"Shown this once and stored nowhere. Without the homeserver's address the team's Element profile cannot have it: " +
+				shownLine + "Without the homeserver's address the team's Element profile cannot have it: " +
 					"set it in the host_vars, then run ccy-teams apply alpha.\n",
 			} {
 				if !strings.Contains(out, want) {
@@ -205,14 +206,98 @@ func TestPasswordIsBoldOnAColourTerminal(t *testing.T) {
 	}
 }
 
+// Issue 255: the password is written only on the terminal's alternate screen, which is left once
+// the person is done with it, so nothing of it is left in the scrollback (or tmux's history)
+// when the list comes back.
+func TestThePasswordIsShownOnlyOnTheAlternateScreenAndLeavesNoCopy(t *testing.T) {
+	for name, copied := range map[string]bool{"typed from the screen": false, "copied": true} {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			h.passwordable()
+			fzf := []string{"|EXIT"}
+			if copied {
+				h.copiable("a-new-password")
+				fzf = []string{"|YES", "|EXIT"}
+			}
+			h.Script.Fzf = fzf
+			h.TTY = "\n\n"
+			snap := h.pass(t)
+			if _, err := h.l.PasswordRow(t.Context(), snap, h.row(t, snap, "owner")); err != nil {
+				t.Fatal(err)
+			}
+			out := h.ErrOut.String()
+			shown, after := onlyOnTheAlternateScreen(t, out, "a-new-password")
+			if copied && (!strings.Contains(shown, pasteNow) || !strings.Contains(after, clearedLine) || !strings.HasSuffix(after, "Press Enter to go back to the list.\n")) {
+				t.Fatalf("stderr %q: the paste's Enter leaves the screen, and the clear is said on the list's screen", out)
+			}
+			if !copied && !strings.HasSuffix(shown, clearScreenLine) {
+				t.Fatalf("stderr %q: the screen is left on an Enter asked for", out)
+			}
+		})
+	}
+}
+
+// onlyOnTheAlternateScreen holds that out enters and leaves the alternate screen once and
+// writes secret only on it; it is what was written on the screen, and after it.
+func onlyOnTheAlternateScreen(t *testing.T, out, secret string) (string, string) {
+	t.Helper()
+	before, rest, entered := strings.Cut(out, term.AltScreenOn)
+	shown, after, left := strings.Cut(rest, term.AltScreenOff)
+	if !entered || !left || strings.Count(out, term.AltScreenOn) != 1 || strings.Count(out, term.AltScreenOff) != 1 {
+		t.Fatalf("stderr %q: one alternate screen, entered and left", out)
+	}
+	if !strings.Contains(shown, secret) || strings.Contains(before+after, secret) {
+		t.Fatalf("stderr %q: the secret is written only on the alternate screen", out)
+	}
+	return shown, after
+}
+
+// An interrupted run (Ctrl-C) still leaves the alternate screen: the terminal is never left on it.
+func TestAnInterruptedPasswordStillLeavesTheAlternateScreen(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	snap := h.pass(t)
+	if _, err := h.l.IssuePassword(t.Context(), snap, "alpha", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	h.l.SettleClipboard(ctx)
+	if !strings.HasSuffix(h.ErrOut.String(), term.AltScreenOff) {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// Where stderr is not a terminal there is no screen to leave: a password written there is a
+// copy (a log, a file), so none is set.
+func TestNoPasswordIsSetWhereItCannotBeShownWithoutACopy(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.l.Kit.Secrets.Terminal = false
+	snap := h.pass(t)
+	set, err := h.l.IssuePassword(t.Context(), snap, "alpha", "owner")
+	if err != nil || set {
+		t.Fatalf("%v %v", set, err)
+	}
+	if h.Fake.Called(teamtest.SudoBus+"human password") || strings.Contains(h.ErrOut.String(), "a-new-password") {
+		t.Fatalf("calls %v stderr %q", h.Fake.Calls(), h.ErrOut.String())
+	}
+	if !strings.Contains(h.ErrOut.String(), "stderr is not a terminal") || !strings.Contains(h.ErrOut.String(), "No password was set for owner.") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 // The texts of the copy: what the question promises, what is said once the password is on the
 // clipboard, and what each end of the wait says.
 const (
+	shownLine       = "Shown on a screen of its own, which is cleared when you are done with it: it is kept nowhere. "
+	clearScreenLine = "Once you have signed in to Element, press Enter here to clear the password from the screen.\n"
+
 	copyQuestion = "Copy the password? Put owner's new password on the clipboard, to paste into Element. " +
 		"Once you have pasted it, press Enter here: ccy-teams then clears the clipboard if it still holds the password " +
 		"(after 45 seconds it does so without the Enter)."
 	copiedLine  = "The password is on the clipboard.\n"
-	pasteNow    = "Paste the password into Element, then press Enter here (within 45 seconds) to clear it from the clipboard.\n"
+	pasteNow    = "Paste the password into Element, then press Enter here (within 45 seconds) to clear it from the clipboard and the screen.\n"
 	clearedLine = "The password was cleared from the clipboard. GNOME or a clipboard history may still keep a copy of it: " +
 		"copy something else if in doubt.\n"
 	leftLine = "The clipboard no longer holds the password (something else was copied), so it was left as it is.\n"

@@ -2880,7 +2880,16 @@ token file cannot be read), so the rule would flag code that carries no secret.
 - Red, real tree: five findings over both modules: `teams/login/login.go:229` (the defect),
   `ftpcamera/server.go:377` (the hotspot's Wi-Fi password in the session banner),
   `ftpcamera/wifipass.go:110` (a new hotspot password printed for the play),
-  `ccylaunch/exporttoken.go:117` (`ccy --export-token`), `ccc/app.go:229` (the sign-in tee).
+  `ccylaunch/exporttoken.go:117` (`ccy --export-token`), `ccc/app.go:229` (the sign-in tee),
+  at `ccee95cd5`; the independent search found the same five in Go and no other.
+- Green: each shown through `term.SecretScreen`: ccy-teams' sign-in block on the kit's screen
+  (`flow.Kit.ShowSecret`), left by the Enter after signing in or the paste's Enter
+  (`SettleClipboard`), and no password is set where stderr is not a terminal; ftp-camera's
+  Wi-Fi password on the screen before vsftpd starts, left on Enter, the banner naming the
+  `nmcli` read instead; a new hotspot password and the export script on the screen on a
+  terminal and plain when piped; ccc's `setup-token` output teed to the screen. The sweep over
+  both modules and the `ccyteamstest`, `difftest`, `busfailpoints` and `tuwunel` tags is clean.
+  `login.TestThePasswordIsShownOnlyOnTheAlternateScreenAndLeavesNoCopy` reproduces the defect.
 
 ## Control
 

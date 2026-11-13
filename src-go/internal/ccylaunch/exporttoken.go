@@ -1,10 +1,12 @@
 package ccylaunch
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	_ "embed" // the import script's body
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -114,9 +116,26 @@ func (f Front) printExport(p *term.Printer, e export) (term.ExitCode, error) {
 		f.printError(p, "Token contains unexpected characters")
 		return term.ExitFailure, nil
 	}
-	p.Print(f.Stdout, "# CCY Token: "+e.name+" | Expires: "+e.expires+" | Generated: "+f.clock().Now().Format(generatedLayout)+"\n"+
-		"# Paste into terminal on target machine, or save in LastPass/1Password.\n"+
-		"# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps.\n"+
-		"bash <<'CCYTOKEN'\nset -eo pipefail\nname='"+e.name+"'\ndate='"+e.expires+"'\ntoken='"+e.token+"'\n"+exportBody)
-	return term.ExitOK, nil
+	// Redirected or piped, the script is the payload, written plainly. On a terminal it is shown
+	// on the alternate screen and cleared on Enter, so the token stays in no scrollback.
+	isTerminal := f.IsTerminal
+	if isTerminal == nil {
+		isTerminal = term.FileIsTerminal
+	}
+	screen := &term.SecretScreen{W: f.Stdout, Terminal: isTerminal(f.Stdout)}
+	screen.Show("# CCY Token: " + e.name + " | Expires: " + e.expires + " | Generated: " + f.clock().Now().Format(generatedLayout) + "\n" +
+		"# Paste into terminal on target machine, or save in LastPass/1Password.\n" +
+		"# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps.\n" +
+		"bash <<'CCYTOKEN'\nset -eo pipefail\nname='" + e.name + "'\ndate='" + e.expires + "'\ntoken='" + e.token + "'\n" + exportBody)
+	if screen.Showing() {
+		screen.Show("\nCopy it, then press Enter to clear the token from the screen.\n")
+		if f.Stdin != nil {
+			if _, err := bufio.NewReader(f.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
+				screen.Close()
+				return term.ExitFailure, err
+			}
+		}
+		screen.Close()
+	}
+	return term.ExitOK, screen.Err()
 }
