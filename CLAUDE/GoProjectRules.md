@@ -2262,6 +2262,9 @@ record only.
   `session.go` (four) and `builder.go` (`describe`). The thirteenth is `admin/serveview.go` (the
   disconnected notice's answer). The independent search found the same thirteen, plus
   `health/health.go`'s `status.Problem`, which is a bounded record.
+- Green: `matrix.Cause` (tested in `class_test.go`) replaces the class at all thirteen.
+  `describe`, which printed the class for a failed call and the full text for everything else,
+  is gone. The rule reports nothing over either module, and nothing in the tagged builds.
 - Wider rule considered and not built: any function that reduces an error to fixed text (an
   `errors.Is` switch to a word), wherever its value is printed. Recognising such a reducer and
   following its value to a print needs data flow the rule does not have. In the tree, every

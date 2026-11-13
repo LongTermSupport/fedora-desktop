@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.7 — container 2.84.11
+
+- **Issue #265, the defence and its sweep**: teamchat's log lines named a failed Matrix call by
+  its class alone ("the homeserver did not answer usably"). That class reads the same for a TLS
+  handshake that failed against the seat's pinned CA, a timeout and a refused connection. Every
+  such line now names the cause too: the class, then the failed call's own text (method, path,
+  status and the fixed detail, never a token). The rule `project_class_without_detail` holds it.
+  The image is rebuilt once; the launcher behaves as 3.119.6.
+
 ## 3.119.6 — container 2.84.10
 
 - **Issue #266**: in a ccy session with no `XDG_RUNTIME_DIR`, the teamchat link refused every hook,

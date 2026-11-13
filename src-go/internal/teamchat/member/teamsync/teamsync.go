@@ -310,7 +310,7 @@ func (t *Team) retryAuth() bool {
 }
 
 func (t *Team) stop(code string, err error) {
-	t.log.Printf("stopped (%s): %s", code, matrix.Class(err))
+	t.log.Printf("stopped (%s): %s", code, matrix.Cause(err))
 	t.setHealth(func(h *team.Health) { h.Stopped, h.Verified = code, false })
 }
 
@@ -322,7 +322,7 @@ func (t *Team) backoff(ctx context.Context, err error) bool {
 		t.failing, t.failStart, t.delay = true, now, firstBackoff
 	}
 	if !t.health.Down && now-t.failStart >= downAfter {
-		t.log.Printf("down: %s", matrix.Class(err))
+		t.log.Printf("down: %s", matrix.Cause(err))
 		t.setHealth(func(h *team.Health) { h.Down = true })
 	}
 	d := t.delay - t.cfg.Jitter(t.delay)

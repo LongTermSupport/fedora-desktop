@@ -350,7 +350,7 @@ func (s *sess) qread(ctx context.Context, room string) ([]json.RawMessage, bool)
 		s.quntrusted(room, "state")
 		return nil, false
 	case err != nil:
-		s.t.log.Printf("the questions room %s not verified: %s", room, matrix.Class(err))
+		s.t.log.Printf("the questions room %s not verified: %s", room, matrix.Cause(err))
 		return nil, false
 	}
 	return raw, true
@@ -365,7 +365,7 @@ func (s *sess) qjoin(ctx context.Context, room string) bool {
 		s.t.qset(room, func(q *qstate) { q.joined, q.refused = false, true })
 		return false
 	case err != nil:
-		s.t.log.Printf("the questions room %s not joined: %s", room, matrix.Class(err))
+		s.t.log.Printf("the questions room %s not joined: %s", room, matrix.Cause(err))
 		return false
 	}
 	s.t.qset(room, func(q *qstate) { q.joined, q.refused, q.left = true, false, false })

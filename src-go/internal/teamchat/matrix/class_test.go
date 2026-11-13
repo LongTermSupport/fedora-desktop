@@ -24,6 +24,32 @@ func TestClass(t *testing.T) {
 	}
 }
 
+// Cause is the class and the cause behind it: a failed call's own text (which names the TLS
+// pin's failure that its class, the same as a timeout's, does not), an error that is not a
+// homeserver answer's own text, and only the class for a cancelled or timed-out context.
+func TestCause(t *testing.T) {
+	pinned := &Error{
+		Method: http.MethodGet, Path: "/sync", kind: ErrUnreachable,
+		Detail: "TLS verification of hs.example.com failed against the pinned CA sha256:ab: unknown authority",
+	}
+	for want, err := range map[string]error{
+		"the homeserver did not answer usably (matrix: GET /sync: TLS verification of hs.example.com failed against the pinned CA sha256:ab: unknown authority)": pinned,
+		"the homeserver did not answer usably (matrix: GET /sync: timed out)":                                                                                    fmt.Errorf("wrapped: %w", &Error{Method: http.MethodGet, Path: "/sync", kind: ErrUnreachable, Detail: "timed out"}),
+		"the homeserver refused (matrix: GET /x: 502 M_X: server error)":                                                                                         StatusError(http.MethodGet, "/x", 502, "M_X"),
+		"cancelled": fmt.Errorf("x: %w", context.Canceled),
+		"timed out": context.DeadlineExceeded,
+		"not a homeserver answer (the pair is torn)":       errors.New("the pair is torn"),
+		"not a homeserver answer (wrapped: a local fault)": fmt.Errorf("wrapped: %w", errors.New("a local fault")),
+	} {
+		if got := Cause(err); got != want {
+			t.Errorf("Cause(%v) = %q, want %q", err, got, want)
+		}
+	}
+	if got := Cause(nil); got != Class(nil) {
+		t.Errorf("Cause(nil) = %q", got)
+	}
+}
+
 // StatusError is the error a call answered with status gets, classed as the call itself would
 // class it, so a package that judges failures can be tested without a server.
 func TestStatusError(t *testing.T) {

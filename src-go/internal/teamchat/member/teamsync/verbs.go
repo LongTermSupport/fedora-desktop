@@ -49,7 +49,7 @@ func (t *Team) verbErr(err error) error {
 	default:
 		return err
 	}
-	t.log.Printf("a verb's call failed: %s", matrix.Class(err))
+	t.log.Printf("a verb's call failed: %s", matrix.Cause(err))
 	return exits.New(code, &t.cfg.Team, msg, exits.Team(t.cfg.Team))
 }
 
