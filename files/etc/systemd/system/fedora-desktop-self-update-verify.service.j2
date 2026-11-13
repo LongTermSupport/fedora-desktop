@@ -9,16 +9,21 @@ Documentation=file:///usr/local/sbin/fedora-desktop-self-update
 # means the restore has at least been attempted. The panes it starts may still be
 # launching, which is what the entry point's `verify-restore --wait` is for.
 Wants=user@{{ self_update_user_uid }}.service
-After=user@{{ self_update_user_uid }}.service
+# After multi-user.target too, the target that wants this unit: the check waits up to 25
+# minutes for the sessions, and boot must be complete while it waits (fedora-desktop#263).
+# Without it multi-user.target is ordered after this unit and is reached only once it ends.
+After=user@{{ self_update_user_uid }}.service multi-user.target
 
 [Service]
-Type=oneshot
+# exec, not oneshot: an exec unit counts as started the moment its program runs, so the
+# boot's job queue empties while the check waits. A failed check still fails the unit.
+Type=exec
 # Runs at every boot. The entry point checks whether a cycle left a post-boot check owed
 # and exits 0 when none is, so this unit carries no condition of its own on the state
 # directory's layout.
 ExecStart=/usr/local/sbin/fedora-desktop-self-update verify
-# Stated, not inherited: systemd disables the start timeout for Type=oneshot.
-TimeoutStartSec=30min
+# The bound on the whole check. For an exec unit a start timeout bounds only the exec.
+RuntimeMaxSec=30min
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=fedora-desktop-self-update-verify

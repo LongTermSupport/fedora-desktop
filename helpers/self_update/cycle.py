@@ -83,7 +83,7 @@ EXIT_CANCELLED = 130
 #: The most the post-boot check waits for the restore to settle. `verify-restore --wait`
 #: returns as soon as every session is running or has definitely failed; this ceiling only
 #: bounds a restore that never settles. It must outlast ccy-sessions' set-going wait plus its
-#: start window, and fit inside the verify unit's TimeoutStartSec (tests/helpers/
+#: start window, and fit inside the verify unit's RuntimeMaxSec (tests/helpers/
 #: self_update/test_cycle.py reads both). fedora-desktop#88: five minutes was not enough
 #: for six sessions.
 VERIFY_WAIT_SECONDS = 1500

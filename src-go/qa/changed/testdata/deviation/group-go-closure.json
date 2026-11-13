@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 3 changed file(s) vs HEAD\ncheck toolchain\ncheck go\ncheck arch-pin\ncheck argv-leak\ncheck go-deps\ncheck go-vuln\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go; builds from src-go/go.mod\n",
+ "stdout": "plan: 3 changed file(s) vs HEAD\ncheck toolchain\ncheck go\ncheck arch-pin\ncheck argv-leak\ncheck boot-hold\ncheck go-deps\ncheck go-vuln\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go; builds from src-go/go.mod\n",
  "stderr": "",
  "status": 0,
  "log": []
