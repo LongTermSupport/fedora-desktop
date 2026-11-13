@@ -73,6 +73,15 @@ anything but loopback.
   the health tick reads the terminator's unit and records a problem on the team's status when it
   is not active. The tick restarts nothing: the unit restarts always, so one that is not active
   was stopped or failed past its start limit.
+- On an SELinux-enforcing host the team units run as `init_t` (their programs are under
+  `/usr/local` and they set `NoNewPrivileges=yes`, so no domain transition happens), and `init_t`
+  may not connect to an ordinary port. `play-teamchat.yml` therefore installs a small policy
+  module, `teamchat` (`/usr/local/share/teamchat/teamchat.cil`), and labels each present team's
+  port `teamchat_port_t`, the one port type `init_t` may bind and connect to; every other domain
+  keeps the access it had. Check it with `semanage port -l | grep teamchat` and
+  `ausearch -m avc -c teamchat`. A team's port that the policy already gives another type is
+  re-labelled, so do not declare a port another service needs. Running only this part:
+  `--tags selinux`.
 
 ## A member on another machine
 

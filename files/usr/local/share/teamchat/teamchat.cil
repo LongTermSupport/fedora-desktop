@@ -1,0 +1,16 @@
+; teamchat: the SELinux policy the v2 team units need on an enforcing host.
+;
+; The units run their programs from /usr/local (bin_t) with NoNewPrivileges=yes, so no domain
+; transition happens and they run as init_t. init_t may not connect to an ordinary unreserved
+; port, so the TLS terminator could not reach its team's homeserver on loopback, and
+; teamchat-admin could not reach it either.
+;
+; Each present team's declared port is labelled teamchat_port_t by play-teamchat.yml. The port
+; type keeps the unreserved_port_type attribute, so every domain that could connect to the port
+; before it was labelled still can, and init_t may bind and connect to these ports only: no
+; other port is opened to it.
+(type teamchat_port_t)
+(roletype object_r teamchat_port_t)
+(typeattributeset port_type (teamchat_port_t))
+(typeattributeset unreserved_port_type (teamchat_port_t))
+(allow init_t teamchat_port_t (tcp_socket (name_bind name_connect)))

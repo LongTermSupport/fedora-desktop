@@ -78,6 +78,8 @@
     tc_ctl_user: teamchat-ctl
     # The pinned Tuwunel: a pin file in `var: value` lines, which is YAML (a mapping with comments).
     tc_pin: "{{ lookup('ansible.builtin.file', root_dir ~ '/files/usr/local/share/teamchat/tuwunel.pin') | from_yaml }}"
+    # The SELinux module for an enforcing host, read on the controller like the pin.
+    tc_selinux_cil: "{{ lookup('ansible.builtin.file', root_dir ~ '/files/usr/local/share/teamchat/teamchat.cil') }}"
     tc_arch: "{{ ansible_facts['architecture'] }}"
     tc_version: "{{ tc_pin.tuwunel_version | regex_replace('^v', '') }}"
     tc_teams: "{{ teamchat_teams | default([]) }}"
@@ -546,6 +548,54 @@
       tags: [units]
 
     # Teams. teamchat-admin judges the declaration; the play only hands each team's entry over.
+    # SELinux: the team units run as init_t, which may not connect to an unreserved port, so on
+    # an enforcing host the terminator could not reach its homeserver. files/.../teamchat.cil
+    # gives each team's port its own type that init_t may bind and connect to; nothing else.
+    - name: Let the Team Units Reach Their Team's Port Under SELinux
+      when: ansible_facts['selinux']['status'] == 'enabled'
+      tags: [selinux, teams]
+      block:
+        - name: Install the SELinux Port Tools
+          ansible.builtin.package:
+            name:
+              - policycoreutils-python-utils # semanage, which the port labels need
+
+        - name: Write the teamchat SELinux Module
+          ansible.builtin.copy:
+            content: "{{ tc_selinux_cil }}\n"
+            dest: "{{ tc_share_dir }}/teamchat.cil"
+            owner: root
+            group: root
+            mode: "0644"
+          register: tc_selinux_module_file
+
+        - name: List the Installed SELinux Modules
+          ansible.builtin.command:
+            argv: [semodule, --list-modules=full]
+          register: tc_selinux_modules
+          changed_when: false
+          check_mode: false
+
+        - name: Install the teamchat SELinux Module
+          ansible.builtin.command:
+            argv: [semodule, --install, "{{ tc_share_dir }}/teamchat.cil"]
+          register: tc_selinux_install
+          # Runs only when the module is new or differs, so an install that succeeded changed it.
+          changed_when: tc_selinux_install.rc == 0
+          when: >-
+            tc_selinux_module_file is changed
+            or tc_selinux_modules.stdout is not search('(?m)^\s*\d+\s+teamchat\s')
+
+        - name: Label Each Present Team's Port for the Team Units
+          community.general.seport:
+            ports: "{{ item.port | string }}"
+            proto: tcp
+            setype: teamchat_port_t
+            state: present
+          loop: "{{ tc_scoped_present }}"
+          loop_control:
+            label: "{{ item.team }}:{{ item.port }}"
+
     - name: Approve the Teams the Operator Names
       ansible.builtin.command:
         argv: ["{{ tc_admin_link }}", team, approve, --team, "{{ item.team }}"]
