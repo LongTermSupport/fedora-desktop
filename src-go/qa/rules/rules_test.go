@@ -191,12 +191,20 @@ func TestSeatMemberType(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SeatMemberType, "fix/internal/agentbus", "fix/internal/badmembertype")
 }
 
+// A recorded session's start decided outside conversation.StartPlan (fedora-desktop#270): the
+// restore's planner as it was, a team restart's resume-only start, a builder held as a value and
+// a lookup error held in a variable; the planner itself, the registry's own use, a plain lookup
+// and test files are not judged, and a second function in the conversation package is.
+func TestStartDecision(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), StartDecision, "fix/internal/registry", "fix/internal/conversation", "fix/internal/badstart")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 47 {
-		t.Fatalf("want 47 rules, got %d", got)
+	if got := len(All()); got != 48 {
+		t.Fatalf("want 48 rules, got %d", got)
 	}
 }
 

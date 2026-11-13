@@ -81,6 +81,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                 | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                 |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
+| `project_start_decision` | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -2221,6 +2222,41 @@ cannot stand in for the resolver's environment: `paths.InboxEnv` is a type of it
   the directory, which never names it; and code in another language. No Python or shell in the
   tree resolves the directory (the independent search). pingbus takes the socket from Claude
   Code's `CLAUDE_CODE_MESSAGING_SOCKET`.
+
+### project_start_decision
+
+**What it is about.** A recorded session is started by the boot restore, judged by
+`restore --check` and `declare`, and started again by `ccy-teams` restart. Whether it resumes its
+recorded conversation or starts a new one, and the arguments it is started with, must be one
+decision, or the check passes what the restore refuses and the restart refuses what the restore
+starts.
+
+**Why it exists.** fedora-desktop#270: a record marked `fresh-if-no-conversation=yes` was
+started fresh only when its `conversation.json` was missing (`errors.Is` on
+`conversation.ErrNotRecorded` in the restore's planner). A session that never took a turn has a
+`conversation.json` naming a conversation with no transcript, which was refused as
+`UNRESTORABLE no-conversation`, so the next reboot could not restore it. The team restart
+(`teams/restart`, B6) resumed by the recorded conversation only and never started such a record
+fresh.
+
+**What it flags**, outside test files: a use of `internal/registry`'s `ResumeArgs` or
+`FreshArgs` anywhere but `conversation.StartPlan` (and the registry itself), and a use of an
+exported error of `internal/conversation` outside that package. Uses are matched through
+`types.Info`, so a call, a function value and a variable holding an error are all seen.
+
+**Not caught**: a start decided from the text of `conversation.For`'s error, and start
+arguments built by hand without the registry's builders. The bash launcher builds no restore
+arguments (the Go restore passes them), so the class has no shell or Python side.
+
+**How to fix a violation.** Ask `conversation.StartPlan(rec, claudeHome)`: it returns the
+conversation to resume (empty and `Fresh` for a fresh start, with the reason) and the
+arguments, or an error that says why the record cannot be started (`ErrUnworkableArgs` marks
+arguments that could not be worked out). Act on its answer.
+
+**The next wider rule, not built:** every reader of a session record's restore marks
+(`fresh-if-no-conversation`, `restore=`, `compose=`) kept in one package. Not built: the other
+marks are read for different questions (listing, `--no-restore`, the replayed `--compose`) that
+do not decide a start, and the rule would flag reads that carry no hazard.
 
 ## Defect classes that cannot be a rule
 
