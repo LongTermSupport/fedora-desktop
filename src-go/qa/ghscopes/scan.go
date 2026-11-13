@@ -28,22 +28,33 @@ func (g *gate) requireSemgrep(ctx context.Context) error {
 	return nil
 }
 
-// proveRule runs the rule against its annotated fixture. A rule edited into matching nothing is
-// worse than a missing tool, so a regression here fails the run and never reports a clean tree.
-// A fixture that disagrees with the rule is exit 1, a test that could not run is exit 2.
+// proveRule runs the rule against each of its annotated fixtures. A rule edited into matching
+// nothing is worse than a missing tool, so a regression here fails the run and never reports a
+// clean tree. A fixture that disagrees with the rule is exit 1, a test that could not run is
+// exit 2.
 func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
-	fixture, err := os.ReadFile(g.path(g.spec.fixtureFile))
+	for _, rel := range g.spec.fixtures() {
+		if code, err := g.proveAgainst(ctx, rel); err != nil {
+			return code, err
+		}
+	}
+	return ExitOK, nil
+}
+
+// proveAgainst is proveRule for one fixture.
+func (g *gate) proveAgainst(ctx context.Context, rel string) (ExitCode, error) {
+	fixture, err := os.ReadFile(g.path(rel))
 	if err != nil {
-		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", g.spec.fixtureFile, err)
+		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", rel, err)
 	}
 	if len(semgrepreport.Annotated(string(fixture))) == 0 {
-		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", g.spec.fixtureFile)
+		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", rel)
 	}
 	// The rule's paths: exclude keeps it off its own fixture, so the self-test scans a copy.
-	test := semgrepreport.SelfTest{Rules: g.path(g.spec.ruleFile), Fixture: g.path(g.spec.fixtureFile), Name: g.spec.fixtureFile}
+	test := semgrepreport.SelfTest{Rules: g.path(g.spec.ruleFile), Fixture: g.path(rel), Name: rel}
 	err = test.Prove(func(argv []string) (proc.Result, error) { return g.runTool(ctx, semgrepTimeout, argv...) })
 	if fe, ok := errors.AsType[*semgrepreport.FixtureError](err); ok {
-		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n    %s", g.spec.ruleName, g.spec.fixtureFile, strings.Join(fe.Problems, "\n    "))
+		return ExitFailed, fmt.Errorf("%s failed its fixture (%s):\n    %s", g.spec.ruleName, rel, strings.Join(fe.Problems, "\n    "))
 	}
 	if err != nil {
 		return ExitCannotRun, err
