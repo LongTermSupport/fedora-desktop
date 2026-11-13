@@ -2938,7 +2938,11 @@ token file cannot be read), so the rule would flag code that carries no secret.
   answer document written through the verb's own `answer`, and on the screen clean).
 - Red, issue 261: `teamchat/admin/verbs.go:178`, `teamchat-admin member reissue`/`add`/`return`
   writing the document holding the issued credential's bundle to stdout, the one finding over
-  the module once `admin.work.doc` joined `secretFields`.
+  the module once `admin.work.doc` joined `secretFields`. Green: `answerIssued` writes the
+  document through `term.SecretScreen`, on the alternate screen and cleared on Enter when it
+  carries a bundle and stdout is a terminal, plainly otherwise (the pipe into
+  `teamchat seat place-issued` unchanged); `TestAnIssuedCredentialOnATerminalLeavesNoCopy`. The
+  sweep over the module and the `busfailpoints` and `tuwunel` tags is clean.
 - Red, real tree: five findings over both modules: `teams/login/login.go:229` (the defect),
   `ftpcamera/server.go:377` (the hotspot's Wi-Fi password in the session banner),
   `ftpcamera/wifipass.go:110` (a new hotspot password printed for the play),

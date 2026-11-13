@@ -129,7 +129,9 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   anything else is 1 with nothing on stdout and no bundle (n2d-D16). The document is printed
   whenever the child answered, a failure included, and its bundle is valid whatever the exit
   code; stdout is empty when no answer came (64, 75, a team not applied, a child that did not
-  start) (n2d-D20).
+  start) (n2d-D20). A document carrying a bundle, written to a terminal, is shown on the
+  alternate screen (`term.SecretScreen`) and cleared on Enter read from stdin, so the secret
+  stays in no scrollback; piped or redirected it is the one plain line (issue 261).
 - **CV4. `team approve --team T [--only F --add|--remove|--set V]`** reads the one-team input on
   stdin, calls `declare.Approve`, and writes `approved.json` through `declare.FileApprovals`
   with the owner group's gid from the seam `OwnerGroup` (the group file and the password-sudo

@@ -110,7 +110,9 @@ read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member
 belongs in a declaration, a file of this repository or a handle. A sudoers rule for the verb is
 the homeserver host's own configuration to make or not; the play installs none. `seat place-issued` reads one issued
 document on stdin, checks it, and places the seat in that machine's pool for the checkout: the
-password only in the pool, mode 0600. Nothing secret is in its arguments or its output. A
+password only in the pool, mode 0600. Nothing secret is in its arguments or its output. Run
+bare on a terminal, `teamchat-admin` shows an issued document on the terminal's alternate screen
+and clears it on Enter, so the password stays in no scrollback; piped it writes the plain line. A
 pool seat keeps a password, so it is issued with `--credential password`: `seat place-issued`
 refuses a bundle issued with `--credential token`, which is for an LXC guest seat that the lxc
 apply places itself. If the ssh step fails, the seat was issued but not placed on that machine:

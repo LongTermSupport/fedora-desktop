@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -157,7 +158,8 @@ func failWith(e Env, err error) term.ExitCode {
 }
 
 // memberVerb is a member or role verb (CV3): its flags, the team lock, `team.json`, the child,
-// the status record, and one JSON document on stdout.
+// the status record, and one JSON document on stdout (answerIssued: on the secret screen when
+// it carries an issued credential and stdout is a terminal).
 func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 	return func(ctx context.Context, e Env, args []string) term.ExitCode {
 		sys, code := e.system()
@@ -175,7 +177,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		w, err := memberWork(ctx, sys, op, team, opArgs)
 		err = errors.Join(err, lock.Release())
 		if w.doc != nil {
-			if code = answer(e, string(w.doc)+"\n"); code != term.ExitOK {
+			if code = answerIssued(e, w); code != term.ExitOK {
 				return code
 			}
 		}
@@ -184,6 +186,32 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		}
 		return term.ExitOK
 	}
+}
+
+// issuedClearPrompt follows an issued credential on the alternate screen.
+const issuedClearPrompt = "\nThis holds the credential's secret: pipe the verb into `teamchat seat place-issued` to place it.\nPress Enter to clear it from the screen.\n"
+
+// answerIssued writes a member verb's document (issue 261). One carrying an issued credential,
+// on a terminal, is shown on the alternate screen and cleared on Enter, so the secret stays in
+// no scrollback; on a stream that is not a terminal (the pipe into `teamchat seat
+// place-issued`), or with no credential, the document is the one plain line it always was.
+func answerIssued(e Env, w work) term.ExitCode {
+	screen := &term.SecretScreen{W: e.Stdout, Terminal: w.bundle.Kind() == proto.KindObject && e.isTerminal(e.Stdout)}
+	screen.Show(string(w.doc) + "\n")
+	var readErr error
+	if screen.Showing() {
+		screen.Show(issuedClearPrompt)
+		if e.Stdin != nil {
+			if _, err := bufio.NewReader(e.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
+				readErr = fmt.Errorf("cannot read the Enter that clears the credential: %w", err)
+			}
+		}
+		screen.Close()
+	}
+	if err := errors.Join(screen.Err(), readErr); err != nil {
+		return fail(e.Stderr, term.ExitFailure, "cannot write the answer: "+err.Error())
+	}
+	return term.ExitOK
 }
 
 func memberArgs(op string, args []string) (paths.TeamID, []proto.Member, error) {

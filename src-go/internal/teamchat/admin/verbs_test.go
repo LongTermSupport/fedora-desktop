@@ -526,6 +526,46 @@ func TestApproveWithoutTheOwnerGroupIs78(t *testing.T) {
 	}
 }
 
+func onTerminal(any) bool { return true }
+
+// TestAnIssuedCredentialOnATerminalLeavesNoCopy is issue 261: a document carrying an issued
+// credential, written to a terminal, is shown on the alternate screen and cleared on Enter, so
+// the secret stays in no scrollback; piped (into `teamchat seat place-issued`) it is the one
+// plain line it always was.
+func TestAnIssuedCredentialOnATerminalLeavesNoCopy(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	piped := w.ok(t, "", addArgs("3", "password")...)
+	if strings.Contains(piped.stdout, "\x1b") || decodeDoc(t, piped).Bundle == nil {
+		t.Fatalf("piped %q", piped.stdout)
+	}
+	out := w.verbOn(strings.NewReader("\n"), onTerminal, on("reissue", "--credential", "password")...)
+	body, shown := strings.CutPrefix(out.stdout, term.AltScreenOn)
+	body, left := strings.CutSuffix(body, issuedClearPrompt+term.AltScreenOff)
+	if out.code != term.ExitOK || !shown || !left {
+		t.Fatalf("not on the alternate screen: %+v", out)
+	}
+	issued := decodeDoc(t, outcome{stdout: body})
+	if issued.Bundle == nil || !w.signsIn(t, sampleHandle, issued.Bundle.Secret) || strings.Contains(out.stderr, issued.Bundle.Secret) {
+		t.Fatalf("reissue on a terminal %+v", out)
+	}
+	set := w.verbOn(strings.NewReader(""), onTerminal, on("set", "--human-text", "false")...)
+	if set.code != term.ExitOK || strings.Contains(set.stdout, "\x1b") || decodeDoc(t, set).Bundle != nil {
+		t.Fatalf("a document with no credential is not plain: %+v", set)
+	}
+}
+
+// TestAnUnreadEnterStillLeavesTheScreen: a failed read of the Enter fails the verb, and the
+// alternate screen is left all the same.
+func TestAnUnreadEnterStillLeavesTheScreen(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t)
+	out := w.verbOn(errReader{}, onTerminal, addArgs("3", "password")...)
+	if out.code != term.ExitFailure || !strings.HasPrefix(out.stdout, term.AltScreenOn) || !strings.HasSuffix(out.stdout, term.AltScreenOff) || !strings.Contains(out.stderr, "eio") {
+		t.Fatalf("%+v", out)
+	}
+}
+
 // TestAFailedStatusRefreshStillPrintsTheBundle: the credential exists, so it is not lost.
 func TestAFailedStatusRefreshStillPrintsTheBundle(t *testing.T) {
 	w := newWorld(t)
