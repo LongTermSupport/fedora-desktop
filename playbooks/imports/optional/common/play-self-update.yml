@@ -127,34 +127,95 @@
       changed_when: false
       when: self_update_on
 
-    - name: Ask for the Become Password When It Is Missing
+    # Task 6.2 (route G): the root-only file the cycle reads is the password's one home.
+    # Once it holds a usable password, host_vars needs no copy, so an install can delete the
+    # vaulted value from the user's checkout, where its vault key sits beside it (any process
+    # running as the user could otherwise decrypt it). The probe applies the cycle's own
+    # checks and never prints the content.
+    - name: Check the Root-Only Become Password File
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -B
+          - -m
+          - helpers.self_update.become_file
+          - "{{ self_update_etc_dir }}/self-update.become"
+        chdir: "{{ root_dir }}"
+      register: self_update_become_probe
+      changed_when: false
+      when: self_update_on
+
+    - name: Read the Become Password File State
+      ansible.builtin.set_fact:
+        self_update_become_file: "{{ self_update_become_probe.stdout | from_json }}"
+        self_update_become_from_host_vars: "{{ self_update_become_password is defined }}"
+      when: self_update_on
+
+    # Asked for only when the root-only file cannot be used: a first install, or a file
+    # that went bad. The answer is written to that file below and saved nowhere else.
+    - name: Ask for the Become Password When the Root-Only File Cannot Be Used
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ask-and-save-secret.yml"
       vars:
         secret_name: self_update_become_password
         secret_label: login password
+        secret_save: false
         secret_explain: |
           The automatic update runs while nobody is at the keyboard, and some of its steps
           need administrator rights. For those it needs the password you type to log in to
-          this computer (the same one sudo asks for). It is saved vault-encrypted in
-          localhost.yml and only ever handed to the update, never shown.
+          this computer (the same one sudo asks for). It is kept only in a file that root
+          alone can read ({{ self_update_etc_dir }}/self-update.become), never in
+          localhost.yml, and only ever handed to the update, never shown. It is asked for
+          now because {{ self_update_become_file.reason }}.
       when:
         - self_update_on
         - self_update_become_password is not defined
+        - self_update_become_file.state != 'present'
 
     # Not no_log: an assert's output names the expression and the message, never the value.
     - name: Assert the Become Password Is Usable
       ansible.builtin.assert:
         that:
-          - self_update_become_password is defined
           - self_update_become_password | length > 0
           - "'\n' not in self_update_become_password"
+          - "'\r' not in self_update_become_password"
         fail_msg: >-
           self_update_become_password is empty or spans several lines, so the unattended
           update could not use it for its administrator steps. Nothing has been changed.
-          Remove the self_update_become_password entry from localhost.yml and run the play
-          again: it then asks for the password and saves it.
+          Delete the self_update_become_password entry from localhost.yml and run the play
+          again from a terminal: it then asks for the password.
+        quiet: true
+      when:
+        - self_update_on
+        - self_update_become_password is defined
+
+    - name: Assert the Unattended Update Has a Become Password
+      ansible.builtin.assert:
+        that:
+          - self_update_become_password is defined or self_update_become_file.state == 'present'
+        fail_msg: >-
+          The unattended update has no password for its administrator steps:
+          {{ self_update_become_file.reason }}, and self_update_become_password is not set.
+          Nothing has been changed. Run the play from a terminal and type the password when
+          asked, or declare self_update_become_password in host_vars for one run; once the
+          play has run, delete it again.
         quiet: true
       when: self_update_on
+
+    # The value in host_vars still works and still wins: a declared value is the desired
+    # state, so a rotated password reaches the root-only file on the next run. It is not
+    # needed there, and keeping it is the exposure Task 6.2 exists to end, so say so.
+    - name: Advise Deleting the Become Password From host_vars
+      ansible.builtin.debug:
+        msg: >-
+          Deprecated: self_update_become_password is set in host_vars. This run writes it to
+          the root-only {{ self_update_etc_dir }}/self-update.become, which is the only copy
+          the update reads. Kept in localhost.yml, it sits beside its vault key, where any
+          process running as you can decrypt it. Delete the entry from localhost.yml: later
+          runs keep the root-only file as it is. When the login password changes, declare
+          the new one there for one run, then delete it again.
+      when:
+        - self_update_on
+        - self_update_become_from_host_vars
 
     # D8 and Task 0.4: the one alert sink is a Slack webhook, optional and per install. It
     # is declared vault-encrypted in host_vars, which the install's config repo supplies,
@@ -362,10 +423,13 @@
     # D5: the plays run as the user and Ansible needs this user's sudo password for their
     # become tasks. It lives root-only; the entry point opens it and hands the plays an
     # inherited descriptor, so the user's shell and the ccy containers cannot open it.
-    # A copy module's msg names the file and the error, never the content, so the rescue
-    # can print it.
+    # Written only when this run has a value (host_vars or the answer above); otherwise the
+    # file the probe found present is kept as it is. A copy module's msg names the file and
+    # the error, never the content, so the rescue can print it.
     - name: Provision the Become Password
-      when: self_update_on
+      when:
+        - self_update_on
+        - self_update_become_password is defined
       block:
         - name: Provision the Become Password
           ansible.builtin.copy:

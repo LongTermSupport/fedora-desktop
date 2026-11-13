@@ -342,8 +342,25 @@ sessions push this repository with (`~/.ssh/github_<alias>.pub`). Plan 00139's
 `deploy.bash` prints each one. A server that still declares the older single
 `self_update_signing_public_key` keeps working: that key is added to the list. The play
 refuses an empty list and any line that is not one public key.
-`self_update_become_password` is your sudo password, vault-encrypted. Re-run the play
-after changing host_vars: the cycle runs with a root-owned copy.
+Re-run the play after changing host_vars: the cycle runs with a root-owned copy.
+
+The cycle's plays run as you, and their administrator steps need your sudo password. Its
+one home is `/etc/fedora-desktop/self-update.become` (root:root 0600), which the play
+writes. The cycle reads only that file. Do not keep the password in `localhost.yml`: its
+vault key sits beside it in your checkout, so any process running as you could decrypt it,
+and with password sudo that is root.
+
+- **First install.** Run the play from a terminal and type the password when asked. It is
+  written to the root-only file and saved nowhere else. A run with no terminal (an estate's
+  headless converge) declares `self_update_become_password` vault-encrypted in host_vars
+  for that one run.
+- **Afterwards.** Delete `self_update_become_password` from `localhost.yml`. While the
+  root-only file holds a usable password, the play needs no value and keeps the file as it
+  is. With neither, the play stops before it changes anything and says how to supply one.
+- **A value still in host_vars** is used: the play writes it to the root-only file (so a
+  changed password reaches it), and prints a deprecation advice to delete the entry.
+- **Your login password changed.** Declare the new one in host_vars for one run, then
+  delete it again.
 
 The whole cycle is described in [playbooks.md](playbooks.md#play-self-updateyml). Running
 it day to day:

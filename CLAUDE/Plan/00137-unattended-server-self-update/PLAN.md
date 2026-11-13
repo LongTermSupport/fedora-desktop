@@ -257,7 +257,7 @@ subject.
     F44 (each read from a commit signature, with its fingerprint), on that project's
     tracker. GitHub web-flow merges are GPG-signed, skipped as untrusted, and need no key.
 
-### Phase 6: No become password for the cycle (a downstream request, option F)
+### Phase 6: No become password in host_vars (a downstream request; route G chosen)
 
 A downstream install asked that the cycle's plays run as root, so that
 `self_update_become_password` is no longer required, written to `self-update.become`,
@@ -265,19 +265,38 @@ handed over on a descriptor, or read from the clone's host_vars. Its motive: the
 become password and its vault key are both readable by the login user. Report:
 [subagent-reports/261111-option-f-run-as-root-opus.md](subagent-reports/261111-option-f-run-as-root-opus.md).
 
-- [ ] 🚫 **Task 6.1**: OWNER: pick a route. Option F as asked reverses D5. The one
+- [x] ✅ **Task 6.1**: OWNER: pick a route. Option F as asked reverses D5. The one
   allowlisted play, `play-claude-yolo.yml`, is play-level `become: false`. Run as root,
   three kinds of task would act on root instead of the user: its rootless podman image
   build, its Go builds into the user's home, and its `systemctl` user-scope tasks. The
   play ledger would also record to root. Two routes:
+
   - **F-full**: make the allowlisted plays root-safe (`become_user` on every user task,
     under the cycle only), add a gate that keeps them so, then run them as root.
   - **G**: keep D5's root-only file and stop requiring the host_vars value once that file
     exists. This closes the at-rest route, and the descriptor stays.
-- [ ] **Task 6.2**: Build the chosen route test-first. The value in host_vars is ignored
-  with a deprecation warning and never fails a run. Docs and DESIGN-cycle.md are updated.
-  Under F-full, the play removes an existing `self-update.become`, and a test proves the
-  removal.
+
+  **Decision (owner, 2026-11-13): G. F-full is declined, not deferred.** G closes the
+  at-rest route R3, which was the real exposure. F-full would only remove the root-only
+  copy, whose residual risk is password reuse after a root compromise. That does not
+  justify reworking `play-claude-yolo.yml`, the play every desktop runs. D5 stands.
+
+- [x] ✅ **Task 6.2**: Build G test-first. `helpers/self_update/become_file.py` (tests in
+  `tests/helpers/self_update/test_become_file.py`) reports whether the root-only file is
+  one the cycle accepts, through the cycle's own `read_private`. `play-self-update.yml`
+  asks for the password (saved nowhere but the root-only file, through the shared asker's
+  new `secret_save: false`) only when that file is not usable. It fails before any change
+  when there is neither file nor value. A value still in host_vars is used, so a changed
+  password reaches the file, and it draws a deprecation advice to delete it; it never fails
+  a run. Ignoring it was rejected: a rotated password declared in host_vars would be
+  silently dropped, and the cycle would then fail at night on sudo. Docs, `.dist` and
+  DESIGN-cycle.md updated. Report:
+  [subagent-reports/261113-route-g-become-file-opus.md](subagent-reports/261113-route-g-become-file-opus.md).
+
+- [ ] **Task 6.3**: Proven on a server: the play converged with the value in host_vars
+  (advice printed, file written), then the value deleted and the play converged again
+  (no ask, file kept, `changed=0` for the file), then one cycle runs its plays. A desktop
+  host cannot prove it: the play's scope guard ends it there.
 
 ## Success Criteria
 

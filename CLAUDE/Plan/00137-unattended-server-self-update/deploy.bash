@@ -47,8 +47,8 @@ PLAN_USAGE="usage: deploy.bash --role desktop|server [-h|--help] [-y|--yes]
                    playbooks/imports/optional/common/play-self-update.yml (the cycle)
 
 Declare the inputs in host_vars first; host_vars/localhost.yml.dist lists them. For
-the server that means self_update_* (the password vault-encrypted) and
-ccy_restore_sessions: true.
+the server that means self_update_* and ccy_restore_sessions: true. The sudo password
+is asked for on the first run and kept root-only; it need not be in host_vars.
 
 -y/--yes is accepted; this script asks nothing, so it is a no-op here.
 --check is REFUSED: both server plays read a command task's registered stdout in a
