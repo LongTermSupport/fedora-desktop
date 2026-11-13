@@ -34,9 +34,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Issue #265 (ccy 3.119.10, container 2.84.13): rebuilds the ccy image, whose builder stage
-# builds teamchat from the checkout's commit, so new ccy sessions get a link whose logs name a
-# failed call's cause (a TLS pin failure, a timeout, a refused connection) and a refused inbox
-# socket's compared paths. Running sessions keep the old link until they restart.
-playbooks/imports/play-claude-yolo.yml
