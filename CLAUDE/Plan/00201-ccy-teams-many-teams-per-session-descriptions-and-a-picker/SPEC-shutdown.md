@@ -135,6 +135,12 @@ both.
   not complete within 600 s, a ready pane with no boundary within 30 s, or a transcript that
   cannot be read **fails** the session, which is left running and never stopped. With
   `--no-compact`, SD10 as written below.
+- **SD9b** (fedora-desktop#264, amending SD10) Every typed line (`/compact`, `/exit`) is
+  submitted through `tmuxccy.Tmux.Submit`: after each Enter the box is read until the line
+  has left it (a pane gone counts as left), and Enter is pressed again while it has not, up to
+  5 Enters; a line still in the box then **fails** the session, which is left running ("the
+  typed text stayed in the input box of <name> after 5 Enters; it is still running: attach it
+  (ccy-sessions)"). The re-Enter of SD10's later polls stays as a second line of defence.
 - **SD10** Each session's pane is read (`capture-pane`, `screen.ClaudeState`), all sessions in
   one pass, then again every poll (1 s) until each is done:
   - **ready** (claude's prompt, input box empty): `/exit` is typed (`send-keys -l /exit`), then

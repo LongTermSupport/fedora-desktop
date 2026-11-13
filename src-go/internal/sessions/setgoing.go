@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
@@ -366,15 +367,20 @@ func (g *goingRun) leave(name string, expect restore.Going, reason, why string) 
 	return g.leaveAlone(name, expect, reason)
 }
 
-// typeInto types the text into the session's pane, then presses Enter on its own after the
-// submit delay, the way the supervisor submits a line: an Enter arriving with the text is read
-// as part of it.
+// typeInto submits the text into the session's input box, each Enter on its own after the
+// submit delay (an Enter arriving with the text is read as part of it), and checks that the box
+// took it (tmuxccy.Submit).
 func (a *App) typeInto(ctx context.Context, name, text string) error {
-	if err := a.Tmux.SendKeys(ctx, name, text); err != nil {
-		return err
+	return a.Tmux.Submit(ctx, name, text, tmuxccy.SubmitPace{Pause: a.cfg.SubmitDelay, Sleep: func(d time.Duration) { a.Pause(d, nil) }})
+}
+
+// sendFailure is the reason a session is left untouched when typing into it failed: its text
+// never left the box, or a key or read failed.
+func sendFailure(err error, reason string) string {
+	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		return strings.Replace(reason, "send-failed", "not-submitted", 1)
 	}
-	a.Pause(a.cfg.SubmitDelay, nil)
-	return a.Tmux.SendEnter(ctx, name)
+	return reason
 }
 
 // lookAt is what the session's pane shows.
@@ -481,7 +487,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	at := g.app.Now()
 	if err = g.app.typeInto(ctx, name, text); err != nil {
 		g.app.failErr(err)
-		return g.leaveAlone(name, restore.GoingPending, "send-failed")
+		return g.leaveAlone(name, restore.GoingPending, sendFailure(err, "send-failed"))
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
 		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
@@ -617,7 +623,7 @@ func (g *goingRun) typeContinue(ctx context.Context, e restore.Entry) error {
 	at := g.app.Now()
 	if err := g.app.typeInto(ctx, e.Name, setGoingContinue); err != nil {
 		g.app.failErr(err)
-		return g.leaveAlone(e.Name, restore.GoingCompacting, "send-failed-after-compaction")
+		return g.leaveAlone(e.Name, restore.GoingCompacting, sendFailure(err, "send-failed-after-compaction"))
 	}
 	g.app.sayf("set %s going after its compaction: continue.\n", e.Name)
 	return g.goingSet(e.Name, restore.GoingCompacting, restore.GoingContinue, at, e.Detail, e.Transcript)

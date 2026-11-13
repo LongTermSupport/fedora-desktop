@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.7 — container 2.84.10
+
+- **Every line typed into a session is checked to have been submitted** (issue #264): after a
+  reboot `ccy-sessions` restore could leave its `/compact` in a session's input box, because the
+  one Enter after it arrived before the session was ready. Now every line ccy types into a
+  session (the restore's `/compact` and `continue`, the `/compact` and `/exit` of a close and
+  `ccy --stop`, the wind-down's lines) is entered, the box read until the line has left it, and
+  Enter pressed again while it has not, up to five times; a line that never leaves is reported
+  as a failure, and the session is left running. No image rebuild.
+
 ## 3.119.6 — container 2.84.10
 
 - **Issue #266**: in a ccy session with no `XDG_RUNTIME_DIR`, the teamchat link refused every hook,

@@ -214,7 +214,7 @@ func TestGoalClearStuckInTheBoxStopsTheJob(t *testing.T) {
 	if typed := m.typed(); !slices.Equal(typed, []string{"/goal clear"}) {
 		t.Fatalf("typed %q", typed)
 	}
-	m.errHas(t, "✗ ccy-proj: /goal clear stayed in its input box after a second Enter; the wind-down was not typed")
+	m.errHas(t, "✗ ccy-proj: /goal clear stayed in its input box after 5 Enters; the wind-down was not typed")
 }
 
 // W7: the wind-down text stuck in the box fails, saying the goal is already gone.
@@ -232,7 +232,7 @@ func TestTheWindDownStuckInTheBoxSaysTheGoalWentIn(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	m.errHas(t, "✗ ccy-proj: /goal clear went in, but the wind-down stayed in its input box after a second Enter")
+	m.errHas(t, "✗ ccy-proj: /goal clear went in, but the wind-down stayed in its input box after 5 Enters")
 }
 
 // W7: a session that ends part way is a failure that says how far it got.

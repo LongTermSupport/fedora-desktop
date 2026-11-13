@@ -80,8 +80,10 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_unit_no_install`         | a systemd unit kept running (`Restart=always`) with no `[Install]`, so it is static: enable does nothing and no boot starts it                                                         | teamchat `unitfiles`: `teamchat-server@.service` and `teamchat-tls@.service`, down after a reboot, and `team apply` reporting `CHANGED unit enabled` every run (fedora-desktop#247) |
 | `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                 | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                 |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
+| `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 
-Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
+Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
+`go vet -vettool=<driver> help ...` does not reach it) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
 not catch is listed under it, so the catalogue claims no more than the code does.
 
@@ -2944,6 +2946,56 @@ token file cannot be read), so the rule would flag code that carries no secret.
   terminal and plain when piped; ccc's `setup-token` output teed to the screen. The sweep over
   both modules and the `ccyteamstest`, `difftest`, `busfailpoints` and `tuwunel` tags is clean.
   `login.TestThePasswordIsShownOnlyOnTheAlternateScreenAndLeavesNoCopy` reproduces the defect.
+
+### project_submit_unchecked
+
+**What it is about.** Text typed into Claude Code's TUI in a tmux pane is submitted by an
+Enter, and that Enter can be lost: it arrives before the TUI is ready, or while it is still
+taking the typed text. The text then sits in the input box, the caller believes it was
+submitted, and the session idles.
+
+**Why it exists.** fedora-desktop#264: after an attended reboot `ccy-sessions` restore typed
+`/compact This session was restored...` into six sessions; two kept it unsubmitted in the box
+(`verify-restore`: `NOT-SET-GOING compact-not-started`) for over 30 minutes, and a second
+Enter submitted it.
+
+**What it flags**, outside test files: a function using both `tmuxccy`'s `Tmux.SendKeys` and
+`Tmux.SendEnter` (called, or taken as a method value), other than `Tmux.Submit`; a `SendKeys`
+whose text holds a constant newline or carriage return; and in `internal/tmuxccy` a function
+building text (`send-keys -l`, `paste-buffer`) beside a submit key (`Enter`, `C-m`, `KPEnter`,
+`C-j`) as constants, other than `Tmux.Submit`.
+
+**Not flagged**: a lone `SendEnter` (how a dialog is answered and a stuck line re-entered) and
+a lone `SendKeys`. **Not caught**: text typed in one function and entered in another; text
+typed through a runner other than `tmuxccy`'s; `send-keys` text given without `-l`. The
+shell and Python sides have no tmux submit (the independent search found `send-keys` only in
+test suites). The ccy supervisor (`.claude/ccy/claude-supervise.py`, `_perform_injection`)
+submits by a carriage return written to the child's PTY, not tmux: outside this rule's class;
+its submits are re-checked by its own state machine (`mark_own_line_typed`, `WOULD_RESUBMIT`).
+
+**How to fix a violation.** Submit with `tmuxccy.Tmux.Submit(ctx, name, text, SubmitPace)`:
+it types the text, pauses, presses Enter, reads the box until the text has left it (a pane
+gone counts as left) and presses Enter again while it has not, up to `SubmitEnters`; text still
+there is `tmuxccy.ErrNotSubmitted`, which the caller reports as a failure, never as taken.
+
+**The next wider rule, not built:** any text written into a TUI (a tmux pane or a PTY, in any
+language) and submitted with one unchecked Enter. Not built: its one other instance, the
+supervisor's PTY injection, already re-checks every submit through its state machine, and a
+static rule would have to follow that state machine across a 10 000-line module; the owner
+decides whether it is wanted.
+
+- Red, fixture: `testdata/src/fix/sub/internal/tmuxccy` (a second submitter, a raw
+  `send-keys -l` then `C-m`, one argv with `Enter`, `paste-buffer` then `KPEnter`; Submit, a
+  lone Enter and Escape clean) and `fix/sub/badsubmit` (the defect's shape, a method value, a
+  closure, `\n` and `\r` in the text; Submit, a lone Enter, a lone type and a test file clean).
+- Red, real tree: three findings, `sessions/setgoing.go:377` (the defect),
+  `sessclose/sessclose.go:426` and `teams/winddown/windstep.go:328`, at `43192125b`; the
+  independent search found the same three Go sites (the last two re-checked the box on later
+  polls) and no tmux submit in another language.
+- Green: all three submit through `Tmux.Submit`; the sweep over the module is clean.
+  `sessions.TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox` and
+  `TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox` reproduce the defect;
+  `tmuxccy.TestSubmit*` prove the retry, the bound and the failures.
 
 ## Control
 
