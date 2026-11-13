@@ -257,6 +257,28 @@ subject.
     F44 (each read from a commit signature, with its fingerprint), on that project's
     tracker. GitHub web-flow merges are GPG-signed, skipped as untrusted, and need no key.
 
+### Phase 6: No become password for the cycle (a downstream request, option F)
+
+A downstream install asked that the cycle's plays run as root, so that
+`self_update_become_password` is no longer required, written to `self-update.become`,
+handed over on a descriptor, or read from the clone's host_vars. Its motive: the vaulted
+become password and its vault key are both readable by the login user. Report:
+[subagent-reports/261111-option-f-run-as-root-opus.md](subagent-reports/261111-option-f-run-as-root-opus.md).
+
+- [ ] 🚫 **Task 6.1**: OWNER: pick a route. Option F as asked reverses D5. The one
+  allowlisted play, `play-claude-yolo.yml`, is play-level `become: false`. Run as root,
+  three kinds of task would act on root instead of the user: its rootless podman image
+  build, its Go builds into the user's home, and its `systemctl` user-scope tasks. The
+  play ledger would also record to root. Two routes:
+  - **F-full**: make the allowlisted plays root-safe (`become_user` on every user task,
+    under the cycle only), add a gate that keeps them so, then run them as root.
+  - **G**: keep D5's root-only file and stop requiring the host_vars value once that file
+    exists. This closes the at-rest route, and the descriptor stays.
+- [ ] **Task 6.2**: Build the chosen route test-first. The value in host_vars is ignored
+  with a deprecation warning and never fails a run. Docs and DESIGN-cycle.md are updated.
+  Under F-full, the play removes an existing `self-update.become`, and a test proves the
+  removal.
+
 ## Success Criteria
 
 - [ ] A commit touching only `files/var/local/claude-yolo/lib/` makes the cycle run
