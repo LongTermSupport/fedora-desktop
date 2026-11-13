@@ -76,13 +76,13 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   Patch on upstream `e6ea127a`: [lightning-thread-root.patch](lightning-thread-root.patch), with a
   data-driven QML test. Existing reports searched: none
   ([UPSTREAM-DRAFT-thread-root.md](UPSTREAM-DRAFT-thread-root.md)).
-- [ ] 🔄 **Task 2.2**: Build and test the patch on the host, through IaC. The container has no Qt,
-  CMake or Rust toolchain and none may be installed by hand. Written: `build-test.bash` (per
+- [x] ✅ **Task 2.2**: Build and test the patch on the host, through IaC: `build-test.bash` (per
   [PlanScriptStandards.md](../../PlanScriptStandards.md)) runs the non-Rust tree's QML test in a
   podman container from `Containerfile.build-test` (Fedora 44, Qt 6 devel RPMs,
-  `-DLIGHTNING_ENABLE_WEBRTC=OFF`) through `build-test-inner.bash`: the patch's test alone must
-  fail on the old QML, then with the fix it and every `thread` test must pass, every target built.
-  Queued in `meta-deploy.list`; not yet run.
+  `-DLIGHTNING_ENABLE_WEBRTC=OFF`) through `build-test-inner.bash`. Run on the host at `e6ea127a`:
+  RED with the test alone (`theThreadRootGrowsToItsCapThenScrollsAndIsNeverElided`, both rows
+  fail; QTest totals 7 passed, 2 failed, 0 skipped); GREEN with the fix (that suite 1/1 in CTest;
+  every target built, every CTest named `thread` 10/10).
 - [x] ✅ **Task 2.3**: Owner decision **D2**: yes, post the issue now with a suggested fix and the
   grow-then-scroll proposal; the pull request follows once Task 2.2 has real totals.
 - [ ] 🔄 **Task 2.4**: Issue posted: [Mizerd/lightning#75](https://github.com/Mizerd/lightning/issues/75),
@@ -98,7 +98,9 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 3: Prove one instance per team (hard requirement; before any launcher work)
 
-- [ ] 🔄 **Task 3.1** (written, with `probe-instances.bash`; queued, not yet run): Write `triage.bash` (plan-local, `_planlib.inc.bash`, read-only apart from
+- [x] ✅ **Task 3.1** (run 2026-11-13: `--env` does NOT reach the sandbox, `--command=env` does;
+  the runtime has the CA bundle and python3; the two probe copies launched with `--env` only
+  raised the running Lightning, so the two-instance fact moved to Task 3.2): Write `triage.bash` (plan-local, `_planlib.inc.bash`, read-only apart from
   two probe directories under `~/.var/app/org.lightning_matrix.Lightning/teams-probe/` that it
   removes). Run through `meta-deploy.bash`, never in the container. It establishes:
   - [ ] ⬜ that `flatpak run --env=XDG_DATA_HOME=… --env=XDG_CONFIG_HOME=… --env=XDG_CACHE_HOME=… --command=printenv org.lightning_matrix.Lightning` prints the given values inside the sandbox;
@@ -112,7 +114,8 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
     its own login page.
   - [ ] ⬜ Add the plan to `meta-deploy.list` in the same commit; ask the team's host agent to run
     `./CLAUDE/Plan/meta-deploy.bash`.
-- [ ] ⬜ **Task 3.2**: If `--env` does not reach the sandbox, use the fallback and re-run 3.1 with
+- [ ] 🔄 **Task 3.2** (needed: `probe-instances.bash` now launches with `--command=env`; the
+  triage is queued again): If `--env` does not reach the sandbox, use the fallback and re-run 3.1 with
   it: `flatpak run --command=env org.lightning_matrix.Lightning XDG_DATA_HOME=… XDG_CONFIG_HOME=… XDG_CACHE_HOME=… lightning-matrix`. `env` sets the variables inside the
   sandbox, after Flatpak has set its own, so it does not depend on how Flatpak orders them. Ruled
   out as fallbacks: `--persist` (one mapping per app, not per launch) and instance ids (Flatpak

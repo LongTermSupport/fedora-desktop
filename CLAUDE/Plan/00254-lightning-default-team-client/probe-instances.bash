@@ -23,6 +23,8 @@
 set -euo pipefail
 
 readonly APP="org.lightning_matrix.Lightning"
+# The manifest's `command:`, run by name when `--command=env` replaces it.
+readonly APP_COMMAND="lightning-matrix"
 readonly SETTLE_SECONDS=20
 readonly RAISE_WAIT_SECONDS=20
 readonly USAGE="usage: probe-instances.bash env|runtime|two REPORT"
@@ -72,12 +74,14 @@ probeRuntime() {
   say "FACT runtime python3: exit ${rc}: ${out}"
 }
 
-# launch ROOT NAME: start one instance on ROOT in the background; prints its pid.
+# launch ROOT NAME: start one instance on ROOT in the background; prints its pid. The
+# `--command=env` form: the first triage run showed `flatpak run --env=XDG_*` does not reach
+# the sandbox (Flatpak sets its own XDG paths after it), while `env` inside the sandbox does.
 launch() {
   local root="$1" name="$2"
   mkdir -p "${root}/data" "${root}/config" "${root}/cache"
-  flatpak run --env=XDG_DATA_HOME="${root}/data" --env=XDG_CONFIG_HOME="${root}/config" \
-    --env=XDG_CACHE_HOME="${root}/cache" "${APP}" >"${reportDir}/lightning-probe-${name}.log" 2>&1 &
+  flatpak run --command=env "${APP}" XDG_DATA_HOME="${root}/data" XDG_CONFIG_HOME="${root}/config" \
+    XDG_CACHE_HOME="${root}/cache" "${APP_COMMAND}" >"${reportDir}/lightning-probe-${name}.log" 2>&1 &
   printf '%s\n' "$!"
 }
 
