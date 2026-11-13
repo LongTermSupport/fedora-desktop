@@ -2896,7 +2896,9 @@ going back to the list the password was still in the scrollback.
 (`agentbus.Client.HumanPassword`, ftp-camera's hotspot passwords, `ui.Lines.Secret`, ccc's token
 readers, teamchat-ctl's admin password and token, vmtest's random token), any method named
 `Reveal` returning a string (how `matrix.Token` and `seat.Secret` hand their value out), or a
-field in `secretFields` (`ccylaunch.export.token`). It is followed through assignments, `+`,
+field in `secretFields` (`ccylaunch.export.token`; `admin.work.doc`, teamchat-admin's member
+answer, whose `bundle` carries the issued credential's secret encoded through `seat.Secret` and
+`proto.Value`, which the rule does not follow). It is followed through assignments, `+`,
 conversions, the `fmt.Sprint*`/`Errorf`, `errors.New` and `strings` functions that keep their
 argument, `String`/`Bytes`/`Error` of a value holding it, a `bytes.Buffer` or `strings.Builder`
 written with it, a field it is stored in (across packages, as a fact), a parameter of a function
@@ -2932,7 +2934,15 @@ token file cannot be read), so the rule would flag code that carries no secret.
   ReportErr of an error holding it, fmt to stderr and stdout, `os.Stdout.WriteString`, a field
   printed in another method, a buffer, a wrapper, `Reveal`; `ftpcamera/banner.go`: a package
   printer and a session field; `ccc/ccc.go`: the tee to an injected stderr and to `os.Stdout`;
-  `good.go` and the screen forms clean; a test file not judged).
+  `good.go` and the screen forms clean; a test file not judged; `teamchat/admin/verbs.go`: the
+  answer document written through the verb's own `answer`, and on the screen clean).
+- Red, issue 261: `teamchat/admin/verbs.go:178`, `teamchat-admin member reissue`/`add`/`return`
+  writing the document holding the issued credential's bundle to stdout, the one finding over
+  the module once `admin.work.doc` joined `secretFields`. Green: `answerIssued` writes the
+  document through `term.SecretScreen`, on the alternate screen and cleared on Enter when it
+  carries a bundle and stdout is a terminal, plainly otherwise (the pipe into
+  `teamchat seat place-issued` unchanged); `TestAnIssuedCredentialOnATerminalLeavesNoCopy`. The
+  sweep over the module and the `busfailpoints` and `tuwunel` tags is clean.
 - Red, real tree: five findings over both modules: `teams/login/login.go:229` (the defect),
   `ftpcamera/server.go:377` (the hotspot's Wi-Fi password in the session banner),
   `ftpcamera/wifipass.go:110` (a new hotspot password printed for the play),
