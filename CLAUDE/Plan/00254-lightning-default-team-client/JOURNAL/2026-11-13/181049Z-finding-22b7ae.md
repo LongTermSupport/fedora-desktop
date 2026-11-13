@@ -1,0 +1,3 @@
+## 18:10 · finding · —
+
+Upstream: two more Lightning results. Pull request Mizerd/lightning#77 (thread root grows then scrolls, Task 2.4) was merged to main as 76f334f8 on 2026-11-13; it reaches the owner with the next Flathub release after v0.10.5. The owner then reported the threads side panel showing its list in the top half only; the cause, read from the code (not run): ThreadPanel.qml's top ColumnLayout holds the thread list area and an open thread's reply area, both Layout.fillHeight, and the reply area has no visible binding, so with the list open and no thread active the layout gives each half. Reported as Mizerd/lightning#79 with a one-line fix (`visible: app.thread.active` on the reply area). Detail in subagent-reports/261113-lightning-halfpanel-opus.md.

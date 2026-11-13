@@ -1,0 +1,82 @@
+# Which of a list of teams are https teams on this host, and each one's CA: what a desktop Matrix
+# client must trust to reach the team (Plan 00246 SPEC-cross-network X34). Shared by the files
+# that place the CA for a client, tasks/element-team-ca.yml and tasks/lightning-team-ca.yml.
+#
+#   - name: Read each https team's CA
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/https-team-ca.yml"
+#     vars:
+#       https_team_ca_teams: [<team id>, ...]
+#       https_team_ca_client: Element                        # named in the user check's message
+#       https_team_ca_approved_root: /var/lib/teamchat-status/teams
+#       https_team_ca_admin_root: /var/lib/teamchat-admin
+#
+# A team counts when its approved.json (written by `team approve`) names an https url; a team
+# with no approved.json is not a v2 team on this host and an http one needs no CA (X12, X15).
+# The two roots are paths.StatusRoot/teams and paths.AdminStateRoot (src-go teamchat/paths).
+#
+# Leaves, for the importing file:
+#   https_team_ca_https  the https teams, each {key: <team>, value: <url>}
+#   https_team_ca_pem    the slurp of each one's CA: .item is that pair, .content the PEM, base64
+#   ansible_facts['getent_passwd'][user_login]  the desktop user's uid ([1]) and home ([4]),
+#                        resolved and asserted when there is an https team
+# The importing play defines user_login.
+- name: Assert the teams to read the CA of are a list
+  ansible.builtin.assert:
+    that:
+      - https_team_ca_teams is sequence and https_team_ca_teams is not string
+    fail_msg: https_team_ca_teams must be a list of team ids, not {{ https_team_ca_teams }}.
+    quiet: true
+
+- name: Probe each team's approved fields
+  become: true
+  ansible.builtin.stat:
+    path: "{{ https_team_ca_approved_root }}/{{ item }}/approved.json"
+  loop: "{{ https_team_ca_teams }}"
+  register: https_team_ca_approved_stat
+
+- name: Read each approved team's fields
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ item.stat.path }}"
+  loop: "{{ https_team_ca_approved_stat.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: https_team_ca_approved
+
+- name: Name the teams whose approved url is https
+  ansible.builtin.set_fact:
+    https_team_ca_https: >-
+      {{ dict(https_team_ca_approved.results | map(attribute='item') | map(attribute='item')
+              | zip(https_team_ca_approved.results | map(attribute='content') | map('b64decode')
+                    | map('from_json') | map(attribute='approved') | map(attribute='url')))
+         | dict2items | selectattr('value', 'match', 'https://') | list }}
+
+# A missing CA for an https team fails here, naming the file: X13 makes it at the first apply.
+- name: Read each https team's CA
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ https_team_ca_admin_root }}/{{ item.key }}/tls/ca.crt"
+  loop: "{{ https_team_ca_https }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: https_team_ca_pem
+
+- name: Resolve the desktop user's uid and home
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ user_login }}"
+    # The verdict is the assert's, so the operator reads its message, not the module's.
+    fail_key: false
+  when: https_team_ca_https | length > 0
+
+- name: Assert the desktop user exists
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['getent_passwd'][user_login] is defined
+      - ansible_facts['getent_passwd'][user_login] is not none
+      - ansible_facts['getent_passwd'][user_login][1] | int > 0
+    fail_msg: >-
+      Could not resolve a uid for {{ user_login }}, so {{ https_team_ca_client }}'s sandbox
+      cannot be run as that user to check the team CA.
+    quiet: true
+  when: https_team_ca_https | length > 0

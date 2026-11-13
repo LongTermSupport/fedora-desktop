@@ -395,7 +395,8 @@ The tests cite these numbers.
 
 - E67. `--new-hotspot-password` is a primary mode of its own (E4; the server modifiers are
   refused with it, E5). It prints one new hotspot Wi-Fi password and a newline on stdout and
-  nothing else, exit 0; it needs no config, no camera account (E7), runs no program and takes no
+  nothing else, exit 0 (on a terminal, run by hand, it is shown on the alternate screen with
+  `Press Enter to clear the password from the screen.` and cleared on Enter, issue 255); it needs no config, no camera account (E7), runs no program and takes no
   suspend lock (E9). The password is three words joined by `-` (`maple-river-candle`), each
   drawn uniformly from the word list the binary embeds (`words.txt`: at least 800 distinct words
   of 3 to 9 lowercase letters, so every password is 11 to 29 characters, inside WPA2's 8 to 63)
@@ -414,7 +415,12 @@ The tests cite these numbers.
   Root's read failing is `ERROR: could not read the Wi-Fi password of hotspot '<name>': <reason>`
   (then `(as the user: <reason>)` when the user's read failed too), and the session tears down (E41). The camera settings then begin
   `    Wi-Fi:       <ssid>   (join this network on the camera first)` and
-  `    Wi-Fi pass:  <password>` (stdout only); a profile with no password says
+  `    Wi-Fi pass:  <how it was shown>; nmcli -s -g 802-11-wireless-security.psk connection show '<name>' prints it`.
+  The password itself is shown only when stdout is a terminal, on its alternate screen
+  (`term.SecretScreen`) before vsftpd starts, with `Press Enter once the camera has joined`, and
+  that screen is left on Enter or Ctrl-C, so the session's log never holds it (issue 255; the
+  row then says `shown before the server started, then cleared`); with stdout not a terminal it
+  is not written at all (`not shown (the output is not a terminal)`). A profile with no password says
   `(none: profile '<name>' has no Wi-Fi password)`. No hotspot, or a shared connection with no
   SSID (wired): no read and no Wi-Fi rows. The profile, not the vault, is read: it is what the
   camera must match (a profile the user made in GNOME is adopted with its own password), and it

@@ -2878,6 +2878,73 @@ reporting a change that never happens.
   over both modules and every tag is clean. `TestTheTeamUnitsAreWantedAtBoot` was red (2) before
   the fix; `units.TestEnablingAStaticUnitIsRefused` holds the seam (`ErrNoInstall`).
 
+### project_secret_scrollback
+
+**What it is about.** A terminal keeps what was written to its normal screen in its
+scrollback, and tmux in a pane's history, for as long as the window lives. A secret written
+there (a password "shown once", a token, a Wi-Fi key) is still there after the program has
+moved on: for anyone who scrolls up, shares the screen, or logs the terminal or the pane.
+
+**Why it exists.** Issue 255: ccy-teams showed a person's new Element password (`login.go`,
+`IssuePassword` → `showLogin`), promised it was "shown this once and stored nowhere", and after
+going back to the list the password was still in the scrollback.
+
+**What it flags**, outside test files: a secret reaching a terminal write other than through
+`term.SecretScreen`. A secret is the value of a source: a function in `secretSources`
+(`agentbus.Client.HumanPassword`, ftp-camera's hotspot passwords, `ui.Lines.Secret`, ccc's token
+readers, teamchat-ctl's admin password and token, vmtest's random token), any method named
+`Reveal` returning a string (how `matrix.Token` and `seat.Secret` hand their value out), or a
+field in `secretFields` (`ccylaunch.export.token`). It is followed through assignments, `+`,
+conversions, the `fmt.Sprint*`/`Errorf`, `errors.New` and `strings` functions that keep their
+argument, `String`/`Bytes`/`Error` of a value holding it, a `bytes.Buffer` or `strings.Builder`
+written with it, a field it is stored in (across packages, as a fact), a parameter of a function
+of the same package and the result of a function returning it (across packages, as a fact). A
+terminal write is `fmt.Print*`/`Fprint*`, `log`'s, `io.WriteString`, `Write`/`WriteString` on an
+`io.Writer`, `os.Stdout` or `os.Stderr`, and any function, in any package, that passes a
+parameter on to one (worked out as a fact: `term.Printer.Print`, `flow.Kit.Tell`, a package's
+own printer); the call handing the secret to it is the finding. It also flags an
+`io.MultiWriter` that sends a child's output both to such a stream and to a buffer a source
+then reads a secret out of (ccc's sign-in, where `claude setup-token` prints the token).
+
+**Not flagged** (narrowed, each because the hazard cannot arise there): a `Write` on an
+`*os.File` other than `os.Stdout`/`os.Stderr` (a file the program opened: every `/dev/tty` the
+Go tree opens is opened to read, by search); `term.SecretScreen.Show` and `Write` (the display).
+**Not caught**: a secret read from a file or a child's output with no source between (add the
+reader to the table); a secret printed by a child given the terminal directly; a struct holding
+a secret printed whole with `%v`; a secret handed to a function value, an interface method, or a
+function of another package that only stores it. The secrets bash, Python and Ansible print are
+outside this rule's language (see the remediation record of issue 255).
+
+**How to fix a violation.** Show the secret with `term.SecretScreen` (`flow.Kit.ShowSecret` in
+ccy-teams) and `Close` the screen once the person is done with it: the terminal's alternate
+screen (`ESC[?1049h` … `ESC[?1049l`) keeps no scrollback and tmux keeps it out of the pane's
+history. A child whose output holds a secret is teed to the screen (`io.MultiWriter(screen, &buf)`) with the screen open around it. On a stream that is not a terminal `SecretScreen`
+writes the secret plainly, as the payload its reader asked for (`ccy --export-token > file`).
+
+**The next wider rule, not built:** every write of any string a function or variable named
+`password`, `token` or `secret` holds. Not built: those names also hold file paths
+(`paths.Seat.Token()`), token names and problem texts (`usageReport.readToken` returns why a
+token file cannot be read), so the rule would flag code that carries no secret.
+
+- Red, fixture: `testdata/secretscrollback` (`teams/login/bad.go`: the defect's shape, Tell,
+  ReportErr of an error holding it, fmt to stderr and stdout, `os.Stdout.WriteString`, a field
+  printed in another method, a buffer, a wrapper, `Reveal`; `ftpcamera/banner.go`: a package
+  printer and a session field; `ccc/ccc.go`: the tee to an injected stderr and to `os.Stdout`;
+  `good.go` and the screen forms clean; a test file not judged).
+- Red, real tree: five findings over both modules: `teams/login/login.go:229` (the defect),
+  `ftpcamera/server.go:377` (the hotspot's Wi-Fi password in the session banner),
+  `ftpcamera/wifipass.go:110` (a new hotspot password printed for the play),
+  `ccylaunch/exporttoken.go:117` (`ccy --export-token`), `ccc/app.go:229` (the sign-in tee),
+  at `ccee95cd5`; the independent search found the same five in Go and no other.
+- Green: each shown through `term.SecretScreen`: ccy-teams' sign-in block on the kit's screen
+  (`flow.Kit.ShowSecret`), left by the Enter after signing in or the paste's Enter
+  (`SettleClipboard`), and no password is set where stderr is not a terminal; ftp-camera's
+  Wi-Fi password on the screen before vsftpd starts, left on Enter, the banner naming the
+  `nmcli` read instead; a new hotspot password and the export script on the screen on a
+  terminal and plain when piped; ccc's `setup-token` output teed to the screen. The sweep over
+  both modules and the `ccyteamstest`, `difftest`, `busfailpoints` and `tuwunel` tags is clean.
+  `login.TestThePasswordIsShownOnlyOnTheAlternateScreenAndLeavesNoCopy` reproduces the defect.
+
 ## Control
 
 `scripts/qa-go.bash` was run with `strings.HasPrefix(p, "~")` planted in a package outside

@@ -162,6 +162,20 @@ Whether the Flatpak build honours each store has not yet been seen on a real des
 check decides which store the play uses. The play runs only on the homeserver host, where the
 team's `approved.json` is; Element on another machine has no profile from this repository.
 
+## Lightning
+
+Lightning (the Flatpak `org.lightning_matrix.Lightning`) does not read NSS or the host's trust
+anchors: its Matrix connections use rustls, which reads only `SSL_CERT_FILE` and `SSL_CERT_DIR`
+when they are set. The same play, under the tag `agent-bus-lightning`, installs Lightning and puts
+each `https` team's CA in its own file, `~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/<team>.pem`,
+removing any other file there. A team's Lightning launch sets `SSL_CERT_FILE` to the runtime's
+public bundle and `SSL_CERT_DIR` to that directory, so public servers stay trusted. The play's last
+step runs `tls-trust-check` (a small Go program built by the play) inside Lightning's sandbox with
+exactly those two variables: it fails the play, naming the team, the CA file and the cause, when
+the team's server is not trusted, including when its certificate names the host only in the
+Common Name, which rustls does not accept. The per-team Lightning launcher that sets the two
+variables is still to come (Plan 00254).
+
 ## What is proven, and what is not
 
 On one machine with two addresses: a team that declares both networks serves TLS on each address,

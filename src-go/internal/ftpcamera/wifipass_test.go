@@ -110,6 +110,25 @@ func TestNewHotspotPasswordMode(t *testing.T) {
 	}
 }
 
+// Issue 255: run by hand on a terminal, the new password is shown on the alternate screen and
+// cleared on Enter, so no copy of it stays in the scrollback; piped (the play), it is plain.
+func TestNewHotspotPasswordModeOnATerminalLeavesNoCopy(t *testing.T) {
+	k := newKit(t)
+	k.colour = true
+	k.stdin = "\n"
+	k.random = bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x02})
+	k.wantCode(k.run("--new-hotspot-password"), term.ExitOK)
+	words, err := hotspotWords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := term.AltScreenOn + words[0] + "-" + words[1] + "-" + words[2] + "\n" +
+		"Press Enter to clear the password from the screen.\n" + term.AltScreenOff
+	if k.out.String() != want {
+		t.Fatalf("stdout %q, want %q", k.out.String(), want)
+	}
+}
+
 // E67: no random bytes: exit 1, nothing on stdout.
 func TestNewHotspotPasswordModeRandomFails(t *testing.T) {
 	k := newKit(t)
@@ -139,17 +158,44 @@ func pskArgv(lead ...string) []string {
 	return append(lead, "-s", "-g", "802-11-wireless-security.psk", "connection", "show", "Camera AP")
 }
 
+// wifiPassNotShown is the banner's row when stdout is not a terminal: the password is not
+// written where a copy of it would stay, and the row says how to read it.
+const wifiPassNotShown = "    Wi-Fi pass:  not shown (the output is not a terminal); " +
+	"nmcli -s -g 802-11-wireless-security.psk connection show 'Camera AP' prints it\n"
+
 // E68: the password is read as the user first; NetworkManager hands it over, and root is not
 // asked.
 func TestHotspotPasswordReadAsUser(t *testing.T) {
 	k := hotspotKit(t, true)
 	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
-	k.wantOut("    Wi-Fi:       ftp-camera   (join this network on the camera first)\n",
-		"    Wi-Fi pass:  "+testWifiPass+"\n")
+	k.wantOut("    Wi-Fi:       ftp-camera   (join this network on the camera first)\n", wifiPassNotShown)
 	k.wantNotRan("sudo -n nmcli -s")
-	if strings.Contains(k.err.String(), testWifiPass) {
-		t.Error("the Wi-Fi password went to stderr")
+	if strings.Contains(k.err.String()+k.out.String(), testWifiPass) {
+		t.Error("the Wi-Fi password was written where it stays")
+	}
+}
+
+// Issue 255: on a terminal the password is shown on the alternate screen before the FTP server
+// starts, for the camera to join, and that screen is left on Enter: the session's log, which
+// stays in the scrollback, never holds it.
+func TestHotspotPasswordIsShownOnlyOnTheAlternateScreen(t *testing.T) {
+	k := hotspotKit(t, true)
+	k.colour = true
+	k.stdin = "\n"
+	ctx := interruptAt(k)
+	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
+	out := k.out.String()
+	before, rest, entered := strings.Cut(out, term.AltScreenOn)
+	shown, after, left := strings.Cut(rest, term.AltScreenOff)
+	if !entered || !left || !strings.Contains(shown, testWifiPass) || strings.Contains(before+after+k.err.String(), testWifiPass) {
+		t.Fatalf("stdout %q: the password only on the alternate screen", out)
+	}
+	if !strings.Contains(shown, "Press Enter once the camera has joined") || strings.Contains(before, "Starting camera FTP server") {
+		t.Fatalf("stdout %q: shown, and left on Enter, before the server starts", out)
+	}
+	if !strings.Contains(after, "Wi-Fi pass:  shown before the server started, then cleared; ") {
+		t.Fatalf("stdout %q", out)
 	}
 }
 
@@ -161,7 +207,7 @@ func TestHotspotPasswordReadAsRoot(t *testing.T) {
 	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
 	k.wantRan(strings.Join(pskArgv("sudo", "-n", "nmcli"), " "))
-	k.wantOut("    Wi-Fi pass:  " + testWifiPass + "\n")
+	k.wantOut(wifiPassNotShown)
 }
 
 // E68: the user's read failing is not an answer either; root's failing stops the session

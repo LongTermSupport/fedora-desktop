@@ -54,8 +54,9 @@
       tags: [nheko]
 
     # Lightning: a native Qt 6 client on the official Matrix Rust SDK, with threads in a side
-    # panel; on trial as an alternative to Element Desktop. Its TLS is rustls, not NSS, so the
-    # Element NSS database for a team CA (tasks/element-team-ca.yml) does not reach it.
+    # panel; on trial as an alternative to Element Desktop. Its TLS is rustls, not NSS, so a team
+    # CA reaches it through SSL_CERT_DIR instead: play-agent-bus-element.yml (tag
+    # agent-bus-lightning, tasks/lightning-team-ca.yml) places it and proves it from the sandbox.
     - name: Install Lightning
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
       vars:

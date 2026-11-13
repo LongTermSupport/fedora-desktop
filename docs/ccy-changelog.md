@@ -17,13 +17,20 @@ Two version numbers move independently — see
 
 ---
 
-## 3.119.5 — container 2.84.9
+## 3.119.6 — container 2.84.10
 
 - **Issue #266**: in a ccy session with no `XDG_RUNTIME_DIR`, the teamchat link refused every hook,
   because it looked for Claude Code's inbox socket under `XDG_RUNTIME_DIR` alone. It now places the
   socket by Claude Code's own order (`XDG_RUNTIME_DIR`, else `CLAUDE_CODE_TMPDIR`, else the
   temporary directory, and `/tmp/cc-socks-<uid>` for a path too long). The image is rebuilt once;
-  the launcher behaves as 3.119.4.
+  the launcher behaves as 3.119.5.
+
+## 3.119.5 — container 2.84.9
+
+- **A secret is shown where the scrollback does not keep it** (issue #255): `ccy --export-token NAME` on a terminal shows the import script on the terminal's alternate screen and clears it
+  on Enter, so the token stays in no scrollback or tmux history; redirected or piped it is
+  written plainly, as before. The image is rebuilt once because the shared `term` package its
+  Go commands build from gained the secret screen; they behave as before.
 
 ## 3.119.4 — container 2.84.8
 

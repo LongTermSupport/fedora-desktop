@@ -10,7 +10,11 @@
 # removes the launcher and profile it wrote for a team that is not declared or is absent.
 # Last, for a declared team whose v2 approved url is https, it places the team CA where
 # Element reads it and fails unless a handshake from Element's sandbox trusts it
-# (tasks/element-team-ca.yml, Plan 00246 SPEC-cross-network X34).
+# (tasks/element-team-ca.yml, Plan 00246 SPEC-cross-network X34). Then the same for Lightning
+# (Plan 00254 Phase 4): it installs the Lightning Flatpak, places each https team's CA where
+# Lightning reads it and fails unless a handshake from Lightning's sandbox trusts it
+# (tasks/lightning-team-ca.yml, tag agent-bus-lightning). That check is a Go binary built here, so
+# the Go toolchain is installed first; play-golang.yml stays its one source of truth.
 #
 # The Element profile holds the human's Matrix session token, readable by every process of
 # that user, so no agent may run as user_login: the helper refuses (exit 78) a user holding
@@ -19,6 +23,9 @@
 # `pingbus config check` refuse a host member beside the profile this play writes.
 #
 # Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist).
+- import_playbook: ../../play-golang.yml
+  tags: [agent-bus-lightning]
+
 - hosts: desktop
   name: Agent team bus Element Desktop profiles
   become: false
@@ -70,7 +77,7 @@
           {{ agent_bus_host_vars_file | default('environment/localhost/host_vars/localhost.yml') }} must list
           the teams user_login watches, each with team and base_url. See localhost.yml.dist.
         quiet: true
-      tags: [agent-bus-element]
+      tags: [agent-bus-element, agent-bus-lightning]
 
     # Read-only, so it runs in --check too, and before anything is installed.
     - name: Validate the profiles and refuse a user_login holding pingbus bundles
@@ -82,7 +89,7 @@
         chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
       changed_when: false
       check_mode: false
-      tags: [agent-bus-element]
+      tags: [agent-bus-element, agent-bus-lightning]
 
     - name: Enable Flathub remote
       become: true
@@ -90,7 +97,7 @@
         name: flathub
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
-      tags: [agent-bus-element]
+      tags: [agent-bus-element, agent-bus-lightning]
 
     # The install and the keyring grant (which must be in place before a profile's first start)
     # are written once, in tasks/element-desktop.yml, and play-matrix-clients.yml imports the
@@ -110,7 +117,7 @@
       changed_when: agent_bus_element_apply.stdout_lines | select('match', agent_bus_element_changed_re) | list | length > 0
       tags: [agent-bus-element]
 
-    # Last, because its last task is the proof: for each declared team whose approved url is
+    # Last of Element's steps, because its last task is the proof: for each declared team whose approved url is
     # https, the team CA placed where Element reads it and a handshake from Element's sandbox
     # checked against it (SPEC-cross-network X34). A team with no v2 approval here is untouched.
     - name: Trust each https team's CA in Element Desktop, and prove it from Element's sandbox
@@ -122,3 +129,18 @@
         element_team_ca_approved_root: /var/lib/teamchat-status/teams
         element_team_ca_admin_root: /var/lib/teamchat-admin
       tags: [agent-bus-element]
+
+    # Lightning, the Matrix client on trial to replace Element for a team (Plan 00254): installed,
+    # with each https team's CA where its rustls reads it, proven from its sandbox. It installs
+    # Lightning as well as play-matrix-clients.yml does because ccy-teams runs this play on its
+    # own. Where the Lightning steps finally live (this play generalised over the client, or a
+    # sibling) is Plan 00254 Task 5.1's decision; until then they follow Element's, for the same
+    # teams.
+    - name: Install Lightning, trust each https team's CA in it, and prove it from its sandbox
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/lightning-team-ca.yml"
+      vars:
+        lightning_team_ca_teams: "{{ agent_bus_element_profiles | map(attribute='team') | list }}"
+        # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
+        lightning_team_ca_approved_root: /var/lib/teamchat-status/teams
+        lightning_team_ca_admin_root: /var/lib/teamchat-admin
+      tags: [agent-bus-lightning]

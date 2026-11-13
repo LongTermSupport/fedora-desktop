@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00255-cc-session-sandbox-and-deploy-broker](00255-cc-session-sandbox-and-deploy-broker/) - Not Started (plan only; triage queued, owner decisions D1-D9 open). Issue #101, options 3 + 4: a root-owned deploy broker runs committed plays at a commit on GitHub for cc agents, then cc seals each session (Matrix clients' data, browsers, password store and keyring hidden; the session bus filtered), and passwordless sudo goes last, so the owner can run plays at every step.
+
 - [00254-lightning-default-team-client](00254-lightning-default-team-client/) - In Progress (owner decisions D1-D4 open). Lightning becomes the default team client, Element selectable (issue #253): one separate Lightning instance per team (a hard requirement, proven on the host first), the thread-root clipping fix taken upstream (patch prototyped), then team CA trust, per-team launchers with a pre-filled homeserver, and ccy-teams opening teams in Lightning.
 
 - [00253-element-fork-thread-switch-case-study](00253-element-fork-thread-switch-case-study/) - Dormant (parked by the owner). Element shows the previously open thread when another is clicked: the likely cause, an upstream fix, and a case study of forking Element.

@@ -128,15 +128,20 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 4: Team CA trust for Lightning
 
-- [ ] ⬜ **Task 4.1**: `tasks/lightning-team-ca.yml`, beside `tasks/element-team-ca.yml`: for each
+- [x] ✅ **Task 4.1** (the discovery of https teams and their CAs is one file both clients
+  import, `tasks/https-team-ca.yml`; every other file in the directory is removed, because
+  Lightning trusts whatever it holds): `tasks/lightning-team-ca.yml`, beside `tasks/element-team-ca.yml`: for each
   https team, place the team CA as one PEM file per team in
   `~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/`. The team's launch sets
   `SSL_CERT_FILE` to the runtime bundle and `SSL_CERT_DIR` to that directory (rustls reads only
   these when set; never set `SSL_CERT_FILE` to the team CA alone, which drops every public root).
-- [ ] ⬜ **Task 4.2**: The play's last step fails unless a handshake from inside Lightning's sandbox
+- [ ] 🔄 **Task 4.2** (done in code: `src-go/cmd/tls-trust-check` over `internal/tlstrust`,
+  built static and run in the sandbox through `flatpak run --command=env`; imported by
+  `play-agent-bus-element.yml` under tag `agent-bus-lightning`, Lightning installed there too.
+  The host proof is pending its `meta-deploy.list` entry): The play's last step fails unless a handshake from inside Lightning's sandbox
   with exactly those two variables verifies the team URL, and the server certificate carries a SAN
   for the host (rustls has no CN fallback).
-- [ ] ⬜ **Task 4.3**: Docs: a Lightning paragraph in `docs/agent-bus-cross-network.md`; update the
+- [x] ✅ **Task 4.3**: Docs: a Lightning paragraph in `docs/agent-bus-cross-network.md`; update the
   comment in `play-matrix-clients.yml` that says no CA reaches Lightning.
 
 ### Phase 5: Per-team instance, launcher and pre-filled config
