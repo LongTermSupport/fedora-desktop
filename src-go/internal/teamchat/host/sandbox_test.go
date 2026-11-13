@@ -61,7 +61,10 @@ IPAddressDeny=any
 SocketBindDeny=any
 BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
-` + v1names.InaccessiblePaths + "\n"
+` + v1names.InaccessiblePaths + "\n" + `
+[Install]
+WantedBy=multi-user.target
+`
 
 // notSandbox are the [Service] keys n2g-D17 keeps per unit: the lifecycle, and the credential
 // and environment, whose paths differ between the server and the staging unit.
@@ -77,8 +80,9 @@ func keyOf(line string) string { return strings.SplitN(line, "=", 2)[0] }
 // and the environment, in order.
 func TestBaseSandboxIsTheBaseUnitsSandbox(t *testing.T) {
 	unitSection, service, found := strings.Cut(baseUnitText, "[Service]\n")
-	if !found || !strings.HasPrefix(unitSection, "[Unit]\n") {
-		t.Fatal("not a [Unit] section then a [Service] section")
+	service, _, installed := strings.Cut(service, "\n[Install]\n")
+	if !found || !installed || !strings.HasPrefix(unitSection, "[Unit]\n") {
+		t.Fatal("not a [Unit] section, a [Service] section and an [Install] section")
 	}
 	var want []string
 	for line := range strings.SplitSeq(strings.TrimSpace(service), "\n") {

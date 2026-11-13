@@ -230,7 +230,8 @@ do not care:
    loopback alone, so a guest's member reaches it only through the terminator, which must
    therefore outlive the guests at shutdown as the homeserver does); the bus server's hardening lines; `RestrictAddressFamilies=AF_INET AF_INET6`;
    `IPAddressDeny=any`; `SocketBindDeny=any`; a descriptor limit above twice
-   `tlsterm.DefaultMaxConns` (256, so above 512). The drop-ins keep their own denies as well: the
+   `tlsterm.DefaultMaxConns` (256, so above 512); and, as the homeserver's unit, `[Install]`
+   `WantedBy=multi-user.target`, so an enabled instance starts at boot (fedora-desktop#247). The drop-ins keep their own denies as well: the
    B3 fix put `IPAddressDeny=any` and `SocketBindDeny=any` in both drop-ins, because systemd
    never applies one template's base text to another template's drop-in, and a drop-in is judged
    alone.

@@ -261,6 +261,7 @@
           become: false
           run_once: true
           register: tc_build_dir
+          changed_when: false # scratch on the controller; the copies below report the host change
           tags: [admin, member]
 
         - name: Read the Source Tree Id of src-go
@@ -379,6 +380,7 @@
           delegate_to: localhost
           become: false
           run_once: true
+          changed_when: false
           when: tc_build_dir is defined and tc_build_dir.path is defined
           tags: [admin, member]
 
@@ -433,6 +435,7 @@
             state: directory
             prefix: teamchat-tuwunel-
           register: tc_download
+          changed_when: false # scratch; the install below reports the host change
 
         - name: Download the Pinned Tuwunel Release Asset
           ansible.builtin.get_url:
@@ -441,6 +444,7 @@
             checksum: "sha256:{{ tc_pin['tuwunel_sha256_' ~ tc_arch] }}"
             mode: "0600"
             timeout: 600
+          changed_when: false
 
         # Unpacks into the scratch directory only; the install below reports the host change.
         - name: Unpack the Tuwunel Release Asset
@@ -470,6 +474,7 @@
             path: "{{ tc_download.path }}"
             state: absent
           when: tc_download is defined and tc_download.path is defined
+          changed_when: false
 
     - name: Write the Server Pin
       ansible.builtin.copy:

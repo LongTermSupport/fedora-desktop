@@ -86,12 +86,14 @@
             jetbrains_toolbox_platform: "{{ jetbrains_toolbox_platform_keys[ansible_facts['architecture']] }}"
             jetbrains_toolbox_download_query: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.{{ jetbrains_toolbox_platform }}.link"
             jetbrains_toolbox_checksum_link: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.{{ jetbrains_toolbox_platform }}.checksumLink"
+          changed_when: false # scratch; the installer below reports the change
 
         - name: Unpack install archive
           ansible.builtin.unarchive:
             src: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
             dest: "{{ jetbrains_toolbox_download_dir.path }}"
             remote_src: true
+          changed_when: false
 
         - name: Run JetBrains Toolbox installer
           ansible.builtin.shell: |

@@ -2819,6 +2819,10 @@ reporting a change that never happens.
   (`terminatorUnit`), and nothing else over both modules with the default, `busfailpoints`,
   `tuwunel`, `ccyteamstest` and `difftest` tags. `host/lxc/unit` (the LXC seat's session
   unit, `[Install] WantedBy=multi-user.target`) is green.
+- Green: both units end in `[Install] WantedBy=multi-user.target` (`installLines`), the
+  homeserver's text now written where its `[Service]` header is (`serverUnit`), and the sweep
+  over both modules and every tag is clean. `TestTheTeamUnitsAreWantedAtBoot` was red (2) before
+  the fix; `units.TestEnablingAStaticUnitIsRefused` holds the seam (`ErrNoInstall`).
 
 ## Control
 

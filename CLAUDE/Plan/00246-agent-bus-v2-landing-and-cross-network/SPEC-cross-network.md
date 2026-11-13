@@ -162,7 +162,8 @@ install are listed last, under "Owner questions".
   digest sets lose the device-unit digest with them.
 - **X18c** `team apply` starts the terminator after the homeserver is ready and its bound
   addresses are loopback exactly, restarts it when its drop-in changed or its leaf was made again
-  (a unit reads its credentials only at its start), enables it, and holds its bound addresses on
+  (a unit reads its credentials only at its start), enables it (its base unit's `[Install]`
+  `WantedBy=multi-user.target` makes that start it at boot), and holds its bound addresses on
   the port to the listen set exactly. `serve` starts it after the homeserver and makes the same
   check from units.json's listen set; `team remove` stops and disables it before the homeserver
   and deletes its drop-in with the homeserver's. The team id `tls` is reserved, as `fence` is: it

@@ -43,3 +43,6 @@ SocketBindDeny=any
 LimitNOFILE=576
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
+
+[Install]
+WantedBy=multi-user.target

@@ -38,6 +38,7 @@
   delegate_to: localhost
   become: false
   run_once: true
+  changed_when: false # inside the caller's scratch directory; the caller's copy reports the change
 
 - name: Build Each Command for Each Architecture
   ansible.builtin.command:
