@@ -40,7 +40,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"randfile", "the owner's randfile command, which prints a random file from a directory, and its own suite proves it"},
 	{"find-race-negated-stat-test", "issue #152, Defence Before Fix: no find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk"},
 	{"secret-in-argv", "issue #220, Defence Before Fix: no passphrase, password or other secret on a command line, or rendered by Ansible into one (a shell task's text, environment:)"},
-	{"token-bundle-into-place-issued", "issue #248, Defence Before Fix: no bundle issued with --credential token is piped into seat place-issued, which places only a pool seat's password"},
+	{"token-bundle-into-place-issued", "issue #248, Defence Before Fix: no token-credential bundle is piped into seat place-issued, which places only a pool seat's password"},
 	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"walk-opens-non-regular-file", "issue #191, Defence Before Fix: no Python opens an entry a directory walk found without checking it is a regular file"},
 	{"podman-store-probe-race", "issue #152: the rootless store ownership probe prints nothing for a file a container deletes during the walk, raced for real"},

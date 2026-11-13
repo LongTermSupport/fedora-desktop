@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.2 — container 2.84.6
+
+- **`teamchat seat place-issued` names the fix when it refuses a bundle of the wrong kind**
+  (issue #248): a pool seat keeps a password, and a bundle issued with the token credential is
+  refused with "issue the seat with --credential password" after the kinds. The image's
+  teamchat changes, so the image is rebuilt once; the launcher behaves as 3.119.1.
+
 ## 3.119.1 — container 2.84.5
 
 - **A script can send from a one-shot teamchat session** (Plan 00246 Task 8.11): `teamchat say --wait-contact` holds the say up to 10 s for the link's first contact with the homeserver, so

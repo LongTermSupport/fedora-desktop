@@ -143,7 +143,7 @@ func TestPlaceWithAnInjectedTokenCredentialPlacesTheToken(t *testing.T) {
 func TestPlaceRefusesATokenForThePasswordStoreNamingTheKinds(t *testing.T) {
 	w := newWorld(t)
 	w.refuses(issuedDoc(t, testBase, seat.KindToken, secretOne), refusalWant{
-		exits.ExitConfig, exits.CodeBundle, string(msgInvalid), "a token, not this pool's password",
+		exits.ExitConfig, exits.CodeBundle, string(msgInvalid), "a token, not this pool's password: issue the seat with --credential password",
 	})
 	if w.exists(w.pool().Dir()) {
 		t.Error("a seat was made")

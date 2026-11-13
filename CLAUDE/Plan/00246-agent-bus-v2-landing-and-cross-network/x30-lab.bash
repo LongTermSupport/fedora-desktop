@@ -393,7 +393,7 @@ leg_plays() {
 # '-' issues and places nowhere: the coordinator, which no session ever runs.
 issue() {
     local seat="$1" human="$2" guest="$3" out
-    local add="teamchat-admin member add --team ${TEAM} --prefix ${PREFIX} --seat ${seat} --kind host --human-text ${human} --credential token"
+    local add="teamchat-admin member add --team ${TEAM} --prefix ${PREFIX} --seat ${seat} --kind host --human-text ${human} --credential password"
     if [[ "${guest}" == - ]]; then
         out="$(as_issuer x30-bus "${add}")" || return 1
         if [[ "${out}" != *'"handle":"'"${COORDINATOR}"'"'* ]]; then
