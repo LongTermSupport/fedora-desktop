@@ -668,7 +668,9 @@ and places every other member).
      restored from a copy taken earlier in the test.
 - **SY8. Failures** (B 2.6 step 08): transient (unreachable, timeout, 5xx, 429 past retries)
   retried from the stored position after 1 s doubling to 30 s with jitter, `down` after 15 s,
-  one log line at each end; 401, 403 or lost trust stop the team (21 or 22 for its verbs, one
+  one log line at each end, the `down` line naming the cause (`matrix.Cause`: the class and the
+  failed call's detail), and while down a changed cause logged at most once per 5 minutes
+  (issue 265); 401, 403 or lost trust stop the team (21 or 22 for its verbs, one
   hook line, a NOTICE), its store and owed TIMEOUTs kept, retried on a bundle change, a desired
   generation change or the next start (T10). No team's failure touches another's.
 - **SY9. Presence**: only the team sync marks the member online; no request ever sends

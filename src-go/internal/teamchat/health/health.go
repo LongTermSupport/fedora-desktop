@@ -83,7 +83,11 @@ func viewProblem(team paths.TeamID, err error) status.Problem {
 	case errors.Is(err, ErrViewChild):
 		return status.Problem{What: what + ErrViewChild.Error(), Fix: health}
 	}
-	return status.Problem{What: what + matrix.Class(err), Fix: health + ", then systemctl status " + paths.ServerUnit(team)}
+	fix := health + ", then systemctl status " + paths.ServerUnit(team)
+	if cause := what + matrix.Cause(err); status.OneLine(cause) {
+		return status.Problem{What: cause, Fix: fix}
+	}
+	return status.Problem{What: what + matrix.Class(err), Fix: fix}
 }
 
 // BackupState is the newest usable backup (nil for none) and the last run's result.

@@ -270,7 +270,8 @@ func (e *Error) Error() string {
 func (e *Error) Is(target error) bool { return target == e.kind }
 
 // Class is err's failure class as fixed text, never err's own text, so a record can carry it:
-// a cancelled or timed-out context, a failed call's class, or "not a homeserver answer".
+// a cancelled or timed-out context, a failed call's class (or a class wrapped bare, as admin's
+// viewer wraps the child's answer), or "not a homeserver answer".
 func Class(err error) string {
 	switch e, ok := errors.AsType[*Error](err); {
 	case errors.Is(err, context.Canceled):
@@ -283,7 +284,26 @@ func Class(err error) string {
 		}
 		return ErrRefused.text
 	}
+	if k, ok := errors.AsType[*kindError](err); ok {
+		return k.text
+	}
 	return "not a homeserver answer"
+}
+
+// Cause is err as a log line or a person's message names it: Class(err), then the cause behind
+// the class. For a failed call that is the *Error's own text, which is safe to print (SPEC M9)
+// and tells apart what one class holds: a TLS pin failure, a timeout, a refused connection. For an
+// error that is not a homeserver answer it is err's own text. A cancelled or timed-out context
+// gives the class alone. A bounded record takes Class instead (project_class_without_detail).
+func Cause(err error) string {
+	class := Class(err)
+	if e, ok := errors.AsType[*Error](err); ok {
+		return class + " (" + e.Error() + ")"
+	}
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return class
+	}
+	return class + " (" + err.Error() + ")"
 }
 
 // Unwrap is the caller's context error when the call was cancelled, else nil.

@@ -136,20 +136,13 @@ func (s *sess) build(ctx context.Context, job IndexJob) {
 				continue
 			}
 		}
-		t.log.Printf("a page of the questions index was not taken; it is tried again: %s", describe(err))
+		t.log.Printf("a page of the questions index was not taken; it is tried again: %s", matrix.Cause(err))
 		d := delay - t.cfg.Jitter(delay)
 		delay = min(2*delay, maxBackoff)
 		if !s.buildWait(ctx, d) {
 			return
 		}
 	}
-}
-
-func describe(err error) string {
-	if e, ok := errors.AsType[*matrix.Error](err); ok {
-		return matrix.Class(e)
-	}
-	return err.Error()
 }
 
 // buildWait is one backoff wait; false when the job ends first.
