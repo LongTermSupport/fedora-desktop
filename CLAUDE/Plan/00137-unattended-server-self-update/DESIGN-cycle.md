@@ -10,7 +10,7 @@ it is a change to both sides.
 | --------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | Entry point     | `/usr/local/sbin/fedora-desktop-self-update` (source: `files/usr/local/sbin/`)                                         | root:root 0700                  |
 | Config          | `/etc/fedora-desktop/self-update.conf`, `KEY=value`, read with `read`, never sourced                                   | root:root 0600                  |
-| Become password | `/etc/fedora-desktop/self-update.become` (vault-provisioned)                                                           | root:root 0600                  |
+| Become password | `/etc/fedora-desktop/self-update.become`, the password's one home (asked for, or host_vars once; Task 6.2)             | root:root 0600                  |
 | Vault password  | `/etc/fedora-desktop/self-update.vault` (copied from the checkout the play runs from)                                  | root:root 0600                  |
 | Allowed signers | `/etc/fedora-desktop/self-update.allowed_signers` (the owner's signing keys, one line each; Task 4.8)                  | root:root 0644, dir 0755 root   |
 | Slack webhook   | `/etc/fedora-desktop/self-update.slack-webhook` (optional, vault-provisioned; present only when declared)              | root:root 0600                  |
@@ -36,6 +36,11 @@ Settled by the IaC (`play-self-update.yml`); the orchestrator must match:
   resolve, because the file is untracked.
 - **host_vars.** The play copies `environment/localhost/host_vars/localhost.yml` into the
   clone as `root:<user> 0640`. It is refreshed only when the play runs.
+- **Become password.** The cycle reads it only from the root-only `self-update.become`,
+  never from host_vars. The play writes that file from `self_update_become_password` when
+  a run has one (host_vars, or the answer to its prompt), and otherwise keeps a file
+  `helpers/self_update/become_file.py` finds usable. So an install deletes the value from
+  host_vars after its first run, and the clone's copy no longer carries it (Task 6.2).
 - **git ownership.** The play adds the clone to the user's `safe.directory`. Without it,
   git refuses a root-owned repository, and the ledger callback records nothing.
 - **Fact cache (orchestrator's job).** `ansible.cfg` writes `./untracked/facts/`, which is

@@ -61,6 +61,10 @@ user_email: "yourname@example.com"
 # self_update_slack_webhook_url: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
+# Your sudo password, for one run only: a headless first install (or a changed password)
+# declares it, the play writes it to the root-only /etc/fedora-desktop/self-update.become,
+# and then it is deleted from here. An interactive run asks for it instead. Kept here, it
+# sits beside its vault key; the play advises deleting it.
 # self_update_become_password: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
