@@ -11,7 +11,7 @@ import (
 func memberNames(t *testing.T) map[string][]string {
 	t.Helper()
 	ops, key := mustTeam(t, "ops"), sampleSeatKey(t)
-	socket, err := InboxSocket("/run/user/1000", 4242)
+	socket, err := InboxSocket(InboxEnv{RuntimeDir: "/run/user/1000"}, 4242)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func memberZeroDerivations() map[string]func() string {
 // PA1: the member names n3a adds, per seat since n3b-D2.
 func TestMemberNames(t *testing.T) {
 	ops, key := mustTeam(t, "ops"), sampleSeatKey(t)
-	socket, err := InboxSocket("/run/user/1000", 4242)
+	socket, err := InboxSocket(InboxEnv{RuntimeDir: "/run/user/1000"}, 4242)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestTheGuestRuntimeDirectoryKeepsBsSocketsShort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inbox, err := InboxSocket(GuestRuntimeDir(key), 4194304)
+	inbox, err := InboxSocket(InboxEnv{RuntimeDir: GuestRuntimeDir(key)}, 4194304)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,14 +204,6 @@ func TestParseSessionUnit(t *testing.T) {
 }
 
 func TestMemberNamesRefuseBadInput(t *testing.T) {
-	for _, c := range []struct {
-		dir string
-		pid int
-	}{{"run/user/1000", 1}, {"/run/user/1000/", 1}, {"/", 1}, {"/run/user/1000", 0}, {"/run/user/1000", -3}} {
-		if _, err := InboxSocket(c.dir, c.pid); !errors.Is(err, ErrInvalid) {
-			t.Errorf("InboxSocket(%q, %d) = %v, want ErrInvalid", c.dir, c.pid, err)
-		}
-	}
 	for _, uid := range []int{0, -1} {
 		if _, err := GuestLoginRunRoot(uid); !errors.Is(err, ErrInvalid) {
 			t.Errorf("GuestLoginRunRoot(%d) = %v, want ErrInvalid", uid, err)

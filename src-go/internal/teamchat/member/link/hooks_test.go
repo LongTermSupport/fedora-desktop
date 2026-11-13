@@ -42,7 +42,7 @@ func newHookWorld(t *testing.T, ids ...paths.TeamID) *linkWorld {
 
 func (w *linkWorld) inboxSocket() string {
 	w.t.Helper()
-	sock, err := paths.InboxSocket(w.dir+"/xdg", pidClaude)
+	sock, err := paths.InboxSocket(paths.InboxEnv{RuntimeDir: w.dir + "/xdg"}, pidClaude)
 	check(w.t, err)
 	return sock
 }

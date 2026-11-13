@@ -78,6 +78,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_identity_fold`           | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused             | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209)                                                                                                |
 | `project_semgrep_test_runner`     | a semgrep rule proven with semgrep's own test runner, whose 5 s limit per rule no flag raises, so a loaded host fails a sound rule as a Timeout or a "rule id mismatch"                | the real-semgrep tests of `qa-walk-open` and six more gates, red only under a loaded `qa-all` (fedora-desktop#206)                                                                  |
 | `project_unit_no_install`         | a systemd unit kept running (`Restart=always`) with no `[Install]`, so it is static: enable does nothing and no boot starts it                                                         | teamchat `unitfiles`: `teamchat-server@.service` and `teamchat-tls@.service`, down after a reboot, and `team apply` reporting `CHANGED unit enabled` every run (fedora-desktop#247) |
+| `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                 | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                 |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
@@ -2165,6 +2166,59 @@ canonical read of the program's own file is a row in `identityFoldAllowances`, w
   a Go rule, and is referred to the owner (Plan 00209, the owner-case report).
 - Not caught: a name compared with `==` outside these functions and fields; a name that reaches
   a grammar through a helper of another package that is not one of the four.
+
+### project_inbox_socket_dir
+
+**What it is about.** Claude Code binds a per-session inbox socket and reports its path to the
+hooks. It picks the directory by its own order: `$XDG_RUNTIME_DIR`, else `$CLAUDE_CODE_TMPDIR`,
+else the temporary directory (`os.tmpdir()`: `TMPDIR`, `TMP`, `TEMP`, else `/tmp`). The socket is
+`<dir>/cc-socks/<pid>.sock`, resolved. When that path is longer than 103 bytes, it is
+`/tmp/cc-socks-<uid>/<pid>.sock` instead. The order was read from the Claude Code 2.1.323 bundle;
+the `os.tmpdir()` variables are Node's documented order. Any other code that builds or matches
+that path applies some other order. Where it compares its answer with the reported path, it
+refuses a socket that is Claude Code's own.
+
+**Why it exists.** The teamchat link took its runtime directory from `XDG_RUNTIME_DIR` alone. In a
+ccy container with none set, it expected `/cc-socks/<pid>.sock`, but Claude Code had bound
+`/tmp/cc-socks/<pid>.sock`. The link then refused every hook of the session: "the inbox socket is
+not a socket of the session's processes" (fedora-desktop#266).
+
+**What it flags**, in every package of both modules: a constant string expression whose value
+contains `cc-socks`, judged whole, so the name spelt in pieces is the name. A declared constant is
+reported at its declaration.
+
+**Not flagged**: `internal/teamchat/paths/inboxsocket.go`, the one resolver; the rule's own file;
+test files, which spell the expected path a resolver is checked against and resolve nothing
+Claude Code's process reaches.
+
+**How to fix a violation.** Take the socket from
+`paths.InboxSocket(paths.InboxEnvOf(getenv, uid), pid)`, or judge its shape with
+`paths.IsInboxSocket(path, pid)`. Never build or match the path in place. A raw `XDG_RUNTIME_DIR`
+cannot stand in for the resolver's environment: `paths.InboxEnv` is a type of its own.
+
+- Red, fixture: `testdata/inboxsocketdir/src/fix` (`internal/teamchat/link`: the defect's prefix
+  cut under a raw `XDG_RUNTIME_DIR` and its rebuilt path, a join, a suffix check, a declared
+  constant, the name in pieces, the long-path fallback; a comment, another directory and the
+  resolver's answer are clean; a test file is not judged. `internal/teamchat/paths`: the exempt
+  file clean, a sibling judged. `internal/elsewhere`: a file of the exempt name, judged.
+  `cmd/tool`: a command, judged).
+- Red, real tree: three findings, all in `src-go`: `teamchat/paths/member.go` (`InboxSocket`
+  under a bare runtime directory), `teamchat/member/link/facts.go` (`socketProcess`'s prefix cut)
+  and `teamchat/member/state/values.go` (`validSocket`, which refused the `cc-socks-<uid>`
+  fallback). Reading the callers found a fourth place, `link/main.go`, which handed the link a
+  raw `XDG_RUNTIME_DIR`. It names no `cc-socks`, so it was fixed through the resolver's type.
+- Green: `paths/inboxsocket.go` resolves Claude Code's order. The link is given
+  `paths.InboxEnvOf(getenv, uid)` and judges a reported socket against it. `state` asks
+  `paths.IsInboxSocket`. The rule reports nothing over either module. The test for a ccy session
+  with no `XDG_RUNTIME_DIR` (with `TMPDIR` set and unset) was red before the fix.
+- Wider rule considered and not built: every read of `XDG_RUNTIME_DIR` with no fallback. Most such
+  reads place this repository's own state (membership, locks, the ccy launcher's runtime
+  files), where a desktop session's runtime directory is required by design. Flagging them would
+  match code that does not carry this hazard.
+- Not caught: the name built at run time from parts that are not constants; a resolver handed
+  the directory, which never names it; and code in another language. No Python or shell in the
+  tree resolves the directory (the independent search). pingbus takes the socket from Claude
+  Code's `CLAUDE_CODE_MESSAGING_SOCKET`.
 
 ## Defect classes that cannot be a rule
 

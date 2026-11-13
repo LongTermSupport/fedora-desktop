@@ -43,3 +43,13 @@
 # own login page: look), then launches a second copy on the first profile, which should only
 # raise that window and exit. Your own Lightning and its sign-in are not touched.
 00254-lightning-default-team-client
+
+# Issue 266: the teamchat link refused every hook of a ccy session with no XDG_RUNTIME_DIR. Run
+# once the fix is on F44. Rebuilds the ccy image, whose builder stage builds teamchat from the
+# checkout's commit, so new ccy sessions get the fixed link. Running sessions keep the old
+# link until they restart.
+playbooks/imports/play-claude-yolo.yml
+
+# Issue 266, the same fix for host and LXC members: rebuilds and reinstalls the teamchat member
+# program and its kit (the member tag only, so no unit or team is touched).
+playbooks/imports/play-teamchat.yml --tags member

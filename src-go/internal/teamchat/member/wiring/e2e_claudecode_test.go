@@ -216,7 +216,7 @@ func (c *claudeCode) begin() (ccBegun, error) {
 	if c.inbox != nil {
 		return ccBegun{}, errors.New("claude: begin twice")
 	}
-	sock, err := paths.InboxSocket(c.runtime, os.Getpid())
+	sock, err := paths.InboxSocket(paths.InboxEnv{RuntimeDir: c.runtime}, os.Getpid())
 	if err != nil {
 		return ccBegun{}, err
 	}

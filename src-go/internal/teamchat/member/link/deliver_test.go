@@ -26,7 +26,7 @@ func (w *linkWorld) engineConfig() <-chan engine.Config {
 func (w *linkWorld) startedSession(u state.Unusable) state.Session {
 	w.t.Helper()
 	id, source := sessA, state.SourceStartup
-	sock, err := paths.InboxSocket(w.dir+"/xdg", 101)
+	sock, err := paths.InboxSocket(paths.InboxEnv{RuntimeDir: w.dir + "/xdg"}, 101)
 	check(w.t, err)
 	transcript := w.dir + "/.claude/projects/-work/" + sessA + ".jsonl"
 	s := state.Session{

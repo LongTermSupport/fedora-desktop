@@ -4,8 +4,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 // The closed sets the member files share (B 2.3.3, 2.4.1, 2.9).
@@ -73,10 +74,10 @@ func validTranscript(path string) bool {
 	return cleanAbs(path) && strings.HasSuffix(path, ".jsonl") && len(path) <= maxTranscriptPath
 }
 
-// validSocket is the inbox socket of the Claude Code process pid: `<dir>/cc-socks/<pid>.sock`
-// (paths.InboxSocket), short enough to bind.
+// validSocket is the inbox socket of the Claude Code process pid, in any place Claude Code's
+// order can pick (paths.IsInboxSocket), short enough to bind.
 func validSocket(path string, pid int) bool {
-	return cleanAbs(path) && len(path) <= maxSocketPath && strings.HasSuffix(path, "/cc-socks/"+strconv.Itoa(pid)+".sock")
+	return len(path) <= maxSocketPath && paths.IsInboxSocket(path, pid)
 }
 
 // optionalOf is null or one of set.
