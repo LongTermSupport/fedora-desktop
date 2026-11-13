@@ -988,8 +988,9 @@ ccy_compose_record_outcome() {
 # --compose, default ask) start or skip answers without asking: that is how a restore replays
 # its record. ask reads the answer from the person at the terminal; with nobody to answer
 # (ccy_nobody_to_ask) it refuses by name and exits, rather than eat a headless session's input
-# or hang. A restore that reaches ask has a record from before compose= existed: it says so
-# before the question, because verify-restore names the line the pane stops on. Once no was
+# or hang. A restore that reaches ask has a record with no compose= answer: it says why before
+# the question (CCY_RESTORE_NO_COMPOSE_WHY, set by ccy-sessions restore for a provisioned
+# record), because verify-restore names the line the pane stops on. Once no was
 # answered (CCY_COMPOSE_DECLINED), a later offer in the same launch is answered N unasked.
 ccy_compose_answer() {
     local prompt="${1:?ccy_compose_answer requires a prompt}" default="${2:?ccy_compose_answer requires a default}"
@@ -1023,7 +1024,7 @@ ccy_compose_answer() {
     if [[ "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
         echo "The compose services did not start after ${CCY_COMPOSE_UP_FAILED_TRIES:-1} tries (see above). y tries again; n carries on without them for now, and the record still says started, so the next restore tries again; Ctrl+C ends the session."
     elif [[ "${SESSION_RESTORE:-false}" == true ]]; then
-        echo "Session restore: this session's record holds no compose answer (it was written by a ccy older than 3.89.1), so the question is asked here. The answer is recorded, and the next restore replays it."
+        echo "Session restore: this session's record holds no compose answer (${CCY_RESTORE_NO_COMPOSE_WHY:-a ccy older than 3.89.1 wrote none, or its launch never met the compose question}), so the question is asked here. The answer is recorded, and the next restore replays it."
     fi
     if ! read -rp "$prompt" CCY_COMPOSE_REPLY; then
         echo "" >&2

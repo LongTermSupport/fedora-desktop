@@ -32,8 +32,9 @@ errors.Is on conversation.ErrNotRecorded, and refused one naming a conversation 
 transcript (a session that never took a turn), so the next reboot could not restore it; the
 team restart never started such a record fresh at all (fedora-desktop#270).
 
-Not caught: a start decided from conversation.For's error text, and arguments built by hand
-without the registry's builders.
+Not caught: a start decided from conversation.For's error text or from an error type the
+package exports (its ArgsError marks arguments that could not be worked out, which is not a
+lookup error), and arguments built by hand without the registry's builders.
 
 How to fix: ask conversation.StartPlan(rec, claudeHome), which returns the conversation to
 resume (or fresh) and the arguments, and act on its answer.`,

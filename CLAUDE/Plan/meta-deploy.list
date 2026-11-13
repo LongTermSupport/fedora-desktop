@@ -40,4 +40,9 @@
 # have left the input box, with Enter pressed again up to five times, and a session where it
 # never does is reported as a failure. No image rebuild. The next reboot's restore is its live
 # check (ccy-sessions verify-restore).
+# Issue #270 (ccy 3.119.8), same play: ccy-sessions restore --check and declare call a ccy
+# record with no compose= answer in a project with compose files UNRESTORABLE
+# no-compose-answer (the self-update cycle then holds its reboot until the record is declared
+# with --compose start|skip); a declared session that never took a turn starts fresh on
+# restore and ccy-teams restart. Check afterwards with ccy-sessions restore --check.
 playbooks/imports/play-claude-yolo.yml

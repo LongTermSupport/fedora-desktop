@@ -131,7 +131,7 @@ func (a *App) declareSession(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	file := filepath.Join(store.Dir(), rec.Name)
-	if plan := a.planRestore(rec, file); plan.why != "" {
+	if plan := a.judgeRestore(rec, file); plan.why != "" {
 		a.fail("nothing is declared: the boot restore could not start " + rec.Name + " (" + plan.why + "): " + plan.sentence)
 		return term.ExitFailure
 	}
@@ -197,7 +197,7 @@ func declaredRecord(req declareRequest) (registry.Record, error) {
 	if slices.Contains(own, "--no-restore") {
 		return registry.Record{}, errors.New("the ccy arguments say --no-restore, so no boot would start the session")
 	}
-	if registry.Opencode("ccy", req.launch) {
+	if registry.Opencode(prefixCcy, req.launch) {
 		return registry.Record{}, errors.New("an opencode session (--opencode, -oc) is not restored")
 	}
 	compose, err := composeOutcome(own)
@@ -205,7 +205,7 @@ func declaredRecord(req declareRequest) (registry.Record, error) {
 		return registry.Record{}, err
 	}
 	return registry.Record{
-		Name: req.name, Dir: req.dir, Launcher: launcher, Prefix: "ccy", Restore: true,
+		Name: req.name, Dir: req.dir, Launcher: launcher, Prefix: prefixCcy, Restore: true,
 		Compose: compose, FreshIfNoConversation: req.fresh, Args: registry.ReplayArgs(req.launch),
 	}, nil
 }

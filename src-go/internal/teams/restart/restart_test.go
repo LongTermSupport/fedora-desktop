@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 // B1: the command line.
@@ -149,6 +151,36 @@ func TestAStoppedSessionIsStartedResumingItsConversation(t *testing.T) {
 	m.errHas(t,
 		"  ccy-proj   seat 1 (proj.1+local.podman) in ~/proj: stopped, so it is started, resuming conversation "+id,
 		"✓ ccy-proj: started, resuming conversation "+id+"; seat 1@alpha held",
+	)
+}
+
+// B6 with fedora-desktop#270: started as a restore starts a record, so a record provisioning
+// marked fresh-if-no-conversation whose session never took a turn (its conversation recorded,
+// no transcript) is started fresh, with no --resume, as the boot restore starts it.
+func TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.stop(m.find("ccy-proj"))
+	teamtest.MustWrite(m.t, filepath.Join(m.Root, "home/.local/state/ccy/sessions", "ccy-proj"),
+		"ccy-session-record 1\nname=ccy-proj\ndir="+m.Checkout()+"\nlauncher=/x/ccy\nprefix=ccy\nrestore=yes\n"+
+			"fresh-if-no-conversation=yes\narg=--teams\narg=1@alpha\n")
+	tdir, err := transcript.Dir("ccy", m.Checkout(), conversation.ClaudeHome(m.Host.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(tdir, conversationOf("ccy-proj")+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	want := "env CCY_SESSION_RESTORE=1 /x/ccy --teams 1@alpha --supervise"
+	if !slices.Equal(m.started, []string{want}) {
+		t.Fatalf("started %q, want %q", m.started, want)
+	}
+	m.errHas(t,
+		"  ccy-proj   seat 1 (proj.1+local.podman) in ~/proj: stopped, so it is started fresh (its record is marked fresh-if-no-conversation, and it has no conversation to resume)",
+		"✓ ccy-proj: started fresh; seat 1@alpha held",
 	)
 }
 

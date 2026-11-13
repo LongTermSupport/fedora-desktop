@@ -329,7 +329,7 @@ func TestAMarkedRecordWithNoConversationIsStartedFreshUnderTheAskpass(t *testing
 		t.Fatal("the mark does not cover a launch without the bus")
 	}
 	contains(t, "says", h.stderr(),
-		"started ccy-new fresh in "+dir+": no conversation is recorded and its record is marked fresh-if-no-conversation.\n",
+		"started ccy-new fresh in "+dir+" (its record is marked fresh-if-no-conversation): no conversation is recorded (",
 		"ERROR: cannot restore ccy-plain: ccy-plain: no conversation is recorded",
 		"ERROR: cannot restore ccy-nobus: ccy-nobus: it was launched without the agent team bus",
 		"ccy session restore: 4 started, 2 failed.")
@@ -356,7 +356,7 @@ func TestADryRunSaysAMarkedRecordWouldStartFresh(t *testing.T) {
 	a := realDir(t, h, "a")
 	recordOnly(t, h, registry.Record{Name: "ccy-new", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true})
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-new fresh in "+a+" (no conversation is recorded): /launch/ccy --supervise\n")
+	contains(t, "dry run", h.stderr(), "would start ccy-new fresh in "+a+" (no conversation to resume): /launch/ccy --supervise\n")
 }
 
 // --check judges a marked never-run record restorable, so the self-update cycle's
@@ -371,13 +371,119 @@ func TestRestoreCheckJudgesAMarkedNeverRunRecordRestorable(t *testing.T) {
 	if h.stdout() != "ccy-new RESTORABLE\n" {
 		t.Fatalf("stdout %q", h.stdout())
 	}
-	contains(t, "says fresh", h.stderr(), "ccy-new has no conversation recorded and will be started fresh (its record is marked fresh-if-no-conversation).\n")
+	contains(t, "says fresh", h.stderr(), "ccy-new will be started fresh (its record is marked fresh-if-no-conversation): no conversation is recorded (")
 
 	recordOnly(t, h, registry.Record{Name: "ccy-plain", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
 	h.out.Reset()
 	exitCodeIs(t, h.run("restore", "--check"), 1, h)
 	if h.stdout() != "ccy-new RESTORABLE\nccy-plain UNRESTORABLE no-conversation\n" {
 		t.Fatalf("stdout %q", h.stdout())
+	}
+}
+
+// neverTookATurn records the session's conversation as its SessionStart hook does at startup,
+// with no transcript: Claude Code writes none until the first turn.
+func neverTookATurn(t *testing.T, h *harness, rec registry.Record) {
+	t.Helper()
+	converse(t, h, rec)
+	tdir, err := transcript.Dir(rec.Prefix, rec.Dir, conversation.ClaudeHome(h.app.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(tdir, conversationOf(rec.Name)+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fedora-desktop#270: a declared session that never took a turn has a conversation.json naming a
+// conversation with no transcript. A record marked fresh-if-no-conversation starts fresh then,
+// as it does with nothing recorded: the check calls it RESTORABLE and says why, and the restore
+// starts it with no --resume. Unmarked, it is still refused.
+func TestAMarkedRecordWhoseSessionNeverTookATurnStartsFresh(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	a := realDir(t, h, "a")
+	marked := registry.Record{Name: "ccy-new", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true}
+	recordOnly(t, h, marked)
+	neverTookATurn(t, h, marked)
+	exitCodeIs(t, h.run("restore", "--check"), 0, h)
+	if h.stdout() != "ccy-new RESTORABLE\n" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+	contains(t, "says fresh", h.stderr(), "ccy-new will be started fresh (its record is marked fresh-if-no-conversation): the recorded conversation "+conversationOf("ccy-new"), "has no transcript")
+
+	h.errOut.Reset()
+	exitCodeIs(t, h.run("restore"), 0, h)
+	calls := startedSessions(h)
+	if len(calls) != 1 {
+		t.Fatalf("one session starts: %v", h.ran())
+	}
+	lacks(t, "fresh", strings.Join(calls[0].Args, " "), "--resume")
+	contains(t, "says", h.stderr(), "started ccy-new fresh in "+a+" (its record is marked fresh-if-no-conversation): the recorded conversation")
+
+	plain := registry.Record{Name: "ccy-plain", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true}
+	recordOnly(t, h, plain)
+	neverTookATurn(t, h, plain)
+	h.out.Reset()
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	if h.stdout() != "ccy-new RESTORABLE\nccy-plain UNRESTORABLE no-conversation\n" {
+		t.Fatalf("stdout %q", h.stdout())
+	}
+}
+
+// fedora-desktop#270: a ccy record whose project has compose files and which holds no compose=
+// answer would stop its first restore at the compose question, so --check calls it
+// UNRESTORABLE no-compose-answer and names the fix. A provisioned record (marked
+// fresh-if-no-conversation) is said to be provisioned without one; only an unmarked one may
+// predate the key. An answered record, one launched with --no-network (it meets no compose
+// question), a cc session and a project with no compose file are restorable. The restore itself
+// still starts it: a person at an attended reboot can answer in the pane.
+func TestRestoreCheckRefusesARecordWithNoComposeAnswerInAComposeProject(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	stack, plainDir := realDir(t, h, "stack"), realDir(t, h, "plain")
+	h.write("stack/compose.yml", "services: {}\n")
+	recs := []registry.Record{
+		{Name: "ccy-answered", Dir: stack, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Compose: "declined"},
+		{Name: "ccy-nonet", Dir: stack, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-network"}},
+		{Name: "ccy-old", Dir: stack, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true},
+		{Name: "ccy-plain", Dir: plainDir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true},
+		{Name: "ccy-prov", Dir: stack, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, FreshIfNoConversation: true},
+		{Name: "cc-stack", Dir: stack, Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--bus"}},
+	}
+	for _, rec := range recs {
+		record(t, h, rec)
+	}
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	want := "cc-stack RESTORABLE\nccy-answered RESTORABLE\nccy-nonet RESTORABLE\nccy-old UNRESTORABLE no-compose-answer\n" +
+		"ccy-plain RESTORABLE\nccy-prov UNRESTORABLE no-compose-answer\n"
+	if h.stdout() != want {
+		t.Fatalf("stdout %q, want %q", h.stdout(), want)
+	}
+	contains(t, "why", h.stderr(),
+		"ERROR: ccy-prov cannot be restored: its record was provisioned without a compose answer, and "+stack+" has compose files (compose.yml), so its first restore would stop at the compose question. Declare it with one: ccy-sessions declare --replace --name ccy-prov --fresh-if-no-conversation "+stack+" -- --compose start|skip ...",
+		"ERROR: ccy-old cannot be restored: its record holds no compose answer (a ccy older than 3.89.1 wrote none, and a launch that never met the compose question writes none), and "+stack+" has compose files (compose.yml)",
+		"Launch it once with --compose start|skip, or declare it with one: ccy-sessions declare --replace --name ccy-old "+stack+" -- --compose start|skip ...")
+	lacks(t, "provisioned", strings.Split(h.stderr(), "ccy-prov cannot")[1], "3.89.1")
+
+	h.errOut.Reset()
+	exitCodeIs(t, h.run("restore"), 0, h)
+	calls := startedSessions(h)
+	if len(calls) != len(recs) {
+		t.Fatalf("the restore starts every record (%d), a person can answer in the pane: %v", len(calls), h.ran())
+	}
+	why := 0
+	for _, c := range calls {
+		line := strings.Join(c.Args, " ")
+		if strings.Contains(line, noComposeWhyEnv+"=") {
+			why++
+			contains(t, "provisioned, told", line, " -s ccy-prov ", noComposeWhyEnv+"="+noComposeProvisioned+" /launch/ccy")
+		}
+	}
+	if why != 1 {
+		t.Fatalf("only the provisioned record's pane is told why it is asked (%d): %v", why, h.ran())
 	}
 }
 

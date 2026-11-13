@@ -57,7 +57,12 @@ Usage:
                                                   included, one line each on stdout:
                                                   "<name> RESTORABLE" or
                                                   "<name> UNRESTORABLE <why>"; exit 1 if any
-                                                  cannot be restored. With restore off there
+                                                  cannot be restored. A ccy record with no
+                                                  compose= answer in a project with compose
+                                                  files is UNRESTORABLE no-compose-answer: its
+                                                  restore would stop at the compose question
+                                                  (the restore still starts it, to be
+                                                  answered in its pane). With restore off there
                                                   is nothing to judge (exit 0). The
                                                   self-update cycle asks this before it warns
                                                   of a reboot, and holds the reboot on exit 1
@@ -85,7 +90,12 @@ Usage:
                                                   launch of CCY-ARGS in DIR would write, for
                                                   a session that is not running, so the next
                                                   boot's restore starts it (fresh, with the
-                                                  mark, while no conversation is recorded).
+                                                  mark, while it has no conversation to
+                                                  resume). --compose start|skip among
+                                                  CCY-ARGS becomes the record's compose=
+                                                  answer; in a project with compose files a
+                                                  record needs one, or its first restore
+                                                  stops at the compose question.
                                                   Refused, writing nothing, when restore
                                                   --check would call it UNRESTORABLE, when a
                                                   live session has the name, or when the name
