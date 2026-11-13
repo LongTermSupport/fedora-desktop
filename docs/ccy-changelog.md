@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.3 — container 2.84.7
+
+- **The agent-bus guards cover every Matrix client the repository installs** (issue #251):
+  pingbus's refusal of a `host` member beside a human's Matrix session, the member kit's
+  launcher `agent-bus-claude` and the status line now read one list,
+  `helpers/pingbus/matrix_clients.json` (Element, Nheko and Lightning), instead of naming
+  Element alone. The image's pingbus and kit change, so the image is rebuilt once; the
+  launcher behaves as 3.119.1.
+
 ## 3.119.1 — container 2.84.5
 
 - **A script can send from a one-shot teamchat session** (Plan 00246 Task 8.11): `teamchat say --wait-contact` holds the say up to 10 s for the link's first contact with the homeserver, so

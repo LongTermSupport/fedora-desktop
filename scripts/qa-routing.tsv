@@ -36,6 +36,9 @@ also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.b
 also	helpers/agent_bus/declare.py	go	-
 # The status line's writer test runs these writers of the files it reads (SPEC-status-line.md 8).
 also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-
+# The Matrix client rules (internal/matrixclients, CLAUDE/QA.md matrix-client-*) read the list,
+# the Matrix clients play and what it imports, and the guards that cannot read the list.
+also	helpers/pingbus/matrix_clients.json,playbooks/imports/optional/common/play-matrix-clients.yml,tasks/element-desktop.yml,tasks/flatpak-install.yml,files/var/local/claude-code/cc-teams-settings.json,files/opt/claude-yolo/optional/agent-bus/agent-bus-claude	go	-
 # rclonecache's caller test reads how this script calls rclone-cache-status.
 also	files/home/.local/bin/rclone-cache-warm	go	-
 # tmpfs-file-bind's sweep (internal/unitsandbox) reads every shipped unit and the files they bind.

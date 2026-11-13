@@ -1,0 +1,19 @@
+{
+  "clients": [
+    {
+      "name": "Element",
+      "app_id": "im.riot.Riot",
+      "keyring": true,
+      "native": [
+        {
+          "parent": ".config",
+          "name": "Element",
+          "profiles": true
+        }
+      ]
+    }
+  ],
+  "legacy_consent": [
+    "im.riot.Riot"
+  ]
+}

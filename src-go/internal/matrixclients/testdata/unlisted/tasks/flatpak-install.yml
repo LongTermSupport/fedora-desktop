@@ -1,0 +1,6 @@
+---
+# Fixture for matrix-client-unlisted: the generic installer, which names no app itself.
+- name: Install {{ flatpak_app_id }}
+  community.general.flatpak:
+    name: "{{ flatpak_app_id }}"
+    remote: flathub

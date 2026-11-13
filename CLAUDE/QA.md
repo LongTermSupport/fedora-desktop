@@ -2711,6 +2711,81 @@ runner check starts a unit: the proof of the fault itself is the deploy and the 
 **How to fix a finding.** Drop `PrivatePIDs=`. Where the per-process isolation it gave matters,
 give the unit its own user (a dynamic user per instance) and `ProtectProc=invisible`.
 
+### matrix-client-unlisted
+
+**What it is.** A Matrix desktop client that a play installs and that
+`helpers/pingbus/matrix_clients.json` does not list. That file is the one list of the Matrix
+clients this repository installs: each client's Flatpak app id (its data under
+`~/.var/app/<app id>`), any native install's folders, and whether it keeps its session in the
+keyring. Every guard that keeps an agent away from a human's Matrix session reads it or is
+tested against it. The rule is `TestEveryMatrixClientInstalledIsListed` in
+`src-go/internal/matrixclients`, run by the Go gate. It reads every YAML file under `playbooks/`
+and `tasks/`. A Flatpak installed by `play-matrix-clients.yml`, or by any task file it imports at
+any depth, is a Matrix client whatever its name. Anything else installed in any play (a
+`flatpak_app_id`, a flatpak or package module's `name`, an app id in a `loop`) is a Matrix client
+when its name carries a known Matrix client's word (riot, element, nheko, matrix, fractal and the
+others in `matrixWords`). `TestTheUnlistedRuleFindsItsFixture` proves it against
+`src-go/internal/matrixclients/testdata/unlisted/`. A change to the Matrix clients play, the list
+or a guard runs the Go gate (`scripts/qa-routing.tsv`). A Matrix client added to another play
+is caught by the full gate (`qa-all.bash`), not by `qa-changed.bash` for that play alone. Run it
+alone with `go -C src-go test ./internal/matrixclients -run Listed`.
+
+**Why it exists.** The guards named only Element Desktop. `play-matrix-clients.yml` also
+installed Nheko and Lightning, and a sign-in to either keeps a Matrix session that no refusal
+detected and no deny rule named, so a cc host seat could run beside a session the owner's
+consent never covered (issue #251). Found and defended under Defence Before Fix.
+
+**How to fix a finding.** Add the client to `helpers/pingbus/matrix_clients.json` with its data
+paths and keyring use. Copy the file over `src-go/internal/matrixclients/clients.json`. Then
+fix what `matrix-client-guard-uncovered` reports. A Matrix client installed as a package (an
+RPM) has no Flatpak app id, and the list cannot express it yet: extend the list's format and
+every reader together. A newly listed client is not covered by an owner's earlier consent, so
+`cc --teams` asks the owner again (see `docs/agent-bus.md`).
+
+### matrix-client-guard-uncovered
+
+**What it is.** A guard that cannot read the Matrix client list at run time, and does not cover
+exactly what the list says. These are cc's deny rules (`files/var/local/claude-code/cc-teams-settings.json`),
+the member kit's launcher `agent-bus-claude` (which runs before pingbus and cannot read JSON),
+and the list's Go copy `src-go/internal/matrixclients/clients.json`, which must equal the list
+byte for byte. The tests are `TestTheDenyRulesCoverEveryClient`,
+`TestTheKitLauncherCoversEveryClient` and `TestTheEmbeddedCopyIsTheList` in the same package.
+For each client the deny rules must hold a `Read` and an `Edit` rule on its Flatpak data and on
+every native folder (and each `-<profile>` folder), plus `Bash(*<app id>*)` and
+`Bash(*<parent>/<name>*)`. While any client keeps its session in the keyring they must also
+hold the Secret Service denies. The launcher's `MATRIX_PROFILE_PATHS` and
+`MATRIX_PROFILE_PREFIXES` arrays, each on one line, must be the list's paths and prefixes in
+order. Run it alone with `go -C src-go test ./internal/matrixclients -run 'Cover|Copy'`.
+
+**Why it exists.** These guards spell out the clients by hand, so a client added to the list
+would reach every guard that reads the list but none of these (issue #251).
+
+**How to fix a finding.** Add the rules or array words the message names, or copy the list over
+its Go copy. Never drop a client from the list to clear a finding.
+
+### matrix-client-named-by-hand
+
+**What it is.** Code that spells out a listed client's app id or a native folder
+(`.config/Element`) when it is not the list, its Go copy, a guard covered by
+`matrix-client-guard-uncovered`, or a file declared in
+`src-go/internal/matrixclients/testdata/client-specific.tsv`. Those declared files configure a
+client itself (Element's profiles, launchers and team CA, the installs), so they are not guards.
+The test is `TestNoGuardNamesAClientByHand`. It reads `helpers/`, `src-go/`, `files/`,
+`scripts/`, `tasks/`, `playbooks/` and `run.bash`, leaving out tests, fixtures, `testdata/` and
+`vendor/`. Run it alone with `go -C src-go test ./internal/matrixclients -run ByHand`.
+
+**Why it exists.** A guard that names one client by hand covers that client alone. That is how
+pingbus's refusal, the status line's twin of it and the kit launcher came to cover Element and
+nothing else (issue #251).
+
+**What it does not see.** A client named in words ("Element") in text a person reads, such as a
+consent screen or a refusal. Those texts are built from the list's names (`matrixclients.Names`,
+`matrix_clients.names`); review keeps them so.
+
+**How to fix a finding.** In a guard, read the list: `helpers.pingbus.matrix_clients` in Python,
+`internal/matrixclients` in Go. A file that configures one client itself gets a row in
+`client-specific.tsv` with what it does. A guard never gets a row.
+
 ---
 
 ## Changing a Gate

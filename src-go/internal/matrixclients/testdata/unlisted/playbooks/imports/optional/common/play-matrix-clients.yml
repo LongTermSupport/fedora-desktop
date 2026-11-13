@@ -1,0 +1,23 @@
+---
+# Fixture for matrix-client-unlisted: the Matrix clients play. Every Flatpak it or a task file it
+# imports installs is a Matrix client, whatever its name.
+- hosts: desktop
+  name: Matrix clients
+  vars:
+    root_dir: "{{ playbook_dir }}/../../../.."
+  tasks:
+    - name: Install Nheko
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: im.nheko.Nheko
+
+    - name: Install Lightning
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
+      vars:
+        flatpak_app_id: org.lightning_matrix.Lightning
+
+    - name: Install Element
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element.yml"
+
+    - name: Install a client with no Matrix word in its name
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/client.yml"
