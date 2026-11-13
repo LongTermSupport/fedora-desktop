@@ -115,7 +115,7 @@ const helpText = `Usage: ccy-teams session list
 
 Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
 --teams or --bus, can be changed while they run. A cc session runs as you, not in a container, so
-it could change its own membership file: for cc this is guidance, not a wall, as its Element
+it could change its own membership file: for cc this is guidance, not a wall, as its Matrix
 consent says.
 
 list shows every running session ccy's tmux started: its checkout, its teams (seat and the role
