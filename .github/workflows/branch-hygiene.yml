@@ -26,12 +26,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # setup-go@v5 installs the go directive of the file named here (the qa module's), as in qa.yml;
+      # setup-go@v6 installs the toolchain line of the file named here, as in qa.yml;
       # TestEveryWorkflowSetsUpTheGoFloor (src-go/qa/toolchain) holds every workflow to it.
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       - name: Judge the branches
         run: ./scripts/qa-branch-hygiene.bash

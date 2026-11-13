@@ -2696,8 +2696,11 @@ fails below): the `go` directive of any `go.mod` outside `vendor/`, `testdata/` 
 git does not publish, or a playbook's `*_go_min` variable recording the `go` directive of a
 module the play builds. A `toolchain` line is not judged. The rule is
 `TestNoGoMinimumAboveTheProvisionedGo` in `src-go/qa/toolchain`, run by the Go gate; its
-fixtures are the `ProvisionedGoRule` tests beside it. Run it alone with
-`go -C src-go/qa test ./toolchain -run ProvisionedGo`.
+fixtures are the `ProvisionedGoRule` tests beside it. `qa-changed` runs it for a change to
+either module, `vars/golang.yml` or `play-md-viewer.yml` (`scripts/qa-routing.tsv`). Run it
+alone with `go -C src-go/qa test ./toolchain -run ProvisionedGo`. Its partner,
+`TestEveryWorkflowSetsUpTheGoFloor`, holds every workflow to `actions/setup-go` v6 or later on
+`src-go/go.mod`, so CI's Go is that file's `toolchain` line, never a `go` directive.
 
 **Why it exists.** Every host build runs with `GOTOOLCHAIN=local` (Fedora's own `go.env` sets
 it too), so a `go` directive above the installed Go is a hard refusal, never a download.

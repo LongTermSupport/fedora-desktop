@@ -56,11 +56,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The version of src-go/qa/go.mod, as qa.yml sets up Go (TestEveryWorkflowSetsUpTheGoFloor).
+      # The toolchain line of src-go/go.mod, as qa.yml sets up Go (TestEveryWorkflowSetsUpTheGoFloor).
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       - name: Decide
         id: decide
@@ -89,9 +89,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       - name: Set up the release key
         uses: ./.github/actions/release-key
@@ -141,9 +141,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       - name: Set up the release key
         uses: ./.github/actions/release-key

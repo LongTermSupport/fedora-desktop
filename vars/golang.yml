@@ -1,8 +1,10 @@
 ---
 # The oldest Go the repository's Go builds accept: the Go Fedora 44 ships. They run with
-# GOTOOLCHAIN=local, so they never download a newer toolchain. src-go/go.mod's toolchain line,
-# the ccy image's builder stage and GO_VERSION in .claude/ccy/Dockerfile may run ahead of it for
-# a Go security release Fedora has not packaged yet; move this up to that line once it has.
+# GOTOOLCHAIN=local, so they never download a newer toolchain, and no go.mod go directive may be
+# newer than this (go-minimum-above-provisioned-go, CLAUDE/QA.md). src-go/go.mod's toolchain line,
+# which CI's setup-go installs, the ccy image's builder stage and GO_VERSION in
+# .claude/ccy/Dockerfile may run ahead of it for a Go security release Fedora has not packaged
+# yet; move this up to that line once it has.
 #
 # Read by play-golang.yml, which installs Go on the desktop and fails below this version, and by
 # play-teamchat.yml, which builds on the controller and refuses a controller without Go, or with

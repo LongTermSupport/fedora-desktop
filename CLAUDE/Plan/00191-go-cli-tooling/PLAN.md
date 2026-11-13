@@ -294,6 +294,19 @@ today; rewriting them is out of scope.
     green, "Install QA tooling" included. The issue text in the journal was not filed: the
     defect was fixed before an issue was needed.
 
+- [x] ✅ **Task 3.13**: issue #249. Raising `src-go/qa/go.mod`'s go directive to `go 1.26.11`
+  (GO-2026-6859) moved CI onto that Go, but every host build enforces a go directive under
+  `GOTOOLCHAIN=local`, so every stock Fedora 44 host (golang 1.26.10) failed
+  `play-python.yml`'s QA toolchain verify.
+
+  - Fix: the qa module's go directive is back at `go 1.26.10`; every workflow uses
+    `actions/setup-go` v6 on `src-go/go.mod`, whose `toolchain go1.26.11` line it installs, so CI
+    keeps the security release and hosts are held only to the Go Fedora ships.
+  - Gates: `go-minimum-above-provisioned-go` (`TestNoGoMinimumAboveTheProvisionedGo`) holds every
+    go directive and playbook `*_go_min` at or below `golang_min_version`;
+    `TestEveryWorkflowSetsUpTheGoFloor` now holds each workflow to setup-go v6+ on
+    `src-go/go.mod` and that toolchain line at or above the floor. Both red before the fix.
+
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to

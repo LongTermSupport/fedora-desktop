@@ -52,6 +52,9 @@ func goMinimumsAboveProvisioned(fsys fs.FS) ([]string, error) {
 			}
 			return nil
 		}
+		if !d.Type().IsRegular() {
+			return nil // a named pipe would block the open; a symlink is judged at its target
+		}
 		return j.file(fsys, p)
 	})
 	return j.findings, err

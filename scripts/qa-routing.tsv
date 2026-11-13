@@ -121,6 +121,10 @@ also	tests/fixtures/ansible-pause/*	go	covered
 # release workflow test reads every composite action, so a workflow or action edit runs the go
 # check (whole, since the file is outside src-go/).
 also	.github/workflows/*.yml,.github/workflows/*.yaml,.github/actions/*/action.yml	go	covered
+# go-minimum-above-provisioned-go (src-go/qa/toolchain) judges every go directive and playbook
+# *_go_min against golang_min_version, so a change to that floor or to a play holding a minimum
+# runs the go check.
+also	vars/golang.yml,playbooks/imports/optional/common/play-md-viewer.yml	go	-
 # The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
 # floor of src-go/go.mod and src-go/qa/go.mod; it runs whole when one, its wrapper, its Go package or command, or the
 # wrapper library change. It also runs after any changed shell or Python file (the post row below).
