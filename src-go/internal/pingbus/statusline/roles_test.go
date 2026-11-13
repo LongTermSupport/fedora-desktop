@@ -152,29 +152,34 @@ func TestAHostMemberBesideElement(t *testing.T) {
 	if _, problem := rw.roles(nil); !strings.Contains(problem, "Matrix client profile") {
 		t.Errorf("an acceptance others can read: %q", problem)
 	}
-	if err := os.Chmod(rw.path("user/.config/pingbus/element-accepted"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+}
 
-	// Issue #251: a record without a clients line was given for Element alone, so a Nheko
-	// profile beside it is refused until a record names Nheko too.
+// Issue #251: a linked host seat runs only beside the clients the user's record accepts. A
+// record without a clients line was given for Element alone, so a Nheko profile beside it is
+// refused until a record names Nheko too.
+func TestAHostMemberBesideAClientTheRecordDoesNotName(t *testing.T) {
+	rw := newRolesWorld(t)
+	rw.bundle("kept", hostUser)
+	rw.mkdir("pingbus", 0o700)
+	rw.link(rw.path("kept"), "pingbus/alpha")
+	rw.mkdir("user/.config/pingbus", 0o700)
+	rw.write("user/.config/pingbus/element-accepted", "")
 	nheko := clientNamed(t, "Nheko")
 	rw.mkdir("user/"+nheko.FlatpakDir(), 0o700)
 	if _, problem := rw.roles(nil); !strings.Contains(problem, "must not run as a user with a Matrix client profile") {
 		t.Errorf("Nheko beside an Element-only record: %q", problem)
 	}
 	element := clientNamed(t, "Element")
-	rw.write("user/.config/pingbus/element-accepted", "accepted x\nclients "+nheko.AppID+"\n")
-	if _, problem := rw.roles(nil); !strings.Contains(problem, "Matrix client profile") {
-		t.Errorf("a record that does not name Element: %q", problem)
-	}
-	rw.write("user/.config/pingbus/element-accepted", "accepted x\nclients "+element.AppID+" "+nheko.AppID+"\n")
-	if role, problem := rw.roles(nil); role != roleWorker || problem != "" {
-		t.Errorf("a record naming both: %q %q", role, problem)
-	}
-	rw.write("user/.config/pingbus/element-accepted", "clients not-an-app-id\n")
-	if _, problem := rw.roles(nil); !strings.Contains(problem, "Matrix client profile") {
-		t.Errorf("a record pingbus cannot read: %q", problem)
+	for body, want := range map[string]bool{
+		"accepted x\nclients " + nheko.AppID + "\n":                       true,
+		"accepted x\nclients " + element.AppID + " " + nheko.AppID + "\n": true,
+		"clients not-an-app-id\n":                                         false,
+	} {
+		rw.write("user/.config/pingbus/element-accepted", body)
+		role, problem := rw.roles(nil)
+		if ok := role == roleWorker && problem == ""; ok != want {
+			t.Errorf("record %q: %q %q, want accepted %v", body, role, problem, want)
+		}
 	}
 }
 

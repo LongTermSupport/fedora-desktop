@@ -55,25 +55,12 @@ func (c *Chooser) consent(ctx context.Context, memberType string, refs []string)
 			"), so the Matrix consent cannot be found or recorded.")
 		return exitConfig
 	}
-	list, err := matrixclients.Load()
+	s, err := consentStateOf(home, c.UID())
 	if err != nil {
 		c.say("ccy-teams: " + err.Error())
 		return exitConfig
 	}
-	found, err := list.Present(home)
-	if err != nil {
-		c.say("ccy-teams: " + err.Error())
-		return exitConfig
-	}
-	dir := filepath.Join(home, acceptedDir)
-	record := filepath.Join(dir, acceptedFile)
-	accepted, again, err := readRecord(list, dir, record, c.UID())
-	if err != nil {
-		c.say("ccy-teams: " + err.Error())
-		return exitConfig
-	}
-	newClients := matrixclients.Uncovered(found, accepted)
-	if again && len(newClients) == 0 {
+	if s.again && len(s.newClients) == 0 {
 		return term.ExitOK
 	}
 	if !c.attended() {
@@ -89,7 +76,7 @@ func (c *Chooser) consent(ctx context.Context, memberType string, refs []string)
 	if code != term.ExitOK {
 		return code
 	}
-	c.say(consentWords(handles, list, accepted, found, newClients, again))
+	c.say(consentWords(handles, s))
 	who := strings.Join(handles, ", ")
 	if len(handles) == 0 {
 		who = "this session on the bus"
@@ -104,25 +91,56 @@ func (c *Chooser) consent(ctx context.Context, memberType string, refs []string)
 		c.Host.ReportErr(err)
 		return term.ExitFailure
 	}
-	ids := accepted
-	for _, id := range matrixclients.AppIDs(newClients) {
-		if !slices.Contains(ids, id) {
-			ids = append(ids, id)
-		}
-	}
-	if err := c.record(dir, record, ids); err != nil {
-		c.say("ccy-teams: could not record your answer in " + record + ": " + err.Error())
+	if err := c.record(s.dir, s.record, s.answered()); err != nil {
+		c.say("ccy-teams: could not record your answer in " + s.record + ": " + err.Error())
 		return exitConfig
 	}
 	return term.ExitOK
 }
 
+// consentState is what the consent is decided on: the list, the clients found under the home,
+// the record and what it accepts, and the clients found that it does not.
+type consentState struct {
+	list        matrixclients.List
+	found       []matrixclients.Found
+	dir, record string
+	accepted    []string
+	again       bool
+	newClients  []matrixclients.Client
+}
+
+func consentStateOf(home string, uid int) (consentState, error) {
+	list, err := matrixclients.Load()
+	if err != nil {
+		return consentState{}, err
+	}
+	found, err := list.Present(home)
+	if err != nil {
+		return consentState{}, err
+	}
+	s := consentState{list: list, found: found, dir: filepath.Join(home, acceptedDir)}
+	s.record = filepath.Join(s.dir, acceptedFile)
+	s.accepted, s.again, err = readRecord(list, s.dir, s.record, uid)
+	s.newClients = matrixclients.Uncovered(found, s.accepted)
+	return s, err
+}
+
+// answered is the app ids a yes accepts: those already accepted, then the new ones.
+func (s consentState) answered() []string {
+	ids := slices.Clone(s.accepted)
+	for _, id := range matrixclients.AppIDs(s.newClients) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // consentWords are what the owner reads before answering: every handle that starts (with none,
 // cc --bus, the teams the session is added to later), the Matrix clients found under their home,
 // and, asked again, the clients that are new since they last answered.
-func consentWords(handles []string, list matrixclients.List, accepted []string, found []matrixclients.Found,
-	newClients []matrixclients.Client, again bool,
-) string {
+func consentWords(handles []string, s consentState) string {
+	list := s.list
 	var opening string
 	switch len(handles) {
 	case 0:
@@ -133,21 +151,21 @@ func consentWords(handles []string, list matrixclients.List, accepted []string, 
 	default:
 		opening = strings.Join(handles, ", ") + " join their teams as its own member, and runs as you."
 	}
-	if again {
-		before := list.Names(accepted)
+	if s.again {
+		before := list.Names(s.accepted)
 		if before == "" {
 			before = "no Matrix client"
 		}
 		opening = "You accepted cc --teams seats beside " + before + ". " +
-			list.Names(matrixclients.AppIDs(newClients)) + " is now under your home too,\n" +
+			list.Names(matrixclients.AppIDs(s.newClients)) + " is now under your home too,\n" +
 			"  so you are asked again, for it.\n\n  " + opening
 	}
 	allNames := list.Names(matrixclients.AppIDs(list.Clients))
 	signedIn := "  No Matrix client is signed in under your home now; if one is\n" +
 		"  later, you are asked again.\n\n"
-	if len(found) > 0 {
-		var ids []string
-		for _, f := range found {
+	if len(s.found) > 0 {
+		ids := make([]string, 0, len(s.found))
+		for _, f := range s.found {
 			ids = append(ids, f.Client.AppID)
 		}
 		signedIn = "  (found under your home: " + list.Names(ids) + ")\n\n"
@@ -181,8 +199,8 @@ func readRecord(list matrixclients.List, dir, record string, uid int) ([]string,
 		return nil, false, err
 	}
 	data, readErr := io.ReadAll(io.LimitReader(f, matrixclients.ConsentMaxBytes+1))
-	if err := errors.Join(readErr, f.Close()); err != nil {
-		return nil, false, err
+	if closeErr := errors.Join(readErr, f.Close()); closeErr != nil {
+		return nil, false, closeErr
 	}
 	accepted, err := list.ParseConsent(data)
 	if err != nil {

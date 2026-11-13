@@ -179,7 +179,7 @@ func scanAnsible(root fs.FS) (map[string][]install, map[string][]string, error) 
 	scanned := map[string][]install{}
 	importsOf := map[string][]string{}
 	err := fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !isAnsible(p) {
+		if err != nil || !d.Type().IsRegular() || !isAnsible(p) {
 			return err
 		}
 		data, err := fs.ReadFile(root, p)
@@ -292,8 +292,9 @@ func denyRules(list List) []string {
 	var rules []string
 	keyring := false
 	for _, c := range list.Clients {
-		flatpak := "~/" + c.FlatpakDir() + below
-		rules = append(rules, "Read("+flatpak+")", "Edit("+flatpak+")", "Bash(*"+c.AppID+"*)")
+		// Claude Code's home-relative rule form is a literal tilde, not an abbreviated home.
+		flatpak := c.FlatpakDir() + below
+		rules = append(rules, "Read(~/"+flatpak+")", "Edit(~/"+flatpak+")", "Bash(*"+c.AppID+"*)")
 		for _, n := range c.Native {
 			dir := n.Parent + "/" + n.Name
 			rules = append(rules, "Read(~/"+dir+below+")", "Edit(~/"+dir+below+")", "Bash(*"+dir+"*)")
@@ -398,7 +399,10 @@ func namedByHand(root fs.FS, needles []string, allowed map[string]bool) ([]strin
 				return err
 			case notCode(p, d) && d.IsDir():
 				return fs.SkipDir
-			case notCode(p, d) || d.IsDir() || !d.Type().IsRegular() || allowed[p]:
+			case notCode(p, d) || allowed[p]:
+				return nil
+			}
+			if !d.Type().IsRegular() {
 				return nil
 			}
 			data, err := fs.ReadFile(root, p)
