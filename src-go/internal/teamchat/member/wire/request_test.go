@@ -311,8 +311,8 @@ func TestN3dSendArgsDecodeStrictly(t *testing.T) {
 		t.Fatalf("reply %+v", r)
 	}
 	var s SayArgs
-	check(t, DecodeArgs(json.RawMessage(`{"team":null,"to":["repo.3+site.lxc"],"to_coordinator":true}`), &s))
-	if s.Team != nil || len(s.To) != 1 || !s.ToCoordinator {
+	check(t, DecodeArgs(json.RawMessage(`{"team":null,"to":["repo.3+site.lxc"],"to_coordinator":true,"wait_contact":true}`), &s))
+	if s.Team != nil || len(s.To) != 1 || !s.ToCoordinator || !s.WaitContact {
 		t.Fatalf("say %+v", s)
 	}
 	var p PingArgs
@@ -351,7 +351,8 @@ func TestN3dSendArgsRefuseAMissingTeamOrAnUnknownKey(t *testing.T) {
 	}{
 		"reply no team":     {`{"id":"$abc","verb":null,"ref":null,"to_coordinator":false}`, &ReplyArgs{}},
 		"reply unknown key": {`{"team":null,"id":"$abc","verb":null,"ref":null,"to_coordinator":false,"x":1}`, &ReplyArgs{}},
-		"say no team":       {`{"to":[],"to_coordinator":false}`, &SayArgs{}},
+		"say no team":       {`{"to":[],"to_coordinator":false,"wait_contact":false}`, &SayArgs{}},
+		"say no wait":       {`{"team":null,"to":[],"to_coordinator":false}`, &SayArgs{}},
 		"say unknown key":   {`{"team":null,"to":[],"to_coordinator":false,"text":"hi"}`, &SayArgs{}},
 		"ping no team":      {`{"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null}`, &PingArgs{}},
 		"ping unknown key":  {`{"team":null,"verb":"halt","ref":null,"to":[],"to_coordinator":false,"branch":null,"x":1}`, &PingArgs{}},

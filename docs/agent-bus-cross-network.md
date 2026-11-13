@@ -111,6 +111,21 @@ reach fails at once and names the URL; launching into a seat that exists always 
 link catches up when the homeserver answers. A parked or retired seat is found by its login being
 refused, and is reissued.
 
+A script sends and reads with no session running by making each verb a session of its own:
+`teamchat run --plain` starts the keeper and its link, runs the verb, ends, and exits with the
+verb's status, its record on stdout.
+
+```
+printf '%s\n' "text" | teamchat run --plain --kind host --state <dir> --seat <team>/<seat> -- teamchat say --to <name> --wait-contact --team <team>
+teamchat run --plain --kind host --state <dir> --seat <team>/<seat> -- teamchat history --team <team>
+```
+
+`--wait-contact` holds the say up to 10 s for the link's first contact with the homeserver, so
+it is posted rather than refused or queued in a session that ends at once; a `"queued":true`
+record still means the message waits for the seat's next session. A seat a running session holds
+is refused at once, exit 75 `seat-held`. `<dir>` holds the seat as `<dir>/<team>/`: no command
+takes a pool seat into a session yet (Plan 00209 Task 4.2).
+
 A handle never carries a real hostname. The `site` part of a handle comes from the machine's
 declared `teamchat_site` (default `local`) and from nothing else. A declared site that spells the
 machine's hostname, a dot-label of it, or a DNS label of a team's URL host is refused; that check

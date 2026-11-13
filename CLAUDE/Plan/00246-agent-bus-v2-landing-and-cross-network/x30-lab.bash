@@ -437,7 +437,7 @@ w2w() {
     session "${to}" "teamchat wait --timeout 240" >"${recv}" &
     pid=$!
     sleep 30
-    if session "${from}" "sh -c 'printf \"%s\\n\" ${text} | teamchat say --to ${handle}'"; then
+    if session "${from}" "sh -c 'printf \"%s\\n\" ${text} | teamchat say --to ${handle} --wait-contact'"; then
         sent=1
     fi
     if ! wait "${pid}"; then

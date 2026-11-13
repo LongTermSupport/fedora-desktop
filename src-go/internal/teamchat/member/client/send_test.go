@@ -39,8 +39,13 @@ func TestSDc1RequestBytes(t *testing.T) {
 		op    string
 		want  string
 	}{
-		{[]string{"say", "--to", "bob,carol"}, new("hello"), wire.OpSay, `{"team":null,"to":["bob","carol"],"to_coordinator":false}`},
-		{[]string{"say", "--to-coordinator", "--team", "alpha"}, new("hello"), wire.OpSay, `{"team":"alpha","to":[],"to_coordinator":true}`},
+		{[]string{"say", "--to", "bob,carol"}, new("hello"), wire.OpSay, `{"team":null,"to":["bob","carol"],"to_coordinator":false,"wait_contact":false}`},
+		{[]string{"say", "--to-coordinator", "--team", "alpha"}, new("hello"), wire.OpSay, `{"team":"alpha","to":[],"to_coordinator":true,"wait_contact":false}`},
+		{
+			[]string{"say", "--to-coordinator", "--wait-contact", "--team", "alpha"},
+			new("hello"), wire.OpSay,
+			`{"team":"alpha","to":[],"to_coordinator":true,"wait_contact":true}`,
+		},
 		{
 			[]string{"ping", "review", "docs/a.md", "--to", "bob", "--branch", "main"},
 			nil, wire.OpPing,

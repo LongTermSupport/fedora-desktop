@@ -68,9 +68,12 @@ type held struct {
 	// the sender posts nothing. poke wakes the sender (capacity 1); waiting are the ops waiting
 	// on their send's answer, by txn; unsent counts the sends dropped unposted this run.
 	recovered bool
-	poke      chan struct{}
-	waiting   map[string]chan sendResult
-	unsent    int64
+	// contact is closed at the team's first contact in the run (noteContact), nil after; the
+	// sends made before it wait on it (awaitContact).
+	contact chan struct{}
+	poke    chan struct{}
+	waiting map[string]chan sendResult
+	unsent  int64
 	// sendStop is a send-side stop (SD3-8c): the exits code of a token refused or a send
 	// forbidden at a PUT, "" for none. It clears when the team next runs: a recovery, or a
 	// health out of a stop or down. sendsUnder, the SHA-256 of the token the team's sends run
@@ -122,7 +125,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	}
 	h := &held{
 		id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{}),
-		poke: make(chan struct{}, 1), waiting: map[string]chan sendResult{},
+		poke: make(chan struct{}, 1), waiting: map[string]chan sendResult{}, contact: make(chan struct{}),
 	}
 	var addErr error
 	if err := e.do(ctx, func() { addErr = e.load(h) }); err != nil {
@@ -228,6 +231,7 @@ func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	if tm == nil {
 		h.health.Stopped = "bundle"
 	}
+	h.noteContact()
 	if tm == nil || h.refused || h.removed {
 		close(h.stopped)
 		e.publish()
@@ -267,6 +271,7 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 		h = e.teams[t]
 		if h != nil {
 			h.removed = true
+			h.noteContact()
 			tm, cancel, userID = h.team, h.cancel, h.userID
 		}
 	}); err != nil {

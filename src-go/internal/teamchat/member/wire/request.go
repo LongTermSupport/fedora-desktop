@@ -200,11 +200,14 @@ type ReplyArgs struct {
 	ToCoordinator bool          `json:"to_coordinator"`
 }
 
-// SayArgs are say's: the addressees' handles and --to-coordinator.
+// SayArgs are say's: the addressees' handles, --to-coordinator and --wait-contact.
 type SayArgs struct {
 	Team          *paths.TeamID `json:"team"`
 	To            []string      `json:"to"`
 	ToCoordinator bool          `json:"to_coordinator"`
+	// WaitContact is --wait-contact: the link holds the say for its teams' first contact in
+	// the run, for a script's one-shot session (Plan 00246 Task 8.11).
+	WaitContact bool `json:"wait_contact"`
 }
 
 // PingArgs are ping's: the verb, --ref, the addressees, --to-coordinator and --branch.

@@ -128,7 +128,7 @@ func endedRequests() []wire.Request {
 		{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)},
 		{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)},
 		{Op: wire.OpHistory, Args: []byte(`{"team":null,"room":"main","limit":5}`)},
-		{Op: wire.OpSay, Args: []byte(`{"team":null,"to":["alice"],"to_coordinator":false}`), Stdin: &text},
+		{Op: wire.OpSay, Args: []byte(`{"team":null,"to":["alice"],"to_coordinator":false,"wait_contact":false}`), Stdin: &text},
 		{Op: wire.OpPing, Args: []byte(`{"team":null,"verb":"review","ref":null,"to":["alice"],"to_coordinator":false,"branch":null}`)},
 		{Op: wire.OpReply, Args: []byte(`{"team":null,"id":"x","verb":null,"ref":null,"to_coordinator":false}`), Stdin: &text},
 	}

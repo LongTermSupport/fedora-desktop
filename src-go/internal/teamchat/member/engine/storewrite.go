@@ -109,6 +109,7 @@ func (e *Engine) loadLocked(t paths.TeamID, userID string) (state.Store, error) 
 			return state.Store{}, fmt.Errorf("engine: team %s: create the store: %w", t, err)
 		}
 		h.store = &s
+		h.noteContact()
 		if h.userID == "" {
 			h.userID = userID
 		}
@@ -427,6 +428,7 @@ func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 				h.sendStop = ""
 			}
 			h.health = hl
+			h.noteContact()
 			// A stop told is told again only once the team has run and stopped anew (n3e-D13).
 			if hl.Stopped == "" {
 				h.delivery.stopTold = ""
