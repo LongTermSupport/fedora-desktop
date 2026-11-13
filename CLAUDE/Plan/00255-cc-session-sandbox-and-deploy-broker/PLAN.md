@@ -64,7 +64,7 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   around claude; (b) a systemd service per session. **Recommend (a)**: it keeps claude in the
   terminal pane it starts in, needs no root, and hides a folder by mounting an empty one over
   it. (b) puts the session in a background service, which the terminal-based cc does not fit.
-  *Triage (§13.1, 13.2, 13.7): bwrap is installed, user namespaces are on, bwrap nests, and
+  *Triage (§13.1, 13.2, 13.7): bwrap is installed, user namespaces are on, bwrap nests in bwrap, and
   `sudo` fails inside it; (a) stands.*
 - **D2. Passwordless sudo on this desktop, at the end.** (a) remove it for the owner's account
   entirely: the owner types the sudo password in their own terminal (remembered for some
@@ -109,7 +109,8 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
 - [x] ✅ **Task 0.1**: Run [triage.bash](triage.bash) `--active` on the host (queued in
   `meta-deploy.list`): sandbox tools, kernel settings, which folders exist, session bus names,
   where gh/git keep logins, sudo rules and defaults, escape sockets, sudo and nesting inside
-  bwrap. Done 2026-11-13 through `meta-deploy.bash` at F44 `384266ef3`: all 7 legs answered.
+  bwrap. Done 2026-11-13 through `meta-deploy.bash` at F44 `384266ef3` (the host agent's
+  record): all 7 legs answered.
 - [ ] 🔄 **Task 0.2**: Read the report into RESEARCH.md (facts, no install-specific names); put
   D1-D9 to the owner with the findings. Facts are in RESEARCH.md §13 and noted beside D1, D4,
   D6, D8 and Tasks 1.2, 3.3; putting D1-D9 to the owner remains.
@@ -130,7 +131,7 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   command, `kernel.yama.ptrace_scope=1` (the play run as the user holds the password;
   play-self-update.yml sets the same for the same reason). Decide with D3 whether the clone is
   shared with the self-update runner. *Triage (§13.2, 13.6): ptrace scope is 0 on the host
-  today, and the self-update runner is not set up there (no clone, no sudoers rule), so the
+  today, and the self-update runner's clone is absent there (nor does `sudo -l` list its rule), so the
   broker cannot rely on that play for either the setting or the clone.*
 - [ ] ⬜ **Task 1.3**: `deploy.bash` and `acceptance.bash` (R9, coverage line): the broker runs a
   desktop play asked for from a cc session; refuses a commit not on GitHub, one not on a

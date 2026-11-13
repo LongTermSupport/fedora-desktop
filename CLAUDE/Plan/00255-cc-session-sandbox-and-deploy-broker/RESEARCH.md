@@ -124,9 +124,10 @@ owner chooses how much more to require.
 ## 9. Why the seal is not a boundary while blanket sudo stays (owner's point, checked)
 
 - An unprivileged sandbox (bwrap, or a systemd user unit with mount settings) runs in a user
-  namespace, so `sudo` inside the seal fails whatever the sudoers rules say. On the host it
-  fails because bwrap sets the "no new privileges" flag, which sudo names in its refusal
-  (section 13.7); the flag holds for every process the seal starts.
+  namespace, so `sudo` inside the seal fails whatever the sudoers rules say. On the host,
+  under the probe's bwrap, sudo refuses because the "no new privileges" flag is set
+  (section 13.7). That bwrap itself sets the flag, for everything it starts, is bwrap's
+  documented behaviour and was not measured.
 - But a sealed agent can still get code run **outside** the seal, by whatever unsealed process
   later runs it: the tmux server (cc runs inside tmux: `send-keys`, `new-window`), the systemd
   user manager (its private socket, or `org.freedesktop.systemd1` on the session bus), D-Bus
@@ -167,10 +168,11 @@ which act on the owner's own account and session. It stays as it is for `host` m
 
 ## 13. Host facts: triage `--active`, 2026-11-13
 
-`triage.bash --active` ran on the host through `meta-deploy.bash` at F44 `384266ef3`: all seven
-legs reached an answer. The report is unscrubbed and stays under `untracked/plan-runs/`; what
-follows is what it shows, with the owner's user name, uid, host name, account names and
-installed third-party apps left out.
+`triage.bash --active` ran on the host (through `meta-deploy.bash` at F44 `384266ef3`, as the
+host agent reported; the report itself carries no commit): all seven legs reached an answer.
+The report is unscrubbed and stays under `untracked/plan-runs/`; what follows is what it shows,
+with the owner's user name, uid, host name, account names, which browsers are installed and
+any app outside this repository's own Matrix client list left out.
 
 ### 13.1 Sandbox tools
 
@@ -187,21 +189,14 @@ installed third-party apps left out.
 
 ### 13.3 Folders the seal would hide (existence only)
 
-| Present                                      | Absent                                                    |
-| -------------------------------------------- | --------------------------------------------------------- |
-| `~/.var/app/im.riot.Riot` (Element, Flatpak) | `~/.config/Element` (and no native Element profiles)      |
-| `~/.var/app/im.nheko.Nheko`                  | `~/.config/nheko`, `~/.local/share/nheko`                 |
-| `~/.var/app/org.lightning_matrix.Lightning`  | `~/.password-store`                                       |
-| `~/.local/share/keyrings` (mode 755)         | `~/.var/app/org.mozilla.firefox`                          |
-| `~/.gnupg` (700), `~/.ssh` (700)             | `~/.var/app/com.google.Chrome`, `~/.config/chromium`      |
-| `~/.mozilla` (755)                           | `~/.config/BraveSoftware`, `~/.var/app/com.brave.Browser` |
-| `~/.config/google-chrome` (700)              | `~/.config/microsoft-edge`                                |
-| `~/.var/app/org.chromium.Chromium` (755)     |                                                           |
-| `~/.config/vivaldi` (700)                    |                                                           |
-
-The Matrix clients here are all Flatpaks. Browser data sits both in native folders and in a
-Flatpak folder, so the fixed list must cover both forms. The probe listed only these paths;
-any other browser or client folder is not established.
+- The three Matrix clients' Flatpak data folders (section 3) exist. Element's native folder and
+  profiles, and Nheko's two native folders, are absent; Lightning's native folder was not
+  probed.
+- `~/.local/share/keyrings` exists (mode 755); `~/.gnupg` and `~/.ssh` exist (700);
+  `~/.password-store` is absent.
+- Of the browser folders the probe lists, several native ones (`~/.<browser>` or
+  `~/.config/<browser>`) and one Flatpak one (`~/.var/app/<app id>`) exist, so browser data is in both forms here.
+- The probe listed only these paths; any other browser or client folder is not established.
 
 ### 13.4 Session bus and logins
 
@@ -226,7 +221,7 @@ any other browser or client folder is not established.
 ### 13.5 sudo now
 
 - `sudo -n -l` shows `(ALL) ALL`, `(ALL) NOPASSWD: ALL` (the blanket rule, section 4), the
-  agent-bus read-only rule and the shutdown/reboot-with-update rule. The self-update drop-in's
+  agent-bus `list` / `human devices` rule and the shutdown/reboot-with-update rule. The self-update drop-in's
   rule is not listed.
 - The Defaults listed are `env_reset`, `env_keep` lists, `secure_path`,
   `always_set_home`, `!visiblepw` and two group-matching options; none sets
@@ -235,14 +230,15 @@ any other browser or client folder is not established.
 
 ### 13.6 Ways out of a seal; the self-update runner
 
-- The tmux socket folder (`/tmp/tmux-<uid>`, 700), the user bus socket (666) and the systemd
-  user manager's private socket (700) all exist.
+- The tmux socket folder (a folder, 700; probe-host.bash looks at `/tmp/tmux-<uid>`), the user
+  bus socket (666) and the systemd user manager's private socket (700) all exist.
 - The self-update clone `/var/lib/fedora-desktop/deploy` is **absent**; `/etc/fedora-desktop`
-  exists (755). With 13.5, the self-update runner is not set up on this host.
+  exists (755); `sudo -l` lists no self-update rule (13.5). Whether the drop-in file exists
+  is not established.
 
 ### 13.7 Active: bwrap runs
 
 - `sudo -n true` under `bwrap --unshare-user --unshare-pid` fails (rc 1): sudo says the "no new
   privileges" flag is set, which prevents it running as root.
-- bwrap inside bwrap (both `--unshare-user`) succeeds (rc 0): Claude Code's own Bash sandbox
-  can run inside the seal.
+- bwrap inside bwrap (both `--unshare-user`) succeeds (rc 0). The probe stands in for
+  Claude Code's own Bash sandbox nesting inside the seal; that sandbox itself was not run.
