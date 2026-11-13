@@ -415,15 +415,15 @@ func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line str
 	return nil
 }
 
-// typeLine types the line, then presses Enter on its own after the submit pause, and starts the
-// wait that follows it.
+// typeLine submits the line, each Enter on its own after the submit pause, checking the box took
+// it (tmuxccy.Submit), and starts the wait that follows it.
 func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
 	at := c.Now()
-	if err := c.Tmux.SendKeys(ctx, j.Name, line); err != nil {
-		return err
+	err := c.Tmux.Submit(ctx, j.Name, line, tmuxccy.SubmitPace{Pause: c.Waits.Submit, Sleep: c.Sleep})
+	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		return errors.New(err.Error() + "; it is still running: attach it (ccy-sessions)")
 	}
-	c.Sleep(c.Waits.Submit)
-	if err := c.Tmux.SendEnter(ctx, j.Name); err != nil {
+	if err != nil {
 		return err
 	}
 	if line == exitCommand {
