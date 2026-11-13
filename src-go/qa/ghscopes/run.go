@@ -116,7 +116,7 @@ var PlaceIssuedToken = Spec{
 	fixtureFile: ".semgrep/place-issued-token.fixture",
 	ruleName:    "token-bundle-into-place-issued",
 	finding:     "pipe a token bundle into seat place-issued",
-	usage:       placeIssuedTokenUsageText,
+	usage:       placeIssuedUsageText,
 }
 
 // Timeouts bound each process.
@@ -188,7 +188,7 @@ publish, after proving the rules against their fixture.
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
-const placeIssuedTokenUsageText = `usage: qa-place-issued-token [--root DIR] [--scripts DIR]
+const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scripts DIR]
 
 Applies the semgrep rule in .semgrep/place-issued-token.yml (a bundle issued with --credential
 token piped into teamchat seat place-issued, which places only a pool seat's password) to every
