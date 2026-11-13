@@ -60,6 +60,10 @@ func TestEveryShellStringHasAReason(t *testing.T) {
 	}
 }
 
+func TestSubmitUnchecked(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SubmitUnchecked, "fix/sub/internal/tmuxccy", "fix/sub/badsubmit")
+}
+
 func TestTmuxTargets(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TmuxTargets, "fix/internal/tmuxccy", "fix/internal/term")
 }
@@ -191,8 +195,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 45 {
-		t.Fatalf("want 45 rules, got %d", got)
+	if got := len(All()); got != 46 {
+		t.Fatalf("want 46 rules, got %d", got)
 	}
 }
 
