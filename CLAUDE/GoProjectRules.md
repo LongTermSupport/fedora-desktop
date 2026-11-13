@@ -77,6 +77,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_seat_member_type`        | an agent-bus seat call for a session given a constant member type, so a cc session is offered ccy's seats                                                                              | `ccy-teams` picker: Add to a team asked `seat choose --type=podman` for a cc session (Plan 00203)                                                                         |
 | `project_identity_fold`           | a GitHub owner or OWNER/REPO a person, a flag or a play gave handed to teamchat's lower-case grammar without the ASCII fold, so a name typed as GitHub shows it is refused             | teamchat-admin `team approve`: a team's trust org in mixed case refused (Plan 00209)                                                                                      |
 | `project_semgrep_test_runner`     | a semgrep rule proven with semgrep's own test runner, whose 5 s limit per rule no flag raises, so a loaded host fails a sound rule as a Timeout or a "rule id mismatch"                | the real-semgrep tests of `qa-walk-open` and six more gates, red only under a loaded `qa-all` (fedora-desktop#206)                                                        |
+| `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                          |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -1872,6 +1873,46 @@ now does.
 - Not caught: a stat path built entirely at run time, a state compared through a parameter (a
   helper `procIs(pid, 'Z')` that takes the letter), and a `Threads` literal read but not
   required.
+
+### project_self_child_stderr
+
+**What it is about.** A test runs its own test binary as a child (run again, or copied and run as
+another program by the name it is given) and requires the child's stderr to be empty. A test
+binary built with `-cover` whose `-coverpkg` names no package it links has the coverage hooks and
+no meta-data, and every process of it writes `program not built with -cover` on stderr as it
+starts (`internal/coverage/cfile`'s `emitMetaData`), whatever it is run as and whether or not
+`GOCOVERDIR` is set. A full run instruments every package (`-coverpkg=./...`), so the line never
+appears there; go-qa's diff mode, which `qa-changed` runs and CI's diff gate relies on (issue
+#245), passes only the changed packages, so the same test fails on an unrelated change.
+
+**Why it exists.** Issue #155: the member kit's hook and status-line tests failed in
+`qa-changed` on a change to `internal/leakcheck`, then the `wiring` end-to-end tests
+(`TestClaudeDelivers`, `TestClaudeLinkSilent`, `TestClaudeStatusLine`, `TestClaudeStopBlocks`) on
+a change to `internal/teamchat/reexec`. Both passed every `qa-all`.
+
+**What it flags**, in the `_test.go` files of a package where a test file names `os.Executable`,
+`os.Args[0]` or `testfiles.Executable`: a comparison with `==` or `!=` of `""` with an expression
+whose last selector is `Stderr`, or `string(...)` of one.
+
+**How to fix a violation.** Read the stderr through `testchild.Stderr` (`src-go/internal/testchild`;
+the QA module's twin is `qa/internal/testchild`), which takes out that whole line and nothing
+else.
+
+- Red, fixtures: `testdata/src/fix/internal/selfchild` (`os.Executable`; a field, `string(...)`
+  of a `[]byte` field), `argschild` (`os.Args[0]` in `TestMain`), `fileschild`
+  (`testfiles.Executable`); clean: the helper's result, a comparison with a text, another field,
+  `len`, and `otherchild`, a package that runs no copy of itself.
+- Red, real tree (both modules, the tagged builds too): three findings in `wiring`'s
+  `e2e_claude_test.go` (the defect), and two in `qa/internal/proc`'s `proc_test.go`, whose
+  children are `sh` in a package whose `priority_test.go` re-runs the binary: read through the
+  helper as well, which is harmless there. `kit` had been fixed by hand with a local copy of the
+  line, now the helper. Dynamic sweep: every test of both modules run with
+  `-cover -coverpkg=<a main package nothing links>` failed only in `wiring`, and passes since.
+- Green: each comparison reads the helper's result; the wiring and kit tests pass under that
+  foreign `-coverpkg` and plain.
+- Not caught: a stderr held in a variable of another name and compared, `len(stderr) == 0`,
+  `bytes.Equal` or `strings.Contains` on it, and a package that runs another package's test
+  binary.
 
 ### project_child_exit
 

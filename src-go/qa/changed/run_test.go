@@ -109,7 +109,7 @@ func TestAllChecksPassPrintsTheContractLines(t *testing.T) {
 		"✓ lxc-attach-streams: whole gate (no command reaching lxc-attach has a standard stream on a file)",
 		"✓ suite test-one.bash: passed: 12 (names kept.bash)",
 		"✓ suite test-two.bash: passed: 3 (names kept.bash)",
-		"✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.",
+		"✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/<topic>: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).",
 	}
 	if got := lines(w.out.String()); !reflect.DeepEqual(got, want) {
 		t.Fatalf("stdout:\n%s", strings.Join(got, "\n"))

@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/testchild"
 )
 
 func TestOSRunsACommandAndSplitsTheStreams(t *testing.T) {
@@ -66,7 +68,7 @@ func TestOSMergesTheStreamsInOrderWhenAsked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Stdout != "one\ntwo\nthree\n" || res.Stderr != "" {
+	if res.Stdout != "one\ntwo\nthree\n" || testchild.Stderr(res.Stderr) != "" {
 		t.Fatalf("got %+v", res)
 	}
 }
@@ -84,7 +86,7 @@ func TestOSStreamsToTheWritersWhenGivenAndCapturesNothingThere(t *testing.T) {
 	if out.String() != "out\n" || errOut.String() != "err\n" {
 		t.Fatalf("streamed %q and %q", out.String(), errOut.String())
 	}
-	if res.Code != 4 || res.Stdout != "" || res.Stderr != "" {
+	if res.Code != 4 || res.Stdout != "" || testchild.Stderr(res.Stderr) != "" {
 		t.Fatalf("a streamed stream is not also captured: %+v", res)
 	}
 }

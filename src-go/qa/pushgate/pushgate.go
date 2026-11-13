@@ -1,8 +1,9 @@
 // Package pushgate is the pre-push gate on CI's QA verdict (rule push-without-qa-verdict): a
-// protected branch moves only to a commit that GitHub CI's QA workflow (.github/workflows/qa.yml,
-// which runs ./scripts/qa-all.bash) passed on a push. Work reaches a protected branch through a
-// branch: the commit is pushed to ci/<topic>, CI judges it there, and that same commit is then
-// pushed to the protected branch.
+// protected branch moves only to a commit that GitHub CI's QA workflow (.github/workflows/qa.yml)
+// passed on a push. Work reaches a protected branch through a branch: the commit is pushed to
+// ci/<topic>, CI judges it there with ./scripts/qa-changed.bash in diff mode against the line's
+// tip (src-go/qa/ciscope), and that same commit is then pushed to the protected branch, whose own
+// push runs the full ./scripts/qa-all.bash. Either run of the commit counts.
 //
 // The protected branches are the release and architecture lines that scripts/branch-policy.toml
 // exempts (read by branchhygiene.ReadPolicy, as branch hygiene and branch-delete-list read it).

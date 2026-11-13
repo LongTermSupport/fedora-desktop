@@ -13,6 +13,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
+// landingHint closes a passing run: how a checked commit reaches a protected branch, which moves
+// only to a commit GitHub CI passed on a push (rule push-without-qa-verdict).
+const landingHint = "To land it, push the commit to ci/<topic>: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict)."
+
 // Main is the qa-changed command: it returns the exit status. Diagnostics go to env.Stderr,
 // the plan and the report to env.Stdout.
 func Main(ctx context.Context, args []string, env Env) ExitCode {
@@ -408,7 +412,7 @@ func (s *session) verdict(failures, cannot []string) ExitCode {
 		s.outf("⚠ %d changed file(s) not covered by qa-changed — qa-all.bash is the only check\n", n)
 	}
 	if len(failures)+len(cannot) == 0 {
-		s.outf("✓ qa-changed passed: %d changed file(s). Run ./scripts/qa-all.bash before pushing.\n", len(s.plan.existing)+len(s.plan.deleted))
+		s.outf("✓ qa-changed passed: %d changed file(s). %s\n", len(s.plan.existing)+len(s.plan.deleted), landingHint)
 		return ExitOK
 	}
 	s.outf("✗ qa-changed FAILED: %s\n", strings.Join(orderedNames(s.plan, failures, cannot), " "))

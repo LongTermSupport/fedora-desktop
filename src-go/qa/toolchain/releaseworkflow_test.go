@@ -14,6 +14,8 @@ import (
 	"testing/fstest"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ciscope"
 )
 
 // The release workflow (Plan 00153 Task 5.3) signs and pushes what servers trust, so what it
@@ -442,10 +444,12 @@ var releaseBranchPattern = regexp.MustCompile(`git switch -c "([A-Za-z0-9._-]+)\
 
 // releaseBranchFindings is the promise that CI can pass on the commit the release workflow tags.
 // The tag job needs a passing qa.yml run on the release commit, and the only run that commit gets
-// is the push of the branch release.yml creates. qa.yml's base job fails a branch that lacks the
-// default branch's tip, which a release branch does whenever the default branch moved during the
-// approval, and always for the release branch of an older Fedora major, so qa.yml must exempt
-// that branch or the tag job can never see CI pass.
+// is the push of the branch release.yml creates. qa.yml's base job decides the run's scope with
+// scripts/qa-ci-scope.bash, which fails a work branch that lacks a protected line's tip, as a
+// release branch does whenever the default branch moved during the approval; it gives a branch
+// starting ciscope.ReleasePrefix the full suite instead. So the base job must run the scope
+// tool on every push and the release branch must start with that prefix, or the tag job can never
+// see CI pass.
 func releaseBranchFindings(root fs.FS) ([]string, error) {
 	data, err := fs.ReadFile(root, releaseWorkflow)
 	if err != nil {
@@ -474,15 +478,21 @@ func releaseBranchFindings(root fs.FS) ([]string, error) {
 	if err = yaml.Unmarshal(qaData, &qa); err != nil {
 		return nil, err
 	}
-	exempt := "!startsWith(github.ref_name, '" + prefixes[0] + "')"
+	if prefixes[0] != ciscope.ReleasePrefix {
+		return []string{releaseWorkflow + ": the release branch starts " + prefixes[0] + ", but qa-ci-scope gives the full suite to " +
+			ciscope.ReleasePrefix + "<version>, so CI judges the release commit as a work branch and the tag job may never see it pass"}, nil
+	}
 	for _, step := range qa.Jobs["base"].Steps {
-		if strings.Contains(step.If, exempt) {
+		if step.If == "" && strings.Contains(step.Run, ciScopeScript) {
 			return nil, nil
 		}
 	}
-	return []string{qaWorkflow + ": the base job does not exempt the release branches (" + prefixes[0] + "<version>) with " + exempt +
-		", so CI fails on a release commit whose branch lacks the default branch's tip and the tag job never sees it pass"}, nil
+	return []string{qaWorkflow + ": the base job has no unconditional step running " + ciScopeScript +
+		", so the release branches (" + prefixes[0] + "<version>) are not given the full suite and the tag job may never see CI pass"}, nil
 }
+
+// ciScopeScript is the command qa.yml's base job decides a run's scope with.
+const ciScopeScript = "./scripts/qa-ci-scope.bash"
 
 func TestQAExemptsTheBranchesTheReleaseWorkflowPushes(t *testing.T) {
 	findings, err := releaseBranchFindings(os.DirFS(filepath.Join("..", "..", "..")))
@@ -496,11 +506,13 @@ func TestQAExemptsTheBranchesTheReleaseWorkflowPushes(t *testing.T) {
 
 const (
 	releasePushes = "jobs:\n  prepare:\n    steps:\n      - run: |\n          git switch -c \"release-$VERSION\"\n"
-	baseCheck     = "jobs:\n  base:\n    steps:\n      - name: Require\n        if: github.event_name == 'push' && github.ref_name != github.event.repository.default_branch%s\n        run: \"true\"\n"
+	baseCheck     = "jobs:\n  base:\n    steps:\n      - name: Decide\n%s        run: ./scripts/qa-ci-scope.bash --event push\n"
+	otherPrefix   = "jobs:\n  prepare:\n    steps:\n      - run: |\n          git switch -c \"rel-$VERSION\"\n"
 )
 
-// The promise can fail: a base check that does not exempt the release branch is found, one that
-// does is not, and a release workflow whose branch this cannot read is a finding, not a pass.
+// The promise can fail: a base job that does not run the scope tool on every push is found, one
+// that does is not, a release branch the tool does not know is found, and a release workflow
+// whose branch this cannot read is a finding, not a pass.
 func TestTheReleaseBranchPromiseCanFail(t *testing.T) {
 	judge := func(release, qa string) []string {
 		t.Helper()
@@ -513,14 +525,17 @@ func TestTheReleaseBranchPromiseCanFail(t *testing.T) {
 		}
 		return findings
 	}
-	if got := judge(releasePushes, fmt.Sprintf(baseCheck, "")); len(got) != 1 || !strings.Contains(got[0], "does not exempt") {
-		t.Fatalf("findings %q, want the missing exemption", got)
+	if got := judge(releasePushes, "jobs:\n  base:\n    steps:\n      - run: \"true\"\n"); len(got) != 1 || !strings.Contains(got[0], "no unconditional step") {
+		t.Fatalf("findings %q, want the missing scope step", got)
 	}
-	if got := judge(releasePushes, fmt.Sprintf(baseCheck, " && !startsWith(github.ref_name, 'other-')")); len(got) != 1 {
-		t.Fatalf("findings %q, want an exemption of another prefix to count for nothing", got)
+	if got := judge(releasePushes, fmt.Sprintf(baseCheck, "        if: github.ref_name != 'x'\n")); len(got) != 1 {
+		t.Fatalf("findings %q, want a scope step skipped on some pushes to count for nothing", got)
 	}
-	if got := judge(releasePushes, fmt.Sprintf(baseCheck, " && !startsWith(github.ref_name, 'release-')")); len(got) != 0 {
-		t.Fatalf("findings %q, want none for an exempted release branch", got)
+	if got := judge(otherPrefix, fmt.Sprintf(baseCheck, "")); len(got) != 1 || !strings.Contains(got[0], "starts rel-") {
+		t.Fatalf("findings %q, want a release branch the scope tool does not know", got)
+	}
+	if got := judge(releasePushes, fmt.Sprintf(baseCheck, "")); len(got) != 0 {
+		t.Fatalf("findings %q, want none for a scope step on every push", got)
 	}
 	if got := judge("jobs:\n  prepare:\n    steps:\n      - run: echo nothing\n", fmt.Sprintf(baseCheck, "")); len(got) != 1 || !strings.Contains(got[0], "found 0 release branches") {
 		t.Fatalf("findings %q, want a release workflow without a readable release branch refused", got)

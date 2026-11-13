@@ -2,8 +2,17 @@ name: QA
 
 # Server-side quality gate. The local git hooks (scripts/git-hooks) are
 # bypassable with --no-verify and run only on the contributor's clone; this
-# workflow is the non-bypassable layer. It runs the same suite as
-# ./scripts/qa-all.bash plus a gitleaks secret scan over the full history.
+# workflow is the non-bypassable layer, and its pass on a push is what lets a
+# protected branch move (rule push-without-qa-verdict, src-go/qa/pushgate).
+#
+# Diff gate, full after (issue #245): work reaches a protected branch through
+# ci/<topic>. A push of a work branch runs ./scripts/qa-changed.bash in diff
+# mode against the tip of the protected line it is built on, and that pass lets
+# the same commit be pushed to the line. A push to a protected branch, a
+# release-<version> branch or a release tag runs the full ./scripts/qa-all.bash,
+# after the move; a red run there is fixed forward. A pull request runs diff
+# mode against its base. The base job decides which (scripts/qa-ci-scope.bash).
+# A gitleaks scan of the tree runs on every event.
 #
 # See CLAUDE/QA.md for what each stage checks.
 
@@ -25,47 +34,77 @@ concurrency:
   cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
-  # A branch pushed without the default branch's tip would spend the full suite on a tree that
-  # lacks fixes already there, and fail on them. This job fails such a push in seconds instead,
-  # and qa-all waits on it. A pull request is checked out merged onto its base, and a tag or the
-  # default branch itself has nothing to lack, so they pass straight through. So does a
-  # release-<version> branch of the release workflow: it is cut from the commit that started the
-  # run, which is no longer the default branch's tip if anything merged during the approval, and
-  # for an older Fedora major never contains it, while the release's tag job needs this run to pass
+  # Decides the QA this run does (src-go/qa/ciscope, C1-C12): mode full or diff, the protected
+  # line, and that line's tip on origin as the diff base. A work branch must contain the tip of
+  # one protected line (the default branch first, else the one other line it is built on, such as
+  # F43 or F44-arm): one that contains none is failed here in seconds, because a diff against a
+  # stale base would judge changes the line already has. A release-<version> branch of the release
+  # workflow runs the full suite and is not judged for its base: it is cut from the commit that
+  # started the run, and the release's tag job needs this run to pass
   # (TestQAExemptsTheBranchesTheReleaseWorkflowPushes).
   base:
-    name: contains the default branch
+    name: picks the protected line
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
+      line: ${{ steps.scope.outputs.line }}
+      base: ${{ steps.scope.outputs.base }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Require the default branch's tip
-        if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch && !startsWith(github.ref_name, 'release-')
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src-go/qa/go.mod
+
+      - name: Decide the scope
+        id: scope
         env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           DEFAULT: ${{ github.event.repository.default_branch }}
+          PR_BASE: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          tip=$(git rev-parse --short "origin/$DEFAULT")
-          if ! git merge-base --is-ancestor "origin/$DEFAULT" HEAD; then
-            echo "::error::this branch lacks origin/$DEFAULT at $tip: merge $DEFAULT into it and push again; the full suite does not run on a stale base"
-            exit 1
+          args=(--event "$EVENT" --ref "$REF" --default "$DEFAULT")
+          if [ "$EVENT" = pull_request ]; then
+            args+=(--pr-base "$PR_BASE")
           fi
-          echo "contains origin/$DEFAULT at $tip"
+          ./scripts/qa-ci-scope.bash "${args[@]}" | tee -a "$GITHUB_OUTPUT"
 
-  qa-all:
+  qa:
     # No gate count in this name. It said "(8 gates)" while qa-all.bash ran
     # thirteen, because a number here is a second place to state a fact that
-    # lives in one place already — and nothing checks it. qa-all.bash prints its
-    # own gates, one pass line each.
-    name: qa-all.bash
+    # lives in one place already — and nothing checks it. qa-all.bash and
+    # qa-changed.bash print their own gates and checks, one pass line each.
+    name: QA (${{ needs.base.outputs.mode }})
     needs: base
     runs-on: ubuntu-latest
     steps:
+      # A scope that is neither would run neither QA step below and pass with nothing run.
+      - name: Require a known scope
+        env:
+          MODE: ${{ needs.base.outputs.mode }}
+          BASE: ${{ needs.base.outputs.base }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            full) ;;
+            diff)
+              if [ -z "$BASE" ]; then
+                echo "::error::diff mode with no base commit"
+                exit 1
+              fi ;;
+            *) echo "::error::the base job decided no QA scope (mode '$MODE')"; exit 1 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # The python of the ccy image, 3.13, which src-go/internal/bus/pycompat reproduces and is
       # proven against: its tests run python3.13 by name (this action puts it on PATH) and
@@ -171,8 +210,9 @@ jobs:
       # The bash-limits gate and the shellcheck-suppression ratchet (qa-bash) fail on an allowlist
       # entry added or a record raised relative to a base commit (QA_BASH_LIMITS_BASE, read by
       # scripts/qa-bash-limits.bash and the qa-bash tool). The base is a point the
-      # change has not reached, whatever the push granularity: the merge-base of HEAD and the
-      # default branch, for a pull request and for a push to any other branch alike. A push to
+      # change has not reached, whatever the push granularity: in diff mode the base job's line
+      # tip, the same commit qa-changed diffs against; otherwise the merge-base of HEAD and the
+      # default branch, for a push to any other branch alike. A push to
       # the default branch has nothing to branch from, so its base is the head before the push
       # (the whole push, however many commits it carries); that is sound because a run on the
       # default branch is never cancelled (see concurrency above), so the head before it was
@@ -184,13 +224,18 @@ jobs:
           REF: ${{ github.ref }}
           PUSH_BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MODE: ${{ needs.base.outputs.mode }}
+          SCOPE_BASE: ${{ needs.base.outputs.base }}
         run: |
           set -euo pipefail
           if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
             git fetch --no-tags --unshallow origin
           fi
           git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
-          if [ "$REF" = "refs/heads/${DEFAULT_BRANCH}" ]; then
+          if [ "$MODE" = diff ]; then
+            git cat-file -e "${SCOPE_BASE}^{commit}"
+            base="$SCOPE_BASE"
+          elif [ "$REF" = "refs/heads/${DEFAULT_BRANCH}" ]; then
             git cat-file -e "${PUSH_BEFORE}^{commit}"
             base="$PUSH_BEFORE"
           else
@@ -205,17 +250,32 @@ jobs:
       # venv with uv and starts the daemon, and the tests then need a pytest of the venv's Python
       # version, which nothing here pins. The gate honours this variable on GitHub Actions only
       # (anywhere else it is exit 2), prints HOOK-HANDLERS-EXEMPT with the reason, and runs for
-      # real in every local qa-all and qa-changed, where the daemon is provisioned.
+      # real in every local qa-all and qa-changed, where the daemon is provisioned. qa-changed
+      # runs the same gate, only when a handler or the gate itself changed, and takes the same
+      # exemption.
+      # The other local-only check, qa-deployed-drift, needs no exemption: it compares only where
+      # a deployed copy exists (~/.local/bin), and a runner has none, so it reports itself skipped
+      # and passes its source-tree half.
       # The Go gate runs the whole of src-go under -race, and internal/teamchat a second time
       # under the busfailpoints tag with -count=2. With teamchat it needs more than qa-all's default
       # limit of 30 minutes per gate (its first run on this tree was killed at exactly that limit,
-      # the other gates having passed), so the limit is 120 minutes here. A hung test is still
-      # stopped at 30 minutes by `go test -timeout`, which names it (scripts/qa-go-qa.bash).
+      # the other gates having passed), so the limit is 120 minutes here, and the same per check
+      # for qa-changed, whose Go gate on a teamchat change runs those stages whole. A hung test is
+      # still stopped at 30 minutes by `go test -timeout`, which names it (scripts/qa-go-qa.bash).
       - name: Run full QA suite
+        if: needs.base.outputs.mode == 'full'
         env:
-          QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all"
+          QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all and qa-changed"
           QA_ALL_TIMEOUT: "120m"
         run: ./scripts/qa-all.bash
+
+      - name: Run diff-mode QA against the protected line's tip
+        if: needs.base.outputs.mode == 'diff'
+        env:
+          QA_HOOK_HANDLERS_EXEMPT: "CI has no hooks daemon (gitignored); the handler tests run in every local qa-all and qa-changed"
+          QA_CHANGED_TIMEOUT: "120m"
+          BASE: ${{ needs.base.outputs.base }}
+        run: ./scripts/qa-changed.bash --base "$BASE"
 
       - name: Upload QA results
         if: always()
