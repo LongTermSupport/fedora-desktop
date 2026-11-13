@@ -1,0 +1,32 @@
+# Fixture for .semgrep/place-issued-token.yml (the gate's self-test). Each "ruleid" line marks the
+# line below it as a finding; each "ok" line marks the line below it as clean.
+
+# ruleid: token-bundle-into-place-issued
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential token | teamchat seat place-issued --checkout <dir>; unset pw
+
+# ruleid: token-bundle-into-place-issued
+  sudo teamchat-admin member reissue --team <team> --handle <handle> --credential password|token | [ssh <alias>] teamchat seat place-issued --checkout <dir>
+
+# ruleid: token-bundle-into-place-issued
+			"sudo " + admin + " member reissue --team " + team + " --handle <handle> --credential password|token" +
+			" | [ssh <alias>] teamchat seat place-issued --checkout <dir>")
+
+issue() {
+    local seat="$1" guest="$2" out
+# ruleid: token-bundle-into-place-issued
+    local add="teamchat-admin member add --team ${TEAM} --seat ${seat} --kind host --credential token"
+    out="$(as_issuer bus "${add}" |
+        gssh "${guest}" 'teamchat seat place-issued --checkout "$HOME/x"')" || return 1
+}
+
+# ruleid: token-bundle-into-place-issued
+teamchat-admin member add --credential=token | ssh member teamchat seat place-issued --checkout /srv/x
+
+# ok: token-bundle-into-place-issued
+read -rs pw; printf '%s\n' "$pw" | ssh <bus> sudo -S -p '' teamchat-admin member add ... --credential password | teamchat seat place-issued --checkout <dir>; unset pw
+
+# ok: token-bundle-into-place-issued
+| `member add --prefix P --seat S --kind K --human-text B --credential password\|token` | (none) | claim the handle |
+
+# ok: token-bundle-into-place-issued
+	// Join is member add|return|reissue with --credential token: the answer's handle and the

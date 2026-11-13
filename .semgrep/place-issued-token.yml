@@ -1,0 +1,43 @@
+rules:
+  # Rule: a token bundle is never piped into teamchat seat place-issued (Defence Before Fix;
+  # CLAUDE/QA.md "token-bundle-into-place-issued"; issue #248).
+  #
+  # seat place-issued places a seat in a ccy pool, and a pool seat keeps a password (gate B,
+  # owner 2026-10-30): it refuses a bundle issued with --credential token (exit 78, "a token,
+  # not this pool's password"). --credential token is for an LXC guest seat, which the lxc apply
+  # places itself. A command, script or help text that pipes a token bundle into place-issued,
+  # or offers the choice password|token for that pipe, leaves whoever follows it with a refused
+  # placement and no seat.
+  #
+  # WRONG: ssh <bus> sudo teamchat-admin member add ... --credential token | teamchat seat place-issued --checkout <dir>
+  # WRONG: member reissue --handle <handle> --credential password|token | [ssh <alias>] teamchat seat place-issued
+  # RIGHT: ssh <bus> sudo teamchat-admin member add ... --credential password | teamchat seat place-issued --checkout <dir>
+  #
+  # Two forms, one hazard: the issue and the pipe on one line, and a command built in one line
+  # (a variable, a string literal) that a pipe into place-issued at most fifteen lines later
+  # receives.
+  - id: token-bundle-into-place-issued
+    pattern-either:
+      - pattern-regex: '--credential[ \t=]+[''"]?(?:password\\?\|)?token\b[^\n]*\bplace-issued\b'
+      - pattern-regex: '--credential[ \t=]+[''"]?(?:password\\?\|)?token\b(?:[^\n]*\n){0,15}?[^\n]*\|[ \t]*\\?[ \t]*\n?[^\n]*\bplace-issued\b'
+    message: >
+      token-bundle-into-place-issued: seat place-issued places a pool seat, which keeps a
+      password, and refuses a bundle issued with --credential token. Issue the seat with
+      --credential password. See CLAUDE/QA.md "token-bundle-into-place-issued".
+    paths:
+      exclude:
+        # This rule and its fixture.
+        - '.semgrep/place-issued-token.*'
+        # Records, not instructions anyone runs: a plan's prose, a journal, a review or a
+        # changelog. Plan SCRIPTS are code and stay in.
+        - 'CLAUDE/Plan/**/*.md'
+        - 'docs/*changelog*.md'
+        # Vendored, daemon-deployed and other trees that are not ours are never handed to
+        # semgrep: the gate reads them from scripts/qa-trees.tsv, the one list
+        # (CLAUDE/QA.md "qa-trees-drift"). Name here only what is particular to this rule.
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+      dbf-class: a token-credential bundle sent into the pool placement that only takes a password
