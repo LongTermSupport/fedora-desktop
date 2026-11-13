@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00254-lightning-default-team-client](00254-lightning-default-team-client/) - Not Started (plan only; owner decisions D1-D4 open). Lightning becomes the default team client, Element selectable (issue #253): one separate Lightning instance per team (a hard requirement, proven on the host first), the thread-root clipping fix taken upstream (patch prototyped), then team CA trust, per-team launchers with a pre-filled homeserver, and ccy-teams opening teams in Lightning.
+
 - [00253-element-fork-thread-switch-case-study](00253-element-fork-thread-switch-case-study/) - Dormant (parked by the owner). Element shows the previously open thread when another is clicked: the likely cause, an upstream fix, and a case study of forking Element.
 
 - [00252-ccy-egress-proxy-per-request-policy-and-credential-injection](00252-ccy-egress-proxy-per-request-policy-and-credential-injection/) - Not Started (research; owner decisions first). A host-side proxy in front of the ccy container, after devvm: per-request host, method and path rules (GitHub limited to named repos under one token), and credentials held by the proxy so the container has only placeholders; relates to the Claude token forwarder of Plan 00146.
