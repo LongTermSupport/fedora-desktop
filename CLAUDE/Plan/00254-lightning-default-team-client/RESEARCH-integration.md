@@ -53,22 +53,35 @@ Evidence:
   a Labs feature, off by default and marked "Live: NOT TESTED". It still shows one window with one
   active account. "A window per team" therefore needs one instance per team.
 
-Proposed launcher shape (not tested). Paths must be absolute, because flatpak does not expand
-`$HOME`. Inside the sandbox, `~/.var/app/<id>/` is always writable.
+The launch form, proven on the host (Plan 00254 Tasks 3.1 and 3.2, Lightning 0.10.5, runtime
+`org.kde.Platform` 6.11). Paths must be absolute, because flatpak does not expand `$HOME`. Inside
+the sandbox, `~/.var/app/<id>/` is always writable.
 
 ```
-flatpak run \
-  --env=XDG_DATA_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/data \
-  --env=XDG_CONFIG_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/config \
-  --env=XDG_CACHE_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/cache \
-  org.lightning_matrix.Lightning
+flatpak run --command=env org.lightning_matrix.Lightning \
+  XDG_DATA_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/data \
+  XDG_CONFIG_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/config \
+  XDG_CACHE_HOME=/home/<u>/.var/app/org.lightning_matrix.Lightning/teams/<team>/cache \
+  lightning-matrix
 ```
+
+Established on the host:
+
+- `flatpak run --env=XDG_*_HOME=…` does **not** reach the app: inside the sandbox the variables
+  still name the app's default `~/.var/app/<id>/{data,config,cache}`, so a launch in that form
+  only raises the running instance. `env` run as the sandbox's command sets them after Flatpak
+  has, and the app sees the given paths.
+- In the `--command=env` form, two instances on two roots both stay running, each holding its own
+  `instance-matrix-client.lock` under its own root. A second launch on a root already in use
+  exits within a second and leaves that root's instance running. That each window showed its own
+  login page and that the instance on the default root was left untouched is the owner's
+  observation, not the script's: its `flatpak ps` counts (5 instances before the probe, 3 with
+  both probes up) are unexplained and are not evidence either way.
+- The runtime has `/etc/ssl/certs/ca-certificates.crt` (a link to `tls-ca-bundle.pem`) and
+  Python 3.13.
 
 Not established:
 
-- Whether `flatpak run --env=` overrides the `XDG_*_HOME` values flatpak sets for the app. I
-  believe it does, but I did not verify it. Check on the host with
-  `flatpak run --env=XDG_DATA_HOME=/tmp/x --command=sh org.lightning_matrix.Lightning -c 'echo $XDG_DATA_HOME'`.
 - `setDesktopFileName(resolvedAppId())` (`main.cpp:2368`) gives every instance the same app id,
   so the windows group under one taskbar entry. Element has the same limitation.
 

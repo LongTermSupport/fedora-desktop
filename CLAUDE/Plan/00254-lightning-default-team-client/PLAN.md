@@ -85,10 +85,10 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   every target built, every CTest named `thread` 10/10).
 - [x] ✅ **Task 2.3**: Owner decision **D2**: yes, post the issue now with a suggested fix and the
   grow-then-scroll proposal; the pull request follows once Task 2.2 has real totals.
-- [ ] 🔄 **Task 2.4**: Issue posted: [Mizerd/lightning#75](https://github.com/Mizerd/lightning/issues/75),
-  with the QML change as an untested sketch. Pull request: after Task 2.2, with the drafts'
-  validation line filled from `build-test-report.txt`. Record its link here and in the watch-list
-  entry.
+- [x] ✅ **Task 2.4**: Issue [Mizerd/lightning#75](https://github.com/Mizerd/lightning/issues/75);
+  pull request [Mizerd/lightning#77](https://github.com/Mizerd/lightning/pull/77) from a fork,
+  one commit on `main` `bc05fb11`, with Task 2.2's totals. Also raised: the side panel's fixed
+  640 px width cap, [Mizerd/lightning#76](https://github.com/Mizerd/lightning/issues/76).
 - [ ] ⬜ **Task 2.5**: When a release carries the fix and reaches Flathub, confirm it live with a
   long root message, and delete the patch file (keep the upstream link).
 - [ ] ⬜ **Task 2.6** (fallback, only if upstream refuses the fix or two releases pass without it,
@@ -114,15 +114,17 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
     its own login page.
   - [ ] ⬜ Add the plan to `meta-deploy.list` in the same commit; ask the team's host agent to run
     `./CLAUDE/Plan/meta-deploy.bash`.
-- [ ] 🔄 **Task 3.2** (needed: `probe-instances.bash` now launches with `--command=env`; the
-  triage is queued again): If `--env` does not reach the sandbox, use the fallback and re-run 3.1 with
+- [x] ✅ **Task 3.2** (run 2026-11-13 with `--command=env`: instances A and B both running at 20 s,
+  each holding its own lock under its own probe root; a second launch on root A exited after 1 s
+  with A still running; the owner saw two windows, each on its own login page, and their own
+  running Lightning untouched): If `--env` does not reach the sandbox, use the fallback and re-run 3.1 with
   it: `flatpak run --command=env org.lightning_matrix.Lightning XDG_DATA_HOME=… XDG_CONFIG_HOME=… XDG_CACHE_HOME=… lightning-matrix`. `env` sets the variables inside the
   sandbox, after Flatpak has set its own, so it does not depend on how Flatpak orders them. Ruled
   out as fallbacks: `--persist` (one mapping per app, not per launch) and instance ids (Flatpak
   only reports one through `--instance-id-fd`; it cannot be chosen). If neither works, the plan
   stops and the owner decides between an upstream `--profile` feature request and Element.
-- [ ] ⬜ **Task 3.3**: Record the result and the chosen launch form in the journal and in
-  RESEARCH-integration.md section 1.
+- [x] ✅ **Task 3.3**: Record the result and the chosen launch form in the journal and in
+  RESEARCH-integration.md section 1. Chosen form: `flatpak run --command=env <app> XDG_DATA_HOME=… XDG_CONFIG_HOME=… XDG_CACHE_HOME=… lightning-matrix`.
 
 ### Phase 4: Team CA trust for Lightning
 
