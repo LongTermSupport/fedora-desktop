@@ -2688,6 +2688,32 @@ runner check starts a unit: the proof of the fault itself is the deploy and the 
 **How to fix a finding.** Drop `PrivatePIDs=`. Where the per-process isolation it gave matters,
 give the unit its own user (a dynamic user per instance) and `ProtectProc=invisible`.
 
+### go-minimum-above-provisioned-go
+
+**What it is.** A Go minimum a host build demands that is newer than the Go the IaC guarantees
+the host, `golang_min_version` in `vars/golang.yml` (Fedora's golang, which `play-golang.yml`
+fails below): the `go` directive of any `go.mod` outside `vendor/`, `testdata/` and the trees
+git does not publish, or a playbook's `*_go_min` variable recording the `go` directive of a
+module the play builds. A `toolchain` line is not judged. The rule is
+`TestNoGoMinimumAboveTheProvisionedGo` in `src-go/qa/toolchain`, run by the Go gate; its
+fixtures are the `ProvisionedGoRule` tests beside it. Run it alone with
+`go -C src-go/qa test ./toolchain -run ProvisionedGo`.
+
+**Why it exists.** Every host build runs with `GOTOOLCHAIN=local` (Fedora's own `go.env` sets
+it too), so a `go` directive above the installed Go is a hard refusal, never a download.
+`src-go/qa/go.mod` was raised to `go 1.26.11` to get CI onto a Go security release before
+Fedora packaged it, and every stock Fedora 44 host then failed `play-python.yml`'s QA toolchain
+verify (issue #249). Found and defended under Defence Before Fix.
+
+**What it does not see.** A module built from a pinned upstream commit whose `go.mod` is not in
+this repository is judged only through its `*_go_min` variable, which is a copy the play's
+comment says to move with the pin.
+
+**How to fix a finding.** Keep the `go` directive at or below `golang_min_version`. To run CI
+or the images ahead of Fedora for a security release, raise `src-go/go.mod`'s `toolchain` line
+(which CI's `setup-go` installs, and the ccy image's builder stage matches); never a `go` line.
+Raise `golang_min_version` only once Fedora ships that Go.
+
 ---
 
 ## Changing a Gate
