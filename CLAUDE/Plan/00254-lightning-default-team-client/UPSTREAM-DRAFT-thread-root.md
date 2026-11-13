@@ -82,9 +82,14 @@ still shrinks the card. One new data-driven case in `ThreadPanelPaginationAnchor
 a sixty-line root is held at the cap, is interactive, is not `truncated`, and can be scrolled to
 its last line.
 
-Validation: <!-- FILL IN after the host build of Task 2.2; until then: -->
-Not built and not run here: no Qt toolchain was available to the author. CTest and the QML test:
-**NOT TESTED**. Live GUI: **NOT TESTED**. <!-- Replace with exact totals once built. -->
+Validation, on `e6ea127a`, non-Rust tree (`-DLIGHTNING_ENABLE_WEBRTC=OFF`), Fedora 44, Qt 6 from
+Fedora, `QT_QPA_PLATFORM=offscreen` under `dbus-run-session`:
+
+- the new case alone, on the unpatched QML: both rows fail ("the thread root card has no
+  scrolling body"); `ThreadPanelPaginationAnchorQmlTest` totals 7 passed, 2 failed, 0 skipped.
+- with the QML change: `thread-panel-pagination-anchor-qml` passes (CTest 1/1); every target
+  built; every CTest named `thread` passes, 10/10.
+- the Rust tree and the full CTest suite: **NOT TESTED**. Live GUI: **NOT TESTED**.
 
 Disclosure: written with an AI coding agent and reviewed by a human before submission.
 
