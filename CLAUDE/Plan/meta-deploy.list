@@ -176,3 +176,18 @@ playbooks/imports/play-basic-configs.yml
 # checkout. Exit 2 is expected today: restore is refused in the production build until DC8, so
 # the host move cannot finish; the report in its run directory says which checks passed.
 00246-agent-bus-v2-landing-and-cross-network/x30-lab.bash
+
+# Plan 00254 Task 3.1: can Lightning run one instance per team? Run from a terminal in the
+# desktop session. Read-only apart from a probe directory it removes: it checks that per-team
+# data paths reach Lightning's sandbox, opens two Lightning windows on two empty probe profiles
+# for about 20 seconds (each should show its own login page: look), then launches a second copy
+# on the first profile, which should only raise that window and exit. Your own Lightning and its
+# sign-in are not touched. Also records whether the runtime has a CA bundle and python3.
+00254-lightning-default-team-client
+
+# Plan 00254 Task 2.2: builds Lightning's thread-panel test in a podman container, without and
+# then with our thread-root fix (upstream issue Mizerd/lightning#75), to prove the fix and get the
+# exact test totals for the pull request. Downloads Fedora's Qt build packages into an image
+# (about 2 GB) and clones Lightning into the run directory; installs nothing on the host, posts
+# nothing. Long: it builds every Lightning target once.
+00254-lightning-default-team-client/build-test.bash

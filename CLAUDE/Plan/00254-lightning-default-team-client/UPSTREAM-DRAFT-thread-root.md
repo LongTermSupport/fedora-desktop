@@ -1,7 +1,8 @@
 # Draft: upstream issue and pull request for the clipped thread root
 
-**Nothing here has been posted.** Lightning's tracker is public, so posting needs the owner's go
-(Task 2.4 of [PLAN.md](PLAN.md)). The canonical repository is the maintainer's GitLab; GitHub
+**The issue is posted** as [Mizerd/lightning#75](https://github.com/Mizerd/lightning/issues/75),
+on the owner's go, with the QML change as an untested sketch. **The pull request is not**: it
+waits for Task 2.2's totals (Task 2.4 of [PLAN.md](PLAN.md)). The canonical repository is the maintainer's GitLab; GitHub
 (`Mizerd/lightning`) is a mirror where the maintainer applies a pull request by hand onto `main`,
 keeps the contributor as author, and closes the pull request (PR 62 and PR 40 were handled this
 way).

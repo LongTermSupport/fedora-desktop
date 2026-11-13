@@ -76,16 +76,19 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   Patch on upstream `e6ea127a`: [lightning-thread-root.patch](lightning-thread-root.patch), with a
   data-driven QML test. Existing reports searched: none
   ([UPSTREAM-DRAFT-thread-root.md](UPSTREAM-DRAFT-thread-root.md)).
-- [ ] ⬜ **Task 2.2**: Build and test the patch on the host, through IaC. The container has no Qt,
-  CMake or Rust toolchain and none may be installed by hand. Write a plan-local `build-test.bash`
-  (per [PlanScriptStandards.md](../../PlanScriptStandards.md)) that runs the non-Rust tree's
-  QML test in a podman container built from a Containerfile in this plan folder (Fedora with the
-  Qt 6 devel RPMs, `-DLIGHTNING_ENABLE_WEBRTC=OFF`), before and after the patch, so the new case
-  is proven red on the old code and green on the new. Queue it in `meta-deploy.list`.
-- [ ] ⬜ **Task 2.3**: Owner decision **D2**: the go to post the issue and pull request
-  (Lightning's tracker is public). Fill the drafts' validation line with Task 2.2's exact totals.
-- [ ] ⬜ **Task 2.4**: Post the issue on `Mizerd/lightning`, then the pull request, as drafted.
-  Record both links here and in the watch-list entry.
+- [ ] 🔄 **Task 2.2**: Build and test the patch on the host, through IaC. The container has no Qt,
+  CMake or Rust toolchain and none may be installed by hand. Written: `build-test.bash` (per
+  [PlanScriptStandards.md](../../PlanScriptStandards.md)) runs the non-Rust tree's QML test in a
+  podman container from `Containerfile.build-test` (Fedora 44, Qt 6 devel RPMs,
+  `-DLIGHTNING_ENABLE_WEBRTC=OFF`) through `build-test-inner.bash`: the patch's test alone must
+  fail on the old QML, then with the fix it and every `thread` test must pass, every target built.
+  Queued in `meta-deploy.list`; not yet run.
+- [x] ✅ **Task 2.3**: Owner decision **D2**: yes, post the issue now with a suggested fix and the
+  grow-then-scroll proposal; the pull request follows once Task 2.2 has real totals.
+- [ ] 🔄 **Task 2.4**: Issue posted: [Mizerd/lightning#75](https://github.com/Mizerd/lightning/issues/75),
+  with the QML change as an untested sketch. Pull request: after Task 2.2, with the drafts'
+  validation line filled from `build-test-report.txt`. Record its link here and in the watch-list
+  entry.
 - [ ] ⬜ **Task 2.5**: When a release carries the fix and reaches Flathub, confirm it live with a
   long root message, and delete the patch file (keep the upstream link).
 - [ ] ⬜ **Task 2.6** (fallback, only if upstream refuses the fix or two releases pass without it,
@@ -95,7 +98,7 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 3: Prove one instance per team (hard requirement; before any launcher work)
 
-- [ ] ⬜ **Task 3.1**: Write `triage.bash` (plan-local, `_planlib.inc.bash`, read-only apart from
+- [ ] 🔄 **Task 3.1** (written, with `probe-instances.bash`; queued, not yet run): Write `triage.bash` (plan-local, `_planlib.inc.bash`, read-only apart from
   two probe directories under `~/.var/app/org.lightning_matrix.Lightning/teams-probe/` that it
   removes). Run through `meta-deploy.bash`, never in the container. It establishes:
   - [ ] ⬜ that `flatpak run --env=XDG_DATA_HOME=… --env=XDG_CONFIG_HOME=… --env=XDG_CACHE_HOME=… --command=printenv org.lightning_matrix.Lightning` prints the given values inside the sandbox;

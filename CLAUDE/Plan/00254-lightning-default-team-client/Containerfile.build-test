@@ -1,0 +1,13 @@
+# Plan 00254 Task 2.2: the toolchain to build and run Lightning's thread-panel QML test,
+# without the Rust backend (ENABLE_RUST_SDK_BACKEND is off by default) and without WebRTC.
+# Built and run only by build-test.bash, on the host. The source is mounted, never copied in.
+FROM registry.fedoraproject.org/fedora:44
+
+RUN dnf -y --setopt=install_weak_deps=False install \
+      cmake ninja-build gcc-c++ git-core pkgconf-pkg-config dbus-daemon \
+      qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel \
+      qt6-qtmultimedia-devel qt6-qtsvg-devel qt6-qttools-devel \
+      openssl-devel zlib-ng-compat-devel libsecret-devel \
+    && dnf clean all
+
+WORKDIR /src
