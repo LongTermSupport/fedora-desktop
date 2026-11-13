@@ -43,3 +43,12 @@
 # https team. Of Element's steps only the read-only declaration check runs. Your running
 # Lightning and its sign-in are not touched. Report the play recap and, on failure, the assert's message.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning
+
+# Issue #255 (ccy 3.119.5, container 2.84.9): play-claude-yolo.yml deploys the launcher and
+# rebuilds ccy-teams, its Go front and the image once. A new Element password (ccy-teams, a
+# person's row, Sign in or New password) is now shown on a screen of its own; the Enter after
+# signing in clears it, and scrolling up afterwards (or tmux's history) shows no password.
+# ccy --export-token NAME on a terminal does the same for the token. play-ftp-camera.yml, where
+# it has run, rebuilds ftp-camera: with a hotspot, the Wi-Fi password is shown before the
+# server starts and cleared on Enter, and the banner says how to print it again.
+changed-plays

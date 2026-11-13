@@ -298,6 +298,53 @@ func TestReadLineEndOfInputIsNoLine(t *testing.T) {
 	}
 }
 
+// Issue 255: a secret is shown on the terminal's alternate screen and nowhere else; EndSecret
+// asks for the Enter, then leaves the screen, so the normal screen never holds the secret.
+func TestShowSecretUsesTheAlternateScreenAndEndSecretLeavesIt(t *testing.T) {
+	r := newKit(t)
+	r.TTY = "\n"
+	r.kit.Tell("before")
+	r.kit.ShowSecret("Password hunter2\n")
+	if !r.kit.SecretShowing() || !r.kit.CanShowSecret() {
+		t.Fatal("the secret screen is open on a terminal")
+	}
+	r.kit.EndSecret(t.Context(), "Press Enter to clear it.")
+	r.kit.Tell("after")
+	want := "before\n" + term.AltScreenOn + "Password hunter2\nPress Enter to clear it.\n" + term.AltScreenOff + "after\n"
+	if r.ErrOut.String() != want || r.kit.SecretShowing() {
+		t.Fatalf("stderr %q, want %q", r.ErrOut.String(), want)
+	}
+	r.ErrOut.Reset()
+	r.kit.EndSecret(t.Context(), "never said")
+	r.kit.HideSecret()
+	if r.ErrOut.Len() != 0 {
+		t.Fatalf("with no secret shown nothing is asked: %q", r.ErrOut.String())
+	}
+}
+
+func TestHideSecretLeavesTheScreenWithoutAsking(t *testing.T) {
+	r := newKit(t)
+	r.kit.ShowSecret("s\n")
+	r.kit.HideSecret()
+	if r.ErrOut.String() != term.AltScreenOn+"s\n"+term.AltScreenOff {
+		t.Fatalf("stderr %q", r.ErrOut.String())
+	}
+}
+
+func TestASecretScreenThatCannotBeWrittenIsSaid(t *testing.T) {
+	r := newKit(t)
+	r.kit.Secrets.W = failing{}
+	r.kit.ShowSecret("s\n")
+	r.kit.HideSecret()
+	if !strings.Contains(r.ErrOut.String(), "ERROR: the secret screen could not be written: closed") {
+		t.Fatalf("stderr %q", r.ErrOut.String())
+	}
+}
+
+type failing struct{}
+
+func (failing) Write([]byte) (int, error) { return 0, errors.New("closed") }
+
 func TestAbbrevAbbreviatesTheHome(t *testing.T) {
 	r := newKit(t)
 	if got := r.kit.Abbrev(r.kit.Home + "/proj"); got != "~/proj" {

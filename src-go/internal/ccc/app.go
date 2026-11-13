@@ -226,7 +226,15 @@ func (a *App) signIn(agent Agent, dir string) (string, error) {
 	a.sayf("ccc: first, sign in to Claude. A link will appear: open it, sign in, and paste the code it gives you back here.")
 	for attempt := 1; ; attempt++ {
 		var out bytes.Buffer
-		exit, err := a.Foreground.Foreground(execx.Cmd{Name: podmanProgram, Args: signInArgs(agent), Stdout: io.MultiWriter(a.Stderr, &out)})
+		// claude setup-token prints the new token: its output is shown on the secret screen,
+		// left as soon as it ends, so the token stays in no scrollback (issue 255).
+		screen := &term.SecretScreen{W: a.Stderr, Terminal: a.IsTerminal != nil && a.IsTerminal(a.Stderr)}
+		screen.Open()
+		exit, err := a.Foreground.Foreground(execx.Cmd{Name: podmanProgram, Args: signInArgs(agent), Stdout: io.MultiWriter(screen, &out)})
+		screen.Close()
+		if err == nil {
+			err = screen.Err()
+		}
 		if err != nil {
 			return "", fmt.Errorf("start the sign-in: %w", err)
 		}

@@ -9,6 +9,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
+// exportClearLine ends the import script shown on a terminal.
+const exportClearLine = "\nCopy it, then press Enter to clear the token from the screen.\n"
+
 // exportHead is the import script's start for a token, before the quoted body.
 func exportHead(name, date, token string) string {
 	return "# CCY Token: " + name + " | Expires: " + date + " | Generated: 2030-01-15 12:00:00\n" +
@@ -33,6 +36,27 @@ func TestExportTokenIsAnswered(t *testing.T) {
 		if strings.Contains(c.Line(), "secret-") || c.Env != nil {
 			t.Fatalf("the token reached a command: %+v", c)
 		}
+	}
+}
+
+// Issue 255: on a terminal the import script, which holds the token, is shown on the alternate
+// screen and cleared on Enter, so no copy of the token stays in the scrollback; redirected or
+// piped it is the plain payload above.
+func TestExportTokenOnATerminalLeavesNoCopy(t *testing.T) {
+	r := repoRun(t, []string{"work.2030-06-01.token"}, "--export-token", "work")
+	stdout := r.stdout
+	r.front.IsTerminal = func(v any) bool { return v == stdout }
+	r.front.Stdin = strings.NewReader("\n")
+	r.answered(t, term.ExitOK)
+	out := r.stdout.String()
+	before, rest, entered := strings.Cut(out, term.AltScreenOn)
+	shown, after, left := strings.Cut(rest, term.AltScreenOff)
+	if !entered || !left || after != "" || !strings.Contains(shown, "token='secret-work.2030-06-01.token'") ||
+		strings.Contains(before+r.stderr.String(), "secret-") {
+		t.Fatalf("stdout %q: the token only on the alternate screen", out)
+	}
+	if !strings.HasSuffix(shown, exportClearLine) {
+		t.Fatalf("stdout %q", out)
 	}
 }
 

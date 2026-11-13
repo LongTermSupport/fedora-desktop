@@ -666,7 +666,7 @@ run_picker() {
     shift
     printf '%s\n' "$@" >"$TEST_ANSWERS"
     printf '0\n' >"$STATE/fzf-calls"
-    (cd "$dir" && timeout 30 script -qec "$(printf '%q' "$TOOL")" /dev/null </dev/null 2>&1; echo "rc=$?") |
+    (cd "$dir" && timeout 30 script -qec "$(printf '%q' "$TOOL")" /dev/null </dev/null 2>&1; printf '\nrc=%s\n' "$?") |
         tr -d '\r'
 }
 # run_on_terminal <words...> — ccy-teams with those arguments, under a terminal.
@@ -1213,7 +1213,8 @@ check_has "  saying the team is declared but not applied as declared, and how to
 check_has "  and how to sign in to Element, which no one was shown a password for" "choose Open beta in Element" "$(cat "$SCRATCH/err")"
 
 # run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
-# <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".
+# <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>" on a
+# line of its own (as in run_picker), since the tool's last write may be an escape with no newline.
 run_in() {
     local dir="$1"
     printf '%s\n' "$2" >"$TEST_GUM_ANSWERS"
@@ -1221,7 +1222,7 @@ run_in() {
     printf '0\n' >"$STATE/gum-calls"
     printf '0\n' >"$STATE/fzf-calls"
     (cd "$dir" && timeout 30 script -qec "$(printf '%q ' "$TOOL" "$@")" /dev/null </dev/null 2>&1
-        echo "rc=$?") | tr -d '\r'
+        printf '\nrc=%s\n' "$?") | tr -d '\r'
 }
 NO_TEAMS="$SCRATCH/no-teams.yml"
 fresh_no_teams() {
