@@ -81,7 +81,9 @@ anything but loopback.
   keeps the access it had. Check it with `semanage port -l | grep teamchat` and
   `ausearch -m avc -c teamchat`. A team's port that the policy already gives another type is
   re-labelled, so do not declare a port another service needs. Running only this part:
-  `--tags selinux`.
+  `--tags selinux`. One denial is expected and left in place: the homeserver may not create an
+  io_uring (`io_uring_t`), logs `CreateIOUring failed: Permission denied`, and uses ordinary IO
+  instead. Allowing it would allow it for every `init_t` process.
 
 ## A member on another machine
 
@@ -112,8 +114,7 @@ password only in the pool, mode 0600. Nothing secret is in its arguments or its 
 pool seat keeps a password, so it is issued with `--credential password`: `seat place-issued`
 refuses a bundle issued with `--credential token`, which is for an LXC guest seat that the lxc
 apply places itself. If the ssh step fails, the seat was issued but not placed on that machine:
-run the same pipe with `teamchat-admin member reissue --team <team> --handle <handle>
---credential password` in place of `member add`, for the handle `member add` claimed.
+run the same pipe with `teamchat-admin member reissue --team <team> --handle <handle> --credential password` in place of `member add`, for the handle `member add` claimed.
 
 A seat is keyed on the homeserver's URL. The first bundle a checkout takes for a team records the
 team's server name and its canonical URL (`https`, lower-case host, explicit port); a later bundle
