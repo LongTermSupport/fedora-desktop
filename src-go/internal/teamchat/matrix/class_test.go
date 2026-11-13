@@ -22,6 +22,10 @@ func TestClass(t *testing.T) {
 			t.Errorf("Class(%v) = %q, want %q", err, got, want)
 		}
 	}
+	// A bare class wrapped (admin's viewer wraps the child's unreachable answer so) is its class.
+	if got := Class(fmt.Errorf("%w: the child's answer", ErrUnreachable)); got != ErrUnreachable.text {
+		t.Errorf("a bare kind is %q", got)
+	}
 }
 
 // Cause is the class and the cause behind it: a failed call's own text (which names the TLS

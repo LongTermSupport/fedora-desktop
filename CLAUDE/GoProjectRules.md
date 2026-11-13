@@ -2244,7 +2244,10 @@ is.
 literal of a bounded record in `classRecords` (`table.go`, each with its reason). These are
 `status.Problem` (one line of at most 512 bytes, `project_problem_error_text`) and
 `seat.NoticeRecord` (notice.json's `why`, one line, with the failed call returned beside it).
-There the detail is not available to the record.
+There the class is what the record holds when the detail cannot be carried. A problem tries the
+cause first when it can (`health`'s `viewProblem`: `matrix.Cause` when it is one line of at most
+512 bytes, the class otherwise). The row cannot tell that fallback from a problem that never
+tried the cause; that is listed under "Not caught".
 
 **How to fix a violation.** Print `matrix.Cause(err)`: the class, then the failed call's own text
 (for an error that is not a homeserver answer, its own text). Keep `matrix.Class` for a bounded
@@ -2261,16 +2264,22 @@ record only.
   `teamsync.go` (`stopped`, `down`), `verbs.go`, `receipts.go` (two), `questions.go` (two),
   `session.go` (four) and `builder.go` (`describe`). The thirteenth is `admin/serveview.go` (the
   disconnected notice's answer). The independent search found the same thirteen, plus
-  `health/health.go`'s `status.Problem`, which is a bounded record.
+  `health/health.go`'s view problem, which the `status.Problem` row hid. That problem carries the
+  hazard: the child's answer, the detail, was available. It is fixed, so the count is fourteen.
 - Green: `matrix.Cause` (tested in `class_test.go`) replaces the class at all thirteen.
-  `describe`, which printed the class for a failed call and the full text for everything else,
-  is gone. The rule reports nothing over either module, and nothing in the tagged builds.
+  `describe` printed the class for a failed call and the full text for everything else; it is
+  gone. The view problem names the cause when it fits the record's bound
+  (`TestAViewFailureOfTheHomeserverNamesItsCause`). Found there and fixed with a test:
+  `matrix.Class` called a bare class wrapped (`fmt.Errorf("%w: ...", matrix.ErrUnreachable)`, as
+  admin's viewer wraps the child's answer) "not a homeserver answer". The rule reports nothing
+  over either module, nor in the tagged builds.
 - Wider rule considered and not built: any function that reduces an error to fixed text (an
   `errors.Is` switch to a word), wherever its value is printed. Recognising such a reducer and
   following its value to a print needs data flow the rule does not have. In the tree, every
   reducer whose output reaches a line wraps `matrix.Class` (`describe`), or else sits beside
   `err.Error()` (`admin`'s `errorClass`, `homeserverClass`).
-- Not caught: a bounded record's class later printed from its field; a
+- Not caught: a bounded record given the class without first trying the cause; a bounded
+  record's class later printed from its field; a
   detail dropped by a line that prints no class at all. One example is a refusal that names
   neither of the values it compared, such as the link's "the inbox socket is not a socket of the
   session's processes". No rule can say which values a refusal compared, so those are fixed

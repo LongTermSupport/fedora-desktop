@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.9 — container 2.84.13
+
+- **Issue #265, the last instance**: when the team's rooms cannot be read because the homeserver
+  failed, the health problem names the cause too, if it fits the record's one-line, 512-byte
+  bound. A failure the child reported as unreachable is now classed as unreachable, no longer as
+  "not a homeserver answer". The image is rebuilt once; the launcher behaves as 3.119.8.
+
 ## 3.119.8 — container 2.84.12
 
 - **Issue #265, the fix**: while a team stays down, the teamchat link now logs a change of its

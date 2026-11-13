@@ -270,7 +270,8 @@ func (e *Error) Error() string {
 func (e *Error) Is(target error) bool { return target == e.kind }
 
 // Class is err's failure class as fixed text, never err's own text, so a record can carry it:
-// a cancelled or timed-out context, a failed call's class, or "not a homeserver answer".
+// a cancelled or timed-out context, a failed call's class (or a class wrapped bare, as admin's
+// viewer wraps the child's answer), or "not a homeserver answer".
 func Class(err error) string {
 	switch e, ok := errors.AsType[*Error](err); {
 	case errors.Is(err, context.Canceled):
@@ -282,6 +283,9 @@ func Class(err error) string {
 			return k.text
 		}
 		return ErrRefused.text
+	}
+	if k, ok := errors.AsType[*kindError](err); ok {
+		return k.text
 	}
 	return "not a homeserver answer"
 }

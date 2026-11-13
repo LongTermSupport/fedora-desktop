@@ -143,7 +143,7 @@ type classRecord struct {
 var classRecords = []classRecord{
 	{
 		pkg: "internal/teamchat/status", typ: "Problem",
-		reason: "a problem is one line of at most 512 bytes, or the team's whole record is lost (project_problem_error_text)",
+		reason: "a problem is one line of at most 512 bytes, or the team's whole record is lost (project_problem_error_text): the class is what a problem holds when the cause does not fit (health's viewProblem tries matrix.Cause first)",
 	},
 	{
 		pkg: "internal/teamchat/seat", typ: "NoticeRecord",
