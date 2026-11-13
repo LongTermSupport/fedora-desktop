@@ -30,6 +30,9 @@ const (
 	maxBackoff   = 30 * time.Second
 	jitterShare  = 4
 	downAfter    = 15 * time.Second
+	// causeEvery is the least time between two lines that name a down team's cause, so a
+	// cause that changes on each 30 s retry does not flood link.log.
+	causeEvery = 5 * time.Minute
 )
 
 // Config is what a team goroutine is built from.
@@ -100,10 +103,13 @@ type Team struct {
 	loginSaid bool
 
 	// The team goroutine's own state.
-	health      team.Health
-	failing     bool
-	failStart   time.Duration
-	delay       time.Duration
+	health    team.Health
+	failing   bool
+	failStart time.Duration
+	delay     time.Duration
+	// saidCause is the down cause link.log last named, at saidAt on the boot clock.
+	saidCause   string
+	saidAt      time.Duration
 	authRetried bool
 	persistSaid bool
 	backStarted bool
@@ -321,9 +327,14 @@ func (t *Team) backoff(ctx context.Context, err error) bool {
 	if !t.failing {
 		t.failing, t.failStart, t.delay = true, now, firstBackoff
 	}
-	if !t.health.Down && now-t.failStart >= downAfter {
-		t.log.Printf("down: %s", matrix.Cause(err))
+	switch cause := matrix.Cause(err); {
+	case !t.health.Down && now-t.failStart >= downAfter:
+		t.log.Printf("down: %s", cause)
+		t.saidCause, t.saidAt = cause, now
 		t.setHealth(func(h *team.Health) { h.Down = true })
+	case t.health.Down && cause != t.saidCause && now-t.saidAt >= causeEvery:
+		t.log.Printf("still down, the cause now: %s", cause)
+		t.saidCause, t.saidAt = cause, now
 	}
 	d := t.delay - t.cfg.Jitter(t.delay)
 	t.delay = min(2*t.delay, maxBackoff)

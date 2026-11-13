@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.8 — container 2.84.12
+
+- **Issue #265, the fix**: while a team stays down, the teamchat link now logs a change of its
+  cause, at most once every five minutes, so a 30 s retry does not flood `link.log`. When the link
+  refuses a hook's inbox socket, it also logs the path the hook reported, the process chain it
+  walked and the socket Claude Code would place for each pid on that chain. The image is rebuilt
+  once; the launcher behaves as 3.119.7.
+
 ## 3.119.7 — container 2.84.11
 
 - **Issue #265, the defence and its sweep**: teamchat's log lines named a failed Matrix call by

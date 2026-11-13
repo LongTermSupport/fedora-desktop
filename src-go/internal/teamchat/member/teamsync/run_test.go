@@ -177,6 +177,42 @@ func TestTransientFailuresBackOff(t *testing.T) {
 	}
 }
 
+// Issue 265: the down line names the failed call's cause, not its class alone, and a cause that
+// changes while the team stays down is logged too, at most once per causeEvery, so a 30 s retry
+// does not flood link.log. Here a 502 streak goes down at 15 s; from 61 s the server answers
+// 503, which is said once, at the first retry causeEvery after the down line.
+func TestADownStreakNamesItsCauseAndAChangeOfIt(t *testing.T) {
+	w := newWorld(t)
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusServiceUnavailable, Body: []byte(`{}`), Times: 10})
+	r := w.start()
+	var at time.Duration
+	changedAt := time.Duration(-1)
+	for range 16 {
+		d := r.wait(t)
+		if changedAt < 0 && w.log.count("still down") > 0 {
+			changedAt = at
+		}
+		at += d
+		w.clk.Advance(d)
+	}
+	w.batch()
+	r.poll(t)
+	log := w.log.String()
+	if w.log.count("down: the homeserver refused (matrix: GET ") != 1 || w.log.count(": 502") != 1 {
+		t.Errorf("the down line does not name its cause once: %q", log)
+	}
+	if w.log.count("still down, the cause now: the homeserver refused (matrix: GET ") != 1 || w.log.count(": 503") != 1 {
+		t.Errorf("the changed cause is not said exactly once: %q", log)
+	}
+	if changedAt < downAfter+causeEvery {
+		t.Errorf("the changed cause was said at %v, within causeEvery of the down line at %v", changedAt, downAfter)
+	}
+	if w.log.count("back up") != 1 {
+		t.Errorf("log = %q", log)
+	}
+}
+
 // SY8's way back: a team with a stored position whose server answers again after an outage
 // resumes from that position with no sync of its own, so it is shown up, and its last answered
 // sync moves, only when its first long-poll answers: in an idle room, longPoll after the retry
