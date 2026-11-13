@@ -31,6 +31,7 @@ type factsWorld struct {
 	starts  int
 	cfgDir  string
 	runtime string
+	inbox   paths.InboxEnv
 }
 
 func newFactsWorld(t *testing.T) *factsWorld {
@@ -38,6 +39,7 @@ func newFactsWorld(t *testing.T) *factsWorld {
 	w := &factsWorld{home: newHome(t), proc: newFakeProc()}
 	w.cfgDir = filepath.Join(w.dir, ".claude")
 	w.runtime = w.dir + "/xdg"
+	w.inbox = paths.InboxEnv{RuntimeDir: w.runtime}
 	w.proc.add(pidSession, 50, 1000)
 	w.proc.add(pidClaude, pidSession, 1001)
 	w.proc.add(pidHook, pidClaude, 1002)
@@ -50,7 +52,7 @@ func (w *factsWorld) open(t *testing.T) *Session {
 	t.Helper()
 	s, err := newSession(sessionDeps{
 		runRoot: w.root, stateRoot: w.root, layout: w.layout, run: w.run, proc: w.proc, clock: w.clk,
-		runtimeDir: w.runtime, claudeDir: w.cfgDir, cwd: "/work/my.repo_x",
+		inbox: w.inbox, claudeDir: w.cfgDir, cwd: "/work/my.repo_x",
 		onClaude:  func(p state.Process) { w.claudes = append(w.claudes, p) },
 		onStarted: func() { w.starts++ },
 		log:       w.log,
@@ -60,7 +62,7 @@ func (w *factsWorld) open(t *testing.T) *Session {
 }
 
 func (w *factsWorld) facts(op, id, source string) Facts {
-	sock, err := paths.InboxSocket(w.runtime, pidClaude)
+	sock, err := paths.InboxSocket(w.inbox, pidClaude)
 	if err != nil {
 		panic(err)
 	}
@@ -202,6 +204,40 @@ func TestTheSocketIsOnlyAChainPIDsBelowTheSession(t *testing.T) {
 	check(t, w.s.AcceptFacts(f))
 	if w.claudes[0].PID != pidSession {
 		t.Fatalf("claude %v", w.claudes)
+	}
+}
+
+// TestACCYSessionWithNoRuntimeDirIsServed is issue 266: in a ccy container XDG_RUNTIME_DIR is
+// unset, and Claude Code binds its socket under the temporary directory. The link places it by
+// the same order, so the session's hooks are served, and a socket anywhere else is refused.
+func TestACCYSessionWithNoRuntimeDirIsServed(t *testing.T) {
+	for name, c := range map[string]struct {
+		env          map[string]string
+		socket, away string
+	}{
+		"TMPDIR unset": {map[string]string{"HOME": "/home/u"}, "/tmp/cc-socks/101.sock", "/cc-socks/101.sock"},
+		"TMPDIR set":   {map[string]string{"TMPDIR": "/scratch/"}, "/scratch/cc-socks/101.sock", "/tmp/cc-socks/101.sock"},
+		"a path too long for the socket": {
+			map[string]string{"TMPDIR": "/" + strings.Repeat("t", 100)}, "/tmp/cc-socks-1000/101.sock", "/tmp/cc-socks/101.sock",
+		},
+	} {
+		w := newFactsWorld(t)
+		w.inbox = paths.InboxEnvOf(func(k string) string { return c.env[k] }, 1000)
+		w.s = w.open(t)
+		w.s.SetSessionPID(state.Process{PID: pidSession, StartTicks: 1000})
+		f := w.facts(wire.OpHookSessionStart, sessA, state.SourceStartup)
+		if f.Socket != c.socket {
+			t.Fatalf("%s: the facts' socket is %q, want Claude Code's %q", name, f.Socket, c.socket)
+		}
+		away := f
+		away.Socket = c.away
+		refusedWith(t, w.s.AcceptFacts(away), exits.CodeRuntime, "not a socket of the session's processes")
+		if err := w.s.AcceptFacts(f); err != nil {
+			t.Fatalf("%s: refused %v", name, err)
+		}
+		if s := w.sessionFile(t); *s.Socket != c.socket {
+			t.Fatalf("%s: session.json socket %q", name, *s.Socket)
+		}
 	}
 }
 

@@ -206,7 +206,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 	w.cfg = Config{
 		StateRoot: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Control: linkConn,
 		Clock: w.clk, Proc: w.proc, Parent: func() (Parent, error) { return w.parent, nil },
-		UID: os.Getuid(), Kit: kit, RuntimeDir: w.dir + "/xdg", Home: w.dir, Log: w.log,
+		UID: os.Getuid(), Kit: kit, Inbox: paths.InboxEnv{RuntimeDir: w.dir + "/xdg"}, Home: w.dir, Log: w.log,
 		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(engine.EndsConfig) team.Ends { return w.ends },
 		Forge: stubForge{},
 		started: func(l *link) {

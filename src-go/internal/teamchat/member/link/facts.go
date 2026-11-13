@@ -8,8 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -58,8 +56,8 @@ type sessionDeps struct {
 	run                paths.RunID
 	proc               Proc
 	clock              clock.Clock
-	// runtimeDir is $XDG_RUNTIME_DIR, the inbox sockets' directory.
-	runtimeDir string
+	// inbox is what Claude Code places its inbox socket by.
+	inbox paths.InboxEnv
 	// claudeDir is the launch's claude_config_dir, else ~/.claude.
 	claudeDir string
 	// cwd is run's working directory, which names the transcript's project.
@@ -285,17 +283,14 @@ func (s *Session) chain(peer int) ([]int, error) {
 }
 
 // socketProcess is the process whose inbox socket path is: paths.InboxSocket of a pid on the
-// chain, with its start time.
+// chain, placed by Claude Code's own order, with its start time.
 func (s *Session) socketProcess(path string, chain []int) (state.Process, error) {
-	name, ok := strings.CutPrefix(path, s.d.runtimeDir+"/cc-socks/")
-	if ok {
-		name, ok = strings.CutSuffix(name, ".sock")
-	}
-	pid, err := strconv.Atoi(name)
-	if !ok || err != nil || !slices.Contains(chain, pid) {
+	at := slices.IndexFunc(chain, func(p int) bool { return paths.IsInboxSocket(path, p) })
+	if at < 0 {
 		return state.Process{}, refuseFacts(exits.CodeRuntime, msgSocket)
 	}
-	if want, wantErr := paths.InboxSocket(s.d.runtimeDir, pid); wantErr != nil || want != path {
+	pid := chain[at]
+	if want, wantErr := paths.InboxSocket(s.d.inbox, pid); wantErr != nil || want != path {
 		return state.Process{}, refuseFacts(exits.CodeRuntime, msgSocket)
 	}
 	ticks, err := s.d.proc.StartTicks(pid)
