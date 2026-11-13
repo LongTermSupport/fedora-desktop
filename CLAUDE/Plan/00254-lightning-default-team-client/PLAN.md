@@ -138,7 +138,10 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 - [ ] 🔄 **Task 4.2** (done in code: `src-go/cmd/tls-trust-check` over `internal/tlstrust`,
   built static and run in the sandbox through `flatpak run --command=env`; imported by
   `play-agent-bus-element.yml` under tag `agent-bus-lightning`, Lightning installed there too.
-  The host proof is pending its `meta-deploy.list` entry): The play's last step fails unless a handshake from inside Lightning's sandbox
+  Host run 2026-11-13 through meta-deploy: PASS, but empty. No declared team on the host has an
+  https approved url, so the CA placement, the tls-trust-check build and the handshake were
+  skipped (only Lightning's CA directory was created and swept, the one change). The handshake is
+  NOT ESTABLISHED until a run with an https team, on this host or in the VM lab): The play's last step fails unless a handshake from inside Lightning's sandbox
   with exactly those two variables verifies the team URL, and the server certificate carries a SAN
   for the host (rustls has no CN fallback).
 - [x] ✅ **Task 4.3**: Docs: a Lightning paragraph in `docs/agent-bus-cross-network.md`; update the
