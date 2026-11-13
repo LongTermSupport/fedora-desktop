@@ -43,3 +43,11 @@
 # own login page: look), then launches a second copy on the first profile, which should only
 # raise that window and exit. Your own Lightning and its sign-in are not touched.
 00254-lightning-default-team-client
+
+# Plan 00255 Task 0.1: the facts a sealed cc session and a deploy broker depend on. Run from a
+# terminal in the desktop session. Read-only: it records which sandbox tools are installed,
+# which of the folders the seal would hide exist (never what is in them), which desktop services
+# are on the session bus, where gh and git keep their logins, and what sudo allows you now (it
+# lists rules and never prompts). --active also starts bubblewrap twice to see whether sudo
+# works inside it and whether it nests; each run exits at once. Nothing is installed or changed.
+00255-cc-session-sandbox-and-deploy-broker --active
