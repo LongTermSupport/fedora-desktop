@@ -969,7 +969,8 @@ the owner's decision.
 
 ### token-bundle-into-place-issued
 
-**What it is.** A bundle issued with `--credential token` sent into `teamchat seat place-issued`. The rule in `.semgrep/place-issued-token.yml`, proven against
+**What it is.** A bundle issued with `--credential token` and sent into the placement,
+`teamchat seat place-issued`. The rule in `.semgrep/place-issued-token.yml`, proven against
 `.semgrep/place-issued-token.fixture`, finds the token credential flag (or the choice
 of password or token) on the same line as a pipe into the placement, and a command built on one
 line (a shell variable, a Go string literal) that a pipe into `place-issued` at most fifteen
