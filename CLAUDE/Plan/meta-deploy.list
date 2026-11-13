@@ -35,14 +35,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00255 Task 0.1: the facts a sealed cc session and a deploy broker depend on. Run from a
-# terminal in the desktop session. Read-only: it records which sandbox tools are installed,
-# which of the folders the seal would hide exist (never what is in them), which desktop services
-# are on the session bus, where gh and git keep their logins, and what sudo allows you now (it
-# lists rules and never prompts). --active also starts bubblewrap twice to see whether sudo
-# works inside it and whether it nests; each run exits at once. Nothing is installed or changed.
-00255-cc-session-sandbox-and-deploy-broker --active
-
 # Plan 00254 Phase 4: team CA trust for Lightning. Installs the Lightning Flatpak (system-wide,
 # sudo) and the Go toolchain if missing, builds tls-trust-check into ~/.local/libexec, puts each
 # declared https team's CA in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/<team>.pem

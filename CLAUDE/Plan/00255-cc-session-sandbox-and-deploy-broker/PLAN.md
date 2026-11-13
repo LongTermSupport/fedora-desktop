@@ -1,6 +1,6 @@
 # Plan 00255: cc session sandbox and deploy broker
 
-**Status**: Not Started (plan only; triage queued, owner decisions D1-D9 open)
+**Status**: In Progress (host triage read into RESEARCH.md §13; owner decisions D1-D9 open)
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: Medium
@@ -25,7 +25,7 @@ alongside today's sudo; then the seal, opt-in, then default; and only then passw
 goes. At no step does the owner lose the ability to run plays.
 
 The facts behind this are in [RESEARCH.md](RESEARCH.md); host facts come from
-[triage.bash](triage.bash), queued in `meta-deploy.list`.
+[triage.bash](triage.bash), read into RESEARCH.md §13.
 
 ## Goals
 
@@ -64,6 +64,8 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   around claude; (b) a systemd service per session. **Recommend (a)**: it keeps claude in the
   terminal pane it starts in, needs no root, and hides a folder by mounting an empty one over
   it. (b) puts the session in a background service, which the terminal-based cc does not fit.
+  *Triage (§13.1, 13.2, 13.7): bwrap is installed, user namespaces are on, bwrap nests, and
+  `sudo` fails inside it; (a) stands.*
 - **D2. Passwordless sudo on this desktop, at the end.** (a) remove it for the owner's account
   entirely: the owner types the sudo password in their own terminal (remembered for some
   minutes), and plays go through the broker or `meta-deploy.bash`; (b) keep it for the owner's
@@ -78,18 +80,25 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   is allowed (RESEARCH.md §10), not refuse one thing. **Recommend**: notifications, opening
   links in the browser, and whatever triage shows the session uses that cannot start programs
   or hand out secrets; refused: the secrets service, Flatpak's "run on host", the systemd user
-  manager, the terminal and the GNOME Shell.
+  manager, the terminal and the GNOME Shell. *Triage (§13.4) adds to the refused list: the
+  keyring's own name, GNOME Online Accounts and Identity, the session manager, PackageKit and
+  Software, and Mutter's remote desktop, input capture and screen cast. The portal front end
+  carries many interfaces besides opening links, so it is allowed by `--call` rules for the
+  calls needed, not by `--talk`.*
 - **D5. tmux from inside a sealed session.** cc runs in tmux, and tmux can type into any pane,
   including an unsealed one. **Recommend**: hide it; managing teams and sessions (`ccy-teams`)
   is done from the owner's own terminal, not by an agent in a sealed cc.
 - **D6. gh and git logins, if they live in the keyring** (triage says). **Recommend**: move gh's
   login to its own file, which the seal leaves readable, rather than open the secrets service.
+  *Triage (§13.4): every gh login is in the keyring, so D6 is needed before the seal; git has
+  no global credential helper, and how it authenticates pushes is not established.*
 - **D7. Where the broker's sudo password comes from.** **Recommend**: the owner types it once
   into a broker set-up command run with sudo; it is kept in a root-only file, as the
   self-update runner keeps its own. Not in the vault, which the session can reach.
 - **D8. What else is hidden.** **Recommend**: also hide ssh private keys (pushes keep working
   through the ssh agent; config and known hosts stay readable), `~/.gnupg`, and the checkout's
-  vault password file.
+  vault password file. *Triage (§13.3): no password store here; browser data is in both native
+  folders and Flatpak folders, so the fixed list covers both forms.*
 - **D9. A way to start cc unsealed.** **Recommend**: none in cc once Phase 4 lands; the plain
   `claude` command stays for the owner's own use.
 
@@ -97,12 +106,13 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
 
 ### Phase 0: Host facts
 
-- [ ] ⬜ **Task 0.1**: Run [triage.bash](triage.bash) `--active` on the host (queued in
+- [x] ✅ **Task 0.1**: Run [triage.bash](triage.bash) `--active` on the host (queued in
   `meta-deploy.list`): sandbox tools, kernel settings, which folders exist, session bus names,
   where gh/git keep logins, sudo rules and defaults, escape sockets, sudo and nesting inside
-  bwrap.
-- [ ] ⬜ **Task 0.2**: Read the report into RESEARCH.md (facts, no install-specific names); put
-  D1-D9 to the owner with the findings.
+  bwrap. Done 2026-11-13 through `meta-deploy.bash` at F44 `384266ef3`: all 7 legs answered.
+- [ ] 🔄 **Task 0.2**: Read the report into RESEARCH.md (facts, no install-specific names); put
+  D1-D9 to the owner with the findings. Facts are in RESEARCH.md §13 and noted beside D1, D4,
+  D6, D8 and Tasks 1.2, 3.3; putting D1-D9 to the owner remains.
 
 ### Phase 1: Deploy broker, alongside today's sudo (nothing removed)
 
@@ -119,7 +129,9 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   tasks file), not a new play: binary, socket and service units, root-only state, the D7 set-up
   command, `kernel.yama.ptrace_scope=1` (the play run as the user holds the password;
   play-self-update.yml sets the same for the same reason). Decide with D3 whether the clone is
-  shared with the self-update runner.
+  shared with the self-update runner. *Triage (§13.2, 13.6): ptrace scope is 0 on the host
+  today, and the self-update runner is not set up there (no clone, no sudoers rule), so the
+  broker cannot rely on that play for either the setting or the clone.*
 - [ ] ⬜ **Task 1.3**: `deploy.bash` and `acceptance.bash` (R9, coverage line): the broker runs a
   desktop play asked for from a cc session; refuses a commit not on GitHub, one not on a
   protected branch, a path outside `playbooks/`, and a caller that is not the desktop user.
@@ -150,7 +162,8 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
   on the argument list; the hidden-path list is read from clients.json, not copied.
 - [ ] ⬜ **Task 3.2**: `cc --teams` and `cc --bus` seal the same way (around `pingbus seat exec`), with the pingbus home and seats left writable.
 - [ ] ⬜ **Task 3.3**: Install bwrap and xdg-dbus-proxy from the play (if triage shows them
-  missing) and the cc changes; ccy version bump if anything under
+  missing; *triage §13.1: both are installed here, so the play only declares them*) and the cc
+  changes; ccy version bump if anything under
   `files/var/local/claude-yolo/` changes.
 - [ ] ⬜ **Task 3.4**: `acceptance.bash` run from inside a sealed session (a checker the owner
   starts in one): each hidden folder unreadable by `cat`, a Python `open`, and a recursive
@@ -203,3 +216,4 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
 ## Delivery & Milestones
 
 - Plan written; triage queued.
+- Host triage run and read into RESEARCH.md §13; D1-D9 to the owner next.

@@ -1,8 +1,8 @@
 # Plan 00255 research: what the seal and the broker build on
 
-Repository facts, read from the tree on the plan's branch. Host facts are not stated here:
-they are what [triage.bash](triage.bash) establishes (via [probe-host.bash](probe-host.bash)),
-and its report is read before Phase 1 starts. Issue #101 is the question; the owner chose its
+Sections 1-12 are repository facts, read from the tree on the plan's branch. Host facts are
+what [triage.bash](triage.bash) establishes (via [probe-host.bash](probe-host.bash)); its
+first report is read into section 13. Issue #101 is the question; the owner chose its
 options 3 (seal the session) and 4 (a deploy broker instead of blanket sudo).
 
 ## 1. How cc starts a session today
@@ -124,9 +124,9 @@ owner chooses how much more to require.
 ## 9. Why the seal is not a boundary while blanket sudo stays (owner's point, checked)
 
 - An unprivileged sandbox (bwrap, or a systemd user unit with mount settings) runs in a user
-  namespace. A setuid binary owned by an unmapped root does not gain root there, so `sudo`
-  inside the seal fails whatever the sudoers rules say. Triage `--active` records this on the
-  host.
+  namespace, so `sudo` inside the seal fails whatever the sudoers rules say. On the host it
+  fails because bwrap sets the "no new privileges" flag, which sudo names in its refusal
+  (section 13.7); the flag holds for every process the seal starts.
 - But a sealed agent can still get code run **outside** the seal, by whatever unsealed process
   later runs it: the tmux server (cc runs inside tmux: `send-keys`, `new-window`), the systemd
   user manager (its private socket, or `org.freedesktop.systemd1` on the session bus), D-Bus
@@ -160,8 +160,89 @@ which act on the owner's own account and session. It stays as it is for `host` m
   owner does outside cc (Task 2.4).
 - ccy-teams uses tmux throughout (`src-go/internal/teams/…`). With the tmux socket hidden
   (section 9), ccy-teams cannot manage sessions from inside a sealed cc (D5).
-- gh and git may keep their logins in the keyring (secrets service). Triage records which; if
-  so, refusing the secrets service breaks pushes unless the login moves to a file the seal
-  allows or a credential path is passed in (D6).
+- gh keeps its logins in the keyring (section 13.4), so refusing the secrets service breaks gh
+  unless the login moves to a file the seal allows or a credential path is passed in (D6).
 - `~/.ssh`: hiding private keys still allows pushes through the ssh agent socket; the config
   and known hosts must stay readable.
+
+## 13. Host facts: triage `--active`, 2026-11-13
+
+`triage.bash --active` ran on the host through `meta-deploy.bash` at F44 `384266ef3`: all seven
+legs reached an answer. The report is unscrubbed and stays under `untracked/plan-runs/`; what
+follows is what it shows, with the owner's user name, uid, host name, account names and
+installed third-party apps left out.
+
+### 13.1 Sandbox tools
+
+- `bwrap` is at `/usr/bin/bwrap`, bubblewrap 0.12.0; xdg-dbus-proxy 0.1.9. Both are installed
+  as Fedora packages (`bubblewrap-0.12.0-1.fc44`, `xdg-dbus-proxy-0.1.9-1.fc44`).
+- `xdg-dbus-proxy --help` lists `--filter`, `--log`, `--sloppy-names`, `--see`, `--talk`,
+  `--own`, `--call=NAME=RULE`, `--broadcast=NAME=RULE`, and no deny option: section 10 holds.
+- systemd 259 (`systemd-run` present).
+
+### 13.2 Kernel
+
+- `user.max_user_namespaces` is non-zero (383238): unprivileged sandboxes are allowed.
+- `kernel.yama.ptrace_scope` is **0**: today any process of the user can read another's memory.
+
+### 13.3 Folders the seal would hide (existence only)
+
+| Present                                      | Absent                                                    |
+| -------------------------------------------- | --------------------------------------------------------- |
+| `~/.var/app/im.riot.Riot` (Element, Flatpak) | `~/.config/Element` (and no native Element profiles)      |
+| `~/.var/app/im.nheko.Nheko`                  | `~/.config/nheko`, `~/.local/share/nheko`                 |
+| `~/.var/app/org.lightning_matrix.Lightning`  | `~/.password-store`                                       |
+| `~/.local/share/keyrings` (mode 755)         | `~/.var/app/org.mozilla.firefox`                          |
+| `~/.gnupg` (700), `~/.ssh` (700)             | `~/.var/app/com.google.Chrome`, `~/.config/chromium`      |
+| `~/.mozilla` (755)                           | `~/.config/BraveSoftware`, `~/.var/app/com.brave.Browser` |
+| `~/.config/google-chrome` (700)              | `~/.config/microsoft-edge`                                |
+| `~/.var/app/org.chromium.Chromium` (755)     |                                                           |
+| `~/.config/vivaldi` (700)                    |                                                           |
+
+The Matrix clients here are all Flatpaks. Browser data sits both in native folders and in a
+Flatpak folder, so the fixed list must cover both forms. The probe listed only these paths;
+any other browser or client folder is not established.
+
+### 13.4 Session bus and logins
+
+- Names that hand out secrets or credentials: `org.freedesktop.secrets` and `org.gnome.keyring`
+  (both gnome-keyring-daemon), `org.gnome.OnlineAccounts` and `org.gnome.Identity`.
+- Names that start programs or drive the desktop: `org.freedesktop.systemd1`,
+  `org.freedesktop.Flatpak`, `org.freedesktop.portal.Flatpak`, `org.gnome.Ptyxis` (the
+  terminal), `org.gnome.Shell` and its sub-names, `org.gnome.SessionManager`,
+  `org.freedesktop.PackageKit`/`org.gnome.Software`, and the `org.gnome.Mutter.*` names
+  (including RemoteDesktop, InputCapture and ScreenCast).
+- Candidates for the allowlist: `org.freedesktop.Notifications` and `org.gtk.Notifications`,
+  and `org.freedesktop.portal.Desktop` (the portal front end, which carries opening links among
+  many other interfaces). Which interfaces cc actually calls is not established.
+- Also present: dconf, IBus, a11y, gvfs, evolution data server, Tracker/LocalSearch, audio,
+  the browser's own names, and two third-party apps' names (one served through an existing
+  xdg-dbus-proxy).
+- `gh auth status` succeeds with several accounts logged in, **every one stored in the keyring**.
+- `git config --global --get-all credential.helper` returns nothing: no global git credential
+  helper. How git authenticates its pushes (ssh, a per-repository or system helper) is not
+  established.
+
+### 13.5 sudo now
+
+- `sudo -n -l` shows `(ALL) ALL`, `(ALL) NOPASSWD: ALL` (the blanket rule, section 4), the
+  agent-bus read-only rule and the shutdown/reboot-with-update rule. The self-update drop-in's
+  rule is not listed.
+- The Defaults listed are `env_reset`, `env_keep` lists, `secure_path`,
+  `always_set_home`, `!visiblepw` and two group-matching options; none sets
+  `timestamp_timeout`, `timestamp_type` or `use_pty`.
+- sudo 1.9.17p2: scoped rules with regular expressions (1.9.10+) work.
+
+### 13.6 Ways out of a seal; the self-update runner
+
+- The tmux socket folder (`/tmp/tmux-<uid>`, 700), the user bus socket (666) and the systemd
+  user manager's private socket (700) all exist.
+- The self-update clone `/var/lib/fedora-desktop/deploy` is **absent**; `/etc/fedora-desktop`
+  exists (755). With 13.5, the self-update runner is not set up on this host.
+
+### 13.7 Active: bwrap runs
+
+- `sudo -n true` under `bwrap --unshare-user --unshare-pid` fails (rc 1): sudo says the "no new
+  privileges" flag is set, which prevents it running as root.
+- bwrap inside bwrap (both `--unshare-user`) succeeds (rc 0): Claude Code's own Bash sandbox
+  can run inside the seal.
