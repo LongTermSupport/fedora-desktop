@@ -35,15 +35,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #255 (ccy 3.119.5, container 2.84.9): play-claude-yolo.yml deploys the launcher and
-# rebuilds ccy-teams, its Go front and the image once. A new Element password (ccy-teams, a
-# person's row, Sign in or New password) is now shown on a screen of its own; the Enter after
-# signing in clears it, and scrolling up afterwards (or tmux's history) shows no password.
-# ccy --export-token NAME on a terminal does the same for the token. play-ftp-camera.yml, where
-# it has run, rebuilds ftp-camera: with a hotspot, the Wi-Fi password is shown before the
-# server starts and cleared on Enter, and the banner says how to print it again.
-changed-plays
-
 # Plan 00255 Task 0.1: the facts a sealed cc session and a deploy broker depend on. Run from a
 # terminal in the desktop session. Read-only: it records which sandbox tools are installed,
 # which of the folders the seal would hide exist (never what is in them), which desktop services
