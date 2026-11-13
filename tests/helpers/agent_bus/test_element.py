@@ -232,6 +232,17 @@ class TestRefusal(HomeCase):
             element.check_user(self.home)
         self.assertNotIn("holds pingbus bundles", str(caught.exception))
 
+    def test_the_owners_acceptance_naming_its_clients_passes(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.write_text(f"accepted 2026-01-01T00:00:00Z\nclients {' '.join(config.MATRIX_CLIENTS.app_ids())}\n")
+        element.check_user(self.home)
+
+    def test_an_acceptance_pingbus_cannot_read_does_not_count(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.write_text("clients not-an-app-id\n")
+        with self.assertRaisesRegex(element.ElementError, "consent record pingbus can read"):
+            element.check_user(self.home)
+
     def test_a_symlinked_pingbus_dir_holding_only_the_record_refuses(self) -> None:
         real = self.accepted()
         real.rename(self.home / "elsewhere")

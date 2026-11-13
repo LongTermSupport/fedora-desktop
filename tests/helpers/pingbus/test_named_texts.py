@@ -44,7 +44,7 @@ class NamedTextsKeepTheirBytes(unittest.TestCase):
         self.assertEqual(seat.EMPTY_ITEM_TEXT, "a leading, doubled or trailing comma")
 
     def test_config(self) -> None:
-        self.assertEqual(config.ELEMENT_REFUSAL, "a host member must not run as a user with an Element profile")
+        self.assertEqual(config.ELEMENT_REFUSAL, "a host member must not run as a user with a Matrix client profile")
         self.assertEqual(config.DEFAULT_HOME_DIR, ".config/pingbus")
 
     def test_statusline(self) -> None:

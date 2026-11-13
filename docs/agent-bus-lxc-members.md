@@ -53,7 +53,7 @@ failure ([Containers that are not running](#containers-that-are-not-running)).
 | `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both          |
 | `systemd-detect-virt`, reporting an `lxc` container                                                                                               | `pingbus suggest-handle`                                                | `suggest-handle says --type=<type>, not lxc: the agent does not run in an LXC container` (or "needs systemd-detect-virt") |
 | Claude Code (`claude`) on the agent user's `PATH`                                                                                                 | `agent-bus-claude`, at session start; the play does not check           | `agent-bus-claude: claude is not on PATH`                                                                                 |
-| No Element profile in the agent user's home                                                                                                       | `agent-bus-claude` and `pingbus config check`                           | `this user has an Element profile (...); an agent must never run as a user that holds a human's Matrix session`           |
+| No Matrix client profile (Element, Nheko or Lightning) in the agent user's home | `agent-bus-claude` and `pingbus config check` | `this user has a Matrix client profile (...); an agent must never run as a user that holds a human's Matrix session` |
 | The kit directory `/usr/local/share/agent-bus` is root-owned and not group- or world-writable, if it already exists                               | The kit sync                                                            | `<path> is not owned by uid 0 or is writable by others` (a kit copied by hand must go before the play installs it)        |
 | `/usr/local/bin/pingbus` and `/usr/local/bin/agent-bus-claude` are absent, or already links to the kit                                            | The kit sync                                                            | `<link> exists and is not a link to <kit>/<name>; README.lxc step 1 links it`                                             |
 
@@ -299,7 +299,8 @@ agent-bus-claude            # the arguments are passed on to claude
 
 What it does, in order (the script is `files/opt/claude-yolo/optional/agent-bus/agent-bus-claude`):
 
-1. Refuses (exit 78) when the user has an Element profile in its home.
+1. Refuses (exit 78) when the user has a Matrix client profile (Element, Nheko or Lightning) in
+   its home.
 
 2. Sources the env file (`~/.config/pingbus/env`, or the file `PINGBUS_ENV` names) with every
    assignment exported. It must set `PINGBUS_TEAMS`; `PINGBUS_HOME` defaults to

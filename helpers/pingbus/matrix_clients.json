@@ -11,6 +11,18 @@
           "profiles": true
         }
       ]
+    },
+    {
+      "name": "Nheko",
+      "app_id": "im.nheko.Nheko",
+      "keyring": true,
+      "native": []
+    },
+    {
+      "name": "Lightning",
+      "app_id": "org.lightning_matrix.Lightning",
+      "keyring": true,
+      "native": []
     }
   ],
   "legacy_consent": [

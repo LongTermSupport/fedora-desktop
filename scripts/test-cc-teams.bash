@@ -205,7 +205,14 @@ cc_teams_settings "$work/settings.json" 2>"$work/err"
 check "a session started with seats lets the bus wake it" "accept" "$(jq -r .crossSessionInbound "$work/settings.json")"
 # Claude Code's home-relative rule form, a literal tilde.
 home_rel=\~
-for path in .var/app/im.riot.Riot/** .config/Element/** .config/Element-*/**; do
+# Every client on the one Matrix client list (issue #251): its Flatpak data, and each native
+# folder with its named profiles.
+MATRIX_LIST="$REPO_ROOT/helpers/pingbus/matrix_clients.json"
+mapfile -t matrix_paths < <(jq -r '.clients[] | ".var/app/\(.app_id)/**",
+    (.native[] | "\(.parent)/\(.name)/**", (select(.profiles) | "\(.parent)/\(.name)-*/**"))' "$MATRIX_LIST")
+mapfile -t matrix_bash_rules < <(jq -r '.clients[] | "Bash(*\(.app_id)*)", (.native[] | "Bash(*\(.parent)/\(.name)*)")' "$MATRIX_LIST")
+check "the Matrix client list names Element, Nheko and Lightning" "3" "$(jq '.clients | length' "$MATRIX_LIST")"
+for path in "${matrix_paths[@]}"; do
     for tool in Read Edit; do
         rule="$tool($home_rel/$path)"
         check "deny $rule" "true" \
@@ -226,7 +233,7 @@ done
 dot=.
 bus_name_rule="Bash(*freedesktop${dot}secrets*)"
 for rule in 'Bash(*secret-tool*)' 'Bash(*keyring*)' 'Bash(*freedesktop.Secret*)' "$bus_name_rule" \
-    'Bash(*im.riot.Riot*)' 'Bash(*.config/Element*)' 'Bash(*IndexedDB*)' 'Bash(*Local Storage*)'; do
+    "${matrix_bash_rules[@]}" 'Bash(*IndexedDB*)' 'Bash(*Local Storage*)'; do
     check "deny $rule" "true" \
         "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
 done

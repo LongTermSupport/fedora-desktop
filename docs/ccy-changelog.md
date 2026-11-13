@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.119.4 — container 2.84.8
+
+- **The fix for issue #251 lands** (3.119.3 carried its defence): Nheko and Lightning are on the
+  Matrix client list; pingbus, the status line and the kit's `agent-bus-claude` refuse a `host`
+  member beside a profile of any of the three, naming it; and the `cc --teams` consent record
+  names the clients accepted, so a client the record does not name is asked about once more. A
+  record written before then counts for Element alone. The image is rebuilt once; the launcher
+  behaves as 3.119.1.
+
 ## 3.119.3 — container 2.84.7
 
 - **The agent-bus guards cover every Matrix client the repository installs** (issue #251):

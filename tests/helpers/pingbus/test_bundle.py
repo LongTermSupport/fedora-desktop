@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import pathlib
 import shutil
@@ -79,7 +80,7 @@ class BuildTests(unittest.TestCase):
 
     def test_every_module_is_included(self) -> None:
         names = set(zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", REPO_ROOT))).namelist())
-        expected = bus_modules(REPO_ROOT) - {"helpers/pingbus/bundle.py"}
+        expected = bus_modules(REPO_ROOT) - {"helpers/pingbus/bundle.py"} | {"helpers/pingbus/matrix_clients.json"}
         self.assertTrue(expected)
         self.assertLessEqual(expected, names)
         generated = {"__main__.py", "helpers/__init__.py", "helpers/pingbus/__init__.py",
@@ -119,7 +120,28 @@ class BuildTests(unittest.TestCase):
         (source / "helpers" / "pingbus" / "notes.txt").write_text("x")
         (source / "helpers" / "pingbus" / ".protocol.py.swp").write_text("x")
         names = zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", source))).namelist()
-        self.assertFalse([name for name in names if "__pycache__" in name or not name.endswith(".py")])
+        self.assertFalse([name for name in names if "__pycache__" in name
+                          or not (name.endswith(".py") or name in bundle.DATA_FILES)])
+
+    def test_the_data_files_are_shipped_and_required(self) -> None:
+        self.assertEqual(bundle.DATA_FILES, ("helpers/pingbus/matrix_clients.json",))
+        source = copy_source(self.tmp / "src")
+        archive = zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", source)))
+        self.assertEqual(archive.read("helpers/pingbus/matrix_clients.json"),
+                         (REPO_ROOT / "helpers/pingbus/matrix_clients.json").read_bytes())
+        (source / "helpers" / "pingbus" / "matrix_clients.json").unlink()
+        with self.assertRaisesRegex(bundle.BundleError, r"helpers/pingbus/matrix_clients\.json"):
+            bundle.build("pingbus", source)
+
+    def test_a_symlinked_data_file_fails(self) -> None:
+        source = copy_source(self.tmp / "src")
+        listed = source / "helpers" / "pingbus" / "matrix_clients.json"
+        outside = self.tmp / "outside.json"
+        outside.write_bytes(listed.read_bytes())
+        listed.unlink()
+        listed.symlink_to(outside)
+        with self.assertRaisesRegex(bundle.BundleError, r"matrix_clients\.json is a symlink"):
+            bundle.build("pingbus", source)
 
     def test_entries_are_normalised(self) -> None:
         data = bundle.build("pingbus", REPO_ROOT)
@@ -224,6 +246,19 @@ class RunTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, f"pingbus {cli.TOOL_VERSION} protocol {protocol.PROTOCOL_VERSION}\n")
         self.assertEqual(done.stderr, "")
+
+    def test_the_archive_reads_the_matrix_client_list_from_itself(self) -> None:
+        archive = self.tmp / "pingbus.pyz"
+        archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from helpers.pingbus import matrix_clients; "
+                "listed = matrix_clients.load(); print(matrix_clients.__file__.startswith(sys.argv[1]), "
+                "listed.app_ids() == sys.argv[2].split())")
+        listed = json.loads((REPO_ROOT / "helpers/pingbus/matrix_clients.json").read_bytes())
+        expected = " ".join(c["app_id"] for c in listed["clients"])
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([sys.executable, "-I", "-c", code, str(archive), expected], cwd=cwd,
+                                  capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((done.returncode, done.stdout), (0, "True True\n"), done.stderr)
 
     def test_archive_packages_take_no_modules_from_a_helpers_tree_elsewhere(self) -> None:
         """The archive's packages are regular packages: a `helpers` namespace portion

@@ -2,7 +2,7 @@
 
 Spec: docs/agent-bus-protocol.md §12 (bundle layout, `member.json`, `PINGBUS_HOME`,
 `PINGBUS_TEAMS`, `--team`) and Plan 00161's DESIGN.md sections 5.2 (the Python gate) and 8
-(no `host` member beside an Element profile). The `limits` object is parsed by
+(no `host` member beside a Matrix client profile). The `limits` object is parsed by
 `limits.parse_limits`, which owns its keys and bounds (§10); this module only turns its
 refusal into a `ConfigError`.
 
@@ -28,7 +28,7 @@ import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 from typing import BinaryIO
 
-from helpers.pingbus import limits, membership, protocol
+from helpers.pingbus import limits, matrix_clients, membership, protocol
 
 MIN_PYTHON = (3, 11)
 ADMIN_LOCALPART = "admin"
@@ -57,18 +57,18 @@ OPTIONAL_KEYS = ("human_text", "limits")
 #: Commands that run with no active team (agent-bus-protocol.md §12).
 COMMANDS_WITHOUT_CONFIG = frozenset({"version", "validate", "suggest-handle"})
 
-#: Where Element keeps a human's Matrix session, relative to the user's home: the
-#: Flatpak's whole tree, and the native client's `Element` / `Element-<profile>`.
-ELEMENT_FLATPAK_DIR = ".var/app/im.riot.Riot"
-ELEMENT_NATIVE_PARENT = ".config"
-ELEMENT_NATIVE_NAME = "Element"
-#: The user's own record, under their home, that they accept a cc `host` seat beside
-#: Element (`element_accepted`): once per user, not once per seat.
+#: Every Matrix client whose profile is a human's session (matrix_clients.json, issue #251).
+MATRIX_CLIENTS = matrix_clients.load()
+#: Element's Flatpak data, relative to the user's home, from the list; teamchat and the
+#: acceptance scripts write Element profiles there.
+ELEMENT_FLATPAK_DIR = MATRIX_CLIENTS.client("Element").flatpak_dir
+#: The user's own record, under their home, of the Matrix clients they accept a cc `host` seat
+#: beside (`accepted_clients`): once per user, not once per seat. The name predates the list.
 ELEMENT_ACCEPTED_DIR = ".config/pingbus"
 ELEMENT_ACCEPTED_FILE = "element-accepted"
-#: A host member's refusal to run beside an Element profile, before the profile found and the
-#: way out; Plan 00211's stage-2 acceptance looks for it.
-ELEMENT_REFUSAL = "a host member must not run as a user with an Element profile"
+#: A host member's refusal to run beside a Matrix client profile, before the profile found and
+#: the way out; Plan 00211's stage-2 acceptance looks for it.
+ELEMENT_REFUSAL = "a host member must not run as a user with a Matrix client profile"
 #: The pingbus home under `$HOME` when neither PINGBUS_HOME nor XDG_CONFIG_HOME names one.
 DEFAULT_HOME_DIR = ".config/pingbus"
 
@@ -261,7 +261,7 @@ def load_bundle(
     """Validate `home/<team>/` and return its member.
 
     `uid` must own the token (default: the running user); `user_home` is where a `host`
-    member's Element profile is looked for (default: that user's home from passwd).
+    member's Matrix client profiles are looked for (default: that user's home from passwd).
     """
     if not protocol.is_team_name(team):
         raise ConfigError("not a team name")
@@ -274,31 +274,39 @@ def load_bundle(
     read_token(member, uid=owner)
     if member.member_type == "host":
         where = _home_of(owner) if user_home is None else user_home
-        if not (linked and element_accepted(where, owner)):
-            _refuse_beside_element(team, where)
+        _refuse_beside_matrix_clients(team, where, owner, linked)
     return member
 
 
-def element_accepted(user_home: pathlib.Path, owner: int) -> bool:
-    """Plan 00177 Task 4.10: a `host` seat reached through a session home's link (a `cc
-    --teams` session, which runs as the desktop's owner) runs beside Element only when its
-    owner accepted that once, at cc's confirm. The record is a regular file of `owner`'s,
-    readable by no one else, in a real directory of `owner`'s under their home; anything
-    else there does not count. A plain bundle directory (a dedicated agent user's) is never
-    asked."""
+def accepted_clients(user_home: pathlib.Path, owner: int) -> list[str] | None:
+    """Plan 00177 Task 4.10, issue #251: the app ids of the Matrix clients beside which a
+    `host` seat reached through a session home's link (a `cc --teams` session, which runs as
+    the desktop's owner) may run, as its owner accepted them at cc's confirm; None when there
+    is no valid record. The record is a regular file of `owner`'s, readable by no one else, in
+    a real directory of `owner`'s under their home, and reads as a consent record
+    (matrix_clients.parse_consent); anything else there does not count. A plain bundle
+    directory (a dedicated agent user's) is never asked."""
     directory = user_home / ELEMENT_ACCEPTED_DIR
     try:
         dir_info = os.lstat(directory)
-        info = os.lstat(directory / ELEMENT_ACCEPTED_FILE)
+        if not (stat.S_ISDIR(dir_info.st_mode) and dir_info.st_uid == owner):
+            return None
+        fd = os.open(directory / ELEMENT_ACCEPTED_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
-        return False
-    return (
-        stat.S_ISDIR(dir_info.st_mode)
-        and dir_info.st_uid == owner
-        and stat.S_ISREG(info.st_mode)
-        and info.st_uid == owner
-        and stat.S_IMODE(info.st_mode) & 0o077 == 0
-    )
+        return None
+    try:
+        info = os.fstat(fd)
+        if not (stat.S_ISREG(info.st_mode) and info.st_uid == owner and stat.S_IMODE(info.st_mode) & 0o077 == 0):
+            return None
+        data = os.read(fd, matrix_clients.CONSENT_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        return MATRIX_CLIENTS.parse_consent(data)
+    except matrix_clients.ConsentError:
+        return None
 
 
 def read_member(team: str, bundle_dir: pathlib.Path) -> Member:
@@ -425,32 +433,26 @@ def _home_of(uid: int) -> pathlib.Path:
     return pathlib.Path(pwd.getpwuid(uid).pw_dir)
 
 
-def _refuse_beside_element(team: str, user_home: pathlib.Path) -> None:
-    """DESIGN.md section 8: a `host` member never runs as a user holding a human's
-    Matrix session. Dangling symlinks count: something put them there."""
-    found: list[pathlib.Path] = []
-    flatpak = user_home / ELEMENT_FLATPAK_DIR
-    if os.path.lexists(flatpak):
-        found.append(flatpak)
-    native_parent = user_home / ELEMENT_NATIVE_PARENT
-    if native_parent.is_dir():
-        try:
-            entries = sorted(native_parent.iterdir())
-        except OSError as exc:
-            raise ConfigError(
-                f"team {team}: {native_parent} cannot be listed to look for an Element "
-                f"profile ({exc.strerror})"
-            ) from None
-        found.extend(
-            entry
-            for entry in entries
-            if entry.name == ELEMENT_NATIVE_NAME
-            or entry.name.startswith(f"{ELEMENT_NATIVE_NAME}-")
-        )
-    if found:
-        raise ConfigError(
-            f"team {team}: {ELEMENT_REFUSAL} ({found[0]}); run it as a dedicated agent user"
-        )
+def _refuse_beside_matrix_clients(team: str, user_home: pathlib.Path, owner: int, linked: bool) -> None:
+    """DESIGN.md section 8: a `host` member never runs as a user holding a human's Matrix
+    session in any listed client (dangling symlinks count: something put them there), unless
+    it is a linked seat whose owner accepted every client found (`accepted_clients`)."""
+    try:
+        found = MATRIX_CLIENTS.present(user_home)
+    except matrix_clients.PresenceError as exc:
+        raise ConfigError(f"team {team}: {exc}") from None
+    if not found:
+        return
+    accepted = accepted_clients(user_home, owner) if linked else None
+    if accepted is not None:
+        missing = matrix_clients.uncovered(found, accepted)
+        if not missing:
+            return
+        found = [f for f in found if f.client == missing[0]]
+    way_out = "run it as a dedicated agent user"
+    if linked:
+        way_out += ", or accept it at cc --teams"
+    raise ConfigError(f"team {team}: {ELEMENT_REFUSAL} ({found[0].path}, {found[0].client.name}); {way_out}")
 
 
 def _read_member_file(team: str, path: pathlib.Path) -> dict[str, object]:

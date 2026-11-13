@@ -12,7 +12,7 @@ writes a launcher per team.
 A human's Element session token lives in that profile, and any process of the same user
 can read it. So a user who holds pingbus bundles (`~/.config/pingbus/`, the default
 `PINGBUS_HOME`) is refused here, just as `pingbus config check` and `agent-bus-claude`
-refuse a `host` member beside an Element profile (`config.ELEMENT_FLATPAK_DIR`).
+refuse a `host` member beside a Matrix client profile (`config.MATRIX_CLIENTS`).
 
 Usage, as the human's desktop user, the profiles as JSON on stdin
 (`[{"team": ..., "base_url": ..., "server_name": ...}]`, `server_name` optional):
@@ -223,12 +223,13 @@ def check_user(home: pathlib.Path) -> None:
     except OSError as exc:
         raise ElementError(f"{path} cannot be checked for pingbus bundles ({exc.strerror})") from None
     if entries == [config.ELEMENT_ACCEPTED_FILE]:
-        if config.element_accepted(home, os.getuid()):
+        if config.accepted_clients(home, os.getuid()) is not None:
             return
         raise ElementError(
-            f"{path} holds only an Element acceptance record, and the acceptance record is not valid "
+            f"{path} holds only the Matrix consent record, and the acceptance record is not valid "
             "(it must be a regular file owned by this user, readable by no one else, in a "
-            "directory this user owns); rerun cc --teams to write it again"
+            "directory this user owns, holding a consent record pingbus can read); remove it and rerun "
+            "cc --teams to write it again"
         )
     raise ElementError(
         f"{path} exists: this user holds pingbus bundles, so no Element session may live "

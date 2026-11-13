@@ -10,23 +10,25 @@
 # prints and `agent-bus seat take --type=host` makes the seats (one sudo agent-bus add-member
 # each). With no terminal a team alone or a bare `--teams` is refused, and so is a full list
 # until the consent is recorded, before any seat is made. cc runs as the owner, with no
-# dedicated agent user, by the owner's decision, so it sits beside their Element profile. The
-# consent lives in ccy-teams (Go) and is recorded under the user's config
-# (~/.config/pingbus/element-accepted, owner-only), the only thing that lets pingbus run a
-# `host` member beside Element.
+# dedicated agent user, by the owner's decision, so it sits beside their Matrix clients'
+# profiles (the one list, helpers/pingbus/matrix_clients.json: Element, Nheko, Lightning). The
+# consent lives in ccy-teams (Go) and is recorded, with the clients it was given for, under the
+# user's config (~/.config/pingbus/element-accepted, owner-only), the only thing that lets
+# pingbus run a `host` member beside them; a client the record does not name is asked about again.
 #
 # The teams can be changed while the session runs (`ccy-teams session add|remove|move|role`,
 # Plan 00203 H31): `ccy-teams internal membership-init --kind=cc` writes generation 1 of its
 # desired membership into $XDG_RUNTIME_DIR/pingbus/membership/<session>/ and the seat keeper of
 # the session follows it. `cc --bus` starts on no team, after the same consent, for the owner to
 # add to teams later. The session runs as the owner, so it could write that file itself: the
-# weaker authority of cc, accepted (Plan 00203 Decision 3), the same stance as towards Element.
+# weaker authority of cc, accepted (Plan 00203 Decision 3), the same stance as towards the Matrix clients.
 # Its text names no team, since its teams may change (H32). A cc run outside the tmux of ccy has
 # no session name; its membership is named cc.<pid> and nothing can change it while it runs.
 #
 # The guard is cc's alone (project settings are shared with ccy sessions) and it is
 # instruction, not containment: the session's own text says only how to post (pingbus, as
-# itself), and cc's settings file denies Claude's file tools Element's folders and the keyring,
+# itself), and cc's settings file denies Claude's file tools every listed Matrix client's
+# folders and the keyring,
 # and Bash the plain routes to them (rules match command text, so a determined agent gets past
 # them; the consent says ccy is the safe choice). Nothing the session reads mentions Element or
 # posting as anyone else. `agent-bus seat take` drops sudo's cached credential before the
@@ -79,7 +81,7 @@ cc_teams_split_args() {
 
 # cc_teams_choose — CC_TEAMS_SEATS, the canonical list `agent-bus seat check` prints for the
 # list `ccy-teams choose-teams` prints, or none for `--bus`, which asks only the consent. The
-# chooser is always asked: it knows whether a person can answer, asks the Element consent of the
+# chooser is always asked: it knows whether a person can answer, asks the Matrix consent of the
 # owner, and refuses (78) before any seat is made when there is none to ask and no record.
 # Leaving it ends cc quietly.
 cc_teams_choose() {
@@ -116,7 +118,7 @@ cc_teams_ccy_dir() {
 }
 
 # cc_teams_settings <out> — the session's settings: the kit's (the bus may wake an idle
-# session) with cc's deny rules on Element's sign-in, written owner-only. Claude Code reads
+# session) with cc's deny rules on the Matrix clients' sign-in, written owner-only. Claude Code reads
 # them once, so `cc --bus` (no team yet) refuses team messages, as a ccy session on no team
 # does: its first join asks for cc to be started again (Plan 00203 Decision 7).
 cc_teams_settings() {

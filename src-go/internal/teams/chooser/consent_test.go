@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -48,16 +49,20 @@ func TestAHostSeatAsksForTheElementConsentAndRecordsIt(t *testing.T) {
 		t.Fatalf("payload %q", r.payload.String())
 	}
 	contains(t, "stderr", r.stderr(), "proj.1+local.host", "runs as you", "Element")
+	if !strings.Contains(strings.Join(r.Script.Headings, "\n"), "Matrix consent") {
+		t.Fatalf("the heading must say Matrix consent: %q", r.Script.Headings)
+	}
 	// Security audit H2 and L1: the owner is told plainly that the rules are not a wall, that
 	// ccy is the safe choice, and who can direct the agent.
 	contains(t, "stderr", r.stderr(), "other routes", "ccy --teams is the safe choice",
-		"cannot reach your Element sign-in",
+		"cannot reach your Matrix sign-in", "signed in to in Element, Nheko or Lightning",
+		"No Matrix client is signed in under your home now",
 		"Any human listed in a team can direct its agents as you can.")
 	if len(r.Script.GumLog) != 1 || !strings.Contains(r.Script.GumLog[0], "--default=false") {
 		t.Fatalf("the question must default to No: %v", r.Script.GumLog)
 	}
 	body, err := os.ReadFile(a.record)
-	if err != nil || string(body) != "accepted "+acceptedAt+"\n" {
+	if err != nil || string(body) != "accepted "+acceptedAt+"\nclients\n" {
 		t.Fatalf("record %q, %v", body, err)
 	}
 	for path, want := range map[string]os.FileMode{a.dir: 0o700, a.record: 0o600} {
@@ -218,7 +223,7 @@ func (a accepted) recorded(t *testing.T, dirMode, fileMode os.FileMode) {
 	}
 }
 
-// pingbus (config.element_accepted) counts a record only if it is the owner's, owner-only, in a
+// pingbus (config.accepted_clients) counts a record only if it is the owner's, owner-only, in a
 // folder the owner has; the Go reader holds the same rule so no seat is made for a record
 // pingbus would refuse.
 func TestARecordOpenToOthersIsRefusedWithHowToFixIt(t *testing.T) {
@@ -342,7 +347,7 @@ func TestTheRecordIsUnderThePasswdHomeWhateverTheEnvironmentSays(t *testing.T) {
 		t.Fatalf("the passwd home was looked up for %v, want this user %d", asked, os.Getuid())
 	}
 	body, err := os.ReadFile(filepath.Clean(filepath.Join(passwd, ".config", "pingbus", "element-accepted")))
-	if err != nil || string(body) != "accepted "+acceptedAt+"\n" {
+	if err != nil || string(body) != "accepted "+acceptedAt+"\nclients\n" {
 		t.Fatalf("record under the passwd home %q, %v", body, err)
 	}
 	for _, elsewhere := range []string{a.record, r.Env["PINGBUS_HOME"], r.Env["XDG_CONFIG_HOME"]} {
@@ -398,4 +403,108 @@ func TestWithoutGumTheConsentCannotBeAsked(t *testing.T) {
 	if a.exists() {
 		t.Fatal("recorded")
 	}
+}
+
+// clientDir makes listed client name's Flatpak data folder under home, and returns the client.
+func clientDir(t *testing.T, home, name string) matrixclients.Client {
+	t.Helper()
+	list, err := matrixclients.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list.Clients {
+		if c.Name == name {
+			if err := os.MkdirAll(filepath.Join(home, c.FlatpakDir()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return c
+		}
+	}
+	t.Fatalf("the Matrix client list names no %s", name)
+	return matrixclients.Client{}
+}
+
+// Issue #251: the first answer names the clients found and records them.
+func TestTheConsentNamesTheClientsFoundAndRecordsThem(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	element := clientDir(t, r.Env["HOME"], "Element")
+	lightning := clientDir(t, r.Env["HOME"], "Lightning")
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	contains(t, "stderr", r.stderr(), "(found under your home: Element and Lightning)")
+	body, err := os.ReadFile(a.record)
+	if want := "accepted " + acceptedAt + "\nclients " + element.AppID + " " + lightning.AppID + "\n"; err != nil || string(body) != want {
+		t.Fatalf("record %q, %v, want %q", body, err, want)
+	}
+}
+
+// Issue #251: a record from before records named their clients counts for Element alone, so a
+// Nheko profile is asked about again, naming it; yes adds it to the record.
+func TestAnOlderRecordIsAskedAgainForANewClient(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	a.recorded(t, 0o700, 0o600)
+	nheko := clientDir(t, r.Env["HOME"], "Nheko")
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	contains(t, "stderr", r.stderr(),
+		"You accepted cc --teams seats beside Element. Nheko is now under your home too",
+		"so you are asked again, for it.", "(found under your home: Nheko)")
+	body, err := os.ReadFile(a.record)
+	if want := "accepted " + acceptedAt + "\nclients im.riot.Riot " + nheko.AppID + "\n"; err != nil || string(body) != want {
+		t.Fatalf("record %q, %v, want %q", body, err, want)
+	}
+	if info, err := os.Stat(a.record); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("record mode %v", err)
+	}
+	r.Script.GumLog = nil
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked a third time: %v", r.Script.GumLog)
+	}
+}
+
+func TestDecliningANewClientKeepsTheOlderRecord(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	a.recorded(t, 0o700, 0o600)
+	clientDir(t, r.Env["HOME"], "Lightning")
+	r.Script.Gum = []string{"NO"}
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitFailure, r)
+	r.lacksOutput(t)
+	if body, err := os.ReadFile(a.record); err != nil || string(body) != "accepted earlier\n" {
+		t.Fatalf("record %q, %v", body, err)
+	}
+}
+
+func TestARecordNamingEveryClientFoundIsNotAskedAgain(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	nheko := clientDir(t, r.Env["HOME"], "Nheko")
+	if err := os.MkdirAll(a.dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	teamtest.MustWrite(t, a.record, "accepted x\nclients "+nheko.AppID+"\n")
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked again: %v", r.Script.GumLog)
+	}
+}
+
+func TestARecordPingbusCannotReadIsRefused(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	if err := os.MkdirAll(a.dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	teamtest.MustWrite(t, a.record, "clients not-an-app-id\n")
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), a.record, "is not a consent record pingbus can read", "remove it and answer again")
+	r.lacksOutput(t)
 }

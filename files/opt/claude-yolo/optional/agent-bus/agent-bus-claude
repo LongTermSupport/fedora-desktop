@@ -5,9 +5,11 @@
 # LXC, docker or VM guest); a ccy session gets the same arguments from its entrypoint.
 # Plan 00161 DESIGN.md section 5.4.
 #
-#   1. Refuses (78) when this user has an Element profile: a human's Matrix session in the
-#      same home lets anything running as this user post as that human (DESIGN.md
-#      section 8). The paths are pingbus's own (helpers/pingbus/config.py ELEMENT_*).
+#   1. Refuses (78) when this user has a Matrix client profile: a human's Matrix session in
+#      the same home lets anything running as this user post as that human (DESIGN.md
+#      section 8). The paths are the one Matrix client list's (helpers/pingbus/
+#      matrix_clients.json); this file cannot read JSON, so the Go test of the list holds the
+#      two arrays below equal to it.
 #   2. Reads the env file, ${PINGBUS_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/pingbus/env},
 #      which must set PINGBUS_TEAMS and may set PINGBUS_HOME and HOOKS_DAEMON_HOSTNAME.
 #      Every assignment in it is exported. It is this user's own file, so sourcing it
@@ -28,9 +30,8 @@ set -euo pipefail
 
 readonly PROG=agent-bus-claude
 readonly EX_CONFIG=78
-readonly ELEMENT_FLATPAK_DIR=.var/app/im.riot.Riot
-readonly ELEMENT_NATIVE_PARENT=.config
-readonly ELEMENT_NATIVE_NAME=Element
+readonly MATRIX_PROFILE_PATHS=(.var/app/im.riot.Riot .config/Element .var/app/im.nheko.Nheko .var/app/org.lightning_matrix.Lightning)
+readonly MATRIX_PROFILE_PREFIXES=(.config/Element-)
 
 die() {
     printf '%s: %s\n' "$PROG" "$1" >&2
@@ -51,24 +52,26 @@ done
 # Dangling symlinks count as a profile: something put them there. A directory on the way
 # that cannot be listed and searched would hide a profile from the tests below, so it
 # refuses instead, as pingbus's own check does for the native parent.
-for parent in "$HOME/${ELEMENT_FLATPAK_DIR%%/*}" "$HOME/${ELEMENT_FLATPAK_DIR%/*}" "$HOME/$ELEMENT_NATIVE_PARENT"; do
-    if [[ -d $parent && ! (-r $parent && -x $parent) ]]; then
-        die "$parent cannot be listed to look for an Element profile"
-    fi
-done
-element=""
-if [[ -e $HOME/$ELEMENT_FLATPAK_DIR || -L $HOME/$ELEMENT_FLATPAK_DIR ]]; then
-    element=$HOME/$ELEMENT_FLATPAK_DIR
-else
-    for entry in "$HOME/$ELEMENT_NATIVE_PARENT/$ELEMENT_NATIVE_NAME" "$HOME/$ELEMENT_NATIVE_PARENT/$ELEMENT_NATIVE_NAME"-*; do
-        if [[ -e $entry || -L $entry ]]; then
-            element=$entry
-            break
+for rel in "${MATRIX_PROFILE_PATHS[@]}" "${MATRIX_PROFILE_PREFIXES[@]}"; do
+    for parent in "$HOME/${rel%%/*}" "$HOME/${rel%/*}"; do
+        if [[ -d $parent && ! (-r $parent && -x $parent) ]]; then
+            die "$parent cannot be listed to look for a Matrix client profile"
         fi
     done
-fi
-if [[ -n $element ]]; then
-    die "this user has an Element profile ($element); an agent must never run as a user that holds a human's Matrix session. Run it as a dedicated agent user."
+done
+entries=("${MATRIX_PROFILE_PATHS[@]/#/$HOME/}")
+for prefix in "${MATRIX_PROFILE_PREFIXES[@]}"; do
+    entries+=("$HOME/$prefix"*)
+done
+profile=""
+for entry in "${entries[@]}"; do
+    if [[ -e $entry || -L $entry ]]; then
+        profile=$entry
+        break
+    fi
+done
+if [[ -n $profile ]]; then
+    die "this user has a Matrix client profile ($profile); an agent must never run as a user that holds a human's Matrix session. Run it as a dedicated agent user."
 fi
 
 config_home=$HOME/.config

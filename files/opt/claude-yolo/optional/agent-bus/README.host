@@ -17,9 +17,10 @@ GitHub with gh's login and nothing else; without it `pingbus config check` and
 run `gh auth login --hostname github.com`". Setting this up is yours; nothing here does it.
 
 1. The agent user. The agent runs as its own dedicated user, never as a user that holds a
-   human's Matrix session (Element on the desktop, or a browser logged in to the team):
-   anything running as that user could post as that human. `agent-bus-claude` and
-   `pingbus config check` refuse (exit 78) when the user's home has an Element profile.
+   human's Matrix session (Element, Nheko or Lightning on the desktop, or a browser logged
+   in to the team): anything running as that user could post as that human.
+   `agent-bus-claude` and `pingbus config check` refuse (exit 78) when the user's home has
+   a profile of any Matrix client the repository installs.
    Creating the user is the install's own IaC.
 
 2. The member's arguments. In the member's checkout, as the agent user:

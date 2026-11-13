@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
 )
 
@@ -29,11 +30,8 @@ const (
 	roleLegacyLeader = "orchestrator"
 	hostType         = "host"
 
-	// Where Element keeps a human's Matrix session, and the user's own record that they accept
-	// a host seat beside it (config.py).
-	elementFlatpakDir   = ".var/app/im.riot.Riot"
-	elementNativeParent = ".config"
-	elementNativeName   = "Element"
+	// The user's own record of the Matrix clients they accept a host seat beside (config.py);
+	// the clients themselves are the one list, matrixclients.
 	elementAcceptedDir  = ".config/pingbus"
 	elementAcceptedFile = "element-accepted"
 )
@@ -125,7 +123,7 @@ func (w *world) loadBundle(dir, team string) (member, error) {
 		return member{}, err
 	}
 	if m.memberType == hostType {
-		if err := w.checkBesideElement(linked); err != nil {
+		if err := w.checkBesideMatrixClients(linked); err != nil {
 			return member{}, err
 		}
 	}
@@ -222,50 +220,74 @@ func (w *world) checkToken(path string) error {
 	return nil
 }
 
-// checkBesideElement is load_bundle's rule for a host member: reached through a link with the
-// user's Element acceptance, or with no Element profile under the user's passwd home.
-func (w *world) checkBesideElement(linked bool) error {
+// checkBesideMatrixClients is load_bundle's rule for a host member (config.py
+// _refuse_beside_matrix_clients): no listed Matrix client's profile under the user's passwd
+// home, or, reached through a link, every one found accepted in the user's consent record.
+func (w *world) checkBesideMatrixClients(linked bool) error {
 	home, err := w.userHome(w.uid)
 	if err != nil {
-		return fmt.Errorf("a host member needs this user's home to look for an Element profile: %w", err)
+		return fmt.Errorf("a host member needs this user's home to look for a Matrix client profile: %w", err)
 	}
-	if linked && w.elementAccepted(home) {
-		return nil
-	}
-	return w.refuseBesideElement(home)
-}
-
-// elementAccepted is config.element_accepted: a regular file of this user's that no one else
-// can read or write, in a real directory of theirs under their home.
-func (w *world) elementAccepted(home string) bool {
-	dir := pyJoin(home, elementAcceptedDir)
-	dirInfo := w.note(dir)
-	info := w.note(pyJoin(dir, elementAcceptedFile))
-	return dirInfo.isDir() && int(dirInfo.UID) == w.uid && info.isRegular() && int(info.UID) == w.uid && info.perm()&0o077 == 0
-}
-
-// refuseBesideElement is config._refuse_beside_element: the Flatpak's tree (a dangling link
-// counts), or an Element or Element-<profile> entry in the native client's parent directory.
-func (w *world) refuseBesideElement(home string) error {
-	refusal := errors.New("a host member must not run as a user with an Element profile; run it as a dedicated agent user")
-	if w.note(pyJoin(home, elementFlatpakDir)).exists() {
-		return refusal
-	}
-	parent := pyJoin(home, elementNativeParent)
-	w.note(parent)
-	if !statOf(w.abs(parent), true).isDir() {
-		return nil
-	}
-	entries, err := os.ReadDir(w.abs(parent))
+	list, err := matrixclients.Load()
 	if err != nil {
-		return fmt.Errorf("%s cannot be listed to look for an Element profile (%w)", parent, err)
+		return err
 	}
-	for _, entry := range entries {
-		if entry.Name() == elementNativeName || strings.HasPrefix(entry.Name(), elementNativeName+"-") {
-			return refusal
+	found, err := w.matrixProfiles(list, home)
+	if err != nil || len(found) == 0 {
+		return err
+	}
+	if linked {
+		if accepted, ok := w.acceptedClients(list, home); ok && len(matrixclients.Uncovered(found, accepted)) == 0 {
+			return nil
 		}
 	}
-	return nil
+	return errors.New("a host member must not run as a user with a Matrix client profile; run it as a dedicated agent user")
+}
+
+// matrixProfiles is matrixclients.List.Present read through the world, so each path it looks
+// at is fingerprinted: each client's Flatpak tree (a dangling link counts), then each native
+// folder and its named profiles, from a listing of their parent.
+func (w *world) matrixProfiles(list matrixclients.List, home string) ([]matrixclients.Found, error) {
+	var found []matrixclients.Found
+	for _, c := range list.Clients {
+		flatpak := pyJoin(home, c.FlatpakDir())
+		if w.note(flatpak).exists() {
+			found = append(found, matrixclients.Found{Client: c, Path: flatpak})
+		}
+		for _, n := range c.Native {
+			parent := pyJoin(home, n.Parent)
+			w.note(parent)
+			if !statOf(w.abs(parent), true).isDir() {
+				continue
+			}
+			entries, err := os.ReadDir(w.abs(parent))
+			if err != nil {
+				return nil, fmt.Errorf("%s cannot be listed to look for a %s profile (%w)", parent, c.Name, err)
+			}
+			for _, entry := range entries {
+				if n.Matches(entry.Name()) {
+					found = append(found, matrixclients.Found{Client: c, Path: pyJoin(parent, entry.Name())})
+				}
+			}
+		}
+	}
+	return found, nil
+}
+
+// acceptedClients is config.accepted_clients: the app ids the user's consent record accepts,
+// when it is a regular file of this user's that no one else can read or write, in a real
+// directory of theirs under their home, and reads as a consent record.
+func (w *world) acceptedClients(list matrixclients.List, home string) ([]string, bool) {
+	dir := pyJoin(home, elementAcceptedDir)
+	if dirInfo := w.note(dir); !dirInfo.isDir() || int(dirInfo.UID) != w.uid {
+		return nil, false
+	}
+	got, err := w.read(pyJoin(dir, elementAcceptedFile), true, matrixclients.ConsentMaxBytes)
+	if err != nil || int(got.info.Uid) != w.uid || got.info.Mode&0o077 != 0 {
+		return nil, false
+	}
+	accepted, err := list.ParseConsent(got.raw)
+	return accepted, err == nil
 }
 
 // cachedRole is inbox.cached_role: the member's role in the team record last verified (S22).

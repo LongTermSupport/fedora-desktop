@@ -140,6 +140,14 @@
 # `systemctl is-enabled teamchat-server@<team>.service teamchat-tls@<team>.service | cat` says
 # enabled for each, and a reboot brings the team back. play-toolbox-install.yml's download
 # and unpack into its scratch directory no longer report changed. No ccy image rebuild.
+# And issue #251 (ccy 3.119.4, container 2.84.8): the agent-bus guards read one list of the
+# Matrix clients this repository installs (Element, Nheko, Lightning). play-claude-yolo.yml
+# deploys cc's deny rules with the Nheko and Lightning Flatpak folders added, rebuilds ccy-teams
+# (cc --teams asks "Matrix consent" again only when a client its record does not name is under
+# your home, and records the clients accepted) and the image once (its pingbus and status line
+# refuse a host seat beside any listed client). play-agent-bus.yml rebuilds the member kit:
+# agent-bus-claude and the kit's pingbus refuse beside a Nheko or Lightning profile too. With
+# no Nheko or Lightning data under your home, the next cc --teams launch asks nothing new.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)
