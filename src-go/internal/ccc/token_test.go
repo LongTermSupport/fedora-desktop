@@ -128,6 +128,25 @@ func TestFirstRunSignsInAndKeepsTheToken(t *testing.T) {
 	}
 }
 
+// Issue 255: claude setup-token prints the new token; its output is shown on the terminal's
+// alternate screen, left once the sign-in ends, so the token stays in no scrollback.
+func TestTheSignInIsShownOnTheAlternateScreen(t *testing.T) {
+	w := newWorld(t)
+	signIn(w, "token: "+testToken+"\n")
+	if code := w.app.Run(context.Background(), nil); code != term.ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr)
+	}
+	out := w.stderr.String()
+	before, rest, entered := strings.Cut(out, term.AltScreenOn)
+	shown, after, left := strings.Cut(rest, term.AltScreenOff)
+	if !entered || !left || !strings.Contains(shown, testToken) || strings.Contains(before+after+w.stdout.String(), testToken) {
+		t.Fatalf("stderr %q: the token only on the alternate screen", out)
+	}
+	if !strings.Contains(after, "ccc: signed in; the sign-in is saved in ") {
+		t.Fatalf("stderr %q: the outcome is said on the normal screen", out)
+	}
+}
+
 func TestAFailedSignInIsOfferedAgainThenGivenUp(t *testing.T) {
 	w := newWorld(t)
 	w.app.Stdin = strings.NewReader("\ny\n")

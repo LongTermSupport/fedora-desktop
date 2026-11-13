@@ -82,7 +82,9 @@
 //   - F13. `--export-token NAME` (the interactive export, with no name, stays the bash's: it is a
 //     read loop) prints the import script of the name's latest file, the token in it because
 //     printing it is the flag's purpose (exportBody, held to the library by a test); the token
-//     reaches no argv, environment or log. Not found, expired, empty or holding a quote is the
+//     reaches no argv, environment or log. On a terminal the script is shown on the alternate
+//     screen (term.SecretScreen) and cleared on Enter, so the token stays in no scrollback
+//     (issue 255); redirected or piped it is written plainly. Not found, expired, empty or holding a quote is the
 //     bash's error and exit 1, the pool listed after "not found". It hands over for a name outside
 //     the token grammar, a file the bash's glob of the name matches that is not one of the name's
 //     dated files, or a chosen token unreadable or holding a NUL.

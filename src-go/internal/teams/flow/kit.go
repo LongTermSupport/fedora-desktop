@@ -83,6 +83,8 @@ type Kit struct {
 	LookPath func(string) (string, error)
 	OpenTTY  func() (io.ReadCloser, error)
 	Home     string
+	// Secrets is the screen every secret is shown on (ShowSecret), on stderr.
+	Secrets *term.SecretScreen
 }
 
 // New is the Kit of a host.
@@ -90,6 +92,43 @@ func New(h *host.Host) *Kit {
 	return &Kit{
 		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Gum: h.Gum, Picker: h.Picker, Sudo: h.Sudo,
 		LookPath: h.LookPath, OpenTTY: h.OpenTTY, Home: h.Home,
+		Secrets: &term.SecretScreen{W: h.Stderr, Terminal: h.Term.IsTerminal(h.Stderr)},
+	}
+}
+
+// CanShowSecret is whether a secret can be shown without leaving a copy: stderr is a
+// terminal, which has a screen to leave. Anywhere else (a log, a file) the secret would stay.
+func (k *Kit) CanShowSecret() bool { return k.Secrets.Terminal }
+
+// ShowSecret shows text, which holds a secret, on the terminal's alternate screen, entering it
+// the first time. Everything said after it is on that screen too, until HideSecret or
+// EndSecret leaves it and the normal screen comes back as it was, with no copy of the secret
+// in its scrollback or in tmux's history (issue 255).
+func (k *Kit) ShowSecret(text string) { k.Secrets.Show(text) }
+
+// SecretShowing is whether a secret's screen is open.
+func (k *Kit) SecretShowing() bool { return k.Secrets.Showing() }
+
+// EndSecret says prompt, waits for Enter (or the end of ctx) and leaves the secret's screen,
+// when a secret is shown; otherwise it does nothing.
+func (k *Kit) EndSecret(ctx context.Context, prompt string) {
+	if !k.Secrets.Showing() {
+		return
+	}
+	k.Tell(prompt)
+	k.WaitForEnter(ctx)
+	k.HideSecret()
+}
+
+// HideSecret leaves the secret's screen at once, if it is open. A screen that could not be
+// written is said.
+func (k *Kit) HideSecret() {
+	if !k.Secrets.Showing() {
+		return
+	}
+	k.Secrets.Close()
+	if err := k.Secrets.Err(); err != nil {
+		k.Term.PrintError("the secret screen could not be written: " + err.Error())
 	}
 }
 

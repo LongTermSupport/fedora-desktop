@@ -35,11 +35,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00254 Task 3.2: can Lightning run one instance per team? Run from a terminal in the
-# desktop session. The first run showed `flatpak run --env=` does not reach Lightning's sandbox,
-# so both probe copies only raised your running Lightning; this run launches each copy with the
-# form that does (`--command=env`). Read-only apart from a probe directory it removes: it opens
-# two Lightning windows on two empty probe profiles for about 20 seconds (each should show its
-# own login page: look), then launches a second copy on the first profile, which should only
-# raise that window and exit. Your own Lightning and its sign-in are not touched.
-00254-lightning-default-team-client
+# Issue #255 (ccy 3.119.5, container 2.84.9): play-claude-yolo.yml deploys the launcher and
+# rebuilds ccy-teams, its Go front and the image once. A new Element password (ccy-teams, a
+# person's row, Sign in or New password) is now shown on a screen of its own; the Enter after
+# signing in clears it, and scrolling up afterwards (or tmux's history) shows no password.
+# ccy --export-token NAME on a terminal does the same for the token. play-ftp-camera.yml, where
+# it has run, rebuilds ftp-camera: with a hotspot, the Wi-Fi password is shown before the
+# server starts and cleared on Enter, and the banner says how to print it again.
+changed-plays

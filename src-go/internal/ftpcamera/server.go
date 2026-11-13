@@ -42,8 +42,11 @@ type session struct {
 	remote  string
 	mount   string
 	hotspot hotspotInfo
-	// wifiPass is the active hotspot's Wi-Fi password, shown for the camera to join (E68).
-	wifiPass string
+	// wifiPass is the active hotspot's Wi-Fi password, shown for the camera to join (E68) on
+	// the secret screen before the server starts (showWifi); wifiShown says it was.
+	wifiPass  string
+	wifiShown bool
+
 	profile  string
 	ownsAP   bool
 	ip       string
@@ -116,12 +119,8 @@ func (s *session) prepare(ctx context.Context) error {
 		}
 	}
 	s.hotspot = c.detectHotspot(ctx)
-	if s.hotspot.active && s.hotspot.ssid != "" {
-		pass, err := c.hotspotPassword(ctx, s.hotspot.conn)
-		if err != nil {
-			return err
-		}
-		s.wifiPass = pass
+	if err := s.wifiJoin(ctx); err != nil {
+		return err
 	}
 	wifi := c.detectWifi(ctx)
 	c.link.mu.Lock()
@@ -374,7 +373,56 @@ func (s *session) wifiRows() {
 		o.f("    Wi-Fi pass:  (none: profile '%s' has no Wi-Fi password)\n", s.hotspot.conn)
 		return
 	}
-	o.f("    Wi-Fi pass:  %s%s%s\n", o.c, s.wifiPass, o.n)
+	shown := "not shown (the output is not a terminal)"
+	if s.wifiShown {
+		shown = "shown before the server started, then cleared"
+	}
+	o.f("    Wi-Fi pass:  %s; %snmcli -s -g %s %s %s '%s'%s prints it\n", shown, o.c, pskField, nmConn, nmShow, s.hotspot.conn, o.n)
+}
+
+// wifiJoin reads the active hotspot's Wi-Fi password (E68) and shows it for the camera to join.
+func (s *session) wifiJoin(ctx context.Context) error {
+	if !s.hotspot.active || s.hotspot.ssid == "" {
+		return nil
+	}
+	pass, err := s.c.hotspotPassword(ctx, s.hotspot.conn)
+	if err != nil {
+		return err
+	}
+	s.wifiPass = pass
+	return s.showWifi(ctx)
+}
+
+// showWifi shows the hotspot's Wi-Fi password for the camera to join, on the secret screen
+// (the terminal's alternate screen), before the FTP server starts, and leaves that screen on
+// Enter: the password stays in no scrollback once the session's log runs (issue 255). Nothing
+// is shown when stdout is not a terminal, where it would stay. Ctrl-C ends the wait.
+func (s *session) showWifi(ctx context.Context) error {
+	c := s.c
+	if s.wifiPass == "" || !c.env.IsTerminal(c.env.Stdout) {
+		return nil
+	}
+	screen := &term.SecretScreen{W: c.out.w, Terminal: true}
+	screen.Show(fmt.Sprintf("\nJoin the camera to the Wi-Fi network %s with the password\n\n    %s\n\n"+
+		"Press Enter once the camera has joined: the password is then cleared from the screen.\n", s.hotspot.ssid, s.wifiPass))
+	read := make(chan struct{})
+	go func() {
+		_, err := bufio.NewReader(c.env.Stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			c.err.f("ftp-camera: reading the Enter: %v\n", err)
+		}
+		close(read)
+	}()
+	select {
+	case <-read:
+	case <-ctx.Done():
+	}
+	screen.Close()
+	s.wifiShown = true
+	if err := screen.Err(); err != nil {
+		return c.failErr("could not show the Wi-Fi password: %v", err)
+	}
+	return ctx.Err()
 }
 
 func (s *session) hotspotRows() {
