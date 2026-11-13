@@ -42,3 +42,12 @@
 # lists rules and never prompts). --active also starts bubblewrap twice to see whether sudo
 # works inside it and whether it nests; each run exits at once. Nothing is installed or changed.
 00255-cc-session-sandbox-and-deploy-broker --active
+
+# Plan 00254 Phase 4: team CA trust for Lightning. Installs the Lightning Flatpak (system-wide,
+# sudo) and the Go toolchain if missing, builds tls-trust-check into ~/.local/libexec, puts each
+# declared https team's CA in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/<team>.pem
+# (removing any other file there), then fails unless a TLS handshake from inside Lightning's
+# sandbox, with SSL_CERT_FILE=the runtime bundle and SSL_CERT_DIR=that directory, trusts each
+# https team. Of Element's steps only the read-only declaration check runs. Your running
+# Lightning and its sign-in are not touched. Report the play recap and, on failure, the assert's message.
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-lightning

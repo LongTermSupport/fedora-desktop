@@ -9,3 +9,4 @@ src-go/internal/teamchat/element/element.go	writes teamchat's Element profiles a
 tasks/element-desktop.yml	installs Element and grants it the Secret Service
 tasks/element-team-ca.yml	places a team's CA where Element reads it
 playbooks/imports/optional/common/play-matrix-clients.yml	installs the Matrix clients
+tasks/lightning-team-ca.yml	installs Lightning, places a team's CA where it reads it and checks it from its sandbox
