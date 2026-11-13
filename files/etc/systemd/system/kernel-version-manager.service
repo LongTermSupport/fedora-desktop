@@ -1,7 +1,9 @@
 [Unit]
 Description=Kernel Minor Version Manager
 Documentation=file:///usr/local/bin/manage-kernel-versions.py
-After=local-fs.target
+# After multi-user.target, which wants this unit: it runs dnf, which can wait on the dnf
+# lock or the network, and boot must not wait for it (CLAUDE/QA.md unit-holds-boot-target).
+After=local-fs.target multi-user.target
 
 [Service]
 Type=oneshot
