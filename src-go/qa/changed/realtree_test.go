@@ -239,6 +239,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/argv-leak.fixture.yml":      "check:argv-leak",
 	".semgrep/place-issued-token.yml":     "check:place-issued-token",
 	".semgrep/place-issued-token.fixture": "check:place-issued-token",
+	".semgrep/boot-hold.yml":              "check:boot-hold",
+	".semgrep/boot-hold.fixture":          "check:boot-hold",
 	".semgrep/walk-open.yml":              "check:walk-open",
 	".semgrep/walk-open.py":               "check:walk-open",
 }

@@ -1281,6 +1281,33 @@ func TestThePlaceIssuedTokenGateRunsForTheFilesItGuards(t *testing.T) {
 	}
 }
 
+// The unit-holds-boot-target gate runs whole for a change to a file that can write a systemd unit
+// (a files/ unit or template, a play or task, a helper, Go outside the QA module) and for its own
+// rule, fixture (which it covers), wrapper and Go source; not for a document.
+func TestTheBootHoldGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"files/etc/systemd/system/x.service", "files/etc/systemd/system/y.service.j2", "playbooks/imports/play-x.yml",
+		"tasks/x.yml", "helpers/agent_bus_lxc/members.py", "src-go/internal/teamchat/unitfiles/unitfiles.go",
+		"src-go/cmd/teamchat/main.go", ".semgrep/boot-hold.yml", ".semgrep/boot-hold.fixture",
+		"scripts/qa-boot-hold.bash", "src-go/qa/cmd/qa-boot-hold/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("boot-hold") {
+			t.Errorf("%s does not run boot-hold: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/boot-hold.yml", ".semgrep/boot-hold.fixture"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	w.touch("docs/x.md", "# x")
+	if p := w.classify([]string{"docs/x.md"}); p.has("boot-hold") {
+		t.Errorf("a document runs boot-hold: %v", keys(p))
+	}
+}
+
 // The secret-in-argv gate runs whole for a change to any file that can start a process (a shell
 // script anywhere, a play, task or vars file, a files/ tool, a CI workflow, an installer, a
 // helper, Go outside the QA module), deleted ones included, and for its own rules, fixture

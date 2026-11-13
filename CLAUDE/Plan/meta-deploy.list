@@ -34,3 +34,13 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #263: the self-update verify unit is ordered after multi-user.target and runs as
+# Type=exec, so boot completes while it waits on the restored sessions. Expected to pick up
+# play-self-update.yml, and wherever they have run, play-rclone.yml (the mount units are
+# ordered after default.target) and play-advanced-kernel-management.yml (the kernel version
+# manager is ordered after multi-user.target). Each rewrites a unit file and reloads systemd.
+# play-rclone.yml's handler restarts the rclone mounts because their unit changed; nothing
+# else is restarted and no ccy session is touched. The live check is the next reboot: boot
+# reaches multi-user.target while the verify waits.
+changed-plays

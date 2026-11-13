@@ -498,7 +498,9 @@ spec is `qa/cmd/qa-arch-pin` and `scripts/qa-arch-pin.bash`, the gate for `.semg
 `qa/cmd/qa-argv-leak` and `scripts/qa-argv-leak.bash`, the gate for
 `.semgrep/argv-leak.yml` (`secret-in-argv`, issue #220), and given its `PlaceIssuedToken` spec is
 `qa/cmd/qa-place-issued-token` and `scripts/qa-place-issued-token.bash`, the gate for
-`.semgrep/place-issued-token.yml` (`token-bundle-into-place-issued`, issue #248); the real-semgrep tests of each are
+`.semgrep/place-issued-token.yml` (`token-bundle-into-place-issued`, issue #248), and given its
+`BootHold` spec is `qa/cmd/qa-boot-hold` and `scripts/qa-boot-hold.bash`, the gate for
+`.semgrep/boot-hold.yml` (`unit-holds-boot-target`, issue #263); the real-semgrep tests of each are
 in its command package.
 
 `qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are

@@ -8,7 +8,9 @@
 // .semgrep/find-race.yml, given its ArchPin spec the arch-pinned-artefact gate over
 // .semgrep/arch-pin.yml, and given its ArgvLeak spec the secret-in-argv gate over
 // .semgrep/argv-leak.yml, and given its PlaceIssuedToken spec the token-bundle-into-place-issued
-// gate over .semgrep/place-issued-token.yml: one rule file, every published file, the same proofs.
+// gate over .semgrep/place-issued-token.yml, and given its BootHold spec the
+// unit-holds-boot-target gate over .semgrep/boot-hold.yml: one rule file, every published file,
+// the same proofs.
 package ghscopes
 
 import (
@@ -119,6 +121,16 @@ var PlaceIssuedToken = Spec{
 	usage:       placeIssuedUsageText,
 }
 
+// BootHold is the unit-holds-boot-target gate (issue #263).
+var BootHold = Spec{
+	short:       "boot-hold",
+	ruleFile:    ".semgrep/boot-hold.yml",
+	fixtureFile: ".semgrep/boot-hold.fixture",
+	ruleName:    "unit-holds-boot-target",
+	finding:     "write a unit whose long start holds the boot target that wants it",
+	usage:       bootHoldUsageText,
+}
+
 // Timeouts bound each process.
 const (
 	versionTimeout = time.Minute
@@ -193,6 +205,20 @@ const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scrip
 Applies the semgrep rule in .semgrep/place-issued-token.yml (a bundle issued with --credential
 token piped into teamchat seat place-issued, which places only a pool seat's password) to every
 file git would publish, after proving the rule against its fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const bootHoldUsageText = `usage: qa-boot-hold [--root DIR] [--scripts DIR]
+
+Applies the semgrep rule in .semgrep/boot-hold.yml (a systemd unit wanted by a boot target
+whose declared start is longer than 90 s and that is not ordered after that target, so the
+target waits for it) to every file git would publish, after proving the rule against its
+fixture.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
