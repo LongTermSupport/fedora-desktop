@@ -81,7 +81,8 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 
-Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
+Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
+`go vet -vettool=<driver> help ...` does not reach it) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
 not catch is listed under it, so the catalogue claims no more than the code does.
 
