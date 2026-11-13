@@ -63,7 +63,7 @@ func (s scope) notOurs(rel string) (bool, error) {
 
 // readRule checks the rule and fixture are regular files and reads the rule's excludes.
 func (g *gate) readRule() (excludes, error) {
-	for _, rel := range []string{g.spec.ruleFile, g.spec.fixtureFile} {
+	for _, rel := range append([]string{g.spec.ruleFile}, g.spec.fixtures()...) {
 		info, err := os.Stat(g.path(rel))
 		if err != nil {
 			return nil, fmt.Errorf("cannot read %s: %w", rel, err)
