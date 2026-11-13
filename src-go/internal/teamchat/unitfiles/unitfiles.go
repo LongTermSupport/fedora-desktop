@@ -29,16 +29,17 @@ type File struct {
 // unit names it (paths.AdminState of a team).
 const adminStateTemplate = paths.AdminStateRoot + "/%i"
 
-// serverHead is C 3.2.3's [Unit] section and its [Service] lines before the sandbox: the
-// lifecycle lines host.BaseSandbox leaves to each unit (n2g-D17).
-const serverHead = "[Unit]\n" +
+// serverUnitSection is C 3.2.3's [Unit] section.
+const serverUnitSection = "[Unit]\n" +
 	"Description=v2 team homeserver %i\n" +
 	"StartLimitIntervalSec=0\n" +
 	"AssertPathExists=!" + adminStateTemplate + "/restore.block\n" +
 	"# stop after the LXC members at shutdown, so their goodbyes reach a live server\n" +
-	"Before=lxc.service\n" +
-	"\n[Service]\n" +
-	"Type=notify\n" +
+	"Before=lxc.service\n"
+
+// serverLifecycle is the server's [Service] lines before the sandbox: the lifecycle lines
+// host.BaseSandbox leaves to each unit (n2g-D17).
+const serverLifecycle = "Type=notify\n" +
 	"NotifyAccess=main\n" +
 	"WatchdogSec=30s\n" +
 	"TimeoutAbortSec=30s\n" +
@@ -51,6 +52,12 @@ const restartLines = "Restart=always\n" +
 	"RestartSteps=5\n" +
 	"RestartMaxDelaySec=60s\n"
 
+// installLines end both team units: team apply enables each team's instances, and
+// multi-user.target, which every boot reaches, then starts them (issue 247). Without them the
+// units are static, enable does nothing, and a reboot leaves the team down.
+const installLines = "\n[Install]\n" +
+	"WantedBy=multi-user.target\n"
+
 // serverCredential is the config, with its secret, and where Tuwunel is told to read it; C 3.2.3
 // puts them after the identity lines, which end at StateDirectoryMode.
 var serverCredential = []string{
@@ -62,7 +69,11 @@ var serverCredential = []string{
 func serverUnit() string {
 	sandbox := host.BaseSandbox()
 	at := slices.IndexFunc(sandbox, func(l string) bool { return strings.HasPrefix(l, "StateDirectoryMode=") }) + 1
-	return serverHead + strings.Join(slices.Concat(sandbox[:at], serverCredential, sandbox[at:]), "\n") + "\n"
+	return serverUnitSection +
+		"\n[Service]\n" +
+		serverLifecycle +
+		strings.Join(slices.Concat(sandbox[:at], serverCredential, sandbox[at:]), "\n") + "\n" +
+		installLines
 }
 
 // terminatorFileLimit is the terminator's descriptor limit: each connection it holds is two
@@ -110,7 +121,8 @@ func terminatorUnit() string {
 		"Before=lxc.service\n" +
 		"\n[Service]\n" +
 		restartLines +
-		strings.Join(sandbox, "\n") + "\n"
+		strings.Join(sandbox, "\n") + "\n" +
+		installLines
 }
 
 // healthService is `teamchat-health.service` (C 3.11.1). Beyond the design's text, the TLS state

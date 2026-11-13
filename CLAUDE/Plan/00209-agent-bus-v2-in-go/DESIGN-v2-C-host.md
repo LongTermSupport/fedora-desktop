@@ -291,7 +291,21 @@ SocketBindDeny=any
 BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
+
+[Install]
+WantedBy=multi-user.target
 ```
+
+`[Install]` makes each enabled instance start at boot. Without it the unit is static: step 07's
+enable succeeds and does nothing, nothing wants the instance, a reboot leaves the team down, and
+every `team apply` reports the enable again (fedora-desktop#247). `multi-user.target` is the
+target every boot of the bus machine reaches; a team-wide target would only add a unit to enable.
+The terminator's `teamchat-tls@` carries the same section. At boot the homeserver's
+`AssertPathExists=!…/restore.block` still holds a team under restore down, and the health tick
+reports an instance that failed to start, as it does at any other time. Enabling a unit with no
+install information is refused by `units.Manager` (`ErrNoInstall`), so a unit without the section
+fails the apply rather than reporting a change; the rule `project_unit_no_install`
+(GoProjectRules.md) refuses such a text in Go.
 
 No `PrivatePIDs=`: systemd cannot start it with `DynamicUser=yes` and a `StateDirectory=`
 (systemd issue 41014; QA.md pidns-idmapped-state; found on the first deploy). Each homeserver

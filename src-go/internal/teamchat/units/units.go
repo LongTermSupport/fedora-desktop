@@ -82,6 +82,8 @@ var (
 	ErrJobFailed    = errors.New("the job did not finish")
 	ErrMalformed    = errors.New("systemd's reply is malformed")
 	ErrSystemd      = errors.New("systemd refused")
+	// ErrNoInstall is an enable of a unit with no [Install] section: systemd changes nothing.
+	ErrNoInstall = errors.New("the unit has no [Install] section, so enabling it does nothing")
 )
 
 // serverUnit is a homeserver unit built by paths.ServerUnit, the team's TLS terminator built by
@@ -701,8 +703,36 @@ func (h hostUnits) Stop(ctx context.Context, unit string) error {
 	return h.m.job(ctx, "stop", managerStopUnit, unit)
 }
 
+// Enable enables the unit and refuses one systemd says carries no install information: a static
+// unit, which EnableUnitFiles leaves as it was (issue 247).
 func (h hostUnits) Enable(ctx context.Context, unit string) error {
-	return h.m.unitFiles(ctx, "enable", managerEnableUnitFiles, unit, false, false)
+	return h.m.enable(ctx, unit)
+}
+
+func (m *Manager) enable(ctx context.Context, unit string) error {
+	if err := checkUnit(unit); err != nil {
+		return err
+	}
+	what := "enable " + unit
+	s, err := m.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("systemd %s: %w", what, err)
+	}
+	body, err := m.callOn(ctx, s, what, managerPath, managerEnableUnitFiles, []string{unit}, false, false)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return fmt.Errorf("systemd %s: %w: EnableUnitFiles answered no values", what, ErrMalformed)
+	}
+	install, ok := body[0].(bool)
+	if !ok {
+		return fmt.Errorf("systemd %s: %w: EnableUnitFiles answered a %T, not a bool", what, ErrMalformed, body[0])
+	}
+	if !install {
+		return fmt.Errorf("systemd %s: %w", what, ErrNoInstall)
+	}
+	return m.reload(ctx)
 }
 
 func (h hostUnits) Disable(ctx context.Context, unit string) error {

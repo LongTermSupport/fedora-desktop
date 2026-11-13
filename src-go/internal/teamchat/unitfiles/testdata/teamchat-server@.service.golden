@@ -50,3 +50,6 @@ SocketBindDeny=any
 BindReadOnlyPaths=/usr/local/share/teamchat/resolve:/run/systemd/resolve
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
+
+[Install]
+WantedBy=multi-user.target

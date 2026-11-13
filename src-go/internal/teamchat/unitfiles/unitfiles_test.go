@@ -142,6 +142,21 @@ func TestTheTerminatorUnitIsX18a(t *testing.T) {
 	}
 }
 
+// Both team units end in an [Install] section that multi-user.target wants, so an enabled
+// instance is started at boot, and enabling one is a change systemd records rather than the no-op
+// a static unit makes of it (issue 247).
+func TestTheTeamUnitsAreWantedAtBoot(t *testing.T) {
+	for _, name := range []string{paths.ServerUnitTemplate, paths.TLSUnitTemplate} {
+		text := file(t, name).Text
+		if !strings.HasSuffix(text, "\n[Install]\nWantedBy=multi-user.target\n") {
+			t.Errorf("%s does not end in [Install] WantedBy=multi-user.target:\n%s", name, text)
+		}
+		if strings.Count(text, "[Install]") != 1 {
+			t.Errorf("%s has more than one [Install]", name)
+		}
+	}
+}
+
 // The descriptor limit is above twice the connections the terminator holds (each a client's and
 // the homeserver's), so tlsterm's DefaultMaxConns growing past it fails here.
 func TestTheFileLimitHoldsTheTerminatorsConnections(t *testing.T) {

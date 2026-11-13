@@ -752,6 +752,33 @@ func TestEnableAndDisableThenReload(t *testing.T) {
 	}
 }
 
+// A unit with no [Install] is static: EnableUnitFiles succeeds, changes nothing and says the
+// unit carries no install information. That is refused, so a converge that enables it fails
+// instead of reporting a change on every run (issue 247).
+func TestEnablingAStaticUnitIsRefused(t *testing.T) {
+	r := newRig(t)
+	unit := testUnit(t)
+	r.conn.on(managerEnableUnitFiles, func(fakeCall) ([]any, error) { return []any{false, [][]any{}}, nil })
+	err := r.m.Host().Enable(t.Context(), unit)
+	if !errors.Is(err, ErrNoInstall) || !strings.Contains(err.Error(), "enable "+unit) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, m := range r.conn.methods() {
+		if m == managerReload {
+			t.Error("reloaded after a refused enable")
+		}
+	}
+}
+
+func TestAnEnableAnswerOfTheWrongShapeIsMalformed(t *testing.T) {
+	r := newRig(t)
+	unit := testUnit(t)
+	r.conn.on(managerEnableUnitFiles, func(fakeCall) ([]any, error) { return []any{"yes"}, nil })
+	if err := r.m.Host().Enable(t.Context(), unit); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestAFailedEnableDoesNotReload(t *testing.T) {
 	r := newRig(t)
 	unit := testUnit(t)

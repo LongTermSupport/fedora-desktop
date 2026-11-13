@@ -1,0 +1,55 @@
+---
+# Fixture for the scratch-always-changed rule of src-go/qa/ansible: none of these may be
+# reported. Each task either says it changes nothing, or writes a path that is not scratch, or
+# cannot report a change. The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Make the build directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: build-
+      register: build_dir
+      changed_when: false
+
+    - name: Make a directory inside it
+      ansible.builtin.file:
+        path: "{{ build_dir.path }}/amd64"
+        state: directory
+        mode: "0700"
+      changed_when: false
+
+    - name: Install from it, which is the change
+      ansible.builtin.copy:
+        src: "{{ build_dir.path }}/amd64/thing"
+        dest: /usr/local/bin/thing
+        mode: "0755"
+
+    - name: Read what was built
+      ansible.builtin.stat:
+        path: "{{ build_dir.path }}/amd64/thing"
+      register: built
+
+    - name: A command is command-always-changed's to judge
+      ansible.builtin.command:
+        argv: [ls, "{{ build_dir.path }}"]
+      changed_when: false
+
+    - name: A changed_when from what was seen
+      ansible.builtin.file:
+        path: "{{ build_dir.path }}/x"
+        state: touch
+        mode: "0600"
+      changed_when: built.stat.exists
+
+    - name: A path that names a different variable
+      ansible.builtin.file:
+        path: "{{ build_dir_real }}/x"
+        state: directory
+        mode: "0755"
+
+    - name: Remove the build directory
+      ansible.builtin.file:
+        path: "{{ build_dir.path }}"
+        state: absent
+      changed_when: false

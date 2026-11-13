@@ -122,7 +122,8 @@ func (f *fakeSystemd) Subscribe() *dbus.Error {
 
 func (f *fakeSystemd) EnableUnitFiles(files []string, runtime, force bool) (bool, []unitChange, *dbus.Error) {
 	f.record(fmt.Sprintf("EnableUnitFiles %v %v %v", files, runtime, force))
-	return false, []unitChange{{"symlink", "/etc/systemd/system/x", files[0]}}, nil
+	// carries_install_info true: a unit with [Install], as the symlink it made says.
+	return true, []unitChange{{"symlink", "/etc/systemd/system/x", files[0]}}, nil
 }
 
 func (f *fakeSystemd) DisableUnitFiles(files []string, runtime bool) ([]unitChange, *dbus.Error) {

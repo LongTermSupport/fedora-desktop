@@ -1,0 +1,66 @@
+---
+# Fixture for the scratch-always-changed rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. Each task only makes, fills or removes a
+# scratch directory (one an ansible.builtin.tempfile task made) and reports changed on every
+# run, so a second run of a converged play is never clean (issue 247: play-teamchat's build
+# directory). The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Make the build directory
+      ansible.builtin.tempfile: # EXPECT-FINDING
+        state: directory
+        prefix: build-
+      register: build_dir
+
+    - name: Make a scratch file, changed_when the constant
+      tempfile: # EXPECT-FINDING
+        state: file
+      register: scratch_file
+      changed_when: true
+
+    - name: Make a directory per architecture inside it
+      ansible.builtin.file: # EXPECT-FINDING
+        path: "{{ build_dir.path }}/{{ item }}"
+        state: directory
+        mode: "0700"
+      loop: [amd64, arm64]
+
+    - name: Download into it
+      ansible.builtin.get_url: # EXPECT-FINDING
+        url: https://example.com/thing.zst
+        dest: "{{ build_dir.path }}/thing.zst"
+        mode: "0600"
+
+    - name: A guarded write into it is still only scratch
+      ansible.builtin.copy: # EXPECT-FINDING
+        content: x
+        dest: "{{ scratch_file.path }}"
+        mode: "0600"
+      when: build_dir is defined
+
+    - name: Name the directory through a fact
+      ansible.builtin.set_fact:
+        work_dir: "{{ build_dir.path }}/work"
+
+    - name: Write through the fact
+      ansible.builtin.file: # EXPECT-FINDING
+        path: "{{ work_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Hand it to a task file through vars
+      ansible.builtin.include_tasks: build.yml
+      vars:
+        out_dir: "{{ build_dir.path }}"
+
+    - name: Write through the passed variable
+      ansible.builtin.file: # EXPECT-FINDING
+        path: "{{ out_dir }}/bin"
+        state: directory
+        mode: "0700"
+
+    - name: Remove the build directory
+      ansible.builtin.file: # EXPECT-FINDING
+        path: "{{ build_dir.path }}"
+        state: absent

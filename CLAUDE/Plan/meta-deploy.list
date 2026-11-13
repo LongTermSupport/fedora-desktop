@@ -131,6 +131,15 @@
 # `ccy-sessions declare`, which provisioning runs to write the record of a session that has
 # never run; nothing on this host runs it, so nothing changes here. Container version
 # unchanged; the builder stage re-runs at the new commit as above.
+# And issue #247: play-teamchat.yml, where it has run, rewrites teamchat-server@.service and
+# teamchat-tls@.service with [Install] WantedBy=multi-user.target, and team apply then enables
+# each team's two instances, reporting "unit enabled" and "tls unit enabled" once. The base
+# unit's text changed, so that first apply backs each team up and restarts its homeserver, as
+# for any base unit change (members reconnect after the restart); a second run
+# reports neither, and its build-directory tasks report no change. After it
+# `systemctl is-enabled teamchat-server@<team>.service teamchat-tls@<team>.service | cat` says
+# enabled for each, and a reboot brings the team back. play-toolbox-install.yml's download
+# and unpack into its scratch directory no longer report changed. No ccy image rebuild.
 changed-plays
 # Issue #228: basic-configs, the block's one owner, run once after github-cli-multi has stopped
 # writing it, so ~/.bashrc sources every include (~/.bashrc-includes/*, qobuz-players too)
