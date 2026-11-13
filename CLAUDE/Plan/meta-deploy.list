@@ -34,3 +34,13 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue 266: the teamchat link refused every hook of a ccy session with no XDG_RUNTIME_DIR.
+# Rebuilds the ccy image, whose builder stage builds teamchat from the
+# checkout's commit, so new ccy sessions get the fixed link. Running sessions keep the old
+# link until they restart.
+playbooks/imports/play-claude-yolo.yml
+
+# Issue 266, the same fix for host and LXC members: rebuilds and reinstalls the teamchat member
+# program and its kit (the member tag only, so no unit or team is touched).
+playbooks/imports/play-teamchat.yml --tags member

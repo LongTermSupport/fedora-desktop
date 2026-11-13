@@ -72,7 +72,7 @@ func Main(w Wiring) cli.RunFunc {
 		code := Run(context.Background(), Config{
 			StateRoot: stateRoot, RunRoot: runRoot, Layout: layout, Run: run, Control: conn,
 			Clock: clk, Proc: OSProc{Dir: "/proc"}, Parent: OpenParent, UID: os.Getuid(),
-			Kit: kit, RuntimeDir: e.Getenv("XDG_RUNTIME_DIR"), Home: e.Getenv("HOME"), Log: e.Stderr,
+			Kit: kit, Inbox: paths.InboxEnvOf(e.Getenv, os.Getuid()), Home: e.Getenv("HOME"), Log: e.Stderr,
 			Engine: engine.New, NewTeam: w.NewTeam, NewEnds: w.NewEnds,
 			Forge: forge.New(forge.Config{Login: forge.NewLogin(execx.OS{}, clk), Clock: clk}),
 		})

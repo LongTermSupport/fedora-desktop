@@ -53,6 +53,10 @@ func TestValidSocket(t *testing.T) {
 	if !validSocket(sampleSocket, 4242) || !validSocket(long, 4242) || len(long) != maxSocketPath {
 		t.Fatal("a socket refused")
 	}
+	// Claude Code's fallback for a path too long to bind (issue 266).
+	if !validSocket("/tmp/cc-socks-1000/4242.sock", 4242) {
+		t.Fatal("the cc-socks-<uid> fallback refused")
+	}
 	for _, bad := range []string{"", "cc-socks/4242.sock", "/r/cc-socks/4243.sock", "/r/socks/4242.sock", "/r/x/../cc-socks/4242.sock", "/a" + long} {
 		if validSocket(bad, 4242) {
 			t.Errorf("validSocket(%q) = true", bad)
