@@ -999,7 +999,9 @@ it, `infinity` or `0`), and that is not ordered `After=` the target that wants i
 unit file, a Jinja template, an Ansible `content:` block and a Go string are all read. The finding
 is the unit's `[Unit]` line. Run by `qa-boot-hold.bash` over every file git would publish but plan
 prose and changelogs and the trees `scripts/qa-trees.tsv` keeps out of every gate. Blocking with
-no allowlist.
+no allowlist. Plan prose is left out because no unit is installed from it: run over it, the rule
+finds only design text (Plan 018's first-boot unit, which is meant to run before the desktop, and
+a design listing), and a unit taken from a plan into code is judged there.
 
 **Why it exists.** A target that wants a unit is ordered after it by default, so it is reached
 only once the unit's start job ends: for a oneshot, when the program exits; for notify, dbus and
@@ -1022,7 +1024,10 @@ that is the owner's decision.
 `Type=` lines (teamchat's `installLines` in Go), and a quick-looking unit with no declared bound
 whose program is slow (a oneshot has no start timeout by default). The independent search of
 issue #263 read every unit the repository writes for both; it found one of the second kind,
-`kernel-version-manager.service`, which is ordered after `multi-user.target`.
+`kernel-version-manager.service`, which is ordered after `multi-user.target`. Widening the rule to
+every oneshot with no start bound is the owner's decision (issue #263): it would flag
+`lxc-docker-user-iptables-reconcile.service` and `ccy-sessions-restore.service`, both quick, and
+neither has a free fix.
 
 ### find-race-negated-stat-test
 
