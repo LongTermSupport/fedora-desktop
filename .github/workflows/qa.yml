@@ -56,9 +56,9 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       - name: Decide the scope
         id: scope
@@ -119,17 +119,18 @@ jobs:
         with:
           node-version: "20"
 
-      # setup-go@v5 installs the go directive of this file and ignores a toolchain line (later
-      # majors read the toolchain line unless GOTOOLCHAIN=local), so it names
-      # the go.mod with the higher go directive: the Go floor qa-toolchain asserts, and the
-      # release the CCY image's GO_VERSION carries. TestEveryWorkflowSetsUpTheGoFloor
-      # (src-go/qa/toolchain) fails when it does not.
+      # setup-go@v6 installs the toolchain line of this file (v5 read the go directive; v6 does
+      # too under GOTOOLCHAIN=local, which no workflow sets): the release the CCY image's builder
+      # stage and GO_VERSION carry, which may run ahead of the Go Fedora ships for a security
+      # release. CI's Go is never raised through a go directive, which every host build enforces
+      # (go-minimum-above-provisioned-go, CLAUDE/QA.md). TestEveryWorkflowSetsUpTheGoFloor
+      # (src-go/qa/toolchain) fails when a workflow does otherwise.
       # src-go builds from its committed vendor/; the qa module and govulncheck (its tool
       # directive) come from the module proxy. golangci-lint is installed at the pin below.
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version-file: src-go/qa/go.mod
+          go-version-file: src-go/go.mod
 
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict

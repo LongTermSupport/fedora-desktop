@@ -3,17 +3,21 @@ package toolchain
 import (
 	"context"
 	"errors"
+	"go/version"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	goqaci "github.com/LongTermSupport/go-qa-ci"
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/mod/modfile"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -174,15 +178,28 @@ func TestTheGolangciLintPinIsTheOneGoQaCiInstalls(t *testing.T) {
 	}
 }
 
-// actions/setup-go@v5 installs the go directive of the go.mod its go-version-file names, never a
-// toolchain line (later majors read the toolchain line unless GOTOOLCHAIN=local), so every
-// workflow that sets up Go names a go.mod whose go directive is the floor:
-// an older Go there fails this gate in CI before anything is built.
+// ciGoMod is the go.mod every workflow takes its Go from: its toolchain line is the Go CI builds
+// and checks with, the release the ccy image's builder stage uses. It may run ahead of the Go
+// Fedora ships (vars/golang.yml) for a security release, because no host build enforces it.
+const ciGoMod = "src-go/go.mod"
+
+// setupGoMinMajor is the first actions/setup-go major that installs a go.mod's toolchain line;
+// older majors install its go directive, as later ones do under GOTOOLCHAIN=local.
+const setupGoMinMajor = 6
+
+// Every workflow that sets up Go names ciGoMod with an actions/setup-go that reads its toolchain
+// line, and that line is not older than the floor, so CI builds both modules with the Go the
+// image ships. Setting up from a go directive instead would tie CI to the host's Go, and raising a
+// go directive to move CI breaks every host (go-minimum-above-provisioned-go, issue #249).
 func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 	root := os.DirFS(filepath.Join("..", "..", ".."))
 	floor, err := readGoFloor(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+	ciGo := readToolchainLine(t, root, ciGoMod)
+	if version.Compare(ciGo, "go"+floor.version) < 0 {
+		t.Errorf("%s's toolchain line is %s, older than the go %s that %s needs", ciGoMod, ciGo, floor.version, floor.file)
 	}
 	workflows, err := workflowFiles(root)
 	if err != nil {
@@ -197,21 +214,37 @@ func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 		if !info.Mode().IsRegular() {
 			t.Fatalf("%s is not a regular file", wf)
 		}
-		for _, file := range setupGoVersionFiles(t, root, wf) {
+		for _, step := range setupGoSteps(t, root, wf) {
 			found++
-			got, err := readGoDirective(root, file)
-			if err != nil {
-				t.Fatalf("%s: %v", wf, err)
+			if step.file != ciGoMod {
+				t.Errorf("%s sets up Go from %s: name %s, whose toolchain line is CI's Go", wf, step.file, ciGoMod)
 			}
-			if got != floor.version {
-				t.Errorf("%s sets up Go from %s (go %s), but %s needs go %s: name that go.mod, or align the go directives",
-					wf, file, got, floor.file, floor.version)
+			if step.major < setupGoMinMajor {
+				t.Errorf("%s uses actions/setup-go v%d, which installs the go directive: use v%d or later",
+					wf, step.major, setupGoMinMajor)
 			}
 		}
 	}
 	if found == 0 {
 		t.Fatal("no workflow sets up Go with actions/setup-go, so CI's Go is unchecked")
 	}
+}
+
+// readToolchainLine is the toolchain line of one go.mod, as a Go version ("go1.26.11").
+func readToolchainLine(t *testing.T, root fs.FS, file string) string {
+	t.Helper()
+	data, err := fs.ReadFile(root, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modfile.Parse(file, data, nil) // ParseLax drops the toolchain line
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mod.Toolchain == nil || !version.IsValid(mod.Toolchain.Name) {
+		t.Fatalf("%s has no valid toolchain line, so CI's Go is unnamed", file)
+	}
+	return mod.Toolchain.Name
 }
 
 // GitHub runs a workflow under either extension, so a .yaml workflow is held to the floor too.
@@ -244,13 +277,33 @@ func workflowFiles(root fs.FS) ([]string, error) {
 	return files, nil
 }
 
-// setupGoVersionFiles is the go-version-file of each actions/setup-go step in one workflow; a step
-// that names its Go any other way fails, since nothing ties that version to the modules.
-func setupGoVersionFiles(t *testing.T, root fs.FS, wf string) []string {
+// setupGoStep is one actions/setup-go step: the go.mod it names and the action's major version.
+type setupGoStep struct {
+	file  string
+	major int
+}
+
+// setupGoMajor reads the major of a setup-go reference: a tag (@v6), or a commit followed on its
+// line by its tag as a comment (@<sha> # v6.5.0).
+var (
+	setupGoTag   = regexp.MustCompile(`^v(\d+)`)
+	setupGoMajor = regexp.MustCompile(`#\s*v(\d+)`)
+	// setsGoToolchain is GOTOOLCHAIN set in an env map or by a run step, not named in a comment.
+	setsGoToolchain = regexp.MustCompile(`(?m)^[^#\n]*\bGOTOOLCHAIN\s*[:=]`)
+)
+
+// setupGoSteps is each actions/setup-go step in one workflow. A step that names its Go any other
+// way than go-version-file, a reference whose major cannot be read, or a workflow that sets
+// GOTOOLCHAIN (setup-go then reads the go directive) fails, since nothing ties that Go to the
+// modules.
+func setupGoSteps(t *testing.T, root fs.FS, wf string) []setupGoStep {
 	t.Helper()
 	data, err := fs.ReadFile(root, wf)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if setsGoToolchain.Match(data) {
+		t.Fatalf("%s sets GOTOOLCHAIN, which changes what actions/setup-go installs", wf)
 	}
 	var doc struct {
 		Jobs map[string]struct {
@@ -263,7 +316,7 @@ func setupGoVersionFiles(t *testing.T, root fs.FS, wf string) []string {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		t.Fatalf("%s: %v", wf, err)
 	}
-	var files []string
+	var steps []setupGoStep
 	for _, name := range slices.Sorted(maps.Keys(doc.Jobs)) {
 		for _, step := range doc.Jobs[name].Steps {
 			if !strings.HasPrefix(step.Uses, "actions/setup-go@") {
@@ -273,10 +326,31 @@ func setupGoVersionFiles(t *testing.T, root fs.FS, wf string) []string {
 			if file == "" || step.With["go-version"] != "" {
 				t.Fatalf("%s job %s: actions/setup-go must take its Go from go-version-file alone, got %v", wf, name, step.With)
 			}
-			files = append(files, file)
+			steps = append(steps, setupGoStep{file: file, major: setupGoRefMajor(t, string(data), wf, step.Uses)})
 		}
 	}
-	return files
+	return steps
+}
+
+// setupGoRefMajor is the major version of one setup-go reference in a workflow's text: its tag, or
+// for a commit the `# vN` comment on the line that names it.
+func setupGoRefMajor(t *testing.T, text, wf, uses string) int {
+	t.Helper()
+	ref := strings.TrimPrefix(uses, "actions/setup-go@")
+	m := setupGoTag.FindStringSubmatch(ref)
+	for line := range strings.Lines(text) {
+		if m == nil && strings.Contains(line, uses) {
+			m = setupGoMajor.FindStringSubmatch(line)
+		}
+	}
+	if m == nil {
+		t.Fatalf("%s: actions/setup-go@%s names no major version (a commit needs its tag as a `# vN` comment)", wf, ref)
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("%s: %v", wf, err)
+	}
+	return n
 }
 
 // T6: the floor is validated where it is read, so a floor the version rules cannot compare is a
