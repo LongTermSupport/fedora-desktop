@@ -34,11 +34,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Issue #263, the part this host uses: the rclone mount units are ordered after
-# default.target, so a slow cache scan no longer holds the login. Rewrites the mount units and
-# reloads the user manager; the play's handler restarts the rclone mounts because their unit
-# changed (#268). This host runs no self-update or kernel version manager, so the rest of #263
-# does not apply here. Named rather than changed-plays, which would also retry a teamchat run
-# that cannot pass on this host (#272).
-playbooks/imports/optional/common/play-rclone.yml
