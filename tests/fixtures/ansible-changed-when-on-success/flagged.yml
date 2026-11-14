@@ -1,0 +1,91 @@
+---
+# Fixture for the changed-when-on-success rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. Each changed_when is true on every run in
+# which its task succeeded, so the task reports changed whether it changed anything or not. The
+# first task is the claude-devtools image build (GitHub issue 282). The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Build claude-devtools Container Image
+      ansible.builtin.command: >  # EXPECT-FINDING
+        podman build -t claude-devtools:latest /opt/claude-devtools
+      register: image_build
+      changed_when: git_clone.changed or image_build.rc == 0
+
+    - name: The own rc alone
+      ansible.builtin.command: warp-cli disconnect  # EXPECT-FINDING
+      register: warp_disconnect
+      changed_when: warp_disconnect.rc == 0
+
+    - name: rc in brackets, zero first
+      ansible.builtin.shell: thing  # EXPECT-FINDING
+      register: thing_result
+      changed_when: 0 == thing_result['rc']
+
+    - name: rc is defined is true whether the command failed or not
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_two
+      failed_when: false  # FAIL-FAST-OK: fixture
+      changed_when: thing_two.rc is defined
+
+    - name: A failed_when that restates the default leaves rc == 0 the constant
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_three
+      failed_when: thing_three.rc != 0
+      changed_when: thing_three.rc == 0
+
+    - name: Not failed
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_four
+      changed_when: not thing_four.failed
+
+    - name: Succeeded, in a template
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_five
+      changed_when: "{{ thing_five is succeeded }}"
+
+    - name: Not skipped is true whenever changed_when is read, and an and of constants is one
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_six
+      changed_when: thing_six is not skipped and thing_six.rc == 0
+
+    - name: A folded scalar over two lines
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_seven
+      changed_when: >-
+        (thing_seven is not failed)
+        or 'x' in other.stdout
+
+    - name: A list of nothing but success
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_eight
+      changed_when:
+        - thing_eight.rc == 0
+        - thing_eight is success
+
+    - name: ignore_errors does not make rc == 0 a decision on a run that succeeded
+      ansible.builtin.command: thing  # EXPECT-FINDING
+      register: thing_nine
+      ignore_errors: true  # FAIL-FAST-OK: fixture
+      changed_when: thing_nine.rc == 0
+
+    - name: Any module, not only a command
+      ansible.builtin.uri:  # EXPECT-FINDING
+        url: https://example.com/
+      register: page
+      changed_when: page is successful
+
+    - name: The plain constant on a module that is not a command
+      ansible.builtin.copy:  # EXPECT-FINDING
+        content: x
+        dest: /tmp/x
+        mode: "0644"
+      changed_when: true
+
+    - name: In a block
+      block:
+        - name: Reload
+          ansible.builtin.command: thing  # EXPECT-FINDING
+          register: thing_ten
+          changed_when: thing_ten.rc == 0

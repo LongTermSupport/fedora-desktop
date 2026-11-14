@@ -49,7 +49,7 @@
     - name: A templated decision
       ansible.builtin.command: thing
       register: thing_two
-      changed_when: "{{ thing_two.rc == 0 }}"
+      changed_when: "{{ 'applied' in thing_two.stdout }}"
 
   handlers:
     - name: A handler runs only when a task changed something

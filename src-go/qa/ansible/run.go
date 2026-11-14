@@ -60,7 +60,8 @@ outside the checkout, a failure no_log hides, a probe of a program installed onl
 a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late,
 vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
 module-built-for-running-kernel), a command task that reports changed on every run
-(CLAUDE/QA.md, command-always-changed), a task that only makes, fills or removes a scratch
+(CLAUDE/QA.md, command-always-changed), a task whose changed_when is true on every run it
+succeeds (CLAUDE/QA.md, changed-when-on-success), a task that only makes, fills or removes a scratch
 directory and reports changed (CLAUDE/QA.md, scratch-always-changed), an image build given a
 build argument or label new on every commit or run (CLAUDE/QA.md, image-build-arg-volatile),
 an install skipped on its own record without a

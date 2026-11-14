@@ -1,0 +1,86 @@
+---
+# Fixture for the changed-when-on-success rule of src-go/qa/ansible: none of these may be
+# reported. Each changed_when can be false on a run in which its task succeeded, or the task is
+# another rule's. The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: A failed_when that lets a non-zero rc through makes rc == 0 a decision
+      ansible.builtin.command: thing
+      register: probe
+      failed_when: false  # FAIL-FAST-OK: fixture
+      changed_when: probe.rc == 0
+
+    - name: A failed_when that allows rc 2 makes rc == 0 a decision
+      ansible.builtin.command: thing
+      register: probe_two
+      failed_when: probe_two.rc not in [0, 2]
+      changed_when: probe_two.rc == 0
+
+    - name: Under failed_when false, not failed is the module's own verdict
+      ansible.builtin.command: thing
+      register: probe_three
+      failed_when: false  # FAIL-FAST-OK: fixture
+      changed_when: probe_three is not failed
+
+    - name: Another task's result is a decision
+      ansible.builtin.command: thing
+      register: after
+      changed_when: before.rc == 0
+
+    - name: An and with a real decision
+      ansible.builtin.command: thing
+      register: thing_result
+      changed_when: thing_result.rc == 0 and 'applied' in thing_result.stdout
+
+    - name: A list with a real decision
+      ansible.builtin.command: thing
+      register: thing_two
+      changed_when:
+        - thing_two.rc == 0
+        - "'applied' in thing_two.stdout"
+
+    - name: An or whose every side is a decision
+      ansible.builtin.command: thing
+      register: thing_three
+      changed_when: git_clone.changed or 'built' in thing_three.stdout
+
+    - name: rc of a module that returns none is not the command's rc
+      ansible.builtin.uri:
+        url: https://example.com/
+      register: page
+      changed_when: page.rc is defined
+
+    - name: The output said so
+      ansible.builtin.command: thing
+      register: thing_four
+      changed_when: thing_four.rc == 0 or thing_four.stdout != ''
+      failed_when: thing_four.rc not in [0, 1]
+
+    - name: A command Ansible skips once its file exists runs only when there is work
+      ansible.builtin.command:
+        cmd: make install
+        creates: /usr/local/bin/thing
+      register: thing_five
+      changed_when: thing_five.rc == 0
+
+    - name: The plain constant on a command is command-always-changed's
+      ansible.builtin.command: thing
+      changed_when: true
+
+    - name: false
+      ansible.builtin.copy:
+        content: x
+        dest: /tmp/x
+        mode: "0644"
+      changed_when: false
+
+    - name: Not registered, so nothing is its own
+      ansible.builtin.command: thing
+      changed_when: thing.rc == 0
+
+  handlers:
+    - name: A handler runs only when a task changed something
+      ansible.builtin.command: systemctl daemon-reload
+      register: reload
+      changed_when: reload.rc == 0

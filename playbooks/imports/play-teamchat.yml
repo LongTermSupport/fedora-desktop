@@ -584,9 +584,10 @@
         - name: Install the teamchat SELinux Module
           ansible.builtin.command:
             argv: [semodule, --install, "{{ tc_share_dir }}/teamchat.cil"]
-          register: tc_selinux_install
-          # Runs only when the module is new or differs, so an install that succeeded changed it.
-          changed_when: tc_selinux_install.rc == 0
+          # Runs only when the module is new or differs, which the same two checks decide.
+          changed_when: >-
+            tc_selinux_module_file is changed
+            or tc_selinux_modules.stdout is not search('(?m)^\s*\d+\s+teamchat\s')
           when: >-
             tc_selinux_module_file is changed
             or tc_selinux_modules.stdout is not search('(?m)^\s*\d+\s+teamchat\s')
