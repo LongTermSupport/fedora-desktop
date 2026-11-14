@@ -2087,11 +2087,27 @@ task's own result (its `register`) tested for success while failure is left to t
 `not r.failed`, `r is not failed`, `r is succeeded` (`success`, `successful`), `r.failed == false`; at any time, a command module's `r.rc is defined` and any module's `r is not skipped`
 (`changed_when` is read only on a run); a template of one; an `or` with one as a side; an
 `and`, or a list, of nothing else. `ignore_errors` does not excuse it: a run that succeeded is
-still changed. Not reported: a command task whose `changed_when` is the plain constant
-([command-always-changed](#command-always-changed) reports it), a command task with `creates`
-or `removes`, a handler, a task whose `failed_when` lets a failed command through (then
-`rc == 0` tells runs apart), and any condition on another task's result. Run by
-`qa-ansible.bash`; proven against `tests/fixtures/ansible-changed-when-on-success/`.
+still changed. Run by `qa-ansible.bash`; proven against
+`tests/fixtures/ansible-changed-when-on-success/`.
+
+**What it leaves out, and why each cannot carry the hazard.**
+
+- A command task whose `changed_when` is the plain constant: not left undefended,
+  [command-always-changed](#command-always-changed) reports it, so it is not reported twice.
+- A command task with `creates` or `removes`: Ansible skips it, unchanged, once that path says
+  the work is done, so it runs, and reports changed, only on a run that has work to do.
+- A handler: it runs only on a run in which a task reported a change, so it never reports
+  changed on a run that changed nothing.
+- A task whose `failed_when` lets a failed command through (`failed_when: false`, or
+  `rc not in [0, 2]`): a run whose command failed reaches `changed_when` as a success, so
+  `rc == 0` or `not failed` is false on such a run and tells runs apart.
+- A condition on another task's result: that result is read from the host on each run (a probe)
+  or says whether an earlier task changed something, so it can be false on a converged run.
+  Where it restates the task's own `when`, the task is skipped on a run whose probe says there
+  is nothing to do and reports changed only on a run it acts; every such task in the repository
+  was examined (issue #282). Such a restatement would carry the hazard only behind a guard that
+  does not read the state the task changes (a fixed setting), which this rule cannot tell from
+  a probe.
 
 **Why it exists.** Such a task reports changed on every successful run, so a second run with
 nothing to do is never clean and the recap hides the run that did change something.

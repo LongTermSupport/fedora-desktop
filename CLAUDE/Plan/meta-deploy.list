@@ -36,11 +36,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Issue #282: play-claude-devtools.yml, the claude-devtools image build, now reports changed
-# only when the image id changed (read before and after the build), not on every run. Run it
-# twice: on the second run "Detect Whether claude-devtools Image Was Rebuilt" should be ok
-# (unless upstream claude-devtools moved between the runs) and the recap should show no
-# changed task from the build. The first run may rebuild if upstream moved.
-playbooks/imports/optional/common/play-claude-devtools.yml
-playbooks/imports/optional/common/play-claude-devtools.yml
