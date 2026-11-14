@@ -75,22 +75,24 @@ Facts read from the tree at the time of planning:
 
 ### Phase 1: Establish what is not known (triage)
 
-- [ ] ⬜ **Task 1.1**: Write `triage.bash` (read-only, in this folder, per
-  [PlanTriage.md](../../PlanTriage.md)) to establish, on a live ccy session:
+- [x] ✅ **Task 1.1**: Write `triage.bash` (read-only, in this folder, per
+  [PlanTriage.md](../../PlanTriage.md)) to establish, on a live ccy session (findings in
+  `JOURNAL/2026-11-14/032037Z-finding-aa8485.md`):
   - [x] ✅ The script: `triage.bash` with its legs in `probe-idle.bash`, read-only and
-    anonymised, queued in `meta-deploy.list` with `--sample 180`. Item 4 is answered from
-    version and help output only (no throwaway compose project: triage changes nothing).
-    The findings below stay open until the host has run it.
-  - [ ] ⬜ What the supervisor knows of the four idle conditions. Find out whether it can tell a
-    running background task or subagent, and a pending bus delivery, from an empty idle prompt,
-    or whether only the PTY's input and output quiet are visible. Probe it through the
-    supervisor's own log or state files, not by reading code alone.
-  - [ ] ⬜ How often `on_idle` is called on a session left alone, which bounds how finely
-    DURATION can be measured.
-  - [ ] ⬜ Whether `notify` and `--list` already leave a session with no tmux session out.
-  - [ ] ⬜ Whether `<compose> stop` exists and behaves the same for podman-compose and
-    docker-compose as the versions deployed here.
-- [ ] ⬜ **Task 1.2**: Record the triage findings in `JOURNAL/` and update this plan.
+    anonymised, run once on the host with `--sample 180`. Item 4 is answered from version and
+    help output only (no throwaway compose project: triage changes nothing).
+  - [x] ✅ What the supervisor knows of the four idle conditions: an empty input box and a
+    running turn, yes (its own busy and composing states). A background task's end, no
+    (only starts are recorded), though a background Bash task is a child process of claude in
+    the container. A sub-agent is not a process. A pending bus delivery was not visible from
+    `podman exec` (probe limit).
+  - [x] ✅ How often `on_idle` is called: about every 2 s on an idle session with the plugin
+    loaded. The plugin was disabled ("wedge in on_idle", issue #151) in two of four projects.
+  - [x] ✅ `--list` leaves out a record with no tmux session, and `notify` neither names it nor
+    notes it.
+  - [x] ✅ `<compose> stop` exists in podman-compose 1.5.0 and Docker Compose v5.7.0, and
+    keeps the containers (`down` removes them).
+- [x] ✅ **Task 1.2**: Record the triage findings in `JOURNAL/` and update this plan.
 
 ### Phase 2: Owner decisions
 
