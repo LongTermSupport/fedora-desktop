@@ -231,10 +231,12 @@ fi
 # launcher's REQUIRED_CONTAINER_VERSION, or when the Dockerfile's own hash
 # changes. Everything else the image bakes in reaches a running container ONLY
 # through a version bump, so an edit there without one ships a stale copy with
-# no error. "Everything else" is read from the staged Dockerfile by lib/ccy-image-staged.bash:
-# its COPY sources and the Go its builder stage builds (see it), so a file the image starts
-# using is guarded without anyone remembering to list it here; a Go that cannot judge the
-# change ends the commit.
+# no error. "Everything else" is read from the staged tree by lib/ccy-image-staged.bash: the
+# Dockerfile's COPY sources and the source its builder stage builds from, by the same
+# image-source-paths the play keys that stage on (see it), so a file the image starts using is
+# guarded without anyone remembering to list it here; a stale list, or a Go that cannot judge the
+# change, ends the commit. It lists only the files whose change needs the bump: any change to the
+# builder's source (the key moves on it), a real line of a copied file.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
@@ -242,7 +244,7 @@ CCY_IMAGE_TEXT=$("${HOOK_LIB%/*}/ccy-image-staged.bash" "$CCY_CONTEXT" "${STAGED
 mapfile -t CCY_IMAGE_STAGED < <(printf '%s' "$CCY_IMAGE_TEXT")
 
 if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
-    echo "🔍 Checking CCY container version bump requirement (${#CCY_IMAGE_STAGED[@]} image file(s) staged)..."
+    echo "🔍 Checking CCY container version bump requirement (${#CCY_IMAGE_STAGED[@]} image file(s) changed)..."
     staged_dockerfile=$(git show ":$CCY_DOCKERFILE")
     STAGED_LABEL=$(awk -F'"' '/^LABEL claude-yolo-version=/{print $2; exit}' <<<"$staged_dockerfile")
     staged_launcher=$(git show ":$CCY_SCRIPT")
@@ -257,26 +259,16 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
         exit 1
     fi
     if [ -n "$HEAD_LABEL" ] && [ "$STAGED_LABEL" = "$HEAD_LABEL" ]; then
-        # Any changed line that is not blank counts. A `#` line is skipped as a comment only in
-        # code (.py, .sh, .bash, or no extension) and never as a shebang: in a SKILL.md or a
-        # .txt guide it is a heading. A deletion is all `-` lines, so it counts too. Captured
-        # first, not piped: see the CCY_VERSION extraction above.
-        image_diff=$(git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}")
-        if awk '
-            /^diff --git / { prose = ($NF ~ /\.[^\/]+$/ && $NF !~ /\.(py|sh|bash)$/); next }
-            /^(---|\+\+\+) (a\/|b\/|\/dev\/null)/ { next }
-            /^[+-]/ && (prose ? $0 !~ /^[+-][[:space:]]*$/ : $0 !~ /^[+-][[:space:]]*(#([^!]|$)|$)/) { found = 1; exit }
-            END { exit !found }' <<<"$image_diff"; then
-            echo -e "${RED}COMMIT REJECTED [CCY-IMAGE-INPUT]: CCY container version bump required${NC}"
-            echo ""
-            echo "These files are baked into the image, and a running container only"
-            echo "picks up a change through a container version bump:"
-            printf '  %s\n' "${CCY_IMAGE_STAGED[@]}"
-            echo ""
-            echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and REQUIRED_CONTAINER_VERSION"
-            echo "in $CCY_SCRIPT to the same new value (currently $STAGED_LABEL), and stage both."
-            exit 1
-        fi
+        # The library lists only the files whose change needs the bump (see it).
+        echo -e "${RED}COMMIT REJECTED [CCY-IMAGE-INPUT]: CCY container version bump required${NC}"
+        echo ""
+        echo "These files are baked into the image, and a running container only"
+        echo "picks up a change through a container version bump:"
+        printf '  %s\n' "${CCY_IMAGE_STAGED[@]}"
+        echo ""
+        echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and REQUIRED_CONTAINER_VERSION"
+        echo "in $CCY_SCRIPT to the same new value (currently $STAGED_LABEL), and stage both."
+        exit 1
     elif [ -n "$HEAD_LABEL" ]; then
         echo "✓ CCY container version bumped: $HEAD_LABEL → $STAGED_LABEL"
     fi

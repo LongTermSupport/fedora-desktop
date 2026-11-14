@@ -29,12 +29,17 @@ RUN target="$(uname -m)-unknown-linux-musl" \
 # CCY_SOURCE_COMMIT names, so the build context stays the repository's own files and a pipeline
 # that stages them, pinned by checksum, can build this image (issue 235). Only the paths
 # image-source-paths lists are taken from that commit, so a build that reads any other path
-# fails rather than building from a source the key below does not cover. The play passes the
-# last commit that changed one of those paths (git log -1 HEAD -- <paths>), not its checkout's
-# HEAD, and writes it to source-commit for the launcher's rebuilds; a files-only pipeline passes
-# the commit it pins. The commit must be on GitHub (pushed) for the fetch to find it. The ARG
-# changes only when the image's own source does, so a commit that touches nothing the image is
-# built from leaves this stage, and the image's id, as they were (issue 277).
+# fails rather than building from a source the key below does not cover. The list is git
+# pathspecs, generated from this stage's own go build lines and bundle.py by
+# scripts/git-hooks/lib/ccy-image-source-paths.bash (CLAUDE/QA.md#ccy-image-sources): the
+# packages these commands build from, the module files and the zipapp's packages, so `set -f`
+# keeps the shell from globbing them. The play passes the last commit that changed one of those
+# paths (git log -1 HEAD -- <paths>), not its checkout's HEAD, and writes it to source-commit for
+# the launcher's rebuilds; a files-only pipeline passes the commit it pins. The commit must be on
+# GitHub (pushed) for the fetch to find it. The ARG changes only when the image's own source
+# does, so a commit that touches nothing the image is built from (another Go command's code
+# included, issue 285) leaves this stage, and the image's id, as they were (issue 277); the
+# pre-commit hook asks for a container version bump on exactly the changes these paths match.
 #
 # The image's tag is the Go toolchain src-go/go.mod pins on its toolchain line; the build fails
 # when they differ (GOTOOLCHAIN=local never downloads another). Go builds for the build's own
@@ -61,7 +66,9 @@ RUN set -eu; \
     test "$(git -C /repo rev-parse FETCH_HEAD)" = "${CCY_SOURCE_COMMIT}"; \
     paths="$(cat /image-source-paths)"; \
     if [ -z "${paths}" ]; then echo "image-source-paths lists no path" >&2; exit 1; fi; \
+    set -f; \
     git -C /repo archive -o /tmp/source.tar FETCH_HEAD -- ${paths}; \
+    set +f; \
     mkdir /src; \
     tar -xf /tmp/source.tar -C /src; \
     rm /tmp/source.tar
@@ -98,7 +105,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.84.15"
+LABEL claude-yolo-version="2.84.16"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that

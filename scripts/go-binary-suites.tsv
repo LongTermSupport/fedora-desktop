@@ -7,7 +7,10 @@
 #            is a Go test, which the Go gate (scripts/qa-go-qa.bash) runs on any src-go/ change
 #            that reaches the command, so there is no bash suite to add.
 # A command no play deploys and no one runs by hand (a QA tool) lives under src-go/qa/cmd and has
-# no row. watchlist is run from the checkout with go run and is not deployed.
+# no row. watchlist is run from the checkout with go run and is not deployed. The ccy image's
+# builder stage builds ccy-start-claude, pingbus-status-line and teamchat: a change to their
+# closure runs the build-lock suite, which holds image-source-paths to it (issue 285) and builds
+# them from that list alone; their Go oracles run in the Go gate as for any src-go/ change.
 ccc	qa-go
 ccy-teams	scripts/test-ccy-teams-command.bash scripts/test-ccy-container-name.bash
 ccy-token-usable	qa-go
@@ -26,7 +29,7 @@ stt	qa-go
 open	qa-go
 cc-project-dir	qa-go
 cc-claude	qa-go
-ccy-start-claude	qa-go
+ccy-start-claude	scripts/test-ccy-image-build-lock.bash
 git-fetch-age	qa-go
 histclean	qa-go
 git-prompt-fetch	qa-go
@@ -35,7 +38,7 @@ rclone-cache-status	qa-go
 rclone-tail	qa-go
 gh-account-setup	scripts/test-run-bash-gh-scopes.bash
 wsi-lower-media-volume	qa-go
-pingbus-status-line	qa-go
+pingbus-status-line	scripts/test-ccy-image-build-lock.bash
 setup-rclone	qa-go
 reclaim	qa-go
 nord	qa-go
@@ -47,6 +50,6 @@ scp-with-key	qa-go
 ssh-copy-id-with-key	qa-go
 container-images	scripts/test-ccy-image-build-lock.bash
 teamchat-admin	qa-go
-teamchat	qa-go
+teamchat	scripts/test-ccy-image-build-lock.bash
 release-plan	qa-go
 tls-trust-check	qa-go
