@@ -83,6 +83,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
+| `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict              | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                       |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -2338,6 +2339,41 @@ do not decide a start, and the rule would flag reads that carry no hazard.
   `conversation.TestStartPlanStartsAMarkedRecordWhoseConversationHasNoTranscriptFresh`,
   `sessions.TestAMarkedRecordWhoseSessionNeverTookATurnStartsFresh` and
   `restart.TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh` reproduce the defect.
+
+### project_screen_state_compared
+
+**What it is about.** `screen.ClaudeState` reads a pane into one of a few states, but Claude
+Code draws more screens than the reader knows: a line held for review, a redraw, a dialog, the
+external editor. A verdict asked as `state != screen.Typed` (or `== screen.Ready`, its else
+being the verdict) puts every other state, any the reader does not know included, on one side.
+
+**Why it exists.** fedora-desktop#288: `tmuxccy.Submit` judged set-going's `/compact` taken
+because the box was not seen typed (`ClaudeState(pane) != screen.Typed`); the line stayed in the
+box, held by Claude Code ("Removed 1 invisible character · review and press Enter to send"),
+and a person's Enter sent it.
+
+**What it flags**, outside test files and inside package `screen` too: an `==` or `!=`
+comparison with an operand of type `internal/screen`'s `State`, matched through `types.Info`.
+A `switch` over a `State` is the exhaustive linter's (`.golangci.yml`): a missing member or a
+`default` is refused, so a member added to `screen` is a decision at every consumer.
+
+**Not caught**: a `State` converted to a string and compared, and a verdict on a screen kept in
+another type (`restore.State`, the restore's verdict on a pane).
+
+**How to fix a violation.** Switch over the `State`, naming every member, and decide each.
+
+**The next wider rule, not built:** every type that holds a verdict on a pane's screen
+(`restore.State` beside `screen.State`). Not built: `restore.Judge` maps every pane it cannot
+read to a named verdict of its own, and its one `==` (`sessions/verify.go`, the unattended stop's
+detail) decides a message, not whether text was taken; the owner decides whether it is wanted.
+
+- Red, fixture: `testdata/src/fix/internal/badscreenstate` (Submit's check as it was, its
+  positive form, a held value, a tagless switch, two states compared; an exhaustive switch, a
+  plain string, a printed state and a test file clean) and `fix/internal/screen` (a comparison
+  inside the package is judged).
+- Red, real tree: eight findings, `tmuxccy/submit.go:69` (the defect), `screen/screen.go:94`,
+  `sessclose/sessclose.go:390`, `:441` and `:582`, `teams/winddown/compact.go:96` and `:159`,
+  and `teams/winddown/windstep.go:296`; the `ccyteamstest` build adds none.
 
 ## Defect classes that cannot be a rule
 
