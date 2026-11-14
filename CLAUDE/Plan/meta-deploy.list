@@ -9,7 +9,9 @@
 # name are passed to that plan's triage.bash, both runs.
 #
 # One entry per line, four kinds:
-#   <plan folder>                  its triage, deploy and acceptance scripts, in order
+#   <plan folder>                  its triage, deploy and acceptance scripts, in order. The
+#                                  folder is named as it sits in CLAUDE/Plan/, with no
+#                                  CLAUDE/Plan/ in front (00123-name, not CLAUDE/Plan/00123-name)
 #   playbooks/<path>.yml [args]    a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand. Words after
@@ -42,4 +44,4 @@
 # version and help; then samples the live projects for 180 seconds to time the supervisor's
 # plugin hook. Changes nothing. Leave at least one ccy session running and untouched for the
 # sample. The anonymised report is triage-idle-report.txt under untracked/plan-runs/.
-CLAUDE/Plan/00256-ccy-session-idle-stand-down --sample 180
+00256-ccy-session-idle-stand-down --sample 180
