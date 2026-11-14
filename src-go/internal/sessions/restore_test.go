@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -484,6 +485,58 @@ func TestRestoreCheckRefusesARecordWithNoComposeAnswerInAComposeProject(t *testi
 	}
 	if why != 1 {
 		t.Fatalf("only the provisioned record's pane is told why it is asked (%d): %v", why, h.ran())
+	}
+}
+
+// fedora-desktop#283: restore --check judges a ccy record's --token as the launch would, with the
+// launch's own usage reader: a used-up token is UNRESTORABLE token-used-up, naming the window
+// and when it clears, as are a token that is gone or has expired, and a usage check that fails;
+// usage that cannot be read is RESTORABLE with a note, as the launch starts on it. A record with
+// no --token, and a cc record, are not asked about. The restore itself still starts them all.
+func TestRestoreCheckJudgesTheRecordsTokenAsTheLaunchWould(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	restoreOn(h, true)
+	h.clock = time.Date(2030, 3, 4, 9, 0, 0, 0, time.UTC)
+	dir := realDir(t, h, "p")
+	clears := time.Date(2030, 3, 5, 8, 0, 0, 0, time.UTC)
+	h.tokens.missing = map[string]bool{"gone": true}
+	h.tokens.expired = map[string]bool{"old": true}
+	h.tokens.usage = map[string]ccylaunch.Usability{
+		"/tokens/spent.2099-01-01.token":  {Name: "spent", State: ccylaunch.UsageUsedUp, UsedUp: []ccylaunch.UsedUpLimit{{Label: "7-day", Clears: clears}}},
+		"/tokens/dark.2099-01-01.token":   {Name: "dark", State: ccylaunch.UsageUnknown, Reason: "could not reach the API"},
+		"/tokens/broken.2099-01-01.token": {Name: "broken", State: ccylaunch.UsageFault, Reason: "needs curl (run play-claude-yolo.yml)"},
+	}
+	recs := map[string][]string{
+		"ccy-broken": {"--token", "broken"}, "ccy-dark": {"--token", "dark"}, "ccy-fine": {"--token", "fine"},
+		"ccy-gone": {"--token", "gone"}, "ccy-none": {"--no-ssh"}, "ccy-old": {"--token", "old"}, "ccy-spent": {"--token", "spent"},
+	}
+	for name, args := range recs {
+		record(t, h, registry.Record{Name: name, Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: args})
+	}
+	record(t, h, registry.Record{Name: "cc-spent", Dir: realDir(t, h, "c"), Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--bus", "--token", "spent"}})
+	exitCodeIs(t, h.run("restore", "--check"), 1, h)
+	want := "cc-spent RESTORABLE\nccy-broken UNRESTORABLE token-check-failed\nccy-dark RESTORABLE\nccy-fine RESTORABLE\n" +
+		"ccy-gone UNRESTORABLE token-missing\nccy-none RESTORABLE\nccy-old UNRESTORABLE token-expired\nccy-spent UNRESTORABLE token-used-up\n"
+	if h.stdout() != want {
+		t.Fatalf("stdout %q, want %q; stderr %q", h.stdout(), want, h.stderr())
+	}
+	contains(t, "why", h.stderr(),
+		"ERROR: ccy-spent cannot be restored: its token spent has no usage left (7-day limit used up; clears tomorrow 08:00, in 23h), and with nobody to choose another its launch would stop. Check again once it clears, or declare it with another token",
+		"ERROR: ccy-gone cannot be restored: its --token gone names no token file in the pool, so its launch would stop at once.",
+		"ERROR: ccy-old cannot be restored: its token file old.1969-01-01.token has expired or expires today, and renewing it needs a person at a browser: ccy --update-token=old",
+		"ERROR: ccy-broken cannot be restored: the usage left on its token broken could not be checked (needs curl (run play-claude-yolo.yml)), and the launch stops when its usage check fails (the record is kept at",
+		"ccy-dark: the usage left on its token dark could not be read (could not reach the API); the launch starts on it anyway, so it counts as restorable.\n",
+		"ERROR: 4 recorded session(s) could not be restored after a reboot: ccy-broken, ccy-gone, ccy-old, ccy-spent.")
+	if h.tokens.asked != 4 {
+		t.Fatalf("usage read %d times, want once per valid ccy token (4)", h.tokens.asked)
+	}
+
+	h.out.Reset()
+	h.errOut.Reset()
+	exitCodeIs(t, h.run("restore"), 0, h)
+	if calls := startedSessions(h); len(calls) != len(recs)+1 {
+		t.Fatalf("the restore starts every record (%d): %v", len(calls), h.ran())
 	}
 }
 

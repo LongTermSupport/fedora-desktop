@@ -3,14 +3,17 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 )
 
 func joinArgs(args []string) string { return strings.Join(args, "|") }
@@ -239,6 +242,49 @@ func TestTrampolineBehaviour(t *testing.T) {
 	}
 	if got := Trampoline("", "ccy"); !strings.Contains(got, "rm -f -- ''") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A launcher that stops because nobody can choose another token for a used-up one did not end
+// a session: the record is kept for the next restore, and the held line says so in words
+// verify-restore reads (fedora-desktop#283). Any other status removes it as before.
+func TestTrampolineKeepsTheRecordOnATokenRefusal(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct {
+		status int
+		kept   bool
+		line   string
+	}{
+		{int(ExitTokenUsedUp), true, "ccy " + screen.TokenUsedUpText + " " + screen.EndedText},
+		{1, false, "ccy exited with status 1. " + screen.EndedText},
+		{int(ExitTokenUsedUp) + 1, false, fmt.Sprintf("ccy exited with status %d. %s", int(ExitTokenUsedUp)+1, screen.EndedText)},
+	} {
+		rec := filepath.Join(dir, fmt.Sprintf("ccy-%d", c.status))
+		if err := os.WriteFile(rec, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+			Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "sh", "-c", fmt.Sprintf("exit %d", c.status)},
+			Stdin: strings.NewReader("\n"),
+		})
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != c.status {
+			t.Fatalf("status %d: the trampoline ended with %v", c.status, err)
+		}
+		if _, statErr := os.Stat(rec); (statErr == nil) != c.kept {
+			t.Errorf("status %d: record kept %v, want %v", c.status, statErr == nil, c.kept)
+		}
+		if got := string(res.Stdout) + string(res.Stderr); got != "\n"+c.line+"\n" {
+			t.Errorf("status %d: printed %q, want %q", c.status, got, "\n"+c.line+"\n")
+		}
+	}
+}
+
+// The token refusal's status is the one the launcher's token check exits with on a launch
+// nobody attends (lib/token-usable.bash).
+func TestExitTokenUsedUpIsTheLaunchersStatus(t *testing.T) {
+	out := bashWithArgs(t, `source "$1"; printf '%s' "$CCY_EXIT_TOKEN_USED_UP"`, filepath.Join(repoRoot(t), "files/var/local/claude-yolo/lib/token-usable.bash"))
+	if out != strconv.Itoa(int(ExitTokenUsedUp)) {
+		t.Fatalf("token-usable.bash says CCY_EXIT_TOKEN_USED_UP=%q, registry says %d", out, ExitTokenUsedUp)
 	}
 }
 

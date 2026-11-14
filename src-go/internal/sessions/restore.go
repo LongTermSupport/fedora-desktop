@@ -62,7 +62,7 @@ func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 		return a.usageError(problem)
 	}
 	if mode == flagCheck {
-		return a.checkRestore()
+		return a.checkRestore(ctx)
 	}
 	if err := a.restoreSessions(ctx, mode == flagDryRun); err != nil {
 		return a.failed(err)
@@ -72,10 +72,11 @@ func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 
 // restorePlan is how one record would be started, or why it cannot be: why is a word from the
 // list above, empty when it can, and sentence says the same to a person. start is
-// conversation.StartPlan's answer.
+// conversation.StartPlan's answer. note is what a restorable record's judgement has to say
+// about it (usage that could not be read).
 type restorePlan struct {
-	why, sentence string
-	start         conversation.Start
+	why, sentence, note string
+	start               conversation.Start
 }
 
 // planRestore decides whether a record can be restored, by the rules the restore starts it by:
@@ -100,15 +101,21 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	return restorePlan{start: start}
 }
 
-// judgeRestore is planRestore with composeUnanswered: whether the next boot can restore the
-// record unattended, as `restore --check` and `declare` judge it.
-func (a *App) judgeRestore(rec registry.Record, file string) restorePlan {
+// judgeRestore is planRestore with composeUnanswered and tokenRefusal: whether the next boot can
+// restore the record unattended, as `restore --check` and `declare` judge it.
+func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string) restorePlan {
 	plan := a.planRestore(rec, file)
-	if plan.why == "" {
-		if unanswered := composeUnanswered(rec, file); unanswered != "" {
-			return restorePlan{why: whyNoComposeAnswer, sentence: unanswered}
-		}
+	if plan.why != "" {
+		return plan
 	}
+	if unanswered := composeUnanswered(rec, file); unanswered != "" {
+		return restorePlan{why: whyNoComposeAnswer, sentence: unanswered}
+	}
+	token := a.tokenRefusal(ctx, rec, file)
+	if token.why != "" {
+		return token
+	}
+	plan.note = token.note
 	return plan
 }
 
@@ -180,7 +187,7 @@ func (a *App) restoreEnabled() bool {
 // cannot be restored or the registry cannot be read. With the restore off, the next boot restores
 // nothing, so there is nothing to judge. The self-update cycle asks this before it warns anyone of
 // a reboot (fedora-desktop#108).
-func (a *App) checkRestore() term.ExitCode {
+func (a *App) checkRestore(ctx context.Context) term.ExitCode {
 	if !a.restoreEnabled() {
 		a.sayf("session restore is off for this user (ccy-sessions-restore.service is not enabled), so the next boot restores no session; nothing to check.\n")
 		return term.ExitOK
@@ -216,12 +223,15 @@ func (a *App) checkRestore() term.ExitCode {
 		if !a.restoreTries(rec) {
 			continue
 		}
-		plan := a.judgeRestore(rec, filepath.Join(regdir, rec.Name))
+		plan := a.judgeRestore(ctx, rec, filepath.Join(regdir, rec.Name))
 		if plan.why != "" {
 			a.fail(rec.Name + " cannot be restored: " + plan.sentence)
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
 			refused = append(refused, rec.Name)
 			continue
+		}
+		if plan.note != "" {
+			a.sayf("%s: %s\n", rec.Name, plan.note)
 		}
 		if plan.start.Fresh {
 			a.sayf("%s will be started fresh (its record is marked fresh-if-no-conversation): %s.\n", rec.Name, plan.start.Why)

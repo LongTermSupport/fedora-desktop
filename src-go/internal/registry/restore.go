@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
@@ -297,16 +298,24 @@ func Supervised(prefix string, args []string) bool {
 	return answer
 }
 
+// ExitTokenUsedUp is the launcher's status when it stops, with nobody to choose another token,
+// because the session's token has no usage left (CCY_EXIT_TOKEN_USED_UP in
+// lib/token-usable.bash). No session started, so the trampoline keeps its record.
+const ExitTokenUsedUp = 88
+
 // Trampoline is the `bash -c` string a session's tmux pane runs. It runs the launcher (the
 // pane's remaining arguments), removes the record the moment the launcher RETURNS (a returned
 // launcher is an ended session, whatever its status) and, on a non-zero status, holds the window
 // so the error can be read. The removal is here and nowhere else, because this is the one place
 // that runs after the session's command and does not run when the session is killed: a reboot
 // kills the pane's bash before it gets here, and the record stays. That asymmetry is the whole
-// feature.
+// feature. The one returned launcher that is not an ended session is ExitTokenUsedUp: its
+// record is kept, and the held line says so (screen.TokenUsedUpText).
 func Trampoline(recordPath, prefix string) string {
-	return `"$@"; rc=$?; rm -f -- ` + shellword.Quote(recordPath) +
-		`; if [ "$rc" -ne 0 ]; then printf '\n` + formatInSingleQuotes(prefix) + ` exited with status %s. ` + screen.EndedText +
+	name := formatInSingleQuotes(prefix)
+	return `"$@"; rc=$?; if [ "$rc" -eq ` + strconv.Itoa(ExitTokenUsedUp) + ` ]; then printf '\n` + name + ` ` + screen.TokenUsedUpText +
+		` ` + screen.EndedText + `\n'; read -r; exit "$rc"; fi; rm -f -- ` + shellword.Quote(recordPath) +
+		`; if [ "$rc" -ne 0 ]; then printf '\n` + name + ` exited with status %s. ` + screen.EndedText +
 		`\n' "$rc"; read -r; fi; exit "$rc"`
 }
 

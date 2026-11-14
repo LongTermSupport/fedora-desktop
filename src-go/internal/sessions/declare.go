@@ -131,9 +131,13 @@ func (a *App) declareSession(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	file := filepath.Join(store.Dir(), rec.Name)
-	if plan := a.judgeRestore(rec, file); plan.why != "" {
+	plan := a.judgeRestore(ctx, rec, file)
+	if plan.why != "" {
 		a.fail("nothing is declared: the boot restore could not start " + rec.Name + " (" + plan.why + "): " + plan.sentence)
 		return term.ExitFailure
+	}
+	if plan.note != "" {
+		a.sayf("%s: %s\n", rec.Name, plan.note)
 	}
 	verdict, err := a.declareInto(ctx, store, rec, req.replace)
 	if err != nil {

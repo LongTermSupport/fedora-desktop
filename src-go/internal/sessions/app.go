@@ -164,6 +164,9 @@ type App struct {
 	Transcripts *transcript.Cache
 	// Closer closes a session from its menu: /compact, then /exit (sessclose).
 	Closer sessclose.Closing
+	// Tokens judges a ccy record's --token as its launch would: the file it starts on and the
+	// usage left on it (restore --check and declare, fedora-desktop#283).
+	Tokens TokenReader
 
 	// Now is the clock. Pause waits d, or until a signal arrives on sig, and reports whether
 	// it was interrupted. Signals starts listening for INT and TERM and returns the channel
@@ -291,6 +294,14 @@ func (a *App) wire() {
 		c.Transcripts, c.Now = a.Transcripts, a.Now
 		c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
 		a.Closer = c
+	}
+	a.wireTokens()
+}
+
+// wireTokens fills the token reader: ccy's own pool and usage reader.
+func (a *App) wireTokens() {
+	if a.Tokens == nil {
+		a.Tokens = a.newLaunchTokens()
 	}
 }
 

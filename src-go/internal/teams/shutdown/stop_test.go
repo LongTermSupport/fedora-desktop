@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -203,6 +204,20 @@ func TestAnEndedWindowIsClosed(t *testing.T) {
 		t.Fatal("the window was left")
 	}
 	m.errHas(t, "ccy-proj: exited cleanly; claude ended and its launcher reported an error, so the window was closed")
+}
+
+// A window held after the launcher's token refusal is an ended launcher too: it is closed
+// (its record stays, which closing does not change; fedora-desktop#283).
+func TestAWindowHeldAfterATokenRefusalIsClosed(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.sessions[0].afterExit = "\nccy " + screen.TokenUsedUpText + " " + screen.EndedText + "\n"
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if !m.killed() {
+		t.Fatal("the window was left")
+	}
 }
 
 // SD14: a seat still held after the session ended fails it.

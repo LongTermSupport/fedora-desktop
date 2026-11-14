@@ -352,8 +352,8 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 	}
 	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
-	case restore.StateDead:
-		c.closeWindow(ctx, j, verdict.Detail)
+	case restore.StateDead, restore.StateNotStarted:
+		c.closeWindow(ctx, j, verdict)
 		return
 	case restore.StateWaitingAtPrompt:
 		if verdict.Detail == composeStop {
@@ -362,7 +362,7 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 		}
 		c.hardStop(ctx, j, "it was at the launcher's "+verdict.Detail+" question, so claude was not running; its tmux session was killed")
 		return
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 	}
 	if err = c.look(ctx, j, pane); err != nil {
 		j.done(Failed, err.Error())
@@ -526,10 +526,12 @@ func (c *Closer) ended(j *job) {
 	j.done(Exited, noteByItself)
 }
 
-// closeWindow closes a pane whose launcher has exited, as its Enter would.
-func (c *Closer) closeWindow(ctx context.Context, j *job, detail string) {
-	if detail != "launcher-exited" {
-		j.done(Failed, "its pane cannot be judged ("+detail+")")
+// closeWindow closes a pane whose launcher has exited, as its Enter would. A launcher that
+// stopped on a used-up token keeps its record (restore.DetailTokenUsedUp), and closing its
+// window does not change that.
+func (c *Closer) closeWindow(ctx context.Context, j *job, verdict restore.Verdict) {
+	if !verdict.Ended() {
+		j.done(Failed, "its pane cannot be judged ("+verdict.Detail+")")
 		return
 	}
 	if err := c.Tmux.KillSession(ctx, j.Name); err != nil && !errors.Is(err, tmuxccy.ErrSessionGone) {

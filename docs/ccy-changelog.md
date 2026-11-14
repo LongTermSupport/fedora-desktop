@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.121.0 — container 2.84.15
+
+- **`ccy-sessions restore --check` judges a ccy record's `--token`** (issue #283), and so do
+  `declare` and the self-update cycle's pre-reboot hold: the record's token is found as the
+  launch finds it and its usage read with the launch's own reader (`ccy-token-usable`'s). A
+  token with no usage left is `UNRESTORABLE token-used-up`, naming the window and when it
+  clears; a token that is gone is `token-missing`, one that has expired `token-expired`, and a
+  usage check that fails (the launch stops on it too) `token-check-failed`. Usage that cannot
+  be read stays `RESTORABLE`, with a note, as the launch starts on it.
+- **A launch that stops on a used-up token with nobody to choose another keeps its record**
+  (issue #283): `ccy_token_usable` exits `CCY_EXIT_TOKEN_USED_UP` (88) there instead of 1, and
+  the pane's trampoline keeps the session's record for that status alone, holding the window
+  on "did not start: its token has no usage left, so its record is kept for the next restore".
+  `verify-restore` reports such a session `NOT-STARTED token-used-up` rather than
+  `DEAD launcher-exited`, and the next restore starts it again once the window clears. The
+  Semgrep rule `ccy-unattended-refusal-status` holds every unattended stop to that status.
+  No image rebuild.
+
 ## 3.120.4 — container 2.84.15
 
 - **The image is rebuilt only when its own source changes** (issue #277): the play keyed the

@@ -222,10 +222,10 @@ func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
 	}
 	verdict := restore.Judge(j.prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
-	case restore.StateDead, restore.StateWaitingAtPrompt:
+	case restore.StateDead, restore.StateWaitingAtPrompt, restore.StateNotStarted:
 		j.fail(j.after("claude is not running in it (" + verdict.Detail + ")"))
 		return
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 	}
 	if err := w.act(ctx, j, screen.ClaudeState(pane)); err != nil {
 		j.fail(j.after(err.Error()))

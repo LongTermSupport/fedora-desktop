@@ -62,7 +62,15 @@ Usage:
                                                   files is UNRESTORABLE no-compose-answer: its
                                                   restore would stop at the compose question
                                                   (the restore still starts it, to be
-                                                  answered in its pane). With restore off there
+                                                  answered in its pane). A ccy record whose
+                                                  --token is gone, has expired, has no usage
+                                                  left, or whose usage check fails is
+                                                  UNRESTORABLE token-missing, token-expired,
+                                                  token-used-up (naming the window and when
+                                                  it clears) or token-check-failed; usage
+                                                  that cannot be read is RESTORABLE, with a
+                                                  note, as the launch starts on it. With
+                                                  restore off there
                                                   is nothing to judge (exit 0). The
                                                   self-update cycle asks this before it warns
                                                   of a reboot, and holds the reboot on exit 1
@@ -80,7 +88,10 @@ Usage:
                                                   "<name> WAITING-AT-PROMPT <which>",
                                                   "<name> DEAD <why>" or
                                                   "<name> NOT-STARTED <why>" (a record the
-                                                  restore could not start); exit 0 only if all
+                                                  restore could not start, or token-used-up:
+                                                  its launch stopped on a token with no usage
+                                                  left, and its record is kept); exit 0 only
+                                                  if all
                                                   are OK. --wait polls until the restore
                                                   has settled (nothing STARTING or
                                                   SETTING-GOING, and the same answer twice

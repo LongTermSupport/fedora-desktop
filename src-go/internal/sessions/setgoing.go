@@ -393,11 +393,12 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 	}
 	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
-	case restore.StateDead:
+	case restore.StateDead, restore.StateNotStarted:
+		// NOT-STARTED here is a pane held after a token refusal (token-used-up): nothing runs.
 		return look{kind: lookDead, detail: verdict.Detail}
 	case restore.StateWaitingAtPrompt:
 		return look{kind: lookWaiting, detail: verdict.Detail}
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing, restore.StateNotStarted:
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 		// The pane is neither dead nor at a prompt; what it is doing is read below.
 	}
 	// A person attached is at the keyboard: whatever they are doing, nothing is typed over it.

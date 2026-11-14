@@ -9,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -105,6 +106,24 @@ func TestVerifyRestoreNamesEachSessionByItsState(t *testing.T) {
 		t.Fatalf("one line per restored session: %q", report)
 	}
 	contains(t, "why", h.stderr(), "Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.")
+}
+
+// fedora-desktop#283: a restored session whose launcher stopped on a used-up token is held on
+// the trampoline's line with its record kept; it is reported NOT-STARTED token-used-up, not DEAD.
+func TestVerifyRestoreReportsATokenRefusalAsNotStarted(t *testing.T) {
+	h := verifyHost(t)
+	writeEntries(t, h, kept("ccy-t", "ccy", "/srv/t"))
+	h.sessions("ccy-t 0 /srv/t")
+	h.tmuxOut("list-panes", "ccy-t 100\n")
+	showScreen(h, "ccy-t", "\nccy "+screen.TokenUsedUpText+" "+screen.EndedText+"\n")
+	report, code := verifyReport(h)
+	if code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	contains(t, "report", report, "ccy-t NOT-STARTED token-used-up")
+	if strings.Contains(report, "DEAD") {
+		t.Fatalf("reported dead: %q", report)
+	}
 }
 
 // fedora-desktop#108: a boot whose restore started nothing, every record having failed, is not

@@ -1551,6 +1551,12 @@ its exit (the scan stops at the first `fi`); an unattended test spelled any othe
 variable `CCY_UNATTENDED_LAUNCH` read directly); and a function that returns non-zero to a
 caller which then exits.
 
+**The wider rule, referred to the owner.** A restart's relaunch runs in the same pane with stdin
+`/dev/null`, so its `ccy_restart_refuse` stops and the `ccy_nobody_to_ask` refusals it reaches
+also exit 1 and lose the record. Widening the rule to those guards waits on the owner's
+decision whether a restart's refusal keeps the record, and under which status
+(fedora-desktop#284).
+
 **How to fix a finding.** Write the guard as an `if ccy_launch_unattended; then ... fi` block
 and exit with `"$CCY_EXIT_TOKEN_USED_UP"` when the stop is the token's usage. A different
 unattended stop needs its own status, kept by the trampoline (Go and bash, pinned to each
