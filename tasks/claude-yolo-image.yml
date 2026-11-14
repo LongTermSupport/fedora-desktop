@@ -9,7 +9,8 @@
 # The build context holds repository files only, copied as they are (issue 235), so a pipeline
 # that stages it from the repository's files can build the image too. What the image needs built
 # from this repository's source (ccy-start-claude, pingbus-status-line, teamchat and the pingbus
-# zipapp) is built by the Dockerfile's builder stage from the commit given as CCY_SOURCE_COMMIT.
+# zipapp) is built by the Dockerfile's builder stage from the commit given as CCY_SOURCE_COMMIT:
+# the last commit that changed the paths image-source-paths lists (issue 277).
 # scripts/test-ccy-container-version-hook.bash fails on any task here that writes anything else
 # into the context where the Dockerfile copies it.
 - name: Create Claude YOLO Base Directory
@@ -59,6 +60,20 @@
   ansible.builtin.copy:
     src: "{{ root_dir }}/vars/fzf-pin.yml"
     dest: /opt/claude-yolo/fzf-pin.yml
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - scripts
+    - dockerfile
+
+# The paths the builder stage takes from the commit it clones, and the paths whose last change
+# names that commit (below): one list for both, so the build's key covers all it builds from.
+- name: Copy the Image's Source Paths into Docker Build Context
+  become: true
+  ansible.builtin.copy:
+    src: "{{ root_dir }}/files/var/local/claude-yolo/image-source-paths"
+    dest: /opt/claude-yolo/image-source-paths
     owner: root
     group: root
     mode: "0644"
@@ -423,22 +438,31 @@
 - name: Read the Launcher's CCY_VERSION for the Image Label
   ansible.builtin.import_tasks: "{{ root_dir }}/tasks/ccy-version.yml"
 
-# The commit the image's builder stage clones (Dockerfile, ccy-builder): this checkout's HEAD, so
-# the image's Go commands and pingbus are built from the source this play deploys. The clone is
-# from GitHub, so HEAD must be pushed or the build fails at the fetch. Written beside the
-# Dockerfile, where no COPY takes it, for the launcher's own rebuilds (lib/common.bash).
-- name: Read the Checkout's Commit for the Image Build
+# The commit the image's builder stage clones (Dockerfile, ccy-builder): the last commit up to
+# this checkout's HEAD that changed a path image-source-paths lists, the only paths the stage
+# takes from it. So the image's Go commands and pingbus are built from the source this play
+# deploys, and the stage, and the image's id, change only when that source does (issue 277): a
+# commit that touches nothing the image is built from keys the build as before. The clone is from
+# GitHub, so HEAD must be pushed or the build fails at the fetch. Written beside the Dockerfile,
+# where no COPY takes it, for the launcher's own rebuilds (lib/common.bash), so the task that
+# writes it reports changed only when the image's source changed.
+- name: Read the Last Commit That Changed the Image's Own Source
   ansible.builtin.command:
-    argv: [git, -C, "{{ root_dir }}", rev-parse, --verify, "HEAD^{commit}"]
+    argv: "{{ ['git', '-C', root_dir, 'log', '-1', '--format=%H', 'HEAD', '--'] + ccy_image_source_paths }}"
+  vars:
+    ccy_image_source_paths: >-
+      {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/image-source-paths').split() }}
   become: false
   changed_when: false
   register: ccy_source_commit
 
-- name: Refuse a Checkout Commit That Is Not a Full Commit Id
+- name: Refuse a Source Commit That Is Not a Full Commit Id
   ansible.builtin.assert:
     that:
       - ccy_source_commit.stdout is match('^[0-9a-f]{40}$')
-    fail_msg: git rev-parse HEAD answered '{{ ccy_source_commit.stdout }}', not a 40-hex commit id.
+    fail_msg: >-
+      git log -1 HEAD -- (the paths of image-source-paths) answered '{{ ccy_source_commit.stdout }}',
+      not a 40-hex commit id: no commit up to HEAD changed those paths, or a listed path does not exist.
     quiet: true
 
 - name: Record the Commit the Image Is Built From

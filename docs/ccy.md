@@ -95,8 +95,9 @@ with `ccy --engine docker`. Podman is strongly preferred — see
 
 The playbook then builds the base image, tagged `claude-yolo:latest`. The build context holds
 repository files only; the image's own Go commands and the pingbus zipapp are built inside the
-build by a builder stage that clones this repository at the checkout's commit, so that commit
-must be pushed first. The commit is recorded in `/opt/claude-yolo/source-commit`, and `ccy`'s
+build by a builder stage that clones this repository at the last commit that changed their
+source, so the checkout must be pushed first. A commit that changes none of that source does
+not rebuild the image. The commit is recorded in `/opt/claude-yolo/source-commit`, and `ccy`'s
 own rebuilds use it too. See [ContainerRules.md](../CLAUDE/ContainerRules.md).
 
 ---

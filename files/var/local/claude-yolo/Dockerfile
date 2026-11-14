@@ -27,11 +27,14 @@ RUN target="$(uname -m)-unknown-linux-musl" \
 # ccy-start-claude, pingbus-status-line and teamchat (Go, src-go/cmd/) and the pingbus zipapp
 # (helpers.pingbus.bundle) are built here, from the public repository cloned at the commit
 # CCY_SOURCE_COMMIT names, so the build context stays the repository's own files and a pipeline
-# that stages them, pinned by checksum, can build this image (issue 235). The play passes its
-# checkout's HEAD and writes it to source-commit for the launcher's rebuilds; a files-only
-# pipeline passes the commit it pins. The commit must be on GitHub (pushed) for the fetch to
-# find it. A new commit changes the ARG, so this stage is built again and the runtime stage
-# takes the new files.
+# that stages them, pinned by checksum, can build this image (issue 235). Only the paths
+# image-source-paths lists are taken from that commit, so a build that reads any other path
+# fails rather than building from a source the key below does not cover. The play passes the
+# last commit that changed one of those paths (git log -1 HEAD -- <paths>), not its checkout's
+# HEAD, and writes it to source-commit for the launcher's rebuilds; a files-only pipeline passes
+# the commit it pins. The commit must be on GitHub (pushed) for the fetch to find it. The ARG
+# changes only when the image's own source does, so a commit that touches nothing the image is
+# built from leaves this stage, and the image's id, as they were (issue 277).
 #
 # The image's tag is the Go toolchain src-go/go.mod pins on its toolchain line; the build fails
 # when they differ (GOTOOLCHAIN=local never downloads another). Go builds for the build's own
@@ -42,6 +45,7 @@ RUN target="$(uname -m)-unknown-linux-musl" \
 FROM golang:1.26.11 AS ccy-builder
 RUN apt-get update && apt-get install -y --no-install-recommends python3 git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+COPY image-source-paths /image-source-paths
 ARG CCY_SOURCE_COMMIT=""
 RUN set -eu; \
     if [ -z "${CCY_SOURCE_COMMIT}" ]; then \
@@ -50,12 +54,17 @@ RUN set -eu; \
     if ! printf '%s\n' "${CCY_SOURCE_COMMIT}" | grep -Eqx '[0-9a-f]{40}'; then \
         echo "CCY_SOURCE_COMMIT='${CCY_SOURCE_COMMIT}' is not a full 40-hex commit id" >&2; exit 1; \
     fi; \
-    git init -q /src; \
-    if ! git -C /src fetch -q --depth 1 https://github.com/LongTermSupport/fedora-desktop.git "${CCY_SOURCE_COMMIT}"; then \
+    git init -q /repo; \
+    if ! git -C /repo fetch -q --depth 1 https://github.com/LongTermSupport/fedora-desktop.git "${CCY_SOURCE_COMMIT}"; then \
         echo "cannot fetch commit ${CCY_SOURCE_COMMIT} from GitHub: is it pushed?" >&2; exit 1; \
     fi; \
-    git -C /src checkout -q --detach FETCH_HEAD; \
-    test "$(git -C /src rev-parse HEAD)" = "${CCY_SOURCE_COMMIT}"
+    test "$(git -C /repo rev-parse FETCH_HEAD)" = "${CCY_SOURCE_COMMIT}"; \
+    paths="$(cat /image-source-paths)"; \
+    if [ -z "${paths}" ]; then echo "image-source-paths lists no path" >&2; exit 1; fi; \
+    git -C /repo archive -o /tmp/source.tar FETCH_HEAD -- ${paths}; \
+    mkdir /src; \
+    tar -xf /tmp/source.tar -C /src; \
+    rm /tmp/source.tar
 WORKDIR /src/src-go
 ENV GOTOOLCHAIN=local GOFLAGS=-mod=vendor CGO_ENABLED=0
 RUN set -eu; \
@@ -64,7 +73,7 @@ RUN set -eu; \
     if [ "${pinned}" != "${have}" ]; then \
         echo "src-go/go.mod pins toolchain '${pinned}', this stage has ${have}: move FROM golang: to it" >&2; exit 1; \
     fi; \
-    digest="$(git -C /src rev-parse HEAD:src-go)"; \
+    digest="$(git -C /repo rev-parse FETCH_HEAD:src-go)"; \
     mkdir -p /out/optional/agent-bus /out/optional/teamchat/bin; \
     go build -trimpath -buildvcs=false -o /out/ccy-start-claude ./cmd/ccy-start-claude; \
     go build -trimpath -buildvcs=false -o /out/optional/agent-bus/pingbus-status-line ./cmd/pingbus-status-line; \
@@ -89,7 +98,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.84.14"
+LABEL claude-yolo-version="2.84.15"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -646,3 +655,7 @@ COPY plugins/phpantom-lsp/ /opt/claude-yolo/plugins/phpantom-lsp/
 # apt/npm/Chromium layers above it. Re-declared because ARGs do not cross stage boundaries.
 ARG DOCKERFILE_HASH="unknown"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
+# The commit the ccy-builder stage built this image's own commands from (issue 235), readable with
+# `podman image inspect`. It changes only when that source does (issue 277).
+ARG CCY_SOURCE_COMMIT=""
+LABEL ccy-source-commit="${CCY_SOURCE_COMMIT}"
