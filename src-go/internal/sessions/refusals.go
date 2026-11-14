@@ -22,6 +22,7 @@ const (
 	whySSHKeyMissing       = "ssh-key-missing"
 	whyNetworkMissing      = "network-missing"
 	whyNetworkCheckFailed  = "network-check-failed"
+	whyEngineUnusable      = "engine-unusable"
 	whyHostNotAllowed      = "host-not-allowed"
 	whyHostCheckFailed     = "host-check-failed"
 	whyPassphraseUnusable  = "passphrase-file-unusable"
@@ -167,25 +168,44 @@ func (a *App) tokenPoolRefusal(file string) restorePlan {
 	return restorePlan{}
 }
 
-// networkRefusal is the launcher's check of a recorded --network: the boot launch's engine (the
-// record's --engine, else podman) is asked for its networks, read-only, and a launch given one
-// it does not list stops ("Network not found"). The caller's CCY_CONTAINER_ENGINE is not read:
-// only a login shell sets it, and the restore unit's launch never has it.
+// bootEngineRequest is the boot launch's engine request: the record's last --engine, else none
+// (podman). The caller's CCY_CONTAINER_ENGINE is not read: only a login shell sets it, and the
+// restore unit's launch never has it.
+func bootEngineRequest(rec registry.Record) engine.Request {
+	var request engine.Request
+	if engines := recordedValues(rec.Args, engine.FlagName); len(engines) > 0 {
+		request.Flag, request.FlagSet = engines[len(engines)-1], true
+	}
+	return request
+}
+
+// engineRefusal is the launcher's choice of a ccy record's container engine (engine.Select): an
+// engine ccy does not know, or one not installed, stops the launch before anything else.
+func (a *App) engineRefusal(rec registry.Record, file string) restorePlan {
+	if rec.Prefix != prefixCcy {
+		return restorePlan{}
+	}
+	if _, err := engine.Select(bootEngineRequest(rec), a.LookPath); err != nil {
+		return restorePlan{why: whyEngineUnusable, sentence: "its container engine cannot be used (" + err.Error() +
+			"), so its launch would stop at once. Install it, or declare it with --engine podman or docker" + keptAt(file)}
+	}
+	return restorePlan{}
+}
+
+// networkRefusal is the launcher's check of a recorded --network: the boot launch's engine
+// (bootEngineRequest) is asked for its networks, read-only, and a launch given one it does not
+// list stops ("Network not found"). engineRefusal has already judged the engine itself.
 func (a *App) networkRefusal(ctx context.Context, rec registry.Record, file string) restorePlan {
 	networks := recordedValues(rec.Args, "--network")
 	if rec.Prefix != prefixCcy || len(networks) == 0 {
 		return restorePlan{}
 	}
 	network := networks[len(networks)-1]
-	var request engine.Request
-	if engines := recordedValues(rec.Args, engine.FlagName); len(engines) > 0 {
-		request.Flag, request.FlagSet = engines[len(engines)-1], true
-	}
 	failed := func(kind string, err error) restorePlan {
 		return restorePlan{why: whyNetworkCheckFailed, sentence: "the " + kind + " networks could not be listed to check its --network " + network +
 			" (" + err.Error() + ")" + keptAt(file)}
 	}
-	choice, err := engine.Select(request, a.LookPath)
+	choice, err := engine.Select(bootEngineRequest(rec), a.LookPath)
 	if err != nil {
 		return failed("container engine's", err)
 	}

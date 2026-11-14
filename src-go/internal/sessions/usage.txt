@@ -76,7 +76,9 @@ Usage:
                                                   ssh-unlock drop-in names) cannot be used
                                                   (passphrase-file-unusable); a ccy record
                                                   whose --ssh-key is not a file
-                                                  (ssh-key-missing), whose --network its
+                                                  (ssh-key-missing), whose container engine
+                                                  ccy does not know or is not installed
+                                                  (engine-unusable), whose --network its
                                                   engine does not list (network-missing; a
                                                   list that cannot be read is
                                                   network-check-failed), or whose project's

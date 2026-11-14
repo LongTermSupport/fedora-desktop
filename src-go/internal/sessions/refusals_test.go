@@ -102,13 +102,27 @@ func TestRestoreCheckRefusesARecordedNetworkThatIsGone(t *testing.T) {
 	ccyRecord(t, h, "ccy-env", dir, "--network", "net")
 	ccyRecord(t, h, "ccy-flag", dir, "--engine", "docker", "--network", "net")
 	ccyRecord(t, h, "ccy-junk", dir, "--engine", "lxc", "--network", "net")
-	checkSays(t, h, 1, "ccy-env UNRESTORABLE network-missing\nccy-flag RESTORABLE\nccy-junk UNRESTORABLE network-check-failed\n")
+	checkSays(t, h, 1, "ccy-env UNRESTORABLE network-missing\nccy-flag RESTORABLE\nccy-junk UNRESTORABLE engine-unusable\n")
+}
+
+// fedora-desktop#284: the boot launch's container engine (the record's --engine, else podman)
+// must be one ccy knows and installed, or the launch stops before anything else; restore
+// --check judges it for every ccy record, with or without a --network, as engine-unusable.
+// cc runs no engine.
+func TestRestoreCheckRefusesARecordWhoseEngineCannotRun(t *testing.T) {
+	h := checkHost(t)
+	dir := realDir(t, h, "p")
+	ccyRecord(t, h, "ccy-junk", dir, "--engine", "lxc")
+	ccyRecord(t, h, "ccy-ok", dir)
+	checkSays(t, h, 1, "ccy-junk UNRESTORABLE engine-unusable\nccy-ok RESTORABLE\n")
+	contains(t, "why", h.stderr(), "ERROR: ccy-junk cannot be restored: its container engine cannot be used (")
 
 	h = checkHost(t)
 	dir = realDir(t, h, "p")
 	h.app.LookPath = func(string) (string, error) { return "", errors.New("not on PATH") }
 	ccyRecord(t, h, "ccy-noengine", dir, "--network", "net")
-	checkSays(t, h, 1, "ccy-noengine UNRESTORABLE network-check-failed\n")
+	ccRecord(t, h, "cc-p", dir)
+	checkSays(t, h, 1, "cc-p RESTORABLE\nccy-noengine UNRESTORABLE engine-unusable\n")
 }
 
 // fedora-desktop#284 item 4: allowed-hostnames that rules this host out (never, or no pattern

@@ -25,6 +25,8 @@ Two version numbers move independently — see
 
   - a recorded `--ssh-key` that is not a file: `UNRESTORABLE ssh-key-missing` (a relative one
     is looked for in the session's folder, where its launch runs);
+  - a boot launch's container engine (the record's `--engine`, else podman) that ccy does not
+    know or that is not installed: `engine-unusable`;
   - a recorded `--network` the boot launch's engine (the record's `--engine`, else podman: the
     restore unit is never given a shell's `CCY_CONTAINER_ENGINE`) does not list:
     `network-missing`. The engine is asked for its network list,

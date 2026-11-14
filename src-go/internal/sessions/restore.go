@@ -122,6 +122,9 @@ func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string
 	if token.why != "" {
 		return token
 	}
+	if unusable := a.engineRefusal(rec, file); unusable.why != "" {
+		return unusable
+	}
 	if network := a.networkRefusal(ctx, rec, file); network.why != "" {
 		return network
 	}
