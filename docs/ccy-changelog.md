@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.121.1 — container 2.84.15
+## 3.121.2 — container 2.84.15
 
 - **`ccy-sessions restore --check` judges a ccy record's `--token`** (issue #283), and so do
   `declare` and the self-update cycle's pre-reboot hold: the record's token is found as the
@@ -35,7 +35,7 @@ Two version numbers move independently — see
   record for 88 alone and holds the window on "did not start: nobody was there to answer, so
   its record is kept for the next restore". `verify-restore` and `set-going` report such a
   session `NOT-STARTED <reason>` (`token-used-up`, `token-select`, `ssh-passphrase-needed`,
-  `restart-budget-spent`, ...) rather than `DEAD launcher-exited`, and the next restore
+  `restart-budget-spent`, `github-probe-unanswered`, ...) rather than `DEAD launcher-exited`, and the next restore
   starts it again. A restart's own faults (relaunch arguments that cannot be built, the
   history directory, the image update) still exit 1. The Semgrep rule
   `ccy-unattended-refusal-status` holds every unattended stop to `ccy_unattended_stop`.

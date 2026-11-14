@@ -37,6 +37,8 @@ source "$PURE_LIB"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../files/var/local/claude-yolo/lib/ssh-handling.bash
 source "$SSH_LIB"
+# shellcheck source=../files/var/local/claude-yolo/lib/unattended-stop.bash
+source "${SSH_LIB%/*}/unattended-stop.bash"
 
 for fn in resolve_github_ssh_alias remote_ssh_host parse_github_owner_repo \
           detect_project_github_alias render_ssh_alias_stanza compose_ssh_alias_exports \
@@ -389,9 +391,12 @@ if [ "$got" = "person" ]; then pass "the ssh-agent sentinel probes through the a
 # that asks before signing, so the probe is bounded there and says why it gave up; an attended
 # launch is not bounded, because a person can confirm.
 start=$SECONDS
+timeout_rc=0
 got=$(CCY_UNATTENDED_LAUNCH=true CCY_UNATTENDED_PROBE_SECONDS=2 STUB_SSH_HANG=30 \
       SSH_AUTH_SOCK="$sock" STUB_GREETING="Hi late! You've successfully authenticated, but GitHub does not provide shell access." \
-      _github_probe_identity ssh-agent github.com 22 2>"$WORK/probe-timeout.err")
+      _github_probe_identity ssh-agent github.com 22 2>"$WORK/probe-timeout.err") || timeout_rc=$?
+# 88 is CCY_EXIT_UNATTENDED_STOP: the caller ends the launch as an unattended stop (#283).
+if [ "$timeout_rc" -eq 88 ]; then pass "unattended: the timeout is the unattended stop's status, 88"; else fail "unattended timeout status $timeout_rc"; fi
 elapsed=$((SECONDS - start))
 if [ -z "$got" ] && [ "$elapsed" -lt 20 ]; then pass "unattended: a probe that never answers gives up (${elapsed}s)"; else fail "unattended hang: got '$got' after ${elapsed}s"; fi
 if grep -q 'no answer' "$WORK/probe-timeout.err"; then pass "…and says it got no answer"; else fail "unattended hang: no reason on stderr"; fi

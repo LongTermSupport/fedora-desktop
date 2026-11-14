@@ -1557,7 +1557,11 @@ defended under Defence Before Fix.
 
 **What it does not see.** An unattended test spelled any other way (`CCY_UNATTENDED_LAUNCH` read
 directly); an `if` nested two deep before the exit; a function that returns non-zero to a caller
-which then exits; a stop for want of a person that names no guard and no refusal call; and `exit`
+which then exits; a stop for want of a person that names no guard and no refusal call (the
+GitHub probe's unattended timeout is one: it is decided inside a command substitution from a
+local variable, so it returns `CCY_EXIT_UNATTENDED_STOP` and its caller in
+`build_ssh_mounts_and_validate` ends the launch with `ccy_unattended_stop
+github-probe-unanswered`, held by `test-ccy-ssh-handling.bash`, not by this rule); and `exit`
 spelled inside a string after `;`, `&` or `|`, which it reads as a command (a false positive to
 reword). A launch fault (a failed image update, an unreadable file) keeps `exit 1`, and the
 trampoline deletes the record as for any ended session.
