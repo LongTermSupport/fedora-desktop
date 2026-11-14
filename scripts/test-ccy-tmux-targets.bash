@@ -323,7 +323,7 @@ report="$(go_tool verify-restore 2>/dev/null)" || rc=$?
 check "verify-restore captures each pane with =name: on real tmux, and names the states" \
     "$NAME OK|$NAME-go SETTING-GOING:1" "${report//$'\n'/|}:$rc"
 rc=0
-CCY_RESTORE_COMPACT_FLOOR_TOKENS=150000 CCY_SESSIONS_SET_GOING_WAIT=10 go_tool set-going 2>/dev/null || rc=$?
+CCY_SESSIONS_SET_GOING_WAIT=10 go_tool set-going 2>/dev/null || rc=$?
 check "set-going types into the pane through =name: and exits 0" "0" "$rc"
 typed=no
 for _ in $(seq 50); do

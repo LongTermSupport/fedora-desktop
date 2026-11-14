@@ -27,6 +27,12 @@ Two version numbers move independently — see
   `COMPACTED-AFTER-TURN`, `NOT-FINISHED`, `SKIPPED`, `FAILED`, each with why); exit 1 if any is
   `NOT-FINISHED` or `FAILED`. The per-session step is `sessclose`'s new `Compact` (`CompactAll`
   for several against one deadline), the same compaction a close does without the `/exit`.
+- **A restored session is never compacted after the reboot** (issue #290). `set-going` types
+  `continue` whatever the context's size: a compaction after a reboot reads the whole context
+  on a cold cache, so it is done before the reboot instead, by `wind-down`. The compact floor
+  (`ccy_restore_compact_floor_tokens`) stays, for `ccy-teams wind-down` only. A transcript with
+  no context size no longer leaves a session untouched (`context-unreadable` is gone), and a
+  `compacting` entry an older set-going wrote is left for verify-restore to judge.
 - **The self-update cycle winds the sessions down before it reboots**, in place of the last
   fixed minute of its countdown: after the one-minute warning it runs
   `ccy-sessions wind-down --wait 600` and reboots when that returns. Past the deadline it

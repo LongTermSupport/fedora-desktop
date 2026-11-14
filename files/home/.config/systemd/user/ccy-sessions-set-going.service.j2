@@ -3,8 +3,8 @@
 Description=Set each ccy and cc session the boot's restore started going, once its prompt has drawn
 Documentation=https://github.com/LongTermSupport/fedora-desktop
 # A session restored with --continue comes back at an empty prompt with a cold prompt cache
-# (fedora-desktop#88). This types its first input: /compact at or above the floor below,
-# continue under it. Pulled in by ccy-sessions-restore.service (its Wants=) and started once
+# (fedora-desktop#88). This types its first input, continue; it never compacts, which is done
+# before the reboot (fedora-desktop#290). Pulled in by ccy-sessions-restore.service (its Wants=) and started once
 # that has written the restore manifest. No [Install]: enabling the restore is the switch.
 # After= without Requires=, deliberately: the restore exits non-zero when ONE record fails
 # (a deleted checkout) after starting all the others, and Requires= would then leave every
@@ -18,6 +18,8 @@ After=ccy-sessions-restore.service
 # to CCY_SESSIONS_SET_GOING_WAIT (20 minutes by default) for prompts to draw, so it must
 # not hold any of them: an exec unit counts as started the moment it runs.
 Type=exec
-# ccy_restore_compact_floor_tokens in host_vars, play-claude-yolo.yml's default otherwise.
+# Not read by set-going: the compact floor ccy-teams wind-down reads from this unit's
+# environment (internal/compactfloor). ccy_restore_compact_floor_tokens in host_vars,
+# play-claude-yolo.yml's default otherwise.
 Environment=CCY_RESTORE_COMPACT_FLOOR_TOKENS={{ ccy_restore_compact_floor }}
 ExecStart=%h/.local/bin/ccy-sessions set-going

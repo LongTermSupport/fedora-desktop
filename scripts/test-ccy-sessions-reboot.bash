@@ -1145,11 +1145,6 @@ check "and says whose" "yes" "$([[ "$why" == *"screen of ccy-b could not be read
 echo ""
 echo "=== set-going: each restored session's first input, once its prompt has drawn (#88) ==="
 # The real tool, the real library, the fake tmux: what is typed is what the log records.
-FLOOR=150000
-# The line the tool types for a compact, read from the tool, so the case drives the constant.
-# A binary has no source to read: the constant is read from its source file instead.
-SET_GOING_COMPACT_EXPECTED="$(awk -F'"' '/^\tsetGoingCompact +=/ { print $2 }' "$REPO_ROOT/src-go/internal/sessions/setgoing.go")"
-check "the compact line is found in the tool" "yes" "$([[ "$SET_GOING_COMPACT_EXPECTED" == "/compact "* ]] && echo yes || echo no)"
 RULE="$(printf '─%.0s' $(seq 1 60))"
 PROMPT_SCREEN="$(printf '%s\n' "  Claude Code" "$RULE" "❯ " "$RULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle)")"
 # set_going [env assignments...] — set-going under the fakes, no waiting and no submit pause;
@@ -1158,7 +1153,7 @@ set_going() {
     : >"$LOG"
     env -u CLAUDE_CONFIG_DIR HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$SCRATCH/state" \
         CCY_BOOT_ID_FILE="$VR/boot_id" CCY_SESSIONS_POLL_SECONDS=0 CCY_SESSIONS_SET_GOING_WAIT=0 \
-        CCY_SESSIONS_SUBMIT_DELAY=0 CCY_RESTORE_COMPACT_FLOOR_TOKENS="$FLOOR" "$@" \
+        CCY_SESSIONS_SUBMIT_DELAY=0 "$@" \
         "$TOOL" set-going </dev/null >"$VR/set-going-out" 2>"$VR/stderr"
     rc=$?
     why="$(cat "$VR/stderr")"
@@ -1193,21 +1188,21 @@ printf 'Found previous launch configuration\n%s \n' "$CCY_PROMPT_QUICK_LAUNCH" >
 set_going
 check "a fault (the exited launcher) fails the run" "1" "$rc"
 check "nothing on stdout" "" "$(cat "$VR/set-going-out")"
-check "at or above the floor: /compact, typed, then Enter on its own" \
-    "send-keys =ccy-a: [literal] $SET_GOING_COMPACT_EXPECTED|send-keys =ccy-a: Enter" \
+check "a big context is not compacted (#290): continue, typed, then Enter on its own" \
+    "send-keys =ccy-a: [literal] continue|send-keys =ccy-a: Enter" \
     "$(grep -F '=ccy-a:' "$LOG" | paste -sd '|')"
-check "below it: continue" "send-keys =cc-c: [literal] continue|send-keys =cc-c: Enter" \
+check "a small one: continue" "send-keys =cc-c: [literal] continue|send-keys =cc-c: Enter" \
     "$(grep -F '=cc-c:' "$LOG" | paste -sd '|')"
 check "a session the restore found running is never typed into" "" "$(grep -F '=ccy-b:' "$LOG")"
 check "nor one whose launcher exited, or that waits at a ccy prompt" "" "$(grep -E '=ccy-(d|w):' "$LOG")"
 check "each left alone is named, with why: the fault, and the prompt handed to a person" "yes" \
     "$([[ "$why" == *"left ccy-d untouched: launcher-exited"* && "$why" == *"left ccy-w alone, as expected: waiting-at-prompt-quick-launch-after-0s; "* && "$why" == *"ERROR: 1 restored session(s) could not be set going: ccy-d (launcher-exited)."* ]] && echo yes || echo "no: $why")"
-check "and each set going says what it typed and why" "yes" \
-    "$([[ "$why" == *"set ccy-a going: compact (context 208525 tokens, compact floor $FLOOR, supervised: yes)"* && "$why" == *"set cc-c going: continue (context 5000 tokens"* ]] && echo yes || echo "no: $why")"
+check "and each set going says what it typed" "yes" \
+    "$([[ "$why" == *"set ccy-a going: continue."* && "$why" == *"set cc-c going: continue."* ]] && echo yes || echo "no: $why")"
 CCY_STATE_DIR="$SCRATCH/state" ccy_restore_manifest_read
-check "the manifest records what each got" "compact|continue|none|untouched|untouched" \
+check "the manifest records what each got" "continue|continue|none|untouched|untouched" \
     "$(IFS='|' && printf '%s' "${RM_GOING[*]}")"
-check "with the context size, or the reason" "208525|5000||launcher-exited|waiting-at-prompt-quick-launch-after-0s" \
+check "with the reason for each left alone" "|||launcher-exited|waiting-at-prompt-quick-launch-after-0s" \
     "$(IFS='|' && printf '%s' "${RM_DETAIL[*]}")"
 check "and the transcript it was read from" "$T_A|$T_C" "${RM_TRANSCRIPT[0]}|${RM_TRANSCRIPT[1]}"
 set_going
@@ -1250,10 +1245,6 @@ check "a pending one keeps it waiting to the end" "ccy-a SETTING-GOING:1:waited"
 # Cases that leave a session alone, each one named.
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "ccy-a 0 $A" >"$SESSIONS"
-set_going CCY_RESTORE_COMPACT_FLOOR_TOKENS=
-check "no floor: nothing typed, the run fails" "1:" "$rc:$(cat "$LOG")"
-check "and says where the floor comes from" "yes" \
-    "$([[ "$why" == *"ccy_restore_compact_floor_tokens"* && "$why" == *"left ccy-a untouched: no-compact-floor"* ]] && echo yes || echo "no: $why")"
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "✻ Thinking… (3s · esc to interrupt)" "$PROMPT_SCREEN" >"$VR/screens/ccy-a"
 set_going
@@ -1281,8 +1272,8 @@ mv "$T_A.away" "$T_A"
 printf '{"type":"user","message":{"content":"hi"}}\n' >"$T_A"
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 set_going
-check "no context size in it: left alone, nothing typed" "1::yes" \
-    "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a untouched: context-unreadable"* ]] && echo yes || echo no)"
+check "no context size in it: its size is not needed, so it is set going" "0:yes" \
+    "$rc:$(grep -qF 'send-keys =ccy-a: [literal] continue' "$LOG" && echo yes || echo no)"
 transcript "$T_A" 208525
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 set_going TEST_SENDKEYS_BROKEN=ccy-a
@@ -1333,8 +1324,8 @@ transcript "$T_A" 5000
 printf '%s\n' "ccy-a 0 $A" >"$SESSIONS"
 manifest_raw this-boot ccy-a ccy "$A" 0a1b-old yes pending "" "" ""
 set_going
-check "a resumed conversation is read from its own transcript: compact on its size" "0:yes" \
-    "$rc:$(grep -qF "send-keys =ccy-a: [literal] $SET_GOING_COMPACT_EXPECTED" "$LOG" && echo yes || echo no)"
+check "a resumed conversation is read from its own transcript, and set going with continue" "0:yes" \
+    "$rc:$(grep -qF "send-keys =ccy-a: [literal] continue" "$LOG" && echo yes || echo no)"
 CCY_STATE_DIR="$SCRATCH/state" ccy_restore_manifest_read
 check "and that is the transcript verify will read" "$T_OLD" "${RM_TRANSCRIPT[0]}"
 manifest_raw this-boot ccy-a ccy "$A" no-such-conversation yes pending "" "" ""
@@ -1342,29 +1333,11 @@ set_going
 check "a resumed conversation that is not there: left alone, not read from the newest" "1::yes" \
     "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a untouched: no-transcript"* ]] && echo yes || echo "no: $why")"
 
-# No supervisor (cc, or ccy --no-supervise): /compact, then continue once the compaction is
-# in the transcript. The boundary is written ahead of the size it left, timed a minute from
-# now, so the run sees the compaction finish on its next look.
+# A compacting entry an older set-going wrote (before fedora-desktop#290) is still judged by verify.
 T_C2="$(ccy_transcript_dir cc "$B" "$HOME_ON/.claude")/conversation.jsonl"
-{
-    printf '{"type":"system","subtype":"compact_boundary","timestamp":"%s","compactMetadata":{"postTokens":9000}}\n' \
-        "$(date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%S.000Z)"
-    printf '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":300000}}}\n'
-} >"$T_C2"
+transcript "$T_C2" 300000
 printf '%s\n' "$PROMPT_SCREEN" >"$VR/screens/cc-c"
 printf '%s\n' "cc-c 0 $B" >"$SESSIONS"
-manifest_full this-boot cc-c cc "$B" pending "" "" ""
-set_going CCY_SESSIONS_SET_GOING_WAIT=5
-check "unsupervised above the floor: /compact, then continue after the compaction" \
-    "0:send-keys =cc-c: [literal] $SET_GOING_COMPACT_EXPECTED|send-keys =cc-c: Enter|send-keys =cc-c: [literal] continue|send-keys =cc-c: Enter" \
-    "$rc:$(paste -sd '|' "$LOG")"
-CCY_STATE_DIR="$SCRATCH/state" ccy_restore_manifest_read
-check "and the manifest ends at continue" "continue" "${RM_GOING[0]}"
-transcript "$T_C2" 300000
-manifest_full this-boot cc-c cc "$B" pending "" "" ""
-set_going
-check "a compaction that does not finish in the time: left alone, named" "1:yes" \
-    "$rc:$([[ "$why" == *"left cc-c untouched: compaction-not-finished-after-0s"* ]] && echo yes || echo "no: $why")"
 manifest_full this-boot cc-c cc "$B" compacting "$EPOCHSECONDS" 300000 "$T_C2"
 took_input "$T_C2"
 printf '%s\n' "cc-c 300" >"$VR/panes"

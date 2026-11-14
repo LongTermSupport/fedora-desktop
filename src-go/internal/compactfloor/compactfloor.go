@@ -1,9 +1,8 @@
-// Package compactfloor is the context size, in tokens, at or above which a session is typed
-// /compact rather than left as it is: by `ccy-sessions set-going` after a reboot (Plan 00135
-// Task 8.2), and by `ccy-teams wind-down` before a shutdown (Plan 00203 Task 3.20). Its one
-// value is play-claude-yolo.yml's ccy_restore_compact_floor, written into the set-going unit's
-// environment; set-going reads it from its own environment, and wind-down asks systemd for that
-// unit's, so the two can never disagree.
+// Package compactfloor is the context size, in tokens, at or above which `ccy-teams wind-down`
+// types /compact into a session before a shutdown (Plan 00203 Task 3.20). Its one value is
+// play-claude-yolo.yml's ccy_restore_compact_floor, written into the set-going unit's
+// environment, which wind-down asks systemd for. set-going never compacts after a reboot
+// (fedora-desktop#290) and does not read it.
 package compactfloor
 
 import (

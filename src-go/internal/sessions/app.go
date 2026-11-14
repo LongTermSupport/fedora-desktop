@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
@@ -69,7 +68,6 @@ type Config struct {
 	// CPUSample is the length of the CPU sample; zero means the shortest possible.
 	CPUSample          time.Duration
 	TakeOverWaitTenths int
-	CompactFloor       compactfloor.Floor
 	PassphraseFile     string
 	BootIDFile         string
 	// ProcStatFile is where this boot's start time (btime) is read; empty means the kernel's.
@@ -80,7 +78,7 @@ type Config struct {
 // one is refused, not guessed.
 func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		CcyLib: getenv("CCY_LIB"), CompactFloor: compactfloor.Parse(getenv(compactfloor.Env)),
+		CcyLib:         getenv("CCY_LIB"),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
 		ProcStatFile: getenv("CCY_PROC_STAT_FILE"), TakeOverWaitTenths: 50,
 	}

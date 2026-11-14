@@ -97,10 +97,9 @@ Usage:
                                                   of a reboot, and holds the reboot on exit 1
   ccy-sessions set-going                          once each session this boot's restore
                                                   started has drawn Claude's prompt, type
-                                                  its first input: /compact when its
-                                                  context is at or above
-                                                  CCY_RESTORE_COMPACT_FLOOR_TOKENS, else
-                                                  continue (the unit after the restore)
+                                                  its first input, continue (the unit
+                                                  after the restore). It never compacts:
+                                                  wind-down does that before the reboot
   ccy-sessions verify-restore [--wait SECONDS]    check every session this boot's restore
                                                   brought up, one line each on stdout:
                                                   "<name> OK", "<name> STARTING",
@@ -179,13 +178,13 @@ container runs.
 
 A restored session comes back at an empty prompt with a cold prompt cache, and would wait
 there for a person. set-going is what starts it: it waits (CCY_SESSIONS_SET_GOING_WAIT
-seconds at most) for each started session's prompt to draw, reads the context size from
-the conversation's transcript (the --resume'd one, else the newest), and types /compact
-(the supervisor's continue-after-compaction then carries a ccy session on; for one with
-no supervisor, set-going types continue once the compaction is in the transcript) or
-continue. One session per conversation is set going: a second sharing it is left alone.
-A session whose prompt never draws, is already busy, has someone attached or text in its
-box, or whose context cannot be read is left alone and named on stderr; the others go on.
+seconds at most) for each started session's prompt to draw, finds the conversation's
+transcript (the --resume'd one, else the newest) and types continue. It never types
+/compact: a compaction after a reboot reads the whole context on a cold cache, so it is
+done before the reboot instead, by wind-down. One session per conversation is set going: a
+second sharing it is left alone. A session whose prompt never draws, is already busy, has
+someone attached or text in its box, or whose transcript cannot be found is left alone and
+named on stderr; the others go on.
 Exit 0 when every one was set going, 1 when any was not. verify-restore
 reports a session that did not take what was typed within CCY_SESSIONS_START_WINDOW
 seconds as NOT-SET-GOING, and one left alone the same way.
