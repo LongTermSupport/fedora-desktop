@@ -84,14 +84,18 @@ Facts read from the tree at the time of planning:
   - [x] ✅ What the supervisor knows of the four idle conditions: an empty input box and a
     running turn, yes (its own busy and composing states). A background task's end, no
     (only starts are recorded), though a background Bash task is a child process of claude in
-    the container. A sub-agent is not a process. A pending bus delivery was not visible from
-    `podman exec` (probe limit).
-  - [x] ✅ How often `on_idle` is called: about every 2 s on an idle session with the plugin
-    loaded. The plugin was disabled ("wedge in on_idle", issue #151) in two of four projects.
+    the container. Whether a sub-agent shows as a process is not established (two child
+    processes named `agent` in one container are unexplained). A pending bus delivery was not
+    visible from `podman exec` (probe limit).
+  - [x] ✅ How often `on_idle` is called: in one of the two projects with the plugin loaded, a
+    plugin hook call (taken to be `on_idle`) ran every 2.00 s through the sample; the other
+    showed none, and neither session's idleness was shown. Re-measure in Task 4.1. The
+    plugin was disabled ("wedge in on_idle", issue #151) in the other two projects.
   - [x] ✅ `--list` leaves out a record with no tmux session, and `notify` neither names it nor
     notes it.
-  - [x] ✅ `<compose> stop` exists in podman-compose 1.5.0 and Docker Compose v5.7.0, and
-    keeps the containers (`down` removes them).
+  - [x] ✅ `<compose> stop` exists in podman-compose 1.5.0 and Docker Compose v5.7.0. That it
+    keeps the containers while `down` removes them is the tools' documented behaviour, not
+    shown by the triage; Task 4.1's acceptance checks it.
 - [x] ✅ **Task 1.2**: Record the triage findings in `JOURNAL/` and update this plan.
 
 ### Phase 2: Owner decisions
