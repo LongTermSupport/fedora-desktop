@@ -8,9 +8,10 @@
 // .semgrep/find-race.yml, given its ArchPin spec the arch-pinned-artefact gate over
 // .semgrep/arch-pin.yml, and given its ArgvLeak spec the secret-in-argv gate over
 // .semgrep/argv-leak.yml, and given its PlaceIssuedToken spec the token-bundle-into-place-issued
-// gate over .semgrep/place-issued-token.yml, and given its BootHold spec the
-// unit-holds-boot-target gate over .semgrep/boot-hold.yml: one rule file, every published file,
-// the same proofs.
+// gate over .semgrep/place-issued-token.yml, given its BootHold spec the
+// unit-holds-boot-target gate over .semgrep/boot-hold.yml, and given its SecretScreen spec the
+// secret-on-normal-screen gate over .semgrep/secret-screen.yml: one rule file, every published
+// file, the same proofs (for a rule file written for several languages, one fixture each).
 package ghscopes
 
 import (
@@ -55,6 +56,9 @@ type Spec struct {
 	ruleName    string
 	finding     string
 	usage       string
+	// moreFixtures are the further fixtures of a rule file written for more than one
+	// language, one per language, each proven as the first is.
+	moreFixtures []string
 	// stillScans names the rows of scripts/qa-trees.tsv this gate scans all the same. Only
 	// `.semgrep`, for gh-scopes, find-race and arch-pin: they scanned the other rules and
 	// fixtures before the table governed them, and narrowing a gate is the owner's call (Q18 of
@@ -129,6 +133,18 @@ var BootHold = Spec{
 	ruleName:    "unit-holds-boot-target",
 	finding:     "write a unit whose long start holds the boot target that wants it",
 	usage:       bootHoldUsageText,
+}
+
+// SecretScreen is the secret-on-normal-screen gate (issues #255 and #261): shell, Python and
+// Ansible rules in one file, each proven against the fixture in its own language.
+var SecretScreen = Spec{
+	short:        "secret-screen",
+	ruleFile:     ".semgrep/secret-screen.yml",
+	fixtureFile:  ".semgrep/secret-screen.bash",
+	moreFixtures: []string{".semgrep/secret-screen.py", ".semgrep/secret-screen.fixture.yml"},
+	ruleName:     "secret-on-normal-screen",
+	finding:      "write a secret to the terminal's normal screen",
+	usage:        secretScreenUsageText,
 }
 
 // Timeouts bound each process.
@@ -227,6 +243,20 @@ fixture.
 Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
 `
 
+const secretScreenUsageText = `usage: qa-secret-screen [--root DIR] [--scripts DIR]
+
+Applies the semgrep rules in .semgrep/secret-screen.yml (a password, token or other secret
+written to a terminal's normal screen, where its scrollback and tmux history keep it: shell,
+Python and Ansible) to every file git would publish, after proving the rules against their
+fixtures, one per language.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
 // options is the parsed command line.
 type options struct {
 	help    bool
@@ -293,6 +323,9 @@ func (s Spec) fail(env Env, err error, usage bool) ExitCode {
 	}
 	return statusAfter(io.WriteString(env.Stderr, text))
 }
+
+// fixtures is every fixture of the rule file, the first first.
+func (s Spec) fixtures() []string { return append([]string{s.fixtureFile}, s.moreFixtures...) }
 
 // statusAfter is the status of a run that could not complete, whether or not its explanation
 // could be written.

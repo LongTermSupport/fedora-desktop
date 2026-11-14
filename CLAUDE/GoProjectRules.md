@@ -81,6 +81,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_inbox_socket_dir`        | a resolver of Claude Code's inbox socket (cc-socks) directory that does not apply Claude Code's own order of places, so it and Claude Code disagree on the socket path                 | teamchat `link`: every hook refused in a ccy session with no `XDG_RUNTIME_DIR` (fedora-desktop#266)                                                                                 |
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
+| `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
@@ -2223,6 +2224,69 @@ cannot stand in for the resolver's environment: `paths.InboxEnv` is a type of it
   tree resolves the directory (the independent search). pingbus takes the socket from Claude
   Code's `CLAUDE_CODE_MESSAGING_SOCKET`.
 
+### project_class_without_detail
+
+**What it is about.** `matrix.Class(err)` is a failed call's class as fixed text, such as "the
+homeserver did not answer usably". A `*matrix.Error` carries more, and the matrix package wrote
+all of it, so it is safe to print (SPEC M9: the method, the path, the status, the errcode and a
+fixed detail, never a token or the server's words). A TLS handshake that failed against the seat's
+pinned CA, a timeout and a refused connection are one class with three details. A line that
+prints the class alone drops the cause an operator acts on.
+
+**Why it exists.** The teamchat link logged `down: the homeserver did not answer usably` once,
+then retried in silence, for a member whose seat did not trust the server's certificate. The
+detail that said so (`TLS verification of <host> failed against the pinned CA sha256:<fp>: ...`)
+was never printed (fedora-desktop#265).
+
+**What it flags**, in every package of both modules except teamchat's `matrix` package, which
+defines the class: a use of `matrix.Class`, whether a call or the function taken as a value. A
+helper that hands the class back is flagged where it calls it. Test files are judged as the code
+is.
+
+**Not flagged**: a use whose value, through parentheses and string concatenation, is a field of a
+literal of a bounded record in `classRecords` (`table.go`, each with its reason). These are
+`status.Problem` (one line of at most 512 bytes, `project_problem_error_text`) and
+`seat.NoticeRecord` (notice.json's `why`, one line, with the failed call returned beside it).
+There the class is what the record holds when the detail cannot be carried. A problem tries the
+cause first when it can (`health`'s `viewProblem`: `matrix.Cause` when it is one line of at most
+512 bytes, the class otherwise). The row cannot tell that fallback from a problem that never
+tried the cause; that is listed under "Not caught".
+
+**How to fix a violation.** Print `matrix.Cause(err)`: the class, then the failed call's own text
+(for an error that is not a homeserver answer, its own text). Keep `matrix.Class` for a bounded
+record only.
+
+- Red, fixture: `testdata/classdetail/src/fix`. `internal/teamchat/badclass` covers the defect's
+  log line, Sprintf, a concatenated error, stderr, a helper returning the class, the function as
+  a value, a record nothing bounds, a comparison inside a bounded record, and a test's log line.
+  The cause, a method named `Class` and the two bounded records (by field and by position) are
+  clean. `internal/teamchat/seat` covers the record by field, by position and through a pointer
+  (all clean), and a variable between the class and the record (judged). `internal/teamchat/matrix`
+  is the class's own package, and `cmd/tool` is a command, which is judged.
+- Red, real tree: thirteen findings, all in teamchat. Twelve are in `member/teamsync`:
+  `teamsync.go` (`stopped`, `down`), `verbs.go`, `receipts.go` (two), `questions.go` (two),
+  `session.go` (four) and `builder.go` (`describe`). The thirteenth is `admin/serveview.go` (the
+  disconnected notice's answer). The independent search found the same thirteen, plus
+  `health/health.go`'s view problem, which the `status.Problem` row hid. That problem carries the
+  hazard: the child's answer, the detail, was available. It is fixed, so the count is fourteen.
+- Green: `matrix.Cause` (tested in `class_test.go`) replaces the class at all thirteen.
+  `describe` printed the class for a failed call and the full text for everything else; it is
+  gone. The view problem names the cause when it fits the record's bound
+  (`TestAViewFailureOfTheHomeserverNamesItsCause`). Found there and fixed with a test:
+  `matrix.Class` called a bare class wrapped (`fmt.Errorf("%w: ...", matrix.ErrUnreachable)`, as
+  admin's viewer wraps the child's answer) "not a homeserver answer". The rule reports nothing
+  over either module, nor in the tagged builds.
+- Wider rule considered and not built: any function that reduces an error to fixed text (an
+  `errors.Is` switch to a word), wherever its value is printed. Recognising such a reducer and
+  following its value to a print needs data flow the rule does not have. In the tree, every
+  reducer whose output reaches a line wraps `matrix.Class` (`describe`), or else sits beside
+  `err.Error()` (`admin`'s `errorClass`, `homeserverClass`).
+- Not caught: a bounded record given the class without first trying the cause; a bounded
+  record's class later printed from its field; a
+  detail dropped by a line that prints no class at all. One example is a refusal that names
+  neither of the values it compared, such as the link's "the inbox socket is not a socket of the
+  session's processes". No rule can say which values a refusal compared, so those are fixed
+  conventionally (fedora-desktop#265's socket refusal).
 ### project_start_decision
 
 **What it is about.** A recorded session is started by the boot restore, judged by
@@ -2964,7 +3028,9 @@ going back to the list the password was still in the scrollback.
 (`agentbus.Client.HumanPassword`, ftp-camera's hotspot passwords, `ui.Lines.Secret`, ccc's token
 readers, teamchat-ctl's admin password and token, vmtest's random token), any method named
 `Reveal` returning a string (how `matrix.Token` and `seat.Secret` hand their value out), or a
-field in `secretFields` (`ccylaunch.export.token`). It is followed through assignments, `+`,
+field in `secretFields` (`ccylaunch.export.token`; `admin.work.doc`, teamchat-admin's member
+answer, whose `bundle` carries the issued credential's secret encoded through `seat.Secret` and
+`proto.Value`, which the rule does not follow). It is followed through assignments, `+`,
 conversions, the `fmt.Sprint*`/`Errorf`, `errors.New` and `strings` functions that keep their
 argument, `String`/`Bytes`/`Error` of a value holding it, a `bytes.Buffer` or `strings.Builder`
 written with it, a field it is stored in (across packages, as a fact), a parameter of a function
@@ -3000,7 +3066,15 @@ token file cannot be read), so the rule would flag code that carries no secret.
   ReportErr of an error holding it, fmt to stderr and stdout, `os.Stdout.WriteString`, a field
   printed in another method, a buffer, a wrapper, `Reveal`; `ftpcamera/banner.go`: a package
   printer and a session field; `ccc/ccc.go`: the tee to an injected stderr and to `os.Stdout`;
-  `good.go` and the screen forms clean; a test file not judged).
+  `good.go` and the screen forms clean; a test file not judged; `teamchat/admin/verbs.go`: the
+  answer document written through the verb's own `answer`, and on the screen clean).
+- Red, issue 261: `teamchat/admin/verbs.go:178`, `teamchat-admin member reissue`/`add`/`return`
+  writing the document holding the issued credential's bundle to stdout, the one finding over
+  the module once `admin.work.doc` joined `secretFields`. Green: `answerIssued` writes the
+  document through `term.SecretScreen`, on the alternate screen and cleared on Enter when it
+  carries a bundle and stdout is a terminal, plainly otherwise (the pipe into
+  `teamchat seat place-issued` unchanged); `TestAnIssuedCredentialOnATerminalLeavesNoCopy`. The
+  sweep over the module and the `busfailpoints` and `tuwunel` tags is clean.
 - Red, real tree: five findings over both modules: `teams/login/login.go:229` (the defect),
   `ftpcamera/server.go:377` (the hotspot's Wi-Fi password in the session banner),
   `ftpcamera/wifipass.go:110` (a new hotspot password printed for the play),

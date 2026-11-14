@@ -437,10 +437,17 @@ func (s *fakeStatus) Remove(context.Context, paths.TeamID) (string, error) { ret
 // verb runs teamchat-admin as root over the world.
 func (w *world) verb(stdin string, args ...string) outcome {
 	w.t.Helper()
+	return w.verbOn(strings.NewReader(stdin), nil, args...)
+}
+
+// verbOn runs teamchat-admin as root over the world with stdin and the terminal seam given; a
+// nil isTerminal is the production default.
+func (w *world) verbOn(stdin io.Reader, isTerminal func(any) bool, args ...string) outcome {
+	w.t.Helper()
 	var stdout, stderr bytes.Buffer
 	code := Run(w.t.Context(), Env{
-		Args: args, Stdin: strings.NewReader(stdin), Stdout: &stdout, Stderr: &stderr,
-		Proc: rootProc(), Digest: digest, Sys: w.sys(),
+		Args: args, Stdin: stdin, Stdout: &stdout, Stderr: &stderr,
+		Proc: rootProc(), Digest: digest, Sys: w.sys(), IsTerminal: isTerminal,
 	})
 	return outcome{code, stdout.String(), stderr.String()}
 }

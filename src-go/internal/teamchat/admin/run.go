@@ -28,7 +28,10 @@ const (
 
 // Env is one run: the arguments after the program name, the streams, the process, the
 // source digest baked into the binary, and the seams the verbs reach: Sys, or when it is nil
-// what Wire builds at the first verb that needs it (WR1; both nil while unwired).
+// what Wire builds at the first verb that needs it (WR1; both nil while unwired). IsTerminal
+// says whether a stream is a terminal (nil: term.FileIsTerminal); a member verb's issued
+// credential is shown on one through term.SecretScreen, and the Enter that clears it is read
+// from Stdin.
 type Env struct {
 	Args           []string
 	Stdin          io.Reader
@@ -37,6 +40,15 @@ type Env struct {
 	Digest         string
 	Sys            *System
 	Wire           func() (*System, error)
+	IsTerminal     func(any) bool
+}
+
+// isTerminal is IsTerminal, or term.FileIsTerminal when it is nil.
+func (e Env) isTerminal(v any) bool {
+	if e.IsTerminal == nil {
+		return term.FileIsTerminal(v)
+	}
+	return e.IsTerminal(v)
 }
 
 // Run is `teamchat-admin`: it finds the verb, decides the caller class, refuses the wrong one

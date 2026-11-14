@@ -41,6 +41,8 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"find-race-negated-stat-test", "issue #152, Defence Before Fix: no find -ignore_readdir_race whose negated stat test matches an entry that vanished during the walk"},
 	{"secret-in-argv", "issue #220, Defence Before Fix: no passphrase, password or other secret on a command line, or rendered by Ansible into one (a shell task's text, environment:)"},
 	{"token-bundle-into-place-issued", "issue #248, Defence Before Fix: no token-credential bundle is piped into seat place-issued, which places only a pool seat's password"},
+	{"secret-on-normal-screen", "issue #261, Defence Before Fix: no password, token or key written to the terminal's normal screen, where its scrollback and tmux history keep it"},
+	{"secret-screen-tests", "issue #261: scripts/secret-screen.bash shows a secret on the alternate screen on a terminal and writes it byte for byte otherwise"},
 	{"unit-holds-boot-target", "issue #263, Defence Before Fix: no systemd unit a boot target wants declares a start longer than 90 s without being ordered after that target"},
 	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"walk-opens-non-regular-file", "issue #191, Defence Before Fix: no Python opens an entry a directory walk found without checking it is a regular file"},

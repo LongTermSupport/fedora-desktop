@@ -48,10 +48,19 @@ mkdir -p "$SRC"
 printf '%s' "$SECRET" >"$SRC/work.$NEW.token"
 printf '%s' "$SECRET" >"$SRC/bad.name.$NEW.token"
 
+# export_token shows the snippet through the Go front's --secret-screen, which off a terminal
+# writes it out byte for byte (its own tests are in src-go/internal/ccylaunch); this stand-in is
+# that half of it.
+FRONT="$WORK/front"
+mkdir -p "$FRONT"
+printf '#!/bin/sh\n[ "$1" = --secret-screen ] && [ "$#" -eq 1 ] && exec cat\nexit 64\n' >"$FRONT/claude-yolo"
+chmod +x "$FRONT/claude-yolo"
+
 SNIPPET="$WORK/import.bash"
 if ! bash -c "
     source '$LIB_DIR/common-pure.bash'
     source '$LIB_DIR/token-management.bash'
+    SCRIPT_DIR='$FRONT'
     export_token '$SRC' work
 " >"$SNIPPET" 2>"$WORK/export-stderr"; then
     echo "FAIL: export_token failed: $(cat "$WORK/export-stderr")" >&2
@@ -117,6 +126,7 @@ RC=0
 bash -c "
     source '$LIB_DIR/common-pure.bash'
     source '$LIB_DIR/token-management.bash'
+    SCRIPT_DIR='$FRONT'
     export_token '$SRC' bad.name
 " >/dev/null 2>"$WORK/bad-stderr" || RC=$?
 check "a name outside letters, digits, _ and - is not exported" "1" "$RC"

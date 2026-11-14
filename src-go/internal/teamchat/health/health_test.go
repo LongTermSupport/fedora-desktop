@@ -754,6 +754,40 @@ func TestAViewFailureNamesItsOwnClass(t *testing.T) {
 	}
 }
 
+// Issue 265: a view the homeserver failed names its cause in the problem (the child's answer, as
+// admin's viewer wraps it), so a TLS pin failure reads apart from a timeout. A cause that would
+// break the record's bound (512 bytes, one line) gives the class alone, and the record is
+// written.
+func TestAViewFailureOfTheHomeserverNamesItsCause(t *testing.T) {
+	const pin = "the view: matrix: GET /x: TLS verification of hs.example.com failed against the pinned CA sha256:ab: unknown authority"
+	what := "the team's rooms could not be read: "
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"the cause": {
+			fmt.Errorf("%w: %s", matrix.ErrUnreachable, pin),
+			what + "the homeserver did not answer usably (matrix: the homeserver did not answer usably: " + pin + ")",
+		},
+		"too long": {
+			fmt.Errorf("%w: %s", matrix.ErrUnreachable, strings.Repeat("x", 500)),
+			what + "the homeserver did not answer usably",
+		},
+		"two lines": {
+			fmt.Errorf("%w: %s", matrix.ErrUnreachable, "a\nb"),
+			what + "the homeserver did not answer usably",
+		},
+	} {
+		w := newWorld(t, "alpha")
+		w.viewer.err = c.err
+		w.run(t)
+		rec := w.record(t, "alpha")
+		if !slices.ContainsFunc(rec.Problems, func(p status.Problem) bool { return p.What == c.want }) {
+			t.Errorf("%s: problems %+v", name, rec.Problems)
+		}
+	}
+}
+
 // HT3, HT6: a view that fails leaves step 6 alone: lxc-online.json is kept as it was, so a run
 // that ended meanwhile is announced once the view is back.
 func TestAViewThatFailsKeepsTheOnlineRecord(t *testing.T) {

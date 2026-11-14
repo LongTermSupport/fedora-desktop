@@ -832,14 +832,12 @@ create_token() {
         --entrypoint claude \
         -e GH_TOKEN \
         "$image_name" \
-        setup-token 2>&1 | tee "$tmp_output"
+        setup-token 2>&1 | tee "$tmp_output" | "$SCRIPT_DIR/claude-yolo" --secret-screen
     docker_exit_code="${PIPESTATUS[0]}"
 
     if [ "$docker_exit_code" -eq 0 ]; then
 
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════"
-        echo ""
+        printf '\n%s\n\n' "════════════════════════════════════════════════════════════════════════════"
 
         # Try to extract token from output
         token=$(grep -o 'sk-ant-oat01-[a-zA-Z0-9_-]\+' "$tmp_output" | head -1)
@@ -871,10 +869,7 @@ create_token() {
                     fi
                 done
 
-                echo ""
-                echo "════════════════════════════════════════════════════════════════════════════"
-                echo "✓ Token created successfully!"
-                echo "════════════════════════════════════════════════════════════════════════════"
+                printf '\n%s\n%s\n%s\n' "════════════════════════════════════════════════════════════════════════════" "✓ Token created successfully!" "════════════════════════════════════════════════════════════════════════════"
             else
                 echo ""
                 print_error "The new token was not saved: the API refused it. Please try creating the token again."
@@ -893,8 +888,9 @@ create_token() {
 
             # Token paste loop with validation and retry
             while true; do
-                echo "Please manually paste the token (starts with sk-ant-oat01-):"
-                read -r -p "Token: " manual_token || [ -n "$manual_token" ] || { echo ""; print_error "No token: the input closed."; rm -f "$tmp_output"; return 1; }
+                echo "Please manually paste the token (starts with sk-ant-oat01-; it is not shown):"
+                read -r -s -p "Token: " manual_token || [ -n "$manual_token" ] || { echo ""; print_error "No token: the input closed."; rm -f "$tmp_output"; return 1; }
+                echo >&2
 
                 # Basic validation: format check
                 if [ -z "$manual_token" ]; then
@@ -1443,18 +1439,17 @@ export_token() {
     fi
 
     # Output a single pasteable command using heredoc. Only the three assignments are
-    # expanded here; the body is quoted, so it runs on the target exactly as written.
-    echo "# CCY Token: $token_name | Expires: $expiry_date | Generated: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "# Paste into terminal on target machine, or save in LastPass/1Password."
-    echo "# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps."
-    cat <<OUTER
+    # expanded here; the body is quoted, so it runs on the target exactly as written. It holds
+    # the token, so on a terminal the front shows it on the alternate screen, cleared on Enter.
+    { printf '# CCY Token: %s | Expires: %s | Generated: %s\n%s\n%s\n' "$token_name" "$expiry_date" "$(date '+%Y-%m-%d %H:%M:%S')" "# Paste into terminal on target machine, or save in LastPass/1Password." \
+        "# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps."
+        cat <<OUTER && cat <<'BODY'; } | "$SCRIPT_DIR/claude-yolo" --secret-screen
 bash <<'CCYTOKEN'
 set -eo pipefail
 name='${token_name}'
 date='${expiry_date}'
 token='${token_content}'
 OUTER
-    cat <<'BODY'
 case "${CCY_TOKEN_IMPORT_REMOVE_OTHERS:-}" in
     "" | 0 | 1) ;;
     *)

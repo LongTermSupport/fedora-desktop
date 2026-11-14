@@ -153,6 +153,12 @@
 //     exited or was stopped, 1 when any failed (a compaction that did not complete leaves its
 //     session running). It is the front's own flag: only CCY_LEGACY hands it over (and the
 //     bash refuses it).
+//   - F24. `--secret-screen` (secretscreen.go, issue #261) copies stdin, which holds a secret,
+//     to stdout through term.SecretScreen: on a terminal the alternate screen, entered at once
+//     so a child's live output stays usable, and left once Enter is read from the terminal
+//     (exit 1 when none can be read, the screen left all the same); not a terminal, the text
+//     byte for byte. Any argument is exit 64. Answered under CCY_LEGACY too: the bash's token
+//     flows pipe a token through it.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -272,8 +278,11 @@ type Front struct {
 	// CreateTemp makes a temporary file (curl's dumped headers and body, D6); os.CreateTemp
 	// when nil.
 	CreateTemp func(dir, pattern string) (*os.File, error)
-	// Stdin is where --build-lock reads its answer (F14); no input when nil.
+	// Stdin is where --build-lock reads its answer (F14) and --secret-screen its text (F24); no
+	// input when nil.
 	Stdin io.Reader
+	// OpenTTY opens the terminal --secret-screen reads its Enter from (F24); /dev/tty when nil.
+	OpenTTY func() (io.ReadCloser, error)
 	// ProcRoot is where processes are looked up (F14); /proc when "".
 	ProcRoot string
 	// Signal sends a signal to a process (F14); syscall.Kill when nil.
@@ -360,9 +369,10 @@ func (f Front) ownFlag(ctx context.Context) (term.ExitCode, bool) {
 	return term.ExitOK, false
 }
 
-// bashQuestions are the questions the bash launcher asks the front (F17-F22), answered under
-// CCY_LEGACY too.
+// bashQuestions are the questions the bash launcher asks the front (F17-F22, F24), answered
+// under CCY_LEGACY too.
 var bashQuestions = map[string]func(Front, context.Context) term.ExitCode{
+	altScreenFlag:      Front.secretScreen,
 	checkTokenFlag:     Front.checkToken,
 	checkNetworkFlag:   Front.checkNetwork,
 	claudeVersionsFlag: Front.claudeVersions,

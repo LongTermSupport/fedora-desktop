@@ -98,12 +98,12 @@ func (s *sess) receipt(ctx context.Context, r state.Receipt) receiptOutcome {
 	case ctx.Err() != nil:
 		return receiptEnd
 	case errors.Is(err, matrix.ErrAuthRefused):
-		t.log.Printf("receipts wait for the next session: %s", matrix.Class(err))
+		t.log.Printf("receipts wait for the next session: %s", matrix.Cause(err))
 		return receiptEnd
 	case never:
 		t.log.Printf("receipt for %s dropped: the roster names no %s room (verified %t)", r.ID, r.Room, verified)
 	case errors.Is(err, matrix.ErrNotFound) || errors.Is(err, matrix.ErrForbidden):
-		t.log.Printf("receipt for %s dropped: it can never be sent (%s)", r.ID, matrix.Class(err))
+		t.log.Printf("receipt for %s dropped: it can never be sent (%s)", r.ID, matrix.Cause(err))
 	case err != nil:
 		return receiptRetry
 	}

@@ -76,6 +76,7 @@ cli = importlib.import_module("helpers.pingbus.cli")
 forge = importlib.import_module("helpers.pingbus.forge")
 limits = importlib.import_module("helpers.pingbus.limits")
 protocol = importlib.import_module("helpers.pingbus.protocol")
+screen = importlib.import_module("helpers.agent_bus.screen")
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -492,6 +493,12 @@ def _room_refusal(path: str) -> int:
     return EXIT_OK
 
 
+def _show_secret(text: str) -> None:
+    """A secret on stdout: the payload when captured; on a terminal, the alternate screen."""
+    sys.stdout.flush()
+    screen.show_secret(text + "\n", sys.stdout.buffer)
+
+
 def _field(path: str, key: str) -> str:
     value = json.loads(_read(path)).get(key)
     if not isinstance(value, str):
@@ -507,7 +514,7 @@ COMMANDS = {
     "member-field": (2, lambda a: print(_field(a[0], a[1]))),
     "handle": (1, lambda a: print(handle_of(_field(a[0], "user_id")))),
     "login-body": (1, lambda a: _print_json(login_body(a[0], sys.stdin.read().removesuffix("\n")))),
-    "access-token": (0, lambda a: print(access_token(_json_stdin()))),
+    "access-token": (0, lambda a: _show_secret(access_token(_json_stdin()))),
     "event-id": (0, lambda a: print(event_id_of(_json_stdin()))),
     "room-path": (1, lambda a: print(room_path(a[0]))),
     "sent-event": (2, lambda a: print(sent_event(_read(a[0]), a[1]))),

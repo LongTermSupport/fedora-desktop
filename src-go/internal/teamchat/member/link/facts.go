@@ -287,17 +287,34 @@ func (s *Session) chain(peer int) ([]int, error) {
 func (s *Session) socketProcess(path string, chain []int) (state.Process, error) {
 	at := slices.IndexFunc(chain, func(p int) bool { return paths.IsInboxSocket(path, p) })
 	if at < 0 {
-		return state.Process{}, refuseFacts(exits.CodeRuntime, msgSocket)
+		return state.Process{}, s.refuseSocket(path, chain)
 	}
 	pid := chain[at]
 	if want, wantErr := paths.InboxSocket(s.d.inbox, pid); wantErr != nil || want != path {
-		return state.Process{}, refuseFacts(exits.CodeRuntime, msgSocket)
+		return state.Process{}, s.refuseSocket(path, chain)
 	}
 	ticks, err := s.d.proc.StartTicks(pid)
 	if err != nil {
 		return state.Process{}, refuseFacts(exits.CodeRuntime, msgChain)
 	}
 	return state.Process{PID: pid, StartTicks: ticks}, nil
+}
+
+// refuseSocket is msgSocket, with what the socket was compared with logged (issue 265): the
+// reported path, the chain from the peer to the session's process, and the socket Claude Code
+// places for each pid on it, so another directory reads apart from a pid off the chain.
+func (s *Session) refuseSocket(path string, chain []int) error {
+	expected := make([]string, 0, len(chain))
+	for _, pid := range chain {
+		want, err := paths.InboxSocket(s.d.inbox, pid)
+		if err != nil {
+			want = "none: " + err.Error()
+		}
+		expected = append(expected, want)
+	}
+	_, logErr := fmt.Fprintf(s.d.log, "link: the inbox socket %q is not a socket of the session's processes: the chain from the peer to the session's process is %v, whose sockets are %q\n",
+		path, chain, expected)
+	return errors.Join(refuseFacts(exits.CodeRuntime, msgSocket), logErr)
 }
 
 // checkTranscript holds the transcript to <claudeDir>/projects/<cwd, every character not a

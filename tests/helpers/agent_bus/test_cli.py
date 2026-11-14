@@ -25,10 +25,11 @@ import tarfile
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import admin, cli, teamfile
+from helpers.agent_bus import admin, cli, screen, teamfile
 from tests.helpers.agent_bus.test_admin import Stubbed, team_data
 from tests.helpers.pingbus import fake_admin_api
 
@@ -248,6 +249,27 @@ class HumanCommandsTest(CliTestCase):
         self.assertEqual(run.text, password + "\n")
         self.assertEqual(self.fake.users[f"@alice:{self.fake.server_name}"].password, password)
         self.assertNotIn(password, run.err)
+
+    def _tty_answering(self, answer: str) -> None:
+        tty = self.root / "tty"
+        tty.write_text(answer, encoding="utf-8")
+        patcher = mock.patch.object(screen, "TTY_PATH", str(tty))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_password_on_a_terminal_is_shown_on_the_alternate_screen(self) -> None:
+        """Issue #261: on a terminal the password leaves no copy in the scrollback."""
+        self._tty_answering("\n")
+        run = self.ok(["human", "password", "team-a", "alice"], stdout=TtyBytes())
+        password = self.fake.users[f"@alice:{self.fake.server_name}"].password
+        self.assertEqual(run.text, screen.ALT_SCREEN_ON + password + "\n" + screen.PROMPT + screen.ALT_SCREEN_OFF)
+
+    def test_password_on_a_terminal_with_no_enter_exits_74(self) -> None:
+        self._tty_answering("")
+        run = self.run_cli(["human", "password", "team-a", "alice"], stdout=TtyBytes())
+        self.assertEqual(run.code, 74)
+        self.assertTrue(run.text.endswith(screen.ALT_SCREEN_OFF))
+        self.assertIn("run human password again", run.err)
 
     def test_a_new_password_says_the_sign_in_limits(self) -> None:
         """Plan 00203 gap 10: a person signing in on several devices after a new password can

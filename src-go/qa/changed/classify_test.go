@@ -1308,6 +1308,37 @@ func TestTheBootHoldGateRunsForTheFilesItGuards(t *testing.T) {
 	}
 }
 
+// The secret-on-normal-screen gate runs whole for a change to a file that can write a secret to
+// a terminal (a shell script or Python file anywhere, a play, task or vars file, a files/ tool or
+// template, a helper, the vault helper) and for its own rules, fixtures (which it covers), wrapper
+// and Go source; not for a document or Go outside the QA module (project_secret_scrollback's).
+func TestTheSecretScreenGateRunsForTheFilesItGuards(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{
+		"files/var/local/claude-yolo/lib/x.bash", "files/home/.local/bin/tool", "playbooks/imports/play-x.yml",
+		"tasks/x.yml", "vars/x.yml", "helpers/agent_bus/cli.py", "vault.bash", "scripts/x.bash",
+		"CLAUDE/Plan/00001-x/check.py", ".semgrep/secret-screen.yml", ".semgrep/secret-screen.bash",
+		".semgrep/secret-screen.py", ".semgrep/secret-screen.fixture.yml", "scripts/qa-secret-screen.bash",
+		"src-go/qa/cmd/qa-secret-screen/main.go",
+	} {
+		w.touch(f, "#!/usr/bin/bash")
+		if p := w.classify([]string{f}); !p.has("secret-screen") {
+			t.Errorf("%s does not run secret-screen: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{".semgrep/secret-screen.yml", ".semgrep/secret-screen.bash", ".semgrep/secret-screen.py", ".semgrep/secret-screen.fixture.yml"} {
+		if p := w.classify([]string{f}); len(p.uncovered) != 0 {
+			t.Errorf("%s is the gate's own data and covered by it: uncovered %v", f, p.uncovered)
+		}
+	}
+	for _, f := range []string{"docs/x.md", "src-go/internal/teamchat/admin/verbs.go"} {
+		w.touch(f, "x")
+		if p := w.classify([]string{f}); p.has("secret-screen") {
+			t.Errorf("%s runs secret-screen: %v", f, keys(p))
+		}
+	}
+}
+
 // The secret-in-argv gate runs whole for a change to any file that can start a process (a shell
 // script anywhere, a play, task or vars file, a files/ tool, a CI workflow, an installer, a
 // helper, Go outside the QA module), deleted ones included, and for its own rules, fixture
