@@ -70,8 +70,8 @@ func TestRestoreCheckRefusesARecordedSSHKeyThatIsGone(t *testing.T) {
 }
 
 // fedora-desktop#284 item 2: a recorded --network the engine does not list stops the launch
-// ("Network not found"), so restore --check asks the record's engine (its --engine, else
-// CCY_CONTAINER_ENGINE, else podman) for its networks, read-only, as the launcher does, and
+// ("Network not found"), so restore --check asks the boot launch's engine (the record's
+// --engine, else podman) for its networks, read-only, as the launcher does, and
 // calls it UNRESTORABLE network-missing. A list that cannot be read is network-check-failed.
 func TestRestoreCheckRefusesARecordedNetworkThatIsGone(t *testing.T) {
 	h := checkHost(t)
@@ -92,13 +92,17 @@ func TestRestoreCheckRefusesARecordedNetworkThatIsGone(t *testing.T) {
 		t.Fatalf("the engine is asked once per record with a --network (%d): %v", n, h.ran())
 	}
 
+	// The caller's CCY_CONTAINER_ENGINE (a login shell's) is not the boot launch's: the restore
+	// unit is not given it, so a record without --engine is judged on podman.
 	h = checkHost(t)
 	dir = realDir(t, h, "p")
 	h.env["CCY_CONTAINER_ENGINE"] = "docker"
 	h.fake.On([]string{"docker", "network", "ls", "--format", "{{.Name}}"}, execx.Result{Stdout: []byte("bridge\nnet\n")})
+	h.fake.On([]string{"podman", "network", "ls", "--format", "{{.Name}}"}, execx.Result{Stdout: []byte("podman\n")})
 	ccyRecord(t, h, "ccy-env", dir, "--network", "net")
+	ccyRecord(t, h, "ccy-flag", dir, "--engine", "docker", "--network", "net")
 	ccyRecord(t, h, "ccy-junk", dir, "--engine", "lxc", "--network", "net")
-	checkSays(t, h, 1, "ccy-env RESTORABLE\nccy-junk UNRESTORABLE network-check-failed\n")
+	checkSays(t, h, 1, "ccy-env UNRESTORABLE network-missing\nccy-flag RESTORABLE\nccy-junk UNRESTORABLE network-check-failed\n")
 
 	h = checkHost(t)
 	dir = realDir(t, h, "p")

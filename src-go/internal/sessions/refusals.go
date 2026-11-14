@@ -159,16 +159,17 @@ func (a *App) tokenPoolRefusal(file string) restorePlan {
 	return restorePlan{}
 }
 
-// networkRefusal is the launcher's check of a recorded --network: the record's engine (its
-// --engine, else CCY_CONTAINER_ENGINE, else podman) is asked for its networks, read-only, and
-// a launch given one it does not list stops ("Network not found").
+// networkRefusal is the launcher's check of a recorded --network: the boot launch's engine (the
+// record's --engine, else podman) is asked for its networks, read-only, and a launch given one
+// it does not list stops ("Network not found"). The caller's CCY_CONTAINER_ENGINE is not read:
+// only a login shell sets it, and the restore unit's launch never has it.
 func (a *App) networkRefusal(ctx context.Context, rec registry.Record, file string) restorePlan {
 	networks := recordedValues(rec.Args, "--network")
 	if rec.Prefix != prefixCcy || len(networks) == 0 {
 		return restorePlan{}
 	}
 	network := networks[len(networks)-1]
-	request := engine.Request{Env: a.Getenv(engine.EnvName)}
+	var request engine.Request
 	if engines := recordedValues(rec.Args, engine.FlagName); len(engines) > 0 {
 		request.Flag, request.FlagSet = engines[len(engines)-1], true
 	}

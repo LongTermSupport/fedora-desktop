@@ -25,8 +25,9 @@ Two version numbers move independently — see
 
   - a recorded `--ssh-key` that is not a file: `UNRESTORABLE ssh-key-missing` (a relative one
     is looked for in the session's folder, where its launch runs);
-  - a recorded `--network` the record's engine (its `--engine`, else `CCY_CONTAINER_ENGINE`,
-    else podman) does not list: `network-missing`. The engine is asked for its network list,
+  - a recorded `--network` the boot launch's engine (the record's `--engine`, else podman: the
+    restore unit is never given a shell's `CCY_CONTAINER_ENGINE`) does not list:
+    `network-missing`. The engine is asked for its network list,
     read-only, as the launcher asks; a list that cannot be read is `network-check-failed`;
   - a project whose `.claude/ccy/allowed-hostnames` rules this host out (`never`, or no
     pattern matching it): `host-not-allowed`, by the launcher's own rule ported to Go
