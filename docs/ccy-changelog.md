@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.121.2 — container 2.84.15
+## 3.121.3 — container 2.84.15
 
 - **`ccy-sessions restore --check` judges a ccy record's `--token`** (issue #283), and so do
   `declare` and the self-update cycle's pre-reboot hold: the record's token is found as the

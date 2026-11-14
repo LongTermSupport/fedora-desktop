@@ -1510,12 +1510,12 @@ build_ssh_mounts_and_validate() {
         # this loop (they recompute the endpoint from it each iteration).
         if [ -z "$detected_user" ] && [ "$i" -eq 0 ] && [ "$key_is_alias" = false ] && [ "${GITHUB_SSH_443:-0}" != "1" ]; then
             local user_443
-            user_443=$(_github_probe_identity "$key" "ssh.github.com" "443")
+            user_443=$(_github_probe_identity "$key" "ssh.github.com" "443") \
+                || [ "$?" -ne "$CCY_EXIT_UNATTENDED_STOP" ] || probe_rc=$CCY_EXIT_UNATTENDED_STOP
             if [ -n "$user_443" ]; then
-                echo ""
-                echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
-                echo "  Port 22 is likely blocked on this network."
-                echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
+                printf '\n%s\n%s\n%s\n' "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)." \
+                    "  Port 22 is likely blocked on this network." \
+                    "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
                 if ccy_github_443_answer; then
                     export GITHUB_SSH_443=1
                     gh_ssh_host="ssh.github.com"
@@ -1535,10 +1535,8 @@ build_ssh_mounts_and_validate() {
                 "the GitHub probe for $key got no answer: an agent that asks before signing needs a person. Load a key that signs without asking"
             if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
                 print_error "None of the ssh-agent's keys authenticates to GitHub ($gh_ssh_host:$gh_ssh_port)"
-                echo ""
-                echo "  ssh-add -l: ${SSH_AGENT_PROBE_OUTPUT}"
-                echo ""
-                echo "Load the key GitHub knows into the agent, or pick a key file instead."
+                printf '\n%s\n\n%s\n' "  ssh-add -l: ${SSH_AGENT_PROBE_OUTPUT}" \
+                    "Load the key GitHub knows into the agent, or pick a key file instead."
                 return 1
             fi
             print_error "SSH key authentication to GitHub failed: $key"

@@ -37,6 +37,7 @@ source "$PURE_LIB"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../files/var/local/claude-yolo/lib/ssh-handling.bash
 source "$SSH_LIB"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../files/var/local/claude-yolo/lib/unattended-stop.bash
 source "${SSH_LIB%/*}/unattended-stop.bash"
 
@@ -88,8 +89,9 @@ case "$mode" in
         if [ -n "${STUB_SSH_ARGV_LOG:-}" ]; then
             printf '%s\n' "$@" >>"$STUB_SSH_ARGV_LOG"
         fi
-        # STUB_SSH_HANG stands in for an agent that asks before it signs and gets no answer.
-        if [ -n "${STUB_SSH_HANG:-}" ]; then
+        # STUB_SSH_HANG stands in for an agent that asks before it signs and gets no answer;
+        # STUB_SSH_HANG_TARGET, when set, hangs only the probe of that target.
+        if [ -n "${STUB_SSH_HANG:-}" ] && [ "${STUB_SSH_HANG_TARGET:-$target}" = "$target" ]; then
             sleep "$STUB_SSH_HANG"
         fi
         printf '%s\n' "${STUB_GREETING:?}" >&2
@@ -870,6 +872,28 @@ if grep -qxF "rc=1" "$WORK/build-fail.result" && grep -qF "message not completed
     pass "a forwarded key that does not authenticate fails, printing the one-key agent's log"
 else
     fail "forwarded key failure: $(tr '\n' ' ' < "$WORK/build-fail.result") / $(tr '\n' ' ' < "$WORK/build-fail.out")"
+fi
+
+# An unattended launch whose GitHub probe gets no answer is an unattended stop (88, its reason
+# written down), so the trampoline keeps the record (#283): here port 22 refuses the key and
+# the 443 fallback is the probe that hangs, so the fallback's status must not be lost.
+(
+    cd "$WORK/norepo" || exit 1
+    command_exists() { command -v "$1" >/dev/null; }
+    SSH_KEYS=("$K_ALPHA")
+    CCY_SELINUX_MODE=off
+    GH_TOKEN=fixture-token
+    export GH_TOKEN
+    CCY_UNATTENDED_LAUNCH=true CCY_UNATTENDED_PROBE_SECONDS=2 STUB_SSH_HANG=30 \
+        STUB_SSH_HANG_TARGET=git@ssh.github.com STUB_GREETING="git@github.com: Permission denied (publickey)." \
+        CCY_UNATTENDED_STOP_FILE="$WORK/stopped/probe" \
+        build_ssh_mounts_and_validate ccy </dev/null > "$WORK/build-stop.out" 2>&1
+) > "$WORK/build-stop.result" 2>&1
+stop_rc=$?
+if [ "$stop_rc" -eq 88 ] && grep -q '^github-probe-unanswered ' "$WORK/stopped/probe"; then
+    pass "an unattended 443 fallback probe with no answer ends the launch as an unattended stop, reason written"
+else
+    fail "unattended probe stop: rc=$stop_rc / $(tr '\n' ' ' < "$WORK/build-stop.out")"
 fi
 
 # ── entrypoint.sh: GitHub host keys from api.github.com/meta ─────────────────

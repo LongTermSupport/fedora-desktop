@@ -56,7 +56,7 @@ files/var/local/claude-yolo/lib/network-management.bash	956	30	1115	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	849	36	870	data
-files/var/local/claude-yolo/lib/ssh-handling.bash	1395	40	1694	-
+files/var/local/claude-yolo/lib/ssh-handling.bash	1393	40	1692	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
 files/var/local/claude-yolo/lib/token-management.bash	1011	27	1080	-
 files/var/local/colours	65	16	65	-
