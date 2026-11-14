@@ -1525,42 +1525,47 @@ satisfy the rule with a literal that restates the engine's default.
 
 ### ccy-unattended-refusal-status
 
-**What it is.** Under `files/var/local/claude-yolo/` and `files/var/local/claude-code/`, a
-launch that stops on its unattended path with any status but `"$CCY_EXIT_TOKEN_USED_UP"`:
-an `exit` inside `if ccy_launch_unattended; then` (or `elif`) up to its `else`, `elif` or
-`fi`; an `exit` on the same line after `ccy_launch_unattended &&`; and, for the short-circuit
-forms `ccy_launch_unattended || ...` and `if ! ccy_launch_unattended`, any `exit` later in the
-same function, because the rule cannot see where their unattended path ends. A Semgrep rule
-in `.semgrep/bash-conventions.yml`, run by `qa-patterns.bash` and proven against
+**What it is.** Under `files/var/local/claude-yolo/` and `files/var/local/claude-code/`, a launch
+that stops on its unattended path any way but `ccy_unattended_stop` (`lib/unattended-stop.bash`):
+an `exit`, or a `return` with a non-zero literal, at command position
+
+- inside an `if` (or `elif`) guarded by `ccy_launch_unattended` or `ccy_nobody_to_ask`, or by a
+  `[ -n "$CCY_RESTART_RELAUNCH_SESSION" ]` test (backslash continuations followed), up to its
+  `else`, `elif` or `fi`, past one level of nested `if ... fi`;
+- after a `ccy_prompt_refuse` or `ccy_restart_refuse` call at command position, up to the next
+  `fi`, `else`, `elif`, `esac`, `;;` or closing brace;
+- on the same line after `ccy_launch_unattended &&`; and, for the short-circuit forms
+  `ccy_launch_unattended || ...` and `if ! ccy_launch_unattended`, anywhere later in the same
+  function, because the rule cannot see where their unattended path ends.
+
+The one exit allowed is `exit "$CCY_EXIT_UNATTENDED_STOP"`, inside `ccy_unattended_stop` itself. A
+Semgrep rule in `.semgrep/bash-conventions.yml`, run by `qa-patterns.bash` and proven against
 `.semgrep/bash-conventions.bash`.
 
 **Why it exists.** A session's tmux pane runs its launcher through the registry's trampoline
-(`registry.Trampoline`, `ccy_registry_trampoline`), which deletes the session's record when
-the launcher returns: a returned launcher is an ended session. A boot restore and a restart
-launch with nobody at the keyboard, and the launch's token usage check stopped there with
-exit 1 when the token's 5-hour or 7-day window was used up. The trampoline read that as an
-ended session and deleted the record, so `verify-restore` said `DEAD launcher-exited` and
-nothing was left for the next restore to start once the window cleared (fedora-desktop#283).
-The trampoline keeps the record for `CCY_EXIT_TOKEN_USED_UP` (88) alone, and `verify-restore`
-reports that pane `NOT-STARTED token-used-up`. Found and defended under Defence Before Fix.
+(`registry.Trampoline`, `ccy_registry_trampoline`), which deletes the session's record when the
+launcher returns: a returned launcher is an ended session. A boot restore and a restart's
+relaunch run with nobody at the keyboard, and the launch stopped there with exit 1 where only a
+person could go on: a token with no usage left, a launch question, a key that needs a
+passphrase, a spent restart budget. The trampoline read each as an ended session and deleted the
+record, so `verify-restore` said `DEAD launcher-exited` and nothing was left for the next restore
+to start (fedora-desktop#283). `ccy_unattended_stop <reason> <sentence>` writes the reason word
+and sentence to the file the trampoline names (`CCY_UNATTENDED_STOP_FILE`, beside the registry in
+`stopped/<session>`, cleared on the next start) and exits `CCY_EXIT_UNATTENDED_STOP` (88), for
+which the trampoline keeps the record; `verify-restore` reports `NOT-STARTED <reason>`. Found and
+defended under Defence Before Fix.
 
-**What it does not see.** A refusal guarded by `ccy_nobody_to_ask` (a headless launch, or
-stdin that is not a terminal), which a restore pane, with a terminal and `--headless` dropped
-from its record, does not reach; an `if ccy_launch_unattended` block with a nested `if` before
-its exit (the scan stops at the first `fi`); an unattended test spelled any other way (the
-variable `CCY_UNATTENDED_LAUNCH` read directly); and a function that returns non-zero to a
-caller which then exits.
+**What it does not see.** An unattended test spelled any other way (`CCY_UNATTENDED_LAUNCH` read
+directly); an `if` nested two deep before the exit; a function that returns non-zero to a caller
+which then exits; a stop for want of a person that names no guard and no refusal call; and `exit`
+spelled inside a string after `;`, `&` or `|`, which it reads as a command (a false positive to
+reword). A launch fault (a failed image update, an unreadable file) keeps `exit 1`, and the
+trampoline deletes the record as for any ended session.
 
-**The wider rule, referred to the owner.** A restart's relaunch runs in the same pane with stdin
-`/dev/null`, so its `ccy_restart_refuse` stops and the `ccy_nobody_to_ask` refusals it reaches
-also exit 1 and lose the record. Widening the rule to those guards waits on the owner's
-decision whether a restart's refusal keeps the record, and under which status
-(fedora-desktop#284).
-
-**How to fix a finding.** Write the guard as an `if ccy_launch_unattended; then ... fi` block
-and exit with `"$CCY_EXIT_TOKEN_USED_UP"` when the stop is the token's usage. A different
-unattended stop needs its own status, kept by the trampoline (Go and bash, pinned to each
-other by `TestTrampolineIsByteIdenticalToBashForPlainPaths`) and named by `restore.Judge`, before this rule allows it.
+**How to fix a finding.** End the path with `ccy_unattended_stop <reason> <sentence>`, after any
+message the site already prints; the reason is one lower-case word with hyphens (the
+`ccy_known_prompts` name for a launch question), the sentence says what a person must do. For a
+restart, pass the session id as a third argument and it names the manual `ccy --resume`.
 
 ### ready-wait-ignores-child-exit
 
