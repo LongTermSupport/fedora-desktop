@@ -93,11 +93,13 @@ func (w *WindDown) compactStep(ctx context.Context, j *job, state screen.State, 
 // back to the queue and the turn passes on (WC4). A host session's context is read again first,
 // as it may have been compacted since it answered.
 func (w *WindDown) takeTurn(ctx context.Context, j *job, state screen.State, now time.Time) error {
-	if state != screen.Ready {
+	switch state {
+	case screen.Busy, screen.Typed, screen.NotDrawn:
 		if !now.Before(j.turnBy) {
 			j.phase, j.passes = phaseQueued, j.passes+1
 		}
 		return nil
+	case screen.Ready:
 	}
 	if !j.lxc && !w.aboveFloor(j) {
 		return nil
@@ -156,8 +158,10 @@ func (w *WindDown) recorded(j *job) bool {
 // is idle again (WC3). The transcript is written after the pane redraws, so a host session idle
 // again with no boundary is given the settle bound for it, its transcript read on every look.
 func (w *WindDown) compacting(ctx context.Context, j *job, state screen.State, now time.Time) error {
-	if state == screen.Typed {
+	switch state {
+	case screen.Typed:
 		return w.reenter(ctx, j, now, j.after("/compact stayed in its input box after a second Enter"))
+	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
 	if j.lxc {
 		if w.idleAgain(j, state, now) {

@@ -115,7 +115,7 @@ func TestExitLeftInTheBoxIsEnteredAgainUpToTheBound(t *testing.T) {
 	if s.enters != tmuxccy.SubmitEnters {
 		t.Fatalf("enters %d, want %d", s.enters, tmuxccy.SubmitEnters)
 	}
-	m.errHas(t, "the typed text stayed in the input box of ccy-proj after 5 Enters; it is still running: attach it (ccy-sessions)")
+	m.errHas(t, `the typed text stayed in the input box of ccy-proj after 5 Enters; its box shows "❯ half a thought"; it is still running: attach it (ccy-sessions)`)
 }
 
 // SD10a: /exit with a background task running brings up claude's "Background work is running"

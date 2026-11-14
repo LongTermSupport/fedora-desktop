@@ -215,7 +215,7 @@ func TestGoalClearStuckInTheBoxStopsTheJob(t *testing.T) {
 	if typed := m.typed(); !slices.Equal(typed, []string{"/goal clear"}) {
 		t.Fatalf("typed %q", typed)
 	}
-	m.errHas(t, "✗ ccy-proj: /goal clear stayed in its input box after 5 Enters; the wind-down was not typed")
+	m.errHas(t, `✗ ccy-proj: /goal clear stayed in its input box after 5 Enters (its box shows "❯ /goal clear"); the wind-down was not typed`)
 }
 
 // W7: the wind-down text stuck in the box fails, saying the goal is already gone.

@@ -36,3 +36,8 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #288: rebuilds and installs ccy 3.121.5's Go commands (ccy-sessions, ccy-teams and the
+# ccy launcher's front), whose typed-line submitter no longer takes a screen with no input box
+# as entered and names what the box showed when a line stays in it. No image rebuild.
+playbooks/imports/play-claude-yolo.yml --tags launchers

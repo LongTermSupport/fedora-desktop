@@ -566,7 +566,12 @@ decision in Plan 00135.
 fedora-desktop#264: the Go `typeInto` submits through `tmuxccy.Tmux.Submit`, which reads the box
 after each Enter and presses Enter again while the text is still there, up to 5 Enters; text that
 never leaves the box leaves the session untouched as `not-submitted` (`not-submitted-after-compaction`),
-a fault that fails the run.
+a fault that fails the run. Amended by fedora-desktop#288: the text has left the box only when the
+box is seen empty or busy (a pane gone counts); a screen with no box is not taken as entered and
+gets no further Enter, and leaves the session untouched as `send-failed`, naming the screen's last
+line; text still in the box is named with the box line and Claude Code's line above it (a line held
+for review, "Removed 1 invisible character · review and press Enter to send", is text still in the
+box, so the next Enter sends it).
 
 `going_set(name, expect, going, at, detail, transcript)` = `ccy_restore_manifest_update(boot, ...)` under the lock: re-read; entry must still be this boot's and still `expect`; set going/at/detail/transcript and rewrite. rc 3 (no longer applies) -> stderr `<name>: its entry in the restore manifest changed while it was being set going (a second restore this boot); that entry stands.`, return 0; other failure -> `ERROR: the restore manifest could not be updated for <name>.`, return 1.
 `leave_alone(name, expect, reason)` (a fault): `FAULTS += "<name> (<reason>)"`, stderr `left <name> untouched: <reason>`, `going_set name expect untouched "" <reason> ""`. (R L1066 asserts `left ccy-d untouched: launcher-exited`.)

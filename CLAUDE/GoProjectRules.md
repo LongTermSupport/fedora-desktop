@@ -2374,6 +2374,14 @@ detail) decides a message, not whether text was taken; the owner decides whether
 - Red, real tree: eight findings, `tmuxccy/submit.go:69` (the defect), `screen/screen.go:94`,
   `sessclose/sessclose.go:390`, `:441` and `:582`, `teams/winddown/compact.go:96` and `:159`,
   and `teams/winddown/windstep.go:296`; the `ccyteamstest` build adds none.
+- Green: every site is an exhaustive switch; the sweep over both modules and the tagged builds
+  is clean. Seven keep their behaviour; Submit takes a box only when it is seen empty or busy,
+  never a screen with no box (`tmuxccy.ErrBoxNotDrawn`, no further Enter), and names what the
+  box showed when it gives up. `screen.TestALineHeldForReviewIsStillTyped` reads two captures
+  of Claude Code 2.1.325 (a line held for review, then sent with the notice left above the empty
+  box); `tmuxccy.TestSubmitEntersALineHeldForReviewAgain` drives Submit through them, and
+  `TestSubmitNamesTheHeldStateWhenItGivesUp`, `TestSubmitDoesNotTakeAScreenWithNoBoxAsTaken` and
+  `TestSubmitStopsAtAScreenThatDrawsNoBox` were red on the old Submit.
 
 ## Defect classes that cannot be a rule
 
@@ -3171,9 +3179,11 @@ submits by a carriage return written to the child's PTY, not tmux: outside this 
 its submits are re-checked by its own state machine (`mark_own_line_typed`, `WOULD_RESUBMIT`).
 
 **How to fix a violation.** Submit with `tmuxccy.Tmux.Submit(ctx, name, text, SubmitPace)`:
-it types the text, pauses, presses Enter, reads the box until the text has left it (a pane
-gone counts as left) and presses Enter again while it has not, up to `SubmitEnters`; text still
-there is `tmuxccy.ErrNotSubmitted`, which the caller reports as a failure, never as taken.
+it types the text, pauses, presses Enter, reads the box until it is seen empty or busy (a pane
+gone counts as left) and presses Enter again while it still holds the text, up to
+`SubmitEnters`; text still there is `tmuxccy.ErrNotSubmitted` (a `*NotSubmittedError` saying
+what the box showed), which the caller reports as a failure, never as taken. A screen with no
+box after an Enter is `tmuxccy.ErrBoxNotDrawn`, never taken (fedora-desktop#288).
 
 **The next wider rule, not built:** any text written into a TUI (a tmux pane or a PTY, in any
 language) and submitted with one unchecked Enter. Not built: its one other instance, the

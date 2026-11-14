@@ -3,6 +3,8 @@ package tmuxccy_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -105,6 +107,112 @@ func TestSubmitTakesASessionGoneAfterTheEnterAsSubmitted(t *testing.T) {
 		if err := newTmux(f).Submit(context.Background(), "alpha", "/exit", pace(&slept)); err != nil {
 			t.Fatalf("%q: got %v", msg, err)
 		}
+	}
+}
+
+// heldScreen is Claude Code holding a typed line back for review (fedora-desktop#288): the line,
+// cleaned, still in the box, its notice above.
+func heldScreen(text string) string {
+	return strings.Join([]string{"● done", "", "   Removed 1 invisible character · review and press Enter to send", boxRule, "❯ " + text, boxRule, ""}, "\n")
+}
+
+// scriptedPane answers the looks from a script of screens, one per look, the last repeated;
+// every Enter is recorded.
+type scriptedPane struct {
+	screens []string
+	looks   int
+	enters  int
+}
+
+func (p *scriptedPane) fake() *execx.Fake {
+	f := &execx.Fake{}
+	f.OnFunc([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=alpha:"}, func(c execx.Cmd) (execx.Result, error) {
+		if !slices.Contains(c.Args, "-l") {
+			p.enters++
+		}
+		return execx.Result{}, nil
+	})
+	f.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane", "-p", "-e", "-t", "=alpha:"}, func(execx.Cmd) (execx.Result, error) {
+		s := p.screens[min(p.looks, len(p.screens)-1)]
+		p.looks++
+		return execx.Result{Stdout: []byte(s)}, nil
+	})
+	return f
+}
+
+// capture is a tmux capture of Claude Code kept in internal/screen's testdata.
+func capture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join("..", "screen", "testdata", name)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// fedora-desktop#288: a line Claude Code held for review is text still to enter, so the next
+// Enter is pressed, and it sends the line. The screens are captures of Claude Code 2.1.325.
+func TestSubmitEntersALineHeldForReviewAgain(t *testing.T) {
+	var slept []time.Duration
+	held := capture(t, "held-for-review.txt")
+	sent := capture(t, "held-for-review-then-sent.txt")
+	p := &scriptedPane{screens: []string{held, held, held, held, held, sent}}
+	if err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept)); err != nil {
+		t.Fatal(err)
+	}
+	if p.enters != 2 {
+		t.Fatalf("pressed Enter %d times, want 2: the held line is entered again", p.enters)
+	}
+}
+
+// Giving up names what the box showed and what Claude Code said above it.
+func TestSubmitNamesTheHeldStateWhenItGivesUp(t *testing.T) {
+	var slept []time.Duration
+	p := &scriptedPane{screens: []string{heldScreen("/compact now")}}
+	err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept))
+	if !errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		t.Fatalf("got %v, want ErrNotSubmitted", err)
+	}
+	for _, want := range []string{
+		"the typed text stayed in the input box of alpha after 5 Enters",
+		`its box shows "❯ /compact now"`,
+		`above it: "Removed 1 invisible character · review and press Enter to send"`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q does not say %q", err, want)
+		}
+	}
+}
+
+// A screen with no input box after the Enter is not proof the line was taken: Submit keeps
+// looking, and a box drawn again decides.
+func TestSubmitDoesNotTakeAScreenWithNoBoxAsTaken(t *testing.T) {
+	var slept []time.Duration
+	redraw := "Resuming…\n"
+	typed := boxScreen("/compact now")
+	p := &scriptedPane{screens: []string{redraw, redraw, typed, typed, typed, boxScreen("")}}
+	if err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept)); err != nil {
+		t.Fatal(err)
+	}
+	if p.enters != 2 {
+		t.Fatalf("pressed Enter %d times, want 2: the box came back with the line in it", p.enters)
+	}
+}
+
+// A screen that keeps no box gets no more Enters, which could answer whatever it shows: Submit
+// says the box was not drawn, with the screen's last line.
+func TestSubmitStopsAtAScreenThatDrawsNoBox(t *testing.T) {
+	var slept []time.Duration
+	p := &scriptedPane{screens: []string{"Do you want to proceed?\n❯ 1. Yes\n  2. No\n"}}
+	err := newTmux(p.fake()).Submit(context.Background(), "alpha", "/compact now", pace(&slept))
+	if !errors.Is(err, tmuxccy.ErrBoxNotDrawn) || errors.Is(err, tmuxccy.ErrNotSubmitted) {
+		t.Fatalf("got %v, want ErrBoxNotDrawn alone", err)
+	}
+	if !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), `"2. No"`) {
+		t.Fatalf("%q does not name the session and the screen", err)
+	}
+	if p.enters != 1 {
+		t.Fatalf("pressed Enter %d times, want 1", p.enters)
 	}
 }
 
