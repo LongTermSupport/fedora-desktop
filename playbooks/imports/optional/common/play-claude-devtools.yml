@@ -64,13 +64,23 @@
         force: false
         # The image is built from this checkout as the login user (CLAUDE/QA.md#root-umask).
         umask: '0022'
-      register: git_clone
+
+    # `images -q` prints nothing (rc 0) for a missing tag, so a first build or a rebuild is told
+    # apart from a full cache hit by comparing the image ID before and after the build.
+    - name: Read claude-devtools Image ID Before Build
+      ansible.builtin.command: "{{ container_engine }} images -q {{ ccdt_image }}:latest"
+      register: ccdt_image_id_before
+      changed_when: false
 
     - name: Build claude-devtools Container Image
       ansible.builtin.command: >
         {{ container_engine }} build -t {{ ccdt_image }}:latest {{ ccdt_src_dir }}
-      register: image_build
-      changed_when: git_clone.changed or image_build.rc == 0
+      changed_when: false
+
+    - name: Detect Whether claude-devtools Image Was Rebuilt
+      ansible.builtin.command: "{{ container_engine }} images -q {{ ccdt_image }}:latest"
+      register: ccdt_image_id_after
+      changed_when: ccdt_image_id_after.stdout != ccdt_image_id_before.stdout
 
     - name: Ensure ~/.local/bin Directory Exists
       ansible.builtin.file:
