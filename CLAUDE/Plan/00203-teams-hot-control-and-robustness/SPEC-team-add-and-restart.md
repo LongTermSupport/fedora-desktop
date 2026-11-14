@@ -177,8 +177,11 @@ stale seat after a crash: take it over.
   folder gone: ✗. The job is done when every seat it names is held.
 - B7. Every request and start is made first, then all are waited for together: a restart in
   place within 300 s, a start within 180 s. A restart in place not done in time withdraws its
-  request (so it does not restart later, unasked) and is ✗; a start not holding its seats is
-  ✗ ("it may be waiting at a question: attach it, ccy-sessions").
+  request (so it does not restart later, unasked) and is ✗. A start not holding its seats has
+  its pane read as verify-restore reads it (`restore.Judge`, fedora-desktop#284): a launcher
+  that stopped where nobody could answer is ✗ at once with `NOT-STARTED <reason>` and the
+  sentence of its stop file, one that returned is ✗ at once as exited, and one not holding its
+  seats in time is ✗ naming the question it waits at, or saying its screen shows none ccy knows.
 - B8. Before anything is done the plan is shown, one line per session and per member left
   out, and a question is asked, default no; with no terminal, `--yes` is required (exit 64).
 - B9. The result is one line per session (✓ done, ✗ failed with why, - left as it is) and per

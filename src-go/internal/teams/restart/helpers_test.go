@@ -31,6 +31,9 @@ type session struct {
 	holdsOnStart bool
 	// containerGone is a live tmux session whose container is not running.
 	containerGone bool
+	// pane is what its tmux pane shows; paneGone makes reading it fail.
+	pane     string
+	paneGone bool
 }
 
 // machine is teamtest's populated world, with ccy-proj on seat 1 of alpha running in a
@@ -157,6 +160,13 @@ func (m *machine) fakeTmux() {
 			}
 		}
 		return execx.Result{Stdout: []byte(b.String())}, nil
+	})
+	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane"}, func(c execx.Cmd) (execx.Result, error) {
+		s := m.find(strings.Trim(c.Args[len(c.Args)-1], "=:"))
+		if s == nil || s.paneGone {
+			return execx.Result{ExitCode: 1, Stderr: []byte("can't find pane")}, nil
+		}
+		return execx.Result{Stdout: []byte(s.pane)}, nil
 	})
 	m.Fake.OnFunc([]string{"systemd-escape"}, func(c execx.Cmd) (execx.Result, error) {
 		return execx.Result{Stdout: []byte(c.Args[len(c.Args)-1] + "\n")}, nil

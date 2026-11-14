@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -181,6 +182,10 @@ type App struct {
 	InContainer func() bool
 	Executable  func(path string) bool
 	Getuid      func() int
+	// Hostname is this host's name, as `hostname` prints it; LookPath finds a program on PATH.
+	// restore --check asks them as a ccy launch would (fedora-desktop#284).
+	Hostname func() (string, error)
+	LookPath func(string) (string, error)
 
 	cfg      Config
 	writeErr error // the first failed write to Stdout through out
@@ -327,6 +332,12 @@ func (a *App) wireSeams() {
 	}
 	if a.Getuid == nil {
 		a.Getuid = os.Geteuid
+	}
+	if a.Hostname == nil {
+		a.Hostname = os.Hostname
+	}
+	if a.LookPath == nil {
+		a.LookPath = exec.LookPath
 	}
 }
 

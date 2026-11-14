@@ -361,7 +361,15 @@ failed) is written into the boot's manifest as not started, so `verify-restore` 
 `NOT-STARTED <why>` and exits 1, even when no session came back at all.
 `ccy-sessions restore --check` judges every record the next boot would restore, live
 sessions included, and starts nothing: `<name> RESTORABLE` or `<name> UNRESTORABLE <why>`,
-exit 1 if any cannot be restored. The unattended self-update cycle runs it after its plays
+exit 1 if any cannot be restored. It refuses what a launch would refuse from files or one
+read-only question to the container engine: a record whose conversation or directory is gone,
+a compose question with no recorded answer, a ccy `--token` that is gone, expired or used up,
+an `--ssh-key` that is not a file, a `--network` the engine does not list, a project whose
+`allowed-hostnames` rules this host out, a cc token pool that has all expired, and a restore
+passphrase file that cannot be used (every record). It does not judge what only a probe at
+boot can tell (a `--teams` seat held elsewhere, the boot network preflight, GitHub, claude's
+flag check): a launch stopped by one of those keeps its record and `verify-restore` names it.
+`ccy-sessions --help` lists each `<why>` word. The unattended self-update cycle runs it after its plays
 and before it warns anyone: on exit 1 it reboots nothing, records and announces
 `unrestorable-sessions` (Slack, when configured), and asks again at its next run, with the
 reboot still owed. A session started before the restore recorded conversations has to be

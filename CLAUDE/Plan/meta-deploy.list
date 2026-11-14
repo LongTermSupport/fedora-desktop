@@ -36,3 +36,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #284: ccy 3.121.5, container 2.84.16 (no image rebuild). Installs the launcher and
+# rebuilds ccy-sessions and ccy-teams: restore --check (and declare, and the self-update
+# reboot hold) now also refuses a gone --ssh-key or --network, an allowed-hostnames that rules
+# this host out, an unusable restore passphrase file and an all-expired cc token pool; and
+# ccy-teams restart names a refused start instead of "may be waiting at a question".
+# Afterwards run `ccy-sessions restore --check` and report its lines.
+playbooks/imports/play-claude-yolo.yml

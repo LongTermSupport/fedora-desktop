@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -204,21 +206,72 @@ func TestAStoppedSessionWithNoRecordedConversationIsNotStarted(t *testing.T) {
 	)
 }
 
-// B7: a started session whose seat is not held in time fails, with where to look.
+// B7: a started session whose seat is not held in time fails, with where to look: its pane is
+// read (restore.Judge) to say whether it waits at a question ccy knows.
 func TestAStartedSessionNotHoldingItsSeatInTimeFails(t *testing.T) {
+	for _, c := range []struct{ pane, want string }{
+		{"Building the image...\n", "✗ ccy-proj: started, but seat 1@alpha is not held 180 s after, and its screen shows no question ccy knows; attach it (ccy-sessions)"},
+		{"Found previous launch configuration\nUse same configuration? [Y/n] \n\n", "✗ ccy-proj: started, but seat 1@alpha is not held 180 s after: it is waiting at the question quick-launch; attach it (ccy-sessions)"},
+	} {
+		m := newMachine(t)
+		m.noLxc()
+		s := m.find("ccy-proj")
+		m.stop(s)
+		s.holdsOnStart, s.pane = false, c.pane
+		start := m.now
+		if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+			t.Fatalf("exit %d", got)
+		}
+		if waited := m.now.Sub(start); waited < 180*time.Second || waited > 182*time.Second {
+			t.Fatalf("waited %v, want 180 s", waited)
+		}
+		m.errHas(t, c.want)
+	}
+}
+
+// fedora-desktop#284: a started session whose launcher stopped where nobody could answer is held
+// on the trampoline's line with its record kept; restart says so at once, with the reason its
+// launcher wrote (NOT-STARTED <reason>, as verify-restore says it), not "waiting at a question".
+// A launcher that returned is said to have exited.
+func TestAStartedSessionThatWasRefusedIsSaidToHaveNotStarted(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
 	s := m.find("ccy-proj")
 	m.stop(s)
 	s.holdsOnStart = false
+	s.pane = "ERROR: the token is used up\n\nccy " + screen.UnattendedStopText + " " + screen.EndedText + "\n"
+	teamtest.MustWrite(t, registry.StopFile(filepath.Join(m.Root, "home/.local/state/ccy/sessions"), "ccy-proj"),
+		"token-used-up its token work has no usage left: check again once it clears\n")
 	start := m.now
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	if waited := m.now.Sub(start); waited < 180*time.Second || waited > 182*time.Second {
-		t.Fatalf("waited %v, want 180 s", waited)
+	if waited := m.now.Sub(start); waited > 2*time.Second {
+		t.Fatalf("waited %v for a refusal its pane already showed", waited)
 	}
-	m.errHas(t, "✗ ccy-proj: started, but seat 1@alpha is not held 180 s after: it may be waiting at a question; attach it (ccy-sessions)")
+	m.errHas(t, "✗ ccy-proj: started, but it did not start: NOT-STARTED token-used-up: its token work has no usage left: check again once it clears; its record is kept")
+	m.errLacks(t, "question")
+
+	m = newMachine(t)
+	m.noLxc()
+	s = m.find("ccy-proj")
+	m.stop(s)
+	s.holdsOnStart = false
+	s.pane = "ccy exited with status 1. " + screen.EndedText + "\n"
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	m.errHas(t, "✗ ccy-proj: started, but its launcher exited before taking seat 1@alpha (DEAD launcher-exited); attach it to read why (ccy-sessions)")
+
+	m = newMachine(t)
+	m.noLxc()
+	s = m.find("ccy-proj")
+	m.stop(s)
+	s.holdsOnStart, s.paneGone = false, true
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	m.errHas(t, "✗ ccy-proj: started, but the screen of ccy-proj could not be read")
 }
 
 // A ccy session without the supervisor cannot be restarted in place.

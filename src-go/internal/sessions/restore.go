@@ -101,12 +101,18 @@ func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	return restorePlan{start: start}
 }
 
-// judgeRestore is planRestore with composeUnanswered and tokenRefusal: whether the next boot can
-// restore the record unattended, as `restore --check` and `declare` judge it.
+// judgeRestore is planRestore with the refusals a launch would meet before its session starts
+// (launchRefusal, composeUnanswered, tokenRefusal, networkRefusal): whether the next boot can
+// restore the record unattended, as `restore --check` and `declare` judge it. What only a probe
+// at boot can tell (a seat held elsewhere, the network preflight, GitHub, claude's flag check)
+// is not judged: a launch stopped by one keeps its record and verify-restore names it.
 func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string) restorePlan {
 	plan := a.planRestore(rec, file)
 	if plan.why != "" {
 		return plan
+	}
+	if refusal := a.launchRefusal(rec, file); refusal.why != "" {
+		return refusal
 	}
 	if unanswered := composeUnanswered(rec, file); unanswered != "" {
 		return restorePlan{why: whyNoComposeAnswer, sentence: unanswered}
@@ -114,6 +120,9 @@ func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string
 	token := a.tokenRefusal(ctx, rec, file)
 	if token.why != "" {
 		return token
+	}
+	if network := a.networkRefusal(ctx, rec, file); network.why != "" {
+		return network
 	}
 	plan.note = token.note
 	return plan
@@ -298,9 +307,12 @@ func (a *App) restoreSessions(ctx context.Context, dryRun bool) error {
 		a.failErr(err)
 		return errReported
 	}
-	if passphrase != "" && !a.passphraseUsable(passphrase) {
-		a.fail("nothing is restored: every ccy session would stop at its SSH key passphrase prompt.")
-		return errReported
+	if passphrase != "" {
+		if problem := a.passphraseProblem(passphrase); problem != "" {
+			a.fail(problem)
+			a.fail("nothing is restored: every ccy session would stop at its SSH key passphrase prompt.")
+			return errReported
+		}
 	}
 	regdir, err := registry.Dir(a.Getenv)
 	if err != nil {
@@ -474,35 +486,30 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 	r.entries = append(r.entries, entry)
 }
 
-// passphraseUsable says whether file is a usable SSH key passphrase file for a restore: a
-// regular file, owned by this user, readable by nobody else, not empty. It says why not on
-// stderr. A session that went ahead without it would stop at ssh-add's passphrase prompt with
-// nobody to answer.
-func (a *App) passphraseUsable(file string) bool {
+// passphraseProblem is why file is not a usable SSH key passphrase file for a restore, or "": it
+// must be a regular file, owned by this user, readable by nobody else, not empty. A session
+// that went ahead without it would stop at ssh-add's passphrase prompt with nobody to answer.
+// Its contents are never read into this process.
+func (a *App) passphraseProblem(file string) string {
 	info, err := os.Stat(file)
 	if err != nil || !info.Mode().IsRegular() {
-		a.fail("the SSH key passphrase file for session restore is missing: " + file + ". " + unlockFileFix)
-		return false
+		return "the SSH key passphrase file for session restore is missing: " + file + ". " + unlockFileFix
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		a.fail("could not read the owner and mode of the session-restore passphrase file " + file + ".")
-		return false
+		return "could not read the owner and mode of the session-restore passphrase file " + file + "."
 	}
 	if int(stat.Uid) != a.Getuid() {
-		a.fail(fmt.Sprintf("the session-restore passphrase file %s is owned by uid %d, not by you. %s", file, stat.Uid, unlockFileFix))
-		return false
+		return fmt.Sprintf("the session-restore passphrase file %s is owned by uid %d, not by you. %s", file, stat.Uid, unlockFileFix)
 	}
 	const permissionBits = 0o7777
 	if mode := fmt.Sprintf("%o", stat.Mode&permissionBits); mode != "600" && mode != "400" {
-		a.fail(fmt.Sprintf("the session-restore passphrase file %s has mode %s; it must be readable by you alone (600). %s", file, mode, unlockFileFix))
-		return false
+		return fmt.Sprintf("the session-restore passphrase file %s has mode %s; it must be readable by you alone (600). %s", file, mode, unlockFileFix)
 	}
 	if !readable(file) || info.Size() == 0 {
-		a.fail("the session-restore passphrase file " + file + " is unreadable or empty. " + unlockFileFix)
-		return false
+		return "the session-restore passphrase file " + file + " is unreadable or empty. " + unlockFileFix
 	}
-	return true
+	return ""
 }
 
 // readable reports whether the file can be opened for reading.
