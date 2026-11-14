@@ -1,6 +1,6 @@
 # Plan 00256: ccy session idle stand-down
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: Medium
