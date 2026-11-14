@@ -805,7 +805,8 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 	return names, nil
 }
 
-// scanPlayUX runs the six rules, command-always-changed, install-guard-trusts-record and
+// scanPlayUX runs the six rules, command-always-changed, changed-when-on-success,
+// install-guard-trusts-record and
 // filter-list-unchecked over each YAML file under dirs
 // (roles/vendor skipped), then duplicate-managed-block, scratch-always-changed and
 // image-build-arg-volatile over all of them together.
@@ -829,6 +830,7 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 			found := playUX(rel, data, repoVars)
 			if !slices.ContainsFunc(found, func(v string) bool { return strings.Contains(v, ": cannot be parsed as YAML") }) {
 				found = append(found, commandAlwaysChanged(rel, data)...)
+				found = append(found, changedWhenOnSuccess(rel, data)...)
 				found = append(found, installGuardTrustsRecord(rel, data)...)
 				found = append(found, filterListUnchecked(rel, data, repoVars)...)
 			}
