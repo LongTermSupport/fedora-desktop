@@ -8,7 +8,13 @@
 #     vars:
 #       flatpak_app_id: org.example.Foo
 #       flatpak_remote: flathub          # optional, default flathub
+#       flatpak_update: true             # optional, default false: update it on every run
 #     tags: [foo]
+#
+# flatpak_update is for an app whose fixes are wanted as soon as they ship (Lightning, Plan
+# 00254): `state: present` leaves an installed app at whatever version it has. The module's own
+# `state: latest` reports changed on every run, which would break a changed=0 proof run, so the
+# update is `flatpak update`, changed only when it updated something.
 #
 # Why the check: Flathub keeps old IDs as redirects to a renamed app, so installing a stale ID
 # succeeds and installs the app under its current ID. The play then reports success on a
@@ -39,3 +45,11 @@
       Flatpak {{ flatpak_app_id }} installed but `flatpak info {{ flatpak_app_id }}` does not
       find it, so the ID is not the app's current ID on the remote (the remote redirected
       it to a renamed app). Find the current ID with `flatpak list --app` and put it in the play.
+
+- name: "Update Flatpak {{ flatpak_app_id }} to the remote's latest"
+  become: true
+  ansible.builtin.command:
+    argv: [flatpak, update, --system, --noninteractive, "{{ flatpak_app_id }}"]
+  register: flatpak_update_run
+  changed_when: "'Nothing to do' not in flatpak_update_run.stdout"
+  when: flatpak_update | default(false) | bool

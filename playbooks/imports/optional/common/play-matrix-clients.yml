@@ -57,10 +57,13 @@
     # panel; on trial as an alternative to Element Desktop. Its TLS is rustls, not NSS, so a team
     # CA reaches it through SSL_CERT_DIR instead: play-agent-bus-element.yml (tag
     # agent-bus-lightning, tasks/lightning-team-ca.yml) places it and proves it from the sandbox.
+    # Updated on every run, not pinned (Plan 00254 D1): upstream fixes what we report quickly
+    # and ships through Flathub, so each run takes the latest release.
     - name: Install Lightning
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/flatpak-install.yml"
       vars:
         flatpak_app_id: org.lightning_matrix.Lightning
+        flatpak_update: true
       tags: [lightning]
 
     # The same tasks play-agent-bus-element.yml imports: ccy-teams runs that play on its own.

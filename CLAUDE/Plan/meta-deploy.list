@@ -36,3 +36,8 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00254 D1: Lightning is brought to Flathub's latest release on every run, changed only
+# when it was updated. No release carries our upstream fixes yet, so this run should report no
+# change for Lightning; it proves the new step on the host.
+playbooks/imports/optional/common/play-matrix-clients.yml --tags lightning
