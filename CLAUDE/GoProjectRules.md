@@ -2347,18 +2347,21 @@ Code draws more screens than the reader knows: a line held for review, a redraw,
 external editor. A verdict asked as `state != screen.Typed` (or `== screen.Ready`, its else
 being the verdict) puts every other state, any the reader does not know included, on one side.
 
-**Why it exists.** fedora-desktop#288: `tmuxccy.Submit` judged set-going's `/compact` taken
-because the box was not seen typed (`ClaudeState(pane) != screen.Typed`); the line stayed in the
-box, held by Claude Code ("Removed 1 invisible character · review and press Enter to send"),
-and a person's Enter sent it.
+**Why it exists.** fedora-desktop#288: set-going's `/compact` stayed in the box, held by Claude
+Code ("Removed 1 invisible character · review and press Enter to send"), and a person's Enter
+sent it. How it got past `tmuxccy.Submit` is not established: a held line reads `Typed`, which
+the check entered again. What is proven is the check's shape: `ClaudeState(pane) != screen.Typed`
+took every screen it did not read as typed, one with no box drawn included, as taken.
 
 **What it flags**, outside test files and inside package `screen` too: an `==` or `!=`
 comparison with an operand of type `internal/screen`'s `State`, matched through `types.Info`.
 A `switch` over a `State` is the exhaustive linter's (`.golangci.yml`): a missing member or a
 `default` is refused, so a member added to `screen` is a decision at every consumer.
 
-**Not caught**: a `State` converted to a string and compared, and a verdict on a screen kept in
-another type (`restore.State`, the restore's verdict on a pane).
+**Not caught**: a `State` converted to a string and compared, a `State` looked up in a slice
+(`slices.Contains`), and a verdict on a screen kept in another type (`restore.State`, the
+restore's verdict on a pane). No instance of the first two exists in either module (searched at
+the sweep); they are left to review because each needs a data-flow rule for a form nothing uses.
 
 **How to fix a violation.** Switch over the `State`, naming every member, and decide each.
 
@@ -2381,7 +2384,16 @@ detail) decides a message, not whether text was taken; the owner decides whether
   of Claude Code 2.1.325 (a line held for review, then sent with the notice left above the empty
   box); `tmuxccy.TestSubmitEntersALineHeldForReviewAgain` drives Submit through them, and
   `TestSubmitNamesTheHeldStateWhenItGivesUp`, `TestSubmitDoesNotTakeAScreenWithNoBoxAsTaken` and
-  `TestSubmitStopsAtAScreenThatDrawsNoBox` were red on the old Submit.
+  `TestSubmitStopsAtAScreenThatDrawsNoBox` were red on the old Submit. These four tests pin the
+  behaviour #288 reported: a held line is entered again, and a screen with no box is never
+  taken as submitted.
+- Why the seven other sites are in scope: each decided an action by one state with every other
+  state, one added later included, on the opposite side (`screen.go:94` whether a box is drawn,
+  `sessclose` whether a close may type or has ended, `winddown` whether a compaction or a step
+  may type). None was seen to misjudge a screen today; the rule holds them because a state added
+  to `screen` would land on whichever side the comparison's else gives it, unchosen. The sweep
+  and Submit's fix share one commit because Submit's comparison is one of the eight findings and
+  the gate is not green until every site is a switch.
 
 ## Defect classes that cannot be a rule
 

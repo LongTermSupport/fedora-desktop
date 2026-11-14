@@ -23,11 +23,12 @@ A pane is read into one of a few states, but Claude Code draws more screens than
 knows: a line held for review ("Removed 1 invisible character · review and press Enter to
 send"), a redraw, a dialog, the external editor. A verdict asked as state != Typed (or
 == Ready, its else being the verdict) puts every other state, any the reader does not know
-included, on one side. tmuxccy.Submit judged a /compact taken because the box was not seen
-typed, and the line stayed unsubmitted (fedora-desktop#288).
+included, on one side. tmuxccy.Submit's check had that shape (state != Typed took every other
+screen, one with no box drawn included, as taken) when a /compact stayed held in the box
+(fedora-desktop#288); how that line got past it is not established.
 
-Not caught: a State converted to a string and compared, and a verdict on a screen kept in
-another type (restore.State). A switch over State is held by the exhaustive linter, which
+Not caught: a State converted to a string and compared, a State looked up in a slice, and a
+verdict on a screen kept in another type (restore.State). No instance of the first two exists. A switch over State is held by the exhaustive linter, which
 refuses a missing member and a default clause.
 
 How to fix: switch over the State naming every member, so each consumer decides each state, and
