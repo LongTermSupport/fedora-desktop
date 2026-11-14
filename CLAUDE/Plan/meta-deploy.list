@@ -39,7 +39,8 @@
 
 # Issue #290: ccy 3.122.0 (no image change). Installs ccy-sessions with the new wind-down
 # verb (every live session finishes its turn and compacts while its prompt cache is warm,
-# left running for the reboot to end and the restore to bring back). No image rebuild.
+# left running for the reboot to end and the restore to bring back), and a set-going that
+# types continue into every restored session, never /compact. No image rebuild.
 playbooks/imports/play-claude-yolo.yml
 
 # Issue #290: the self-update cycle now runs ccy-sessions wind-down after its one-minute
