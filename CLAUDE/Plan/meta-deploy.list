@@ -36,10 +36,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Issue #277, the proof run: the same play again, at a commit that changes neither the image's
-# own source nor CCY_VERSION. It should change nothing about the image: "Detect Whether Claude
-# YOLO Image Was Rebuilt" and "Record the Commit the Image Is Built From" ok, and the image id
-# still 61c5caf0b1ea with label ccy-source-commit b3bda0d20. Check with podman image inspect
-# claude-yolo:latest.
-playbooks/imports/play-claude-yolo.yml
