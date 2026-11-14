@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print the staged files the ccy image is built from, which demand a container version bump.
+# Print the staged files the ccy image is built from whose change demands a container version bump.
 # Usage: ccy-image-staged.bash CONTEXT FILE...   (run from the repository root; CONTEXT is the
 # directory holding the Dockerfile)
 #
@@ -9,7 +9,8 @@
 # image-source-paths match: the source the builder stage builds from, its Go and the pingbus
 # zipapp's packages. The play keys the builder stage on that same list and the stage takes its
 # source by it, so the change that rebuilds the image is the change that needs the bump (issue
-# 285). A commit that could change what the stage builds from (a src-go file, the Dockerfile,
+# 285): any change to such a file counts, a comment or a blank line included, while a copied file
+# counts for a changed line that is not blank or a code comment. A commit that could change what the stage builds from (a src-go file, the Dockerfile,
 # bundle.py, the list) is first held to lib/ccy-image-source-paths.bash: a list that is not its
 # output stops the commit ([CCY-IMAGE-SOURCES]). Listed by hand: the Dockerfile and the fzf pin the
 # play copies into the context. The host-kit files under the copied optional/ never reach the
@@ -61,18 +62,21 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
     fi
 fi
 
+copied=()
 for file in "$@"; do
     case "$file" in
     files/opt/claude-yolo/optional/agent-bus/README.* | files/opt/claude-yolo/optional/agent-bus/agent-bus-claude) continue ;;
     esac
+    # The build key moves on any change to the source, so any change to it needs the bump.
     if [[ "$built" == *$'\n'"$file"$'\n'* ]]; then
         echo "$file"
         continue
     fi
     for path in "${paths[@]}"; do
         if [ "$file" = "$path" ] || [[ "$file" == "$path/"* ]]; then
-            echo "$file"
+            copied+=("$file")
             continue 2
         fi
     done
 done
+if [ ${#copied[@]} -gt 0 ]; then "$lib/ccy-image-copied-changed.bash" "${copied[@]}"; fi

@@ -31,7 +31,8 @@ Two version numbers move independently — see
   the script's output stops the commit (`CCY-IMAGE-SOURCES`,
   [QA.md](../CLAUDE/QA.md#ccy-image-sources)). The builder stage turns off globbing while it
   takes the paths. Rebuilt once for this version; after it, a Go change outside the image's
-  three commands leaves the image as it was.
+  three commands leaves the image as it was. A comment- or blank-line-only change to that source
+  (a `helpers/pingbus` comment, say) now needs the container bump too, since it moves the key.
 
 ## 3.121.3 — container 2.84.15
 

@@ -2215,7 +2215,9 @@ Never edit it by hand. A builder stage that needs a path the script does not nam
 script, so the list, the key and the gate move together.
 
 **Width.** The hook judges the list on the staged tree (exported from the index), not the working
-tree. A package's directory is taken whole, so prose beside its code (a README) moves the key and
+tree. Any staged change to a file the list matches needs the container bump, a comment or a blank
+line included, because any change moves the key; the comment and blank-line exemption applies only
+to files the Dockerfile copies. A package's directory is taken whole, so prose beside its code (a README) moves the key and
 asks for the bump though nothing is built from it: over-inclusion, never a missed input. The
 launcher's own rebuild check (`lib/common.bash`) reads the Dockerfile hash and the version label,
 not this list; it follows the source because every change the list matches needs the version bump

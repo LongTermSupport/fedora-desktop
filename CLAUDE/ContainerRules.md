@@ -124,7 +124,8 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   vendored code, embedded files) with `src-go/go.mod`, `go.sum` and `vendor/modules.txt`;
   `src-go/qa/` and test files are not in the image. Deleting such a file needs the bump too, and
   a `#` line counts as a change in prose files (a SKILL.md heading), so only code comments
-  and blank lines are exempt. The host-kit files under `optional/agent-bus/` that the play
+  and blank lines in copied files are exempt; in a file `image-source-paths` matches, any change
+  counts, since it moves the image's build key (issue 285). The host-kit files under `optional/agent-bus/` that the play
   never stages (`README.*`, `agent-bus-claude`) are excluded. `test-ccy-container-version-hook.bash`
   checks the gate covers exactly the files `play-claude-yolo.yml` puts into the image.
 - **The build context is repository files only** (issue 235). Where a `COPY` takes from it, the
