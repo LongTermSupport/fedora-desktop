@@ -191,6 +191,16 @@ for pkg in pingbus agent_bus; do
     write_launcher 1.0.1 2.1
     check "…and passes with both versions bumped together" "0" "$(hook_status)"
     baseline
+    # The image's build key moves on any change to its source, so every change to a file the source
+    # list matches needs the bump, a comment or a blank line included (issue 285).
+    printf '# why the seats\nSEATS = 1\n' >"$repo/helpers/$pkg/cli.py"
+    check "a comment-only helpers/$pkg change without a container bump is rejected" \
+        "1 yes" "$(hook_status) $(has 'container version bump required')"
+    baseline
+    printf 'SEATS = 1\n\n' >"$repo/helpers/$pkg/cli.py"
+    check "a blank-line-only helpers/$pkg change without a container bump is rejected" \
+        "1 yes" "$(hook_status) $(has 'container version bump required')"
+    baseline
 done
 
 echo "=== deletions, headings and shebangs are changes too ==="
@@ -380,6 +390,11 @@ printf '// changed\n' >>"$sg/internal/startlib/startlib.go"
 write_dockerfile 2.1
 write_launcher 1.0.1 2.1
 check "a change to a package the builder stage builds from, with the container bumped, passes" "0" "$(hook_status)"
+builder_restore
+printf '\n' >>"$sg/internal/startlib/startlib.go"
+write_launcher 1.0.1 2.0
+check "a blank-line-only change to a package the builder stage builds from, without a container bump, is rejected" \
+    "1 yes" "$(hook_status) $(has 'container version bump required')"
 builder_restore
 for f in "${builder_files[@]:3:1}" qa/x/x.go internal/unrelated/unrelated.go; do
     printf '// changed\n' >>"$sg/$f"
@@ -636,6 +651,19 @@ while IFS= read -r path; do
         continue
     fi
     probe "$path" "1 yes" "a change to $path without a container bump is rejected"
+done <"$work/image-files"
+# The real source list: a comment-only change to each Python file of the zipapp's packages moves
+# the image's build key, so it needs the bump too (issue 285).
+while IFS= read -r path; do
+    case "$path" in
+    helpers/*.py)
+        printf '# drift probe\n' >>"$repo/$path"
+        check "a comment-only change to $path without a container bump is rejected" \
+            "1 yes" "$(hook_status) $(has 'container version bump required')"
+        git -C "$repo" show "HEAD:$path" >"$repo/$path"
+        git -C "$repo" add -A
+        ;;
+    esac
 done <"$work/image-files"
 check "the real image source list is among the image files" yes \
     "$(grep -q -x -F files/var/local/claude-yolo/image-source-paths "$work/image-files" && echo yes || echo no)"
