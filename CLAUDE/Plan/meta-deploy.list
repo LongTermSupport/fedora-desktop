@@ -36,9 +36,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Issue #283: ccy 3.121.3. Rebuilds and installs ccy-sessions and the claude-yolo front, and
-# deploys the launcher library: restore --check (and the self-update reboot hold) judge a
-# record's --token, a launch that stops where nobody could answer keeps its record, and
-# verify-restore says NOT-STARTED <reason>. No image rebuild.
-playbooks/imports/play-claude-yolo.yml
