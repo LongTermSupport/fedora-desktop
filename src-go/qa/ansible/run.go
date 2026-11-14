@@ -61,7 +61,9 @@ a kernel module built for the running kernel (CLAUDE/QA.md, setting-checked-late
 vault-secret-by-hand, ansible-cli-without-chdir, no-log-hides-failure, probe-before-install,
 module-built-for-running-kernel), a command task that reports changed on every run
 (CLAUDE/QA.md, command-always-changed), a task that only makes, fills or removes a scratch
-directory and reports changed (CLAUDE/QA.md, scratch-always-changed), an install skipped on its own record without a
+directory and reports changed (CLAUDE/QA.md, scratch-always-changed), an image build given a
+build argument or label new on every commit or run (CLAUDE/QA.md, image-build-arg-volatile),
+an install skipped on its own record without a
 stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), an input list that
 picks by membership with no check that its names exist (CLAUDE/QA.md, filter-list-unchecked),
 two tasks that write the same block or line of a file

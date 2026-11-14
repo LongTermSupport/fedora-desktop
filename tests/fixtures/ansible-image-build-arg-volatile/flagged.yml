@@ -1,0 +1,94 @@
+---
+# Fixture for the image-build-arg-volatile rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. Each image build is given a build argument
+# or label whose value changes on every commit or every run, whatever the image is built from,
+# so the stages that read it are built again and the image gets a new id every time (issue 277:
+# the ccy image's builder stage keyed on the checkout's HEAD). The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Read the checkout's commit
+      ansible.builtin.command:
+        argv: [git, -C, "{{ src_dir }}", rev-parse, --verify, "HEAD^{commit}"]
+      changed_when: false
+      register: head_commit
+
+    - name: Read the commit as a shell line
+      ansible.builtin.shell: git rev-parse HEAD
+      changed_when: false
+      register: head_shell
+
+    - name: Read the last commit with no path limit
+      ansible.builtin.command: git log -1 --format=%H
+      changed_when: false
+      register: last_commit
+
+    - name: Read the time
+      ansible.builtin.command: date +%s
+      changed_when: false
+      register: build_time
+
+    - name: Hand the commit on through a fact
+      ansible.builtin.set_fact:
+        image_commit: "{{ head_commit.stdout }}"
+
+    - name: Build with the commit as an argv build argument
+      ansible.builtin.command: # EXPECT-FINDING
+        argv:
+          - podman
+          - build
+          - --build-arg
+          - SOURCE_COMMIT={{ head_commit.stdout }}
+          - -t
+          - example:latest
+          - /ctx
+      changed_when: false
+
+    - name: Build with the commit in a joined build argument
+      ansible.builtin.command: # EXPECT-FINDING
+        argv: [docker, build, "--build-arg=SOURCE={{ image_commit }}", -t, example, /ctx]
+      changed_when: false
+
+    - name: Build with the commit as a label, from a shell line
+      ansible.builtin.shell: >- # EXPECT-FINDING
+        {{ container_engine }} build --label source={{ head_shell.stdout }} -t example /ctx
+      changed_when: false
+
+    - name: Build with the last commit of the whole tree
+      command: "podman build --build-arg COMMIT={{ last_commit.stdout }} /ctx" # EXPECT-FINDING
+      changed_when: false
+
+    - name: Build with the time
+      ansible.builtin.command: # EXPECT-FINDING
+        argv: [podman, build, --label, "built={{ build_time.stdout }}", /ctx]
+      changed_when: false
+
+    - name: Build with a fact of the time
+      ansible.builtin.command: # EXPECT-FINDING
+        argv: [podman, build, --build-arg, "STAMP={{ ansible_date_time.epoch }}", /ctx]
+      changed_when: false
+
+    - name: Build with now()
+      ansible.builtin.command: # EXPECT-FINDING
+        argv: [podman, build, --label, "at={{ now(utc=true).isoformat() }}", /ctx]
+      changed_when: false
+
+    - name: Build with the commit read in the shell itself
+      ansible.builtin.shell: podman build --build-arg C="$(git rev-parse HEAD)" /ctx # EXPECT-FINDING
+      changed_when: false
+
+    - name: Build through a wrapper, the build in its trailing argv
+      ansible.builtin.command: # EXPECT-FINDING
+        argv:
+          - bash
+          - -c
+          - source "$0" && locked_build "$@"
+          - /lib/lock.bash
+          - --
+          - podman
+          - build
+          - --build-arg
+          - CCY_SOURCE_COMMIT={{ head_commit.stdout }}
+          - /ctx
+      changed_when: false

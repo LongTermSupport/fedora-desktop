@@ -807,8 +807,8 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 
 // scanPlayUX runs the six rules, command-always-changed, install-guard-trusts-record and
 // filter-list-unchecked over each YAML file under dirs
-// (roles/vendor skipped), then duplicate-managed-block and scratch-always-changed over all of
-// them together.
+// (roles/vendor skipped), then duplicate-managed-block, scratch-always-changed and
+// image-build-arg-volatile over all of them together.
 func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 	repoVars, err := repositoryVars(fsys)
 	if err != nil {
@@ -837,6 +837,7 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 	}
 	reportPlayUX(duplicateManagedBlocks(sources), f)
 	reportPlayUX(scratchAlwaysChanged(sources), f)
+	reportPlayUX(imageBuildArgVolatile(sources), f)
 	return nil
 }
 
