@@ -9,7 +9,9 @@
 # name are passed to that plan's triage.bash, both runs.
 #
 # One entry per line, four kinds:
-#   <plan folder>                  its triage, deploy and acceptance scripts, in order
+#   <plan folder>                  its triage, deploy and acceptance scripts, in order. The
+#                                  folder is named as it sits in CLAUDE/Plan/, with no
+#                                  CLAUDE/Plan/ in front (00123-name, not CLAUDE/Plan/00123-name)
 #   playbooks/<path>.yml [args]    a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand. Words after
@@ -34,3 +36,12 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00256 Task 1.1 (triage only, run once, read-only, no sudo): reads the ccy session
+# registry, the live ccy tmux sessions, each live project's supervisor files and, through podman
+# exec with reading commands, each ccy container's bus inbox and process tree; runs
+# ccy-sessions --list and notify --dry-run against a scratch registry; asks the compose tools for
+# version and help; then samples the live projects for 180 seconds to time the supervisor's
+# plugin hook. Changes nothing. Leave at least one ccy session running and untouched for the
+# sample. The anonymised report is triage-idle-report.txt under untracked/plan-runs/.
+00256-ccy-session-idle-stand-down --sample 180

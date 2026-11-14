@@ -77,6 +77,10 @@ Facts read from the tree at the time of planning:
 
 - [ ] ⬜ **Task 1.1**: Write `triage.bash` (read-only, in this folder, per
   [PlanTriage.md](../../PlanTriage.md)) to establish, on a live ccy session:
+  - [x] ✅ The script: `triage.bash` with its legs in `probe-idle.bash`, read-only and
+    anonymised, queued in `meta-deploy.list` with `--sample 180`. Item 4 is answered from
+    version and help output only (no throwaway compose project: triage changes nothing).
+    The findings below stay open until the host has run it.
   - [ ] ⬜ What the supervisor knows of the four idle conditions. Find out whether it can tell a
     running background task or subagent, and a pending bus delivery, from an empty idle prompt,
     or whether only the PTY's input and output quiet are visible. Probe it through the
