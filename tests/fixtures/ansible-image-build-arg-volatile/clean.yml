@@ -43,6 +43,18 @@
           - /ctx
       changed_when: false
 
+    - name: Record the source's commit in the build context
+      ansible.builtin.copy:
+        content: "{{ input_commit.stdout }}\n"
+        dest: /ctx/source-commit
+        mode: "0644"
+
+    - name: Record the checkout's commit outside any build context
+      ansible.builtin.copy:
+        content: "{{ head_commit.stdout }}\n"
+        dest: /var/lib/example/deployed-commit
+        mode: "0644"
+
     - name: The checkout's commit outside a build is not this rule's
       ansible.builtin.debug:
         msg: "deployed {{ head_commit.stdout }}"

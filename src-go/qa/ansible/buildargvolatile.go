@@ -22,7 +22,9 @@ import (
 // every file judged together, each vars entry and set_fact key whose value names one or holds a
 // volatile value. The rule reports a command or shell task that runs an image build (a build
 // word in its command) with a --build-arg or --label whose value names a volatile name or holds
-// a volatile value. The commit of the last change to given paths (git log -- <paths>), a tree
+// a volatile value, and a copy task that writes such a value (its content) into the build context
+// of a build in the files (the build's last word, an absolute path), where a COPY or a launcher
+// that passes it as a build argument carries it into the image. The commit of the last change to given paths (git log -- <paths>), a tree
 // id (HEAD:<path>) and a content hash are not volatile: they change when what they name does.
 
 // ruleBuildArgVolatile is the rule ID, printed with every finding and the anchor of its section.
@@ -103,17 +105,73 @@ func imageBuildArgVolatile(sources []yamlSource) []string {
 	}
 	for spreadVolatileAll(files, volatile) {
 	}
+	contexts := buildContexts(files)
 	var findings []string
 	for _, f := range files {
 		for _, t := range f.tasks() {
-			if volatileBuild(t, volatile) {
+			switch {
+			case volatileBuild(t, volatile):
 				findings = append(findings, f.rel+":"+t.line()+": "+ruleBuildArgVolatile+": this image build is given a "+
 					"build argument or label that is new on every commit or run, so it is rebuilt every time whatever "+
 					"changed; key it on what the image is built from (the last commit of its source paths, a tree id, a hash)")
+			case volatileContextWrite(t, volatile, contexts):
+				findings = append(findings, f.rel+":"+t.line()+": "+ruleBuildArgVolatile+": this task writes a value that "+
+					"is new on every commit or run into an image build context, where a COPY or a later build argument "+
+					"makes the image new every time; write what the image is built from (the last commit of its source "+
+					"paths, a tree id, a hash)")
 			}
 		}
 	}
 	return findings
+}
+
+// buildContexts is the build context of every image build in the files: the last argv word of a
+// build, or the last word of its command line, when it is an absolute path.
+func buildContexts(files []scratchFile) []string {
+	var contexts []string
+	for _, f := range files {
+		for _, t := range f.tasks() {
+			if t.module != modCommand && t.module != modShell {
+				continue
+			}
+			words := buildWords(t)
+			if len(words) == 0 || !slices.Contains(words, "build") {
+				continue
+			}
+			if last := strings.Trim(words[len(words)-1], `"'`); strings.HasPrefix(last, "/") {
+				contexts = append(contexts, strings.TrimRight(last, "/")+"/")
+			}
+		}
+	}
+	return contexts
+}
+
+// buildWords is a command task's argv words, or its command line's fields.
+func buildWords(t uxTask) []string {
+	for _, holder := range []*yaml.Node{t.moduleValue(), mappingValue(t.node, "args")} {
+		if holder == nil || holder.Kind != yaml.MappingNode {
+			continue
+		}
+		if argv := mappingValue(holder, "argv"); argv != nil && argv.Kind == yaml.SequenceNode {
+			words := make([]string, 0, len(argv.Content))
+			for _, w := range argv.Content {
+				words = append(words, w.Value)
+			}
+			return words
+		}
+	}
+	return strings.Fields(commandText(t.moduleValue()))
+}
+
+// volatileContextWrite is whether a copy task writes a volatile content into a build context.
+func volatileContextWrite(t uxTask, volatile map[string]bool, contexts []string) bool {
+	args := t.moduleValue()
+	if t.module != modCopy || args == nil || args.Kind != yaml.MappingNode {
+		return false
+	}
+	dest := scalarValue(args, "dest")
+	inContext := slices.ContainsFunc(contexts, func(c string) bool { return strings.HasPrefix(dest, c) })
+	return inContext && volatileValue(mappingValue(args, "content"), volatile)
 }
 
 // spreadVolatileAll is one pass over every file's vars and set_fact: whether a name was added.

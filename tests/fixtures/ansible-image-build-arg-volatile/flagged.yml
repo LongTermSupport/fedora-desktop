@@ -78,6 +78,12 @@
       ansible.builtin.shell: podman build --build-arg C="$(git rev-parse HEAD)" /ctx # EXPECT-FINDING
       changed_when: false
 
+    - name: Record the commit in the build context, for a launcher's own builds
+      ansible.builtin.copy: # EXPECT-FINDING
+        content: "{{ head_commit.stdout }}\n"
+        dest: /ctx/source-commit
+        mode: "0644"
+
     - name: Build through a wrapper, the build in its trailing argv
       ansible.builtin.command: # EXPECT-FINDING
         argv:

@@ -58,6 +58,27 @@ func TestImageBuildArgVolatileFollowsTheCommitIntoAnotherFile(t *testing.T) {
 	}
 }
 
+// The issue 277 tasks as they were: HEAD read, written into the context for the launcher's own
+// builds (the carrier lib/common.bash reads), and passed to the play's build.
+func TestImageBuildArgVolatileCatchesTheIssue277Tasks(t *testing.T) {
+	tasks := "- name: Read the Checkout's Commit for the Image Build\n" +
+		"  ansible.builtin.command:\n    argv: [git, -C, \"{{ root_dir }}\", rev-parse, --verify, \"HEAD^{commit}\"]\n" +
+		"  changed_when: false\n  register: ccy_source_commit\n" +
+		"- name: Record the Commit the Image Is Built From\n" +
+		"  ansible.builtin.copy:\n    content: \"{{ ccy_source_commit.stdout }}\\n\"\n    dest: /opt/claude-yolo/source-commit\n" +
+		"    mode: \"0644\"\n" +
+		"- name: Build Claude YOLO Container Image with Hash\n  ansible.builtin.command:\n    argv:\n" +
+		"      - bash\n      - -c\n      - source \"$0\" && ccy_image_build_locked \"$@\"\n" +
+		"      - /var/local/claude-yolo/lib/image-build-lock.bash\n      - claude-yolo:latest\n      - \"false\"\n      - --\n" +
+		"      - \"{{ container_engine }}\"\n      - build\n      - --build-arg\n" +
+		"      - CCY_SOURCE_COMMIT={{ ccy_source_commit.stdout }}\n      - -t\n      - claude-yolo:latest\n" +
+		"      - /opt/claude-yolo\n  changed_when: false\n"
+	got := imageBuildArgVolatile([]yamlSource{{rel: "tasks/claude-yolo-image.yml", data: []byte(tasks)}})
+	if lines := findingLines(t, "tasks/claude-yolo-image.yml", got); !slices.Equal(lines, []int{7, 12}) {
+		t.Fatalf("finding lines %v, want [7 12]\n%s", lines, strings.Join(got, "\n"))
+	}
+}
+
 func TestImageBuildArgVolatileSkipsAnUnparsedFile(t *testing.T) {
 	got := imageBuildArgVolatile([]yamlSource{{rel: "bad.yml", data: []byte("- name: [unclosed\n")}})
 	if len(got) != 0 {

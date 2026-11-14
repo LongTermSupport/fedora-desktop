@@ -654,6 +654,55 @@ check "with no source-commit the launch fails" 1 "$?"
 has "naming the file and the play" "$SCRATCH/a.err" "$CONTEXT/source-commit"
 check "nothing was built" 0 "$(builds)"
 
+echo "== the source commit is the last change to the image's own source (issue 277)"
+# The play's key command is read from its own task: the list literal of its argv template, with
+# root_dir pointed at a throwaway repository, then the paths of image-source-paths appended. A
+# commit that touches nothing the image is built from must leave the key where it was.
+KEY_TASK="$(awk '/- name: Read the Last Commit That Changed the Image.s Own Source/ { t = 1 } t && /argv:/ { print; exit }' "$PLAY")"
+has_key_task() { [[ "$KEY_TASK" == *"'log', '-1', '--format=%H', 'HEAD', '--'] + ccy_image_source_paths"* ]] && echo yes || echo "no: $KEY_TASK"; }
+check "the play keys the build on git log of the image's source paths" yes "$(has_key_task)"
+check "the paths are read from image-source-paths" 1 "$(grep -c "lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/image-source-paths')" "$PLAY")"
+mapfile -t source_paths <"$REPO_ROOT/files/var/local/claude-yolo/image-source-paths"
+KEYREPO="$SCRATCH/keyrepo"
+git init -q "$KEYREPO"
+commit_touching() {
+    mkdir -p "$KEYREPO/$(dirname "$1")"
+    echo "$2" >>"$KEYREPO/$1"
+    git -C "$KEYREPO" add -A
+    git -C "$KEYREPO" -c user.name=t -c user.email=t@example.com commit -q -m "$2"
+    git -C "$KEYREPO" rev-parse HEAD
+}
+image_key() { git -C "$KEYREPO" log -1 --format=%H HEAD -- "${source_paths[@]}"; }
+for p in "${source_paths[@]}"; do first="$(commit_touching "$p/seed" "seed $p")"; done
+check "the key is the last commit to the source" "$first" "$(image_key)"
+launcher_only="$(commit_touching files/var/local/claude-yolo/claude-yolo "launcher only")"
+check "a launcher-only commit leaves the key as it was" "$first" "$(image_key)"
+check "where the checkout's HEAD would have moved it" yes "$([ "$launcher_only" != "$first" ] && echo yes || echo no)"
+for p in "${source_paths[@]}"; do
+    moved="$(commit_touching "$p/change" "change $p")"
+    check "a commit to $p moves the key" "$moved" "$(image_key)"
+done
+# The builder stage takes only those paths from the commit, so what it builds from is what the
+# key covers: its Go builds run under src-go and its zipapp bundles bundle.py's packages.
+DOCKERFILE="$REPO_ROOT/files/var/local/claude-yolo/Dockerfile"
+builder="$(awk '$1 == "FROM" { b = ($NF == "ccy-builder") } b' "$DOCKERFILE")"
+check "the builder copies image-source-paths" yes "$([[ "$builder" == *"COPY image-source-paths /image-source-paths"* ]] && echo yes || echo no)"
+check "the builder takes only those paths from the commit" yes "$([[ "$builder" == *"archive -o /tmp/source.tar FETCH_HEAD -- \${paths}"* ]] && echo yes || echo no)"
+check "the builder checks nothing else out" no "$([[ "$builder" == *"checkout"* ]] && echo yes || echo no)"
+covered() {
+    local need="$1" p
+    for p in "${source_paths[@]}"; do [ "$need" = "$p" ] && { echo yes; return; }; done
+    echo "no: $need"
+}
+check "the Go builds' module is a source path" yes "$(covered "$(awk '$1 == "WORKDIR" && $2 ~ /^\/src\// { sub(/^\/src\//, "", $2); print $2; exit }' <<<"$builder")")"
+mapfile -t bundle_packages < <(awk -F'"' '/^PACKAGES = / { for (i = 2; i <= NF; i += 2) print $i }' "$REPO_ROOT/helpers/pingbus/bundle.py")
+check "the zipapp's packages were found" 2 "${#bundle_packages[@]}"
+for pkg in "${bundle_packages[@]}"; do
+    check "the zipapp package $pkg is a source path" yes "$(covered "$pkg")"
+done
+full="$(awk '$1 == "FROM" { f = ($NF == "full") } f' "$DOCKERFILE")"
+check "the image is labelled with the commit it was built from" yes "$([[ "$full" == *"LABEL ccy-source-commit=\"\${CCY_SOURCE_COMMIT}\""* ]] && echo yes || echo no)"
+
 echo "== the lock refuses a directory that is not the user's own"
 reset_world
 mkdir -p "$SCRATCH/elsewhere" "$SCRATCH/run/ccy"
