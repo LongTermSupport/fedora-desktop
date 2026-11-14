@@ -2214,6 +2214,14 @@ said whether two images differ. A hand-kept list drifts from the build the same 
 Never edit it by hand. A builder stage that needs a path the script does not name is taught to the
 script, so the list, the key and the gate move together.
 
+**Width.** The hook judges the list on the staged tree (exported from the index), not the working
+tree. A package's directory is taken whole, so prose beside its code (a README) moves the key and
+asks for the bump though nothing is built from it: over-inclusion, never a missed input. The
+launcher's own rebuild check (`lib/common.bash`) reads the Dockerfile hash and the version label,
+not this list; it follows the source because every change the list matches needs the version bump
+it reads. Not built: a generic detector for any hand-kept path list feeding any build, since no
+other build here keeps one (the independent search for issue 285 found none untied).
+
 ### image-build-arg-volatile
 
 **What it is.** A `command` or `shell` task that runs an image build (a `build` word in its

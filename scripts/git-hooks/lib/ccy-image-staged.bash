@@ -19,6 +19,7 @@ set -euo pipefail
 
 context=$1
 shift
+lib=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 dockerfile=$context/Dockerfile
 list=$context/image-source-paths
 paths=("$dockerfile" vars/fzf-pin.yml)
@@ -40,7 +41,12 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
     for file in "$@"; do
         case "$file" in
         src-go/* | "$dockerfile" | "$list" | helpers/pingbus/bundle.py)
-            wanted=$("${BASH_SOURCE[0]%/*}/ccy-image-source-paths.bash" "$context")
+            # Judged on the staged tree, as the commit will hold it: a partly staged change or an
+            # untracked file in the working tree must not decide what the list should be.
+            index=$(mktemp -d)
+            trap 'rm -rf "$index"' EXIT
+            git ls-files -z -- src-go "$dockerfile" helpers/pingbus/bundle.py | git checkout-index -z --stdin --prefix="$index/"
+            wanted=$(cd "$index" && "$lib/ccy-image-source-paths.bash" "$context")
             if [ "$wanted" != "$listed" ]; then
                 echo "COMMIT REJECTED [CCY-IMAGE-SOURCES]: $list is not the source the ccy-builder stage builds from; regenerate it with scripts/git-hooks/lib/ccy-image-source-paths.bash $context >$list and stage it (CLAUDE/QA.md#ccy-image-sources)." >&2
                 exit 1

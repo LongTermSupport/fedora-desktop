@@ -10,7 +10,7 @@
 # Usage: ccy-image-source-paths.bash CONTEXT   (from the repository root; CONTEXT holds the Dockerfile)
 #
 # Read from the Dockerfile's ccy-builder stage: the packages of its `go build` lines, which go list
-# -deps resolves for linux on both architectures the image is built for, each package's own files
+# -deps resolves as the stage builds (static, linux) for both architectures the image is built for, each package's own files
 # (not its subdirectories) and the files it embeds; the module files; and, when the stage runs
 # helpers.pingbus.bundle, the PACKAGES bundle.py names. Test files are built into nothing. A Go
 # command the stage runs in a form not read here ends the run (exit 1), as does a Go that cannot
@@ -48,7 +48,7 @@ if [ ${#packages[@]} -gt 0 ]; then
     (
         cd src-go
         for arch in amd64 arm64; do
-            if ! GOOS=linux GOARCH=$arch GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps \
+            if ! GOOS=linux GOARCH=$arch CGO_ENABLED=0 GOFLAGS=-mod=vendor GOTOOLCHAIN=local go list -deps \
                 -f '{{if not .Standard}}{{.Dir}}/*{{range .EmbedFiles}}{{"\n"}}{{$.Dir}}/{{.}}{{end}}{{end}}' "${packages[@]}"; then
                 echo "go list could not name the packages ${packages[*]} (in src-go) build from for linux/$arch." >&2
                 exit 1

@@ -423,6 +423,17 @@ write_launcher 1.0.1 2.0
 check "a regenerated list without a container bump is rejected" \
     "1 yes" "$(hook_status) $(has 'container version bump required')"
 builder_restore
+# The list is judged on the staged tree: an import left unstaged in the working tree does not
+# decide what the commit's list should be.
+printf '// changed\n' >>"$sg/cmd/start/main.go"
+write_dockerfile 2.1
+write_launcher 1.0.1 2.1
+git -C "$repo" add -A
+startlib_importing
+unstaged_rc=0
+(cd "$repo" && bash hooks/pre-commit) >"$work/hook.out" 2>&1 || unstaged_rc=$?
+check "an unstaged new import does not decide the staged list" "0 no" "$unstaged_rc $(has '[CCY-IMAGE-SOURCES]')"
+builder_restore
 printf 'src-go\n' >>"$ccy/image-source-paths"
 write_dockerfile 2.1
 write_launcher 1.0.1 2.1
