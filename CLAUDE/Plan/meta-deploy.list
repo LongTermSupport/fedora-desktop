@@ -35,14 +35,6 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #270 (ccy 3.120.3): rebuilds ccy-sessions, ccy-teams and the ccy launcher. restore
-# --check and declare call a ccy record with no compose= answer in a project with compose
-# files UNRESTORABLE no-compose-answer (the self-update cycle then holds its reboot until the
-# record is declared with --compose start|skip); a declared session that never took a turn
-# starts fresh on restore and ccy-teams restart. No image rebuild. Check afterwards with
-# ccy-sessions restore --check.
-playbooks/imports/play-claude-yolo.yml
-
 # Plan 00256 Task 1.1 (triage only, run once, read-only, no sudo): reads the ccy session
 # registry, the live ccy tmux sessions, each live project's supervisor files and, through podman
 # exec with reading commands, each ccy container's bus inbox and process tree; runs
