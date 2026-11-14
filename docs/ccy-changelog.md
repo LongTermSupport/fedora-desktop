@@ -31,12 +31,14 @@ Two version numbers move independently — see
     read-only, as the launcher asks; a list that cannot be read is `network-check-failed`;
   - a project whose `.claude/ccy/allowed-hostnames` rules this host out (`never`, or no
     pattern matching it): `host-not-allowed`, by the launcher's own rule ported to Go
-    (`internal/allowedhosts`); a rule file that cannot be read is `host-check-failed`;
+    (`internal/allowedhosts`). A rule file that cannot be read is restorable with a note,
+    because the launch goes ahead then; a hostname that cannot be read is `host-check-failed`;
   - an SSH key passphrase file the restore would be given that cannot be used: every record is
     `passphrase-file-unusable`, as the restore starts nothing then. The file is the
     `CCY_RESTORE_SSH_PASSPHRASE_FILE` variable when set, else the one the restore unit's
     `ssh-unlock.conf` drop-in names;
-  - a cc record when every token in the pool is past its stamp: `token-pool-expired`.
+  - a cc record when every token in the pool is past its stamp: `token-pool-expired`. A pool
+    that cannot be read is restorable with a note, as cc then starts on the Desktop account.
 
   Not judged, because only a probe at boot can tell and they are often transient: a `--teams`
   seat held elsewhere, the boot network preflight, GitHub reachability and the `claude --help`

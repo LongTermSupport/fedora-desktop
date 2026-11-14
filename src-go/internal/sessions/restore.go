@@ -111,8 +111,9 @@ func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string
 	if plan.why != "" {
 		return plan
 	}
-	if refusal := a.launchRefusal(rec, file); refusal.why != "" {
-		return refusal
+	launch := a.launchRefusal(rec, file)
+	if launch.why != "" {
+		return launch
 	}
 	if unanswered := composeUnanswered(rec, file); unanswered != "" {
 		return restorePlan{why: whyNoComposeAnswer, sentence: unanswered}
@@ -124,7 +125,7 @@ func (a *App) judgeRestore(ctx context.Context, rec registry.Record, file string
 	if network := a.networkRefusal(ctx, rec, file); network.why != "" {
 		return network
 	}
-	plan.note = token.note
+	plan.note = strings.TrimSpace(launch.note + " " + token.note)
 	return plan
 }
 

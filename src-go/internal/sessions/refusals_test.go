@@ -113,8 +113,10 @@ func TestRestoreCheckRefusesARecordedNetworkThatIsGone(t *testing.T) {
 
 // fedora-desktop#284 item 4: allowed-hostnames that rules this host out (never, or no pattern
 // matching it) stops the launch (check_allowed_hostname), so restore --check calls it
-// UNRESTORABLE host-not-allowed; a file that cannot be read is host-check-failed. cc does not
-// read the rule.
+// UNRESTORABLE host-not-allowed. A file that cannot be read stays RESTORABLE with a note: the
+// launcher calls check_allowed_hostname under `|| exit 1`, so its read loop fails quietly and the
+// launch goes ahead. A hostname that cannot be read is host-check-failed: the launcher matches
+// an empty name, which no pattern but * allows. cc does not read the rule.
 func TestRestoreCheckRefusesAProjectThatRulesThisHostOut(t *testing.T) {
 	h := checkHost(t)
 	rules := map[string]string{"never": "never\n", "other": "other-host\n", "mine": "# this host\nbo?\n", "loop": ""}
@@ -134,12 +136,13 @@ func TestRestoreCheckRefusesAProjectThatRulesThisHostOut(t *testing.T) {
 		ccyRecord(t, h, "ccy-"+name, dir)
 	}
 	ccRecord(t, h, "cc-never", filepath.Join(h.root, "never"))
-	checkSays(t, h, 1, "cc-never RESTORABLE\nccy-loop UNRESTORABLE host-check-failed\nccy-mine RESTORABLE\n"+
+	checkSays(t, h, 1, "cc-never RESTORABLE\nccy-loop RESTORABLE\nccy-mine RESTORABLE\n"+
 		"ccy-never UNRESTORABLE host-not-allowed\nccy-other UNRESTORABLE host-not-allowed\n")
 	contains(t, "why", h.stderr(),
 		"ERROR: ccy-never cannot be restored: "+filepath.Join(h.root, "never")+"/.claude/ccy/allowed-hostnames says never, so ccy will not run there on any host.",
 		"ERROR: ccy-other cannot be restored: "+filepath.Join(h.root, "other")+"/.claude/ccy/allowed-hostnames allows other-host, not this host (box).",
-		"ERROR: ccy-loop cannot be restored: whether ccy may run on this host could not be read: ")
+		"ccy-loop: "+filepath.Join(h.root, "loop")+"/.claude/ccy/allowed-hostnames could not be read (",
+		"); the launch goes ahead when it cannot read that file, so it counts as restorable.\n")
 
 	h = checkHost(t)
 	h.app.Hostname = func() (string, error) { return "", errors.New("no uname") }
@@ -229,5 +232,7 @@ func TestRestoreCheckRefusesCcWhenItsWholeTokenPoolHasExpired(t *testing.T) {
 	h = checkHost(t)
 	h.write("home/.claude-tokens/ccy/tokens", "not a directory")
 	ccRecord(t, h, "cc-p", realDir(t, h, "p"))
-	checkSays(t, h, 1, "cc-p UNRESTORABLE token-check-failed\n")
+	checkSays(t, h, 0, "cc-p RESTORABLE\n")
+	contains(t, "unreadable pool", h.stderr(), "cc-p: cc's token pool "+filepath.Join(h.root, "home/.claude-tokens/ccy/tokens")+
+		" could not be read (", "); cc then starts on the Desktop account, so it counts as restorable.\n")
 }

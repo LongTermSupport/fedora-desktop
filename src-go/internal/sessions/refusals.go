@@ -45,10 +45,13 @@ func (a *App) launchRefusal(rec registry.Record, file string) restorePlan {
 	}
 	switch rec.Prefix {
 	case prefixCcy:
-		if refusal := a.hostRefusal(rec, file); refusal.why != "" {
-			return refusal
+		host := a.hostRefusal(rec, file)
+		if host.why != "" {
+			return host
 		}
-		return sshKeyRefusal(rec, file)
+		key := sshKeyRefusal(rec, file)
+		key.note = host.note
+		return key
 	case prefixCC:
 		return a.tokenPoolRefusal(file)
 	}
@@ -96,17 +99,20 @@ func (a *App) dropInPassphraseFile() (string, string) {
 }
 
 // hostRefusal is the launcher's hostname rule (check_allowed_hostname, allowedhosts) for this
-// host in the record's checkout.
+// host in the record's checkout. A rule file that cannot be read is a note, not a refusal: the
+// launcher calls check_allowed_hostname under `|| exit 1`, so its read loop fails quietly and
+// the launch goes ahead (fedora-desktop#284). A hostname that cannot be read is refused: the
+// launcher would match an empty name, which no pattern but * allows.
 func (a *App) hostRefusal(rec registry.Record, file string) restorePlan {
 	host, err := a.Hostname()
-	var v allowedhosts.Verdict
-	if err == nil {
-		v, err = allowedhosts.Judge(rec.Dir, host)
+	if err != nil {
+		return restorePlan{why: whyHostCheckFailed, sentence: "this host's name could not be read, so whether ccy may run here cannot be judged: " + err.Error() + keptAt(file)}
 	}
 	rule := filepath.Join(rec.Dir, allowedhosts.Rel)
+	v, err := allowedhosts.Judge(rec.Dir, host)
 	switch {
 	case err != nil:
-		return restorePlan{why: whyHostCheckFailed, sentence: "whether ccy may run on this host could not be read: " + err.Error() + keptAt(file)}
+		return restorePlan{note: rule + " could not be read (" + err.Error() + "); the launch goes ahead when it cannot read that file, so it counts as restorable."}
 	case v.Never:
 		return restorePlan{why: whyHostNotAllowed, sentence: rule + " says never, so ccy will not run there on any host. Edit that file to restore it" + keptAt(file)}
 	case !v.Allowed:
@@ -145,12 +151,14 @@ func sshKeyRefusal(rec registry.Record, file string) restorePlan {
 }
 
 // tokenPoolRefusal is cc's refusal of a token pool whose every token is past its stamp
-// (tokens.Decide in host mode): it will not pick one, nor fall back to another account.
+// (tokens.Decide in host mode): it will not pick one, nor fall back to another account. A pool
+// that cannot be read is a note: cc's select_token takes a pool path that is not a directory as
+// an empty pool and starts on the Desktop account (fedora-desktop#284).
 func (a *App) tokenPoolRefusal(file string) restorePlan {
 	dir := filepath.Join(a.Getenv("HOME"), ".claude-tokens", "ccy", "tokens")
 	pool, err := tokens.ReadPool(dir)
 	if err != nil {
-		return restorePlan{why: whyTokenCheckFailed, sentence: "cc's token pool " + dir + " could not be read: " + err.Error() + keptAt(file)}
+		return restorePlan{note: "cc's token pool " + dir + " could not be read (" + err.Error() + "); cc then starts on the Desktop account, so it counts as restorable."}
 	}
 	if d := tokens.Decide(tokens.ModeHost, pool, a.Now()); d.Outcome == tokens.OutcomeRefuse {
 		return restorePlan{why: whyPoolExpired, sentence: "every token in " + dir + " is past its expiry stamp (" + strings.Join(d.Expired, ", ") +
