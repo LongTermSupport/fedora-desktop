@@ -3,21 +3,26 @@
 # Usage: ccy-image-staged.bash CONTEXT FILE...   (run from the repository root; CONTEXT is the
 # directory holding the Dockerfile)
 #
-# Read from the staged Dockerfile, so a file the image starts using is guarded without anyone
-# listing it: every repo file its COPY lines take from either build-context root (a --from copy
-# takes from a build stage, not the repo), and every file the Go commands its ccy-builder stage
-# builds are built from (its `go build` packages, through lib/go-staged.bash). Listed by hand: the
-# Dockerfile, the fzf pin the play copies into the context, and the pingbus zipapp's packages,
-# which the builder stage bundles with helpers/pingbus/bundle.py. The host-kit files under the
-# copied optional/ never reach the context. scripts/test-ccy-container-version-hook.bash checks
-# all of this against the real play and the real Dockerfile.
+# Read from the staged tree, so a file the image starts using is guarded without anyone listing it
+# here: every repo file the Dockerfile's COPY lines take from either build-context root (a --from
+# copy takes from a build stage, not the repo), and every file the git pathspecs of the staged
+# image-source-paths match: the source the builder stage builds from, its Go and the pingbus
+# zipapp's packages. The play keys the builder stage on that same list and the stage takes its
+# source by it, so the change that rebuilds the image is the change that needs the bump (issue
+# 285). A commit that could change what the stage builds from (a src-go file, the Dockerfile,
+# bundle.py, the list) is first held to lib/ccy-image-source-paths.bash: a list that is not its
+# output stops the commit ([CCY-IMAGE-SOURCES]). Listed by hand: the Dockerfile and the fzf pin the
+# play copies into the context. The host-kit files under the copied optional/ never reach the
+# context. scripts/test-ccy-container-version-hook.bash checks all of this against the real play
+# and the real Dockerfile.
 set -euo pipefail
 
 context=$1
 shift
 dockerfile=$context/Dockerfile
-paths=("$dockerfile" helpers/pingbus helpers/agent_bus vars/fzf-pin.yml)
-packages=()
+list=$context/image-source-paths
+paths=("$dockerfile" vars/fzf-pin.yml)
+built=$'\n'
 if git cat-file -e ":$dockerfile" 2>/dev/null; then
     staged=$(git show ":$dockerfile")
     mapfile -t sources < <(awk '
@@ -30,36 +35,34 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
             if (!from) for (i = 1; i < n; i++) { s = args[i]; sub(/\/$/, "", s); print s }
         }' <<<"$staged")
     for src in "${sources[@]}"; do paths+=("$context/$src" "files/opt/claude-yolo/$src"); done
-    # The builder stage's RUN lines joined over their continuations, split into commands. A Go
-    # command read any other way (no ./ package, or go install, run or generate) prints "!", so
-    # a build form this does not understand stops the commit instead of going unguarded.
-    mapfile -t packages < <(awk '
-        $1 == "FROM" { builder = ($NF == "ccy-builder"); line = ""; next }
-        !builder { next }
-        { line = line " " $0 }
-        /\\$/ { sub(/\\$/, "", line); next }
-        {
-            sub(/^[[:space:]]*RUN[[:space:]]+/, "", line)
-            n = split(line, commands, /;|&&|\|\|/)
-            for (i = 1; i <= n; i++) {
-                m = split(commands[i], w, " ")
-                found = 0
-                if (w[1] == "go" && w[2] == "build") for (j = 3; j <= m; j++) if (w[j] ~ /^\.\//) { print w[j]; found = 1 }
-                if (w[1] == "go" && w[2] ~ /^(build|install|run|generate)$/ && !found) print "!"
-                if (w[1] != "go" && w[1] !~ /^#/ && commands[i] ~ /(^|[^[:alnum:]_])go (build|install|run|generate) /) print "!"
-            }
-            line = ""
-        }' <<<"$staged")
-fi
-if [[ " ${packages[*]} " == *" ! "* ]]; then
-    echo "COMMIT REJECTED [CCY-IMAGE-INPUT]: the ccy-builder stage of $dockerfile runs Go in a form this hook cannot read; build ./ packages with plain go build commands (see scripts/git-hooks/lib/ccy-image-staged.bash)." >&2
-    exit 1
+    listed=""
+    if git cat-file -e ":$list" 2>/dev/null; then listed=$(git show ":$list"); fi
+    for file in "$@"; do
+        case "$file" in
+        src-go/* | "$dockerfile" | "$list" | helpers/pingbus/bundle.py)
+            wanted=$("${BASH_SOURCE[0]%/*}/ccy-image-source-paths.bash" "$context")
+            if [ "$wanted" != "$listed" ]; then
+                echo "COMMIT REJECTED [CCY-IMAGE-SOURCES]: $list is not the source the ccy-builder stage builds from; regenerate it with scripts/git-hooks/lib/ccy-image-source-paths.bash $context >$list and stage it (CLAUDE/QA.md#ccy-image-sources)." >&2
+                exit 1
+            fi
+            break
+            ;;
+        esac
+    done
+    if [ -n "$listed" ]; then
+        mapfile -t specs <<<"$listed"
+        built+=$(git diff --cached --name-only --diff-filter=ACDMRT -- "${specs[@]}")$'\n'
+    fi
 fi
 
 for file in "$@"; do
     case "$file" in
     files/opt/claude-yolo/optional/agent-bus/README.* | files/opt/claude-yolo/optional/agent-bus/agent-bus-claude) continue ;;
     esac
+    if [[ "$built" == *$'\n'"$file"$'\n'* ]]; then
+        echo "$file"
+        continue
+    fi
     for path in "${paths[@]}"; do
         if [ "$file" = "$path" ] || [[ "$file" == "$path/"* ]]; then
             echo "$file"
@@ -67,6 +70,3 @@ for file in "$@"; do
         fi
     done
 done
-if [ ${#packages[@]} -gt 0 ]; then
-    "${BASH_SOURCE[0]%/*}/go-staged.bash" "${packages[@]}" -- "$@"
-fi

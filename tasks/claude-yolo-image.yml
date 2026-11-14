@@ -69,6 +69,8 @@
 
 # The paths the builder stage takes from the commit it clones, and the paths whose last change
 # names that commit (below): one list for both, so the build's key covers all it builds from.
+# The list is git pathspecs generated from the builder stage itself, and the pre-commit hook's
+# container version gate counts image inputs by it too (issue 285, CLAUDE/QA.md#ccy-image-sources).
 - name: Copy the Image's Source Paths into Docker Build Context
   become: true
   ansible.builtin.copy:

@@ -54,17 +54,21 @@ write_launcher() {
     printf '#!/usr/bin/env bash\nCCY_VERSION="%s"\nREQUIRED_CONTAINER_VERSION="%s"\n' "$1" "$2" >"$ccy/claude-yolo"
 }
 # write_dockerfile <container-version> — the image copies the entrypoint, the plugin directory
-# and one more file with a flag; a --from copy names a build-stage path, not a repo file. With
-# builder_stage set, a Go builder stage comes first (issue 237); its second build is continued.
+# and one more file with a flag; a --from copy names a build-stage path, not a repo file. A
+# builder stage comes first and bundles the pingbus zipapp; with builder_stage set it builds Go
+# commands too (issue 237), its second build continued. The image's source list beside it is
+# written by the real generator (issue 285), as a developer regenerates it.
 builder_stage=""
 write_dockerfile() {
+    printf '%s\n' 'FROM golang AS ccy-builder' 'COPY image-source-paths /image-source-paths' >"$ccy/Dockerfile"
     if [ -n "$builder_stage" ]; then
-        printf '%s\n' 'FROM golang AS ccy-builder' 'WORKDIR /src/src-go' \
+        printf '%s\n' 'WORKDIR /src/src-go' \
             "RUN go build -o /out/start ./cmd/start; \\" \
             "    go build -ldflags \"-X main.D=x\" \\" \
-            '        -o /out/chat ./cmd/chat'
-    fi >"$ccy/Dockerfile"
-    printf '%s\n' 'FROM scratch' "LABEL claude-yolo-version=\"$1\"" \
+            '        -o /out/chat ./cmd/chat' >>"$ccy/Dockerfile"
+    fi
+    printf '%s\n' 'RUN cd /src && python3 -B -s -m helpers.pingbus.bundle --source /src --out /out/pingbus pingbus' \
+        'FROM scratch' "LABEL claude-yolo-version=\"$1\"" \
         'COPY entrypoint.sh /usr/local/bin/entrypoint.sh' \
         'COPY supervisor-plugins/ /opt/claude-yolo/supervisor-plugins/' \
         'COPY --chown=root:root guard-tool /opt/claude-yolo/guard-tool' \
@@ -81,6 +85,11 @@ write_second_root() {
     printf 'host only\n' >"$opt/not-copied.txt"
     printf 'SEATS = 1\n' >"$repo/helpers/pingbus/cli.py"
     printf 'SEATS = 1\n' >"$repo/helpers/agent_bus/cli.py"
+    printf 'PACKAGES = ("helpers/pingbus", "helpers/agent_bus")\n' >"$repo/helpers/pingbus/bundle.py"
+}
+# write_sources — the image's source list, by the real generator, as a developer regenerates it.
+write_sources() {
+    (cd "$repo" && bash hooks/lib/ccy-image-source-paths.bash files/var/local/claude-yolo) >"$ccy/image-source-paths"
 }
 
 write_launcher 1.0.0 2.0
@@ -93,6 +102,7 @@ filter_src="$repo/helpers/ssh_agent_filter/ssh_agent_filter.py"
 mkdir -p "$(dirname "$filter_src")"
 printf 'MAX = 1\n' >"$filter_src"
 write_second_root
+write_sources
 git -C "$repo" add -A
 git -C "$repo" commit -q --no-verify -m baseline
 
@@ -113,6 +123,7 @@ baseline() {
     printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
     printf 'MAX = 1\n' >"$filter_src"
     write_second_root
+    write_sources
     git -C "$repo" add -A
 }
 has() { if grep -q -F -- "$1" "$work/hook.out"; then echo yes; else echo no; fi; }
@@ -389,6 +400,34 @@ for form in 'go install ./cmd/start' 'sh -c "go build ./cmd/start"' 'go build -o
         "$(hook_status) $(has 'CCY-IMAGE-INPUT]: the ccy-builder stage')"
     baseline
 done
+# The source list is the image's one definition of what it is built from (issue 285): a closure
+# package that starts importing another, with the list not regenerated, stops the commit, as does
+# a list edited by hand. The list is copied into the build, so regenerating it needs the bump too.
+startlib_importing() {
+    printf 'package startlib\n\nimport (\n\t_ "example.org/dep"\n\t_ "example.test/m/internal/unrelated"\n)\n' \
+        >"$sg/internal/startlib/startlib.go"
+}
+startlib_importing
+write_dockerfile 2.1
+write_launcher 1.0.1 2.1
+check "a new import into the builder's packages, with the list not regenerated, is rejected" \
+    "1 yes" "$(hook_status) $(has '[CCY-IMAGE-SOURCES]')"
+write_sources
+check "…and passes once the list is regenerated, with the container bumped" "0" "$(hook_status)"
+check "…when the list then takes the newly imported package" "yes" \
+    "$(grep -q -x -F ':(glob)src-go/internal/unrelated/*' "$ccy/image-source-paths" && echo yes || echo no)"
+builder_restore
+startlib_importing
+write_sources
+write_launcher 1.0.1 2.0
+check "a regenerated list without a container bump is rejected" \
+    "1 yes" "$(hook_status) $(has 'container version bump required')"
+builder_restore
+printf 'src-go\n' >>"$ccy/image-source-paths"
+write_dockerfile 2.1
+write_launcher 1.0.1 2.1
+check "a list edited by hand is rejected" "1 yes" "$(hook_status) $(has '[CCY-IMAGE-SOURCES]')"
+builder_restore
 builder_stage=""
 baseline
 git -C "$repo" commit -q --no-verify -m 'drop the builder stage'
@@ -577,8 +616,18 @@ probe() {
     git -C "$repo" add -A
 }
 while IFS= read -r path; do
+    if [ "$path" = files/var/local/claude-yolo/image-source-paths ]; then
+        # Not the generator's output, so the list is refused before the bump is asked for.
+        printf 'drift probe\n' >>"$repo/$path"
+        check "a change by hand to $path is rejected" "1 yes" "$(hook_status) $(has '[CCY-IMAGE-SOURCES]')"
+        git -C "$repo" show "HEAD:$path" >"$repo/$path"
+        git -C "$repo" add -A
+        continue
+    fi
     probe "$path" "1 yes" "a change to $path without a container bump is rejected"
 done <"$work/image-files"
+check "the real image source list is among the image files" yes \
+    "$(grep -q -x -F files/var/local/claude-yolo/image-source-paths "$work/image-files" && echo yes || echo no)"
 while IFS= read -r path; do
     probe "$path" "0 no" "a change to host-only $path needs no container bump"
 done <"$work/host-files"

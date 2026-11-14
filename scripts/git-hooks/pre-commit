@@ -231,10 +231,11 @@ fi
 # launcher's REQUIRED_CONTAINER_VERSION, or when the Dockerfile's own hash
 # changes. Everything else the image bakes in reaches a running container ONLY
 # through a version bump, so an edit there without one ships a stale copy with
-# no error. "Everything else" is read from the staged Dockerfile by lib/ccy-image-staged.bash:
-# its COPY sources and the Go its builder stage builds (see it), so a file the image starts
-# using is guarded without anyone remembering to list it here; a Go that cannot judge the
-# change ends the commit.
+# no error. "Everything else" is read from the staged tree by lib/ccy-image-staged.bash: the
+# Dockerfile's COPY sources and the source its builder stage builds from, by the same
+# image-source-paths the play keys that stage on (see it), so a file the image starts using is
+# guarded without anyone remembering to list it here; a stale list, or a Go that cannot judge the
+# change, ends the commit.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"

@@ -20,7 +20,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
 LAUNCHER="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
 
-for tool in go timeout flock; do
+for tool in go timeout flock python3; do
     if [ -z "$(command -v "$tool")" ]; then
         echo "FAIL: $tool is needed by this test" >&2
         exit 1
@@ -674,6 +674,21 @@ has_key_task() { [[ "$KEY_TASK" == *"'log', '-1', '--format=%H', 'HEAD', '--'] +
 check "the play keys the build on git log of the image's source paths" yes "$(has_key_task)"
 check "the paths are read from image-source-paths" 1 "$(grep -c "lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/image-source-paths')" "$PLAY")"
 mapfile -t source_paths <"$REPO_ROOT/files/var/local/claude-yolo/image-source-paths"
+# A file each included pathspec matches: a package's own file, a listed file, a file in a listed
+# directory. The exclusions (test files) are not sources.
+seeds=()
+for p in "${source_paths[@]}"; do
+    case "$p" in
+    ':(exclude'*) ;;
+    ':(glob)'*'/*') seeds+=("${p#:(glob)}") && seeds[-1]="${seeds[-1]%\*}seed.go" ;;
+    ':(glob)'*) seeds+=("${p#:(glob)}") ;;
+    *) seeds+=("$p/seed") ;;
+    esac
+done
+# The module file's name is assembled: qa-changed picks a suite whose text names a changed file's basename.
+for want in "src-go/go.m""od" src-go/cmd/teamchat/seed.go helpers/pingbus/seed; do
+    check "the list takes $want" yes "$([[ " ${seeds[*]} " == *" $want "* ]] && echo yes || echo no)"
+done
 KEYREPO="$SCRATCH/keyrepo"
 git init -q "$KEYREPO"
 commit_touching() {
@@ -684,33 +699,48 @@ commit_touching() {
     git -C "$KEYREPO" rev-parse HEAD
 }
 image_key() { git -C "$KEYREPO" log -1 --format=%H HEAD -- "${source_paths[@]}"; }
-for p in "${source_paths[@]}"; do first="$(commit_touching "$p/seed" "seed $p")"; done
+for p in "${seeds[@]}"; do first="$(commit_touching "$p" "seed $p")"; done
 check "the key is the last commit to the source" "$first" "$(image_key)"
 launcher_only="$(commit_touching files/var/local/claude-yolo/claude-yolo "launcher only")"
 check "a launcher-only commit leaves the key as it was" "$first" "$(image_key)"
 check "where the checkout's HEAD would have moved it" yes "$([ "$launcher_only" != "$first" ] && echo yes || echo no)"
-for p in "${source_paths[@]}"; do
-    moved="$(commit_touching "$p/change" "change $p")"
+# Issue 285: Go the image does not build from (another command's package, a test file of an
+# image package, a package's subdirectory nothing embeds from) is not the image's source.
+for p in src-go/internal/sessions/sessions.go src-go/cmd/teamchat/main_test.go src-go/cmd/teamchat/testdata/case.txt \
+    src-go/qa/x.go; do
+    commit_touching "$p" "other Go $p" >>"$QUIET"
+    check "a commit to $p, which the image does not build from, leaves the key as it was" "$first" "$(image_key)"
+done
+for p in "${seeds[@]}"; do
+    moved="$(commit_touching "$p" "change $p")"
     check "a commit to $p moves the key" "$moved" "$(image_key)"
 done
-# The builder stage takes only those paths from the commit, so what it builds from is what the
-# key covers: its Go builds run under src-go and its zipapp bundles bundle.py's packages.
+# The builder stage takes only those paths from the commit, so they must hold everything it
+# builds from: this checkout's src-go and helpers, as a tree, are archived by the list exactly as
+# the stage archives them, and the stage's own go build commands and zipapp build from what came out.
 DOCKERFILE="$REPO_ROOT/files/var/local/claude-yolo/Dockerfile"
 builder="$(awk '$1 == "FROM" { b = ($NF == "ccy-builder") } b' "$DOCKERFILE")"
 check "the builder copies image-source-paths" yes "$([[ "$builder" == *"COPY image-source-paths /image-source-paths"* ]] && echo yes || echo no)"
-check "the builder takes only those paths from the commit" yes "$([[ "$builder" == *"archive -o /tmp/source.tar FETCH_HEAD -- \${paths}"* ]] && echo yes || echo no)"
+check "the builder takes only those paths from the commit, unglobbed" yes "$([[ "$builder" == *"set -f; \\"*"archive -o /tmp/source.tar FETCH_HEAD -- \${paths}"* ]] && echo yes || echo no)"
 check "the builder checks nothing else out" no "$([[ "$builder" == *"checkout"* ]] && echo yes || echo no)"
-covered() {
-    local need="$1" p
-    for p in "${source_paths[@]}"; do [ "$need" = "$p" ] && { echo yes; return; }; done
-    echo "no: $need"
-}
-check "the Go builds' module is a source path" yes "$(covered "$(awk '$1 == "WORKDIR" && $2 ~ /^\/src\// { sub(/^\/src\//, "", $2); print $2; exit }' <<<"$builder")")"
-mapfile -t bundle_packages < <(awk -F'"' '/^PACKAGES = / { for (i = 2; i <= NF; i += 2) print $i }' "$REPO_ROOT/helpers/pingbus/bundle.py")
-check "the zipapp's packages were found" 2 "${#bundle_packages[@]}"
-for pkg in "${bundle_packages[@]}"; do
-    check "the zipapp package $pkg is a source path" yes "$(covered "$pkg")"
+SRC="$SCRATCH/source"
+mkdir -p "$SRC/out"
+tree="$(GIT_INDEX_FILE="$SCRATCH/source.index" bash -c 'git -C "$1" add -A -- src-go helpers && git -C "$1" write-tree' _ "$REPO_ROOT")"
+git -C "$REPO_ROOT" archive -o "$SCRATCH/source.tar" "$tree" -- "${source_paths[@]}"
+check "the list archives this checkout's source" 0 "$?"
+tar -xf "$SCRATCH/source.tar" -C "$SRC"
+check "no test file is taken" 0 "$(find "$SRC" -name '*_test.go' | wc -l | tr -d ' ')"
+mapfile -t builder_cmds < <(awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\.\/cmd\//) { sub(/;$/, "", $i); print $i } }' <<<"$builder")
+check "the builder's Go commands are found" 3 "${#builder_cmds[@]}"
+for cmd in "${builder_cmds[@]}"; do
+    out="$(cd "$SRC/src-go" && GOTOOLCHAIN=local GOFLAGS=-mod=vendor CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$SRC/out/${cmd##*/}" "$cmd" 2>&1)"
+    check "$cmd builds from the archived list alone" "0" "$?"
+    if [ -n "$out" ]; then printf '%s\n' "$out" >&2; fi
 done
+check "the builder bundles the zipapp" yes "$([[ "$builder" == *"python3 -B -s -m helpers.pingbus.bundle --source /src"* ]] && echo yes || echo no)"
+out="$(cd "$SRC" && python3 -B -s -m helpers.pingbus.bundle --source "$SRC" --out "$SRC/out/pingbus" pingbus 2>&1)"
+check "the pingbus zipapp builds from the archived list alone" "0" "$?"
+printf '%s\n' "$out" >>"$QUIET"
 full="$(awk '$1 == "FROM" { f = ($NF == "full") } f' "$DOCKERFILE")"
 check "the image is labelled with the commit it was built from" yes "$([[ "$full" == *"LABEL ccy-source-commit=\"\${CCY_SOURCE_COMMIT}\""* ]] && echo yes || echo no)"
 
