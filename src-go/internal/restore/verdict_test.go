@@ -24,6 +24,8 @@ func TestVerdictGoldenCases(t *testing.T) {
 	}{
 		{"not live", "ccy", false, "", ContainerUp, none, "DEAD session-not-running"},
 		{"trampoline hold line", "ccy", true, "...\n" + ended + "\n\n", ContainerUp, none, "DEAD launcher-exited"},
+		{"unattended stop: record kept, not started", "ccy", true, "...\nccy " + screen.UnattendedStopText + " " + screen.EndedText + "\n\n", ContainerNone, none, "NOT-STARTED unattended-stop"},
+		{"unattended stop outranks set-going", "ccy", true, "ccy " + screen.UnattendedStopText + " " + screen.EndedText, ContainerNone, setting, "NOT-STARTED unattended-stop"},
 		{"quick launch", "ccy", true, "Found previous launch configuration\nUse same configuration? [Y/n] \n\n\n", ContainerNone, none, "WAITING-AT-PROMPT quick-launch"},
 		{"token chooser with a count after", "cc", true, "Select token [0-2]: ", ContainerNone, none, "WAITING-AT-PROMPT token-select"},
 		{"ssh passphrase with key after", "ccy", true, "Enter passphrase for /k/id_ed25519: ", ContainerNone, none, "WAITING-AT-PROMPT ssh-passphrase"},
@@ -47,6 +49,23 @@ func TestVerdictGoldenCases(t *testing.T) {
 		got := Judge(c.prefix, c.live, c.screen, c.container, c.going)
 		if got.String() != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got.String(), c.want)
+		}
+	}
+}
+
+// Ended is a pane held on the trampoline's line, whichever way the launcher returned.
+func TestEndedIsAHeldPane(t *testing.T) {
+	for v, want := range map[Verdict]bool{
+		{StateDead, DetailLauncherExited}:        true,
+		{StateNotStarted, DetailUnattendedStop}:  true,
+		{StateDead, "session-not-running"}:       false,
+		{StateNotStarted, "directory-gone"}:      false,
+		{StateWaitingAtPrompt, "token-select"}:   false,
+		{State: StateOK}:                         false,
+		{StateNotSetGoing, DetailLauncherExited}: false,
+	} {
+		if got := v.Ended(); got != want {
+			t.Errorf("%s: Ended %v, want %v", v, got, want)
 		}
 	}
 }

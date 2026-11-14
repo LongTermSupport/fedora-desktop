@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -230,6 +231,27 @@ func TestDeclareInAComposeProjectNeedsAComposeAnswer(t *testing.T) {
 	h.out.Reset()
 	exitCodeIs(t, h.run("--help"), 0, h)
 	contains(t, "help", strings.Join(strings.Fields(h.stdout()), " "), "--compose start|skip among CCY-ARGS becomes the record's compose= answer")
+}
+
+// fedora-desktop#283: declare judges the --token as restore --check does, so it writes no record
+// the next boot could not start on a used-up token.
+func TestDeclareOnAUsedUpTokenIsRefused(t *testing.T) {
+	h := newHarness(t)
+	dir := declareHost(h)
+	h.tokens.usage = map[string]ccylaunch.Usability{
+		"/tokens/spent.2099-01-01.token": {Name: "spent", State: ccylaunch.UsageUsedUp, UsedUp: []ccylaunch.UsedUpLimit{{Label: "5-hour"}}},
+	}
+	exitCodeIs(t, h.run("declare", "--fresh-if-no-conversation", dir, "--", "--no-ssh", "--token", "spent"), 1, h)
+	contains(t, "refusal", h.stderr(), "nothing is declared: the boot restore could not start ccy-proj (token-used-up)",
+		"5-hour limit used up; the API gave no time it clears")
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(regdir, "ccy-proj")); !os.IsNotExist(statErr) {
+		t.Fatal("a refused declare left a record")
+	}
+	exitCodeIs(t, h.run("declare", "--fresh-if-no-conversation", dir, "--", "--no-ssh", "--token", "fine"), 0, h)
 }
 
 func TestDeclareRefusesADirectoryTheRestoreCouldNotStartIn(t *testing.T) {

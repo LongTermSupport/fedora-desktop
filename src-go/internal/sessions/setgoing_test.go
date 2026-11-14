@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
@@ -143,6 +144,26 @@ func typedInto(h *harness, name string) string {
 
 func ccyTranscript(dir string) string {
 	return dir + "/.claude/ccy/projects/-workspace/conversation.jsonl"
+}
+
+// A restored session whose launcher stopped where nobody could answer is held, not running:
+// nothing is typed, and set-going names the stop file's reason (fedora-desktop#283).
+func TestSetGoingLeavesAnUnattendedStopUntouched(t *testing.T) {
+	h := goingHost(t)
+	a := realDir(t, h, "a")
+	writeEntries(t, h, pending("ccy-t", "ccy", a))
+	h.sessions("ccy-t 0 " + a)
+	showScreen(h, "ccy-t", "\nccy "+screen.UnattendedStopText+" "+screen.EndedText+"\n")
+	writeStop(t, h, "ccy-t", "token-used-up the token has no usage left\n")
+	exitCodeIs(t, h.run("set-going"), 1, h)
+	if typedInto(h, "ccy-t") != "" {
+		t.Fatal("something was typed into a held pane")
+	}
+	contains(t, "report", h.stderr(), "left ccy-t untouched: token-used-up\n",
+		"ERROR: 1 restored session(s) could not be set going: ccy-t (token-used-up). verify-restore reports them.\n")
+	if e := entryNamed(t, h, "ccy-t"); e.Going != restore.GoingUntouched || e.Detail != "token-used-up" {
+		t.Fatalf("entry %+v", e)
+	}
 }
 
 func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {

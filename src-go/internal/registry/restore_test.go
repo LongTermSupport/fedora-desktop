@@ -3,14 +3,17 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fifotest"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 )
 
 func joinArgs(args []string) string { return strings.Join(args, "|") }
@@ -239,6 +242,109 @@ func TestTrampolineBehaviour(t *testing.T) {
 	}
 	if got := Trampoline("", "ccy"); !strings.Contains(got, "rm -f -- ''") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A launcher that stops where nobody could answer did not end a session: the record is kept for
+// the next restore, the held line says so in words verify-restore reads, and the reason the
+// launcher wrote to the stop file the trampoline named is there to read. Any other status
+// removes the record as before. A stop file left by an earlier start is cleared before the
+// launcher runs (fedora-desktop#283).
+func TestTrampolineKeepsTheRecordOnAnUnattendedStop(t *testing.T) {
+	regdir := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(regdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeStop := func(status int) string {
+		return `mkdir -p "$(dirname "$` + StopEnv + `")" && printf 'token-used-up the token has no usage left\n' >"$` + StopEnv + `"; exit ` + strconv.Itoa(status)
+	}
+	for _, c := range []struct {
+		status int
+		kept   bool
+		line   string
+	}{
+		{ExitUnattendedStop, true, "ccy " + screen.UnattendedStopText + " " + screen.EndedText},
+		{1, false, "ccy exited with status 1. " + screen.EndedText},
+		{ExitUnattendedStop + 1, false, fmt.Sprintf("ccy exited with status %d. %s", ExitUnattendedStop+1, screen.EndedText)},
+	} {
+		name := fmt.Sprintf("ccy-%d", c.status)
+		rec := filepath.Join(regdir, name)
+		if err := os.WriteFile(rec, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+			Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "sh", "-c", writeStop(c.status)},
+			Stdin: strings.NewReader("\n"),
+		})
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != c.status {
+			t.Fatalf("status %d: the trampoline ended with %v", c.status, err)
+		}
+		if _, statErr := os.Stat(rec); (statErr == nil) != c.kept {
+			t.Errorf("status %d: record kept %v, want %v", c.status, statErr == nil, c.kept)
+		}
+		if got := string(res.Stdout) + string(res.Stderr); got != "\n"+c.line+"\n" {
+			t.Errorf("status %d: printed %q, want %q", c.status, got, "\n"+c.line+"\n")
+		}
+		stop, found, err := ReadStop(regdir, name)
+		if err != nil || !found || stop != (Stop{Reason: "token-used-up", Sentence: "the token has no usage left"}) {
+			t.Errorf("status %d: stop %+v %v %v", c.status, stop, found, err)
+		}
+	}
+	// The next start clears the earlier stop before the launcher runs.
+	rec := filepath.Join(regdir, "ccy-again")
+	if err := os.WriteFile(StopFile(regdir, "ccy-again"), []byte("token-used-up old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (execx.OS{}).Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "true"}, Stdin: strings.NewReader("\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadStop(regdir, "ccy-again"); found || err != nil {
+		t.Fatalf("an earlier stop survived the next start: %v %v", found, err)
+	}
+}
+
+// A stop file that is not one line of a reason word and a sentence is refused, never guessed.
+func TestReadStopRefusesAMalformedFile(t *testing.T) {
+	regdir := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(regdir), "stopped"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"", "Token-Used-Up x\n", "token-used-up x\nmore\n", " x\n"} {
+		if err := os.WriteFile(StopFile(regdir, "s"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := ReadStop(regdir, "s"); !errors.Is(err, ErrBadStop) {
+			t.Errorf("%q: %v", body, err)
+		}
+	}
+	if err := os.Chmod(StopFile(regdir, "s"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getuid() != 0 {
+		if _, _, err := ReadStop(regdir, "s"); err == nil || errors.Is(err, ErrBadStop) {
+			t.Errorf("unreadable: %v", err)
+		}
+	}
+}
+
+// The unattended stop's status is the one the launcher's ccy_unattended_stop exits with
+// (lib/unattended-stop.bash), and the variable it reads is StopEnv.
+func TestExitUnattendedStopIsTheLaunchersStatus(t *testing.T) {
+	dir := t.TempDir()
+	stop := filepath.Join(dir, "stopped", "ccy-x")
+	script := `source "$1"; ccy_unattended_stop token-select "nobody could choose a token"`
+	res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", script, "bash", filepath.Join(repoRoot(t), "files/var/local/claude-yolo/lib/unattended-stop.bash")},
+		Env: []string{StopEnv + "=" + stop},
+	})
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != ExitUnattendedStop {
+		t.Fatalf("ccy_unattended_stop ended with %v (stderr %s), want %d", err, res.Stderr, ExitUnattendedStop)
+	}
+	raw, err := os.ReadFile(filepath.Clean(stop))
+	if err != nil || string(raw) != "token-select nobody could choose a token\n" {
+		t.Fatalf("stop file %q %v", raw, err)
 	}
 }
 

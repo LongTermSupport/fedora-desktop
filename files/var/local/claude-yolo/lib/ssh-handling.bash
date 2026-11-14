@@ -766,7 +766,8 @@ _github_probe_identity() {
         "git@${host}" 2>&1) || rc=$?
     if [ "${#guard[@]}" -gt 0 ] && { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; }; then
         echo "  GitHub probe for ${key} got no answer within ${CCY_UNATTENDED_PROBE_SECONDS:-60}s; an agent that asks before signing cannot be answered on an unattended launch." >&2
-        return 1
+        # Its own status, so the launch ends as an unattended stop, not a failed key (#283).
+        return "$CCY_EXIT_UNATTENDED_STOP"
     fi
     if ! printf '%s\n' "$out" | grep -oP "Hi \K[^!]+"; then
         # A refused key, a dropped connection and an agent that would not sign all end
@@ -866,7 +867,7 @@ _probe_agent_add_key() {
             echo "Key not unlocked: $key"
             if ccy_nobody_to_ask; then
                 ccy_prompt_refuse ssh-passphrase-retry "Load the key into your ssh-agent first (ssh-add), or launch with a key that has no passphrase, or --no-ssh."
-                return 1
+                ccy_unattended_stop ssh-passphrase-retry "the key $key was not unlocked and nobody could retry. Load it into your ssh-agent first"
             fi
             read -rp "$CCY_PROMPT_SSH_PASSPHRASE_RETRY (round $round of 3), or Ctrl+C to abort: " _unused
         fi
@@ -1499,8 +1500,8 @@ build_ssh_mounts_and_validate() {
             gh_ssh_host="$GITHUB_ALIAS_HOSTNAME"
             gh_ssh_port="$GITHUB_ALIAS_PORT"
         fi
-        local detected_user
-        detected_user=$(_github_probe_identity "$key" "$gh_ssh_host" "$gh_ssh_port")
+        local detected_user probe_rc=0
+        detected_user=$(_github_probe_identity "$key" "$gh_ssh_host" "$gh_ssh_port") || probe_rc=$?
 
         # Auto-fallback: only on the PRIMARY key, only when not already on 443.
         # If port 22 failed but ssh.github.com:443 authenticates, port 22 is
@@ -1509,12 +1510,12 @@ build_ssh_mounts_and_validate() {
         # this loop (they recompute the endpoint from it each iteration).
         if [ -z "$detected_user" ] && [ "$i" -eq 0 ] && [ "$key_is_alias" = false ] && [ "${GITHUB_SSH_443:-0}" != "1" ]; then
             local user_443
-            user_443=$(_github_probe_identity "$key" "ssh.github.com" "443")
+            user_443=$(_github_probe_identity "$key" "ssh.github.com" "443") \
+                || [ "$?" -ne "$CCY_EXIT_UNATTENDED_STOP" ] || probe_rc=$CCY_EXIT_UNATTENDED_STOP
             if [ -n "$user_443" ]; then
-                echo ""
-                echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
-                echo "  Port 22 is likely blocked on this network."
-                echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
+                printf '\n%s\n%s\n%s\n' "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)." \
+                    "  Port 22 is likely blocked on this network." \
+                    "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
                 if ccy_github_443_answer; then
                     export GITHUB_SSH_443=1
                     gh_ssh_host="ssh.github.com"
@@ -1530,12 +1531,12 @@ build_ssh_mounts_and_validate() {
         fi
 
         if [ -z "$detected_user" ]; then
+            [ "$probe_rc" -ne "$CCY_EXIT_UNATTENDED_STOP" ] || ccy_unattended_stop github-probe-unanswered \
+                "the GitHub probe for $key got no answer: an agent that asks before signing needs a person. Load a key that signs without asking"
             if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
                 print_error "None of the ssh-agent's keys authenticates to GitHub ($gh_ssh_host:$gh_ssh_port)"
-                echo ""
-                echo "  ssh-add -l: ${SSH_AGENT_PROBE_OUTPUT}"
-                echo ""
-                echo "Load the key GitHub knows into the agent, or pick a key file instead."
+                printf '\n%s\n\n%s\n' "  ssh-add -l: ${SSH_AGENT_PROBE_OUTPUT}" \
+                    "Load the key GitHub knows into the agent, or pick a key file instead."
                 return 1
             fi
             print_error "SSH key authentication to GitHub failed: $key"
@@ -1547,14 +1548,9 @@ build_ssh_mounts_and_validate() {
             echo ""
             echo "ssh's reply is printed above. 'Permission denied (publickey)' means GitHub does"
             echo "not know this key; a timeout or a closed connection means the network, so try again."
-            echo ""
-            echo "If GitHub does not know the key:"
-            echo "  1. Go to https://github.com/settings/keys"
-            echo "  2. Click 'New SSH key'"
-            echo "  3. Add the public key from: $key.pub"
-            echo ""
-            echo "Or set up GitHub keys with:"
-            echo "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
+            printf '\n%s\n%s\n%s\n%s\n' "If GitHub does not know the key:" "  1. Go to https://github.com/settings/keys" \
+                "  2. Click 'New SSH key'" "  3. Add the public key from: $key.pub"
+            printf '\n%s\n%s\n' "Or set up GitHub keys with:" "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
             return 1
         fi
 

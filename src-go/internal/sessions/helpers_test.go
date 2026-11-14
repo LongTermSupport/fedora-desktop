@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -37,6 +38,36 @@ type harness struct {
 	signals     chan os.Signal
 	// p is the pair of projects a test scripted, when it did.
 	p pair
+	// tokens stands in for the token pool and its usage reader: every token exists, is valid
+	// and has usage left unless a test says otherwise.
+	tokens *fakeTokens
+}
+
+// fakeTokens is the TokenReader of a test: missing names no file, expired a launch file dated in
+// the past, and usage each file's usage (usage left when unset). asked counts usage readings.
+type fakeTokens struct {
+	missing map[string]bool
+	expired map[string]bool
+	usage   map[string]ccylaunch.Usability
+	asked   int
+}
+
+func (f *fakeTokens) LaunchFile(token string) (string, bool) {
+	if f.missing[token] {
+		return "", false
+	}
+	if f.expired[token] {
+		return "/tokens/" + token + ".1969-01-01.token", true
+	}
+	return "/tokens/" + token + ".2099-01-01.token", true
+}
+
+func (f *fakeTokens) Usability(_ context.Context, file string) ccylaunch.Usability {
+	f.asked++
+	if u, ok := f.usage[file]; ok {
+		return u
+	}
+	return ccylaunch.Usability{State: ccylaunch.UsageLeft}
 }
 
 // sendSignal queues a TERM for the App, as the system does; a second one while the first is
@@ -60,7 +91,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	h := &harness{
 		t: t, fake: &execx.Fake{}, root: root, clock: time.Unix(1_000_000, 0),
-		signals: make(chan os.Signal, 1),
+		signals: make(chan os.Signal, 1), tokens: &fakeTokens{},
 	}
 	h.fake.On([]string{"tput", "cols"}, execx.Result{ExitCode: 1}) // no terminal: the common width
 	h.env = map[string]string{
@@ -83,6 +114,7 @@ func newHarness(t *testing.T) *harness {
 		InContainer: func() bool { return false },
 		Executable:  isExecutable,
 		Getuid:      os.Getuid,
+		Tokens:      h.tokens,
 	}
 	h.app.wire()
 	// Root's LXC configuration is absent: LXC keeps its containers in the default path.

@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.121.3 — container 2.84.15
+
+- **`ccy-sessions restore --check` judges a ccy record's `--token`** (issue #283), and so do
+  `declare` and the self-update cycle's pre-reboot hold: the record's token is found as the
+  launch finds it and its usage read with the launch's own reader (`ccy-token-usable`'s). A
+  token with no usage left is `UNRESTORABLE token-used-up`, naming the window and when it
+  clears; a token that is gone is `token-missing`, one that has expired `token-expired`, and a
+  usage check that fails (the launch stops on it too) `token-check-failed`. Usage that cannot
+  be read stays `RESTORABLE`, with a note, as the launch starts on it.
+- **A launch that stops where nobody could answer keeps its record** (issue #283). A boot
+  restore or a restart's relaunch that stops for want of a person (a used-up token, a launch
+  question, a key that needs a passphrase, a spent restart budget) now ends with
+  `ccy_unattended_stop <reason> <sentence>` (`lib/unattended-stop.bash`): it writes the reason
+  to the stop file the pane's trampoline names (`stopped/<session>` beside the registry,
+  cleared on the next start) and exits 88 instead of 1. The trampoline keeps the session's
+  record for 88 alone and holds the window on "did not start: nobody was there to answer, so
+  its record is kept for the next restore". `verify-restore` and `set-going` report such a
+  session `NOT-STARTED <reason>` (`token-used-up`, `token-select`, `ssh-passphrase-needed`,
+  `restart-budget-spent`, `github-probe-unanswered`, ...) rather than `DEAD launcher-exited`, and the next restore
+  starts it again. A restart's own faults (relaunch arguments that cannot be built, the
+  history directory, the image update) still exit 1. The Semgrep rule
+  `ccy-unattended-refusal-status` holds every unattended stop to `ccy_unattended_stop`.
+  No image rebuild.
+
 ## 3.120.4 — container 2.84.15
 
 - **The image is rebuilt only when its own source changes** (issue #277): the play keyed the

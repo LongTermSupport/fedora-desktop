@@ -250,7 +250,7 @@ tramp="$(
     source "$LIB_DIR/session-registry.bash"
     ccy_registry_trampoline "$SOCK_DIR/who-record" ccy
 )"
-check "the registry built its trampoline" "yes" "$([[ "$tramp" == '"$@";'* ]] && echo yes || echo "no: $tramp")"
+check "the registry built its trampoline" "yes" "$([[ "$tramp" == 'rm -f -- '*' CCY_UNATTENDED_STOP_FILE='*' "$@";'* ]] && echo yes || echo "no: $tramp")"
 # who <session> <pane command...> — what the probe printed from a pane running the command.
 who() {
     local name="$1" got=""

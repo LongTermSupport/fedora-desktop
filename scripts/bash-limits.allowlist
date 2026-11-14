@@ -46,7 +46,7 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2717	12	2636	-
+files/var/local/claude-yolo/claude-yolo	2716	12	2635	-
 files/var/local/claude-yolo/entrypoint.sh	321	3	315	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	686	21	720	assoc
@@ -56,7 +56,7 @@ files/var/local/claude-yolo/lib/network-management.bash	956	30	1115	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	849	36	870	data
-files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	1695	-
+files/var/local/claude-yolo/lib/ssh-handling.bash	1393	40	1692	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
 files/var/local/claude-yolo/lib/token-management.bash	1011	27	1080	-
 files/var/local/colours	65	16	65	-

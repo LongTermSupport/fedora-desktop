@@ -94,6 +94,22 @@ const (
 	prefixCC  = "cc"
 )
 
+// The details of a pane held on the trampoline's line: the launcher returned (an ended
+// session, its record removed), or it stopped where only a person could go on and nobody was
+// there (its record kept for the next restore, and why written beside it: registry.ReadStop;
+// fedora-desktop#283).
+const (
+	DetailLauncherExited = "launcher-exited"
+	DetailUnattendedStop = "unattended-stop"
+)
+
+// Ended is whether the verdict is a pane whose launcher has returned and that is held on the
+// trampoline's line: DEAD launcher-exited, or NOT-STARTED unattended-stop.
+func (v Verdict) Ended() bool {
+	return (v.State == StateDead && v.Detail == DetailLauncherExited) ||
+		(v.State == StateNotStarted && v.Detail == DetailUnattendedStop)
+}
+
 // Judge is one restored session's state from what its pane shows. The screen is the pane's
 // visible text and is judged by its LAST non-blank line, where a prompt waiting for input sits,
 // and then as a whole for Claude Code's conversation picker, which nobody restoring can answer.
@@ -103,6 +119,8 @@ const (
 // the session (OutcomeNone when it has nothing to say): that only matters once the session is
 // otherwise OK, so a session still at a prompt or starting reports that first. The one exception
 // is a session the restore never started, which is NOT-STARTED whatever runs under its name.
+// A pane held on the trampoline's line is DEAD launcher-exited, or NOT-STARTED unattended-stop
+// when the launcher stopped where nobody could answer (its record is kept).
 func Judge(prefix string, live bool, pane string, container ContainerState, going GoingOutcome) Verdict {
 	if going.Kind == OutcomeNotStarted {
 		return goingVerdict(going)
@@ -112,7 +130,10 @@ func Judge(prefix string, live bool, pane string, container ContainerState, goin
 	}
 	last := lastLine(pane)
 	if strings.HasSuffix(last, screen.EndedText) {
-		return Verdict{StateDead, "launcher-exited"}
+		if strings.Contains(last, screen.UnattendedStopText) {
+			return Verdict{StateNotStarted, DetailUnattendedStop}
+		}
+		return Verdict{StateDead, DetailLauncherExited}
 	}
 	for _, p := range screen.KnownPrompts() {
 		if strings.HasPrefix(last, p.Text) {

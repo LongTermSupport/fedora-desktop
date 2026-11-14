@@ -342,6 +342,130 @@ podman run -d --pids-limit 4096 "$IMAGE"
 # ok: ccy-container-default-pids-limit
 podman run -d --pids-limit 100 "$IMAGE"
 
+# --- ccy-unattended-refusal-status ---
+
+refusal_fallthrough() {
+    case "$rc" in
+    3)
+        # ruleid: ccy-unattended-refusal-status
+        ccy_launch_unattended || return 3
+        print_error "Nobody is here to choose another token, so ccy stops."
+        ;;
+    esac
+    exit 1
+}
+
+refusal_in_if() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        print_error "nobody to ask"
+        exit 1
+    fi
+}
+
+refusal_nested_if() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        if [ -n "${CCY_RESTART_RELAUNCH_SESSION:-}" ]; then
+            print_error "a restart"
+        fi
+        exit "$CCY_EXIT_TOKEN_USED_UP"
+    fi
+}
+
+refusal_bare_exit() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        exit
+    fi
+}
+
+refusal_negated() {
+    # ruleid: ccy-unattended-refusal-status
+    if ! ccy_launch_unattended; then
+        return 3
+    fi
+    exit 1
+}
+
+# ruleid: ccy-unattended-refusal-status
+ccy_launch_unattended && exit 1
+
+# ruleid: ccy-unattended-refusal-status
+if ccy_nobody_to_ask; then
+    # ruleid: ccy-unattended-refusal-status
+    ccy_prompt_refuse token-select "Launch with --token NAME."
+    exit 1
+fi
+
+relabel_refusal() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_nobody_to_ask; then
+        print_error "no terminal to ask on"
+        return 1
+    fi
+}
+
+# ruleid: ccy-unattended-refusal-status
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] \
+    && ! keys_unattended "$file"; then
+    print_error "a key needs a passphrase"
+    exit 1
+fi
+
+restart_refusal() {
+    if ! budget_take "$history"; then
+        # ruleid: ccy-unattended-refusal-status
+        ccy_restart_refuse "$session_id" "its restart budget is spent (see above)."
+        exit 1
+    fi
+}
+
+# ok: ccy-unattended-refusal-status
+if ccy_nobody_to_ask; then
+    ccy_prompt_refuse token-select "Launch with --token NAME."
+    ccy_unattended_stop token-select "nobody could choose a token"
+fi
+
+# ok: ccy-unattended-refusal-status
+if [ -n "${CCY_RESTART_RELAUNCH_SESSION:-}" ]; then
+    ccy_unattended_stop token-expired "the token has expired" "$CCY_RESTART_RELAUNCH_SESSION"
+fi
+
+refusal_named() {
+    # ok: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        print_error "Nobody is here to choose another token, so ccy stops."
+        ccy_unattended_stop token-used-up "the token has no usage left"
+    fi
+    return 3
+}
+
+safe_answer() {
+    # ok: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        echo "Nobody to ask: taking the default."
+        choice=Y
+    else
+        read -rp "Continue? " choice
+    fi
+    [ "$choice" = Y ] || exit 1
+}
+
+# ok: ccy-unattended-refusal-status
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    exec {fd}<&0 </dev/null
+fi
+
+ccy_unattended_stop_like() {
+    # ok: ccy-unattended-refusal-status
+    [ -z "${3:-}" ] || ccy_restart_refuse "$3" "$2"
+    exit "$CCY_EXIT_UNATTENDED_STOP"
+}
+
+# ok: ccy-unattended-refusal-status
+ccy_launch_unattended && exit "$CCY_EXIT_UNATTENDED_STOP"
+
 # --- bash-self-erasing-clipboard ---
 
 # ruleid: bash-self-erasing-clipboard

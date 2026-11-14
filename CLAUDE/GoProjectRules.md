@@ -2287,6 +2287,7 @@ record only.
   neither of the values it compared, such as the link's "the inbox socket is not a socket of the
   session's processes". No rule can say which values a refusal compared, so those are fixed
   conventionally (fedora-desktop#265's socket refusal).
+
 ### project_start_decision
 
 **What it is about.** A recorded session is started by the boot restore, judged by
@@ -2358,6 +2359,24 @@ guessing; the catalogue claims no more than the code does.
   questions a restore pane may meet with no record answer (token choice, network connect, the
   engine conflict, ssh key choice, the relabel fix); whether a restore reaches each is not
   established, and is logged as fedora-desktop#279.
+
+- **A restore verdict that calls a record restorable although its unattended launch refuses
+  it before the session starts** (fedora-desktop#283: `restore --check` and `declare` called a
+  ccy record RESTORABLE when its `--token` had no usage left, and the boot launch stopped on
+  it, so the self-update cycle's reboot hold let a reboot through into a lost session). A
+  refusal depends on the state at boot (a token's usage window, a file, a network, a seat held
+  elsewhere) and on the bash launcher's flow, not on a shape in the Go syntax tree; the next
+  form considered, a test pairing each launcher `exit` before the container starts with a
+  verdict word, would pin call sites without knowing which a boot reaches. What holds it:
+  `judgeRestore` asks `tokenRefusal` (`sessions/tokens.go`), which finds the token file as the
+  launch does and reads its usage with the launch's own reader
+  (`ccylaunch.Front.TokenUsability`): `token-missing`, `token-expired`, `token-used-up`,
+  `token-check-failed`, and usage that cannot be read restorable with a note
+  (`TestRestoreCheckJudgesTheRecordsTokenAsTheLaunchWould`, `TestDeclareOnAUsedUpTokenIsRefused`).
+  The independent search found other refusals a restore pane reaches that no verdict judges
+  (a recorded `--ssh-key` or `--network` that is gone, a held `--teams` seat, the
+  allowed-hostnames policy, the network preflight, the passphrase file `restore` checks and
+  `--check` does not, and `cc`'s expired pool), logged as fedora-desktop#284.
 
 - **A test or a code path that works only because root is not subject to permission checks**
   (found by the first CI run of the Go tests, all of it invisible in an agent container, which

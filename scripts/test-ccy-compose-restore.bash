@@ -84,6 +84,7 @@ source "$LIB_DIR/common-pure.bash"
 source "$LIB_DIR/network-management.bash"
 source "$LIB_DIR/session-registry.bash"
 source "$LIB_DIR/ssh-handling.bash"
+source "$LIB_DIR/unattended-stop.bash"
 sleep() { :; }
 ccy_tmux_current_session() { printf '%s' "\$STUB_SESSION"; }
 container_cmd() {
@@ -231,14 +232,15 @@ echo ""
 echo "=== ask, with nobody to answer: refused by name, never read ==="
 fresh 0 compose.yml
 out="$(run_case none "" "" '_do_compose_start project-a_default project-a')"
-check "no terminal: the launch stops" "1" "$(field rc "$out")"
+# 88 is CCY_EXIT_UNATTENDED_STOP: the pane's trampoline keeps the session's record (#283).
+check "no terminal: the launch stops, 88" "88" "$(field rc "$out")"
 check "  without returning to carry on" "" "$(field ret "$out")"
 check "  naming the prompt" "yes" "$(has "$out" "compose-start")"
 check "  and the flags that answer it" "yes" "$(has "$out" "--compose start")"
 check "  up -d never ran" "0" "$(ups)"
 fresh 0 compose.yml
 out="$(run_case terminal "y" "HEADLESS_MODE=true" '_do_compose_start project-a_default project-a')"
-check "--headless on a terminal: refused too, its input is not an answer" "1|0" "$(field rc "$out")|$(ups)"
+check "--headless on a terminal: refused too, its input is not an answer" "88|0" "$(field rc "$out")|$(ups)"
 
 echo ""
 echo "=== ask, with a person at the terminal ==="
@@ -370,8 +372,8 @@ check "no key at all, a person: asked, Enter carries on" "0|yes" \
 SSH_ADD_LOG="$WORK/ssh-add.log"
 rm -f "$SSH_ADD_LOG"
 out="$(run_case none "" "CCY_PROBE_AGENT_SOCK=$WORK/agent.sock; ssh-add() { printf 'x\n' >>'$SSH_ADD_LOG'; return 1; }" '_probe_agent_add_key /k/id_one')"
-check "a passphrase that did not open the key, no terminal: refused by name after one try" "1|1|yes" \
-    "$(field ret "$out")|$(grep -c . "$SSH_ADD_LOG")|$(has "$out" "ssh-passphrase-retry")"
+check "a passphrase that did not open the key, no terminal: refused by name after one try" "88|1|yes" \
+    "$(field rc "$out")|$(grep -c . "$SSH_ADD_LOG")|$(has "$out" "ssh-passphrase-retry")"
 out="$(run_case none "" "CCY_UNATTENDED_LAUNCH=true" 'ccy_github_443_answer')"
 check "GitHub over 443, a restore: yes, nothing asked" "0|no" "$(field ret "$out")|$(has "$out" "$CCY_PROMPT_GITHUB_443")"
 out="$(run_case none "" "" 'ccy_github_443_answer')"

@@ -15,6 +15,12 @@ func (f Front) tokenDir() string {
 	return f.getenv("HOME") + "/.claude-tokens/ccy/tokens"
 }
 
+// TokenDir is the ccy token pool a launch reads its --token from (ccy-sessions judges a
+// record's token in it, fedora-desktop#283).
+func (f Front) TokenDir() string {
+	return f.tokenDir()
+}
+
 // poolWhy is why the bash could read the token pool at dir otherwise than the front, or "": a
 // file is not a regular file, or a name is read otherwise (T1). It also returns the pool's file
 // names, in byte order (D1).

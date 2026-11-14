@@ -307,6 +307,43 @@ rules:
       category: correctness
       confidence: HIGH
 
+  # Rule: a ccy launch that stops because nobody attends it (a restore, a restart's
+  # relaunch, a headless launch) ends through ccy_unattended_stop, whose status the
+  # pane's trampoline keeps the session's record for (Defence Before Fix,
+  # fedora-desktop#283).
+  #
+  # WRONG: if ccy_nobody_to_ask; then ccy_prompt_refuse token-select "..."; exit 1; fi
+  # WRONG: ccy_restart_refuse "$sid" "why"; exit 1
+  # WRONG: ccy_launch_unattended || return 3   (then any exit later in the function)
+  # RIGHT: if ccy_nobody_to_ask; then ccy_prompt_refuse token-select "..."
+  #            ccy_unattended_stop token-select "nobody could choose a token"; fi
+  #
+  # What, why, what it does not see and how to fix: CLAUDE/QA.md,
+  # "ccy-unattended-refusal-status".
+  - id: ccy-unattended-refusal-status
+    pattern-either:
+      - pattern-regex: '(?sm)\b(?:el)?if[ \t]+(?:ccy_launch_unattended|ccy_nobody_to_ask)\b[^\n]*?;[ \t]*then\b(?:(?!\b(?:fi|else|elif|if)\b).|\bif\b(?:(?!\bfi\b).)*?\bfi\b)*?(?:^|[;&|])[ \t]*(?:exit\b(?![ \t]+"?\$\{?CCY_EXIT_UNATTENDED_STOP\b)|return[ \t]+[1-9])'
+      - pattern-regex: '(?sm)\b(?:el)?if[ \t]+\[\[?[ \t]+-n[ \t]+"\$\{?CCY_RESTART_RELAUNCH_SESSION\b[^\n]*?(?:\\\n[^\n]*?)*;[ \t]*then\b(?:(?!\b(?:fi|else|elif|if)\b).|\bif\b(?:(?!\bfi\b).)*?\bfi\b)*?(?:^|[;&|])[ \t]*(?:exit\b(?![ \t]+"?\$\{?CCY_EXIT_UNATTENDED_STOP\b)|return[ \t]+[1-9])'
+      - pattern-regex: '(?sm)(?:\bccy_launch_unattended[ \t]*(?=\|\|)|\bif[ \t]+![ \t]*ccy_launch_unattended\b)(?:(?!\n\}).)*?(?:^|[;&|])[ \t]*(?:exit\b(?![ \t]+"?\$\{?CCY_EXIT_UNATTENDED_STOP\b)|return[ \t]+[1-9])'
+      - pattern-regex: '(?m)\bccy_launch_unattended[ \t]*(?=&&)[^\n]*?(?:^|[;&|])[ \t]*(?:exit\b(?![ \t]+"?\$\{?CCY_EXIT_UNATTENDED_STOP\b)|return[ \t]+[1-9])'
+      - pattern-regex: '(?sm)(?:^|[;&|])[ \t]*ccy_(?:prompt|restart)_refuse\b(?!\(\))(?:(?!\b(?:fi|else|elif|esac)\b|;;|\n[ \t]*\}).)*?(?:^|[;&|])[ \t]*(?:exit\b(?![ \t]+"?\$\{?CCY_EXIT_UNATTENDED_STOP\b)|return[ \t]+[1-9])'
+    message: >
+      ccy-unattended-refusal-status: a launch that stops because nobody attends
+      it (a restore, a restart's relaunch) exits with a status the pane's
+      trampoline reads as an ended session, so it deletes the session's record
+      and the next restore has nothing to start. End it with
+      ccy_unattended_stop <reason> <sentence> (lib/unattended-stop.bash). See
+      CLAUDE/QA.md "ccy-unattended-refusal-status".
+    paths:
+      include:
+        - 'files/var/local/claude-yolo/**'
+        - 'files/var/local/claude-code/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+
   # Rule: no secret kept short-lived by a clipboard meant to erase itself
   # (Defence Before Fix; CLAUDE/GoProjectRules.md "project_self_erasing_clipboard"
   # is the same class in Go, with its proof).
