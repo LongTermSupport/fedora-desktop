@@ -37,8 +37,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #285: ccy 3.121.4, container 2.84.16. Installs the launcher and rebuilds the ccy image
-# ONCE (the container version bump; the builder stage is now keyed on the image's own Go
-# packages, a narrower list, so ccy-source-commit moves to an older commit). A second run at a
-# later commit that touches only other Go code should then report the image unchanged.
+# Issue #285, the proof run: the same play again, at a commit that changes nothing the image is
+# built from. Expected: "Detect Whether Claude YOLO Image Was Rebuilt" ok and the image id still
+# 66d9fa685ac0 (ccy-source-commit d61374bfb). The #229 pair of tasks may still change.
 playbooks/imports/play-claude-yolo.yml
