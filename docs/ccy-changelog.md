@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.0 — container 2.84.16
+
+- **`ccy-sessions wind-down` compacts every live session before a planned reboot, while its
+  prompt cache is warm** (issue #290). Each session finishes a running turn (never
+  interrupted), is sent `/compact` and has its end waited for, all within one deadline
+  (`--wait`, default 600 s). The session is left running and its record kept: the reboot ends
+  it and the restore brings it back on a small context. One line per session (`COMPACTED`,
+  `COMPACTED-AFTER-TURN`, `NOT-FINISHED`, `SKIPPED`, `FAILED`, each with why); exit 1 if any is
+  `NOT-FINISHED` or `FAILED`. The per-session step is `sessclose`'s new `Compact` (`CompactAll`
+  for several against one deadline), the same compaction a close does without the `/exit`.
+- **The self-update cycle winds the sessions down before it reboots**, in place of the last
+  fixed minute of its countdown: after the one-minute warning it runs
+  `ccy-sessions wind-down --wait 600` and reboots when that returns. Past the deadline it
+  reboots anyway, and its result's detail names each session that was not compacted. An INT or
+  TERM during the wind-down withdraws the warning, as in the countdown.
+- `set-going` still compacts a large session after a restore; that waits on the owner.
+- No image change.
+
 ## 3.121.4 — container 2.84.16
 
 - **The image is rebuilt only when the source its builder stage builds from changes, and every

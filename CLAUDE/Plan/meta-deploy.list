@@ -36,3 +36,13 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #290: ccy 3.122.0 (no image change). Installs ccy-sessions with the new wind-down
+# verb (every live session finishes its turn and compacts while its prompt cache is warm,
+# left running for the reboot to end and the restore to bring back). No image rebuild.
+playbooks/imports/play-claude-yolo.yml
+
+# Issue #290: the self-update cycle now runs ccy-sessions wind-down after its one-minute
+# warning and reboots when it returns (ten-minute deadline), recording any session not
+# compacted. Run after the play above, so the verb the cycle calls is installed.
+playbooks/imports/optional/common/play-self-update.yml

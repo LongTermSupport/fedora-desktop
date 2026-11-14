@@ -395,6 +395,13 @@ it day to day:
   while changing nothing. The log is
   `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
   A failure also appears in `fedora-desktop-health` and the login snippet.
+- **Before the reboot.** The sessions are warned (`WARN_MINUTES` ahead, again at one minute),
+  then wound down: `ccy-sessions wind-down --wait 600` lets each session finish its turn,
+  sends it `/compact` while its prompt cache is warm, and waits for the compaction
+  ([ccy.md](ccy.md#winding-the-sessions-down-before-a-planned-reboot)). The reboot follows as
+  soon as every session is done, or at the ten-minute deadline whatever is left: the result's
+  detail names each session that was not compacted (the journal has why). A Ctrl-C or TERM in
+  the wind-down withdraws the warning, as one in the countdown does.
 - **After the reboot.** `fedora-desktop-self-update-verify.service` waits until the session
   restore has settled: every session is running and set going, or has definitely failed
   ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. It runs after

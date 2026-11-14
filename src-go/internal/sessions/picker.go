@@ -367,7 +367,7 @@ func closeWords(r sessclose.Result) string {
 		return "Closed '" + r.Name + "': exited cleanly" + suffix
 	case sessclose.Stopped:
 		return "Closed '" + r.Name + "': stopped: " + r.Note + "."
-	case sessclose.Pending, sessclose.Failed:
+	case sessclose.Pending, sessclose.Failed, sessclose.Compacted, sessclose.Unfinished, sessclose.Skipped:
 	}
 	return "'" + r.Name + "' was not closed: " + r.Note + "."
 }

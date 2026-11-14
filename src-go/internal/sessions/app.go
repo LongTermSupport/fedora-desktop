@@ -164,6 +164,8 @@ type App struct {
 	Transcripts *transcript.Cache
 	// Closer closes a session from its menu: /compact, then /exit (sessclose).
 	Closer sessclose.Closing
+	// WindDown compacts sessions before a planned reboot and leaves them running (sessclose).
+	WindDown sessclose.WindingDown
 	// Tokens judges a ccy record's --token as its launch would: the file it starts on and the
 	// usage left on it (restore --check and declare, fedora-desktop#283).
 	Tokens TokenReader
@@ -215,7 +217,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare:
+	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare, cmdWindDown:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -289,13 +291,24 @@ func (a *App) wire() {
 	if a.Transcripts == nil {
 		a.Transcripts = transcript.NewCache()
 	}
+	a.wireCloser()
+	a.wireTokens()
+}
+
+// wireCloser fills the close and the wind-down: one sessclose Closer for both.
+func (a *App) wireCloser() {
+	if a.Closer != nil && a.WindDown != nil {
+		return
+	}
+	c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
+	c.Transcripts, c.Now = a.Transcripts, a.Now
+	c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
 	if a.Closer == nil {
-		c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
-		c.Transcripts, c.Now = a.Transcripts, a.Now
-		c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
 		a.Closer = c
 	}
-	a.wireTokens()
+	if a.WindDown == nil {
+		a.WindDown = c
+	}
 }
 
 // wireTokens fills the token reader: ccy's own pool and usage reader.
@@ -354,6 +367,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.verifyRestore(ctx, rest)
 	case cmdDeclare:
 		return a.declareSession(ctx, rest)
+	case cmdWindDown:
+		return a.windDownSessions(ctx, rest)
 	case "-l", "--list":
 		return a.list(ctx)
 	default:

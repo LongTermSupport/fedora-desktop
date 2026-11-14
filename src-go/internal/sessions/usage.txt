@@ -50,6 +50,27 @@ Usage:
                                                   minute, then systemctl reboot; refused
                                                   up front unless logind lets this account
                                                   reboot with nobody to authenticate
+  ccy-sessions wind-down [--wait SECONDS]         before a planned reboot: compact every live
+                                                  recorded session while its prompt cache is
+                                                  warm, and leave it running (the reboot ends
+                                                  it; the restore brings it back, its record
+                                                  kept). A turn running is let finish, never
+                                                  interrupted; an idle box is given a short
+                                                  settle first, so a warning being typed in
+                                                  lands; then /compact, its end waited for.
+                                                  All within one deadline (--wait, default
+                                                  600). One line each on stdout:
+                                                  "<name> COMPACTED",
+                                                  "<name> COMPACTED-AFTER-TURN" (it was in a
+                                                  turn), "<name> NOT-FINISHED <why>" (the
+                                                  deadline came first; left as it is),
+                                                  "<name> SKIPPED <why>" (nothing to compact:
+                                                  no record, nothing since its last
+                                                  compaction, claude not running in it) or
+                                                  "<name> FAILED <why>"; exit 1 if any is
+                                                  NOT-FINISHED or FAILED. Nothing is /exit'ed,
+                                                  stopped or killed. The self-update cycle
+                                                  runs it before its reboot
   ccy-sessions restore [--dry-run]                start every session recorded as running
                                                   at the last shutdown (the boot unit)
   ccy-sessions restore --check                    start nothing: judge every record the next

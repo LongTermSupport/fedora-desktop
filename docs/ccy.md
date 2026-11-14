@@ -621,6 +621,26 @@ no terminal to ask on, or the forced power action fails), the sessions are sent
 from a root shell there is no ccy-sessions to warn with, and they refuse. One script
 under two names, deployed by `play-basic-configs.yml`.
 
+### Winding the sessions down before a planned reboot
+
+`ccy-sessions wind-down [--wait SECONDS]` compacts every live recorded session while its
+prompt cache is still warm, so the restore after the reboot resumes each on a small summary
+instead of reading its whole context cold (issue #290). For each session it waits for a
+running turn to finish (it never interrupts one), gives an idle box a short settle so a
+warning being typed in lands first, types `/compact`, and waits for the compaction to show in
+the transcript. All of it is within one deadline (`--wait`, default 600 seconds). Nothing is
+`/exit`ed, stopped or killed, and every record is kept: the reboot ends the sessions and the
+restore brings them back.
+
+It prints one line per live session: `COMPACTED`, `COMPACTED-AFTER-TURN` (it was in a turn
+first), `NOT-FINISHED <why>` (the deadline came first, and it is left as it is),
+`SKIPPED <why>` (no record, nothing since its last compaction, or claude not running in it)
+or `FAILED <why>`. It exits 1 if any session is `NOT-FINISHED` or `FAILED`. The unattended
+self-update cycle runs it after its warnings and reboots when it returns
+([configuration.md](configuration.md#unattended-server-self-update)). The per-session step is
+`sessclose`'s `Compact`, the same compaction `ccy --stop` and ccy-teams shutdown use, without
+the `/exit`.
+
 ---
 
 ## The Security Model

@@ -528,6 +528,7 @@ check "the first cycle runs the play with both passwords and the lock held, chec
     "$PLAYED
 ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
+ccy-sessions wind-down --wait 600
 systemctl reboot" "$(calls)"
 check "the play is pinned to the system ansible, with facts in memory and the system collections" \
     "handed ansible=$SYSTEM_ANSIBLE path=$PREFIX/usr/bin cache=memory collections=$COLLECTIONS" "$(awk 'NR == 1' "$ENV_LOG")"
@@ -558,6 +559,7 @@ cycle run
 check "a cycle in the boot that still owes its reboot asks again" "0" "$RC"
 check "and only checks, warns and reboots" "ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
+ccy-sessions wind-down --wait 600
 systemctl reboot" "$(calls)"
 
 write_owed "an-earlier-boot"
@@ -642,6 +644,7 @@ FAKE_REBOOT_RC=1 cycle run
 check "a refused reboot exits 24" "24" "$RC"
 check "a refused reboot withdraws the warning" "ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
+ccy-sessions wind-down --wait 600
 systemctl reboot
 ccy-sessions notify reboot-cancelled" "$(calls)"
 check "a refused reboot is recorded" "reboot-failed" "$(result_key outcome)"
@@ -825,6 +828,7 @@ check "the first cycle on a tagged branch exits 0" "0" "$RC"
 check "and runs the play, warns, then reboots" "$PLAYED
 ccy-sessions restore --check
 ccy-sessions notify going-down --minutes 1
+ccy-sessions wind-down --wait 600
 systemctl reboot" "$(calls)"
 check "the clone is on the release, not on the signed tip above it" "$RELEASE_ONE" "$(git -C "$CLONE" rev-parse HEAD)"
 check "the release is carried into the result record" "$FED.0.0" "$(result_key tag)"

@@ -90,6 +90,12 @@ VERIFY_WAIT_SECONDS = 1500
 #: The unit that runs `verify`, whose failed state a passing verify clears: it is the one the
 #: login banner lists from `systemctl --failed` after a failed attempt.
 VERIFY_UNIT = "fedora-desktop-self-update-verify.service"
+#: The deadline of the wind-down before the reboot (fedora-desktop#290): each session finishes
+#: its turn and compacts while its prompt cache is warm, and the reboot follows as soon as they
+#: have, or at this deadline whatever is left. As long as a close gives one compaction.
+WIND_DOWN_SECONDS = 600
+#: The wind-down's report words for a session it did not compact, and must be recorded.
+_WIND_DOWN_SHORT = ("NOT-FINISHED", "FAILED")
 MINUTE = 60
 #: Real seconds per countdown minute. Overridable ONLY so scripts/test-self-update-cycle.bash
 #: can drive a countdown; sudo's env_reset strips it, and the systemd unit never sets it.
@@ -304,6 +310,7 @@ class Host(Protocol):
     def allowlist(self) -> list[str]: ...
     def run_play(self, play: str) -> int: ...
     def notify(self, args: list[str]) -> int: ...
+    def wind_down(self, wait_seconds: int) -> tuple[int, list[str]]: ...
     def verify_restore(self, wait_seconds: int) -> int: ...
     def check_restore(self) -> int: ...
     def reset_failed(self, unit: str) -> int: ...
@@ -480,13 +487,15 @@ def _warn_and_reboot(
             if host.notify(["going-down", "--minutes", "1"]) != 0:
                 _withdraw(host, stderr)
                 return unwarnable("the one-minute warning could not be delivered; withdrawn, no reboot")
-        host.sleep(MINUTE)
+        rc, lines = host.wind_down(WIND_DOWN_SECONDS)
     except Cancelled:
         _withdraw(host, stderr)
         return _finish(state, host, stdout, stderr, code=EXIT_CANCELLED, phase="warn", outcome="cancelled",
                        old=old, new=new, tag=tag, plays=plays,
                        detail="the countdown was interrupted; withdrawn, no reboot",
                        announce=True)
+    state.write_result({"at": host.now(), "phase": "reboot", "outcome": "rebooting", "old": old, "new": new,
+                        "tag": tag, "plays": " ".join(plays), "detail": _wind_down_detail(rc, lines, stderr)})
     if host.reboot() != 0:
         _withdraw(host, stderr)
         return _finish(state, host, stdout, stderr, code=EXIT_REBOOT_FAILED, phase="reboot", outcome="reboot-failed",
@@ -494,6 +503,21 @@ def _warn_and_reboot(
                        announce=True)
     stdout.write("SELF-UPDATE-CYCLE rebooting\n")
     return EXIT_OK
+
+
+def _wind_down_detail(rc: int, lines: list[str], stderr: TextIO) -> str:
+    """What the wind-down left for the result: which sessions it did not compact, by name and
+    word, each one's whole line going to the journal. The reboot goes ahead either way: the
+    sessions were warned, and a session not compacted is restored all the same."""
+    short = [line for line in lines if line.split(" ")[1:2] and line.split(" ")[1] in _WIND_DOWN_SHORT]
+    for line in short:
+        stderr.write(f"self-update: wind-down: {line}\n")
+    if short:
+        named = ", ".join(" ".join(line.split(" ")[:2]) for line in short)
+        return f"the wind-down did not compact {len(short)} session(s), rebooting anyway: {named}"
+    if rc != 0:
+        return f"the wind-down exited {rc} naming no session (its reason is in the journal), rebooting anyway"
+    return "every session was compacted or had nothing to compact; rebooting"
 
 
 def verify(config: Config, host: Host, state: State, *, stdout: TextIO, stderr: TextIO) -> int:
@@ -708,6 +732,21 @@ def require_trusted(path: str, what: str, *, directory: bool) -> None:
     _require_unwritable(parent, os.stat(parent), f"directory holding the {what}")
 
 
+@contextlib.contextmanager
+def _cancel_on_signal() -> Iterator[None]:
+    """An INT or TERM inside the block raises Cancelled: the reboot is called off. The handlers
+    found are put back on the way out."""
+    def interrupted(signum: int, frame: object) -> None:
+        raise Cancelled()
+
+    previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 class RealHost:
     """The effects, for real. Run as root; the user's side runs through runuser."""
 
@@ -838,6 +877,14 @@ class RealHost:
     def notify(self, args: list[str]) -> int:
         return self._ccy_sessions(["notify", *args])
 
+    def wind_down(self, wait_seconds: int) -> tuple[int, list[str]]:
+        # Interruptible as the countdown is: an INT or TERM here cancels the reboot, and
+        # subprocess.run kills the wind-down on the way out.
+        with _cancel_on_signal():
+            done = self._as_user([os.path.join(self._home, ".local/bin/ccy-sessions"), "wind-down", "--wait",
+                                  str(wait_seconds)], env=self._user_environment(), capture=True)
+        return done.returncode, done.stdout.splitlines()
+
     def verify_restore(self, wait_seconds: int) -> int:
         return self._ccy_sessions(["verify-restore", "--wait", str(wait_seconds)])
 
@@ -855,15 +902,8 @@ class RealHost:
             return handle.read().strip()
 
     def sleep(self, seconds: float) -> None:
-        def interrupted(signum: int, frame: object) -> None:
-            raise Cancelled()
-
-        previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
-        try:
+        with _cancel_on_signal():
             time.sleep(seconds * self._scale)
-        finally:
-            for sig, handler in previous.items():
-                signal.signal(sig, handler)
 
     def now(self) -> str:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

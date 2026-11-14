@@ -80,7 +80,7 @@ func resultLine(r sessclose.Result) (string, bool) {
 		return r.Name + ": exited cleanly", true
 	case sessclose.Stopped:
 		return r.Name + ": stopped: " + r.Note, true
-	case sessclose.Pending, sessclose.Failed:
+	case sessclose.Pending, sessclose.Failed, sessclose.Compacted, sessclose.Unfinished, sessclose.Skipped:
 	}
 	return r.Name + ": failed: " + r.Note, false
 }
