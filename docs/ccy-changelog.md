@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.120.3 — container 2.84.14
+
+- **A record whose first restore would stop at the compose question is called unrestorable**
+  (issue #270): `ccy-sessions restore --check`, and so `declare`, report a ccy record whose
+  project has compose files and which holds no `compose=` answer as
+  `UNRESTORABLE no-compose-answer`, naming `declare ... -- --compose start|skip`. A record
+  launched with `--no-network` meets no compose question and is not refused. The restore itself
+  still starts such a record, to be answered in its pane. `declare --help` says that
+  `--compose start|skip` among CCY-ARGS becomes the record's `compose=` answer. In the pane, a
+  provisioned record (`fresh-if-no-conversation=yes`) is said to be provisioned without a
+  compose answer; only an unprovisioned one is said to maybe predate ccy 3.89.1.
+- **A declared session that never took a turn starts fresh** (issue #270): its
+  `conversation.json` names a conversation with no transcript, which the restore refused as
+  `no-conversation`. A record marked `fresh-if-no-conversation=yes` now starts fresh then, as it
+  does with no `conversation.json`, in the boot restore, its check and `ccy-teams` restart alike:
+  one decision (`conversation.StartPlan`, held by the project rule `project_start_decision`).
+  No image rebuild.
+
 ## 3.120.2 — container 2.84.14
 
 - **A token or password ccy shows leaves no copy in the terminal's scrollback** (issue #261): a

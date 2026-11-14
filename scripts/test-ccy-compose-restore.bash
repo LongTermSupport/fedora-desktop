@@ -264,6 +264,15 @@ out="$(run_case terminal "y" "SESSION_RESTORE=true" '_do_compose_start project-a
 check "a restore with no recorded answer asks" "0|started" "$(field ret "$out")|$(field outcome "$out")"
 check "  and says why, before the question" "yes" \
     "$(printf '%s\n' "$out" | awk -v q="$CCY_PROMPT_COMPOSE_START" 'index($0, "holds no compose answer") { note = NR } index($0, q) == 1 && !ask { ask = NR } END { print (note && ask && note < ask ? "yes" : "no") }')"
+check "  an unprovisioned record may predate the key" "1" \
+    "$(printf '%s\n' "$out" | awk 'index($0, "older than 3.89.1") { n++ } END { print n + 0 }')"
+
+# A provisioned record (fedora-desktop#270) is not an old one: ccy-sessions restore says so in
+# CCY_RESTORE_NO_COMPOSE_WHY, and the pane gives that reason instead of the version.
+fresh 0 compose.yml
+out="$(run_case terminal "y" "SESSION_RESTORE=true CCY_RESTORE_NO_COMPOSE_WHY=provisioned-without-one" '_do_compose_start project-a_default project-a')"
+check "a provisioned record's pane says it was provisioned without one" "1|0" \
+    "$(printf '%s\n' "$out" | awk 'index($0, "holds no compose answer (provisioned-without-one)") { p++ } index($0, "3.89.1") { v++ } END { print p + 0 "|" v + 0 }')"
 
 fresh 0 compose.yml
 out="$(run_case none "" "COMPOSE_MODE=sometimes" '_do_compose_start project-a_default project-a')"

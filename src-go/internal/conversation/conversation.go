@@ -75,10 +75,15 @@ func Transcript(rec registry.Record, claudeHome string) (string, error) {
 func For(rec registry.Record, claudeHome string) (string, error) {
 	id, err := read(rec, claudeHome)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w; resume it by hand: %s --resume in %s, whose picker lists the conversations",
-			rec.Name, err, rec.Prefix, rec.Dir)
+		return "", byHand(rec, err)
 	}
 	return id, nil
+}
+
+// byHand is a lookup's error for rec, naming the session and how to resume it by hand.
+func byHand(rec registry.Record, err error) error {
+	return fmt.Errorf("%s: %w; resume it by hand: %s --resume in %s, whose picker lists the conversations",
+		rec.Name, err, rec.Prefix, rec.Dir)
 }
 
 func read(rec registry.Record, claudeHome string) (string, error) {
@@ -105,7 +110,7 @@ func read(rec registry.Record, claudeHome string) (string, error) {
 		return "", err
 	}
 	if _, err := transcript.For(dir, r.SessionID); err != nil {
-		return "", fmt.Errorf("the recorded conversation %s (%s) has no transcript: %w", r.SessionID, path, err)
+		return "", fmt.Errorf("the recorded conversation %s (%s) has no transcript (%w): %w", r.SessionID, path, errNoTranscript, err)
 	}
 	return r.SessionID, nil
 }
@@ -129,7 +134,7 @@ func checkoutOf(rec registry.Record) (string, error) {
 func readRecord(path string) (recordV1, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return recordV1{}, fmt.Errorf("%w (%s is not there)", ErrNotRecorded, path)
+		return recordV1{}, fmt.Errorf("%w (%s is not there)", errNotRecorded, path)
 	}
 	if err != nil {
 		return recordV1{}, fmt.Errorf("could not read %s: %w", path, err)
@@ -159,8 +164,12 @@ func readRecord(path string) (recordV1, error) {
 
 var errNotARecord = errors.New("not one version 1 record")
 
-// ErrNotRecorded is For's error when the session's hook has recorded nothing: the file is not
-// there. Only this is the "no conversation recorded" a record marked fresh-if-no-conversation is
-// started fresh on (Plan 00135 Phase 13); a launch without the bus, a file that is not the
-// hook's, or a recorded conversation without its transcript is refused whatever the mark.
-var ErrNotRecorded = errors.New("no conversation is recorded")
+// errNotRecorded is For's error when the session's hook has recorded nothing: the file is not
+// there. It and errNoTranscript are the two forms of "no conversation" StartPlan starts a record
+// marked fresh-if-no-conversation fresh on; a launch without the bus or a file that is not the
+// hook's is refused whatever the mark.
+var errNotRecorded = errors.New("no conversation is recorded")
+
+// errNoTranscript is For's error when the recorded conversation has no transcript: a session
+// that never took a turn, since Claude Code writes none until its first.
+var errNoTranscript = errors.New("none is written until the session's first turn")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -30,6 +31,7 @@ const flagCheck = "--check"
 const (
 	whyDirectoryGone      = "directory-gone"
 	whyNoConversation     = "no-conversation"
+	whyNoComposeAnswer    = "no-compose-answer"
 	whyArgumentsUnknown   = "arguments-unworkable"
 	whyStartFailed        = "start-failed"
 	whyRecordUnreadable   = "record-unreadable"
@@ -69,43 +71,100 @@ func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 }
 
 // restorePlan is how one record would be started, or why it cannot be: why is a word from the
-// list above, empty when it can, and sentence says the same to a person. fresh is a start with
-// no conversation to resume (id empty).
+// list above, empty when it can, and sentence says the same to a person. start is
+// conversation.StartPlan's answer.
 type restorePlan struct {
-	id, why, sentence string
-	fresh             bool
-	args              []string
+	why, sentence string
+	start         conversation.Start
 }
 
 // planRestore decides whether a record can be restored, by the rules the restore starts it by:
-// its directory is there, its own conversation is recorded (Plan 00203 C6, Decision 10: by its
-// recorded id, or not at all; --continue would take the newest in a folder several sessions
-// share), and its arguments can be worked out. One exception (Plan 00135 Phase 13, the owner's
-// decision): a record provisioning marked fresh-if-no-conversation, whose hook has recorded
-// nothing, is started fresh. `restore` and `restore --check` both ask this, so the check cannot
-// pass a record the restore would refuse.
+// its directory is there, and conversation.StartPlan can start it (its own recorded
+// conversation, or fresh for a record marked fresh-if-no-conversation that has none to resume,
+// with arguments that can be worked out). `restore`, `restore --check` and `declare` all ask
+// this, so the check cannot pass a record the restore would refuse.
 func (a *App) planRestore(rec registry.Record, file string) restorePlan {
 	if info, statErr := os.Stat(rec.Dir); statErr != nil || !info.IsDir() {
 		return restorePlan{why: whyDirectoryGone, sentence: "its directory no longer exists: " + rec.Dir +
 			" (the record is kept at " + file + "; remove it if the project is gone)."}
 	}
-	plan := restorePlan{}
-	var err error
-	plan.id, err = conversation.For(rec, conversation.ClaudeHome(a.Getenv))
+	start, err := conversation.StartPlan(rec, conversation.ClaudeHome(a.Getenv))
+	var argsErr *conversation.ArgsError
 	switch {
-	case err == nil:
-		plan.args, err = registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, plan.id)
-	case rec.FreshIfNoConversation && errors.Is(err, conversation.ErrNotRecorded):
-		plan.fresh = true
-		plan.args, err = registry.FreshArgs(rec.Compose, rec.Prefix, rec.Args)
-	default:
-		return restorePlan{why: whyNoConversation, sentence: err.Error() + " (the record is kept at " + file + ")."}
-	}
-	if err != nil {
+	case errors.As(err, &argsErr):
 		return restorePlan{why: whyArgumentsUnknown, sentence: "the arguments to restore it with could not be worked out: " +
 			err.Error() + " (the record is kept at " + file + ")."}
+	case err != nil:
+		return restorePlan{why: whyNoConversation, sentence: err.Error() + " (the record is kept at " + file + ")."}
+	}
+	return restorePlan{start: start}
+}
+
+// judgeRestore is planRestore with composeUnanswered: whether the next boot can restore the
+// record unattended, as `restore --check` and `declare` judge it.
+func (a *App) judgeRestore(rec registry.Record, file string) restorePlan {
+	plan := a.planRestore(rec, file)
+	if plan.why == "" {
+		if unanswered := composeUnanswered(rec, file); unanswered != "" {
+			return restorePlan{why: whyNoComposeAnswer, sentence: unanswered}
+		}
 	}
 	return plan
+}
+
+// noComposeWhyEnv is what the launcher's compose question says, in a restore, about why the
+// record holds no compose answer (ccy_compose_answer); noComposeProvisioned is its value for a
+// record provisioning wrote.
+const (
+	noComposeWhyEnv      = "CCY_RESTORE_NO_COMPOSE_WHY"
+	noComposeProvisioned = "the record was provisioned without one: declare it with -- --compose start or skip"
+)
+
+// prefixCcy is a ccy session's launcher prefix.
+const prefixCcy = "ccy"
+
+// composeFiles are the compose files the launcher's has_compose_files looks for in a project.
+var composeFiles = []string{"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "podman-compose.yaml", "compose.yml", "compose.yaml"}
+
+// composeUnanswered is why a ccy record would stop its first restore at the compose question,
+// or "": its project has compose files, it holds no compose= answer, and its launch can meet the
+// question (a recorded --no-network meets none). `restore --check` and `declare` refuse such a
+// record (fedora-desktop#270); the restore still starts it, so a person at an attended reboot
+// can answer in its pane.
+func composeUnanswered(rec registry.Record, file string) string {
+	if rec.Prefix != prefixCcy || rec.Compose != "" || slices.Contains(ownArgs(rec.Args), "--no-network") {
+		return ""
+	}
+	var found []string
+	for _, name := range composeFiles {
+		if info, err := os.Stat(filepath.Join(rec.Dir, name)); err == nil && info.Mode().IsRegular() {
+			found = append(found, name)
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	has := ", and " + rec.Dir + " has compose files (" + strings.Join(found, ", ") +
+		"), so its first restore would stop at the compose question. "
+	fresh := ""
+	if rec.FreshIfNoConversation {
+		fresh = " --fresh-if-no-conversation"
+	}
+	declare := "ccy-sessions declare --replace --name " + rec.Name + fresh + " " + rec.Dir + " -- --compose start|skip ..."
+	if rec.FreshIfNoConversation {
+		return "its record was provisioned without a compose answer" + has + "Declare it with one: " + declare +
+			" (the record is kept at " + file + ")."
+	}
+	return "its record holds no compose answer (a ccy older than 3.89.1 wrote none, and a launch that never met the compose question writes none)" +
+		has + "Launch it once with --compose start|skip, or declare it with one: " + declare + " (the record is kept at " + file + ")."
+}
+
+// ownArgs is the launcher's own arguments of a recorded launch: those before any `--`.
+func ownArgs(args []string) []string {
+	if end := slices.Index(args, "--"); end >= 0 {
+		return args[:end]
+	}
+	return args
 }
 
 // restoreEnabled says whether this user's restore unit is enabled (the wants-symlink the play
@@ -157,15 +216,15 @@ func (a *App) checkRestore() term.ExitCode {
 		if !a.restoreTries(rec) {
 			continue
 		}
-		plan := a.planRestore(rec, filepath.Join(regdir, rec.Name))
+		plan := a.judgeRestore(rec, filepath.Join(regdir, rec.Name))
 		if plan.why != "" {
 			a.fail(rec.Name + " cannot be restored: " + plan.sentence)
 			lines.WriteString(rec.Name + checkLineUnrestorable + plan.why + "\n")
 			refused = append(refused, rec.Name)
 			continue
 		}
-		if plan.fresh {
-			a.sayf("%s has no conversation recorded and will be started fresh (its record is marked fresh-if-no-conversation).\n", rec.Name)
+		if plan.start.Fresh {
+			a.sayf("%s will be started fresh (its record is marked fresh-if-no-conversation): %s.\n", rec.Name, plan.start.Why)
 		}
 		lines.WriteString(rec.Name + checkLineRestorable + "\n")
 		restorable++
@@ -364,24 +423,29 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		r.notStarted(entry, plan.why)
 		return
 	}
-	args := plan.args
-	entry.Resume = plan.id
-	if plan.fresh {
+	args := plan.start.Args
+	entry.Resume = plan.start.ID
+	fresh := plan.start.Fresh
+	if fresh {
 		// Nothing to compact or continue: set-going leaves a none entry alone, and verify-restore
 		// judges it by its screen. The detail says it was not a resume.
 		entry.Going, entry.Detail = restore.GoingNone, detailFresh
 	}
 	if r.dryRun {
 		how, suffix := "", ""
-		if plan.fresh {
-			how, suffix = " fresh", " (no conversation is recorded)"
+		if fresh {
+			how, suffix = " fresh", " (no conversation to resume)"
 		}
 		a.sayf("would start %s%s in %s%s: %s %s\n", rec.Name, how, rec.Dir, suffix, rec.Launcher, strings.Join(args, " "))
 		return
 	}
 	command := []string{"env", "CCY_SESSION_RESTORE=1"}
-	if r.passphrase != "" && rec.Prefix == "ccy" {
+	if r.passphrase != "" && rec.Prefix == prefixCcy {
 		command = append(command, unlockFileEnv+"="+r.passphrase)
+	}
+	if rec.Prefix == prefixCcy && rec.Compose == "" && rec.FreshIfNoConversation {
+		// The pane says why the compose question is asked: not a record from before compose=.
+		command = append(command, noComposeWhyEnv+"="+noComposeProvisioned)
 	}
 	command = append(append(command, rec.Launcher), args...)
 	spec := tmuxccy.StartSpec{Name: rec.Name, Dir: rec.Dir, Command: command, RecordPath: file, Prefix: rec.Prefix}
@@ -391,8 +455,8 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		r.notStarted(entry, whyStartFailed)
 		return
 	}
-	if plan.fresh {
-		a.sayf("started %s fresh in %s: no conversation is recorded and its record is marked fresh-if-no-conversation.\n", rec.Name, rec.Dir)
+	if fresh {
+		a.sayf("started %s fresh in %s (its record is marked fresh-if-no-conversation): %s.\n", rec.Name, rec.Dir, plan.start.Why)
 	} else {
 		a.sayf("restored %s in %s.\n", rec.Name, rec.Dir)
 	}

@@ -56,9 +56,10 @@ type job struct {
 	rec                     registry.Record
 	action                  action
 
-	// id is the conversation a start resumes, args the launcher's arguments for it.
-	id   string
-	args []string
+	// id is the conversation a start resumes (none when fresh), args the launcher's arguments.
+	id    string
+	fresh bool
+	args  []string
 	// memDir is a running ccy session's membership directory, generation its desired one's.
 	memDir     string
 	generation int
@@ -75,6 +76,14 @@ type job struct {
 
 func (j *job) done(r result, note string) { j.result, j.note = r, note }
 
+// startedWords is how a started session was started.
+func (j *job) startedWords() string {
+	if j.fresh {
+		return "started fresh"
+	}
+	return "started, resuming conversation " + j.id
+}
+
 // plan is what the preview says will be done to the session.
 func (j *job) plan() string {
 	switch {
@@ -84,6 +93,8 @@ func (j *job) plan() string {
 		return j.note
 	case j.action == actInPlace:
 		return "running, so it restarts in place at its next idle moment, resuming its conversation in a fresh container"
+	case j.action == actStart && j.fresh:
+		return "stopped, so it is started fresh (its record is marked fresh-if-no-conversation, and it has no conversation to resume)"
 	case j.action == actStart:
 		return "stopped, so it is started, resuming conversation " + j.id
 	}
@@ -217,23 +228,20 @@ func (r *Restart) prepareInPlace(j *job, again string) {
 	j.generation, j.action = d.Generation, actInPlace
 }
 
-// prepareStart is B6: started as a restore starts a record, by its recorded conversation only.
+// prepareStart is B6: started as a restore starts a record (conversation.StartPlan): by its
+// recorded conversation, or fresh for a record marked fresh-if-no-conversation that has none to
+// resume.
 func (r *Restart) prepareStart(j *job) {
 	if info, err := os.Stat(j.rec.Dir); err != nil || !info.IsDir() {
 		j.done(resultFailed, "its folder no longer exists: "+j.rec.Dir)
 		return
 	}
-	id, err := conversation.For(j.rec, conversation.ClaudeHome(r.Getenv))
+	start, err := conversation.StartPlan(j.rec, conversation.ClaudeHome(r.Getenv))
 	if err != nil {
 		j.done(resultFailed, strings.TrimPrefix(err.Error(), j.rec.Name+": "))
 		return
 	}
-	args, err := registry.ResumeArgs(j.rec.Compose, j.rec.Prefix, j.rec.Args, id)
-	if err != nil {
-		j.done(resultFailed, "could not work out the arguments to start it with: "+err.Error())
-		return
-	}
-	j.id, j.args, j.action = id, args, actStart
+	j.id, j.fresh, j.args, j.action = start.ID, start.Fresh, start.Args, actStart
 }
 
 // actAll makes every request and start before anything is waited for (B7).
@@ -342,7 +350,7 @@ func (r *Restart) judge(j *job, running map[string]string, podmanErr error, held
 		}
 	case actStart:
 		if unheld == "" {
-			j.done(resultDone, "started, resuming conversation "+j.id+"; "+seatWords(j.seats)+" held")
+			j.done(resultDone, j.startedWords()+"; "+seatWords(j.seats)+" held")
 			return
 		}
 		if late >= r.Waits.Start {

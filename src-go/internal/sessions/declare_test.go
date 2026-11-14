@@ -102,7 +102,7 @@ cat "$(ccy_registry_dir)/$name"`, declaredLaunch...)
 	}
 	h.errOut.Reset()
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation is recorded): /var/local/claude-yolo/claude-yolo --token work --ssh-key /keys/id_github --compose start --supervise -- --model opus")
+	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation to resume): /var/local/claude-yolo/claude-yolo --token work --ssh-key /keys/id_github --compose start --supervise -- --model opus")
 }
 
 func TestDeclaringTheSameRecordAgainChangesNothingEvenWhileItRuns(t *testing.T) {
@@ -205,6 +205,31 @@ func TestDeclareRefusesARecordTheRestoreCouldNotStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fedora-desktop#270: in a project with compose files, a declare with no --compose start|skip
+// would write a record whose first restore stops at the compose question, so it is refused,
+// naming the flag; --compose skip (or start) writes it with its answer. --help says how.
+func TestDeclareInAComposeProjectNeedsAComposeAnswer(t *testing.T) {
+	h := newHarness(t)
+	dir := declareHost(h)
+	h.write("work/proj/docker-compose.yml", "services: {}\n")
+	exitCodeIs(t, h.run("declare", "--fresh-if-no-conversation", dir, "--", "--no-ssh"), 1, h)
+	contains(t, "refusal", h.stderr(), "nothing is declared: the boot restore could not start ccy-proj (no-compose-answer)",
+		"provisioned without a compose answer", "docker-compose.yml", "-- --compose start|skip")
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(regdir, "ccy-proj")); !os.IsNotExist(statErr) {
+		t.Fatal("a refused declare left a record")
+	}
+	exitCodeIs(t, h.run("declare", "--fresh-if-no-conversation", dir, "--", "--no-ssh", "--compose", "skip"), 0, h)
+	contains(t, "answered", recordBytes(t, h), "compose=declined\n")
+
+	h.out.Reset()
+	exitCodeIs(t, h.run("--help"), 0, h)
+	contains(t, "help", strings.Join(strings.Fields(h.stdout()), " "), "--compose start|skip among CCY-ARGS becomes the record's compose= answer")
 }
 
 func TestDeclareRefusesADirectoryTheRestoreCouldNotStartIn(t *testing.T) {

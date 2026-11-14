@@ -143,24 +143,28 @@ func TestForNamesAMissingRecord(t *testing.T) {
 	mustFail(t, rec, "/nonexistent", "no conversation is recorded", File)
 }
 
-// Plan 00135 Phase 13: only a record with nothing recorded (the hook's file is not there) is
-// ErrNotRecorded, the one case a record marked to start fresh starts fresh on. A launch without
-// the bus, a file that is not the hook's, or a missing transcript is something else.
-func TestOnlyAnAbsentHookRecordIsNotRecorded(t *testing.T) {
-	rec := ccyCase(t)
-	if err := os.Remove(recordPath(rec.Dir)); err != nil {
+// The two forms of "no conversation" StartPlan starts a marked record fresh on: nothing recorded
+// (the hook's file is not there, Plan 00135 Phase 13) and a recorded conversation with no
+// transcript (fedora-desktop#270). A launch without the bus or a file that is not the hook's is
+// neither.
+func TestOnlyNothingRecordedOrNoTranscriptIsNoConversation(t *testing.T) {
+	absent, noTranscript := ccyCase(t), ccyCase(t)
+	if err := os.Remove(recordPath(absent.Dir)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := For(rec, "/nonexistent"); !errors.Is(err, ErrNotRecorded) {
+	if err := os.Remove(transcriptPath(noTranscript.Dir)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := For(absent, "/nonexistent"); !errors.Is(err, errNotRecorded) {
 		t.Fatalf("an absent record: %v", err)
 	}
-	others := map[string]registry.Record{"no bus": ccyCase(t, "--no-bus"), "not the hook's": ccyCase(t), "no transcript": ccyCase(t)}
-	write(t, recordPath(others["not the hook's"].Dir), "not json")
-	if err := os.Remove(filepath.Join(others["no transcript"].Dir, ".claude/ccy/projects/-workspace", id+".jsonl")); err != nil {
-		t.Fatal(err)
+	if _, err := For(noTranscript, "/nonexistent"); !errors.Is(err, errNoTranscript) {
+		t.Fatalf("no transcript: %v", err)
 	}
+	others := map[string]registry.Record{"no bus": ccyCase(t, "--no-bus"), "not the hook's": ccyCase(t)}
+	write(t, recordPath(others["not the hook's"].Dir), "not json")
 	for name, other := range others {
-		if _, err := For(other, "/nonexistent"); err == nil || errors.Is(err, ErrNotRecorded) {
+		if _, err := For(other, "/nonexistent"); err == nil || errors.Is(err, errNotRecorded) || errors.Is(err, errNoTranscript) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}

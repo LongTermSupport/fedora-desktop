@@ -82,6 +82,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_self_child_stderr`       | a child of the test binary required to say nothing on stderr, which a `-cover` build with no instrumented package (qa-changed's diff mode) makes it say                                | teamchat `kit` and `wiring` tests, red only in `qa-changed` (fedora-desktop#155)                                                                                                    |
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
+| `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -2286,11 +2287,77 @@ record only.
   neither of the values it compared, such as the link's "the inbox socket is not a socket of the
   session's processes". No rule can say which values a refusal compared, so those are fixed
   conventionally (fedora-desktop#265's socket refusal).
+### project_start_decision
+
+**What it is about.** A recorded session is started by the boot restore, judged by
+`restore --check` and `declare`, and started again by `ccy-teams` restart. Whether it resumes its
+recorded conversation or starts a new one, and the arguments it is started with, must be one
+decision, or the check passes what the restore refuses and the restart refuses what the restore
+starts.
+
+**Why it exists.** fedora-desktop#270: a record marked `fresh-if-no-conversation=yes` was
+started fresh only when its `conversation.json` was missing (`errors.Is` on
+`conversation.ErrNotRecorded` in the restore's planner). A session that never took a turn has a
+`conversation.json` naming a conversation with no transcript, which was refused as
+`UNRESTORABLE no-conversation`, so the next reboot could not restore it. The team restart
+(`teams/restart`, B6) resumed by the recorded conversation only and never started such a record
+fresh.
+
+**What it flags**, outside test files: a use of `internal/registry`'s `ResumeArgs` or
+`FreshArgs` anywhere but `conversation.StartPlan` (and the registry itself), and a use of an
+exported error of `internal/conversation` outside that package. Uses are matched through
+`types.Info`, so a call, a function value and a variable holding an error are all seen.
+
+**Not caught**: a start decided from the text of `conversation.For`'s error or from an error
+type the package exports (its `ArgsError` marks arguments that could not be worked out, which
+is not a lookup error), and start arguments built by hand without the registry's builders.
+The bash launcher builds no restore arguments (the Go restore passes them), so the class has
+no shell or Python side.
+
+**How to fix a violation.** Ask `conversation.StartPlan(rec, claudeHome)`: it returns the
+conversation to resume (empty and `Fresh` for a fresh start, with the reason) and the
+arguments, or an error that says why the record cannot be started (a `*conversation.ArgsError`
+for arguments that could not be worked out). Act on its answer.
+
+**The next wider rule, not built:** every reader of a session record's restore marks
+(`fresh-if-no-conversation`, `restore=`, `compose=`) kept in one package. Not built: the other
+marks are read for different questions (listing, `--no-restore`, the replayed `--compose`) that
+do not decide a start, and the rule would flag reads that carry no hazard.
+
+- Red, fixture: `testdata/src/fix/internal/badstart` (the restore's planner as it was, a
+  resume-only restart, a builder held as a value, a lookup error held in a variable; a plain
+  lookup, `StartPlan` and a test file clean) and `fix/internal/conversation` (a second function
+  in the package is judged).
+- Red, real tree: four findings at `60c6c40c2`, `sessions/restore.go:97`, `:98` and `:100` (the
+  defect) and `teams/restart/jobs.go:231`; the independent search made before the rule found the
+  same two sites, and no start decided from a record in bash or Python (the launcher's in-place
+  relaunch strips selectors in `restart-request.bash`, but resumes the supervisor's live id and
+  decides no fresh start).
+- Green: both sites ask `conversation.StartPlan`; the sweep over both modules is clean.
+  `conversation.TestStartPlanStartsAMarkedRecordWhoseConversationHasNoTranscriptFresh`,
+  `sessions.TestAMarkedRecordWhoseSessionNeverTookATurnStartsFresh` and
+  `restart.TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh` reproduce the defect.
 
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
 guessing; the catalogue claims no more than the code does.
+
+- **A restore verdict that calls a record restorable without checking it answers every launch
+  question its replay can meet** (fedora-desktop#270: `restore --check` and `declare` called a
+  ccy record RESTORABLE when its project had compose files and it held no `compose=` answer, so
+  the first restore stopped at the compose question). Whether a replay meets a question depends
+  on the project's files and the container engine's state at boot (a compose file, a network,
+  running containers, the token pool) and on the bash launcher's flow, not on a shape in the Go
+  syntax tree; the next form considered, a table test pairing every `ccy_prompt_refuse` name with
+  how the check judges it, would pin names without knowing which questions a restore reaches.
+  What holds it: `judgeRestore` (`sessions/restore.go`) refuses a ccy record with no `compose=`
+  in a project with a compose file unless its launch says `--no-network`
+  (`TestRestoreCheckRefusesARecordWithNoComposeAnswerInAComposeProject`,
+  `TestDeclareInAComposeProjectNeedsAComposeAnswer`). The independent search listed other
+  questions a restore pane may meet with no record answer (token choice, network connect, the
+  engine conflict, ssh key choice, the relabel fix); whether a restore reaches each is not
+  established, and is logged as fedora-desktop#279.
 
 - **A test or a code path that works only because root is not subject to permission checks**
   (found by the first CI run of the Go tests, all of it invisible in an agent container, which
