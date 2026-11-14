@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.121.0 — container 2.84.15
+## 3.121.1 — container 2.84.15
 
 - **`ccy-sessions restore --check` judges a ccy record's `--token`** (issue #283), and so do
   `declare` and the self-update cycle's pre-reboot hold: the record's token is found as the
@@ -26,13 +26,19 @@ Two version numbers move independently — see
   clears; a token that is gone is `token-missing`, one that has expired `token-expired`, and a
   usage check that fails (the launch stops on it too) `token-check-failed`. Usage that cannot
   be read stays `RESTORABLE`, with a note, as the launch starts on it.
-- **A launch that stops on a used-up token with nobody to choose another keeps its record**
-  (issue #283): `ccy_token_usable` exits `CCY_EXIT_TOKEN_USED_UP` (88) there instead of 1, and
-  the pane's trampoline keeps the session's record for that status alone, holding the window
-  on "did not start: its token has no usage left, so its record is kept for the next restore".
-  `verify-restore` reports such a session `NOT-STARTED token-used-up` rather than
-  `DEAD launcher-exited`, and the next restore starts it again once the window clears. The
-  Semgrep rule `ccy-unattended-refusal-status` holds every unattended stop to that status.
+- **A launch that stops where nobody could answer keeps its record** (issue #283). A boot
+  restore or a restart's relaunch that stops for want of a person (a used-up token, a launch
+  question, a key that needs a passphrase, a spent restart budget) now ends with
+  `ccy_unattended_stop <reason> <sentence>` (`lib/unattended-stop.bash`): it writes the reason
+  to the stop file the pane's trampoline names (`stopped/<session>` beside the registry,
+  cleared on the next start) and exits 88 instead of 1. The trampoline keeps the session's
+  record for 88 alone and holds the window on "did not start: nobody was there to answer, so
+  its record is kept for the next restore". `verify-restore` and `set-going` report such a
+  session `NOT-STARTED <reason>` (`token-used-up`, `token-select`, `ssh-passphrase-needed`,
+  `restart-budget-spent`, ...) rather than `DEAD launcher-exited`, and the next restore
+  starts it again. A restart's own faults (relaunch arguments that cannot be built, the
+  history directory, the image update) still exit 1. The Semgrep rule
+  `ccy-unattended-refusal-status` holds every unattended stop to `ccy_unattended_stop`.
   No image rebuild.
 
 ## 3.120.4 — container 2.84.15

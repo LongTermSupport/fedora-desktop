@@ -245,26 +245,35 @@ func TestTrampolineBehaviour(t *testing.T) {
 	}
 }
 
-// A launcher that stops because nobody can choose another token for a used-up one did not end
-// a session: the record is kept for the next restore, and the held line says so in words
-// verify-restore reads (fedora-desktop#283). Any other status removes it as before.
-func TestTrampolineKeepsTheRecordOnATokenRefusal(t *testing.T) {
-	dir := t.TempDir()
+// A launcher that stops where nobody could answer did not end a session: the record is kept for
+// the next restore, the held line says so in words verify-restore reads, and the reason the
+// launcher wrote to the stop file the trampoline named is there to read. Any other status
+// removes the record as before. A stop file left by an earlier start is cleared before the
+// launcher runs (fedora-desktop#283).
+func TestTrampolineKeepsTheRecordOnAnUnattendedStop(t *testing.T) {
+	regdir := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(regdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeStop := func(status int) string {
+		return `mkdir -p "$(dirname "$` + StopEnv + `")" && printf 'token-used-up the token has no usage left\n' >"$` + StopEnv + `"; exit ` + strconv.Itoa(status)
+	}
 	for _, c := range []struct {
 		status int
 		kept   bool
 		line   string
 	}{
-		{int(ExitTokenUsedUp), true, "ccy " + screen.TokenUsedUpText + " " + screen.EndedText},
+		{ExitUnattendedStop, true, "ccy " + screen.UnattendedStopText + " " + screen.EndedText},
 		{1, false, "ccy exited with status 1. " + screen.EndedText},
-		{int(ExitTokenUsedUp) + 1, false, fmt.Sprintf("ccy exited with status %d. %s", int(ExitTokenUsedUp)+1, screen.EndedText)},
+		{ExitUnattendedStop + 1, false, fmt.Sprintf("ccy exited with status %d. %s", ExitUnattendedStop+1, screen.EndedText)},
 	} {
-		rec := filepath.Join(dir, fmt.Sprintf("ccy-%d", c.status))
+		name := fmt.Sprintf("ccy-%d", c.status)
+		rec := filepath.Join(regdir, name)
 		if err := os.WriteFile(rec, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
-			Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "sh", "-c", fmt.Sprintf("exit %d", c.status)},
+			Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "sh", "-c", writeStop(c.status)},
 			Stdin: strings.NewReader("\n"),
 		})
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != c.status {
@@ -276,15 +285,66 @@ func TestTrampolineKeepsTheRecordOnATokenRefusal(t *testing.T) {
 		if got := string(res.Stdout) + string(res.Stderr); got != "\n"+c.line+"\n" {
 			t.Errorf("status %d: printed %q, want %q", c.status, got, "\n"+c.line+"\n")
 		}
+		stop, found, err := ReadStop(regdir, name)
+		if err != nil || !found || stop != (Stop{Reason: "token-used-up", Sentence: "the token has no usage left"}) {
+			t.Errorf("status %d: stop %+v %v %v", c.status, stop, found, err)
+		}
+	}
+	// The next start clears the earlier stop before the launcher runs.
+	rec := filepath.Join(regdir, "ccy-again")
+	if err := os.WriteFile(StopFile(regdir, "ccy-again"), []byte("token-used-up old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (execx.OS{}).Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", Trampoline(rec, "ccy"), "ccy-tmux", "true"}, Stdin: strings.NewReader("\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadStop(regdir, "ccy-again"); found || err != nil {
+		t.Fatalf("an earlier stop survived the next start: %v %v", found, err)
 	}
 }
 
-// The token refusal's status is the one the launcher's token check exits with on a launch
-// nobody attends (lib/token-usable.bash).
-func TestExitTokenUsedUpIsTheLaunchersStatus(t *testing.T) {
-	out := bashWithArgs(t, `source "$1"; printf '%s' "$CCY_EXIT_TOKEN_USED_UP"`, filepath.Join(repoRoot(t), "files/var/local/claude-yolo/lib/token-usable.bash"))
-	if out != strconv.Itoa(int(ExitTokenUsedUp)) {
-		t.Fatalf("token-usable.bash says CCY_EXIT_TOKEN_USED_UP=%q, registry says %d", out, ExitTokenUsedUp)
+// A stop file that is not one line of a reason word and a sentence is refused, never guessed.
+func TestReadStopRefusesAMalformedFile(t *testing.T) {
+	regdir := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(regdir), "stopped"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"", "Token-Used-Up x\n", "token-used-up x\nmore\n", " x\n"} {
+		if err := os.WriteFile(StopFile(regdir, "s"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := ReadStop(regdir, "s"); !errors.Is(err, ErrBadStop) {
+			t.Errorf("%q: %v", body, err)
+		}
+	}
+	if err := os.Chmod(StopFile(regdir, "s"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getuid() != 0 {
+		if _, _, err := ReadStop(regdir, "s"); err == nil || errors.Is(err, ErrBadStop) {
+			t.Errorf("unreadable: %v", err)
+		}
+	}
+}
+
+// The unattended stop's status is the one the launcher's ccy_unattended_stop exits with
+// (lib/unattended-stop.bash), and the variable it reads is StopEnv.
+func TestExitUnattendedStopIsTheLaunchersStatus(t *testing.T) {
+	dir := t.TempDir()
+	stop := filepath.Join(dir, "stopped", "ccy-x")
+	script := `source "$1"; ccy_unattended_stop token-select "nobody could choose a token"`
+	res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+		Name: "bash", Args: []string{"-c", script, "bash", filepath.Join(repoRoot(t), "files/var/local/claude-yolo/lib/unattended-stop.bash")},
+		Env: []string{StopEnv + "=" + stop},
+	})
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != ExitUnattendedStop {
+		t.Fatalf("ccy_unattended_stop ended with %v (stderr %s), want %d", err, res.Stderr, ExitUnattendedStop)
+	}
+	raw, err := os.ReadFile(filepath.Clean(stop))
+	if err != nil || string(raw) != "token-select nobody could choose a token\n" {
+		t.Fatalf("stop file %q %v", raw, err)
 	}
 }
 

@@ -219,7 +219,37 @@ func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (stri
 		return "", err
 	}
 	going := restore.GoingState(e.Going, at, e.Detail, a.Now().Unix(), int64(a.cfg.StartWindow.Seconds()), took)
-	return restore.Judge(e.Prefix, live, pane, container, going).String(), nil
+	verdict, err := a.stopped(e.Name, restore.Judge(e.Prefix, live, pane, container, going))
+	if err != nil {
+		return "", err
+	}
+	return verdict.String(), nil
+}
+
+// stopped is the verdict of a session whose latest start stopped where nobody could answer:
+// NOT-STARTED <reason>, from the stop file its launcher wrote (registry.ReadStop), whatever its
+// pane shows now, with the sentence on stderr; v when there is none. A session the restore never
+// started keeps that verdict. A stop file that cannot be read is a failure, never a state
+// (fedora-desktop#283).
+func (a *App) stopped(name string, v restore.Verdict) (restore.Verdict, error) {
+	if v.State == restore.StateNotStarted && v.Detail != restore.DetailUnattendedStop {
+		return v, nil
+	}
+	regdir, err := registry.Dir(a.Getenv)
+	if err != nil {
+		a.failErr(err)
+		return v, errReported
+	}
+	stop, found, err := registry.ReadStop(regdir, name)
+	if err != nil {
+		a.failErr(err)
+		return v, errReported
+	}
+	if !found {
+		return v, nil
+	}
+	a.sayf("%s did not start: %s\n", name, stop.Sentence)
+	return restore.Verdict{State: restore.StateNotStarted, Detail: stop.Reason}, nil
 }
 
 // runningContainers is the names of the running CCY containers of each engine, engines sorted.

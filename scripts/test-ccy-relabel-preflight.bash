@@ -353,11 +353,13 @@ else
     set_map "$MAP_FOREIGN"
     out="$(PATH="$STUB_BIN:$PATH" CCY_CONTAINER_ENGINE=podman bash -c "
         source '$LIB_DIR/common.bash'
+        source '$LIB_DIR/unattended-stop.bash'
         file_selinux_label() { echo user_home_t; }
         CCY_MOUNT_RELABEL=z
-        workspace_relabel_preflight '$p' </dev/null
+        ( workspace_relabel_preflight '$p' </dev/null )
         echo rc=\$?" 2>&1)"
-    check "no terminal to ask on: the launch stops" "rc=1" "$(last_rc "$out")"
+    # 88 is CCY_EXIT_UNATTENDED_STOP: the pane's trampoline keeps the session's record (#283).
+    check "no terminal to ask on: the launch stops, 88" "rc=88" "$(last_rc "$out")"
     contains "  and points at the printed fix" "no terminal to ask on" "$out"
     check "  and sudo was not run" "" "$(cat "$STUB_SUDO_LOG")"
 
@@ -370,14 +372,15 @@ else
     cat >"$headless_driver" <<DRIVER
 export PATH="$STUB_BIN:\$PATH" CCY_CONTAINER_ENGINE=podman
 source "$LIB_DIR/common.bash"
+source "$LIB_DIR/unattended-stop.bash"
 file_selinux_label() { echo user_home_t; }
 CCY_MOUNT_RELABEL=z
 HEADLESS_MODE=true
-workspace_relabel_preflight "$p"
+( workspace_relabel_preflight "$p" )
 echo "rc=\$?"
 DRIVER
     out="$(script -qec "bash $(printf '%q' "$headless_driver")" /dev/null <<<"y" 2>&1 | tr -d '\r')"
-    check "--headless on a terminal: the launch stops too" "rc=1" "$(last_rc "$out")"
+    check "--headless on a terminal: the launch stops too, 88" "rc=88" "$(last_rc "$out")"
     contains "  and says why" "--headless launch" "$out"
     check "  and sudo was not run" "" "$(cat "$STUB_SUDO_LOG")"
 fi

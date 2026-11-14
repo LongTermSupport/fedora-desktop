@@ -37,8 +37,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #283: ccy 3.121.0. Rebuilds and installs ccy-sessions and the claude-yolo front, and
+# Issue #283: ccy 3.121.1. Rebuilds and installs ccy-sessions and the claude-yolo front, and
 # deploys the launcher library: restore --check (and the self-update reboot hold) judge a
-# record's --token, a restore on a used-up token keeps its record, and verify-restore says
-# NOT-STARTED token-used-up. No image rebuild.
+# record's --token, a launch that stops where nobody could answer keeps its record, and
+# verify-restore says NOT-STARTED <reason>. No image rebuild.
 playbooks/imports/play-claude-yolo.yml

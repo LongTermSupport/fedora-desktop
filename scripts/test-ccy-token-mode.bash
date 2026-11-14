@@ -230,6 +230,7 @@ usable_case() {
         : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
         source '$PURE_LIB'
         source '$TOKEN_LIB'
+        source '$LIB_DIR/unattended-stop.bash'
         source '$USABLE_LIB'
         [ '$attended' = no ] || ccy_nobody_to_ask() { return 1; }
         select_token '$WORK/two-valid' $mode && echo \"SELECTED=\$SELECTED_TOKEN\"
@@ -262,7 +263,7 @@ usable_case "usage left -> chosen at once" "$STUB_PATH" container yes $'1\n' 0 S
     "Selected token: alpha" "-- $WORK/two-valid/alpha.$NEXT_YEAR.token"
 usable_case "only used-up picks -> bounded, gives up" "$STUB_PATH" container yes $'1\n1\n1\n1\n' 2 STUB_USED_UP=alpha \
     "Giving up after 3 invalid selections"
-# 88 is CCY_EXIT_TOKEN_USED_UP: the status the pane's trampoline keeps the record for (#283).
+# 88 is CCY_EXIT_UNATTENDED_STOP: the status the pane's trampoline keeps the record for (#283).
 usable_case "used up, nobody to choose -> stops, 88" "$STUB_PATH" container no $'1\n' 88 STUB_USED_UP=alpha \
     "Nobody is here to choose another token"
 usable_case "check fails -> stops, naming it" "$STUB_PATH" container yes $'1\n' 1 STUB_EXIT=2 \

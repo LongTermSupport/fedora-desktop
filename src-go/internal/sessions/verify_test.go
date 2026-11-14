@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -108,21 +109,54 @@ func TestVerifyRestoreNamesEachSessionByItsState(t *testing.T) {
 	contains(t, "why", h.stderr(), "Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.")
 }
 
-// fedora-desktop#283: a restored session whose launcher stopped on a used-up token is held on
-// the trampoline's line with its record kept; it is reported NOT-STARTED token-used-up, not DEAD.
-func TestVerifyRestoreReportsATokenRefusalAsNotStarted(t *testing.T) {
+// fedora-desktop#283: a restored session whose launcher stopped where nobody could answer is held
+// on the trampoline's line with its record kept, and its launcher wrote why to its stop file. It
+// is reported NOT-STARTED <reason> from that file, live or not, never DEAD; a held pane with no
+// stop file is NOT-STARTED unattended-stop, and a stop file that cannot be read fails the run.
+func TestVerifyRestoreReportsAnUnattendedStopAsNotStarted(t *testing.T) {
 	h := verifyHost(t)
-	writeEntries(t, h, kept("ccy-t", "ccy", "/srv/t"))
-	h.sessions("ccy-t 0 /srv/t")
-	h.tmuxOut("list-panes", "ccy-t 100\n")
-	showScreen(h, "ccy-t", "\nccy "+screen.TokenUsedUpText+" "+screen.EndedText+"\n")
+	writeEntries(t, h, kept("ccy-t", "ccy", "/srv/t"), kept("ccy-u", "ccy", "/srv/u"), kept("ccy-v", "ccy", "/srv/v"))
+	h.sessions("ccy-t 0 /srv/t", "ccy-u 0 /srv/u")
+	h.tmuxOut("list-panes", "ccy-t 100\nccy-u 200\n")
+	held := "\nccy " + screen.UnattendedStopText + " " + screen.EndedText + "\n"
+	showScreen(h, "ccy-t", held)
+	showScreen(h, "ccy-u", held)
+	writeStop(t, h, "ccy-t", "token-used-up the token has no usage left\n")
+	writeStop(t, h, "ccy-v", "token-select nobody could choose a token\n")
 	report, code := verifyReport(h)
 	if code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	contains(t, "report", report, "ccy-t NOT-STARTED token-used-up")
+	for _, want := range []string{"ccy-t NOT-STARTED token-used-up", "ccy-u NOT-STARTED unattended-stop", "ccy-v NOT-STARTED token-select"} {
+		contains(t, "report", report, want)
+	}
 	if strings.Contains(report, "DEAD") {
 		t.Fatalf("reported dead: %q", report)
+	}
+	contains(t, "why", h.stderr(), "ccy-t did not start: the token has no usage left\n", "ccy-v did not start: nobody could choose a token\n")
+
+	writeStop(t, h, "ccy-t", "Not A Reason\n")
+	h.out.Reset()
+	h.errOut.Reset()
+	if _, code = verifyReport(h); code != 1 {
+		t.Fatalf("a malformed stop file: exit %d", code)
+	}
+	contains(t, "malformed", h.stderr(), "is not one line of a reason word and a sentence")
+}
+
+// writeStop writes the stop file a launcher writes for the session.
+func writeStop(t *testing.T, h *harness, name, body string) {
+	t.Helper()
+	regdir, err := registry.Dir(h.app.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := registry.StopFile(regdir, name)
+	if err = os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

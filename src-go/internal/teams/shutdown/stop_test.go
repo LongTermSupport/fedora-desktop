@@ -206,12 +206,12 @@ func TestAnEndedWindowIsClosed(t *testing.T) {
 	m.errHas(t, "ccy-proj: exited cleanly; claude ended and its launcher reported an error, so the window was closed")
 }
 
-// A window held after the launcher's token refusal is an ended launcher too: it is closed
-// (its record stays, which closing does not change; fedora-desktop#283).
-func TestAWindowHeldAfterATokenRefusalIsClosed(t *testing.T) {
+// A window held after an unattended stop is an ended launcher too: it is closed (its record
+// stays, which closing does not change; fedora-desktop#283).
+func TestAWindowHeldAfterAnUnattendedStopIsClosed(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.sessions[0].afterExit = "\nccy " + screen.TokenUsedUpText + " " + screen.EndedText + "\n"
+	m.sessions[0].afterExit = "\nccy " + screen.UnattendedStopText + " " + screen.EndedText + "\n"
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}

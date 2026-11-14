@@ -1,4 +1,4 @@
-=== exit 1
+=== exit 88
 === stdout
 ✓ Creating .claude/ccy/.gitignore for security
 

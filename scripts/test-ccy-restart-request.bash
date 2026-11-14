@@ -417,6 +417,7 @@ source "$HC_LIB_DIR/common-pure.bash"
 source "$HC_LIB_DIR/ssh-handling.bash"
 source "$HC_LIB_DIR/session-registry.bash"
 source "$HC_LIB_DIR/restart-request.bash"
+source "$HC_LIB_DIR/unattended-stop.bash"
 source "$HC_WORK/handler.bash"
 source "$HC_WORK/update-stub.bash"
 if [ -n "${HC_BUILDER_FAILS:-}" ]; then
@@ -526,8 +527,9 @@ check "a forwarded agent and --no-network are carried" \
     "$(HC_KEYS="$SSH_AGENT_SENTINEL" HC_NO_NETWORK=true handler_case agent "$GOOD" 0 0 >/dev/null
         paste -sd'|' "$work/agent.argv")"
 
-check "a key that needs a passphrase stops the restart before the budget or an update" \
-    "rc=1 update=0 exec=no request=gone" \
+# 88 is CCY_EXIT_UNATTENDED_STOP: a refusal keeps the session's record for the next restore (#283).
+check "a key that needs a passphrase stops the restart before the budget or an update, 88" \
+    "rc=88 update=0 exec=no request=gone" \
     "$(HC_KEYS="$work/key-locked" handler_case locked "$GOOD" 0 0)"
 check "…names the key and the manual resume" "yes" \
     "$(grep -q -F "$work/key-locked" "$work/locked.err" && grep -q -F "ccy --resume $SID" "$work/locked.err" && echo yes || echo no)"
@@ -551,8 +553,8 @@ check "…and it says so" "yes" \
 check "status 75 with a bad file: not a restart, the file is discarded" \
     "rc=0 update=0 exec=no request=gone" "$(handler_case bad 'not json' 0 0)"
 
-check "an exhausted budget stops the restart before any update" \
-    "rc=1 update=0 exec=no request=gone" "$(handler_case budget "$GOOD" 0 3)"
+check "an exhausted budget stops the restart before any update, 88" \
+    "rc=88 update=0 exec=no request=gone" "$(handler_case budget "$GOOD" 0 3)"
 check "…and names the manual resume" "yes" \
     "$(grep -q -- "ccy --resume $SID" "$work/budget.err" && echo yes || echo no)"
 
@@ -668,7 +670,7 @@ check "a restart may use a server restore's passphrase file" "1" \
 check "the old-sessions migration is not asked on a restart" "1" \
     "$(grep -c -F "if [ -d \".claude/ccy/sessions\" ] && [ -z \"\$CCY_RESTART_RELAUNCH_SESSION\" ]; then" "$LAUNCHER")"
 check "keys, an expired token and a failed token refuse a restart rather than ask" "3" \
-    "$(grep -c -F "ccy_restart_refuse \"\$CCY_RESTART_RELAUNCH_SESSION\"" "$LAUNCHER")"
+    "$(grep -c -E 'ccy_unattended_stop (ssh-passphrase-needed "an SSH key needs|token-expired \\$|token-invalid \\$)' "$LAUNCHER")"
 
 echo "=== the image: Claude Code's agent view off, background tasks on (Plan 00203 C7, D11) ==="
 # A /background record from another PID namespace is counted live for ever, and makes --continue

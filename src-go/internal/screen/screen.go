@@ -14,11 +14,12 @@ import (
 // is how a pane whose launcher has exited is told from one that is still starting.
 const EndedText = "Press Enter to close this session."
 
-// TokenUsedUpText is what the trampoline's held line says, after the launcher's name and before
-// EndedText, when the launcher stopped with registry.ExitTokenUsedUp: an unattended launch on a
-// token with no usage left, whose record the trampoline keeps (fedora-desktop#283). It is
-// spliced into a single-quoted printf format, so it holds no quote and no percent.
-const TokenUsedUpText = "did not start: its token has no usage left, so its record is kept for the next restore."
+// UnattendedStopText is what the trampoline's held line says, after the launcher's name and
+// before EndedText, when the launcher stopped with registry.ExitUnattendedStop: a launch nobody
+// attended stopped where only a person could go on, and the trampoline kept its record
+// (fedora-desktop#283). It is spliced into a single-quoted printf format, so it holds no quote
+// and no percent.
+const UnattendedStopText = "did not start: nobody was there to answer, so its record is kept for the next restore."
 
 // State is what Claude's input box shows.
 type State string

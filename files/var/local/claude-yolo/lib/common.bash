@@ -216,7 +216,7 @@ workspace_relabel_preflight() {
 
     if ccy_nobody_to_ask; then
         print_error "ccy did not start: there is no terminal to ask on (or this is a --headless launch, whose input is the session's). Run the fix above, then start ccy again."
-        return 1
+        ccy_unattended_stop relabel-fix "podman cannot relabel files under the project that it does not own. Run the fix shown in the pane, then restore it"
     fi
     local reply="" tries=0 answer=""
     while [ "$tries" -lt 3 ] && [ -z "$answer" ]; do

@@ -602,16 +602,18 @@ CCY_SESSION_ENDED_TEXT="Press Enter to close this session."
 # whole feature: a reboot kills the pane's bash before it gets here, and the record stays.
 # The dollars are literal: they expand in the bash tmux starts, not in the caller.
 #
-# The one returned launcher that is not an ended session is status 88, CCY_EXIT_TOKEN_USED_UP
-# (lib/token-usable.bash): an unattended launch on a token with no usage left started nothing,
-# so its record is kept for the next restore and the held line says so, in the words
-# verify-restore reads as NOT-STARTED token-used-up (fedora-desktop#283). The Go twin,
-# registry.Trampoline, is held byte for byte to this string by its tests.
+# The one returned launcher that is not an ended session is status 88,
+# CCY_EXIT_UNATTENDED_STOP (lib/unattended-stop.bash): a launch nobody attended stopped where
+# only a person could go on, so its record is kept for the next restore and the held line says
+# so. The launcher writes why to CCY_UNATTENDED_STOP_FILE, <registry>/../stopped/<session>, which
+# this clears first, so it only ever says why the latest start stopped; verify-restore reports
+# NOT-STARTED <reason> from it (fedora-desktop#283). The Go twin, registry.Trampoline, is held
+# byte for byte to this string by its tests.
 ccy_registry_trampoline() {
     local record="${1:?ccy_registry_trampoline requires a record path}"
     local prefix="${2:?ccy_registry_trampoline requires a prefix}" quoted
-    printf -v quoted '%q' "$record"
-    printf '%s' "\"\$@\"; rc=\$?; if [ \"\$rc\" -eq 88 ]; then printf '\\n${prefix} did not start: its token has no usage left, so its record is kept for the next restore. ${CCY_SESSION_ENDED_TEXT}\\n'; read -r; exit \"\$rc\"; fi; rm -f -- ${quoted}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
+    printf -v quoted '%q\n%q' "$record" "${record%/*}/../stopped/${record##*/}"
+    printf '%s' "rm -f -- ${quoted#*$'\n'}; CCY_UNATTENDED_STOP_FILE=${quoted#*$'\n'} \"\$@\"; rc=\$?; if [ \"\$rc\" -eq 88 ]; then printf '\\n${prefix} did not start: nobody was there to answer, so its record is kept for the next restore. ${CCY_SESSION_ENDED_TEXT}\\n'; read -r; exit \"\$rc\"; fi; rm -f -- ${quoted%%$'\n'*}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 
 # ── the restore manifest: what the last restore brought up, for verify-restore ──────────

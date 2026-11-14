@@ -394,7 +394,11 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
 	case restore.StateDead, restore.StateNotStarted:
-		// NOT-STARTED here is a pane held after a token refusal (token-used-up): nothing runs.
+		// NOT-STARTED here is a pane held after an unattended stop: nothing runs, and the stop
+		// file names why.
+		if verdict, err = a.stopped(name, verdict); err != nil {
+			return look{kind: lookUnreadable}
+		}
 		return look{kind: lookDead, detail: verdict.Detail}
 	case restore.StateWaitingAtPrompt:
 		return look{kind: lookWaiting, detail: verdict.Detail}

@@ -1019,7 +1019,7 @@ ccy_compose_answer() {
     esac
     if ccy_nobody_to_ask; then
         ccy_prompt_refuse compose-start "Launch with --compose start (run up -d) or --compose skip (leave them stopped)."
-        exit 1
+        ccy_unattended_stop compose-start "nobody could answer the compose question. Declare it with --compose start or skip"
     fi
     if [[ "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
         echo "The compose services did not start after ${CCY_COMPOSE_UP_FAILED_TRIES:-1} tries (see above). y tries again; n carries on without them for now, and the record still says started, so the next restore tries again; Ctrl+C ends the session."

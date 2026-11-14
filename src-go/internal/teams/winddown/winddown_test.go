@@ -260,18 +260,18 @@ func TestAnEndedLauncherFails(t *testing.T) {
 	m.errHas(t, "✗ ccy-proj: claude is not running in it (launcher-exited); nothing was typed")
 }
 
-// A pane held after the launcher's token refusal runs no claude either (fedora-desktop#283).
-func TestAPaneHeldAfterATokenRefusalFails(t *testing.T) {
+// A pane held after an unattended stop runs no claude either (fedora-desktop#283).
+func TestAPaneHeldAfterAnUnattendedStopFails(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.proj().pane = "\nccy " + screen.TokenUsedUpText + " " + screen.EndedText + "\n"
+	m.proj().pane = "\nccy " + screen.UnattendedStopText + " " + screen.EndedText + "\n"
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
 	if len(m.typed()) != 0 {
 		t.Fatal("something was typed into a held pane")
 	}
-	m.errHas(t, "✗ ccy-proj: claude is not running in it (token-used-up); nothing was typed")
+	m.errHas(t, "✗ ccy-proj: claude is not running in it (unattended-stop); nothing was typed")
 }
 
 // W5: a session busy after its wind-down is the agent at work: done.

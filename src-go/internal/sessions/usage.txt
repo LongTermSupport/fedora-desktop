@@ -88,10 +88,11 @@ Usage:
                                                   "<name> WAITING-AT-PROMPT <which>",
                                                   "<name> DEAD <why>" or
                                                   "<name> NOT-STARTED <why>" (a record the
-                                                  restore could not start, or token-used-up:
-                                                  its launch stopped on a token with no usage
-                                                  left, and its record is kept); exit 0 only
-                                                  if all
+                                                  restore could not start, or a launch that
+                                                  stopped where nobody could answer, its
+                                                  record kept, <why> the reason it wrote:
+                                                  token-used-up, token-select, ...); exit 0
+                                                  only if all
                                                   are OK. --wait polls until the restore
                                                   has settled (nothing STARTING or
                                                   SETTING-GOING, and the same answer twice

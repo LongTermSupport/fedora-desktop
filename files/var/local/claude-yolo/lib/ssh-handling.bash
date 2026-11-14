@@ -866,7 +866,7 @@ _probe_agent_add_key() {
             echo "Key not unlocked: $key"
             if ccy_nobody_to_ask; then
                 ccy_prompt_refuse ssh-passphrase-retry "Load the key into your ssh-agent first (ssh-add), or launch with a key that has no passphrase, or --no-ssh."
-                return 1
+                ccy_unattended_stop ssh-passphrase-retry "the key $key was not unlocked and nobody could retry. Load it into your ssh-agent first"
             fi
             read -rp "$CCY_PROMPT_SSH_PASSPHRASE_RETRY (round $round of 3), or Ctrl+C to abort: " _unused
         fi

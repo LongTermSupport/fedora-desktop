@@ -527,7 +527,7 @@ func (c *Closer) ended(j *job) {
 }
 
 // closeWindow closes a pane whose launcher has exited, as its Enter would. A launcher that
-// stopped on a used-up token keeps its record (restore.DetailTokenUsedUp), and closing its
+// stopped where nobody could answer keeps its record (restore.DetailUnattendedStop), and closing its
 // window does not change that.
 func (c *Closer) closeWindow(ctx context.Context, j *job, verdict restore.Verdict) {
 	if !verdict.Ended() {
