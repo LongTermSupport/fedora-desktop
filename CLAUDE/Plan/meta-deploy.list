@@ -9,7 +9,9 @@
 # name are passed to that plan's triage.bash, both runs.
 #
 # One entry per line, four kinds:
-#   <plan folder>                  its triage, deploy and acceptance scripts, in order
+#   <plan folder>                  its triage, deploy and acceptance scripts, in order. The
+#                                  folder is named as it sits in CLAUDE/Plan/, with no
+#                                  CLAUDE/Plan/ in front (00123-name, not CLAUDE/Plan/00123-name)
 #   playbooks/<path>.yml [args]    a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand. Words after
