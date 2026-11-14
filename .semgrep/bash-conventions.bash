@@ -342,6 +342,68 @@ podman run -d --pids-limit 4096 "$IMAGE"
 # ok: ccy-container-default-pids-limit
 podman run -d --pids-limit 100 "$IMAGE"
 
+# --- ccy-unattended-refusal-status ---
+
+refusal_fallthrough() {
+    case "$rc" in
+    3)
+        # ruleid: ccy-unattended-refusal-status
+        ccy_launch_unattended || return 3
+        print_error "Nobody is here to choose another token, so ccy stops."
+        ;;
+    esac
+    exit 1
+}
+
+refusal_in_if() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        print_error "nobody to ask"
+        exit 1
+    fi
+}
+
+refusal_bare_exit() {
+    # ruleid: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        exit
+    fi
+}
+
+refusal_negated() {
+    # ruleid: ccy-unattended-refusal-status
+    if ! ccy_launch_unattended; then
+        return 3
+    fi
+    exit 1
+}
+
+# ruleid: ccy-unattended-refusal-status
+ccy_launch_unattended && exit 1
+
+refusal_named() {
+    # ok: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        print_error "Nobody is here to choose another token, so ccy stops."
+        exit "$CCY_EXIT_TOKEN_USED_UP"
+    fi
+    return 3
+}
+
+safe_answer() {
+    # ok: ccy-unattended-refusal-status
+    if ccy_launch_unattended; then
+        echo "Nobody to ask: taking the default."
+        choice=Y
+    else
+        read -rp "Continue? " choice
+    fi
+    [ "$choice" = Y ] || exit 1
+}
+
+# ok: ccy-unattended-refusal-status
+ccy_launch_unattended && exit "$CCY_EXIT_TOKEN_USED_UP"
+
 # --- bash-self-erasing-clipboard ---
 
 # ruleid: bash-self-erasing-clipboard
