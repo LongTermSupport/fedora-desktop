@@ -1,0 +1,65 @@
+---
+# Fixture for the image-build-arg-volatile rule of src-go/qa/ansible: none of these may be
+# reported. Each build argument or label changes only when what it names changes: the last
+# commit that touched the image's own source, a tree id, a content hash, a version read from a
+# file. The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: Read the last commit that touched the image's source
+      ansible.builtin.command:
+        argv: [git, -C, /src, log, -1, --format=%H, HEAD, --, src-go, helpers/pingbus]
+      changed_when: false
+      register: input_commit
+
+    - name: Read the source tree's id
+      ansible.builtin.command: git rev-parse HEAD:src-go
+      changed_when: false
+      register: tree_id
+
+    - name: Hash the Dockerfile
+      ansible.builtin.shell: md5sum /ctx/Dockerfile | cut -d' ' -f1
+      changed_when: false
+      register: dockerfile_hash
+
+    - name: Read the checkout's commit, used for no build
+      ansible.builtin.command: git rev-parse HEAD
+      changed_when: false
+      register: head_commit
+
+    - name: Build keyed on what the image is built from
+      ansible.builtin.command:
+        argv:
+          - podman
+          - build
+          - --build-arg
+          - SOURCE_COMMIT={{ input_commit.stdout }}
+          - --build-arg
+          - TREE={{ tree_id.stdout }}
+          - --build-arg
+          - DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+          - --label
+          - version={{ ccy_version }}
+          - /ctx
+      changed_when: false
+
+    - name: Record the source's commit in the build context
+      ansible.builtin.copy:
+        content: "{{ input_commit.stdout }}\n"
+        dest: /ctx/source-commit
+        mode: "0644"
+
+    - name: Record the checkout's commit outside any build context
+      ansible.builtin.copy:
+        content: "{{ head_commit.stdout }}\n"
+        dest: /var/lib/example/deployed-commit
+        mode: "0644"
+
+    - name: The checkout's commit outside a build is not this rule's
+      ansible.builtin.debug:
+        msg: "deployed {{ head_commit.stdout }}"
+
+    - name: A run that is not a build may name it
+      ansible.builtin.command:
+        argv: [podman, run, --label, "commit={{ head_commit.stdout }}", example]
+      changed_when: false

@@ -36,3 +36,12 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Issue #277 (ccy 3.120.4 / container 2.84.15): the ccy image's builder stage is keyed on the
+# last commit that changed its own source (src-go, helpers/pingbus, helpers/agent_bus), not on
+# the checkout's HEAD. This run rebuilds the image once (new container version, new label and
+# builder stage); a later run at a commit that touches none of that source and keeps
+# CCY_VERSION (the image's ccy-version label) should report "Detect Whether Claude YOLO Image
+# Was Rebuilt" as ok and leave the image id as it was.
+# Check with podman image inspect claude-yolo:latest (label ccy-source-commit).
+playbooks/imports/play-claude-yolo.yml

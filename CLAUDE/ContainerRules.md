@@ -131,11 +131,13 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   play only copies tracked files, as they are; it builds nothing there. What the image needs
   built from this repository (`ccy-start-claude`, `pingbus-status-line`, `teamchat`, the pingbus
   zipapp) is built by the Dockerfile's `ccy-builder` stage, which clones the public repository at
-  the commit given as `CCY_SOURCE_COMMIT` (a full 40-hex id, or the build fails). The play passes
-  its checkout's HEAD, so **that commit must be pushed** before the play builds the image, and
-  records it in `/opt/claude-yolo/source-commit` for the launcher's own rebuilds. A new commit
-  rebuilds that stage on the play's build (which always builds); the Dockerfile hash does not
-  include it. `test-ccy-container-version-hook.bash` fails on a play task that writes anything
+  the commit given as `CCY_SOURCE_COMMIT` (a full 40-hex id, or the build fails) and takes from
+  it only the paths `image-source-paths` lists. The play passes the last commit up to its
+  checkout's HEAD that changed one of those paths, so **HEAD must be pushed** before the play
+  builds the image, and records it in `/opt/claude-yolo/source-commit` for the launcher's own
+  rebuilds. That stage, and the image's id, change only when that source does (issue 277); the
+  Dockerfile hash does not include it. A build argument new on every commit is the rule
+  [image-build-arg-volatile](QA.md#image-build-arg-volatile). `test-ccy-container-version-hook.bash` fails on a play task that writes anything
   else where a `COPY` takes from the context.
 - Any file with version tracking
 

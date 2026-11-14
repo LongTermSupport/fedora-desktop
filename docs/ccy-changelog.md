@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.120.4 — container 2.84.15
+
+- **The image is rebuilt only when its own source changes** (issue #277): the play keyed the
+  `ccy-builder` stage on its checkout's HEAD, so every play run at a new commit rebuilt that
+  stage and gave the image a new id, whatever the commit changed. It now passes the last commit
+  that changed a path `image-source-paths` lists (`src-go`, `helpers/pingbus`,
+  `helpers/agent_bus`), and records that commit in `/opt/claude-yolo/source-commit` for the
+  launcher's rebuilds, so a commit that touches none of them leaves the image as it was and the
+  play's "Detect Whether Claude YOLO Image Was Rebuilt" reports no change. The stage takes only
+  those paths from the commit (`git archive`), so a build that reads any other path fails
+  instead of building from source the key does not cover. The image is labelled
+  `ccy-source-commit` with the commit. One rebuild, for the new label and stage.
+
 ## 3.120.3 — container 2.84.14
 
 - **A record whose first restore would stop at the compose question is called unrestorable**
