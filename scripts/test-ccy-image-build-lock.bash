@@ -654,6 +654,17 @@ check "with no source-commit the launch fails" 1 "$?"
 has "naming the file and the play" "$SCRATCH/a.err" "$CONTEXT/source-commit"
 check "nothing was built" 0 "$(builds)"
 
+echo "== image-source-paths is the source the builder stage builds from, and nothing more (issue 285)"
+# One definition: the list is lib/ccy-image-source-paths.bash's output, read from the Dockerfile's
+# builder stage and go list, so the key below moves exactly when the container version gate asks
+# for a bump (CLAUDE/QA.md#ccy-image-sources).
+if wanted_sources="$(cd "$REPO_ROOT" && bash scripts/git-hooks/lib/ccy-image-source-paths.bash files/var/local/claude-yolo)"; then
+    check "[CCY-IMAGE-SOURCES] image-source-paths is lib/ccy-image-source-paths.bash's output" \
+        "$wanted_sources" "$(cat "$REPO_ROOT/files/var/local/claude-yolo/image-source-paths")"
+else
+    check "[CCY-IMAGE-SOURCES] lib/ccy-image-source-paths.bash names the builder stage's source" 0 1
+fi
+
 echo "== the source commit is the last change to the image's own source (issue 277)"
 # The play's key command is read from its own task: the list literal of its argv template, with
 # root_dir pointed at a throwaway repository, then the paths of image-source-paths appended. A

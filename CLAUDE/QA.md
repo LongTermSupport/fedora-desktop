@@ -1560,8 +1560,7 @@ directly); an `if` nested two deep before the exit; a function that returns non-
 which then exits; a stop for want of a person that names no guard and no refusal call (the
 GitHub probe's unattended timeout is one: it is decided inside a command substitution from a
 local variable, so it returns `CCY_EXIT_UNATTENDED_STOP` and its caller in
-`build_ssh_mounts_and_validate` ends the launch with `ccy_unattended_stop
-github-probe-unanswered`, held by `test-ccy-ssh-handling.bash`, not by this rule); and `exit`
+`build_ssh_mounts_and_validate` ends the launch with `ccy_unattended_stop github-probe-unanswered`, held by `test-ccy-ssh-handling.bash`, not by this rule); and `exit`
 spelled inside a string after `;`, `&` or `|`, which it reads as a command (a false positive to
 reword). A launch fault (a failed image update, an unreadable file) keeps `exit 1`, and the
 trampoline deletes the record as for any ended session.
@@ -2191,6 +2190,29 @@ every pass (issue #247).
 **How to fix a finding.** `changed_when: false`: the scratch is gone when the play ends, and the
 task that installs from it (a `copy` to its real destination) reports the host's change. A
 task whose `dest` is the real destination is not scratch and is not reported.
+
+### ccy-image-sources
+
+**What it is.** `CCY-IMAGE-SOURCES`: `files/var/local/claude-yolo/image-source-paths` is not
+exactly the output of `scripts/git-hooks/lib/ccy-image-source-paths.bash`. That script reads the
+Dockerfile's `ccy-builder` stage and prints, as git pathspecs, the source the stage builds from:
+the packages its `go build` lines build, by `go list -deps` for linux on amd64 and arm64 (each
+package's own files and what it embeds, vendored ones included, test files excluded), the module
+files, and the pingbus zipapp's packages (`PACKAGES` in `helpers/pingbus/bundle.py`). Checked by
+the pre-commit hook on a commit staging a `src-go/` file, the Dockerfile, `bundle.py` or the list,
+and by `test-ccy-image-build-lock.bash` (the `ccy-image-build-lock` gate).
+
+**Why it exists.** That one list is the image's own source three times over: the play keys the
+builder stage on the last commit to change it, the stage takes only those paths from that commit,
+and the container version gate counts a staged file as an image input by it. When the key was all
+of `src-go` and the gate only the builder's Go closure, a Go change the image does not build from
+rebuilt the image with no container version bump (issue 285), so the container version no longer
+said whether two images differ. A hand-kept list drifts from the build the same way.
+
+**How to fix a finding.** Regenerate and stage the list:
+`scripts/git-hooks/lib/ccy-image-source-paths.bash files/var/local/claude-yolo >files/var/local/claude-yolo/image-source-paths`.
+Never edit it by hand. A builder stage that needs a path the script does not name is taught to the
+script, so the list, the key and the gate move together.
 
 ### image-build-arg-volatile
 
