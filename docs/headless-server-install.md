@@ -106,6 +106,10 @@ forbids any permanent `NOPASSWD` rule sets `shutdown_with_update_sudoers: false`
 `environment/localhost/host_vars/localhost.yml`; the next converge removes the rule, and the
 scripts still install and ask for the sudo password instead.
 
+A headless install can declare this before the first play runs: set
+`RUN_BASH_SHUTDOWN_WITH_UPDATE_SUDOERS=0` and `RUN_BASH_AGENT_BUS_READ_ONLY_SUDOERS=0`, and
+`run.bash` writes both keys as `false` into `localhost.yml` on every run.
+
 ---
 
 ## Step 1 — Download and inspect run.bash

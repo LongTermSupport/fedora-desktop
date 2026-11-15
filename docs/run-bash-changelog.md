@@ -15,6 +15,18 @@ the index, not the record.
 
 ---
 
+## 1.37.0 — the two sudoers switches can be declared headless
+
+A host whose policy forbids permanent `NOPASSWD` sudoers rules had no way to say so before
+the first play ran. `RUN_BASH_SHUTDOWN_WITH_UPDATE_SUDOERS=0|1` and
+`RUN_BASH_AGENT_BUS_READ_ONLY_SUDOERS=0|1` now declare `shutdown_with_update_sudoers` and
+`agent_bus_read_only_sudoers` in `localhost.yml`, with the semantics of
+`RUN_BASH_CCY_RESTORE_SESSIONS`: unset leaves the file alone, any other value fails
+preflight, and the key is applied on every headless run after the file is written and before
+any play, rewritten only when it differs. The three inputs share one reconcile,
+`hl_reconcile_bools`, which replaces `hl_reconcile_ccy_restore`, so `run.bash` stays at its
+bash-limits record.
+
 ## 1.36.3 — `RUN_BASH_GIT_REF` is honoured with a GitHub account too (issue #225)
 
 `RUN_BASH_GIT_REF` used to work only when no GitHub account was configured. With an account
