@@ -215,6 +215,8 @@ user_email: "yourname@example.com"
 # On any other machine (a laptop, a VM), give an https team the path of its CA file there; the
 # play then reads the CA from that file, at the team's base_url, for Element and Lightning alike.
 # The file is the estate's to deliver; a missing one fails the run, naming the path.
+# `python3 -m helpers.agent_bus.declare element-remote --file <this file> --team <team>
+#  --base-url https://... --ca-file <path> --client element|lightning` writes such an entry.
 #   - team: <team>
 #     base_url: https://<homeserver name>:<port>
 #     ca_file: /etc/teamchat/<team>-ca.pem

@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.8 — container 2.84.19
+
+- **`declare element-remote`** writes the client entry of an agent-bus team hosted on another
+  machine (`base_url`, `ca_file`, `client`) in the host vars, without anyone opening the file.
+  The image carries `helpers/agent_bus/declare.py`, so it is rebuilt once. The launcher itself
+  is unchanged apart from the versions.
+
 ## 3.122.7 — container 2.84.18
 
 - **An agent-bus team may open in Lightning** (Plan 00254 Tasks 5.2 to 5.4). The image carries

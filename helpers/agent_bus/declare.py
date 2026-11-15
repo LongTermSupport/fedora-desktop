@@ -30,6 +30,11 @@ trusted reference may name any path in the team's repositories (a team narrows i
     python3 -m helpers.agent_bus.declare describe --file <localhost.yml> --team T --description TEXT
         sets or replaces a present team's description, every other line as it was:
         CHANGED<TAB>team T description, or UNCHANGED<TAB>T; applying it restarts no homeserver
+    python3 -m helpers.agent_bus.declare element-remote --file <localhost.yml> --team T
+            --base-url https://HOST:PORT --ca-file /path/to/ca --client element|lightning
+        adds or updates the agent_bus_element_teams entry of a team hosted on another machine
+        (one not in agent_bus_teams), every other line as it was: CHANGED<TAB>remote team entry
+        for T, in <file>, or UNCHANGED<TAB>T. https only; the CA file must exist here.
     python3 -m helpers.agent_bus.declare settings --file <localhost.yml> --team T
         SETTING<TAB><key><TAB><value as JSON; - none, !vaulted, !invalid> per key of SETTINGS_KEYS
         (the ccy-teams settings screen)
@@ -142,11 +147,12 @@ import pathlib
 import re
 import subprocess
 import sys
+import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
-from helpers.agent_bus import bridge, registry, teamfile
+from helpers.agent_bus import bridge, element, registry, teamfile
 from helpers.agent_bus_lxc import derive, members
 from helpers.pingbus import bundle, protocol
 
@@ -920,6 +926,61 @@ def set_element(text: str, name: str) -> str | None:
     after = next((p for p in parse(new, ELEMENT_KEY).teams if p.team == name), None)
     if after is None or _raw_value(after, "base_url") != url or _as_written(parse(new)) != _as_written(parse(text)):
         raise DeclareError("the edited file does not read back with the Element entry; nothing was written")
+    return new
+
+
+#: The keys element-remote writes, after `team`, in this order.
+REMOTE_KEYS = ("base_url", "ca_file", "client")
+
+
+def _others_as_written(profiles: HostVars, name: str) -> list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]]:
+    return [(p.team, [(key, rest, more) for key, rest, _, more in p.raw]) for p in profiles.teams if p.team != name]
+
+
+def set_element_remote(text: str, name: str, url: str, ca_file: str, client: str) -> str | None:
+    """The file's text with the agent_bus_element_teams entry of a team hosted on another
+    machine added, or its base_url, ca_file and client brought up to date; None when it is
+    already right. The entry is judged by the Element helper's own profile rules, and must be
+    https with a CA file that exists here; a team this machine hosts is refused (`element`)."""
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise DeclareError("--base-url: a team hosted on another machine is reached over https")
+    if not pathlib.PurePosixPath(ca_file).is_absolute() or not pathlib.Path(ca_file).is_file():
+        raise DeclareError("--ca-file: must be the absolute path of the team's CA file on this machine")
+    wanted = {"team": name, "base_url": url, "ca_file": ca_file, "client": client}
+    try:
+        element.parse_profiles([wanted])
+    except element.ElementError as exc:
+        raise DeclareError(str(exc)) from None
+    if any(t.team == name for t in parse(text).teams):
+        raise DeclareError(f"team {name} is declared in {TEAMS_KEY}, so this machine hosts it: use element")
+    profiles = parse(text, ELEMENT_KEY)
+    profile = next((p for p in profiles.teams if p.team == name), None)
+
+    def line(key: str) -> str:
+        return f'{" " * profiles.key_indent}{key}: {json.dumps(wanted[key])}\n'
+
+    if profile is None:
+        new = _append(profiles, ELEMENT_KEY,
+                      [f"{' ' * profiles.item_indent}- team: {name}\n", *(line(key) for key in REMOTE_KEYS)])
+    else:
+        if all(_raw_value(profile, key) == wanted[key] for key in REMOTE_KEYS):
+            return None
+        lines = list(profiles.lines)
+        written = {key: (index, more) for key, _, index, more in profile.raw}
+        end = max(index + len(more) for index, more in written.values()) + 1
+        for key in REMOTE_KEYS:
+            if key in written:
+                if written[key][1]:
+                    raise DeclareError(f"team {name}'s {key} in {ELEMENT_KEY} is not on one line to update")
+                lines[written[key][0]] = line(key)
+        lines[end:end] = [line(key) for key in REMOTE_KEYS if key not in written]
+        new = "".join(lines)
+    after_profiles = parse(new, ELEMENT_KEY)
+    after = next((p for p in after_profiles.teams if p.team == name), None)
+    if (after is None or any(_raw_value(after, key) != wanted[key] for key in REMOTE_KEYS)
+            or _others_as_written(after_profiles, name) != _others_as_written(profiles, name)
+            or _as_written(parse(new)) != _as_written(parse(text))):
+        raise DeclareError("the edited file does not read back with the remote team's entry; nothing was written")
     return new
 
 
@@ -1752,6 +1813,13 @@ def build_parser() -> argparse.ArgumentParser:
                             ("limited", "one LIMITED line per present team that sets path_prefixes"),
                             ("undescribed", "one UNDESCRIBED line per present team with no description")):
         commands.add_parser(name, help=help_text).add_argument("--file", required=True)
+    remote_entry = commands.add_parser("element-remote",
+                                       help="add or update the agent_bus_element_teams entry of a team hosted elsewhere")
+    remote_entry.add_argument("--file", required=True)
+    remote_entry.add_argument("--team", required=True)
+    remote_entry.add_argument("--base-url", required=True, dest="base_url", help="the team's https homeserver URL")
+    remote_entry.add_argument("--ca-file", required=True, dest="ca_file", help="the team's CA file on this machine")
+    remote_entry.add_argument("--client", required=True, choices=element.CLIENTS)
     describing = commands.add_parser("describe", help="set or replace a present team's description")
     describing.add_argument("--file", required=True)
     describing.add_argument("--team", required=True)
@@ -1873,6 +1941,16 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command in ("describe", "element", "drop-limit", "element-teams", "limited", "teams-for", "undescribed",
                             "choices", "add-repo"):
             return _listing_or_edit(args, out, err)
+        if args.command == "element-remote":
+            path = pathlib.Path(args.file)
+            new = set_element_remote(_read(path), args.team, args.base_url, args.ca_file, args.client)
+            if new is None:
+                out.write(f"UNCHANGED\t{args.team}\n")
+                return EXIT_OK
+            backup = write(path, new)
+            out.write(f"CHANGED\tremote team entry for {args.team}, in {path}\n")
+            err.write(f"The file as it was is kept at {backup}.\n")
+            return EXIT_OK
         if args.command == "settings":
             out.writelines(f"SETTING\t{key}\t{value}\n"
                            for key, value in settings(parse(_read(pathlib.Path(args.file))), args.team))

@@ -180,7 +180,8 @@ homeserver host, where the team's `approved.json` and CA are. On any other machi
 VM), give the team's entry in `agent_bus_element_teams` a `ca_file`: the path of the team's CA on
 that machine. The play then reads the CA from there, at the entry's `https` `base_url`, places it
 and proves the handshake exactly as above, for Element and Lightning alike. Delivering the file to
-that machine is the estate's job; a missing file fails the run, naming the path.
+that machine is the estate's job; a missing file fails the run, naming the path. `python3 -m helpers.agent_bus.declare element-remote` writes the entry (team, `base_url`, `ca_file`,
+`client`) without anyone opening the host vars; a re-run with the same values changes nothing.
 
 ## Lightning
 

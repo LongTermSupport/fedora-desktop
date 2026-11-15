@@ -1105,6 +1105,85 @@ class ElementTest(CommandCase):
         self.assertEqual(self.path.read_text(), STATUS_HV)
 
 
+class ElementRemoteTest(CommandCase):
+    """A team hosted on another machine gets its agent_bus_element_teams entry from
+    element-remote, so nobody hand-edits the host_vars for it, and the file's other contents
+    never reach the output."""
+
+    OTHER = '  - team: other  # kept as written\n    base_url: "http://192.0.2.98:6001"\n'
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.ca = self.tmp / "remote.ca.crt"
+        self.ca.write_text("not parsed here\n", encoding="utf-8")
+
+    def remote(self, *extra: str, url: str = "https://bus.example.com:6167", client: str = "lightning",
+               team: str = "remote") -> tuple[int, str, str]:
+        return self.run_cmd("element-remote", "--team", team, "--base-url", url, "--ca-file", str(self.ca),
+                            "--client", client, *extra)
+
+    def entry(self, team: str) -> dict:
+        profiles = declare.parse(self.path.read_text(encoding="utf-8"), declare.ELEMENT_KEY).teams
+        return declare.entry_of(next(p for p in profiles if p.team == team))
+
+    def test_added_once_and_a_rerun_changes_nothing(self) -> None:
+        code, out, err = self.remote()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tremote team entry for remote, in {self.path}\n")
+        text = self.path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(STATUS_HV))
+        self.assertEqual(self.entry("remote"), {"team": "remote", "base_url": "https://bus.example.com:6167",
+                                                "ca_file": str(self.ca), "client": "lightning"})
+        self.assertEqual(self.remote()[:2], (0, "UNCHANGED\tremote\n"))
+        self.assertEqual(self.path.read_text(encoding="utf-8"), text)
+        self.assertEqual(len(declare.parse(text).teams), len(declare.parse(STATUS_HV).teams))
+
+    def test_other_entries_are_kept_byte_for_byte_and_never_printed(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_element_teams:\n" + self.OTHER + "\nafter_key: 1\n",
+                             encoding="utf-8")
+        code, out, err = self.remote()
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn("agent_bus_element_teams:\n" + self.OTHER + "  - team: remote\n", text)
+        self.assertTrue(text.endswith("\nafter_key: 1\n"))
+        self.assertNotIn("192.0.2.98", out + err)
+        self.assertEqual([p.team for p in declare.parse(text, declare.ELEMENT_KEY).teams], ["other", "remote"])
+
+    def test_an_existing_entry_is_brought_up_to_date_in_place(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_element_teams:\n  - team: remote\n"
+                             "    base_url: https://old.example.com:6000\n" + self.OTHER, encoding="utf-8")
+        code, out, err = self.remote()
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHANGED", out)
+        self.assertEqual(self.entry("remote"), {"team": "remote", "base_url": "https://bus.example.com:6167",
+                                                "ca_file": str(self.ca), "client": "lightning"})
+        self.assertIn(self.OTHER, self.path.read_text(encoding="utf-8"))
+        self.assertEqual(self.remote(client="element")[0], 0)
+        self.assertEqual(self.entry("remote")["client"], "element")
+
+    def test_refused_values_leave_the_file_untouched(self) -> None:
+        missing = str(self.tmp / "absent.crt")
+        cases = {
+            "http": (78, ("element-remote", "--team", "remote", "--base-url", "http://192.0.2.10:6167",
+                          "--ca-file", str(self.ca), "--client", "lightning")),
+            "no ca file": (78, ("element-remote", "--team", "remote", "--base-url", "https://bus.example.com:6167",
+                                "--ca-file", missing, "--client", "lightning")),
+            "relative ca": (78, ("element-remote", "--team", "remote", "--base-url", "https://bus.example.com:6167",
+                                 "--ca-file", "remote.ca.crt", "--client", "lightning")),
+            "hosted here": (78, ("element-remote", "--team", "alpha", "--base-url", "https://bus.example.com:6167",
+                                 "--ca-file", str(self.ca), "--client", "lightning")),
+            "bad name": (78, ("element-remote", "--team", "Bad Name", "--base-url", "https://bus.example.com:6167",
+                              "--ca-file", str(self.ca), "--client", "lightning")),
+            "bad client": (64, ("element-remote", "--team", "remote", "--base-url", "https://bus.example.com:6167",
+                                "--ca-file", str(self.ca), "--client", "other")),
+        }
+        for label, (expected, argv) in cases.items():
+            with self.subTest(label):
+                code, _, err = self.run_cmd(*argv)
+                self.assertEqual(code, expected, err)
+                self.assertEqual(self.path.read_text(encoding="utf-8"), STATUS_HV)
+
+
 class TeamsForTest(CommandCase):
     """Task 4.4: the teams a checkout's repository belongs to (its owner's org, or listed)."""
 
