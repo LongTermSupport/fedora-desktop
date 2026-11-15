@@ -194,6 +194,16 @@ user_email: "yourname@example.com"
 #   - team: <team>
 #     base_url: http://<bus_ip>:<port>
 #
+# The Matrix client every team in that list opens in: element (the default) or lightning
+# (Plan 00254). A lightning team gets its own Lightning instance (data, settings and cache under
+# ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/), its homeserver pre-filled, and an
+# "<team> team (Lightning)" launcher. A team's own client: wins over this. Switching a team keeps
+# the other client's signed-in data; only its launcher goes.
+# agent_bus_matrix_client: element
+#   - team: <team>
+#     base_url: http://<bus_ip>:<port>
+#     client: lightning
+#
 # Where the same play puts the CA of a v2 team whose approved url is https, so Element trusts
 # it (Plan 00246 SPEC-cross-network X34): nssdb (the default; Element's own NSS database, only
 # Element trusts the CA) or system (the host's trust anchors; every program trusts it). The

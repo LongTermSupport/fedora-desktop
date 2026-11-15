@@ -870,6 +870,12 @@ Element Desktop for watching an agent team bus (Plan 00161):
   (host_vars; placeholder in `localhost.yml.dist`), a locked-down profile pinned to the
   team's homeserver and an "<team> team (Element)" launcher
   (`flatpak run im.riot.Riot --profile <team>`)
+- Each team opens in its `client:` (`element` or `lightning`), else `agent_bus_matrix_client`,
+  else Element. A Lightning team gets its own instance under
+  `~/.var/app/org.lightning_matrix.Lightning/teams/<team>/`, its homeserver pre-filled, and an
+  "<team> team (Lightning)" launcher, written by the Go command `agent-bus-lightning` (tag
+  `agent-bus-lightning`). A team moved to the other client loses its launcher there and keeps
+  its signed-in data; a Lightning instance is never removed, only named on a `KEPT` line
 - Refuses a `user_login` holding pingbus bundles (`~/.config/pingbus/`): the profile
   holds the human's session, so agents run as a dedicated user, never as the human. The
   one folder it tolerates is what `cc --teams` leaves, the owner's Matrix consent

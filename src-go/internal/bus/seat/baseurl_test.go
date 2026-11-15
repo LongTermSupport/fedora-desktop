@@ -1,6 +1,8 @@
 package seat
 
 import (
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/pycompat"
@@ -146,5 +148,29 @@ func TestCheckBaseURLCrashIsNotARefusal(t *testing.T) {
 	}
 	if err := checkBaseURL(pycompat.Str("https://bus.example.com"), nil, refuse); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// CheckBaseURL and IPHost are the rule for a caller outside the bundle decoder
+// (agent-bus-lightning, as element.py calls config.check_base_url with _ip_hosts).
+func TestTheExportedBaseURLRule(t *testing.T) {
+	refuseAs := func(key, why string) error { return errors.New(key + " " + why) }
+	if err := CheckBaseURL(pycompat.Str("http://192.0.2.1:8448"), IPHost("http://192.0.2.1:8448"), refuseAs); err != nil {
+		t.Fatalf("http to its own IP: %v", err)
+	}
+	if err := CheckBaseURL(pycompat.Str("http://bus.example.com"), IPHost("http://bus.example.com"), refuseAs); err == nil {
+		t.Fatal("http to a name accepted")
+	}
+	for url, want := range map[string][]string{
+		"http://192.0.2.1:8448":     {"192.0.2.1"},
+		"http://[2001:DB8:0::1]":    {"2001:db8::1"},
+		"https://bus.example.com":   nil,
+		"http://[2001:db8::1%eth0]": nil,
+		"http://[bus":               nil,
+		"http://192.0.2.01":         nil,
+	} {
+		if got := IPHost(url); !slices.Equal(got, want) {
+			t.Errorf("IPHost(%q) = %v, want %v", url, got, want)
+		}
 	}
 }

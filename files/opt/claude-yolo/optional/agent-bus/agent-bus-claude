@@ -30,7 +30,7 @@ set -euo pipefail
 
 readonly PROG=agent-bus-claude
 readonly EX_CONFIG=78
-readonly MATRIX_PROFILE_PATHS=(.var/app/im.riot.Riot .config/Element .var/app/im.nheko.Nheko .var/app/org.lightning_matrix.Lightning)
+readonly MATRIX_PROFILE_PATHS=(.var/app/im.riot.Riot .config/Element .var/app/im.nheko.Nheko .var/app/org.lightning_matrix.Lightning .var/app/org.lightning_matrix.Lightning/teams)
 readonly MATRIX_PROFILE_PREFIXES=(.config/Element-)
 
 die() {

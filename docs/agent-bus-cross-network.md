@@ -193,8 +193,9 @@ public bundle and `SSL_CERT_DIR` to that directory, so public servers stay trust
 step runs `tls-trust-check` (a small Go program built by the play) inside Lightning's sandbox with
 exactly those two variables: it fails the play, naming the team, the CA file and the cause, when
 the team's server is not trusted, including when its certificate names the host only in the
-Common Name, which rustls does not accept. The per-team Lightning launcher that sets the two
-variables is still to come (Plan 00254).
+Common Name, which rustls does not accept. Only a team that opens in Lightning (its `client:`,
+or `agent_bus_matrix_client`) has its CA placed here, and only one that opens in Element in
+Element's store. Each Lightning team's launcher sets the two variables.
 
 ## What is proven, and what is not
 

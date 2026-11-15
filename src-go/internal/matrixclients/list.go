@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -218,6 +219,56 @@ func (l List) ParseConsent(data []byte) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+// Where a user keeps the consent record, under their home (config.py ELEMENT_ACCEPTED_DIR and
+// ELEMENT_ACCEPTED_FILE): once per user, not once per seat.
+const (
+	AcceptedDir  = ".config/pingbus"
+	AcceptedFile = "element-accepted"
+)
+
+// Accepted is config.accepted_clients: the app ids the record under home accepts, when it is a
+// regular file of uid's that no one else can read or write, in a real directory of uid's, and
+// reads as a consent record; nil when there is no such record. A record that accepts no client
+// is an empty, non-nil list.
+func (l List) Accepted(home string, uid int) []string {
+	dir := filepath.Join(home, AcceptedDir)
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || !ownedBy(info, uid) {
+		return nil
+	}
+	f, err := os.OpenFile(filepath.Clean(filepath.Join(dir, AcceptedFile)), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil
+	}
+	data, readErr := readRecord(f, uid)
+	if errors.Join(readErr, f.Close()) != nil {
+		return nil
+	}
+	ids, err := l.ParseConsent(data)
+	if err != nil {
+		return nil
+	}
+	return append([]string{}, ids...)
+}
+
+// readRecord is an open record's bytes, at most one past the bound, when it is a regular file of
+// uid's with no group or other access.
+func readRecord(f *os.File, uid int) ([]byte, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || !ownedBy(info, uid) || info.Mode().Perm()&0o077 != 0 {
+		return nil, errors.New("not a record of the user's alone")
+	}
+	return io.ReadAll(io.LimitReader(f, ConsentMaxBytes+1))
+}
+
+func ownedBy(info os.FileInfo, uid int) bool {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == uid
 }
 
 // FormatConsent is the record of a consent given at the time when, for ids.

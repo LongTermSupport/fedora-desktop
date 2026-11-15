@@ -37,9 +37,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issues #284, #290, #293 and Plan 00254 Task 4.4: ccy 3.122.6, container 2.84.17. Installs the
-# launcher and rebuilds ccy-sessions and ccy-teams; the image is rebuilt once, because it
-# carries the agent-bus Element helper, which now accepts a team entry's `ca_file`. #284: restore --check (and declare, and the
+# Issues #284, #290, #293 and Plan 00254 (Task 4.4, Tasks 5.2 to 5.4): ccy 3.122.7, container
+# 2.84.18. Installs the launcher and rebuilds ccy-sessions and ccy-teams; the image is rebuilt
+# once, because it carries the agent-bus Element helper, which now accepts a team entry's
+# `ca_file` and `client`, and the Matrix client list, which now names Lightning's per-team folder. #284: restore --check (and declare, and the
 # self-update reboot hold) also refuses a gone --ssh-key or --network, an unusable engine, an
 # allowed-hostnames that rules this host out, an unusable restore passphrase file and an
 # all-expired cc token pool; ccy-teams restart names a refused start. #290: the new wind-down
@@ -79,3 +80,12 @@ playbooks/imports/optional/common/play-network-tools.yml
 # secret-scan.bash (the run-log scrubber's engine) check that each file they loop over could be
 # opened. Expected: changed only for those two files; skip this entry on a host without the lab.
 playbooks/imports/optional/common/play-vm-test-lab.yml
+
+# Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
+# in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
+# changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
+# for a lightning team writes its own instance under
+# ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/, a homeserver settings file and an
+# "<team> team (Lightning)" launcher; with no lightning team it writes nothing and only names
+# any leftover instance on a KEPT line. Afterwards report the play's CHANGED and KEPT lines.
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning

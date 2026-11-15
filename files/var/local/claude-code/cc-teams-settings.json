@@ -11,6 +11,8 @@
       "Edit(~/.var/app/im.nheko.Nheko/**)",
       "Read(~/.var/app/org.lightning_matrix.Lightning/**)",
       "Edit(~/.var/app/org.lightning_matrix.Lightning/**)",
+      "Read(~/.var/app/org.lightning_matrix.Lightning/teams/**)",
+      "Edit(~/.var/app/org.lightning_matrix.Lightning/teams/**)",
       "Edit(~/.config/pingbus/**)",
       "Read(~/.local/share/keyrings/**)",
       "Edit(~/.local/share/keyrings/**)",
@@ -22,6 +24,7 @@
       "Bash(*.config/Element*)",
       "Bash(*im.nheko.Nheko*)",
       "Bash(*org.lightning_matrix.Lightning*)",
+      "Bash(*.var/app/org.lightning_matrix.Lightning/teams*)",
       "Bash(*IndexedDB*)",
       "Bash(*Local Storage*)"
     ]

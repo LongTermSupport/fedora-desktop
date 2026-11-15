@@ -167,6 +167,10 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   TLS handshake to one https url verified against exactly the roots `SSL_CERT_FILE` and
   `SSL_CERT_DIR` name, as Lightning's rustls reads them, with no Common Name fallback. Built
   static by `tasks/lightning-team-ca.yml` and run inside Lightning's Flatpak sandbox.
+- `internal/lightning/` — `agent-bus-lightning` (Plan 00254 Task 5.2, L1-L14 in its package
+  doc): one Lightning instance (its own XDG data, config and cache), a homeserver settings file
+  and a launcher per team the human watches in Lightning; a stale launcher of its own removed, an
+  instance never. Built and run by `play-agent-bus-element.yml`.
 - `internal/release/` — `release-plan`, the release workflow's one Go command (Plan 00153 Task
   5.3, R1-R7 in its package doc): what a push to `F<major>` calls for (`decide`: nothing, prepare a
   release, or tag a merged release commit), the changelog entry to commit (`prepare`) and the
