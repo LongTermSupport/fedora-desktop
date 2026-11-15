@@ -34,3 +34,8 @@ install_audience: developer
 # A managed VM whose policy forbids permanent NOPASSWD rules sets this false in
 # host_vars/localhost.yml: the rule is removed and the script asks for the sudo password.
 shutdown_with_update_sudoers: true
+
+# play-agent-bus.yml installs a scoped NOPASSWD sudoers rule so ccy-teams can read a team's
+# members. Such a managed host sets this false too: the rule is removed and ccy-teams says the
+# members cannot be shown without it.
+agent_bus_read_only_sudoers: true

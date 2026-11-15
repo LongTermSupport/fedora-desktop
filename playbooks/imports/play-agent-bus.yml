@@ -23,7 +23,8 @@
 #
 # Before step 2 it installs /etc/sudoers.d/agent-bus-read-only (Plan 00177): the desktop
 # user may run exactly `agent-bus list <team>` and `agent-bus human devices <team> <name>`
-# without a password, so ccy-teams shows a team's members without asking.
+# without a password, so ccy-teams shows a team's members without asking. A host that sets
+# agent_bus_read_only_sudoers: false gets no such rule (an existing one is removed).
 #
 # agent_bus_lxc_members joins existing LXC containers to those teams by README.lxc's steps
 # (helpers/agent_bus_lxc/members.py): its absent entries before step 2, so a team still
@@ -255,6 +256,8 @@
     # ccy-teams lists a team's members and its people's Element sessions through these two
     # read-only commands; with this rule it needs no password to show them. Nothing else is
     # granted: the rule pins each command's arguments (see the file for why that is safe).
+    # agent_bus_read_only_sudoers: false is for managed hosts whose policy forbids any permanent
+    # NOPASSWD rule; the rule is then removed and ccy-teams says the members cannot be shown.
     - name: Let the desktop user read team members without a password (a scoped sudoers rule)
       ansible.builtin.template:
         src: "{{ root_dir }}/files/etc/sudoers.d/agent-bus-read-only.j2"
@@ -263,6 +266,14 @@
         group: root
         mode: "0440"
         validate: "visudo -cf %s"
+      when: agent_bus_read_only_sudoers | bool
+      tags: [agent-bus]
+
+    - name: Remove the agent-bus read-only sudoers rule where host_vars turn it off
+      ansible.builtin.file:
+        path: /etc/sudoers.d/agent-bus-read-only
+        state: absent
+      when: not (agent_bus_read_only_sudoers | bool)
       tags: [agent-bus]
 
     - name: Take the LXC members declared absent off their teams

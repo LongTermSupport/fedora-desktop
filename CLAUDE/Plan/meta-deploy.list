@@ -47,7 +47,8 @@
 # verb (every live session finishes its turn and compacts while its prompt cache is warm), and
 # a set-going that types continue into every restored session, never /compact. #293: an
 # allowed-hostnames file that cannot be read stops the launch, and every launcher library loop
-# that reads a file checks that it could open it.
+# that reads a file checks that it could open it. ccy-teams also now says, where it cannot read
+# a team's members without a password, that host_vars may keep the sudoers rule off.
 # Afterwards run `ccy-sessions restore --check` and report its lines.
 playbooks/imports/play-claude-yolo.yml
 
@@ -69,7 +70,9 @@ playbooks/imports/optional/common/play-matrix-clients.yml --tags lightning
 
 # Issue #293: agent-bus-install checks that each file it loops over (the Tuwunel pins, the
 # firewall rule record, the homeserver unit) could be opened, instead of reading an unopenable
-# one as empty. Expected: changed only for agent-bus-install itself.
+# one as empty. Expected: changed only for agent-bus-install itself. This run also honours
+# agent_bus_read_only_sudoers: a host that sets it false in host_vars has
+# /etc/sudoers.d/agent-bus-read-only removed; a host that sets nothing sees no change there.
 playbooks/imports/play-agent-bus.yml
 
 # Issue #293: lan-scan reads its scan results from a here-string instead of a file loop.

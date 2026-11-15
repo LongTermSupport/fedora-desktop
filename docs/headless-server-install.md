@@ -99,12 +99,15 @@ password file on tmpfs that fails to be removed dies at the next boot and never 
 persistent storage. That is also why the cleanup unlinks rather than shreds: overwriting
 in place is what `shred` needs to mean anything, and tmpfs has no place to overwrite.
 
-**The provisioned box carries one scoped `NOPASSWD` rule of its own**:
+**The provisioned box carries two scoped `NOPASSWD` rules of its own**:
 `/etc/sudoers.d/fedora-desktop-shutdown-with-update`, which lets the user run
-`shutdown-with-update` and `reboot-with-update` without a password. A managed VM whose policy
-forbids any permanent `NOPASSWD` rule sets `shutdown_with_update_sudoers: false` in
-`environment/localhost/host_vars/localhost.yml`; the next converge removes the rule, and the
-scripts still install and ask for the sudo password instead.
+`shutdown-with-update` and `reboot-with-update` without a password, and
+`/etc/sudoers.d/agent-bus-read-only`, which lets `ccy-teams` read a team's members. A managed
+host whose policy forbids any permanent `NOPASSWD` rule sets both
+`shutdown_with_update_sudoers: false` and `agent_bus_read_only_sudoers: false` in
+`environment/localhost/host_vars/localhost.yml`; the next converge removes both rules. The
+scripts still install and ask for the sudo password instead, and `ccy-teams` says it cannot
+show a team's members without the rule.
 
 ---
 

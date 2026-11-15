@@ -73,8 +73,9 @@ it, or to start a session there that chooses its teams (ccy --teams).
 
 Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
-devices` without a password; where that rule is not installed yet and sudo needs a
-password, the picker says why before sudo asks, and stops, saying so, when sudo is
+devices` without a password, unless host_vars sets agent_bus_read_only_sudoers: false (for a
+host whose policy forbids permanent NOPASSWD rules); where there is no such rule and sudo
+needs a password, the picker says why before sudo asks, and stops, saying so, when sudo is
 refused. --list never asks: without sudo it shows the members as "need sudo", and, as with
 any part of the table it could not read, it still prints the rest but exits 1.
 

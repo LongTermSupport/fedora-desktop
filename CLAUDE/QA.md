@@ -1887,9 +1887,17 @@ a command the text names, plus the `put_file` lines of the root installers in
 - for each command: no task or installer deploys it; it is deployed with an owner other than
   root, with no mode, or with a mode the group or others can write; it is a link to a path
   that is not itself such a target; a task makes a directory above it owned by another user
-  or writable by group or others.
+  or writable by group or others;
+- for a task whose text grants anything `NOPASSWD`: no `when:` on a host variable (none, or a
+  constant), or no task in the same file that removes what it writes (`state: absent` on the
+  same path, by name or in a `loop:`) under the negated condition (`when: not (<x>)` for
+  `when: <x>`; a block's `when` counts as the task's). A `blockinfile`/`lineinfile` whose
+  `state` is itself a template installs and removes in one task and is switched. This holds
+  for full grants too: a managed host whose policy forbids any permanent `NOPASSWD` rule must
+  be able to turn each one off from `host_vars` (`shutdown_with_update_sudoers`,
+  `agent_bus_read_only_sudoers`).
 
-A rule whose commands are `ALL` is not judged: it grants full root on purpose (the developer
+A rule whose commands are `ALL` is not judged by the steering checks: it grants full root on purpose (the developer
 desktop's passwordless sudo), so there is no narrow grant to subvert. Comment lines are not
 read. The rule is proven against `tests/fixtures/ansible-sudoers/` (a flagged and a clean
 tree) and the cases in `src-go/qa/ansible/sudoers_test.go`.
@@ -1909,7 +1917,10 @@ host acceptance check probes them. A test-only branch of an installer that sets 
 or an anchored `^...$` expression with brackets, no bare dot), grant it to `{{ user_login }}`
 with `(root)`, no tags but `NOPASSWD`, no `Defaults`; deploy the target with a task that sets
 `owner: root` and a mode such as `"0755"`, and install the drop-in with `owner: root`,
-`group: root`, `mode: "0440"` and `validate: visudo -cf %s`.
+`group: root`, `mode: "0440"` and `validate: visudo -cf %s`. Switch a `NOPASSWD` drop-in as
+`play-basic-configs.yml` does `shutdown_with_update_sudoers`: the variable defaults to `true`
+in `group_vars/desktop.yml`, the install task has `when: <name> | bool`, and a `file` task
+with `state: absent` for the same path has `when: not (<name> | bool)`.
 
 ### setting-checked-late
 

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -32,10 +33,12 @@ import (
 //   - for each command the text names: no task deploys it; it is deployed owned by a user other
 //     than root, with a mode the group or others can write, or with no mode; it is a link to a
 //     path that is not itself such a target; or a task makes a directory above it owned by
-//     another user or writable by group or others.
+//     another user or writable by group or others;
+//   - for text that grants anything NOPASSWD, full grants included: no host variable can turn it
+//     off (judgeSudoersSwitch).
 //
 // A rule whose commands are ALL is not a scoped rule: it grants full root on purpose, so there is
-// no narrow action to subvert, and it is not judged. Comment lines are not read.
+// no narrow action to subvert, and the steering checks do not judge it. Comment lines are not read.
 
 // sudoersAdvice is the line printed under each finding.
 const sudoersAdvice = "    Why and how to fix: CLAUDE/QA.md#sudoers-rule"
@@ -47,6 +50,8 @@ type task struct {
 	module string
 	args   *yaml.Node
 	p      privilege
+	when   []string // its conditions and its enclosing blocks', each trimmed
+	items  []string // the literal items of its loop
 }
 
 func (t task) at() string { return t.rel + ":" + strconv.Itoa(t.line) }
@@ -81,6 +86,8 @@ const (
 	fileModule = "file"
 	rawModule  = "raw"
 	rootUser   = "root"
+	// stateAbsent is the state that removes what a module manages.
+	stateAbsent = "absent"
 )
 
 func judgedModule(short string) bool {
@@ -130,32 +137,33 @@ func fileTasks(rel string, data []byte) []task {
 				p := privilege{vars: map[string]string{}}
 				if mappingValue(item, "hosts") != nil {
 					p.vars = playVars(item)
-					tasks = taskLists(item, rel, p, tasks)
+					tasks = taskLists(item, rel, p, nil, tasks)
 					continue
 				}
-				tasks = oneTask(item, rel, p, tasks)
+				tasks = oneTask(item, rel, p, nil, tasks)
 			}
 		}
 	}
 }
 
-func taskLists(m *yaml.Node, rel string, p privilege, tasks []task) []task {
+func taskLists(m *yaml.Node, rel string, p privilege, when []string, tasks []task) []task {
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if !taskListKeys[m.Content[i].Value] || m.Content[i+1].Kind != yaml.SequenceNode {
 			continue
 		}
 		for _, t := range m.Content[i+1].Content {
 			if t.Kind == yaml.MappingNode {
-				tasks = oneTask(t, rel, p, tasks)
+				tasks = oneTask(t, rel, p, when, tasks)
 			}
 		}
 	}
 	return tasks
 }
 
-func oneTask(m *yaml.Node, rel string, p privilege, tasks []task) []task {
+func oneTask(m *yaml.Node, rel string, p privilege, inherited []string, tasks []task) []task {
+	when := append(append([]string{}, inherited...), nodeStrings(mappingValue(m, "when"))...)
 	if mappingValue(m, "block") != nil {
-		return taskLists(m, rel, p, tasks)
+		return taskLists(m, rel, p, when, tasks)
 	}
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		key := m.Content[i]
@@ -169,7 +177,11 @@ func oneTask(m *yaml.Node, rel string, p privilege, tasks []task) []task {
 				{Kind: yaml.ScalarNode, Value: "cmd"}, {Kind: yaml.ScalarNode, Value: commandText(m.Content[i+1])},
 			}}
 		}
-		return append(tasks, task{rel: rel, line: key.Line, module: short, args: args, p: p})
+		items := nodeStrings(mappingValue(m, "loop"))
+		if items == nil {
+			items = nodeStrings(mappingValue(m, "with_items"))
+		}
+		return append(tasks, task{rel: rel, line: key.Line, module: short, args: args, p: p, when: when, items: items})
 	}
 	return tasks
 }
@@ -186,14 +198,14 @@ func sudoersRule(fsys fs.FS, dirs []string) ([]string, error) {
 	}
 	for _, t := range tasks {
 		if wholeFileModules[t.module] || t.module == fileModule {
-			if d := t.dest(); d != "" && t.arg("state") != "absent" {
+			if d := t.dest(); d != "" && t.arg("state") != stateAbsent {
 				deploys[d] = append(deploys[d], deploy{at: t.at(), owner: t.arg("owner"), mode: t.arg("mode"), link: linkSource(t)})
 			}
 		}
 	}
 	var findings []string
 	for _, t := range tasks {
-		for _, why := range judgeSudoersTask(fsys, t, deploys) {
+		for _, why := range judgeSudoersTask(fsys, t, deploys, tasks) {
 			findings = append(findings, t.at()+": "+why)
 		}
 	}
@@ -213,7 +225,7 @@ func sudoersPath(p string) bool {
 }
 
 // judgeSudoersTask says what is wrong with a task that writes sudoers text, or nothing.
-func judgeSudoersTask(fsys fs.FS, t task, deploys map[string][]deploy) []string {
+func judgeSudoersTask(fsys fs.FS, t task, deploys map[string][]deploy, tasks []task) []string {
 	if commandModules[t.module] {
 		if strings.Contains(t.arg("cmd"), "/etc/sudoers") {
 			return []string{"a command names /etc/sudoers, so the rule it writes cannot be judged or validated; " +
@@ -221,7 +233,7 @@ func judgeSudoersTask(fsys fs.FS, t task, deploys map[string][]deploy) []string 
 		}
 		return nil
 	}
-	if t.module == fileModule || !sudoersPath(t.dest()) || t.arg("state") == "absent" {
+	if t.module == fileModule || !sudoersPath(t.dest()) || t.arg("state") == stateAbsent {
 		return nil
 	}
 	var why []string
@@ -236,7 +248,8 @@ func judgeSudoersTask(fsys fs.FS, t task, deploys map[string][]deploy) []string 
 	if err != nil {
 		return append(why, err.Error())
 	}
-	return append(why, judgeSudoersText(text, src, deploys)...)
+	why = append(why, judgeSudoersText(text, src, deploys)...)
+	return append(why, judgeSudoersSwitch(t, text, tasks)...)
 }
 
 // sudoersText is the sudoers text a task writes and where it comes from.
@@ -549,6 +562,131 @@ func addPutFiles(rel, text string, deploys map[string][]deploy) {
 		target := dir + "/" + text[idx[4]:idx[5]]
 		deploys[target] = append(deploys[target], deploy{at: at, owner: owner, mode: text[idx[6]:idx[7]]})
 	}
+}
+
+// nodeStrings is a scalar, or a sequence's scalar items, each trimmed; nil for anything else.
+func nodeStrings(n *yaml.Node) []string {
+	switch {
+	case n == nil:
+		return nil
+	case n.Kind == yaml.ScalarNode:
+		return []string{strings.TrimSpace(n.Value)}
+	case n.Kind != yaml.SequenceNode:
+		return nil
+	}
+	var out []string
+	for _, c := range n.Content {
+		if c.Kind == yaml.ScalarNode {
+			out = append(out, strings.TrimSpace(c.Value))
+		}
+	}
+	return out
+}
+
+// condition is a when expression in one canonical spelling: no spaces, no parentheses around
+// the whole of it.
+func condition(expr string) string {
+	c := strings.Join(strings.Fields(expr), "")
+	for strings.HasPrefix(c, "(") && strings.HasSuffix(c, ")") && balanced(c[1:len(c)-1]) {
+		c = c[1 : len(c)-1]
+	}
+	return c
+}
+
+// balanced is whether no closing parenthesis in s comes before its opening one.
+func balanced(s string) bool {
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
+}
+
+// conditionOf is a task's conditions as one canonical expression, "" when it has none.
+func conditionOf(when []string) string {
+	parts := make([]string, 0, len(when))
+	for _, w := range when {
+		parts = append(parts, condition(w))
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	for i, p := range parts {
+		parts[i] = "(" + p + ")"
+	}
+	return strings.Join(parts, "and")
+}
+
+// constantCondition is a when that names no variable, so no host can turn it off.
+var constantCondition = regexp.MustCompile(`^(?i:true|yes|on|1)$`)
+
+// negates is whether one of a task's conditions is "not" the given one.
+func negates(when []string, cond string) bool {
+	for _, w := range when {
+		if rest, ok := strings.CutPrefix(condition(w), "not"); ok && condition(rest) == cond {
+			return true
+		}
+	}
+	return false
+}
+
+// wholeItem is a path that is the loop item and nothing else.
+var wholeItem = regexp.MustCompile(`^\{\{\s*item\s*\}\}$`)
+
+// removes is whether a task takes dest off the machine: state absent on it, by name or through
+// a loop that lists it.
+func removes(r task, dest string) bool {
+	if r.arg("state") != stateAbsent {
+		return false
+	}
+	if r.dest() == dest {
+		return true
+	}
+	return wholeItem.MatchString(r.dest()) && slices.Contains(r.items, dest)
+}
+
+// judgeSudoersSwitch says what is wrong when a task installs a NOPASSWD rule that no host
+// variable can turn off: a managed host whose policy forbids any permanent NOPASSWD rule must
+// be able to set one variable false and have the rule removed. The task needs a when on a host
+// variable and the same file a task that removes what it writes under the negated condition.
+// A line edit whose state is itself a template installs and removes in one task.
+func judgeSudoersSwitch(t task, text string, tasks []task) []string {
+	if !holdsNopasswd(text) || (lineModules[t.module] && strings.Contains(t.arg("state"), "{{")) {
+		return nil
+	}
+	dest := t.dest()
+	cond := conditionOf(t.when)
+	if cond == "" || constantCondition.MatchString(cond) {
+		return []string{dest + " installs a NOPASSWD rule no host variable can turn off; give the task " +
+			"when: <name> | bool on a host variable (default true in group_vars) and add a task that removes " +
+			dest + " with when: not (<name> | bool)"}
+	}
+	for _, r := range tasks {
+		if r.rel == t.rel && removes(r, dest) && negates(r.when, cond) {
+			return nil
+		}
+	}
+	return []string{dest + " is installed when " + cond + ", but no task in this file removes it when not (" +
+		cond + "), so turning the variable off leaves the rule in place; add a task with state: absent for " +
+		dest + " and that when"}
+}
+
+// holdsNopasswd is whether sudoers text, comments aside, grants anything without a password.
+func holdsNopasswd(text string) bool {
+	for _, l := range sudoersLines(text) {
+		if strings.Contains(l.text, "NOPASSWD") {
+			return true
+		}
+	}
+	return false
 }
 
 // scanSudoers runs the check over the YAML under dirs and records its findings.

@@ -1,8 +1,9 @@
 ---
 # Fixture for the sudoers-rule check of src-go/qa/ansible: nothing here may be reported. Pinned
 # argument lists on root-owned targets (one deployed by a task, one a root-owned link to it, one
-# put in place by an installer's put_file), validated drop-ins, a deliberate full grant, and
-# removals. A task list, not a play, so no gate syntax-checks it.
+# put in place by an installer's put_file), validated drop-ins each a host variable can turn
+# off (a task's when or its block's, removed under the negated condition, by path or by a
+# loop), a deliberate full grant switched by its state, and removals. A task list, not a play, so no gate syntax-checks it.
 
 - name: The target, root's alone
   ansible.builtin.copy:
@@ -41,6 +42,34 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: pinned_sudoers | bool
+
+- name: Remove the pinned rule where host_vars turn it off
+  ansible.builtin.file:
+    path: /etc/sudoers.d/pinned
+    state: absent
+  when: not (pinned_sudoers | bool)
+
+- name: A rule switched by its block, removed by a loop
+  when: looped_on
+  block:
+    - name: The looped rule
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/pinned.j2"
+        dest: /etc/sudoers.d/looped
+        owner: root
+        group: root
+        mode: "0440"
+        validate: visudo -cf %s
+
+- name: Remove the looped rule and its kin
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sudoers.d/looped
+    - /usr/local/bin/unrelated
+  when: not looped_on
 
 - name: A deliberate full grant is not a scoped rule
   ansible.builtin.blockinfile:
