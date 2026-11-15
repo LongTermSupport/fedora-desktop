@@ -49,12 +49,11 @@
       {{ provisioning_profile == 'server'
          and (ccy_restore_sessions | default(false) | bool)
          and (github_accounts | default({}) | length > 0) }}
-    # A restored session's first input (Plan 00135 Task 8.2, fedora-desktop#88): /compact
-    # when its conversation's context is at least this many tokens, else `continue`. 150k is
-    # the supervisor's red line on a 200k-window model; a 1M-window session is compacted
-    # sooner than the supervisor would, because its first turn after a reboot re-sends the
-    # whole context with a cold cache anyway. Set ccy_restore_compact_floor_tokens in
-    # host_vars to change it; the reasoning is in the plan's 26-10-08 journal.
+    # The compact floor: ccy-teams wind-down types /compact into a team session whose context
+    # is at least this many tokens (Plan 00203). 150k is the supervisor's red line on a
+    # 200k-window model. Written into ccy-sessions-set-going.service's environment, where
+    # wind-down reads it; set-going itself never compacts (fedora-desktop#290). Set
+    # ccy_restore_compact_floor_tokens in host_vars to change it.
     ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
   pre_tasks:
     - name: Audience guard — end play on a consumer install
@@ -703,8 +702,8 @@
         fail_msg: >-
           ccy_restore_compact_floor_tokens is '{{ ccy_restore_compact_floor_tokens | default('') }}',
           which is not a whole number of tokens above zero. It is the context size at or above
-          which a session restored after a reboot is compacted before it carries on
-          (docs/ccy.md, Sessions Survive a Reboot). Fix or remove it in host_vars.
+          which ccy-teams wind-down compacts a team session (docs/agent-bus.md). Fix or remove
+          it in host_vars.
         quiet: true
 
     # Wanted by the restore unit, so it is deployed wherever that is, and runs only where the

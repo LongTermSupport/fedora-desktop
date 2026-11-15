@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import signal
 import sys
 import tempfile
 import unittest
@@ -55,6 +56,9 @@ class FakeHost:
         self.reset_failed_rc = 0
         self.boot = "boot-1"
         self.cancel_on_sleep: int | None = None
+        self.wind_down_rc = 0
+        self.wind_down_lines: list[str] = ["ccy-a COMPACTED"]
+        self.cancel_on_wind_down = False
         self.toolchain_error: str | None = None
         self.trusted_head = True
         self.state: cycle.State | None = None
@@ -95,6 +99,12 @@ class FakeHost:
         owed = self.state is not None and self.state.read_owed() is not None
         self.calls.append(f"notify {' '.join(args)} owed={owed}")
         return self.notify_rc.get(" ".join(args), 0)
+
+    def wind_down(self, wait_seconds: int) -> tuple[int, list[str]]:
+        self.calls.append(f"wind-down {wait_seconds}")
+        if self.cancel_on_wind_down:
+            raise cycle.Cancelled()
+        return self.wind_down_rc, list(self.wind_down_lines)
 
     def verify_restore(self, wait_seconds: int) -> int:
         self.calls.append(f"verify-restore {wait_seconds}")
@@ -159,7 +169,8 @@ class CycleCase(unittest.TestCase):
         return record
 
     def mutating_calls(self) -> list[str]:
-        return [c for c in self.host.calls if c.startswith(("play ", "check-restore", "notify", "reboot", "sleep"))]
+        return [c for c in self.host.calls
+                if c.startswith(("play ", "check-restore", "notify", "reboot", "sleep", "wind-down"))]
 
 
 class TestConfig(unittest.TestCase):
@@ -757,7 +768,7 @@ class TestWarnAndReboot(CycleCase):
                 "notify going-down --minutes 3 owed=True",
                 "sleep 120",
                 "notify going-down --minutes 1 owed=True",
-                "sleep 60",
+                f"wind-down {cycle.WIND_DOWN_SECONDS}",
                 "reboot",
             ],
         )
@@ -773,8 +784,61 @@ class TestWarnAndReboot(CycleCase):
         self.run_cycle()
         self.assertEqual(
             self.mutating_calls(),
-            [f"play {PLAY}", "check-restore", "notify going-down --minutes 1 owed=True", "sleep 60", "reboot"],
+            [f"play {PLAY}", "check-restore", "notify going-down --minutes 1 owed=True",
+             f"wind-down {cycle.WIND_DOWN_SECONDS}", "reboot"],
         )
+
+    def test_the_wind_down_compacts_within_ten_minutes_then_the_reboot_follows(self) -> None:
+        # fedora-desktop#290: the sessions compact while their caches are warm, each finishing
+        # its turn first, and the reboot waits for that rather than a fixed minute.
+        self.assertEqual(cycle.WIND_DOWN_SECONDS, 600)
+        code, out, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.mutating_calls()[-2:], [f"wind-down {cycle.WIND_DOWN_SECONDS}", "reboot"])
+        self.assertNotIn("sleep 60", self.host.calls)
+        result = self.result()
+        self.assertEqual((result["phase"], result["outcome"]), ("reboot", "rebooting"))
+        self.assertEqual(result["detail"], "every session was compacted or had nothing to compact; rebooting")
+        self.assertIn("SELF-UPDATE-CYCLE rebooting", out)
+
+    def test_sessions_not_finished_by_the_deadline_are_recorded_and_the_reboot_goes_ahead(self) -> None:
+        self.host.wind_down_rc = 1
+        self.host.wind_down_lines = [
+            "ccy-a COMPACTED",
+            "ccy-b NOT-FINISHED it was still in a turn by the wind-down's deadline, so /compact was not typed",
+            "cc-c SKIPPED nothing since its last compaction, so it was not compacted again",
+            "ccy-d FAILED its compaction could not be read: gone; it is still running: attach it (ccy-sessions)",
+            "",
+        ]
+        code, _, err = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.host.calls[-1], "reboot")
+        self.assertNotIn("notify reboot-cancelled owed=True", self.host.calls)
+        detail = self.result()["detail"]
+        self.assertEqual(
+            detail,
+            "the wind-down did not compact 2 session(s), rebooting anyway: ccy-b NOT-FINISHED, ccy-d FAILED",
+        )
+        self.assertIn("ccy-b NOT-FINISHED it was still in a turn", err)
+
+    def test_a_wind_down_that_fails_outright_still_reboots_and_says_so(self) -> None:
+        self.host.wind_down_rc = 1
+        self.host.wind_down_lines = []
+        code, _, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.host.calls[-1], "reboot")
+        self.assertEqual(
+            self.result()["detail"],
+            "the wind-down exited 1 naming no session (its reason is in the journal), rebooting anyway",
+        )
+
+    def test_an_interrupted_wind_down_withdraws_the_warning(self) -> None:
+        self.host.cancel_on_wind_down = True
+        code, _, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_CANCELLED)
+        self.assertIn("notify reboot-cancelled owed=True", self.host.calls)
+        self.assertNotIn("reboot", self.host.calls)
+        self.assertEqual(self.result()["outcome"], "cancelled")
 
     def test_a_session_that_cannot_be_restored_holds_the_reboot_and_says_so(self) -> None:
         # fedora-desktop#108: asked after the plays (so the new ccy-sessions judges) and before
@@ -839,6 +903,17 @@ class TestWarnAndReboot(CycleCase):
         self.assertEqual(code, cycle.EXIT_OK)
         self.assertNotIn(f"play {PLAY}", self.host.calls, "the plays already ran")
         self.assertEqual(self.host.calls[-1], "reboot")
+
+
+class TestCancelOnSignal(unittest.TestCase):
+    """The countdown and the wind-down are called off by an INT or TERM, and leave the
+    handlers as they found them."""
+
+    def test_a_term_inside_raises_cancelled_and_the_handler_is_put_back(self) -> None:
+        before = signal.getsignal(signal.SIGTERM)
+        with self.assertRaises(cycle.Cancelled), cycle._cancel_on_signal():
+            os.kill(os.getpid(), signal.SIGTERM)
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
 
 
 class TestDryRun(CycleCase):

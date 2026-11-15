@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.0 — container 2.84.16
+
+- **`ccy-sessions wind-down` compacts every live session before a planned reboot, while its
+  prompt cache is warm** (issue #290). Each session finishes a running turn (never
+  interrupted), is sent `/compact` and has its end waited for, all within one deadline
+  (`--wait`, default 600 s). The session is left running and its record kept: the reboot ends
+  it and the restore brings it back on a small context. One line per session (`COMPACTED`,
+  `COMPACTED-AFTER-TURN`, `NOT-FINISHED`, `SKIPPED`, `FAILED`, each with why); exit 1 if any is
+  `NOT-FINISHED` or `FAILED`. The per-session step is `sessclose`'s new `Compact` (`CompactAll`
+  for several against one deadline), the same compaction a close does without the `/exit`.
+- **A restored session is never compacted after the reboot** (issue #290). `set-going` types
+  `continue` whatever the context's size: a compaction after a reboot reads the whole context
+  on a cold cache, so it is done before the reboot instead, by `wind-down`. The compact floor
+  (`ccy_restore_compact_floor_tokens`) stays, for `ccy-teams wind-down` only. A transcript with
+  no context size no longer leaves a session untouched (`context-unreadable` is gone), and a
+  `compacting` entry an older set-going wrote is left for verify-restore to judge.
+- **The self-update cycle winds the sessions down before it reboots**, in place of the last
+  fixed minute of its countdown: after the one-minute warning it runs
+  `ccy-sessions wind-down --wait 600` and reboots when that returns. Past the deadline it
+  reboots anyway, and its result's detail names each session that was not compacted. An INT or
+  TERM during the wind-down withdraws the warning, as in the countdown.
+- No image change.
+
 ## 3.121.5 — container 2.84.16
 
 - **`ccy-sessions restore --check` refuses the rest of what a launch would refuse from files**

@@ -19,13 +19,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
-// What set-going types. The compact's instruction is /compact's own argument, as the
-// supervisor's is; the space after the command also closes Claude's completion menu, so the
-// Enter submits the line instead of completing the command name.
-const (
-	setGoingCompact  = "/compact This session was restored after a reboot. After compacting, carry on with the work that was in progress."
-	setGoingContinue = "continue"
-)
+// setGoingContinue is what set-going types. A restored session is never compacted: its
+// compaction belongs before the reboot (ccy-sessions wind-down, fedora-desktop#290), where it
+// still has the work in hand, and after it the cache is cold either way.
+const setGoingContinue = "continue"
 
 // lookKind is what a restored session's pane shows.
 type lookKind int
@@ -53,8 +50,6 @@ const (
 	whyAttached        = "a person is attached to it, so nothing is typed over them"
 	whyTyped           = "its input box holds text a person typed, so nothing is typed over it"
 	whyBusy            = "it has taken input since this boot began and is working on it, so there is nothing to set going"
-	// A launch prompt after this run typed /compact: the session restarted mid-compaction.
-	whyWaitingAfterCompaction = "it restarted during its compaction and now waits at a launch prompt only a person can answer; answer it in the session"
 )
 
 // expectedWhy is why leaving a session that looks like this alone is expected: it is a person's
@@ -81,39 +76,20 @@ type waitedOn struct {
 	why    string
 }
 
-// afterCompactionReason is why a session is left alone when it is not ready after its
-// compaction.
-func (l look) afterCompactionReason() string {
-	switch l.kind {
-	case lookAttached:
-		return "attached-after-compaction"
-	case lookTyped:
-		return "typed-after-compaction"
-	case lookDead, lookWaiting:
-		return l.detail + "-after-compaction"
-	case lookUnreadable:
-		return "unreadable-after-compaction"
-	case lookReady, lookNotDrawn, lookBusy:
-		return ""
-	}
-	return ""
-}
-
 // goingRun is one set-going: the manifest as it now is, what each session not yet ready was
 // waited on, how many were left alone as expected, and each fault ("name (reason)").
 type goingRun struct {
 	app      *App
 	store    *restore.Store
 	boot     string
-	floor    int64
 	manifest restore.Manifest
 	waited   map[string]waitedOn
 	expected int
 	faults   []string
 }
 
-// setGoing types each restored session's first input once its prompt has drawn: /compact when
-// its context is at or above the floor, else continue. It waits (SetGoingWait at most) for the
+// setGoing types each restored session's first input, continue, once its prompt has drawn. It
+// waits (SetGoingWait at most) for the
 // prompts to draw. One set-going runs at a time: a second restore in the same boot starts
 // another, which waits here and then finds whatever that restore added still pending.
 func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
@@ -144,9 +120,6 @@ func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 	if len(work) == 0 {
 		a.sayf("No session this boot's restore started is waiting to be set going.\n")
 		return term.ExitOK
-	}
-	if err = g.setFloor(work); err != nil {
-		return term.ExitFailure
 	}
 	if err = g.loop(ctx, work); err != nil {
 		return a.failed(err)
@@ -188,30 +161,16 @@ func (g *goingRun) begin() error {
 	return nil
 }
 
-// workLeft is the names of the manifest's sessions still to act on: pending or compacting.
+// workLeft is the names of the manifest's sessions still pending. A compacting entry is an
+// older set-going's, which typed /compact; it is verify-restore's to judge, not this run's.
 func (g *goingRun) workLeft() []string {
 	var names []string
 	for _, e := range g.manifest.Entries {
-		if e.Going == restore.GoingPending || e.Going == restore.GoingCompacting {
+		if e.Going == restore.GoingPending {
 			names = append(names, e.Name)
 		}
 	}
 	return names
-}
-
-// setFloor reads the compact floor. Without a whole number of tokens no session can be set
-// going: each is left alone, with the reason.
-func (g *goingRun) setFloor(work []string) error {
-	floor, ok := g.app.cfg.CompactFloor.Tokens()
-	if ok {
-		g.floor = floor
-		return nil
-	}
-	g.app.fail(fmt.Sprintf("CCY_RESTORE_COMPACT_FLOOR_TOKENS is '%s', not a whole number of tokens, so no restored session can be set going. ccy-sessions-set-going.service sets it from ccy_restore_compact_floor_tokens (play-claude-yolo.yml).", g.app.cfg.CompactFloor))
-	if leaveErr := g.leaveAll(work, "no-compact-floor"); leaveErr != nil {
-		return leaveErr
-	}
-	return errReported
 }
 
 // leaveAll leaves every named session alone for the same reason, as the entry now stands.
@@ -271,9 +230,6 @@ func (g *goingRun) giveUp(work []string) error {
 		}
 		going := g.manifest.Entries[i].Going
 		w := waitedOn{reason: "prompt-not-drawn"}
-		if going == restore.GoingCompacting {
-			w.reason = "compaction-not-finished"
-		}
 		if g.waited[name].reason != "" {
 			w = g.waited[name]
 		}
@@ -304,15 +260,10 @@ func (g *goingRun) pass(ctx context.Context, work []string, live map[string]bool
 		if i < 0 {
 			continue
 		}
-		var err error
-		switch g.manifest.Entries[i].Going {
-		case restore.GoingPending:
-			err = g.setOne(ctx, name, live[name], attached[name])
-		case restore.GoingCompacting:
-			err = g.continueAfterCompaction(ctx, name, live[name], attached[name])
-		case restore.GoingNone, restore.GoingCompact, restore.GoingContinue, restore.GoingUntouched, restore.GoingNotStarted, restore.GoingKeep:
+		if g.manifest.Entries[i].Going != restore.GoingPending {
+			continue
 		}
-		if err != nil {
+		if err := g.setOne(ctx, name, live[name], attached[name]); err != nil {
 			return err
 		}
 	}
@@ -441,9 +392,8 @@ func (g *goingRun) conversationOwner(file, name string) string {
 // claudeHome is where cc keeps its transcripts.
 func (a *App) claudeHome() string { return conversation.ClaudeHome(a.Getenv) }
 
-// setOne sets one pending session going once its prompt has drawn: /compact at or above the
-// floor (followed by continue when it has no supervisor, see continueAfterCompaction), else
-// continue. It is left pending while there is something to wait for; anything that cannot be
+// setOne sets one pending session going once its prompt has drawn: it types continue. It is
+// left pending while there is something to wait for; anything that cannot be
 // read or sent leaves it untouched, with the reason.
 func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached int) error {
 	i := g.manifest.Index(name)
@@ -474,29 +424,14 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		return g.leaveAsExpected(name, restore.GoingPending, "shares-conversation-with-"+owner,
 			"only one session may drive a conversation, and "+owner+" is set going on it")
 	}
-	tokens, err := g.app.Transcripts.ContextTokens(file)
-	if err != nil {
-		g.app.failErr(err)
-		return g.leaveAlone(name, restore.GoingPending, "context-unreadable")
-	}
-	going, text := restore.GoingContinue, setGoingContinue
-	if tokens >= g.floor {
-		going, text = restore.GoingCompact, setGoingCompact
-		// Nothing carries a session with no supervisor on after its compaction: it waits as
-		// compacting, and continueAfterCompaction types continue once the compaction ends.
-		if !e.Supervised {
-			going = restore.GoingCompacting
-		}
-	}
 	// Taken before typing, so whatever the input writes to the transcript is at or after it.
 	at := g.app.Now()
-	if err = g.app.typeInto(ctx, name, text); err != nil {
+	if err = g.app.typeInto(ctx, name, setGoingContinue); err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, sendFailure(err, "send-failed"))
 	}
-	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
-		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
-	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
+	g.app.sayf("set %s going: %s.\n", name, restore.GoingContinue)
+	return g.goingSet(name, restore.GoingPending, restore.GoingContinue, at, "", file)
 }
 
 // judgeBusy decides a pending session showing a spinner by what its transcript shows. Input
@@ -582,54 +517,4 @@ func (g *goingRun) transcriptOf(e restore.Entry) (string, error) {
 		return "", fmt.Errorf("transcript: %w", err)
 	}
 	return file, nil
-}
-
-// continueAfterCompaction is for a session with no supervisor that was typed /compact: once the
-// transcript shows the compaction finished, it types continue.
-func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, live bool, attached int) error {
-	i := g.manifest.Index(name)
-	if i < 0 {
-		return nil
-	}
-	e := g.manifest.Entries[i]
-	if !live {
-		return g.leaveAlone(name, restore.GoingCompacting, "session-ended-while-compacting")
-	}
-	finished, err := g.app.Transcripts.CompactedSince(e.Transcript, e.AtUnix())
-	if err != nil {
-		g.app.failErr(err)
-		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")
-	}
-	if !finished {
-		g.waited[name] = waitedOn{reason: "compaction-not-finished"}
-		return nil
-	}
-	l := g.lookAt(ctx, name, e.Prefix, attached)
-	switch l.kind {
-	case lookReady:
-		return g.typeContinue(ctx, e)
-	case lookBusy:
-		// Something has already set it working after the compaction; that is the point.
-		g.app.sayf("%s is already working after its compaction; nothing more typed.\n", name)
-		return g.goingSet(name, restore.GoingCompacting, restore.GoingCompact, e.At, e.Detail, e.Transcript)
-	case lookNotDrawn:
-		g.waited[name] = waitedOn{reason: "prompt-not-back-after-compaction"}
-		return nil
-	case lookWaiting:
-		return g.leaveAsExpected(name, restore.GoingCompacting, l.afterCompactionReason(), whyWaitingAfterCompaction)
-	case lookAttached, lookTyped, lookDead, lookUnreadable:
-		return g.leave(name, restore.GoingCompacting, l.afterCompactionReason(), l.expectedWhy())
-	}
-	return nil
-}
-
-// typeContinue types continue into a session whose compaction has finished.
-func (g *goingRun) typeContinue(ctx context.Context, e restore.Entry) error {
-	at := g.app.Now()
-	if err := g.app.typeInto(ctx, e.Name, setGoingContinue); err != nil {
-		g.app.failErr(err)
-		return g.leaveAlone(e.Name, restore.GoingCompacting, sendFailure(err, "send-failed-after-compaction"))
-	}
-	g.app.sayf("set %s going after its compaction: continue.\n", e.Name)
-	return g.goingSet(e.Name, restore.GoingCompacting, restore.GoingContinue, at, e.Detail, e.Transcript)
 }

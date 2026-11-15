@@ -31,7 +31,10 @@ type fakeSession struct {
 	compactLooks int
 	stuck        bool
 	// noBoundary ends the compaction on the pane without writing its compact_boundary.
-	noBoundary      bool
+	noBoundary bool
+	// turn is a turn running when the session is first looked at: busy for busyLeft looks,
+	// then ready with nothing written to the transcript.
+	turn            bool
 	busyLeft        int
 	enters, escapes int
 }
@@ -158,7 +161,8 @@ func (w *world) fakeTmux() {
 	})
 }
 
-// look is a compaction running on: busy for its looks, then ready, its boundary written.
+// look is a compaction (or, with turn, a turn) running on: busy for its looks, then ready, a
+// compaction's boundary written.
 func (w *world) look(s *fakeSession) {
 	if s.pane != paneBusy || s.busyLeft < 0 || s.stuck {
 		return
@@ -168,6 +172,10 @@ func (w *world) look(s *fakeSession) {
 		return
 	}
 	s.pane, s.busyLeft = paneReady, -1
+	if s.turn {
+		s.turn = false
+		return
+	}
 	if !s.noBoundary {
 		w.boundary["/t/"+s.name+".jsonl"] = w.now.Unix()
 	}
@@ -434,5 +442,155 @@ func TestQuiet(t *testing.T) {
 	q.Idle(screen.Typed, now.Add(20*time.Second), settle)
 	if q.Idle(screen.Ready, now.Add(31*time.Second), settle) {
 		t.Fatal("a typed look did not start the bound again")
+	}
+}
+
+// windDownBy is the wind-down's deadline in the tests: ten minutes from the world's start.
+func (w *world) windDownBy() time.Time { return w.now.Add(10 * time.Minute) }
+
+// kept is whether the session's record is still there.
+func (w *world) kept(name string) bool {
+	_, err := w.store.Get(name)
+	return err == nil
+}
+
+// W1: Compact compacts a session and leaves it running: no /exit, nothing killed, its record
+// kept. An idle box is given the settle bound before /compact, so a warning being typed into
+// it lands first.
+func TestCompactLeavesTheSessionRunning(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	start := w.now
+	r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+	if r.Outcome != Compacted || !r.Compacted || r.Busy || r.Name != "ccy-proj" {
+		t.Fatalf("result %+v", r)
+	}
+	if got := w.typedInto("ccy-proj"); !slices.Equal(got, []string{WindDownText}) {
+		t.Fatalf("typed %q", got)
+	}
+	if w.killed("ccy-proj") || w.find("ccy-proj") == nil || !w.kept("ccy-proj") {
+		t.Fatal("the session was ended or its record removed")
+	}
+	if w.now.Sub(start) < DefaultWaits.Settle {
+		t.Fatalf("an idle box was typed into after %v, before the settle bound", w.now.Sub(start))
+	}
+	if !strings.HasPrefix(WindDownText, "/compact ") {
+		t.Fatalf("wind-down text %q", WindDownText)
+	}
+}
+
+// W2: a session in a turn is never interrupted: the turn is waited for, then it is compacted,
+// and the result says it was busy.
+func TestCompactWaitsForARunningTurn(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.pane, s.busyLeft, s.turn = paneBusy, 5, true
+	r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+	if r.Outcome != Compacted || !r.Busy || s.escapes != 0 || !slices.Equal(w.typedInto("ccy-proj"), []string{WindDownText}) {
+		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto("ccy-proj"))
+	}
+}
+
+// W3: a turn still running at the deadline is not interrupted: not finished, nothing typed,
+// nothing killed.
+func TestCompactLeavesATurnRunningPastTheDeadline(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.pane, s.busyLeft = paneBusy, -1
+	by := w.windDownBy()
+	r := w.c.Compact(t.Context(), "ccy-proj", by)
+	if r.Outcome != Unfinished || !r.Busy || s.escapes != 0 || len(w.typedInto("ccy-proj")) != 0 || w.killed("ccy-proj") {
+		t.Fatalf("result %+v escapes %d typed %q", r, s.escapes, w.typedInto("ccy-proj"))
+	}
+	if !strings.Contains(r.Note, "still in a turn") || w.now.Before(by) || w.now.After(by.Add(DefaultWaits.Poll)) {
+		t.Fatalf("note %q at %v (deadline %v)", r.Note, w.now, by)
+	}
+}
+
+// W3: a compaction still running at the deadline is not finished, and the session is left
+// running.
+func TestCompactWhoseCompactionOutlastsTheDeadline(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	w.find("ccy-proj").stuck = true
+	r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+	if r.Outcome != Unfinished || r.Compacted || w.killed("ccy-proj") || !w.kept("ccy-proj") {
+		t.Fatalf("result %+v", r)
+	}
+	if !strings.Contains(r.Note, "compaction had not finished") {
+		t.Fatalf("note %q", r.Note)
+	}
+}
+
+// W3: a compaction that ends on the deadline's own look counts.
+func TestCompactThatEndsAtTheDeadlineCounts(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	s := w.find("ccy-proj")
+	s.compactLooks = 10
+	by := w.now.Add(DefaultWaits.Settle + 11*DefaultWaits.Poll)
+	r := w.c.Compact(t.Context(), "ccy-proj", by)
+	if r.Outcome != Compacted {
+		t.Fatalf("result %+v at %v (deadline %v)", r, w.now, by)
+	}
+}
+
+// W4: what is not compacted is skipped or left unfinished with why, and nothing is typed or
+// killed: a conversation compacted last, a box holding unsent text to the deadline, a session
+// whose claude is not running, one that ended, one whose transcript cannot be read.
+func TestCompactSkipsWhatItCannotOrNeedNotCompact(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		outcome    Outcome
+		set        func(*world, *fakeSession)
+	}{
+		{"compacted last", "nothing since its last compaction", Skipped, func(w *world, _ *fakeSession) { w.last["/t/ccy-proj.jsonl"] = true }},
+		{"unsent text", "unsent text", Unfinished, func(_ *world, s *fakeSession) { s.pane = paneTyped }},
+		{"launcher ended", "claude is not running in it", Skipped, func(_ *world, s *fakeSession) { s.pane = "ccy ended. " + screen.EndedText }},
+		{"gone", "it ended", Skipped, func(w *world, s *fakeSession) { w.end(s) }},
+		{"unreadable transcript", "nothing was typed", Failed, func(w *world, _ *fakeSession) { w.readErr = errors.New("permission denied") }},
+	} {
+		w := newWorld(t, "ccy-proj")
+		tc.set(w, w.find("ccy-proj"))
+		r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+		if r.Outcome != tc.outcome || len(w.typedInto("ccy-proj")) != 0 || w.killed("ccy-proj") || !w.kept("ccy-proj") {
+			t.Fatalf("%s: result %+v typed %q", tc.name, r, w.typedInto("ccy-proj"))
+		}
+		if !strings.Contains(r.Note, tc.want) || strings.Contains(r.Note, "--no-compact") {
+			t.Fatalf("%s: note %q", tc.name, r.Note)
+		}
+	}
+}
+
+// W5: a session with no recorded conversation is watched on its pane, as a close is.
+func TestCompactReadsTheEndFromThePaneWithoutTheBus(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	w.record("ccy-proj", "--no-bus")
+	w.find("ccy-proj").noBoundary = true
+	r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+	if r.Outcome != Compacted || !strings.Contains(r.Note, "its end read from its pane") {
+		t.Fatalf("result %+v", r)
+	}
+}
+
+// W5: failures after /compact went in name the session as still running, never /exit.
+func TestCompactFailuresAfterTheCompactLeaveItRunning(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	w.find("ccy-proj").noBoundary = true
+	r := w.c.Compact(t.Context(), "ccy-proj", w.windDownBy())
+	if r.Outcome != Failed || !strings.HasSuffix(r.Note, "so it is still running: attach it (ccy-sessions)") || strings.Contains(r.Note, "/exit") {
+		t.Fatalf("result %+v", r)
+	}
+}
+
+// W6: CompactAll watches several sessions together against the one deadline, each with its
+// own result, in order.
+func TestCompactAllWatchesThemTogether(t *testing.T) {
+	w := newWorld(t, "ccy-a", "cc-b")
+	b := w.find("cc-b")
+	b.pane, b.busyLeft, b.turn = paneBusy, 4, true
+	got := w.c.CompactAll(t.Context(), []string{"ccy-a", "cc-b"}, w.windDownBy())
+	if len(got) != 2 || got[0].Name != "ccy-a" || got[1].Name != "cc-b" || got[0].Outcome != Compacted || got[1].Outcome != Compacted {
+		t.Fatalf("results %+v", got)
+	}
+	if got[0].Busy || !got[1].Busy {
+		t.Fatalf("busy %+v", got)
 	}
 }

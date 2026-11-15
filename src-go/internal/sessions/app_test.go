@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
@@ -94,7 +93,7 @@ func TestConfigReadsTheKnobs(t *testing.T) {
 	}
 	want := Config{
 		CcyLib: defaultLib, Minute: 0, Poll: 500 * time.Millisecond, SetGoingWait: 7 * time.Second, StartWindow: time.Hour,
-		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: compactfloor.Parse("150000"), PassphraseFile: "/p", BootIDFile: "/b",
+		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, PassphraseFile: "/p", BootIDFile: "/b",
 	}
 	if cfg != want {
 		t.Fatalf("config %+v, want %+v", cfg, want)

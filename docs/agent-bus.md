@@ -154,8 +154,8 @@ gets the same in its `agent-bus-claude` tmux session in the container, through `
 fail the run, with the text to give them by hand. The ccy supervisor types at the same idle
 moments, so its line and the wind-down's can interleave. Once a session has answered (it is
 idle again), it is typed `/compact` with a wind-down instruction if its context is at or above
-the compact floor `ccy-sessions set-going` uses after a reboot (`ccy_restore_compact_floor_tokens`,
-read from `ccy-sessions-set-going.service`), so its resume reloads a small conversation into a
+the compact floor (`ccy_restore_compact_floor_tokens`, 150,000 by default, read from
+`ccy-sessions-set-going.service`'s environment), so its resume reloads a small conversation into a
 cold cache. An LXC member's transcript is in its container, so it is compacted whatever its
 size, and its compaction's end is read from its pane. Compactions run one at a time, the
 coordinator first, and the whole wind-down is bounded by a 15-minute window: a session still

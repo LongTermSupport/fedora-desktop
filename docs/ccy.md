@@ -463,21 +463,10 @@ an empty prompt with its conversation reloaded and a cold prompt cache. Without 
 would wait there for a person. `ccy-sessions-set-going.service` runs after the restore, and
 the restore pulls it in, so it needs no switch of its own. It runs `ccy-sessions set-going`,
 which waits for each session the restore started to draw Claude's prompt (20 minutes at
-most). It then reads the conversation's context size from its transcript and types the
-first input:
-
-- **at or above the floor**, `/compact`. A ccy session's supervisor types `continue` once
-  the compaction ends. For a session with no supervisor (`cc`, or `ccy --no-supervise`),
-  `set-going` waits for the compaction to show in the transcript and types `continue` itself;
-- **below it**, `continue`.
-
-A session restored with `--resume <id>` is judged on that conversation, not the newest one.
-
-The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the play:
-
-```yaml
-ccy_restore_compact_floor_tokens: 200000
-```
+most). It then types `continue`. It never types `/compact`: after a reboot a compaction would
+read the whole context on a cold cache, so the sessions are compacted before the reboot
+instead, by `ccy-sessions wind-down` (fedora-desktop#290). A session restored with
+`--resume <id>` is matched to that conversation's transcript, not the newest one.
 
 A session the restore found already running is never typed into. Each session it leaves
 alone is named in the journal, with the reason
@@ -491,8 +480,8 @@ A session left alone is one of two things:
   conversation with a session already set going: two sessions resuming the same
   conversation, so only the first to draw its prompt is set going. The journal says `left <name> alone, as expected: <reason>; <why>`.
 - **A fault, and the unit fails**, naming each one: the launcher exited or the session died, a
-  screen or transcript that cannot be read, keys that cannot be sent, or a prompt or
-  compaction that never comes in the time. A session that shows a spinner but took no input
+  screen or transcript that cannot be read, keys that cannot be sent, or a prompt that never
+  comes in the time. A session that shows a spinner but took no input
   since the boot is waited on: it is set going once its prompt goes idle, and is a fault
   (`busy-without-input`) if it is still busy when the wait ends. A dead launcher fails the unit too, for now; see
   Plan 00135.
@@ -506,8 +495,7 @@ restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per sessio
 `no-conversation`, `directory-gone`, `record-unreadable`, `arguments-unworkable`,
 `start-failed`). A session at Claude Code's conversation picker (a restore of a `--resume`
 launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
-input within two minutes of the keys being typed (`compact-not-started`,
-`continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
+input within two minutes of the keys being typed (`continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
 until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer
 twice running. It also stops when the time runs out.
 
@@ -628,6 +616,26 @@ no terminal to ask on, or the forced power action fails), the sessions are sent
 `reboot-cancelled`. Run them through `sudo` from your desktop user:
 from a root shell there is no ccy-sessions to warn with, and they refuse. One script
 under two names, deployed by `play-basic-configs.yml`.
+
+### Winding the sessions down before a planned reboot
+
+`ccy-sessions wind-down [--wait SECONDS]` compacts every live recorded session while its
+prompt cache is still warm, so the restore after the reboot resumes each on a small summary
+instead of reading its whole context cold (issue #290). For each session it waits for a
+running turn to finish (it never interrupts one), gives an idle box a short settle so a
+warning being typed in lands first, types `/compact`, and waits for the compaction to show in
+the transcript. All of it is within one deadline (`--wait`, default 600 seconds). Nothing is
+`/exit`ed, stopped or killed, and every record is kept: the reboot ends the sessions and the
+restore brings them back.
+
+It prints one line per live session: `COMPACTED`, `COMPACTED-AFTER-TURN` (it was in a turn
+first), `NOT-FINISHED <why>` (the deadline came first, and it is left as it is),
+`SKIPPED <why>` (no record, nothing since its last compaction, or claude not running in it)
+or `FAILED <why>`. It exits 1 if any session is `NOT-FINISHED` or `FAILED`. The unattended
+self-update cycle runs it after its warnings and reboots when it returns
+([configuration.md](configuration.md#unattended-server-self-update)). The per-session step is
+`sessclose`'s `Compact`, the same compaction `ccy --stop` and ccy-teams shutdown use, without
+the `/exit`.
 
 ---
 

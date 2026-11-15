@@ -1554,9 +1554,10 @@ everything it installed.
   moves a clone back only when it has just made it, and otherwise refuses and says how to
   re-clone). It prints where the clone was anchored. Clearing a dirty clone takes a fresh
   clone: see [configuration.md](configuration.md#unattended-server-self-update).
-- It runs the allowlisted plays that commit affects, warns the ccy sessions, and
-  reboots. The sessions come back through the boot-time restore, and a post-boot unit
-  checks they did.
+- It runs the allowlisted plays that commit affects, warns the ccy sessions, winds them
+  down (`ccy-sessions wind-down`: each finishes its turn and compacts while its prompt cache
+  is warm, within ten minutes), and reboots. The sessions come back through the boot-time
+  restore, and a post-boot unit checks they did.
 - A failed play means no reboot. The host-health report (login snippet and
   `fedora-desktop-health`) shows a cycle that failed, one that has recorded nothing for
   more than three days, and a reboot whose post-boot check never ran. It reads a copy of

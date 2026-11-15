@@ -18,23 +18,18 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
-const (
-	floor        = "150000"
-	compactText  = "/compact This session was restored after a reboot. After compacting, carry on with the work that was in progress."
-	continueText = "continue"
-)
+const continueText = "continue"
 
 var rule = strings.Repeat("─", 60)
 
 // promptScreen is Claude's empty input box, drawn.
 var promptScreen = strings.Join([]string{"  Claude Code", rule, "❯ ", rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "\n") + "\n"
 
-// goingHost is a host for set-going: the floor set, no waiting, and the tmux server answering
-// capture-pane from screens and send-keys with success.
+// goingHost is a host for set-going: no waiting, and the tmux server answering capture-pane
+// from screens and send-keys with success.
 func goingHost(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
-	h.env["CCY_RESTORE_COMPACT_FLOOR_TOKENS"] = floor
 	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "0"
 	h.env["CCY_SESSIONS_SUBMIT_DELAY"] = "0"
 	h.fake.On([]string{"tmux", "-L", "ccy", "send-keys"}, execx.Result{})
@@ -192,9 +187,10 @@ func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {
 	if h.stdout() != "" {
 		t.Fatalf("set-going prints nothing on stdout: %q", h.stdout())
 	}
-	// Above the floor: /compact then Enter on its own; below it: continue; a session the restore
-	// found running, a dead one and one at a prompt are never typed into.
-	wantTyped := map[string]string{"ccy-a": "-l " + compactText + "|Enter", "cc-c": "-l continue|Enter", "ccy-b": "", "ccy-d": "", "ccy-w": ""}
+	// continue then Enter on its own, whatever the context's size (fedora-desktop#290: a
+	// compaction is done before the reboot, never after it); a session the restore found
+	// running, a dead one and one at a prompt are never typed into.
+	wantTyped := map[string]string{"ccy-a": "-l continue|Enter", "cc-c": "-l continue|Enter", "ccy-b": "", "ccy-d": "", "ccy-w": ""}
 	for name, want := range wantTyped {
 		if got := typedInto(h, name); got != want {
 			t.Fatalf("%s was typed %q, want %q", name, got, want)
@@ -203,13 +199,13 @@ func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {
 	contains(t, "report", h.stderr(),
 		"left ccy-d untouched: launcher-exited\n",
 		"left ccy-w alone, as expected: waiting-at-prompt-quick-launch-after-0s; "+whyWaitingAtPrompt+"\n",
-		"set ccy-a going: compact (context 208525 tokens, compact floor 150000, supervised: yes).\n",
-		"set cc-c going: continue (context 5000 tokens, compact floor 150000, supervised: no).\n",
+		"set ccy-a going: continue.\n",
+		"set cc-c going: continue.\n",
 		"1 restored session(s) were left alone as expected, each named above; that is not a fault.\n",
 		"ERROR: 1 restored session(s) could not be set going: ccy-d (launcher-exited). verify-restore reports them.\n")
 	at := strconv.FormatInt(h.clock.Unix(), 10)
 	wantEntries := map[string]string{
-		"ccy-a": "compact|" + at + "|208525|" + tA, "cc-c": "continue|" + at + "|5000|" + tC,
+		"ccy-a": "continue|" + at + "||" + tA, "cc-c": "continue|" + at + "||" + tC,
 		"ccy-d": "untouched||launcher-exited|", "ccy-w": "untouched||waiting-at-prompt-quick-launch-after-0s|",
 		"ccy-b": "none|||",
 	}
@@ -253,26 +249,41 @@ func TestSetGoingTakesNoArguments(t *testing.T) {
 	}
 }
 
-func TestSetGoingWithoutAFloorLeavesEverythingAlone(t *testing.T) {
+// fedora-desktop#290: a restored session is never compacted. Its context, however large, is not
+// read, and the compact floor (ccy-teams wind-down's, before a shutdown) plays no part.
+func TestSetGoingNeverCompactsARestoredSession(t *testing.T) {
+	for _, floor := range []string{"", "150000", "12x"} {
+		h := goingHost(t)
+		a := realDir(t, h, "a")
+		h.env["CCY_RESTORE_COMPACT_FLOOR_TOKENS"] = floor
+		writeTranscript(t, ccyTranscript(a), 900000)
+		writeEntries(t, h, pending("ccy-a", "ccy", a))
+		h.sessions("ccy-a 0 " + a)
+		showScreen(h, "ccy-a", promptScreen)
+		exitCodeIs(t, h.run("set-going"), 0, h)
+		if got := typedInto(h, "ccy-a"); got != "-l continue|Enter" {
+			t.Fatalf("floor %q: typed %q", floor, got)
+		}
+		if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingContinue {
+			t.Fatalf("floor %q: %+v", floor, e)
+		}
+	}
+}
+
+// A compacting entry an older set-going wrote (before fedora-desktop#290) is not this run's
+// work: nothing is typed and the entry stands, for verify-restore to judge.
+func TestSetGoingLeavesAnOlderCompactingEntryAsItIs(t *testing.T) {
 	h := goingHost(t)
 	a := realDir(t, h, "a")
-	h.env["CCY_RESTORE_COMPACT_FLOOR_TOKENS"] = ""
-	writeEntries(t, h, pending("ccy-a", "ccy", a))
-	h.sessions("ccy-a 0 " + a)
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "no floor", h.stderr(), "ccy_restore_compact_floor_tokens", "left ccy-a untouched: no-compact-floor",
-		"CCY_RESTORE_COMPACT_FLOOR_TOKENS is '', not a whole number of tokens")
-	if h.count("tmux -L ccy send-keys") != 0 {
-		t.Fatal("nothing typed")
-	}
-	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingUntouched || e.Detail != "no-compact-floor" {
-		t.Fatalf("%+v", e)
-	}
-	for _, bad := range []string{"0", "12x", "-5", "99999999999999999999"} {
-		h = goingHost(t)
-		h.env["CCY_RESTORE_COMPACT_FLOOR_TOKENS"] = bad
-		writeEntries(t, h, pending("ccy-a", "ccy", a))
-		exitCodeIs(t, h.run("set-going"), 1, h)
+	e := pending("cc-c", "cc", a)
+	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompacting, time.Unix(h.clock.Unix(), 0), "300000", "/t.jsonl"
+	writeEntries(t, h, e)
+	h.sessions("cc-c 0 " + a)
+	showScreen(h, "cc-c", promptScreen)
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	contains(t, "nothing to do", h.stderr(), "No session this boot's restore started is waiting to be set going.")
+	if typedInto(h, "cc-c") != "" || entryNamed(t, h, "cc-c") != e {
+		t.Fatalf("typed %q, entry %+v", typedInto(h, "cc-c"), entryNamed(t, h, "cc-c"))
 	}
 }
 
@@ -490,8 +501,11 @@ func TestSetGoingReasonsTranscriptsCannotBeUsed(t *testing.T) {
 	writeEntries(t, h, pending("ccy-a", "ccy", a))
 	h.sessions("ccy-a 0 " + a)
 	showScreen(h, "ccy-a", promptScreen)
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "no size", h.stderr(), "records no context size", "left ccy-a untouched: context-unreadable\n")
+	// A transcript with no context size is still the conversation: its size is not needed.
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	if typedInto(h, "ccy-a") != "-l continue|Enter" {
+		t.Fatalf("typed %q", typedInto(h, "ccy-a"))
+	}
 }
 
 func TestSetGoingReadsAResumedConversationNotTheNewest(t *testing.T) {
@@ -509,7 +523,7 @@ func TestSetGoingReadsAResumedConversationNotTheNewest(t *testing.T) {
 	h.sessions("ccy-a 0 " + a)
 	showScreen(h, "ccy-a", promptScreen)
 	exitCodeIs(t, h.run("set-going"), 0, h)
-	if typedInto(h, "ccy-a") != "-l "+compactText+"|Enter" || entryNamed(t, h, "ccy-a").Transcript != old {
+	if typedInto(h, "ccy-a") != "-l continue|Enter" || entryNamed(t, h, "ccy-a").Transcript != old {
 		t.Fatalf("typed %q entry %+v", typedInto(h, "ccy-a"), entryNamed(t, h, "ccy-a"))
 	}
 
@@ -587,9 +601,9 @@ func slowBox(h *harness, name string, lost int) {
 	})
 }
 
-// fedora-desktop#264: the restore's /compact stayed in the box because its one Enter was lost.
+// fedora-desktop#264: the restore's input stayed in the box because its one Enter was lost.
 // The box is read after the Enter, and Enter is pressed again while the text is still there.
-func TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox(t *testing.T) {
+func TestSetGoingPressesEnterAgainWhileTheTextStaysInTheBox(t *testing.T) {
 	h := goingHost(t)
 	a := realDir(t, h, "a")
 	writeTranscript(t, ccyTranscript(a), 208525)
@@ -597,16 +611,16 @@ func TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox(t *testing.T) {
 	h.sessions("ccy-a 0 " + a)
 	slowBox(h, "ccy-a", 1)
 	exitCodeIs(t, h.run("set-going"), 0, h)
-	if got, want := typedInto(h, "ccy-a"), "-l "+compactText+"|Enter|Enter"; got != want {
+	if got, want := typedInto(h, "ccy-a"), "-l "+continueText+"|Enter|Enter"; got != want {
 		t.Fatalf("typed %q, want %q", got, want)
 	}
-	contains(t, "set going", h.stderr(), "set ccy-a going: compact (context 208525 tokens")
-	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingCompact {
-		t.Fatalf("entry %+v, want compact", e)
+	contains(t, "set going", h.stderr(), "set ccy-a going: continue.\n")
+	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingContinue {
+		t.Fatalf("entry %+v, want continue", e)
 	}
 }
 
-// A /compact no Enter submits is a fault named on stderr, never recorded as set going.
+// Text no Enter submits is a fault named on stderr, never recorded as set going.
 func TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox(t *testing.T) {
 	h := goingHost(t)
 	a := realDir(t, h, "a")
@@ -730,140 +744,6 @@ func TestSetGoingStopsWhenTheManifestCannotBeUpdated(t *testing.T) {
 	})
 	exitCodeIs(t, h.run("set-going"), 1, h)
 	contains(t, "update", h.stderr(), "the restore manifest could not be updated for ccy-a.")
-}
-
-// unsupervised is a cc session above the floor: /compact now, continue after it ends.
-func unsupervised(t *testing.T, h *harness) string {
-	t.Helper()
-	b := realDir(t, h, "b")
-	conv, err := transcript.Dir("cc", b, h.env["HOME"]+"/.claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	conv += "/conversation.jsonl"
-	writeTranscript(t, conv, 300000)
-	writeEntries(t, h, pending("cc-c", "cc", b))
-	h.sessions("cc-c 0 " + b)
-	showScreen(h, "cc-c", promptScreen)
-	return conv
-}
-
-func TestAnUnsupervisedSessionIsTypedContinueOnceItsCompactionIsInTheTranscript(t *testing.T) {
-	h := goingHost(t)
-	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "5"
-	conv := unsupervised(t, h)
-	// The boundary is written ahead of the size it left and dated a minute from now, so the next
-	// look sees the compaction finished.
-	boundary := `{"type":"system","subtype":"compact_boundary","timestamp":"` + stamp(h, time.Minute) + `","compactMetadata":{"postTokens":9000}}`
-	assistant := `{"type":"assistant","message":{"model":"m","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":300000}}}`
-	if err := os.WriteFile(conv, []byte(boundary+"\n"+assistant+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	exitCodeIs(t, h.run("set-going"), 0, h)
-	if got := typedInto(h, "cc-c"); got != "-l "+compactText+"|Enter|-l continue|Enter" {
-		t.Fatalf("typed %q", got)
-	}
-	if e := entryNamed(t, h, "cc-c"); e.Going != restore.GoingContinue {
-		t.Fatalf("%+v", e)
-	}
-	contains(t, "after compaction", h.stderr(), "set cc-c going after its compaction: continue.\n")
-}
-
-func TestACompactionThatNeverFinishesLeavesTheSessionAlone(t *testing.T) {
-	h := goingHost(t)
-	unsupervised(t, h)
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "unfinished", h.stderr(), "left cc-c untouched: compaction-not-finished-after-0s\n")
-	if e := entryNamed(t, h, "cc-c"); e.Going != restore.GoingUntouched {
-		t.Fatalf("%+v", e)
-	}
-}
-
-// compacting is a cc session already typed /compact, with the boundary now in its transcript.
-func compacting(t *testing.T, h *harness) string {
-	t.Helper()
-	b := realDir(t, h, "b")
-	conv, err := transcript.Dir("cc", b, h.env["HOME"]+"/.claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	conv += "/conversation.jsonl"
-	writeTranscript(t, conv, 300000)
-	appendTo(t, conv, `{"type":"system","subtype":"compact_boundary","timestamp":"`+stamp(h, time.Minute)+`","compactMetadata":{"postTokens":9000}}`)
-	e := pending("cc-c", "cc", b)
-	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompacting, time.Unix(h.clock.Unix(), 0), "300000", conv
-	writeEntries(t, h, e)
-	h.sessions("cc-c 0 " + b)
-	return conv
-}
-
-func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
-	cases := []struct {
-		name     string
-		screen   string
-		attached int
-		want     string
-		going    restore.Going
-		exit     term.ExitCode
-	}{
-		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "cc-c is already working after its compaction; nothing more typed.", restore.GoingCompact, 0},
-		{"attached", promptScreen, 1, "left cc-c alone, as expected: attached-after-compaction; " + whyAttached + "\n", restore.GoingUntouched, 0},
-		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c alone, as expected: typed-after-compaction; " + whyTyped + `; its box line reads "❯ half"` + "\n", restore.GoingUntouched, 0},
-		{"dead", "cc exited with status 1. Press Enter to close this session.\n", 0, "left cc-c untouched: launcher-exited-after-compaction\n", restore.GoingUntouched, 1},
-		{"waiting", "Select token\n", 0, "left cc-c alone, as expected: token-select-after-compaction; " + whyWaitingAfterCompaction + "\n", restore.GoingUntouched, 0},
-	}
-	for _, c := range cases {
-		h := goingHost(t)
-		compacting(t, h)
-		h.sessions(fmt.Sprintf("cc-c %d %s", c.attached, filepath.Join(h.root, "b")))
-		showScreen(h, "cc-c", c.screen)
-		exitCodeIs(t, h.run("set-going"), c.exit, h)
-		contains(t, c.name, h.stderr(), c.want)
-		if got := entryNamed(t, h, "cc-c").Going; got != c.going {
-			t.Fatalf("%s: going %s", c.name, got)
-		}
-		if typedInto(h, "cc-c") != "" {
-			t.Fatalf("%s: nothing is typed", c.name)
-		}
-	}
-}
-
-func TestAfterACompactionAPromptThatHasNotComeBackIsWaitedFor(t *testing.T) {
-	h := goingHost(t)
-	compacting(t, h)
-	showScreen(h, "cc-c", "Compacting conversation...\n")
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "not back", h.stderr(), "left cc-c untouched: prompt-not-back-after-compaction-after-0s\n")
-}
-
-func TestAfterACompactionTheOtherEndingsAreNamed(t *testing.T) {
-	h := goingHost(t)
-	compacting(t, h)
-	h.sessions()
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "gone", h.stderr(), "left cc-c untouched: session-ended-while-compacting\n")
-
-	h = goingHost(t)
-	conv := compacting(t, h)
-	if err := os.Remove(conv); err != nil {
-		t.Fatal(err)
-	}
-	showScreen(h, "cc-c", promptScreen)
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "unreadable", h.stderr(), "left cc-c untouched: context-unreadable\n")
-
-	h = goingHost(t)
-	compacting(t, h)
-	h.tmuxFail("capture-pane", "can't find pane")
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "screen", h.stderr(), "left cc-c untouched: unreadable-after-compaction\n")
-
-	h = goingHost(t)
-	compacting(t, h)
-	showScreen(h, "cc-c", promptScreen)
-	h.tmuxFail("send-keys", "pane is dead")
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "send", h.stderr(), "left cc-c untouched: send-failed-after-compaction\n")
 }
 
 func TestSetGoingHonoursTheConfiguredClaudeConfigHome(t *testing.T) {

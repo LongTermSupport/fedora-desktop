@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/compactfloor"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
@@ -70,7 +69,6 @@ type Config struct {
 	// CPUSample is the length of the CPU sample; zero means the shortest possible.
 	CPUSample          time.Duration
 	TakeOverWaitTenths int
-	CompactFloor       compactfloor.Floor
 	PassphraseFile     string
 	BootIDFile         string
 	// ProcStatFile is where this boot's start time (btime) is read; empty means the kernel's.
@@ -81,7 +79,7 @@ type Config struct {
 // one is refused, not guessed.
 func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		CcyLib: getenv("CCY_LIB"), CompactFloor: compactfloor.Parse(getenv(compactfloor.Env)),
+		CcyLib:         getenv("CCY_LIB"),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
 		ProcStatFile: getenv("CCY_PROC_STAT_FILE"), TakeOverWaitTenths: 50,
 	}
@@ -165,6 +163,8 @@ type App struct {
 	Transcripts *transcript.Cache
 	// Closer closes a session from its menu: /compact, then /exit (sessclose).
 	Closer sessclose.Closing
+	// WindDown compacts sessions before a planned reboot and leaves them running (sessclose).
+	WindDown sessclose.WindingDown
 	// Tokens judges a ccy record's --token as its launch would: the file it starts on and the
 	// usage left on it (restore --check and declare, fedora-desktop#283).
 	Tokens TokenReader
@@ -220,7 +220,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare:
+	case "", "notify", cmdReboot, "restore", "set-going", "verify-restore", cmdDeclare, cmdWindDown:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -294,13 +294,24 @@ func (a *App) wire() {
 	if a.Transcripts == nil {
 		a.Transcripts = transcript.NewCache()
 	}
+	a.wireCloser()
+	a.wireTokens()
+}
+
+// wireCloser fills the close and the wind-down: one sessclose Closer for both.
+func (a *App) wireCloser() {
+	if a.Closer != nil && a.WindDown != nil {
+		return
+	}
+	c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
+	c.Transcripts, c.Now = a.Transcripts, a.Now
+	c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
 	if a.Closer == nil {
-		c := sessclose.New(a.Tmux, func() (*registry.Store, error) { return registry.Locate(a.Getenv) }, a.Getenv)
-		c.Transcripts, c.Now = a.Transcripts, a.Now
-		c.Sleep = func(d time.Duration) { a.Pause(d, nil) }
 		a.Closer = c
 	}
-	a.wireTokens()
+	if a.WindDown == nil {
+		a.WindDown = c
+	}
 }
 
 // wireTokens fills the token reader: ccy's own pool and usage reader.
@@ -365,6 +376,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.verifyRestore(ctx, rest)
 	case cmdDeclare:
 		return a.declareSession(ctx, rest)
+	case cmdWindDown:
+		return a.windDownSessions(ctx, rest)
 	case "-l", "--list":
 		return a.list(ctx)
 	default:

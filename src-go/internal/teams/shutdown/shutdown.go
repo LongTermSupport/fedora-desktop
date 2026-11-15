@@ -357,7 +357,7 @@ func (s *Shutdown) report(team string, p plan) term.ExitCode {
 		case sessclose.Stopped:
 			stoppedN++
 			line += "stopped: " + j.note
-		case sessclose.Pending, sessclose.Failed:
+		case sessclose.Pending, sessclose.Failed, sessclose.Compacted, sessclose.Unfinished, sessclose.Skipped:
 			failedN++
 			line += "failed: " + j.note
 		}

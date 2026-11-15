@@ -139,9 +139,8 @@ what passes its QA gate, write down where unfinished work stands, and stop. Into
 tmux pane, at an idle moment (a busy one is waited for, up to 300 s, never interrupted), it
 types /goal clear and then that instruction, as if you typed them: it is your turn in the
 session, not a team message. Once a session has answered (it is idle again), it is typed
-/compact with a wind-down instruction when its context is at or above the compact floor that
-ccy-sessions set-going uses (ccy_restore_compact_floor_tokens, read from
-ccy-sessions-set-going.service), so tomorrow's resume reloads a small conversation; one session
+/compact with a wind-down instruction when its context is at or above the compact floor
+(ccy_restore_compact_floor_tokens, read from ccy-sessions-set-going.service's environment), so tomorrow's resume reloads a small conversation; one session
 at a time, the coordinator first. All of it is bounded by a 15-minute window; a session still
 answering or compacting at its end is named, never interrupted. Nothing is ended; ccy-teams
 shutdown <team> does that afterwards.

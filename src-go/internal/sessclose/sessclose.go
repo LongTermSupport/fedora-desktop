@@ -34,6 +34,26 @@
 //     Waits.Exit of /exit, is stopped: its tmux session killed and its record removed.
 //   - C9. Live is the sessions on ccy's tmux server; Limits the bounds the Closer works to.
 //   - C10. Seconds is a bound as a sentence reads it ("60 s").
+//
+// The wind-down before a planned reboot (fedora-desktop#290) is the same compaction without the
+// close: the session is compacted while its prompt cache is warm and left running, and the
+// reboot ends it; the restore brings it back.
+//
+//   - W1. Compact winds one session down, CompactAll several, watched together against one
+//     deadline: WindDownText is typed into an idle, empty box, its end waited for as C5-C6,
+//     and the session is left running. /exit is never typed, nothing is killed, no record is
+//     removed. An idle box is first given the settle bound, so a warning being typed into it
+//     lands before the /compact.
+//   - W2. A session in a turn is never interrupted: the turn is waited for, then it is
+//     compacted. Result.Busy says it was in one.
+//   - W3. At the deadline a session not yet compacted is Unfinished, saying whether it was in a
+//     turn, held unsent text or had its compaction still running (its transcript read once
+//     more first); it is left as it is.
+//   - W4. Skipped, with why and nothing typed: a conversation with nothing since its last
+//     compaction (C3), a session whose claude is not running, one that ended. A record or
+//     transcript that cannot be read is Failed with nothing typed.
+//   - W5. A failure after the /compact went in names the session as still running.
+//   - W6. Results come back one per session, in order.
 package sessclose
 
 import (
@@ -58,6 +78,12 @@ const CompactText = "/compact This session is being closed, so keep what is need
 	"later: what was in progress, where each unfinished piece stands, what comes next, and the " +
 	"decisions made; drop the rest."
 
+// WindDownText is what a session is compacted with before a planned reboot (W1): it is resumed
+// afterwards on what it keeps.
+const WindDownText = "/compact The machine is going down and this session will be resumed afterwards, so keep " +
+	"what is needed to carry on the work: what was in progress, where each unfinished piece stands, " +
+	"what comes next, and the decisions made; drop the rest."
+
 // exitCommand is what a person types to end claude.
 const exitCommand = "/exit"
 
@@ -75,6 +101,10 @@ const (
 	noteKilledSuffix = ", so its tmux session was killed"
 	noteCompacted    = "compacted first"
 	noteUncompacted  = "; nothing was typed and it is still running; close it with --no-compact to end it without compacting"
+	noteUntouched    = "; nothing was typed and it is still running"
+	noteLeftClose    = "/exit was not typed and it is still running: attach it (ccy-sessions)"
+	noteLeftStay     = "it is still running: attach it (ccy-sessions)"
+	byDeadline       = " by the wind-down's deadline"
 	noteAskedOffExit = `: claude was asking "Background work is running" (a background task of the session) ` +
 		`with the cursor off "Exit and stop tasks"`
 )
@@ -115,6 +145,12 @@ type Closing interface {
 	Limits() Waits
 }
 
+// WindingDown is what a caller winds sessions down through before a planned reboot: a Closer,
+// or a test's stand-in.
+type WindingDown interface {
+	CompactAll(ctx context.Context, names []string, by time.Time) []Result
+}
+
 // Target is one session to close.
 type Target struct {
 	Name      string
@@ -130,14 +166,22 @@ const (
 	Exited
 	Stopped
 	Failed
+	// Compacted is a wound-down session compacted and left running (W1).
+	Compacted
+	// Unfinished is a wound-down session not compacted by the deadline (W3).
+	Unfinished
+	// Skipped is a wound-down session there was nothing to compact in (W4).
+	Skipped
 )
 
-// Result is how one session's close ended.
+// Result is how one session's close or wind-down ended. Busy is a wound-down session that was
+// in a turn when first looked at (W2).
 type Result struct {
 	Name      string
 	Outcome   Outcome
 	Note      string
 	Compacted bool
+	Busy      bool
 }
 
 // Closer closes sessions. Every dependency is a field so a test stands in for each.
@@ -217,16 +261,60 @@ type job struct {
 	note        string
 	compactNote string
 	compacted   bool
+
+	// stay is a wind-down (W1): compacted and left running, its deadline the wind-down's. busy
+	// is a turn seen running before the /compact; last the box as last seen before it.
+	stay bool
+	busy bool
+	last screen.State
 }
 
 func (j *job) done(result Outcome, note string) { j.result, j.note = result, note }
 
+// left is what a failure after the /compact went in says of the session (C7, W5).
+func (j *job) left() string {
+	if j.stay {
+		return noteLeftStay
+	}
+	return noteLeftClose
+}
+
+// untouched ends a note on a session nothing was typed into.
+func (j *job) untouched() string {
+	if j.stay {
+		return noteUntouched
+	}
+	return noteUncompacted
+}
+
 // Close closes every target and returns their results in order (C1).
 func (c *Closer) Close(ctx context.Context, targets []Target) []Result {
 	jobs := make([]*job, len(targets))
+	by := c.Now().Add(c.Waits.Prompt)
 	for i, t := range targets {
-		jobs[i] = &job{Target: t}
+		jobs[i] = &job{Target: t, deadline: by}
 	}
+	return c.results(ctx, jobs)
+}
+
+// Compact winds one session down before a planned reboot: compacted by the deadline and left
+// running (W1-W5).
+func (c *Closer) Compact(ctx context.Context, name string, by time.Time) Result {
+	return c.CompactAll(ctx, []string{name}, by)[0]
+}
+
+// CompactAll winds the sessions down together against the one deadline, and returns their
+// results in order (W6).
+func (c *Closer) CompactAll(ctx context.Context, names []string, by time.Time) []Result {
+	jobs := make([]*job, len(names))
+	for i, name := range names {
+		jobs[i] = &job{Target: Target{Name: name}, stay: true, deadline: by}
+	}
+	return c.results(ctx, jobs)
+}
+
+// results runs the jobs and returns their results in order.
+func (c *Closer) results(ctx context.Context, jobs []*job) []Result {
 	c.prepare(jobs)
 	c.run(ctx, jobs)
 	results := make([]Result, len(jobs))
@@ -235,7 +323,7 @@ func (c *Closer) Close(ctx context.Context, targets []Target) []Result {
 		if j.compactNote != "" && j.result != Failed {
 			note = join(note, j.compactNote)
 		}
-		results[i] = Result{Name: j.Name, Outcome: j.result, Note: note, Compacted: j.compacted}
+		results[i] = Result{Name: j.Name, Outcome: j.result, Note: note, Compacted: j.compacted, Busy: j.busy}
 	}
 	return results
 }
@@ -264,7 +352,7 @@ func (c *Closer) prepare(jobs []*job) {
 	store, err := c.Registry()
 	if err != nil {
 		for _, j := range compacting {
-			j.done(Failed, "the session records could not be read: "+err.Error()+noteUncompacted)
+			j.done(Failed, "the session records could not be read: "+err.Error()+j.untouched())
 		}
 		return
 	}
@@ -280,22 +368,25 @@ func (c *Closer) prepareOne(store *registry.Store, j *job) {
 		j.paneWhy = "it has no session record, so its conversation is not known"
 		return
 	case err != nil:
-		j.done(Failed, "its session record could not be read: "+err.Error()+noteUncompacted)
+		j.done(Failed, "its session record could not be read: "+err.Error()+j.untouched())
 		return
 	case !discover.LaunchedWithBus(rec):
 		j.paneWhy = "it was launched without the agent team bus, so its conversation is not recorded"
 		return
 	}
 	if j.file, err = c.Transcript(rec); err != nil {
-		j.done(Failed, "its transcript could not be found: "+err.Error()+noteUncompacted)
+		j.done(Failed, "its transcript could not be found: "+err.Error()+j.untouched())
 		return
 	}
 	last, err := c.Transcripts.CompactedLast(j.file)
 	if err != nil {
-		j.done(Failed, "its transcript could not be read: "+err.Error()+noteUncompacted)
+		j.done(Failed, "its transcript could not be read: "+err.Error()+j.untouched())
 		return
 	}
-	if last {
+	switch {
+	case last && j.stay:
+		j.done(Skipped, "nothing since its last compaction, so it was not compacted again")
+	case last:
 		j.phase = phaseExit
 	}
 }
@@ -303,10 +394,6 @@ func (c *Closer) prepareOne(store *registry.Store, j *job) {
 // run reads every pane, then again every poll, until each session has ended, been stopped or
 // failed.
 func (c *Closer) run(ctx context.Context, jobs []*job) {
-	start := c.Now()
-	for _, j := range jobs {
-		j.deadline = start.Add(c.Waits.Prompt)
-	}
 	for {
 		live, err := c.Live(ctx)
 		if err != nil {
@@ -351,18 +438,8 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 		prefix = j.Name
 	}
 	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
-	switch verdict.State {
-	case restore.StateDead, restore.StateNotStarted:
-		c.closeWindow(ctx, j, verdict)
+	if c.notClaude(ctx, j, verdict) {
 		return
-	case restore.StateWaitingAtPrompt:
-		if verdict.Detail == composeStop {
-			j.done(Exited, noteCompose)
-			return
-		}
-		c.hardStop(ctx, j, "it was at the launcher's "+verdict.Detail+" question, so claude was not running; its tmux session was killed")
-		return
-	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
 	}
 	if err = c.look(ctx, j, pane); err != nil {
 		j.done(Failed, err.Error())
@@ -371,7 +448,34 @@ func (c *Closer) step(ctx context.Context, j *job, live map[string]bool) {
 	if j.result != Pending || c.Now().Before(j.deadline) {
 		return
 	}
+	if j.stay {
+		c.unfinished(j)
+		return
+	}
 	c.timedOut(ctx, j)
+}
+
+// notClaude ends a session whose pane shows no claude running, and says whether it did: a
+// wind-down skips it untouched (W4); a close closes its window or stops it (C8).
+func (c *Closer) notClaude(ctx context.Context, j *job, verdict restore.Verdict) bool {
+	switch verdict.State {
+	case restore.StateDead, restore.StateNotStarted, restore.StateWaitingAtPrompt:
+		if j.stay {
+			j.done(Skipped, "claude is not running in it ("+verdict.Detail+"); nothing was typed")
+			return true
+		}
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+		return false
+	}
+	switch {
+	case verdict.State != restore.StateWaitingAtPrompt:
+		c.closeWindow(ctx, j, verdict)
+	case verdict.Detail == composeStop:
+		j.done(Exited, noteCompose)
+	default:
+		c.hardStop(ctx, j, "it was at the launcher's "+verdict.Detail+" question, so claude was not running; its tmux session was killed")
+	}
+	return true
 }
 
 // look is what the session's phase and screen call for.
@@ -379,6 +483,9 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	state := screen.ClaudeState(pane)
 	switch j.phase {
 	case phaseCompact:
+		if j.stay {
+			return c.waitTurn(ctx, j, state)
+		}
 		return c.ready(ctx, j, state, CompactText)
 	case phaseCompacting:
 		return c.compacting(ctx, j, state)
@@ -415,6 +522,48 @@ func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line str
 	return nil
 }
 
+// waitTurn types the wind-down's /compact once the box is idle and empty: at once after a turn
+// seen running, else after the settle bound, so a warning being typed in lands first. A busy
+// box is never interrupted, and unsent text never typed over (W1, W2).
+func (c *Closer) waitTurn(ctx context.Context, j *job, state screen.State) error {
+	j.last = state
+	j.busy = j.busy || state == screen.Busy
+	if !j.quiet.Idle(state, c.Now(), c.Waits.Settle) {
+		return nil
+	}
+	return c.typeLine(ctx, j, WindDownText)
+}
+
+// unfinished is a wound-down session the deadline came for, saying where it stood; nothing is
+// done to it. A compaction's transcript is read once more, so one that ended on this look
+// counts (W3).
+func (c *Closer) unfinished(j *job) {
+	if j.phase == phaseCompacting {
+		if j.file != "" {
+			if done, err := c.Transcripts.CompactedSince(j.file, j.compactAt.Unix()); err == nil && done {
+				c.stayed(j, "")
+				return
+			}
+		}
+		j.done(Unfinished, "its compaction had not finished"+byDeadline+"; it is still running")
+		return
+	}
+	switch j.last {
+	case screen.Busy:
+		j.done(Unfinished, "it was still in a turn"+byDeadline+", so /compact was not typed")
+	case screen.Typed:
+		j.done(Unfinished, "its input box held unsent text"+byDeadline+", so /compact was not typed")
+	case screen.Ready, screen.NotDrawn:
+		j.done(Unfinished, "its prompt was not idle"+byDeadline+", so /compact was not typed")
+	}
+}
+
+// stayed is a wound-down session whose compaction ended: compacted and left running.
+func (c *Closer) stayed(j *job, note string) {
+	j.compacted = true
+	j.done(Compacted, note)
+}
+
 // typeLine submits the line, each Enter on its own after the submit pause, checking the box took
 // it (tmuxccy.Submit), and starts the wait that follows it.
 func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
@@ -430,7 +579,10 @@ func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
 		j.typed, j.deadline = true, c.Now().Add(c.Waits.Exit)
 		return nil
 	}
-	j.phase, j.compactAt, j.deadline = phaseCompacting, at, c.Now().Add(c.Waits.Compact)
+	j.phase, j.compactAt = phaseCompacting, at
+	if !j.stay {
+		j.deadline = c.Now().Add(c.Waits.Compact)
+	}
 	j.quiet.Reset()
 	return nil
 }
@@ -444,7 +596,7 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 			return c.Tmux.SendEnter(ctx, j.Name)
 		}
 		if !now.Before(j.stuckBy) {
-			j.done(Failed, "its /compact stayed in its input box after a second Enter, so /exit was not typed and it is still running: attach it (ccy-sessions)")
+			j.done(Failed, "its /compact stayed in its input box after a second Enter, so "+j.left())
 		}
 		return nil
 	}
@@ -458,7 +610,7 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 	done, err := c.Transcripts.CompactedSince(j.file, j.compactAt.Unix())
 	switch {
 	case err != nil:
-		j.done(Failed, "its compaction could not be read: "+err.Error()+"; /exit was not typed and it is still running: attach it (ccy-sessions)")
+		j.done(Failed, "its compaction could not be read: "+err.Error()+"; "+j.left())
 	case done:
 		c.compacted(j, noteCompacted)
 	case !idle:
@@ -467,13 +619,21 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 		j.boundaryBy = now.Add(c.Waits.Settle)
 	case !now.Before(j.boundaryBy):
 		j.done(Failed, "its /compact ended with no compact_boundary in its transcript within "+Seconds(c.Waits.Settle)+
-			", so /exit was not typed and it is still running: attach it (ccy-sessions)")
+			", so "+j.left())
 	}
 	return nil
 }
 
-// compacted moves a session on to its /exit, with a fresh prompt wait.
+// compacted moves a session on to its /exit, with a fresh prompt wait; a wound-down session is
+// done, left running (W1).
 func (c *Closer) compacted(j *job, note string) {
+	if j.stay {
+		if note == noteCompacted {
+			note = ""
+		}
+		c.stayed(j, note)
+		return
+	}
 	j.phase, j.compacted, j.compactNote = phaseExit, true, note
 	j.escaped, j.deadline = false, c.Now().Add(c.Waits.Prompt)
 }
@@ -519,6 +679,10 @@ func (c *Closer) answerBackgroundWork(ctx context.Context, j *job, pane string) 
 
 // ended is a session whose tmux session has gone.
 func (c *Closer) ended(j *job) {
+	if j.stay {
+		j.done(Skipped, "it ended before it was compacted")
+		return
+	}
 	if j.typed {
 		j.done(Exited, "")
 		return
