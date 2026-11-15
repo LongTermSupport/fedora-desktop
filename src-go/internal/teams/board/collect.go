@@ -137,6 +137,7 @@ type teamsRead struct {
 	units    []systemd.Unit
 	declared []declare.Team
 	states   []declare.Status
+	clients  declare.Clients
 }
 
 // HoldTeams starts an open's start-up (SPEC-view.md V41): the next read of the teams is shared
@@ -212,6 +213,7 @@ func (c *Collector) collectTeams(ctx context.Context, s *Snapshot) error {
 		s.Loaded[u.Team] = true
 		s.Active[u.Team] = u.Active
 	}
+	s.Clients = read.clients
 	seen := map[string]bool{}
 	s.addDeclared(seen, read.declared)
 	for _, u := range read.units {
@@ -245,7 +247,13 @@ func (c *Collector) readTeams(ctx context.Context) (*teamsRead, error) {
 		c.Term.PrintError("the teams declared in " + c.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).")
 		return nil, errReported
 	}
-	read := &teamsRead{units: units, declared: declared, states: states}
+	clients, err := c.Declare.MatrixClients(ctx)
+	if err != nil {
+		c.reportErr(err)
+		c.Term.PrintError("the Matrix client each team opens in could not be read from " + c.HostVars + " (the reason is above).")
+		return nil, errReported
+	}
+	read := &teamsRead{units: units, declared: declared, states: states, clients: clients}
 	if c.startup.on {
 		c.startup.read = read
 	}

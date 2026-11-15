@@ -217,7 +217,8 @@ remembering which projects were open.
 
 `ccy-teams` (a Go binary built from `src-go/cmd/ccy-teams` by `play-claude-yolo.yml`) is the same picker for agent teams: each team on this machine, its members,
 and the `ccy --teams` sessions in its seats, with keys to attach, start a session in a
-seat, keep a session out of the reboot restore, and open the team in Element. See
+seat, keep a session out of the reboot restore, and open the team in its Matrix client
+(Element, or Lightning where the host_vars say so). See
 [agent-bus.md, Getting started](agent-bus.md#getting-started).
 
 The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on the same

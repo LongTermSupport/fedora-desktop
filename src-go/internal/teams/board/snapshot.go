@@ -66,7 +66,10 @@ type Snapshot struct {
 	// LXC is each team's LXC member record (lxcrecord.Read): which container, user and checkout
 	// each LXC member is, and what the last apply found of it. A team with none, or whose record
 	// could not be read (its row's WHERE says why), has an empty one.
-	LXC            map[string]lxcrecord.Record
+	LXC map[string]lxcrecord.Record
+	// Clients is the Matrix client each team opens in (its client:, else agent_bus_matrix_client,
+	// else element), which its menu names.
+	Clients        declare.Clients
 	MembersUnknown map[string]string // team -> why its members are not shown
 	SignedIn       map[string]string // "<team>|<person>" -> their Element sessions in words
 	Sessions       map[string]int    // same key -> how many, for the people whose count could be read

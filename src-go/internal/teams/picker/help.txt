@@ -35,9 +35,10 @@ the list, and Esc or q on the list leaves. There are no shortcut keys. Among the
   New password             a new Element password for the person on the row (shown once). If
                            they are signed in to Element it asks first, saying how many
                            sessions it signs out; one never signed in has Sign in instead
-  Open <team> in Element   it starts apart, and you stay on the list. Each team is its own
-                           Element window (each is its own Matrix server); a team row also
-                           has Open every team in Element, a window each
+  Open <team> in <client>  in Element, or in Lightning where the host_vars say so (the team's
+                           client:, else agent_bus_matrix_client); it starts apart, and you
+                           stay on the list. Each team is its own window (each is its own
+                           Matrix server); a team row also has Open every team, a window each
   Update every team        on a team row: every team out of date or not built (never takes
                            one down)
   Restore after a reboot   on or off, for the seat's session (off after a yes/no, default no)

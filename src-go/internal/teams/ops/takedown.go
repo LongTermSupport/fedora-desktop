@@ -271,10 +271,17 @@ func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.E
 	if werr != nil {
 		return o.childExit(werr), false
 	}
-	if len(watched) > 0 && o.pruneElement(ctx, team) != nil {
-		o.Term.PrintError(team + " is down, but its Element launcher is not removed; once the cause above is fixed, " +
-			"ccy-teams remove " + team + " runs both plays again.")
-		return term.ExitFailure, false
+	if len(watched) > 0 {
+		groups, err := o.clientGroups(ctx, watched)
+		if err != nil {
+			return term.ExitFailure, false
+		}
+		c := groups[0].client
+		if o.pruneElement(ctx, team, c) != nil {
+			o.Term.PrintError(team + " is down, but its " + c.Name + " launcher is not removed; once the cause above is fixed, " +
+				"ccy-teams remove " + team + " runs both plays again.")
+			return term.ExitFailure, false
+		}
 	}
 	return term.ExitOK, true
 }

@@ -199,10 +199,19 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 6: ccy-teams opens a team in Lightning
 
-- [ ] ⬜ **Task 6.1**: In `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open
+- [ ] 🔄 **Task 6.1** (done in code, not established on a host: `login.OpenTeam`,
+  `OpenEveryTeam` and `LaunchTeam` open `ops.Launcher` of the team's client, Lightning's
+  being `lightning.Launcher`; `systemd.LaunchClient` names the scope and log for it. The sign-in
+  check reads no client data root: signed in is a device on the team's homeserver, whichever
+  client made it, and both clients keep the token in the keyring, so no file says it. Only the
+  way to sign in names the client. The default stays Element until Task 7.1): In `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open
   every team, a window each" launch the team's client launcher, Lightning by default; the
   sign-in check (`signInAfter`) learns Lightning's data root. Tests through the existing fakes.
-- [ ] ⬜ **Task 6.2**: ccy-teams opens each team in the client that the home-level setting
+- [ ] 🔄 **Task 6.2** (done in code, not established on a host: the rule is
+  `HostVars.MatrixClients` in `src-go/internal/bus/declare/clients.go`, the Go twin of the
+  play's Jinja, tested on the same three cases; the board reads it with the teams, the menu
+  and every message name the client, and the set-up and remove paths check the launcher of
+  the team's client): ccy-teams opens each team in the client that the home-level setting
   names, or in the team's own `client:` override (D3), and says which client it opened.
 
 ### Phase 7: Switch the default

@@ -25,19 +25,21 @@ whether what runs is what the host_vars declare, DESIGN.md D65), followed by its
 Enter on any row opens a menu of everything that can be done to it, in words (Esc goes back
 to the list); the picker's header says what Enter on the row offers. There are no shortcut
 keys: every action is a line of that menu. On a seat it begins with attaching its session (as
-ccy-sessions does); on a person who is signed in, with opening Element; on a person who never
-has been, with signing in (a password, shown once); on a team, with opening Element. Among
-the lines:
+ccy-sessions does); on a person who is signed in, with opening the team's Matrix client; on a
+person who never has been, with signing in (a password, shown once); on a team, with opening
+its client. A team opens in Element, or in Lightning where the host_vars say so (the team's
+client: in agent_bus_element_teams, else agent_bus_matrix_client), and each line names it.
+Among the lines:
   Start a ccy session      in a free or new seat of the row's team, here
   New password             a new Element password for the person on the row; it asks
                            first, saying how many of their Element sessions it signs out
                            (none: no question)
-  Open <team> in Element   setting its profile up first, when it has none; Element starts
-                           apart from ccy-teams, which stays on the list. Each team is its
-                           own Element window, because each team is its own Matrix server
-                           and an Element window holds one account; the menu of a team row
-                           has Open every team in Element, a window each, which opens every
-                           team with a profile
+  Open <team> in <client>  setting the client up first (Element's profile, Lightning's
+                           instance), when it is not; the client starts apart from
+                           ccy-teams, which stays on the list. Each team is its own window,
+                           because each team is its own Matrix server and a window holds one
+                           account; the menu of a team row has Open every team, a window
+                           each, which opens every team whose client is set up
   Update every team        on a team row: every team that is out of date or not built
                            (never one to take down)
   Restore after a reboot   turn the seat's session's restore off (after a yes/no) or on

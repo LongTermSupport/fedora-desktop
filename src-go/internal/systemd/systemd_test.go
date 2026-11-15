@@ -151,14 +151,33 @@ func TestElementLogPath(t *testing.T) {
 
 func launchSpec(t *testing.T) Launch {
 	t.Helper()
-	return Launch{Team: "alpha", Desktop: "/home/u/.local/share/applications/agent-bus-alpha-element.desktop", PID: 42, Log: filepath.Join(t.TempDir(), "state", "element-alpha.log")}
+	return Launch{Team: "alpha", Client: "Element", Desktop: "/home/u/.local/share/applications/agent-bus-alpha-element.desktop", PID: 42, Log: filepath.Join(t.TempDir(), "state", "element-alpha.log")}
 }
 
-func TestLaunchElementArgvAndLog(t *testing.T) {
+// Plan 00254 Task 6.1: a Lightning team is started the same way, its scope named for Lightning.
+func TestLaunchClientNamesItsScopeForTheClient(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemd-run"}, execx.Result{})
+	l := Launch{Team: "alpha", Client: "Lightning", Desktop: "/home/u/.local/share/applications/agent-bus-alpha-lightning.desktop", PID: 42, Log: filepath.Join(t.TempDir(), "lightning-alpha.log")}
+	if err := (&Systemd{Runner: f}).LaunchClient(context.Background(), l); err != nil {
+		t.Fatal(err)
+	}
+	want := "systemd-run --user --scope --quiet --collect --unit ccy-teams-lightning-alpha-42 " +
+		"--description Lightning for agent team alpha -- setsid -w gio launch " + l.Desktop
+	if got := f.Calls()[0].Line(); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	f.On([]string{"systemd-run"}, execx.Result{ExitCode: 1})
+	if err := (&Systemd{Runner: f}).LaunchClient(context.Background(), l); err == nil || !strings.HasPrefix(err.Error(), "Lightning did not start") {
+		t.Errorf("the failure names the client: %v", err)
+	}
+}
+
+func TestLaunchClientArgvAndLog(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"systemd-run"}, execx.Result{Stdout: []byte("electron noise\n")})
 	l := launchSpec(t)
-	if err := (&Systemd{Runner: f}).LaunchElement(context.Background(), l); err != nil {
+	if err := (&Systemd{Runner: f}).LaunchClient(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	want := "systemd-run --user --scope --quiet --collect --unit ccy-teams-element-alpha-42 " +
@@ -176,11 +195,11 @@ func TestLaunchElementArgvAndLog(t *testing.T) {
 	}
 }
 
-func TestLaunchElementFailureReturnsLogTail(t *testing.T) {
+func TestLaunchClientFailureReturnsLogTail(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"systemd-run"}, execx.Result{Stdout: []byte("1\n2\n3\n4\n5\n6\n7\n"), ExitCode: 1})
 	l := launchSpec(t)
-	err := (&Systemd{Runner: f}).LaunchElement(context.Background(), l)
+	err := (&Systemd{Runner: f}).LaunchClient(context.Background(), l)
 	var le *LaunchError
 	if !errors.As(err, &le) {
 		t.Fatalf("got %v", err)
@@ -206,9 +225,9 @@ func (s logSwapper) Run(context.Context, execx.Cmd) (execx.Result, error) {
 	return execx.Result{}, &execx.ExitError{Code: 1}
 }
 
-func TestLaunchElementUnreadableLogSurfacesTheReason(t *testing.T) {
+func TestLaunchClientUnreadableLogSurfacesTheReason(t *testing.T) {
 	l := launchSpec(t)
-	err := (&Systemd{Runner: logSwapper{log: l.Log}}).LaunchElement(context.Background(), l)
+	err := (&Systemd{Runner: logSwapper{log: l.Log}}).LaunchClient(context.Background(), l)
 	var le *LaunchError
 	if !errors.As(err, &le) {
 		t.Fatalf("got %v", err)
@@ -221,7 +240,7 @@ func TestLaunchElementUnreadableLogSurfacesTheReason(t *testing.T) {
 	}
 }
 
-func TestLaunchElementAppendsToExistingLog(t *testing.T) {
+func TestLaunchClientAppendsToExistingLog(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"systemd-run"}, execx.Result{Stdout: []byte("new\n")})
 	l := launchSpec(t)
@@ -231,7 +250,7 @@ func TestLaunchElementAppendsToExistingLog(t *testing.T) {
 	if err := os.WriteFile(l.Log, []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Systemd{Runner: f}).LaunchElement(context.Background(), l); err != nil {
+	if err := (&Systemd{Runner: f}).LaunchClient(context.Background(), l); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(l.Log)
@@ -240,19 +259,19 @@ func TestLaunchElementAppendsToExistingLog(t *testing.T) {
 	}
 }
 
-func TestLaunchElementCannotCreateLogDir(t *testing.T) {
+func TestLaunchClientCannotCreateLogDir(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	l := Launch{Team: "alpha", Desktop: "d", PID: 1, Log: filepath.Join(blocker, "sub", "x.log")}
-	if err := (&Systemd{Runner: &execx.Fake{}}).LaunchElement(context.Background(), l); err == nil {
+	if err := (&Systemd{Runner: &execx.Fake{}}).LaunchClient(context.Background(), l); err == nil {
 		t.Fatal("expected an error")
 	}
 }
 
-func TestLaunchElementCouldNotStartSystemdRun(t *testing.T) {
-	err := (&Systemd{Runner: &execx.Fake{}}).LaunchElement(context.Background(), launchSpec(t))
+func TestLaunchClientCouldNotStartSystemdRun(t *testing.T) {
+	err := (&Systemd{Runner: &execx.Fake{}}).LaunchClient(context.Background(), launchSpec(t))
 	var le *LaunchError
 	if !errors.As(err, &le) || !errors.Is(err, execx.ErrUnexpected) {
 		t.Fatalf("got %v", err)

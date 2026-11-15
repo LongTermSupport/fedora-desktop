@@ -20,7 +20,7 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 	case actRemove:
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
 	case actElement:
-		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
+		return r.p.Login.OpenTeam(ctx, r.snap, row.Team)
 	case actPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
 	case actHelp:

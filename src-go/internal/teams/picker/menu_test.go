@@ -90,6 +90,23 @@ func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
 	}
 }
 
+// Plan 00254 Task 6.2: the menu names the client the team opens in.
+func TestATeamsMenuNamesTheClientItOpensIn(t *testing.T) {
+	h := newRig(t)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: lightning\n")
+	h.Script.Fzf = []string{"|alpha", "|Open every team in Lightning", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	rows := h.menuRows()
+	if !slices.Contains(rows, "Open alpha in Lightning") || !slices.Contains(rows, "Open every team in Lightning, a window each") {
+		t.Fatalf("menu %q", rows)
+	}
+	if !strings.Contains(h.ErrOut.String(), "alpha has no Lightning instance on this desktop yet") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 // SPEC-shutdown.md SD2: a team row's menu shuts the team's sessions down, after a question
 // whose default is No.
 func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {

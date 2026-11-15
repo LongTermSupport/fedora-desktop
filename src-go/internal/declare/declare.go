@@ -110,6 +110,8 @@ type (
 	Undescribed = busdeclare.Undescribed
 	// Profile is a team's Element profile and the homeserver it uses (declare element-teams).
 	Profile = busdeclare.Profile
+	// Clients is the Matrix client each team opens in.
+	Clients = busdeclare.Clients
 	// Standing is how a present team stands to a repository (declare choices).
 	Standing = busdeclare.Standing
 	// Choice is a present team, its standing to a repository and what it is for.
@@ -133,6 +135,8 @@ const (
 	StandingWiden      = busdeclare.StandingWiden
 	StandingExcluded   = busdeclare.StandingExcluded
 	StandingUnreadable = busdeclare.StandingUnreadable
+	ClientElement      = busdeclare.ClientElement
+	ClientLightning    = busdeclare.ClientLightning
 )
 
 // Status is a STATUS line: whether a team is applied as declared.
@@ -257,6 +261,12 @@ func (c *Client) Undescribed(context.Context) ([]Undescribed, error) {
 // ElementTeams is the teams that have an Element profile entry.
 func (c *Client) ElementTeams(context.Context) ([]Profile, error) {
 	return read(c, busdeclare.HostVars.ElementTeams)
+}
+
+// MatrixClients is the Matrix client each team opens in: its agent_bus_element_teams entry's
+// client, else agent_bus_matrix_client, else element (Plan 00254 DESIGN-client-choice.md).
+func (c *Client) MatrixClients(context.Context) (Clients, error) {
+	return read(c, busdeclare.HostVars.MatrixClients)
 }
 
 // TeamsFor is the present teams whose trust covers the repository (OWNER/REPO); a repository

@@ -76,8 +76,10 @@ type Wizard struct {
 	NewPassword func(ctx context.Context, team, human string) error
 	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
 	// Element session: the play made their accounts, so it is offered (ask) or said.
-	SignInGap     func(ctx context.Context, teams []string, ask bool) error
-	LaunchElement func(ctx context.Context, team string) error
+	SignInGap func(ctx context.Context, teams []string, ask bool) error
+	// LaunchTeam opens the team in its Matrix client; ClientName names that client.
+	LaunchTeam func(ctx context.Context, team string) error
+	ClientName func(ctx context.Context, team string) string
 	// SettleClipboard ends a copy of a password NewPassword put on the clipboard: once Element
 	// has been offered, it waits for the paste and clears the clipboard if it still holds it.
 	SettleClipboard func(ctx context.Context)
@@ -113,10 +115,19 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 		ApplyTeams: func(ctx context.Context, teams ...string) error {
 			return o.ApplyTeams(ctx, teams)
 		},
-		Locked:          o.Locked,
-		NewPassword:     l.NewPassword,
-		SignInGap:       l.SignInGap,
-		LaunchElement:   l.Open,
+		Locked:      o.Locked,
+		NewPassword: l.NewPassword,
+		SignInGap:   l.SignInGap,
+		LaunchTeam:  l.Open,
+		// The apply just before read the same setting, and stopped on a value it could not
+		// read; were it unreadable now, Open says why.
+		ClientName: func(ctx context.Context, team string) string {
+			c, err := o.ClientOf(ctx, team)
+			if err != nil {
+				return "its Matrix client"
+			}
+			return c.Name
+		},
 		SettleClipboard: l.SettleClipboard,
 		ExecLauncher: func(dir string, argv []string) error {
 			return h.Exec(h.Launcher, argv, dir)
@@ -1080,8 +1091,9 @@ func withoutOffered(steps string) string {
 // way is settled last, once Element is open to paste it into, however the offers end.
 func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 	defer c.SettleClipboard(ctx)
+	client := c.ClientName(ctx, o.team)
 	for _, human := range nonEmpty(o.humans) {
-		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to Element now? A password is set and shown here once.", false)
+		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to "+client+" now? A password is set and shown here once.", false)
 		if err != nil {
 			return err
 		}
@@ -1091,11 +1103,11 @@ func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 			}
 		}
 	}
-	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in Element").About("team "+o.team+" · just created"), "Open "+o.team+" in Element now?", false)
+	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in "+client).About("team "+o.team+" · just created"), "Open "+o.team+" in "+client+" now?", false)
 	if err != nil || !yes {
 		return err
 	}
-	return c.offered(c.LaunchElement(ctx, o.team))
+	return c.offered(c.LaunchTeam(ctx, o.team))
 }
 
 // offered is the outcome of something offered after the team was made: it has said why

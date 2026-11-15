@@ -356,32 +356,60 @@ func (o *Ops) allTargets(status map[string]declare.Status) ([]string, term.ExitC
 	return targets, term.ExitOK, false
 }
 
-// runElementPlay is RunElementPlay inside the hold.
+// clientGroups is the named teams by the Matrix client each opens in, read from the host_vars
+// now; a failure has been said.
+func (o *Ops) clientGroups(ctx context.Context, teams []string) ([]clientGroup, error) {
+	clients, err := o.Declare.MatrixClients(ctx)
+	if err != nil {
+		o.childExit(err)
+		return nil, errOpFailed
+	}
+	groups, err := byClient(clients, teams)
+	if err != nil {
+		o.Term.PrintError(err.Error())
+		return nil, errOpFailed
+	}
+	return groups, nil
+}
+
+// runElementPlay is RunElementPlay inside the hold: each team's launcher is the one of the
+// client it opens in (Plan 00254 Task 6.2), as the play writes only that one.
 func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
-	names := strings.Join(teams, " ")
-	o.Term.Say("Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for " + names + ".")
-	if err := o.elementPlay(ctx, names+" has no Element profile yet"); err != nil {
+	groups, err := o.clientGroups(ctx, teams)
+	if err != nil {
 		return err
 	}
-	for _, team := range teams {
-		if !o.FileExists(o.ElementLauncher(team)) {
-			o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is not there.")
-			return errOpFailed
+	o.Term.Say("Running play-agent-bus-element.yml: it installs " + installWords(groups) + " (sudo) and writes " + setUpWords(groups) + ".")
+	if err := o.elementPlay(ctx, notSetUp(groups, teams)); err != nil {
+		return err
+	}
+	for _, g := range groups {
+		for _, team := range g.teams {
+			if !o.FileExists(o.Launcher(team, g.client)) {
+				o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s " + g.client.Name + " launcher is not there.")
+				return errOpFailed
+			}
 		}
 	}
 	return nil
 }
 
 // pruneElement is the Element play after a watched team was declared absent, inside the hold:
-// the play removes the team's launcher and profile (Plan 00177 Task 11.4), and the launcher
-// must then be gone.
-func (o *Ops) pruneElement(ctx context.Context, team string) error {
-	o.Term.Say("Running play-agent-bus-element.yml: it removes " + team + "'s Element launcher and profile.")
-	if err := o.elementPlay(ctx, team+"'s Element launcher is still in the app menu"); err != nil {
+// the play removes the team's launcher, and its Element profile (Plan 00177 Task 11.4) but never
+// its Lightning instance (DESIGN-client-choice.md), and the launcher of the client it opened in
+// must then be gone. c is that client.
+func (o *Ops) pruneElement(ctx context.Context, team string, c Client) error {
+	if c == Lightning {
+		o.Term.Say("Running play-agent-bus-element.yml: it removes " + team + "'s Lightning launcher; its Lightning instance is kept " +
+			"(it may hold your signed-in session), for you to delete.")
+	} else {
+		o.Term.Say("Running play-agent-bus-element.yml: it removes " + team + "'s Element launcher and profile.")
+	}
+	if err := o.elementPlay(ctx, team+"'s "+c.Name+" launcher is still in the app menu"); err != nil {
 		return err
 	}
-	if o.FileExists(o.ElementLauncher(team)) {
-		o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is still there.")
+	if o.FileExists(o.Launcher(team, c)) {
+		o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s " + c.Name + " launcher is still there.")
 		return errOpFailed
 	}
 	return nil
@@ -454,10 +482,16 @@ func (o *Ops) applyHeld(ctx context.Context, teams []string) error {
 		o.childExit(err)
 		return errOpFailed
 	}
-	if len(watched) > 0 && o.RunElementPlay(ctx, watched) != nil {
-		o.Term.PrintError("the homeserver side is applied, but the Element profile is not; once the cause above is fixed, ccy-teams apply " +
-			strings.Join(teams, " ") + " runs both again.")
-		return errOpFailed
+	if len(watched) > 0 {
+		groups, err := o.clientGroups(ctx, watched)
+		if err != nil {
+			return err
+		}
+		if o.RunElementPlay(ctx, watched) != nil {
+			o.Term.PrintError("the homeserver side is applied, but " + unsetWords(groups) + " is not; once the cause above is fixed, ccy-teams apply " +
+				strings.Join(teams, " ") + " runs both again.")
+			return errOpFailed
+		}
 	}
 	if held > 0 {
 		o.Term.Say(fmt.Sprintf("Applied: %s, with %d LXC member%s held back (above).", strings.Join(teams, " "), held, plural(held)))

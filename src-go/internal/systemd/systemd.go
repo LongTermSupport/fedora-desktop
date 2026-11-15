@@ -122,18 +122,20 @@ func ElementLogPath(stateHome, home, team string) string {
 	return filepath.Join(stateHome, "ccy-teams", "element-"+team+".log")
 }
 
-// Launch is one start of a team's Element. PID makes the scope's unit name unique per run
-// of the tool.
+// Launch is one start of a team's Matrix client. PID makes the scope's unit name unique per
+// run of the tool.
 type Launch struct {
 	Team    string
-	Desktop string // the team's Element launcher (.desktop file)
+	Client  string // the client's name as a person reads it: Element, Lightning
+	Desktop string // the team's launcher for that client (.desktop file)
 	PID     int
 	Log     string
 }
 
-// LaunchError is a failed Element launch, with the end of the log for the person to see.
-// When the log could not be read for its tail, Tail is empty and TailErr says why.
+// LaunchError is a failed launch, with the end of the log for the person to see. When the log
+// could not be read for its tail, Tail is empty and TailErr says why.
 type LaunchError struct {
+	Client  string
 	Log     string
 	Tail    string
 	TailErr error
@@ -141,7 +143,7 @@ type LaunchError struct {
 }
 
 func (e *LaunchError) Error() string {
-	msg := fmt.Sprintf("Element did not start; its messages are in %s: %v", e.Log, e.Err)
+	msg := fmt.Sprintf("%s did not start; its messages are in %s: %v", e.Client, e.Log, e.Err)
 	if e.TailErr != nil {
 		msg += fmt.Sprintf(" (and the log could not be read: %v)", e.TailErr)
 	}
@@ -151,45 +153,45 @@ func (e *LaunchError) Error() string {
 // Unwrap exposes the underlying failure.
 func (e *LaunchError) Unwrap() error { return e.Err }
 
-// LaunchElement starts Element as the desktop would, independent of this terminal: in its
-// own user scope (closing a terminal tab ends everything in the tab's scope) and its own
-// session (no hangup), with its chatter (Electron logs a great deal) appended to the log
-// file, not among the picker's lines. gio returns once Element is started, so a non-zero
-// exit is a failed launch.
-func (s *Systemd) LaunchElement(ctx context.Context, l Launch) error {
+// LaunchClient starts a team's Matrix client (Element, Lightning) as the desktop would,
+// independent of this terminal: in its own user scope (closing a terminal tab ends everything
+// in the tab's scope) and its own session (no hangup), with its chatter (Electron logs a great
+// deal) appended to the log file, not among the picker's lines. gio returns once the client is
+// started, so a non-zero exit is a failed launch.
+func (s *Systemd) LaunchClient(ctx context.Context, l Launch) error {
 	if err := os.MkdirAll(filepath.Dir(l.Log), 0o750); err != nil {
-		return fmt.Errorf("create the Element log directory: %w", err)
+		return fmt.Errorf("create the %s log directory: %w", l.Client, err)
 	}
 	logFile, err := os.OpenFile(l.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return fmt.Errorf("open the Element log: %w", err)
+		return fmt.Errorf("open the %s log: %w", l.Client, err)
 	}
 	_, runErr := s.Runner.Run(ctx, execx.Cmd{
 		Name: "systemd-run",
 		Args: []string{
 			"--user", "--scope", "--quiet", "--collect",
-			"--unit", "ccy-teams-element-" + l.Team + "-" + strconv.Itoa(l.PID),
-			"--description", "Element for agent team " + l.Team, "--",
+			"--unit", "ccy-teams-" + strings.ToLower(l.Client) + "-" + l.Team + "-" + strconv.Itoa(l.PID),
+			"--description", l.Client + " for agent team " + l.Team, "--",
 			"setsid", "-w", "gio", "launch", l.Desktop,
 		},
 		Stdout: logFile,
 		Stderr: logFile,
 	})
 	if closeErr := logFile.Close(); closeErr != nil {
-		return fmt.Errorf("close the Element log: %w", closeErr)
+		return fmt.Errorf("close the %s log: %w", l.Client, closeErr)
 	}
 	if runErr == nil {
 		return nil
 	}
-	tail, tailErr := logTail(l.Log)
-	return &LaunchError{Log: l.Log, Tail: tail, TailErr: tailErr, Err: runErr}
+	tail, tailErr := logTail(l.Client, l.Log)
+	return &LaunchError{Client: l.Client, Log: l.Log, Tail: tail, TailErr: tailErr, Err: runErr}
 }
 
-// logTail is the last few lines of the log, or why they could not be read.
-func logTail(path string) (string, error) {
+// logTail is the last few lines of the client's log, or why they could not be read.
+func logTail(client, path string) (string, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return "", fmt.Errorf("read the Element log: %w", err)
+		return "", fmt.Errorf("read the %s log: %w", client, err)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(lines) > tailLines {

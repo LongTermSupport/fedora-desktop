@@ -43,6 +43,39 @@ func TestCollectTeamsOrdersDeclaredThenUnitsThenStamps(t *testing.T) {
 	}
 }
 
+// The Matrix client each team opens in is read with the teams (Plan 00254 Task 6.2), so a
+// team's menu can name it; a value the play would refuse fails the collection, saying why.
+func TestCollectTeamsReadsEachTeamsMatrixClient(t *testing.T) {
+	h := newRig(t)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"  - team: beta\n    port: 6168\n"+
+		"agent_bus_element_teams:\n  - team: beta\n    base_url: http://192.0.2.10:6168\n    client: lightning\n")
+	h.OnDeclare("status", "")
+	h.On("systemctl list-units", teamtest.UnitAlpha, 0)
+	s := NewSnapshot()
+	if err := h.c.collectTeams(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Clients.Of("alpha") != "element" || s.Clients.Of("beta") != "lightning" {
+		t.Fatalf("clients %+v", s.Clients)
+	}
+
+	h = newRig(t)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: nheko\n")
+	h.OnDeclare("status", "")
+	h.On("systemctl list-units", teamtest.UnitAlpha, 0)
+	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
+		t.Fatal("a client the play refuses fails the collection")
+	}
+	for _, want := range []string{
+		"agent_bus_matrix_client is 'nheko'; the client must be element or lightning",
+		"ERROR: the Matrix client each team opens in could not be read from " + h.c.HostVars + " (the reason is above).\n",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+}
+
 func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	h := newRig(t)
 	h.On("systemctl list-units", "", 0)

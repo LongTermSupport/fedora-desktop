@@ -1,6 +1,8 @@
-// Package login is how a person gets into a team's Element: setting up the team's Element
-// profile, opening it, and issuing a person's password (shown once, never stored, offered for
-// the clipboard). It owns those flows; the picker decides when to call them.
+// Package login is how a person gets into a team's Matrix client, Element or Lightning, the one
+// its host_vars name (Plan 00254 DESIGN-client-choice.md): setting the client up for the team
+// (Element's profile, Lightning's instance), opening it, and issuing a person's password (shown
+// once, never stored, offered for the clipboard). It owns those flows; the picker decides when
+// to call them.
 package login
 
 import (
@@ -27,7 +29,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// Login is the Element and password flows. Every dependency is a field so a test stands in for
+// Login is the Matrix client and password flows. Every dependency is a field so a test stands in for
 // each.
 type Login struct {
 	Kit     *flow.Kit
@@ -41,6 +43,8 @@ type Login struct {
 
 	// copied is the password this run put on the clipboard, until SettleClipboard clears it.
 	copied string
+	// signingIn is the client the password shown last is for (Element, Lightning).
+	signingIn string
 
 	Home     string
 	StateDir string
@@ -54,12 +58,17 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops) *Login {
 	}
 }
 
-// OpenElement opens the team in Element, setting up its profile first when it has none, and
-// offering a password to the people who have never signed in. Element starts apart from the
-// picker, which goes on; a copied password is settled once it has started.
-func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
+// OpenTeam opens the team in its Matrix client, setting up the client's profile or instance
+// first when it has none, and offering a password to the people who have never signed in. The
+// client starts apart from the picker, which goes on; a copied password is settled once it has
+// started.
+func (l *Login) OpenTeam(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
 	defer l.SettleClipboard(ctx)
-	if res, err := l.ensureProfile(ctx, team); err != nil || res != flow.Done {
+	c, err := l.clientOf(ctx, team)
+	if err != nil {
+		return flow.Refused, err
+	}
+	if res, err := l.ensureProfile(ctx, team, c); err != nil || res != flow.Done {
 		return res, err
 	}
 	for _, row := range snap.Rows {
@@ -74,55 +83,100 @@ func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team stri
 		if set {
 			// No "copy it": with Clipboard Indicator on, the password was not offered for the
 			// clipboard and is typed from the screen.
-			l.Kit.Tell("Press Enter to open Element, then sign in there as " + row.Member + " with the password shown above.")
+			l.Kit.Tell("Press Enter to open " + c.Name + ", then sign in there as " + row.Member + " with the password shown above.")
 			l.Kit.WaitForEnter(ctx)
 		}
 	}
-	l.Kit.Tell("Opening " + team + " in Element.")
-	return flow.Done, l.LaunchElement(ctx, team)
+	l.Kit.Tell("Opening " + team + " in " + c.Name + ".")
+	return flow.Done, l.LaunchTeam(ctx, team, c)
 }
 
-// OpenEveryTeam opens every team that has an Element profile on this desktop, each in its own
-// Element window: a team is its own homeserver, and an Element window is signed in to one
-// account. A team with no profile is named with how to set one up; nothing is asked, and no
-// password is set (opening that one team does both).
+// readyTeam is a team whose launcher is on this desktop, and the client it opens in.
+type readyTeam struct {
+	team   string
+	client ops.Client
+}
+
+// OpenEveryTeam opens every team whose Matrix client is set up for it on this desktop, each in
+// its own window: a team is its own homeserver, and a client window is signed in to one
+// account. A team with no launcher for its client is named with how to set one up; nothing is
+// asked, and no password is set (opening that one team does both).
 func (l *Login) OpenEveryTeam(ctx context.Context, snap *board.Snapshot) (flow.Result, error) {
-	var ready []string
+	clients, err := l.Declare.MatrixClients(ctx)
+	if err != nil {
+		l.Kit.ReportErr(err)
+		l.Kit.Term.PrintError("which Matrix client each team opens in could not be read (above).")
+		return flow.Refused, flow.Leave(term.ExitFailure)
+	}
+	var ready []readyTeam
 	for _, team := range snap.Teams {
-		_, statErr := os.Stat(l.Ops.ElementLauncher(team))
+		c, err := ops.ClientNamed(clients.Of(team))
+		if err != nil {
+			l.Kit.Term.PrintError(err.Error())
+			return flow.Refused, flow.Leave(term.ExitFailure)
+		}
+		_, statErr := os.Stat(l.Ops.Launcher(team, c))
 		switch {
 		case statErr == nil:
-			ready = append(ready, team)
+			ready = append(ready, readyTeam{team, c})
 		case errors.Is(statErr, os.ErrNotExist):
-			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (on its row's menu) sets one up.")
+			l.Kit.Tell(team + " has no " + c.Name + " " + c.Kept + " on this desktop yet: Open " + team + " in " + c.Name + " (on its row's menu) sets one up.")
 		default:
-			l.Kit.Term.PrintError("the Element launcher of " + team + " could not be looked for: " + statErr.Error())
+			l.Kit.Term.PrintError("the " + c.Name + " launcher of " + team + " could not be looked for: " + statErr.Error())
 			return flow.Refused, flow.Leave(term.ExitFailure)
 		}
 	}
 	if len(ready) == 0 {
 		return flow.Done, nil
 	}
-	l.Kit.Tell("Opening " + strings.Join(ready, ", ") + " in Element: one window each (each team is its own Matrix server, and an Element window holds one account).")
-	for _, team := range ready {
-		if err := l.LaunchElement(ctx, team); err != nil {
+	l.Kit.Tell(openingWords(ready))
+	for _, r := range ready {
+		if err := l.LaunchTeam(ctx, r.team, r.client); err != nil {
 			return flow.Done, err
 		}
 	}
 	return flow.Done, nil
 }
 
-// LaunchElement starts the team's Element apart from this terminal, in a scope of its own, and
-// returns: the picker goes on. It ends the picker with a failure when Element did not start,
+// openingWords is what OpenEveryTeam says it opens: the teams and their one client, or each
+// team with its own.
+func openingWords(ready []readyTeam) string {
+	teams := make([]string, 0, len(ready))
+	each := make([]string, 0, len(ready))
+	one := true
+	for _, r := range ready {
+		teams = append(teams, r.team)
+		each = append(each, r.team+" in "+r.client.Name)
+		one = one && r.client == ready[0].client
+	}
+	if one {
+		name := ready[0].client.Name
+		return "Opening " + strings.Join(teams, ", ") + " in " + name + ": one window each (each team is its own Matrix server, and " +
+			article(name) + " " + name + " window holds one account)."
+	}
+	return "Opening " + strings.Join(each[:len(each)-1], ", ") + " and " + each[len(each)-1] +
+		": one window each (each team is its own Matrix server, and a window holds one account)."
+}
+
+// article is "an" before a name that starts with a vowel, else "a".
+func article(name string) string {
+	if strings.ContainsAny(name[:1], "AEIOU") {
+		return "an"
+	}
+	return "a"
+}
+
+// LaunchTeam starts the team's client c apart from this terminal, in a scope of its own, and
+// returns: the picker goes on. It ends the picker with a failure when the client did not start,
 // which is the answer, not a side effect of an unchecked error. Who is signed in is read again
 // afterwards, as the person is about to sign in.
-func (l *Login) LaunchElement(ctx context.Context, team string) error {
-	log := filepath.Join(l.StateDir, "element-"+team+".log")
-	err := l.Systemd.LaunchElement(ctx, systemd.Launch{
-		Team: team, Desktop: l.Ops.ElementLauncher(team), PID: os.Getpid(), Log: log,
+func (l *Login) LaunchTeam(ctx context.Context, team string, c ops.Client) error {
+	log := filepath.Join(l.StateDir, c.Key+"-"+team+".log")
+	err := l.Systemd.LaunchClient(ctx, systemd.Launch{
+		Team: team, Client: c.Name, Desktop: l.Ops.Launcher(team, c), PID: os.Getpid(), Log: log,
 	})
 	if launchErr, ok := errors.AsType[*systemd.LaunchError](err); ok {
-		l.Kit.Term.PrintError("Element did not start; its messages are in " + l.Kit.Abbrev(launchErr.Log) + ":")
+		l.Kit.Term.PrintError(c.Name + " did not start; its messages are in " + l.Kit.Abbrev(launchErr.Log) + ":")
 		if launchErr.Tail != "" {
 			l.Kit.Tell(launchErr.Tail)
 		}
@@ -136,7 +190,7 @@ func (l *Login) LaunchElement(ctx context.Context, team string) error {
 		return flow.Leave(term.ExitFailure)
 	}
 	l.Board.ForgetDevices(team)
-	l.Kit.Tell("Element is starting; its own messages go to " + l.Kit.Abbrev(log) + ".")
+	l.Kit.Tell(c.Name + " is starting; its own messages go to " + l.Kit.Abbrev(log) + ".")
 	return nil
 }
 
@@ -149,7 +203,7 @@ func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board
 	}
 	set, err := l.passwordFor(ctx, snap, row)
 	if err == nil && set {
-		err = l.offerElement(ctx, row.Team)
+		err = l.offerTeam(ctx, row.Team)
 	}
 	// The Enter that clears a password typed from the screen is the one that goes back to the
 	// list; a copy's clear says more, on the list's own screen, which is held to be read.
@@ -257,9 +311,14 @@ func (l *Login) NewPassword(ctx context.Context, team, human string) error {
 
 // SignInGap is, after teams were applied (whether or not the apply passed: the play creates
 // each person's account with a password nobody is shown), the sign-in of everyone declared in
-// them who has no Element session: offered when ask, else said with the exact way to do it.
-// What cannot be read (the homeserver may not be up after a failed apply) is said too, with
-// the same way, never skipped.
+// them who has no session: offered when ask, else said with the exact way to do it. What
+// cannot be read (the homeserver may not be up after a failed apply) is said too, with the same
+// way, never skipped.
+//
+// Signed in means a device on the team's homeserver (agent-bus human devices), whichever client
+// made it: the homeserver is the one place that knows. No client's data root is read for it:
+// Element and Lightning both keep the session token in the keyring, so no file on this desktop
+// says whether a session is live. Only the way to sign in names the team's client.
 func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 	if len(teams) == 0 {
 		return nil
@@ -268,8 +327,8 @@ func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 	snap, err := l.Board.Collect(ctx)
 	if err != nil {
 		l.Kit.ReportErr(err)
-		l.Kit.Tell("Whether the people of " + strings.Join(teams, " ") + " can sign in to Element could not be read (above).")
-		l.Kit.Tell(howToSignIn(teams[0]))
+		l.Kit.Tell("Whether the people of " + strings.Join(teams, " ") + " can sign in could not be read (above).")
+		l.Kit.Tell(howToSignIn(teams[0], l.clientName(ctx, teams[0])))
 		return nil
 	}
 	for _, team := range teams {
@@ -281,15 +340,20 @@ func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 }
 
 // howToSignIn is the way a person who has no session gets a password, for the first one of
-// team's people (the picker offers each person who has never signed in).
-func howToSignIn(team string) string {
+// team's people (the picker offers each person who has never signed in), in the client named.
+func howToSignIn(team, client string) string {
 	return "To sign in: ccy-teams, Enter on " + team + ", choose Open " + team +
-		" in Element: it offers each person who has never signed in a password."
+		" in " + client + ": it offers each person who has never signed in a password."
 }
 
-// Open is Element opened straight after a team is made, with the same answers as NewPassword.
+// Open is the team's client opened straight after a team is made, with the same answers as
+// NewPassword.
 func (l *Login) Open(ctx context.Context, team string) error {
-	return offerResult(l.LaunchElement(ctx, team))
+	c, err := l.clientOf(ctx, team)
+	if err != nil {
+		return offerResult(err)
+	}
+	return offerResult(l.LaunchTeam(ctx, team, c))
 }
 
 // SettleClipboard ends a shown password: the screen it is shown on, and its copy. With no copy
@@ -303,11 +367,11 @@ func (l *Login) Open(ctx context.Context, team string) error {
 func (l *Login) SettleClipboard(ctx context.Context) {
 	password := l.copied
 	if password == "" {
-		l.Kit.EndSecret(ctx, "Once you have signed in to Element, press Enter here to clear the password from the screen.")
+		l.Kit.EndSecret(ctx, "Once you have signed in to "+l.client()+", press Enter here to clear the password from the screen.")
 		return
 	}
 	l.copied = ""
-	l.Kit.Tell("Paste the password into Element, then press Enter here (within " + pasteWaitWords + ") to clear it from the clipboard and the screen.")
+	l.Kit.Tell("Paste the password into " + l.client() + ", then press Enter here (within " + pasteWaitWords + ") to clear it from the clipboard and the screen.")
 	waitCtx, cancel := context.WithTimeout(ctx, pasteWait)
 	l.Kit.WaitForEnter(waitCtx)
 	timedOut := errors.Is(waitCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
@@ -334,10 +398,34 @@ func (l *Login) SettleClipboard(ctx context.Context) {
 		"copy something else if in doubt.")
 }
 
+// clientOf is the Matrix client team opens in (Plan 00254 DESIGN-client-choice.md: its own
+// client, else agent_bus_matrix_client, else Element), read from the host_vars now. When it
+// cannot be read the reason is said and the flow ends with a failure.
+func (l *Login) clientOf(ctx context.Context, team string) (ops.Client, error) {
+	c, err := l.Ops.ClientOf(ctx, team)
+	if err != nil {
+		l.Kit.ReportErr(err)
+		l.Kit.Term.PrintError("which Matrix client " + team + " opens in could not be read (above).")
+		return ops.Client{}, flow.Leave(term.ExitFailure)
+	}
+	return c, nil
+}
+
+// clientName is the name of the client team opens in, for a sentence that tells the person
+// what to do; "its Matrix client" when that cannot be read, which is then said.
+func (l *Login) clientName(ctx context.Context, team string) string {
+	c, err := l.Ops.ClientOf(ctx, team)
+	if err != nil {
+		l.Kit.ReportErr(err)
+		return "its Matrix client"
+	}
+	return c.Name
+}
+
 func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team string, ask bool) error {
 	if why := snap.MembersUnknown[team]; why != "" {
 		l.Kit.Tell("Who is signed in to " + team + " could not be read (" + why + ").")
-		l.Kit.Tell(howToSignIn(team))
+		l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
 		return nil
 	}
 	for _, row := range snap.Rows {
@@ -351,7 +439,7 @@ func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team stri
 		case strings.HasSuffix(word, " signed in"):
 		default:
 			l.Kit.Tell("Whether " + row.Member + " has signed in to " + team + " could not be read (" + word + ").")
-			l.Kit.Tell(howToSignIn(team))
+			l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
 		}
 		if err != nil {
 			return err
@@ -368,15 +456,24 @@ func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, nam
 			return err
 		}
 	}
-	l.Kit.Tell(howToSignIn(team))
+	l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
 	return nil
+}
+
+// snapClient is the client the pass read for team. The pass refused any value but element or
+// lightning, so anything but lightning is element.
+func snapClient(snap *board.Snapshot, team string) ops.Client {
+	if snap.Clients.Of(team) == ops.Lightning.Key {
+		return ops.Lightning
+	}
+	return ops.Element
 }
 
 // askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
 // "nothing was changed": the apply ran. It says whether a password was set. No is the default
 // (decision A12).
 func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
-	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", false)
+	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to "+snapClient(snap, team).Name+" now? A password is set and shown here once.", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		return false, nil
 	}
@@ -390,14 +487,16 @@ func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name 
 	return set, err
 }
 
-// ensureProfile is Done when the team has an Element profile, setting one up when it has none.
-func (l *Login) ensureProfile(ctx context.Context, team string) (flow.Result, error) {
-	_, statErr := os.Stat(l.Ops.ElementLauncher(team))
+// ensureProfile is Done when the team has its launcher for c (the play writes it with the
+// profile or instance), setting c up for it when it has none. Another client's launcher does
+// not count: the team opens in c.
+func (l *Login) ensureProfile(ctx context.Context, team string, c ops.Client) (flow.Result, error) {
+	_, statErr := os.Stat(l.Ops.Launcher(team, c))
 	switch {
 	case errors.Is(statErr, os.ErrNotExist):
-		return l.setUpElement(ctx, team)
+		return l.setUpClient(ctx, team, c)
 	case statErr != nil:
-		l.Kit.Term.PrintError("the Element launcher could not be looked for: " + statErr.Error())
+		l.Kit.Term.PrintError("the " + c.Name + " launcher could not be looked for: " + statErr.Error())
 		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
 	return flow.Done, nil
@@ -411,39 +510,46 @@ func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board
 	return l.SetPassword(ctx, snap, row.Team, row.Member)
 }
 
-// offerElement asks whether to open the team in Element now, setting its profile up first when
-// it has none. The cursor starts on Exit (decision A12).
-func (l *Login) offerElement(ctx context.Context, team string) error {
-	yes, err := l.Kit.Confirm(ctx, flow.Here(team, "Open in Element").About("team "+team),
-		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", false)
+// offerTeam asks whether to open the team in its client now, setting the client up first when
+// it is not. The cursor starts on Exit (decision A12).
+func (l *Login) offerTeam(ctx context.Context, team string) error {
+	c, err := l.clientOf(ctx, team)
+	if err != nil {
+		return err
+	}
+	yes, err := l.Kit.Confirm(ctx, flow.Here(team, "Open in "+c.Name).About("team "+team),
+		"Open "+team+" in "+c.Name+" now? "+c.Name+" opens in a window of its own; ccy-teams stays here.", "open "+team+" in "+c.Name, false)
 	if err != nil || !yes {
 		return err
 	}
-	res, err := l.ensureProfile(ctx, team)
+	res, err := l.ensureProfile(ctx, team, c)
 	if err != nil || res != flow.Done {
 		return err
 	}
-	l.Kit.Tell("Opening " + team + " in Element.")
-	return l.LaunchElement(ctx, team)
+	l.Kit.Tell("Opening " + team + " in " + c.Name + ".")
+	return l.LaunchTeam(ctx, team, c)
 }
 
-// setUpElement offers a missing Element profile: declare it, and run the play that writes it.
-// Done means the profile now exists; anything else is why the caller should stop.
-func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, error) {
+// setUpClient offers a missing profile or instance of c: declare the team's entry in the list
+// of teams this desktop's human watches, and run the play that writes it. Done means the
+// launcher now exists; anything else is why the caller should stop.
+func (l *Login) setUpClient(ctx context.Context, team string, c ops.Client) (flow.Result, error) {
 	if err := l.Kit.NeedGum(); err != nil {
 		return flow.Refused, err
 	}
-	l.Kit.Term.Say(team + " has no Element profile on this desktop yet.")
-	yes, err := l.Kit.AskYes(ctx, flow.Here(team, "Element profile").About("team "+team+" · no Element profile on this desktop"), "Set one up now? It installs Element Desktop if needed (sudo asks for your password).", true)
+	missing := c.Name + " " + c.Kept
+	l.Kit.Term.Say(team + " has no " + missing + " on this desktop yet.")
+	yes, err := l.Kit.AskYes(ctx, flow.Here(team, missing).About("team "+team+" · no "+missing+" on this desktop"),
+		"Set one up now? It installs "+installName(c)+" if needed (sudo asks for your password).", true)
 	if err != nil {
 		return flow.Refused, err
 	}
 	if !yes {
-		return l.Kit.Refuse(ctx, "Nothing set up. Opening the team in Element offers it again.")
+		return l.Kit.Refuse(ctx, "Nothing set up. Opening the team in "+c.Name+" offers it again.")
 	}
-	// The profile is declared and its play run in one hold of the play lock: a wait for it that
+	// The entry is declared and its play run in one hold of the play lock: a wait for it that
 	// does not end in the lock declares nothing.
-	err = l.Ops.Locked(ctx, "set up Element for "+team, func(ctx context.Context) error {
+	err = l.Ops.Locked(ctx, "set up "+c.Name+" for "+team, func(ctx context.Context) error {
 		if _, declErr := l.Declare.Element(ctx, team); declErr != nil {
 			l.Kit.ReportErr(declErr)
 			return declErr
@@ -451,15 +557,23 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 		return l.Ops.RunElementPlay(ctx, []string{team})
 	})
 	if errors.Is(err, playlock.ErrNotTaken) {
-		return l.Kit.Refuse(ctx, "Nothing set up: the play lock was not free (above). Opening the team in Element offers it again.")
+		return l.Kit.Refuse(ctx, "Nothing set up: the play lock was not free (above). Opening the team in "+c.Name+" offers it again.")
 	}
 	if err != nil {
-		return l.Kit.Refuse(ctx, team+" was not set up in Element, for the reason above.")
+		return l.Kit.Refuse(ctx, team+" was not set up in "+c.Name+", for the reason above.")
 	}
 	return flow.Done, nil
 }
 
-// showLogin shows what to sign in to Element with on the secret screen (the terminal's
+// installName is the Flatpak the person reads of when c is set up.
+func installName(c ops.Client) string {
+	if c == ops.Element {
+		return "Element Desktop"
+	}
+	return c.Name
+}
+
+// showLogin shows what to sign in to the team's client with on the secret screen (the terminal's
 // alternate screen), which SettleClipboard leaves: the password is kept nowhere, not even in
 // the terminal's scrollback.
 func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
@@ -471,7 +585,9 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	if server == "" {
 		server = team + ".agent-bus.internal"
 	}
-	heading, shown := "Element sign-in for "+name+", team "+team, password
+	c := snapClient(snap, team)
+	l.signingIn = c.Name
+	heading, shown := c.Name+" sign-in for "+name+", team "+team, password
 	if l.Kit.Term.ColourOn(l.Kit.Stderr) {
 		heading, shown = term.Bold+heading+term.Reset, term.Bold+password+term.Reset
 	}
@@ -482,15 +598,27 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 		fmt.Sprintf("  %-11s %s\n", "Password", shown))
 	const kept = "Shown on a screen of its own, which is cleared when you are done with it: it is kept nowhere. "
 	if known {
-		l.Kit.Tell(kept + "The team's Element profile has the homeserver set already.")
+		l.Kit.Tell(kept + "The team's " + c.Name + " " + c.Kept + " has the homeserver set already.")
 	} else {
-		l.Kit.Tell(kept + "Without the homeserver's address the team's Element profile cannot have it: " +
+		l.Kit.Tell(kept + "Without the homeserver's address the team's " + c.Name + " " + c.Kept + " cannot have it: " +
 			"set it in the host_vars, then run ccy-teams apply " + team + ".")
 	}
 	// The homeserver keeps no record of a lockout a tool could read (Plan 00203 gap 10).
-	l.Kit.Tell("A few sign-ins in a row, or a few wrong passwords, and Element says \"Too many login attempts " +
-		"for this account\": wait, it clears by itself within minutes and retrying does not lengthen it " +
-		"(agent-bus health status gives the exact limits).")
+	refused := "the homeserver refuses more sign-ins to this account for a while"
+	if c == ops.Element {
+		refused = "Element says \"Too many login attempts for this account\""
+	}
+	l.Kit.Tell("A few sign-ins in a row, or a few wrong passwords, and " + refused + ": wait, it clears by itself within minutes " +
+		"and retrying does not lengthen it (agent-bus health status gives the exact limits).")
+}
+
+// client is the name of the client a password shown is to be typed into: the last one
+// showLogin showed a sign-in for.
+func (l *Login) client() string {
+	if l.signingIn == "" {
+		return ops.Element.Name
+	}
+	return l.signingIn
 }
 
 // missingAddress is what the declaration lacks for team's homeserver address: the team itself,
@@ -540,7 +668,7 @@ func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password stri
 		return nil
 	}
 	yes, err := l.Kit.Confirm(ctx, h.Push("Copy"),
-		"Copy the password? Put "+name+"'s new password on the clipboard, to paste into Element. "+
+		"Copy the password? Put "+name+"'s new password on the clipboard, to paste into "+l.client()+". "+
 			"Once you have pasted it, press Enter here: ccy-teams then clears the clipboard if it still holds the password "+
 			"(after "+pasteWaitWords+" it does so without the Enter).",
 		"copy the password", true)
