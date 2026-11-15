@@ -109,6 +109,10 @@ host whose policy forbids any permanent `NOPASSWD` rule sets both
 scripts still install and ask for the sudo password instead, and `ccy-teams` says it cannot
 show a team's members without the rule.
 
+A headless install can declare this before the first play runs: set
+`RUN_BASH_SHUTDOWN_WITH_UPDATE_SUDOERS=0` and `RUN_BASH_AGENT_BUS_READ_ONLY_SUDOERS=0`, and
+`run.bash` writes both keys as `false` into `localhost.yml` on every run.
+
 ---
 
 ## Step 1 — Download and inspect run.bash
