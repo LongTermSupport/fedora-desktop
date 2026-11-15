@@ -57,7 +57,7 @@ if [[ "${1:-}" != "--no-relay" && "${BASH_SOURCE[0]}" == "/workspace/.claude/hoo
             shopt -u execfail
             if [[ "$_rl_opts" == *e* ]]; then set -e; fi
         fi
-        HOOKS_DAEMON_RELAY_UNUSED="$_rl_bin"
+        export HOOKS_DAEMON_RELAY_UNUSED="$_rl_bin"
     fi
 fi
 # --- end relay hot path ---
