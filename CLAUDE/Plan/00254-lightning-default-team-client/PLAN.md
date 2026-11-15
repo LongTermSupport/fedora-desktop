@@ -202,16 +202,19 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 - [ ] 🔄 **Task 6.1** (done in code, not established on a host: `login.OpenTeam`,
   `OpenEveryTeam` and `LaunchTeam` open `ops.Launcher` of the team's client, Lightning's
   being `lightning.Launcher`; `systemd.LaunchClient` names the scope and log for it. The sign-in
-  check reads no client data root: signed in is a device on the team's homeserver, whichever
-  client made it, and both clients keep the token in the keyring, so no file says it. Only the
-  way to sign in names the client. The default stays Element until Task 7.1): In `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open
-  every team, a window each" launch the team's client launcher, Lightning by default; the
-  sign-in check (`signInAfter`) learns Lightning's data root. Tests through the existing fakes.
+  check reads no client data root: the count is of sessions on the team's homeserver, from any
+  client, and every text that shows it says so. No data root can say whether Lightning is
+  signed in: both clients keep the token in the keyring, and the play writes the instance's
+  folders before Lightning first opens. The default stays Element until Task 7.1): In
+  `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open every team, a window
+  each" launch the launcher of the client the team resolves to. Tests through the existing
+  fakes.
 - [ ] 🔄 **Task 6.2** (done in code, not established on a host: the rule is
-  `HostVars.MatrixClients` in `src-go/internal/bus/declare/clients.go`, the Go twin of the
-  play's Jinja, tested on the same three cases; the board reads it with the teams, the menu
-  and every message name the client, and the set-up and remove paths check the launcher of
-  the team's client): ccy-teams opens each team in the client that the home-level setting
+  `HostVars.MatrixClients` in `src-go/internal/bus/declare/clients.go`, tested on the cases of
+  `src-go/internal/bus/declare/testdata/client-cases.json`, the table the plan's
+  `test_acceptance_lightning.py` reads too (the play's Jinja is not run on it); the board
+  reads it with the teams, the menu, the WHERE column and every password text name the
+  client, and the set-up and remove paths check the launcher of the team's client): ccy-teams opens each team in the client that the home-level setting
   names, or in the team's own `client:` override (D3), and says which client it opened.
 
 ### Phase 7: Switch the default
@@ -219,6 +222,10 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 - [ ] ⬜ **Task 7.1**: Default client becomes Lightning in the host vars defaults,
   `localhost.yml.dist`, ccy-teams and the docs (`docs/playbooks.md` and the agent-bus docs);
   Element remains selectable and its plays unchanged.
+  Gap to close with it (from Phase 6): "Open the team" offers a password only to a person with
+  no session on the homeserver, from any client, so a team moved from Element to Lightning
+  opens Lightning with no password offered; the person uses New password on their row. No fact
+  on the desktop says Lightning has never been signed in (Task 6.1).
 - [ ] ⬜ **Task 7.2**: Owner live check, recorded as PASS, FAIL or NOT TESTED: two teams open in
   two Lightning windows at once; an `@agent` mention reaches the agent; a thread reply is
   threaded by pingbus; an edit arrives as an edit; a long thread root reads in full (after Task

@@ -55,7 +55,7 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 	rows := h.menuRows()
 	want := []string{
 		"Open alpha in Element",
-		"New password — signs out guest's 2 Element sessions",
+		"New password — signs out guest's 2 sessions on the homeserver",
 	}
 	if len(rows) < 2 || !slices.Equal(rows[:2], want) {
 		t.Fatalf("menu %q", rows)
@@ -247,7 +247,7 @@ func TestNewPasswordFromTheMenuAsksFirstAndDefaultsToNo(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.Contains(h.HeaderOf(2), "This signs out guest's 2 Element sessions.") ||
+	if !strings.Contains(h.HeaderOf(2), "This signs out guest's 2 sessions on the homeserver.") ||
 		!slices.Contains(h.Script.FzfArgs[2], "--bind=start:last") {
 		t.Fatalf("header %q", h.HeaderOf(2))
 	}

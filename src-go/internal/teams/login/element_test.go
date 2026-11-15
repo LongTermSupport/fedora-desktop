@@ -23,7 +23,7 @@ func (h rig) withElementProfile(t *testing.T) {
 	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
 }
 
-// ownerDeviceReads is how many times the owner's Element sessions were read.
+// ownerDeviceReads is how many times the owner's sessions on the homeserver were read.
 func (h rig) ownerDeviceReads() int {
 	n := 0
 	for _, c := range h.Fake.Calls() {
@@ -45,7 +45,7 @@ func TestElementOpensTheProfileInItsOwnScopeAndReturnsToTheList(t *testing.T) {
 	}
 	h.pass(t)
 	if h.ownerDeviceReads() != reads+1 {
-		t.Fatalf("the list reads the team's Element sessions again after Element is started: %d then %d", reads, h.ownerDeviceReads())
+		t.Fatalf("the list reads the team's sessions on the homeserver again after Element is started: %d then %d", reads, h.ownerDeviceReads())
 	}
 	var run execx.Cmd
 	for _, c := range h.Fake.Calls() {
@@ -125,7 +125,7 @@ func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
 // it went to the clipboard, was not offered for it, or was declined for it.
 const afterFirstPassword = "Press Enter to open Element, then sign in there as owner with the password shown above.\n"
 
-// Someone who has never signed in has no Element session for a new password to sign out, and
+// Someone who has never signed in has no session on the homeserver for a new password to sign out, and
 // cannot sign in without one: Enter sets it.
 func TestElementFirstSignInDefaultsToSettingAPassword(t *testing.T) {
 	h := newRig(t)
@@ -137,7 +137,7 @@ func TestElementFirstSignInDefaultsToSettingAPassword(t *testing.T) {
 	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
-	if !strings.Contains(h.HeaderOf(0), "owner has no Element session to sign out.") {
+	if !strings.Contains(h.HeaderOf(0), "owner has no session on the homeserver to sign out.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {

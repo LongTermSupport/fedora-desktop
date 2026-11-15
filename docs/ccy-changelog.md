@@ -17,12 +17,13 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.8 — container 2.84.18
+## 3.122.9 — container 2.84.18
 
 - **ccy-teams opens each team in its own Matrix client** (Plan 00254 Phase 6). A team opens in
   Lightning when its own `client:` says so, else when `agent_bus_matrix_client` does; otherwise
   it opens in Element, which stays the default. The menu, the set-up offer and every message
-  name the client. Setting a team up checks that client's launcher. The image is unchanged:
+  name the client, and a person's session count is said to be of sessions on the homeserver,
+  from any client. Setting a team up checks that client's launcher. The image is unchanged:
   the Go packages that changed (`declare`, `systemd`, `teams`) are built on the host only.
 
 ## 3.122.7 — container 2.84.18

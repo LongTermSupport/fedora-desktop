@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
@@ -95,15 +96,22 @@ func setUpWords(groups []clientGroup) string {
 	return strings.Join(parts, " and ")
 }
 
-// installWords is the Flatpaks the Element play installs: both whenever a team opens in
-// Lightning (Element Desktop is installed on every run).
-func installWords(groups []clientGroup) string {
-	for _, g := range groups {
-		if g.client == Lightning {
-			return "Element Desktop and Lightning"
-		}
+// InstallWords is the Flatpaks the Element play installs when it sets up teams opening in
+// clients: Element Desktop on every run, and Lightning too whenever one of them is Lightning.
+func InstallWords(clients ...Client) string {
+	if slices.Contains(clients, Lightning) {
+		return "Element Desktop and Lightning"
 	}
 	return "Element Desktop"
+}
+
+// installWords is InstallWords for the groups' clients.
+func installWords(groups []clientGroup) string {
+	clients := make([]Client, 0, len(groups))
+	for _, g := range groups {
+		clients = append(clients, g.client)
+	}
+	return InstallWords(clients...)
 }
 
 // notSetUp is what is left undone when the Element play did not run for the groups.

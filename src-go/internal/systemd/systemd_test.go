@@ -140,15 +140,6 @@ func TestHomeserverStateCouldNotRun(t *testing.T) {
 	}
 }
 
-func TestElementLogPath(t *testing.T) {
-	if got := ElementLogPath("", "/home/u", "alpha"); got != "/home/u/.local/state/ccy-teams/element-alpha.log" {
-		t.Errorf("default: %q", got)
-	}
-	if got := ElementLogPath("/state", "/home/u", "alpha"); got != "/state/ccy-teams/element-alpha.log" {
-		t.Errorf("XDG: %q", got)
-	}
-}
-
 func launchSpec(t *testing.T) Launch {
 	t.Helper()
 	return Launch{Team: "alpha", Client: "Element", Desktop: "/home/u/.local/share/applications/agent-bus-alpha-element.desktop", PID: 42, Log: filepath.Join(t.TempDir(), "state", "element-alpha.log")}

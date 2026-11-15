@@ -115,6 +115,30 @@ class Fixture(unittest.TestCase):
         return [r for r in rows if r[0] == "FAIL"]
 
 
+CLIENT_CASES = al._repo_root(_HERE) / "src-go/internal/bus/declare/testdata/client-cases.json"
+
+
+class SharedCasesTest(Fixture):
+    """The resolution table the Go (bus/declare clients_test.go) is tested on too."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.cases = json.loads(CLIENT_CASES.read_text(encoding="utf-8"))
+        self.assertTrue(self.cases["resolves"] and self.cases["refuses"], CLIENT_CASES)
+
+    def test_each_case_resolves_as_the_table_says(self) -> None:
+        for case in self.cases["resolves"]:
+            with self.subTest(case["name"]):
+                teams = al.resolve(case["hostVars"], self.approved)
+                self.assertEqual({t.team: t.client for t in teams}, case["clients"])
+                self.assertEqual(al.home_default(case["hostVars"]), case["default"])
+
+    def test_each_refusal_is_refused(self) -> None:
+        for case in self.cases["refuses"]:
+            with self.subTest(case["name"]), self.assertRaises((al.Refused, al.CouldNotEstablish)):
+                al.resolve(case["hostVars"], self.approved)
+
+
 class ResolveTest(Fixture):
     def test_the_team_client_wins_over_the_home_setting_which_wins_over_element(self) -> None:
         text = host_vars(entry("alpha", "http://192.0.2.1:6167"),

@@ -101,7 +101,7 @@ func TestOpenTeamSetsUpALightningTeamThatHasNoLightningLauncher(t *testing.T) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 		}
 	}
-	if want := "gum confirm --default=true Set one up now? It installs Lightning if needed (sudo asks for your password)."; h.Script.GumLog[0] != want {
+	if want := "gum confirm --default=true Set one up now? It installs Element Desktop and Lightning if needed (sudo asks for your password)."; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 
@@ -165,5 +165,50 @@ func TestSignInGapOfALightningTeamSaysToOpenItInLightning(t *testing.T) {
 	}
 	if gum := h.Script.GumLog; len(gum) == 0 || !strings.Contains(gum[0], "Sign owner in to Lightning now?") {
 		t.Fatalf("gum %q", gum)
+	}
+}
+
+// The password a person is offered is named for their team's client, and the sessions it signs
+// out are counted on the homeserver, whichever client made them.
+func TestPasswordOfALightningTeamNamesLightningAndCountsTheHomeserversSessions(t *testing.T) {
+	h := newRig(t)
+	h.onLightning(t, "")
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "guest")); err != nil {
+		t.Fatal(err)
+	}
+	header := h.HeaderOf(0)
+	for _, want := range []string{"New Lightning password for guest?", "This signs out guest's 2 sessions on the homeserver."} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("header %q lacks %q", header, want)
+		}
+	}
+	h.Script.HeadingAt(0, "Teams › alpha › guest › Lightning password\nguest in team alpha · 2 sessions on the homeserver")
+
+	h = newRig(t)
+	h.onLightning(t, "")
+	snap = h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "1")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "A new Lightning password is for one of the team's people (KIND human)") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// ClientName, which the create wizard's offers use, says why the client could not be read.
+func TestClientNameReportsWhyTheClientCouldNotBeRead(t *testing.T) {
+	h := newRig(t)
+	h.onLightning(t, "")
+	if got := h.l.ClientName(t.Context(), "alpha"); got != "Lightning" {
+		t.Fatalf("got %q", got)
+	}
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: nheko\n")
+	if got := h.l.ClientName(t.Context(), "alpha"); got != "its Matrix client" {
+		t.Fatalf("got %q", got)
+	}
+	if !strings.Contains(h.ErrOut.String(), "agent_bus_matrix_client is 'nheko'; the client must be element or lightning") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

@@ -179,3 +179,22 @@ func TestRemoveOfALightningTeamChecksItsLightningLauncherIsGone(t *testing.T) {
 		}
 	}
 }
+
+// InstallWords is the one wording of what the Element play installs, which the set-up offer
+// (login) and the play's own line (RunElementPlay) both say: Element Desktop on every run, and
+// Lightning too whenever a team opens in it.
+func TestInstallWordsNamesWhatThePlayInstalls(t *testing.T) {
+	cases := []struct {
+		clients []Client
+		want    string
+	}{
+		{[]Client{Element}, "Element Desktop"},
+		{[]Client{Lightning}, "Element Desktop and Lightning"},
+		{[]Client{Element, Lightning}, "Element Desktop and Lightning"},
+	}
+	for _, c := range cases {
+		if got := InstallWords(c.clients...); got != c.want {
+			t.Errorf("%v: %q, want %q", c.clients, got, c.want)
+		}
+	}
+}

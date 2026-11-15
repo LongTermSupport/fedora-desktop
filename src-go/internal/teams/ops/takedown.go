@@ -276,6 +276,7 @@ func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.E
 		if err != nil {
 			return term.ExitFailure, false
 		}
+		// watched is elementTeams of this one team, so it holds team alone and makes one group.
 		c := groups[0].client
 		if o.pruneElement(ctx, team, c) != nil {
 			o.Term.PrintError(team + " is down, but its " + c.Name + " launcher is not removed; once the cause above is fixed, " +

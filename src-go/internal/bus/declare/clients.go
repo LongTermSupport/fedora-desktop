@@ -27,6 +27,8 @@ var clients = []string{ClientElement, ClientLightning}
 // Clients is the Matrix client each team opens in. It is Go's one definition of the rule
 // play-agent-bus-element.yml applies in its first task: a team's own client, else
 // agent_bus_matrix_client, else element. The default stays element until Plan 00254 Task 7.1.
+// agent_bus_matrix_client is read only as a top-level key of the host_vars file: Ansible would
+// also take it from group_vars or extra-vars, which ccy-teams does not read, so it is set there.
 type Clients struct {
 	// Default is agent_bus_matrix_client, or element when the host_vars do not set it.
 	Default string

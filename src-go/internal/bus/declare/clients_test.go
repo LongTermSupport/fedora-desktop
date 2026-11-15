@@ -1,70 +1,70 @@
 package declare
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The three cases DESIGN-client-choice.md names, which the play's Jinja
-// (play-agent-bus-element.yml agent_bus_element_profiles) resolves the same way: no setting, the
-// home-level setting only, and a team's own override.
-func TestMatrixClientsResolvesAsThePlayDoes(t *testing.T) {
-	const teams = "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n" +
-		"  - team: beta\n    base_url: http://192.0.2.1:6168\n    client: lightning\n"
-	cases := []struct {
-		name, text                   string
-		alpha, beta, undeclared, def string
-	}{
-		{
-			"no setting", "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n",
-			ClientElement, ClientElement, ClientElement, ClientElement,
-		},
-		{
-			"the home-level setting only", "agent_bus_matrix_client: lightning\n" +
-				"agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n",
-			ClientLightning, ClientLightning, ClientLightning, ClientLightning,
-		},
-		{"a team override", teams, ClientElement, ClientLightning, ClientElement, ClientElement},
-		{
-			"an override back to element", "agent_bus_matrix_client: 'lightning'  # trying it\n" +
-				"agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: element\n",
-			ClientElement, ClientLightning, ClientLightning, ClientLightning,
-		},
-		{
-			"no list at all", "agent_bus_matrix_client: lightning\n",
-			ClientLightning, ClientLightning, ClientLightning, ClientLightning,
-		},
+// clientCases is testdata/client-cases.json, the resolution cases the plan's acceptance Python
+// is tested on too.
+type clientCases struct {
+	Resolves []struct {
+		Name     string            `json:"name"`
+		HostVars string            `json:"hostVars"`
+		Clients  map[string]string `json:"clients"`
+		Default  string            `json:"default"`
+	} `json:"resolves"`
+	Refuses []struct {
+		Name     string `json:"name"`
+		HostVars string `json:"hostVars"`
+		GoSays   string `json:"goSays"`
+	} `json:"refuses"`
+}
+
+func readClientCases(t *testing.T) clientCases {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "client-cases.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		got, err := HostVars(c.text).MatrixClients()
+	var cases clientCases
+	if err = json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases.Resolves) == 0 || len(cases.Refuses) == 0 {
+		t.Fatal("testdata/client-cases.json holds no cases")
+	}
+	return cases
+}
+
+// The cases DESIGN-client-choice.md names (no setting, the home-level setting only, a team's
+// own override) and more, from the table the plan's acceptance Python shares.
+func TestMatrixClientsResolvesTheSharedCases(t *testing.T) {
+	for _, c := range readClientCases(t).Resolves {
+		got, err := HostVars(c.HostVars).MatrixClients()
 		if err != nil {
-			t.Fatalf("%s: %v", c.name, err)
+			t.Fatalf("%s: %v", c.Name, err)
 		}
-		if got.Default != c.def || got.Of("alpha") != c.alpha || got.Of("beta") != c.beta || got.Of("nobody") != c.undeclared {
-			t.Errorf("%s: %+v gives alpha %q beta %q nobody %q", c.name, got, got.Of("alpha"), got.Of("beta"), got.Of("nobody"))
+		if got.Default != c.Default || got.Of("nobody") != c.Default {
+			t.Errorf("%s: default %q, a team not listed %q, want %q", c.Name, got.Default, got.Of("nobody"), c.Default)
+		}
+		for team, want := range c.Clients {
+			if got.Of(team) != want {
+				t.Errorf("%s: %s opens in %q, want %q", c.Name, team, got.Of(team), want)
+			}
 		}
 	}
 }
 
-func TestMatrixClientsRefusesAnyOtherValue(t *testing.T) {
-	cases := []struct{ name, text, want string }{
-		{"a home-level value", "agent_bus_matrix_client: nheko\n", "agent_bus_matrix_client is 'nheko'; the client must be element or lightning"},
-		{"an empty home-level value", "agent_bus_matrix_client:\n", "agent_bus_matrix_client is ''; the client must be element or lightning"},
-		{
-			"a team's value", "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: Lightning\n",
-			"team alpha's client is 'Lightning'; the client must be element or lightning",
-		},
-		{
-			"a team's value that is not text", "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: [\"lightning\"]\n",
-			"team alpha's client is ['lightning']; the client must be element or lightning",
-		},
-		{"set twice", "agent_bus_matrix_client: element\nagent_bus_matrix_client: lightning\n", "agent_bus_matrix_client is set more than once"},
-	}
-	for _, c := range cases {
-		_, err := HostVars(c.text).MatrixClients()
-		if !isRefusal(err) || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s: %v, want a refusal saying %q", c.name, err, c.want)
+func TestMatrixClientsRefusesTheSharedRefusals(t *testing.T) {
+	for _, c := range readClientCases(t).Refuses {
+		_, err := HostVars(c.HostVars).MatrixClients()
+		if !isRefusal(err) || !strings.Contains(err.Error(), c.GoSays) {
+			t.Errorf("%s: %v, want a refusal saying %q", c.Name, err, c.GoSays)
 		}
 	}
 }

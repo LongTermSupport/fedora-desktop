@@ -374,6 +374,32 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	}
 }
 
+// A person's WHERE names the client their team opens in (Plan 00254 Task 6.2).
+func TestCollectNamesAPersonsClientInWhere(t *testing.T) {
+	h := populated(t)
+	text, err := os.ReadFile(h.c.HostVars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.WriteHostVars(t, string(text)+"agent_bus_matrix_client: lightning\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	humans := 0
+	for _, row := range s.Rows {
+		if row.Kind == KindHuman {
+			humans++
+			if row.Where != "Lightning; Enter for choices" {
+				t.Errorf("%s: WHERE %q", row.Member, row.Where)
+			}
+		}
+	}
+	if humans == 0 {
+		t.Fatal("no person's row")
+	}
+}
+
 // STATE is whether a member's session is listening on the bus now, from its LIVE line (the
 // agent_bus.status pingbus status reads), never from the registry's park word: a member that is
 // not parked and whose session stopped is stale, not active. An agent-bus older than LIVE lines

@@ -74,14 +74,15 @@ type Wizard struct {
 	// declared and installed in it, so a wait that does not end in the lock adds nothing.
 	Locked      func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	NewPassword func(ctx context.Context, team, human string) error
-	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
-	// Element session: the play made their accounts, so it is offered (ask) or said.
+	// SignInGap is, after an apply that failed, the sign-in of the team's people who have never
+	// signed in to its homeserver (each account exists once the play has run): offered or explained.
 	SignInGap func(ctx context.Context, teams []string, ask bool) error
-	// LaunchTeam opens the team in its Matrix client; ClientName names that client.
+	// LaunchTeam opens the team in its Matrix client; ClientName names that client, saying why
+	// when it cannot be read.
 	LaunchTeam func(ctx context.Context, team string) error
 	ClientName func(ctx context.Context, team string) string
-	// SettleClipboard ends a copy of a password NewPassword put on the clipboard: once Element
-	// has been offered, it waits for the paste and clears the clipboard if it still holds it.
+	// SettleClipboard ends a copy of a password NewPassword put on the clipboard: once the
+	// team's client has been offered, it waits for the paste and clears the clipboard if it still holds it.
 	SettleClipboard func(ctx context.Context)
 	// ExecLauncher replaces this process with argv in dir. It returns only on failure
 	// (a test's stand-in returns nil).
@@ -115,19 +116,11 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 		ApplyTeams: func(ctx context.Context, teams ...string) error {
 			return o.ApplyTeams(ctx, teams)
 		},
-		Locked:      o.Locked,
-		NewPassword: l.NewPassword,
-		SignInGap:   l.SignInGap,
-		LaunchTeam:  l.Open,
-		// The apply just before read the same setting, and stopped on a value it could not
-		// read; were it unreadable now, Open says why.
-		ClientName: func(ctx context.Context, team string) string {
-			c, err := o.ClientOf(ctx, team)
-			if err != nil {
-				return "its Matrix client"
-			}
-			return c.Name
-		},
+		Locked:          o.Locked,
+		NewPassword:     l.NewPassword,
+		SignInGap:       l.SignInGap,
+		LaunchTeam:      l.Open,
+		ClientName:      l.ClientName,
 		SettleClipboard: l.SettleClipboard,
 		ExecLauncher: func(dir string, argv []string) error {
 			return h.Exec(h.Launcher, argv, dir)

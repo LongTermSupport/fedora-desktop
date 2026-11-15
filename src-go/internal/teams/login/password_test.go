@@ -60,7 +60,7 @@ func TestPasswordForSomeoneSignedInNamesTheSessionsItEndsAndDefaultsToNo(t *test
 	}
 	header := h.HeaderOf(0)
 	if !strings.Contains(header, "Sets a new password for guest on alpha's homeserver and shows it here, once: it is stored nowhere.") ||
-		!strings.Contains(header, "This signs out guest's 2 Element sessions.") {
+		!strings.Contains(header, "This signs out guest's 2 sessions on the homeserver.") {
 		t.Fatalf("header %q", header)
 	}
 	if !slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
@@ -91,7 +91,7 @@ func TestPasswordWhenTheCountIsUnknownSaysTheSessionsAreSignedOut(t *testing.T) 
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.HeaderOf(0), "This signs out owner's Element sessions.") {
+	if !strings.Contains(h.HeaderOf(0), "This signs out owner's sessions on the homeserver.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
 }
@@ -339,7 +339,7 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	if !strings.Contains(h.HeaderOf(0), copyQuestion) {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
-	h.Script.HeadingAt(0, "Teams › alpha › owner › Element password › Copy\nowner in team alpha · 0 Element sessions")
+	h.Script.HeadingAt(0, "Teams › alpha › owner › Element password › Copy\nowner in team alpha · 0 sessions on the homeserver")
 	if !slices.Contains(h.Script.Rows[0], "Yes, copy the password") {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}

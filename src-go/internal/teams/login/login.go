@@ -61,7 +61,9 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops) *Login {
 // OpenTeam opens the team in its Matrix client, setting up the client's profile or instance
 // first when it has none, and offering a password to the people who have never signed in. The
 // client starts apart from the picker, which goes on; a copied password is settled once it has
-// started.
+// started. Never signed in means no session on the homeserver from any client, so a person
+// with one (an Element sign-in of a team since moved to Lightning) is offered no password here;
+// New password on their row gives one (Plan 00254 Task 7.1 notes the gap).
 func (l *Login) OpenTeam(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
 	defer l.SettleClipboard(ctx)
 	c, err := l.clientOf(ctx, team)
@@ -194,12 +196,13 @@ func (l *Login) LaunchTeam(ctx context.Context, team string, c ops.Client) error
 	return nil
 }
 
-// PasswordRow sets a new Element password for the person on row. Someone with Element
-// sessions is asked first, with the sessions it would sign out named; someone with none is
-// signing in for the first time and is asked nothing. Either way Element is offered at once.
+// PasswordRow sets a new password for the person on row, for the team's client. Someone with
+// sessions on the homeserver is asked first, with the sessions it would sign out named; someone
+// with none is signing in for the first time and is asked nothing. Either way the team's client
+// is offered at once.
 func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	if row.Kind != board.KindHuman {
-		return l.Kit.Note(ctx, "A new Element password is for one of the team's people (KIND human): choose one of their rows.")
+		return l.Kit.Note(ctx, "A new "+snap.Client(row.Team).Name+" password is for one of the team's people (KIND human): choose one of their rows.")
 	}
 	set, err := l.passwordFor(ctx, snap, row)
 	if err == nil && set {
@@ -218,19 +221,21 @@ func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board
 	return flow.Done, nil
 }
 
-// SignOutPhrase is what a new password does to name's Element sessions, in words that follow
-// "New password": "signs out guest's 2 Element sessions". It is empty when there are none.
+// SignOutPhrase is what a new password does to name's sessions, in words that follow "New
+// password": "signs out guest's 2 sessions on the homeserver". They are the devices on the
+// team's homeserver, whichever client made them (a new password signs out every one). It is
+// empty when there are none.
 func SignOutPhrase(snap *board.Snapshot, team, name string) string {
 	count, known := snap.SessionsOf(team, name)
 	switch {
 	case !known:
-		return "signs out " + name + "'s Element sessions"
+		return "signs out " + name + "'s sessions on the homeserver"
 	case count == 0:
 		return ""
 	case count == 1:
-		return "signs out " + name + "'s 1 Element session"
+		return "signs out " + name + "'s 1 session on the homeserver"
 	}
-	return "signs out " + name + "'s " + strconv.Itoa(count) + " Element sessions"
+	return "signs out " + name + "'s " + strconv.Itoa(count) + " sessions on the homeserver"
 }
 
 // sessionsWarning is SignOutPhrase as the sentence the question carries.
@@ -238,17 +243,17 @@ func sessionsWarning(snap *board.Snapshot, team, name string) string {
 	if phrase := SignOutPhrase(snap, team, name); phrase != "" {
 		return "This " + phrase + "."
 	}
-	return name + " has no Element session to sign out."
+	return name + " has no session on the homeserver to sign out."
 }
 
 // SetPassword asks, then sets name's password on team and shows it once. It says whether one
-// was set. The answer defaults to Yes only for someone with no Element session (read, not
-// unknown): they cannot sign in without a password, and a new one signs nothing out. Anyone
+// was set. The answer defaults to Yes only for someone with no session on the homeserver (read,
+// not unknown): they cannot sign in without a password, and a new one signs nothing out. Anyone
 // else defaults to No, as a new password signs out their other devices.
 func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
 	count, known := snap.SessionsOf(team, name)
 	yes, err := l.Kit.Confirm(ctx, passwordHeading(snap, team, name),
-		"New Element password for "+name+"? Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
+		"New "+snap.Client(team).Name+" password for "+name+"? Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
 			sessionsWarning(snap, team, name),
 		"set a new password for "+name, known && count == 0)
 	if err != nil {
@@ -261,13 +266,14 @@ func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, nam
 	return l.IssuePassword(ctx, snap, team, name)
 }
 
-// passwordHeading is the heading of the questions about name's Element password in team.
+// passwordHeading is the heading of the questions about name's password in team, named for the
+// team's client; the count is of name's sessions on the homeserver, from any client.
 func passwordHeading(snap *board.Snapshot, team, name string) ui.Heading {
 	context := name + " in team " + team
 	if count, known := snap.SessionsOf(team, name); known {
-		context += " · " + strconv.Itoa(count) + " Element sessions"
+		context += " · " + strconv.Itoa(count) + " sessions on the homeserver"
 	}
-	return flow.Here(team, name, "Element password").About(context)
+	return flow.Here(team, name, snap.Client(team).Name+" password").About(context)
 }
 
 // IssuePassword sets name's password on team and shows it once, the question having been
@@ -289,7 +295,7 @@ func (l *Login) IssuePassword(ctx context.Context, snap *board.Snapshot, team, n
 		l.Kit.Tell("No password was set for " + name + ", for the reason above.")
 		return false, nil
 	}
-	// The person's other Element sessions were signed out.
+	// The person's sessions on the homeserver were signed out.
 	l.Board.ForgetDevices(team)
 	l.showLogin(snap, team, name, password)
 	return true, l.offerCopy(ctx, passwordHeading(snap, team, name), name, password)
@@ -297,9 +303,9 @@ func (l *Login) IssuePassword(ctx context.Context, snap *board.Snapshot, team, n
 
 // NewPassword is the sign-in offered straight after a team is made, for a person of it: the
 // teams are read again for the homeserver the sign-in is shown for. A copied password is left
-// on the clipboard for the wizard's SettleClipboard, once Element has been offered. A leave with success is
-// success, the cancelled exit is a cancellation, and any other leave is a failure this flow
-// has already explained.
+// on the clipboard for the wizard's SettleClipboard, once the team's client has been offered. A
+// leave with success is success, the cancelled exit is a cancellation, and any other leave is a
+// failure this flow has already explained.
 func (l *Login) NewPassword(ctx context.Context, team, human string) error {
 	snap, err := l.Board.Refresh(ctx)
 	if err != nil {
@@ -315,10 +321,11 @@ func (l *Login) NewPassword(ctx context.Context, team, human string) error {
 // cannot be read (the homeserver may not be up after a failed apply) is said too, with the same
 // way, never skipped.
 //
-// Signed in means a device on the team's homeserver (agent-bus human devices), whichever client
-// made it: the homeserver is the one place that knows. No client's data root is read for it:
-// Element and Lightning both keep the session token in the keyring, so no file on this desktop
-// says whether a session is live. Only the way to sign in names the team's client.
+// Signed in means a session (device) on the team's homeserver (agent-bus human devices),
+// whichever client made it, so it does not say the team's own client is signed in. No client's
+// data root can say that: Element and Lightning both keep the session token in the keyring, and
+// the play writes a Lightning instance's folders before it is ever opened. Only the way to sign
+// in names the team's client.
 func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 	if len(teams) == 0 {
 		return nil
@@ -328,7 +335,7 @@ func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
 	if err != nil {
 		l.Kit.ReportErr(err)
 		l.Kit.Tell("Whether the people of " + strings.Join(teams, " ") + " can sign in could not be read (above).")
-		l.Kit.Tell(howToSignIn(teams[0], l.clientName(ctx, teams[0])))
+		l.Kit.Tell(howToSignIn(teams[0], l.ClientName(ctx, teams[0])))
 		return nil
 	}
 	for _, team := range teams {
@@ -398,6 +405,17 @@ func (l *Login) SettleClipboard(ctx context.Context) {
 		"copy something else if in doubt.")
 }
 
+// ClientName is the name of the client team opens in, for a sentence that tells the person what
+// to do; "its Matrix client" when that cannot be read, which is then said.
+func (l *Login) ClientName(ctx context.Context, team string) string {
+	c, err := l.Ops.ClientOf(ctx, team)
+	if err != nil {
+		l.Kit.ReportErr(err)
+		return "its Matrix client"
+	}
+	return c.Name
+}
+
 // clientOf is the Matrix client team opens in (Plan 00254 DESIGN-client-choice.md: its own
 // client, else agent_bus_matrix_client, else Element), read from the host_vars now. When it
 // cannot be read the reason is said and the flow ends with a failure.
@@ -411,21 +429,10 @@ func (l *Login) clientOf(ctx context.Context, team string) (ops.Client, error) {
 	return c, nil
 }
 
-// clientName is the name of the client team opens in, for a sentence that tells the person
-// what to do; "its Matrix client" when that cannot be read, which is then said.
-func (l *Login) clientName(ctx context.Context, team string) string {
-	c, err := l.Ops.ClientOf(ctx, team)
-	if err != nil {
-		l.Kit.ReportErr(err)
-		return "its Matrix client"
-	}
-	return c.Name
-}
-
 func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team string, ask bool) error {
 	if why := snap.MembersUnknown[team]; why != "" {
 		l.Kit.Tell("Who is signed in to " + team + " could not be read (" + why + ").")
-		l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
+		l.Kit.Tell(howToSignIn(team, snap.Client(team).Name))
 		return nil
 	}
 	for _, row := range snap.Rows {
@@ -439,7 +446,7 @@ func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team stri
 		case strings.HasSuffix(word, " signed in"):
 		default:
 			l.Kit.Tell("Whether " + row.Member + " has signed in to " + team + " could not be read (" + word + ").")
-			l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
+			l.Kit.Tell(howToSignIn(team, snap.Client(team).Name))
 		}
 		if err != nil {
 			return err
@@ -456,24 +463,15 @@ func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, nam
 			return err
 		}
 	}
-	l.Kit.Tell(howToSignIn(team, snapClient(snap, team).Name))
+	l.Kit.Tell(howToSignIn(team, snap.Client(team).Name))
 	return nil
-}
-
-// snapClient is the client the pass read for team. The pass refused any value but element or
-// lightning, so anything but lightning is element.
-func snapClient(snap *board.Snapshot, team string) ops.Client {
-	if snap.Clients.Of(team) == ops.Lightning.Key {
-		return ops.Lightning
-	}
-	return ops.Element
 }
 
 // askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
 // "nothing was changed": the apply ran. It says whether a password was set. No is the default
 // (decision A12).
 func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
-	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to "+snapClient(snap, team).Name+" now? A password is set and shown here once.", false)
+	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to "+snap.Client(team).Name+" now? A password is set and shown here once.", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		return false, nil
 	}
@@ -502,7 +500,8 @@ func (l *Login) ensureProfile(ctx context.Context, team string, c ops.Client) (f
 	return flow.Done, nil
 }
 
-// passwordFor sets row's password, asking first unless the person has no Element session.
+// passwordFor sets row's password, asking first unless the person has no session on the
+// homeserver.
 func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board.Row) (bool, error) {
 	if count, known := snap.SessionsOf(row.Team, row.Member); known && count == 0 {
 		return l.IssuePassword(ctx, snap, row.Team, row.Member)
@@ -540,7 +539,7 @@ func (l *Login) setUpClient(ctx context.Context, team string, c ops.Client) (flo
 	missing := c.Name + " " + c.Kept
 	l.Kit.Term.Say(team + " has no " + missing + " on this desktop yet.")
 	yes, err := l.Kit.AskYes(ctx, flow.Here(team, missing).About("team "+team+" · no "+missing+" on this desktop"),
-		"Set one up now? It installs "+installName(c)+" if needed (sudo asks for your password).", true)
+		"Set one up now? It installs "+ops.InstallWords(c)+" if needed (sudo asks for your password).", true)
 	if err != nil {
 		return flow.Refused, err
 	}
@@ -565,14 +564,6 @@ func (l *Login) setUpClient(ctx context.Context, team string, c ops.Client) (flo
 	return flow.Done, nil
 }
 
-// installName is the Flatpak the person reads of when c is set up.
-func installName(c ops.Client) string {
-	if c == ops.Element {
-		return "Element Desktop"
-	}
-	return c.Name
-}
-
 // showLogin shows what to sign in to the team's client with on the secret screen (the terminal's
 // alternate screen), which SettleClipboard leaves: the password is kept nowhere, not even in
 // the terminal's scrollback.
@@ -585,7 +576,7 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	if server == "" {
 		server = team + ".agent-bus.internal"
 	}
-	c := snapClient(snap, team)
+	c := snap.Client(team)
 	l.signingIn = c.Name
 	heading, shown := c.Name+" sign-in for "+name+", team "+team, password
 	if l.Kit.Term.ColourOn(l.Kit.Stderr) {
@@ -636,8 +627,8 @@ func missingAddress(snap *board.Snapshot, team string) string {
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to
 // wl-copy on stdin, never in its arguments, which any process can read. GNOME reads a new
 // selection at once and keeps serving its own copy, so nothing erases itself: the password
-// stays on the clipboard until SettleClipboard, which the flow calls once Element is open to
-// paste into, clears it if the clipboard still holds it. Outside Wayland nothing is offered;
+// stays on the clipboard until SettleClipboard, which the flow calls once the team's client is
+// open to paste into, clears it if the clipboard still holds it. Outside Wayland nothing is offered;
 // the password is on screen. Nor is it without wl-paste (the clipboard could not be read back
 // to clear it), or while the Clipboard Indicator extension is on (or that cannot be read): it
 // keeps every new selection in its history, past any clear; it honours no password-manager hint.

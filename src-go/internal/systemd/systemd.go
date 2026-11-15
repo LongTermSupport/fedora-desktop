@@ -113,15 +113,6 @@ func StateWord(active string) string {
 	return "down (" + active + ")"
 }
 
-// ElementLogPath is where a team's Element messages go: under stateHome (XDG_STATE_HOME)
-// or ~/.local/state when that is empty.
-func ElementLogPath(stateHome, home, team string) string {
-	if stateHome == "" {
-		stateHome = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(stateHome, "ccy-teams", "element-"+team+".log")
-}
-
 // Launch is one start of a team's Matrix client. PID makes the scope's unit name unique per
 // run of the tool.
 type Launch struct {
