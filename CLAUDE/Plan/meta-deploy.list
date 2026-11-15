@@ -86,6 +86,8 @@ playbooks/imports/optional/common/play-vm-test-lab.yml
 # changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
 # for a lightning team writes its own instance under
 # ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/, a homeserver settings file and an
-# "<team> team (Lightning)" launcher; with no lightning team it writes nothing and only names
-# any leftover instance on a KEPT line. Afterwards report the play's CHANGED and KEPT lines.
+# "<team> team (Lightning)" launcher; with no lightning team it writes no instance. Lightning's
+# CA step now takes only lightning teams, so with none it removes the team CAs an earlier run put
+# in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/ and reports changed; Element's CA
+# trust is unchanged. Afterwards report what changed, and any instance the play shows as kept.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning

@@ -226,3 +226,19 @@
       # In --check nothing was built, so there is nothing to run.
       when: not ansible_check_mode
       tags: [agent-bus-lightning]
+
+    # A kept instance may hold a signed-in session, so it is shown here for the owner to delete
+    # by hand; the run does not fail on it.
+    - name: Show each Lightning instance kept for a team no longer declared
+      ansible.builtin.debug:
+        msg: >-
+          Kept, not deleted (it may hold a signed-in session; delete it by hand when it is no
+          longer wanted): {{ agent_bus_lightning_kept | join(', ') }}
+      vars:
+        agent_bus_lightning_kept: >-
+          {{ agent_bus_lightning_apply.stdout_lines | select('match', '^KEPT\t')
+             | map('regex_replace', '^KEPT\t', '') | list }}
+      when:
+        - not ansible_check_mode
+        - agent_bus_lightning_kept | length > 0
+      tags: [agent-bus-lightning]

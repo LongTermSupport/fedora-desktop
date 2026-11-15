@@ -39,11 +39,15 @@ key on every entry:
 
 Each writer sees the full list, so it can tell the two ways a team leaves it:
 
-| The team is                    | Its launcher for this client | Its data for this client                                                                      |
-| ------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------- |
-| declared, for the other client | removed                      | **kept** (the human's signed-in session; switching back finds it)                             |
-| no longer declared (Element)   | removed                      | removed, as `element.py` prune does today                                                     |
-| no longer declared (Lightning) | removed                      | **kept**, and named on a `KEPT<TAB><path>` line; only the owner deletes a signed-in data root |
+| The team is                                                    | Its launcher for this client | Its data for this client                                                                      |
+| -------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------- |
+| declared, for the other client                                 | removed                      | **kept** (the human's signed-in session; switching back finds it)                             |
+| no longer declared (Element)                                   | removed                      | removed, as `element.py` prune does today                                                     |
+| no longer declared (Lightning)                                 | removed                      | **kept**, and named on a `KEPT<TAB><path>` line; only the owner deletes a signed-in data root |
+| moved to Lightning, then no longer declared (its Element side) | already gone                 | **kept, and not reported**: prune finds a team by its launcher, which the move removed        |
+
+The last row is a known gap: that Element profile holds a session token and stays until the
+owner deletes it. Reporting it is follow-up work (issue #299), not part of Phase 5.
 
 So `element.py` learns the `client` key: `PROFILE_KEYS` gains it, values `element` and
 `lightning`, and only `element` entries are written. A `lightning` entry protects its profile

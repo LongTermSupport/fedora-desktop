@@ -200,6 +200,7 @@ user_email: "yourname@example.com"
 # "<team> team (Lightning)" launcher. A team's own client: wins over this. Switching a team keeps
 # the other client's signed-in data; only its launcher goes.
 # agent_bus_matrix_client: element
+# agent_bus_element_teams:
 #   - team: <team>
 #     base_url: http://<bus_ip>:<port>
 #     client: lightning
