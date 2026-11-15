@@ -47,6 +47,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"walk-opens-non-regular-file", "issue #191, Defence Before Fix: no Python opens an entry a directory walk found without checking it is a regular file"},
 	{"podman-store-probe-race", "issue #152: the rootless store ownership probe prints nothing for a file a container deletes during the walk, raced for real"},
+	{"ccy-allowed-hostnames", "issue #293, Defence Before Fix: an unreadable allowed-hostnames rule file stops the launch instead of looping over nothing, and its own suite proves it"},
 }
 
 func isAddedAfterPort(name string) bool {

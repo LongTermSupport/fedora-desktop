@@ -482,8 +482,9 @@ rules:
     message: >
       bash-loop-redirect-unchecked: this loop is fed by `done < file`, so a file that
       cannot be opened runs it zero times, and where errexit is off the caller reads that
-      as an empty file. `|| fail` after `done` does not help: the loop's status is its last
-      body command's. Open the file on its own descriptor first and check that:
+      as an empty file. `|| fail` after `done` is no fix: it does catch the open failing,
+      but the loop's status is also its last body command's, so a final false test fails
+      a run that read the file. Open the file on its own descriptor first and check that:
       'exec {fd}<"$f" || { echo "cannot read $f" >&2; return 1; }', read with
       'read -u "$fd"', and close it with 'exec {fd}<&-'.
     languages: [bash]

@@ -334,6 +334,38 @@ assert_filter "exempt-token-shields-glued-address: a git remote is still exempt"
 assert_filter "exempt-token-shields-glued-address: a git remote with a host alias is still exempt" \
     "" "${REPO_ROOT}" "1: url = ${GIT_AT}github.com-work:org/repo.git"
 
+# ── a denylist that is there but cannot be read fails the scan (fedora-desktop#293) ───────
+#
+# The scan used to read the denylist with `done < file`, so a file it could not open ran the
+# loop zero times and every commit passed as clean. Run in its own bash, as an account that
+# cannot read the file (root reads any file, so as nobody when this runs as root).
+UNREAD_DIR="${TMPROOT}/unreadable"
+mkdir -p "${UNREAD_DIR}"
+cp "${LIB}" "${UNREAD_DIR}/secret-scan.bash"
+UNREAD_DL="${UNREAD_DIR}/deny.tsv"
+printf 'name\tacme\n' >"${UNREAD_DL}"
+cat >"${UNREAD_DIR}/scan.bash" <<'EOF'
+source "$1" || exit 90
+printf 'acme' | hook_scan_text_for_private "$2"
+EOF
+chmod 755 "${TMPROOT}" "${UNREAD_DIR}"
+chmod 644 "${UNREAD_DIR}/secret-scan.bash" "${UNREAD_DIR}/scan.bash"
+chmod 000 "${UNREAD_DL}"
+as_reader=()
+if [[ "$(id -u)" -eq 0 ]]; then
+    as_reader=(setpriv --reuid=65534 --regid=65534 --clear-groups)
+fi
+"${as_reader[@]}" bash "${UNREAD_DIR}/scan.bash" "${UNREAD_DIR}/secret-scan.bash" "${UNREAD_DL}" \
+    >"${TMPROOT}/unread.out" 2>"${TMPROOT}/unread.err"
+unread_rc=$?
+if [[ "${unread_rc}" -eq 1 ]] && grep -q 'cannot be read' "${TMPROOT}/unread.err"; then
+    printf 'PASS: an unreadable denylist fails the scan and is named\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: an unreadable denylist gave status %s: %s\n' "${unread_rc}" "$(cat "${TMPROOT}/unread.err")"
+    FAILED=$((FAILED + 1))
+fi
+
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
 # A structural assertion, because the behaviour above is only reached through this call and

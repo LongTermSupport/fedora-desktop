@@ -64,6 +64,11 @@ playbooks/imports/optional/common/play-matrix-clients.yml --tags lightning
 # one as empty. Expected: changed only for agent-bus-install itself.
 playbooks/imports/play-agent-bus.yml
 
-# Issue #293: lan-scan checks that its scan results could be opened. Expected: changed only for
-# lan-scan.
+# Issue #293: lan-scan reads its scan results from a here-string instead of a file loop.
+# Expected: changed only for lan-scan.
 playbooks/imports/optional/common/play-network-tools.yml
+
+# Issue #293: the VM lab's copies of the server-github-token acceptance checker and of
+# secret-scan.bash (the run-log scrubber's engine) check that each file they loop over could be
+# opened. Expected: changed only for those two files; skip this entry on a host without the lab.
+playbooks/imports/optional/common/play-vm-test-lab.yml

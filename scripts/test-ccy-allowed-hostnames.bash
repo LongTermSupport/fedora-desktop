@@ -96,6 +96,22 @@ fi
 check "unreadable: refused" "1" "$(verdict "$locked" "${prefix[@]}")"
 check "and the file is named" "yes" "$(grep -q 'allowed-hostnames cannot be read' "$work/check.log" && echo yes || echo no)"
 
+# load_project_mounts reads .claude/ccy/mounts the same way and had the same hazard: an
+# unopenable file read as "no mounts" and the launch went on (fedora-desktop#293).
+echo "== a project mounts file that is there but cannot be read stops the launch"
+cat >"$work/mounts.bash" <<'EOF'
+source "$1" || exit 90
+cd "$2" || exit 91
+load_project_mounts || exit 1
+EOF
+chmod 644 "$work/mounts.bash"
+mounts=$(project mounts)
+printf '%s\n' "$work/lib:/mnt/lib:ro" >"$mounts/.claude/ccy/mounts"
+chmod 000 "$mounts/.claude/ccy/mounts"
+"${prefix[@]}" bash "$work/mounts.bash" "$LIB" "$mounts" >"$work/check.log" 2>&1
+check "unreadable mounts: refused" "1" "$?"
+check "and the mounts file is named" "yes" "$(grep -q 'mounts cannot be read' "$work/check.log" && echo yes || echo no)"
+
 echo ""
 echo "passed: $passed   failed: $failed"
 [ "$failed" -eq 0 ]
