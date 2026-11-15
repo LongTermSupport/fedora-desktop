@@ -624,7 +624,9 @@ run_journal_mode() {
     # different files and merge without a conflict.
     local heading="## $journal_time · $category · $ref"
     if [[ -n "$entry_title" ]]; then
-        heading="$heading   — $entry_title"
+        # Single spaces only: formatters collapse a run of spaces in a
+        # heading, and an entry is immutable once committed (Plan 00594).
+        heading="$heading — $entry_title"
     fi
     local journal_file
     journal_file="$(_write_journal_entry "$journal_dir" "$journal_ymd" "$journal_hms" "$category" "$heading"$'\n\n'"$body")" \

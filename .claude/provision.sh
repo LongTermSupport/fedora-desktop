@@ -1008,6 +1008,47 @@ _provision_background_claim() {
     exec >> "$SYNC_STATE_DIR/v$VERSION.log" 2>&1
 }
 
+# Is the venv at $1 built for the clone's current pyproject.toml / uv.lock? The
+# comparison is venv.sh's venv_lock_hash_matches, the one the restart path uses.
+# Anything but a proven match (stale, unreadable metadata, no helper to ask) is
+# "not current": a hash that cannot be read is never reported as a match.
+_provision_venv_is_current() {
+    local venv_dir="$1"
+    local venv_sh="$DAEMON_DIR/scripts/install/venv.sh"
+    [[ -f "$venv_sh" ]] || return 1
+    bash -c 'source "$1" && venv_lock_hash_matches "$2" "$3"' _ \
+        "$venv_sh" "$DAEMON_DIR" "$venv_dir" > /dev/null 2>&1
+}
+
+# The clone is at the expected version. That says nothing about its venv, which a
+# pull that changed the lock file leaves stale (Plan 00581): a foreground run
+# repairs it through the bootstrap repair; a background run only reports it,
+# because a rebuild is not what a session-start sync may do unasked.
+# $1 is the resolved venv interpreter; it is passed in rather than read from
+# PYTHON_CMD here, because _provision_venv_healthy resets that global inside
+# its own subshell.
+_provision_equal_version() {
+    local python_cmd="$1" venv_dir
+    venv_dir="$(dirname "$(dirname "$python_cmd")")"
+    if _provision_venv_is_current "$venv_dir"; then
+        _provision_say "The daemon clone is already at $TAG, the expected version: nothing to do."
+        return 0
+    fi
+    if [[ "$BACKGROUND" == true ]]; then
+        _provision_say "The daemon clone is at $TAG, but its venv ($venv_dir) is stale: it was not built for the current pyproject.toml and uv.lock. A background run does not rebuild it."
+        _provision_say "Repair it by running: $DAEMON_DIR/bin/hooks-daemon repair"
+        return 0
+    fi
+    local bootstrap="$DAEMON_DIR/scripts/venv_bootstrap.sh"
+    _provision_say "The daemon clone is at $TAG, but its venv is stale (not built for the current pyproject.toml and uv.lock): rebuilding it ..."
+    if [[ ! -f "$bootstrap" ]] || ! bash "$bootstrap" repair "$DAEMON_DIR"; then
+        _provision_fail "the clone is at $TAG but its stale venv could not be rebuilt." \
+            "The output above says which condition failed. Once fixed, run:" \
+            "  $DAEMON_DIR/bin/hooks-daemon repair"
+    fi
+    _provision_say "The venv was rebuilt for the current pyproject.toml and uv.lock."
+}
+
 # ------------------------------------------------------------------
 # Step 2: is this a fresh checkout?
 # ------------------------------------------------------------------
@@ -1025,7 +1066,7 @@ if _daemon_clone_present; then
                 "To move the whole project to another version, use: /hooks-daemon upgrade"
         fi
         if [[ "$PRESENT_VERSION" == "$VERSION" ]]; then
-            _provision_say "The daemon clone is already at $TAG, the expected version: nothing to do."
+            _provision_equal_version "$PYTHON_CMD"
             exit 0
         fi
         if [[ "$BACKGROUND" == true ]]; then

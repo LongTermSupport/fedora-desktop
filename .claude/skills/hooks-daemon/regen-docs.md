@@ -43,10 +43,21 @@ edit will not produce churn diffs.
 | Action            | Refreshes generated docs | Restarts daemon | Use when                                      |
 | ----------------- | ------------------------ | --------------- | --------------------------------------------- |
 | `regenerate-docs` | Yes                      | No              | Fixing/refreshing docs only (e.g. merge fix)  |
-| `restart`         | `CLAUDE.md` block ONLY   | Yes             | Applying config/handler changes to the daemon |
+| `restart`         | `CLAUDE.md` block ONLY, on a home branch | Yes | Applying config/handler changes to the daemon |
 
-A `restart` regenerates **only** the `<hooksdaemon>` block in `CLAUDE.md`; it
-never rewrites `.claude/HOOKS-DAEMON.md`. That is deliberate: the file's
+A `restart` regenerates **only** the `<hooksdaemon>` block in `CLAUDE.md`, and
+only while the checkout is on a home branch (`branches.home`, default the
+default branch) and `branches.home_commit` is not `false`. Off a home branch it
+leaves the block alone and says so only in the daemon log at INFO; SessionStart
+stays silent about it, unless no home branch resolves to a local branch, when
+SessionStart asks you to set `branches.home`. On a home branch with
+`branches.home_commit: false` the restart never writes, and SessionStart reports
+a stale block (recomputed at each SessionStart, so it goes away once the block
+is current). `regenerate-docs` writes the block from any branch except that
+last case, without committing it off a home branch: run it on a pull-request
+branch or in a pull-request worktree and commit the result there. On a home
+branch under `branches.home_commit: false` it refuses and exits non-zero. A restart never
+rewrites `.claude/HOOKS-DAEMON.md`. That is deliberate: the file's
 `> Generated on … (vX.Y.Z)` line records the version the project's tracked
 assets were deployed from, and the upgrade reads it, so a restart must not
 restamp it. The cost is that a handler added in-repo refreshes one artefact and
