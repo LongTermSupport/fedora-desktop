@@ -334,7 +334,12 @@ hook_scan_text_for_private() {
     fi
 
     local -A seen=()
-    while IFS=$'\t' read -r field token; do
+    local denylist_fd
+    if ! exec {denylist_fd}<"$denylist"; then
+        echo "secret-scan: the denylist $denylist cannot be read, so nothing can be checked against it" >&2
+        return 1
+    fi
+    while IFS=$'\t' read -r -u "$denylist_fd" field token; do
         if [ -z "$token" ]; then
             continue
         fi
@@ -358,5 +363,6 @@ hook_scan_text_for_private() {
             seen[$field]=1
             printf '%s\n' "$field"
         fi
-    done < "$denylist"
+    done
+    exec {denylist_fd}<&-
 }

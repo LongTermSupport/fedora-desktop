@@ -879,7 +879,7 @@ hl_run_optional_playbooks() {
   # and the unknown-token abort are both inherited for free — nothing below changes.
   local _bundle_file="playbooks/imports/optional/server-recommended.bundle"
   local -a _expanded=()
-  local req _line
+  local req _line _bundle_fd
   for req in "${_reqs[@]}"; do
     [[ -z "$req" ]] && continue
     if [[ "$req" == "server-recommended" ]]; then
@@ -891,10 +891,14 @@ hl_run_optional_playbooks() {
       # `|| [[ -n "$_line" ]]` so a final manifest line with NO trailing newline is
       # still processed — a bare `while read` returns nonzero at a no-newline EOF and
       # would silently DROP that last play (silent under-provisioning, fail-fast rule #1).
-      while IFS= read -r _line || [[ -n "$_line" ]]; do
+      exec {_bundle_fd}<"$_bundle_file" || hl_abort "optional playbooks" \
+        "${_bundle_file} cannot be read, so the 'server-recommended' plays it lists are unknown" \
+        "check the file's permissions in the checkout, or re-clone"
+      while IFS= read -r -u "$_bundle_fd" _line || [[ -n "$_line" ]]; do
         [[ -z "$_line" || "$_line" == \#* ]] && continue
         _expanded+=("$_line")
-      done < "$_bundle_file"
+      done
+      exec {_bundle_fd}<&-
     else
       _expanded+=("$req")
     fi

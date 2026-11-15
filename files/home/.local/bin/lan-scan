@@ -93,8 +93,12 @@ cmd_scan() {
     printf "${BOLD}%-18s  %-20s  %-30s  %s${NC}\n" "IP Address" "MAC Address" "Hostname" "Vendor / Info"
     printf "%-18s  %-20s  %-30s  %s\n" "──────────────────" "────────────────────" "──────────────────────────────" "────────────────────────────"
 
-    local qnap_found=()
-    while IFS=$'\t' read -r ip mac vendor; do
+    local qnap_found=() scan_fd
+    if ! exec {scan_fd}<"$tmpdedup"; then
+        echo "lan-scan: cannot read the scan results in $tmpdedup" >&2
+        return 1
+    fi
+    while IFS=$'\t' read -r -u "$scan_fd" ip mac vendor; do
         [ -z "$ip" ] && continue
         local hostname
         hostname=$(resolve_hostname "$ip")
@@ -104,7 +108,8 @@ cmd_scan() {
         else
             printf "%-18s  %-20s  %-30s  %s\n" "$ip" "$mac" "$hostname" "$vendor"
         fi
-    done < "$tmpdedup"
+    done
+    exec {scan_fd}<&-
 
     rm -f "$tmpraw" "$tmpdedup"
     echo ""

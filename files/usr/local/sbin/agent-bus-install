@@ -316,7 +316,9 @@ declare -A PIN=()
 read_pin() {
     local file=$1 key value line
     [[ -f $file ]] || die "$EXIT_CONFIG" "$file is missing"
-    while IFS= read -r line || [[ -n $line ]]; do
+    local pins_fd
+    exec {pins_fd}<"$file" || die "$EXIT_CONFIG" "$file cannot be read"
+    while IFS= read -r -u "$pins_fd" line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         [[ $line =~ ^([a-z0-9_]+):\ *([^ ]+)\ *$ ]] || die "$EXIT_CONFIG" "$file: unreadable line '$line'"
         key=${BASH_REMATCH[1]}
@@ -327,7 +329,8 @@ read_pin() {
             *) die "$EXIT_CONFIG" "$file: unknown key $key" ;;
         esac || die "$EXIT_CONFIG" "$file: $key has a malformed value"
         PIN[$key]=$value
-    done <"$file"
+    done
+    exec {pins_fd}<&-
     for key in tuwunel_version tuwunel_sha256_x86_64 tuwunel_sha256_aarch64; do
         [[ -n ${PIN[$key]:-} ]] || die "$EXIT_CONFIG" "$file: $key is missing"
     done
@@ -613,12 +616,15 @@ sync_firewall() {
         fi
     fi
     if [[ -f $record ]]; then
-        while IFS=$'\t' read -r zone rule; do
+        local record_fd
+        exec {record_fd}<"$record" || die "$EXIT_FAIL" "$record cannot be read, so the rules it records cannot be reconciled"
+        while IFS=$'\t' read -r -u "$record_fd" zone rule; do
             line=$zone$'\t'$rule
             if ! printf '%s\n' "${wanted[@]}" | grep -qFx -- "$line"; then
                 fw_remove "$zone" "$rule"
             fi
-        done <"$record"
+        done
+        exec {record_fd}<&-
     fi
     for line in "${wanted[@]}"; do
         fw_add "${line%%$'\t'*}" "${line#*$'\t'}"
@@ -637,9 +643,12 @@ remove_firewall() {
     local team=$1 zone rule
     local record=$INSTALL_STATE_ROOT/$team/firewalld.rules
     [[ -f $record ]] || return 0
-    while IFS=$'\t' read -r zone rule; do
+    local record_fd
+    exec {record_fd}<"$record" || die "$EXIT_FAIL" "$record cannot be read, so the rules it records cannot be removed"
+    while IFS=$'\t' read -r -u "$record_fd" zone rule; do
         fw_remove "$zone" "$rule"
-    done <"$record"
+    done
+    exec {record_fd}<&-
     rm -f -- "$record"
 }
 
@@ -946,8 +955,9 @@ sys.exit(1 if problems else 0)
 # The transient restore unit gets the homeserver unit's whole [Service] sandbox (bar its
 # ExecStart), read from the installed unit so the two cannot drift apart.
 sandbox_properties() {
-    local team=$1 line section=""
-    while IFS= read -r line || [[ -n $line ]]; do
+    local team=$1 line section="" unit_fd
+    exec {unit_fd}<"$UNIT_DIR/agent-bus-hs@.service" || die "$EXIT_FAIL" "$UNIT_DIR/agent-bus-hs@.service cannot be read"
+    while IFS= read -r -u "$unit_fd" line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         if [[ $line == \[*\] ]]; then
             section=$line
@@ -957,7 +967,8 @@ sandbox_properties() {
         line=${line//%i/$team}
         [[ $line != *%* ]] || die "$EXIT_FAIL" "agent-bus-hs@.service: unsupported specifier in '$line'"
         printf '%s\n' "$line"
-    done <"$UNIT_DIR/agent-bus-hs@.service"
+    done
+    exec {unit_fd}<&-
 }
 
 require_team_dir() {
@@ -1151,12 +1162,15 @@ cmd_check() {
 
     local record=$INSTALL_STATE_ROOT/$team/firewalld.rules zone rule absent=0 rules=0
     if [[ -f $record ]]; then
-        while IFS=$'\t' read -r zone rule; do
+        local record_fd
+        exec {record_fd}<"$record" || die "$EXIT_FAIL" "$record cannot be read, so its rules cannot be checked"
+        while IFS=$'\t' read -r -u "$record_fd" zone rule; do
             rules=$((rules + 1))
             if ! firewall-cmd --permanent --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
                 absent=$((absent + 1))
             fi
-        done <"$record"
+        done
+        exec {record_fd}<&-
     fi
     fact firewalld "$(verdict "$absent" 0)" "$rules rule(s) recorded, $absent missing from the permanent configuration"
     fact binary info "$(readlink -f -- "$LIB_DIR/tuwunel")"

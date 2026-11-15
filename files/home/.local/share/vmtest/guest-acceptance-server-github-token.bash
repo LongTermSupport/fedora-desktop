@@ -81,11 +81,16 @@ if [[ -z "${needles_path}" || ! -r "${needles_path}" ]]; then
     echo "ERROR: VMTEST_NEEDLES_FILE is unset or unreadable; the secret-residue checks cannot run" >&2
     exit 70
 fi
-while IFS= read -r line; do
+if ! exec {needles_fd}<"${needles_path}"; then
+    echo "ERROR: VMTEST_NEEDLES_FILE ${needles_path} could not be opened; the secret-residue checks cannot run" >&2
+    exit 70
+fi
+while IFS= read -r -u "${needles_fd}" line; do
     if [[ -n "${line}" ]]; then
         needles+=("${line}")
     fi
-done < "${needles_path}"
+done
+exec {needles_fd}<&-
 rm -f "${needles_path}"
 if [[ "${#needles[@]}" -eq 0 ]]; then
     echo "ERROR: VMTEST_NEEDLES_FILE held no secrets; the residue checks would search for nothing" >&2

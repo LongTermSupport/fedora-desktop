@@ -399,23 +399,34 @@ capture    13-process-state systemd-cgtop systemd-cgtop -b -n 1
 # ---------------------------------------------------------------------------
 generate_readme() {
     local readme="$OUT_DIR/README.md"
-    local total=0 failed=0
-    while IFS=$'\t' read -r col1 col2 col3; do
+    local total=0 failed=0 row col1 col2 col3
+    local -a manifest_rows os_release
+    if ! mapfile -t manifest_rows <"$MANIFEST"; then
+        echo "collect-diagnostics: the capture manifest $MANIFEST cannot be read" >&2
+        return 1
+    fi
+    for row in "${manifest_rows[@]}"; do
+        IFS=$'\t' read -r col1 col2 col3 <<<"$row"
         if [[ "$col1" == "subdir" ]]; then continue; fi
         total=$((total + 1))
         if [[ "$col3" != "0" ]]; then
             failed=$((failed + 1))
         fi
-    done < "$MANIFEST"
+    done
 
-    local pretty_name="unknown"
+    local pretty_name="unknown" key val
     if [[ -r /etc/os-release ]]; then
-        while IFS='=' read -r key val; do
+        if ! mapfile -t os_release </etc/os-release; then
+            echo "collect-diagnostics: /etc/os-release cannot be read" >&2
+            return 1
+        fi
+        for row in "${os_release[@]}"; do
+            IFS='=' read -r key val <<<"$row"
             if [[ "$key" == "PRETTY_NAME" ]]; then
                 pretty_name="${val//\"/}"
                 break
             fi
-        done < /etc/os-release
+        done
     fi
 
     {
@@ -467,12 +478,13 @@ generate_readme() {
         echo "to see why before treating it as a defect."
         echo
         echo '```'
-        while IFS=$'\t' read -r col1 col2 col3; do
+        for row in "${manifest_rows[@]}"; do
+            IFS=$'\t' read -r col1 col2 col3 <<<"$row"
             if [[ "$col1" == "subdir" ]]; then continue; fi
             if [[ "$col3" != "0" ]]; then
                 printf "  rc=%-3s %s/%s\n" "$col3" "$col1" "$col2"
             fi
-        done < "$MANIFEST"
+        done
         echo '```'
         echo
         echo "Full manifest: \`_manifest.tsv\` (TSV: subdir, name, exit_code)."
