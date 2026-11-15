@@ -282,5 +282,37 @@ class CheckTest(Fixture):
         self.assertEqual(code, al.EXIT_NOT_ESTABLISHED)
 
 
+class ProductValuesTest(unittest.TestCase):
+    """The layout the checks judge is read from src-go/internal/lightning, never copied
+    (QA.md checker-copies-cited-constant)."""
+
+    GO = """const (
+\tteamsDir   = "teams"
+\tcaDir      = "teamchat-ca" // a trailing comment
+\tdirMode      fs.FileMode = 0o700
+)
+
+var instanceDirs = []string{"data", "config", "cache"}
+"""
+
+    def test_the_readers_take_each_kind_of_constant(self) -> None:
+        self.assertEqual(al.go_text(self.GO, "caDir"), "teamchat-ca")
+        self.assertEqual(al.go_mode(self.GO, "dirMode"), 0o700)
+        self.assertEqual(al.go_strings(self.GO, "instanceDirs"), ("data", "config", "cache"))
+
+    def test_a_missing_constant_is_refused(self) -> None:
+        for read in (al.go_text, al.go_mode, al.go_strings):
+            with self.subTest(read=read.__name__), self.assertRaises(ValueError):
+                read(self.GO, "absent")
+
+    def test_the_checker_holds_the_products_values(self) -> None:
+        source = (al.REPO_ROOT / al.LIGHTNING_GO).read_text(encoding="utf-8")
+        self.assertEqual(al.TEAMS_DIR, al.go_text(source, "teamsDir"))
+        self.assertEqual(al.CA_DIR, al.go_text(source, "caDir"))
+        self.assertEqual(al.INSTANCE_DIRS, al.go_strings(source, "instanceDirs"))
+        self.assertEqual(al.SETTINGS_MODE, al.go_mode(source, "settingsMode"))
+        self.assertEqual(al.LAUNCHER_MODE, al.go_mode(source, "launcherMode"))
+
+
 if __name__ == "__main__":
     unittest.main()
