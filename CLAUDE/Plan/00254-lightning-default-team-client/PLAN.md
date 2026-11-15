@@ -191,7 +191,9 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   that holds every team's instance, `teams`, as the list's schema has no wildcard; held by
   `TestL14TheListCoversTheTeamRoots`): Add Lightning's per-team directories to its `native` entry in
   `src-go/internal/matrixclients/clients.json`, so every #251 guard sees a Lightning session.
-- [ ] ⬜ **Task 5.5**: Deploy through `meta-deploy.bash`; `acceptance.bash` checks each declared
+- [ ] 🔄 **Task 5.5** (written, not yet run on a host: `acceptance.bash` over
+  `acceptance_lightning.py`, its tests `test_acceptance_lightning.py`; queued in
+  `meta-deploy.list` after the play's entry; exits 2 while no team opens in Lightning): Deploy through `meta-deploy.bash`; `acceptance.bash` checks each declared
   team's launcher, directories and config, and the CA handshake; the windows and the login are
   NOT ESTABLISHABLE and listed for the owner.
 

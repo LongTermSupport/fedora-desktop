@@ -90,4 +90,16 @@ playbooks/imports/optional/common/play-vm-test-lab.yml
 # CA step now takes only lightning teams, so with none it removes the team CAs an earlier run put
 # in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/ and reports changed; Element's CA
 # trust is unchanged. Afterwards report what changed, and any instance the play shows as kept.
+# The plan's acceptance (the next entry) judges what this run wrote.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning
+
+# Plan 00254 Task 5.5: the verdict on the play above, read-only, as the desktop user, no sudo.
+# For each team that opens in Lightning: its instance folders (mode 0700), its settings file
+# (0600, naming the team's homeserver) and its launcher (the exact Exec line), no Element
+# launcher beside it, and for an https team its CA in Lightning's CA folder and a handshake from
+# Lightning's sandbox; for each Element team, no Lightning launcher. It starts no window. On a
+# host where no team opens in Lightning it exits 2, COULD NOT ESTABLISH (nothing to check),
+# which is expected until a team is set to lightning. Afterwards report its PASS and FAIL lines
+# and the run directory it names, and check the owner's list it prints at the end (each window
+# opens on its own login page with the homeserver filled in; signing in works).
+00254-lightning-default-team-client/acceptance.bash
