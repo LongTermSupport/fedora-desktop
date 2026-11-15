@@ -399,34 +399,22 @@ capture    13-process-state systemd-cgtop systemd-cgtop -b -n 1
 # ---------------------------------------------------------------------------
 generate_readme() {
     local readme="$OUT_DIR/README.md"
-    local total=0 failed=0 row col1 col2 col3
-    local -a manifest_rows os_release
-    if ! mapfile -t manifest_rows <"$MANIFEST"; then
-        echo "collect-diagnostics: the capture manifest $MANIFEST cannot be read" >&2
-        return 1
-    fi
-    for row in "${manifest_rows[@]}"; do
-        IFS=$'\t' read -r col1 col2 col3 <<<"$row"
+    local total=0 failed=0 col1 col2 col3 manifest
+    # Read whole by an assignment, which errexit stops on (bash names the file), never as the
+    # redirect of a loop, which a file that cannot be opened runs zero times.
+    manifest=$(<"$MANIFEST")
+    while IFS=$'\t' read -r col1 col2 col3; do
         if [[ "$col1" == "subdir" ]]; then continue; fi
         total=$((total + 1))
         if [[ "$col3" != "0" ]]; then
             failed=$((failed + 1))
         fi
-    done
+    done <<<"$manifest"
 
-    local pretty_name="unknown" key val
+    local pretty_name="unknown"
     if [[ -r /etc/os-release ]]; then
-        if ! mapfile -t os_release </etc/os-release; then
-            echo "collect-diagnostics: /etc/os-release cannot be read" >&2
-            return 1
-        fi
-        for row in "${os_release[@]}"; do
-            IFS='=' read -r key val <<<"$row"
-            if [[ "$key" == "PRETTY_NAME" ]]; then
-                pretty_name="${val//\"/}"
-                break
-            fi
-        done
+        # os-release is specified as shell-sourceable; a subshell keeps its names out of ours.
+        pretty_name=$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-unknown}")
     fi
 
     {
@@ -478,13 +466,12 @@ generate_readme() {
         echo "to see why before treating it as a defect."
         echo
         echo '```'
-        for row in "${manifest_rows[@]}"; do
-            IFS=$'\t' read -r col1 col2 col3 <<<"$row"
+        while IFS=$'\t' read -r col1 col2 col3; do
             if [[ "$col1" == "subdir" ]]; then continue; fi
             if [[ "$col3" != "0" ]]; then
                 printf "  rc=%-3s %s/%s\n" "$col3" "$col1" "$col2"
             fi
-        done
+        done <<<"$manifest"
         echo '```'
         echo
         echo "Full manifest: \`_manifest.tsv\` (TSV: subdir, name, exit_code)."

@@ -741,10 +741,9 @@ create_token() {
     if [ -z "$gh_token" ]; then
         echo "" >&2
         print_error "create_token() called without GH_TOKEN"
-        echo "This is an internal script error." >&2
-        echo "" >&2
-        echo "GH_TOKEN is required for the container's git/gh functionality." >&2
-        echo "Token creation must happen AFTER SSH/GH setup." >&2
+        printf '%s\n' "This is an internal script error." "" \
+            "GH_TOKEN is required for the container's git/gh functionality." \
+            "Token creation must happen AFTER SSH/GH setup." >&2
         return 1
     fi
 

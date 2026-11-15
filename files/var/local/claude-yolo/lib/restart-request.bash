@@ -92,8 +92,7 @@ ccy_restart_request_read() {
         return 1
     fi
     if [ "$size" -eq 0 ] || [ "$size" -gt "$CCY_RESTART_MAX_BYTES" ]; then
-        printf 'restart request %s is %s bytes (allowed: 1 to %s); refusing it.\n' \
-            "$file" "$size" "$CCY_RESTART_MAX_BYTES" >&2
+        printf 'restart request %s is %s bytes (allowed: 1 to %s); refusing it.\n' "$file" "$size" "$CCY_RESTART_MAX_BYTES" >&2
         return 1
     fi
 
@@ -125,8 +124,7 @@ ccy_restart_request_read() {
     fi
     sid="${raw%x}"
     if ! [[ "$sid" =~ $CCY_RESTART_SESSION_ID_PATTERN ]]; then
-        printf 'restart request %s carries a session id that is not a Claude session id; refusing it.\n' \
-            "$file" >&2
+        printf 'restart request %s carries a session id that is not a Claude session id; refusing it.\n' "$file" >&2
         return 1
     fi
 
@@ -151,8 +149,7 @@ ccy_restart_budget_take() {
     local file="${1:?ccy_restart_budget_take requires a history file}"
     local now="${2:?ccy_restart_budget_take requires the time}"
     local max="${3:?ccy_restart_budget_take requires a limit}"
-    local window="${4:?ccy_restart_budget_take requires a window}"
-    local value
+    local window="${4:?ccy_restart_budget_take requires a window}" value
     for value in "$now" "$max" "$window"; do
         if ! [[ "$value" =~ ^[0-9]+$ ]]; then
             printf 'restart budget: "%s" is not a whole number.\n' "$value" >&2

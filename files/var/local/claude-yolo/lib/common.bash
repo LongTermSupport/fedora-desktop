@@ -432,10 +432,10 @@ load_project_mounts() {
         return 0
     fi
 
-    local line lineno=0 problems=0 parsed src dst opt mounts_fd
+    local line lineno=0 problems=0 parsed src dst opt mount_lines=()
     local -A seen_dst=()
-    exec {mounts_fd}<"$mounts_file" || { print_error "$mounts_file cannot be read, so its project mounts cannot be checked"; return 1; }
-    while IFS= read -r -u "$mounts_fd" line || [ -n "$line" ]; do
+    mapfile -t mount_lines <"$mounts_file" || { print_error "$mounts_file cannot be read, so its project mounts cannot be checked"; return 1; }
+    for line in "${mount_lines[@]}"; do
         lineno=$((lineno + 1))
         line="${line%%#*}"
         line="${line#"${line%%[![:space:]]*}"}"
@@ -468,7 +468,6 @@ load_project_mounts() {
         PROJECT_MOUNTS+=(-v "$src:$dst:$opt")
         echo "✓ Project mount: $src → $dst ($opt)"
     done
-    exec {mounts_fd}<&-
 
     if [ "$problems" -gt 0 ]; then
         echo "" >&2
@@ -794,14 +793,13 @@ check_allowed_hostname() {
 
     # Parse allowed entries: strip comments and blank lines. A file that is there but cannot be
     # read stops the launch: read as empty, it would lift the restriction it exists to impose.
-    local allowed_hostnames=() line allowed_fd
-    exec {allowed_fd}<"$allowed_file" || { print_error "$allowed_file cannot be read, so whether ccy may run on this host cannot be told; fix its permissions, or remove it to lift the restriction"; return 1; }
-    while IFS= read -r -u "$allowed_fd" line || [[ -n "$line" ]]; do
+    local allowed_hostnames=() line allowed_lines=()
+    mapfile -t allowed_lines <"$allowed_file" || { print_error "$allowed_file cannot be read, so whether ccy may run on this host cannot be told; fix its permissions, or remove it to lift the restriction"; return 1; }
+    for line in "${allowed_lines[@]}"; do
         line="${line%%#*}"            # strip inline comments
         line="${line//[[:space:]]/}"  # strip all whitespace
         [[ -n "$line" ]] && allowed_hostnames+=("$line")
     done
-    exec {allowed_fd}<&-
 
     # Empty file after parsing = no restriction
     if [[ ${#allowed_hostnames[@]} -eq 0 ]]; then
@@ -814,11 +812,9 @@ check_allowed_hostname() {
         # Special keyword: never = unconditionally disabled for this project
         if [[ "$pattern" == "never" ]]; then
             print_error "CCY is disabled for this project"
-            echo "" >&2
-            echo "This project has CCY unconditionally disabled via:" >&2
-            echo "  .claude/ccy/allowed-hostnames  (contains 'never')" >&2
-            echo "" >&2
-            echo "To re-enable CCY for this project, remove or edit that file." >&2
+            printf '%s\n' "" "This project has CCY unconditionally disabled via:" \
+                "  .claude/ccy/allowed-hostnames  (contains 'never')" "" \
+                "To re-enable CCY for this project, remove or edit that file." >&2
             return 1
         fi
         # shellcheck disable=SC2254  # unquoted intentional: glob pattern matching
