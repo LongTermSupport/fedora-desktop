@@ -48,6 +48,11 @@ playbooks/imports/play-claude-yolo.yml
 # Expected here: no change, unless host_vars sets it.
 playbooks/imports/play-agent-bus.yml
 
+# Issue #301: the VM lab's copy of secret-scan.bash (the run-log scrubber's engine) escapes a
+# GNOME extension UUID for grep's ERE, not Python's re, so grep no longer warns on a hyphen.
+# Expected: changed only for that one file; skip this entry on a host without the lab.
+playbooks/imports/optional/common/play-vm-test-lab.yml
+
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
 # in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
 # changes nothing for Element. It builds and runs the new agent-bus-lightning command, which

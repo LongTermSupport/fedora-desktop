@@ -137,8 +137,9 @@ for entries in groups.values():
             continue
         # Anchored whole-token literal. This exempts exactly this string, never
         # anything merely containing it, so a real address cannot ride along on a
-        # UUID's coat-tails.
-        print("^" + re.escape(uuid) + "$")
+        # UUID's coat-tails. Escaped for grep's POSIX ERE, not Python's re: re.escape
+        # also writes `\-`, an undefined escape in ERE that grep warns about.
+        print("^" + re.sub(r"([.\[\]{}()\\*+?^$|])", r"\\\1", uuid) + "$")
 PYEOF
 }
 
