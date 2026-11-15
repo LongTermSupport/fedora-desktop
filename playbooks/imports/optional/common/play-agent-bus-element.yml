@@ -3,21 +3,28 @@
 # Element Desktop for the agent team bus (Plan 00161, DESIGN.md section 8). Optional: only
 # a desktop whose human watches a team runs it.
 #
-# Installs the Element Desktop Flatpak system-wide (tasks/element-desktop.yml, shared with
-# play-matrix-clients.yml), then, as user_login, writes one
-# locked-down profile and launcher per agent_bus_element_teams entry through
-# helpers/agent_bus/element.py, which owns the config.json keys and is tested for each, and
-# removes the launcher and profile it wrote for a team that is not declared or is absent.
-# Last, for a declared team whose v2 approved url is https, it places the team CA where
-# Element reads it and fails unless a handshake from Element's sandbox trusts it
-# (tasks/element-team-ca.yml, Plan 00246 SPEC-cross-network X34). Then the same for Lightning
-# (Plan 00254 Phase 4): it installs the Lightning Flatpak, places each https team's CA where
-# Lightning reads it and fails unless a handshake from Lightning's sandbox trusts it
-# (tasks/lightning-team-ca.yml, tag agent-bus-lightning). That check is a Go binary built here, so
-# the Go toolchain is installed first; play-golang.yml stays its one source of truth.
+# agent_bus_element_teams is the teams this desktop's human watches, whatever the client. Each
+# team opens in its own client:, else agent_bus_matrix_client, else element (Plan 00254
+# DESIGN-client-choice.md); the first read-only task refuses any other value, and each
+# client's steps get the whole list with client on every entry.
 #
-# The Element profile holds the human's Matrix session token, readable by every process of
-# that user, so no agent may run as user_login: the helper refuses (exit 78) a user holding
+# Installs the Element Desktop Flatpak system-wide (tasks/element-desktop.yml, shared with
+# play-matrix-clients.yml), then, as user_login, writes one locked-down profile and launcher per
+# element team through helpers/agent_bus/element.py, which owns the config.json keys and is
+# tested for each, and removes the launcher and profile it wrote for a team that is not declared
+# or is absent; a team moved to Lightning loses its Element launcher and keeps its profile. For
+# an element team whose v2 approved url is https, it places the team CA where Element reads it
+# and fails unless a handshake from Element's sandbox trusts it (tasks/element-team-ca.yml,
+# Plan 00246 SPEC-cross-network X34). Then Lightning (tag agent-bus-lightning, Plan 00254): it
+# installs the Lightning Flatpak, places each https lightning team's CA where Lightning reads it
+# and fails unless a handshake from Lightning's sandbox trusts it (tasks/lightning-team-ca.yml),
+# then writes each lightning team's own instance, settings file and launcher through the Go
+# command agent-bus-lightning (src-go/internal/lightning). Both Lightning steps are Go binaries
+# built here, so the Go toolchain is installed first; play-golang.yml stays its one source of
+# truth.
+#
+# The Element profile and the Lightning instance hold the human's Matrix session, readable by
+# every process of that user, so no agent may run as user_login: each refuses (exit 78) a user holding
 # pingbus bundles, before anything is installed (the rule and its one exception:
 # check_user in helpers/agent_bus/element.py), and agent-bus-claude and
 # `pingbus config check` refuse a host member beside the profile this play writes.
@@ -34,14 +41,27 @@
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     agent_bus_element_declared: "{{ agent_bus_element_teams | default([]) }}"
+    # The Matrix client each team opens in (Plan 00254 DESIGN-client-choice.md): the team's own
+    # client, else the home-level agent_bus_matrix_client, else element. The first read-only
+    # task refuses any other value; each client's steps then get the whole list, with client on
+    # every entry, so each can tell a team moved to the other client from one not declared.
+    agent_bus_matrix_clients: [element, lightning]
+    agent_bus_matrix_client_default: "{{ agent_bus_matrix_client | default('element') }}"
     # A team ccy-teams remove declared absent keeps its entry here (so it comes back with its
     # team) but gets no profile: the helper removes the launcher and profile of every team it
     # wrote one for that this list does not name, and never one this list names.
     agent_bus_element_absent: >-
       {{ agent_bus_teams | default([]) | selectattr('state', 'defined')
          | selectattr('state', 'equalto', 'absent') | map(attribute='team') | list }}
-    agent_bus_element_profiles: >-
+    agent_bus_element_present: >-
       {{ agent_bus_element_declared | rejectattr('team', 'in', agent_bus_element_absent) | list }}
+    agent_bus_element_profiles: >-
+      {{ ([{'client': agent_bus_matrix_client_default}] * (agent_bus_element_present | length))
+         | zip(agent_bus_element_present) | map('list') | map('combine') | list }}
+    agent_bus_element_element_teams: >-
+      {{ agent_bus_element_profiles | selectattr('client', 'equalto', 'element') | list }}
+    agent_bus_element_lightning_teams: >-
+      {{ agent_bus_element_profiles | selectattr('client', 'equalto', 'lightning') | list }}
     # Matches the helper's CHANGED<TAB><path> marker lines.
     agent_bus_element_changed_re: "^CHANGED\t"
     # Where an https team's CA is put for Element (tasks/element-team-ca.yml): nssdb or system,
@@ -81,6 +101,21 @@
           {{ agent_bus_host_vars_file | default('environment/localhost/host_vars/localhost.yml') }} must list
           the teams user_login watches, each with team and base_url. See localhost.yml.dist.
         quiet: true
+      tags: [agent-bus-element, agent-bus-lightning]
+
+    - name: Check each team's Matrix client is element or lightning
+      ansible.builtin.assert:
+        that:
+          - agent_bus_matrix_client_default in agent_bus_matrix_clients
+          - item.client | default(agent_bus_matrix_client_default) in agent_bus_matrix_clients
+        fail_msg: >-
+          Team {{ item.team | default('(no team)') }} opens in
+          {{ item.client | default(agent_bus_matrix_client_default) }} (its client, else
+          agent_bus_matrix_client); the client must be element or lightning.
+        quiet: true
+      loop: "{{ agent_bus_element_present }}"
+      loop_control:
+        label: "{{ item.team | default('(no team)') }}"
       tags: [agent-bus-element, agent-bus-lightning]
 
     # Read-only, so it runs in --check too, and before anything is installed.
@@ -127,26 +162,67 @@
     - name: Trust each https team's CA in Element Desktop, and prove it from Element's sandbox
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/element-team-ca.yml"
       vars:
-        element_team_ca_teams: "{{ agent_bus_element_profiles | map(attribute='team') | list }}"
+        element_team_ca_teams: "{{ agent_bus_element_element_teams | map(attribute='team') | list }}"
         element_team_ca_store: "{{ agent_bus_element_ca_store | default(agent_bus_element_ca_default_store) }}"
         # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
         element_team_ca_approved_root: /var/lib/teamchat-status/teams
         element_team_ca_admin_root: /var/lib/teamchat-admin
-        element_team_ca_given: "{{ agent_bus_element_ca_given }}"
+        element_team_ca_given: "{{ agent_bus_element_ca_given | selectattr('client', 'equalto', 'element') | list }}"
       tags: [agent-bus-element]
 
-    # Lightning, the Matrix client on trial to replace Element for a team (Plan 00254): installed,
-    # with each https team's CA where its rustls reads it, proven from its sandbox. It installs
-    # Lightning as well as play-matrix-clients.yml does because ccy-teams runs this play on its
-    # own. Where the Lightning steps finally live (this play generalised over the client, or a
-    # sibling) is Plan 00254 Task 5.1's decision; until then they follow Element's, for the same
-    # teams.
+    # Lightning (Plan 00254): installed, with each https lightning team's CA where its rustls
+    # reads it, proven from its sandbox. It installs Lightning as well as play-matrix-clients.yml
+    # does because ccy-teams runs this play on its own.
     - name: Install Lightning, trust each https team's CA in it, and prove it from its sandbox
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/lightning-team-ca.yml"
       vars:
-        lightning_team_ca_teams: "{{ agent_bus_element_profiles | map(attribute='team') | list }}"
+        lightning_team_ca_teams: "{{ agent_bus_element_lightning_teams | map(attribute='team') | list }}"
         # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
         lightning_team_ca_approved_root: /var/lib/teamchat-status/teams
         lightning_team_ca_admin_root: /var/lib/teamchat-admin
-        lightning_team_ca_given: "{{ agent_bus_element_ca_given }}"
+        lightning_team_ca_given: "{{ agent_bus_element_ca_given | selectattr('client', 'equalto', 'lightning') | list }}"
+      tags: [agent-bus-lightning]
+
+    # After the CA proof, so a team's launcher is written only once its CA is trusted.
+    - name: Resolve the desktop user's home for the per-team Lightning command
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+      tags: [agent-bus-lightning]
+
+    - name: Name the per-team Lightning command's path
+      ansible.builtin.set_fact:
+        agent_bus_lightning_command: "{{ ansible_facts['getent_passwd'][user_login][4] }}/.local/libexec/agent-bus-lightning"
+      tags: [agent-bus-lightning]
+
+    - name: Ensure the directory the per-team Lightning command is installed in exists
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "{{ agent_bus_lightning_command | dirname }}"
+        state: directory
+        mode: "0755"
+      tags: [agent-bus-lightning]
+
+    - name: Build and install the per-team Lightning command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: agent-bus-lightning
+        go_command_dest: "{{ agent_bus_lightning_command }}"
+        go_command_mode: "0755"
+      tags: [agent-bus-lightning]
+
+    # Each lightning team's instance folders, settings file and launcher; the launcher of a team
+    # moved to Element or no longer declared is removed. No instance is ever removed: one of a
+    # team no longer declared is named on a KEPT line, for the owner to delete.
+    - name: Write each team's Lightning instance and launcher, and remove those of teams not on Lightning
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: ["{{ agent_bus_lightning_command }}", apply]
+        stdin: "{{ agent_bus_element_profiles | to_json }}"
+      register: agent_bus_lightning_apply
+      changed_when: agent_bus_lightning_apply.stdout_lines | select('match', agent_bus_element_changed_re) | list | length > 0
+      # In --check nothing was built, so there is nothing to run.
+      when: not ansible_check_mode
       tags: [agent-bus-lightning]

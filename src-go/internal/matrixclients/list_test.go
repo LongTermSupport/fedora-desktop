@@ -157,3 +157,107 @@ func TestPresentFindsEveryClientsProfile(t *testing.T) {
 		t.Fatalf("all covered, got %+v", got)
 	}
 }
+
+// Plan 00254 Task 5.4: the list's Lightning entry names the folder each team's own instance lives
+// in (teams/<team>/{data,config,cache} under its Flatpak data), so a session there is found as
+// one under the app's default root is.
+func TestLightningsTeamInstancesAreListed(t *testing.T) {
+	list, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := slices.IndexFunc(list.Clients, func(c Client) bool { return c.Name == "Lightning" })
+	if at < 0 {
+		t.Fatal("Lightning is not listed")
+	}
+	lightning := list.Clients[at]
+	teams := lightning.FlatpakDir() + "/teams"
+	if !slices.Contains(list.ProfilePaths(), teams) {
+		t.Fatalf("the profile paths %v do not name %s", list.ProfilePaths(), teams)
+	}
+	home := t.TempDir()
+	mustDo(t, os.MkdirAll(filepath.Join(home, teams, "team-a", "data"), 0o700))
+	found, err := list.Present(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(found, func(f Found) bool { return f.Client.AppID == lightning.AppID && f.Path == filepath.Join(home, teams) }) {
+		t.Fatalf("found %+v", found)
+	}
+}
+
+// writeRecord is a consent record of this user's at home/.config/pingbus, mode 0600.
+func writeRecord(t *testing.T, home, text string) string {
+	t.Helper()
+	dir := filepath.Join(home, AcceptedDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(dir, AcceptedFile)
+	if err := os.WriteFile(record, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+// Accepted is config.accepted_clients: the record's app ids when it is a regular file of uid's
+// that no one else can read or write, in a real directory of uid's, and reads as a record; nil
+// otherwise. Another user's is said through the uid given, so no file is given away.
+func TestAcceptedIsReadAsPingbusReadsIt(t *testing.T) {
+	list := twoClientList(t)
+	uid := os.Getuid()
+	home := t.TempDir()
+	if got := list.Accepted(home, uid); got != nil {
+		t.Fatalf("no record: %v", got)
+	}
+	record := writeRecord(t, home, "accepted x\n")
+	if got := list.Accepted(home, uid); !slices.Equal(got, []string{"im.riot.Riot"}) {
+		t.Fatalf("a legacy record: %v", got)
+	}
+	if got := list.Accepted(home, uid+1); got != nil {
+		t.Fatalf("another user's record: %v", got)
+	}
+	if err := os.WriteFile(record, []byte("accepted x\nclients\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := list.Accepted(home, uid); got == nil || len(got) != 0 {
+		t.Fatalf("a record accepting nothing is a record: %#v", got)
+	}
+	for name, spoil := range map[string]func(){
+		"readable by others": func() { widen(t, record) },
+		"not a record":       func() { mustDo(t, os.WriteFile(record, []byte("clients riot\n"), 0o600)) },
+		"a link":             func() { mustDo(t, os.Remove(record)); mustDo(t, os.Symlink(filepath.Join(home, "x"), record)) },
+		"a directory":        func() { mustDo(t, os.Remove(record)); mustDo(t, os.Mkdir(record, 0o700)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			record = writeRecord(t, home, "accepted x\n")
+			spoil()
+			if got := list.Accepted(home, uid); got != nil {
+				t.Fatalf("counted: %v", got)
+			}
+		})
+	}
+	linked := t.TempDir()
+	writeRecord(t, filepath.Join(linked, "elsewhere"), "accepted x\n")
+	mustDo(t, os.MkdirAll(filepath.Join(linked, ".config"), 0o700))
+	mustDo(t, os.Symlink(filepath.Join(linked, "elsewhere", AcceptedDir), filepath.Join(linked, AcceptedDir)))
+	if got := list.Accepted(linked, uid); got != nil {
+		t.Fatalf("a linked directory: %v", got)
+	}
+}
+
+func mustDo(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// widen gives a file's group and others read access, as a careless copy would.
+func widen(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	mustDo(t, err)
+	mustDo(t, os.Chmod(path, info.Mode().Perm()|0o044))
+}

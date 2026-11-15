@@ -62,3 +62,12 @@ playbooks/imports/play-teamchat.yml --tags admin
 # when it was updated. No release carries our upstream fixes yet, so this run should report no
 # change for Lightning; it proves the new step on the host.
 playbooks/imports/optional/common/play-matrix-clients.yml --tags lightning
+
+# Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
+# in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
+# changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
+# for a lightning team writes its own instance under
+# ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/, a homeserver settings file and an
+# "<team> team (Lightning)" launcher; with no lightning team it writes nothing and only names
+# any leftover instance on a KEPT line. Afterwards report the play's CHANGED and KEPT lines.
+playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning

@@ -53,3 +53,4 @@ teamchat-admin	qa-go
 teamchat	scripts/test-ccy-image-build-lock.bash
 release-plan	qa-go
 tls-trust-check	qa-go
+agent-bus-lightning	qa-go

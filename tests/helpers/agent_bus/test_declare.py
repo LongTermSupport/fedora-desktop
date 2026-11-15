@@ -1087,6 +1087,18 @@ class ElementTest(CommandCase):
         text = self.path.read_text()
         self.assertIn('  - team: alpha\n    base_url: "http://192.0.2.10:6167"\n  - team: other\n', text)
 
+    def test_a_client_key_is_kept_when_the_url_is_updated(self) -> None:
+        # Plan 00254 DESIGN-client-choice.md: an entry's client override survives ccy-teams.
+        self.path.write_text(STATUS_HV + "agent_bus_element_teams:\n  - team: alpha\n"
+                             "    client: lightning\n    base_url: http://192.0.2.99:6000\n", encoding="utf-8")
+        code, out, err = self.run_cmd("element", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHANGED", out)
+        self.assertIn('  - team: alpha\n    client: lightning\n    base_url: "http://192.0.2.10:6167"\n',
+                      self.path.read_text())
+        code, out, _ = self.run_cmd("element-teams")
+        self.assertEqual((code, out), (0, "ELEMENT\talpha\thttp://192.0.2.10:6167\n"))
+
     def test_a_team_not_declared_present_is_refused(self) -> None:
         self.assertEqual(self.run_cmd("element", "--team", "nosuch")[0], 78)
         self.assertEqual(self.run_cmd("element", "--team", "gamma")[0], 78)

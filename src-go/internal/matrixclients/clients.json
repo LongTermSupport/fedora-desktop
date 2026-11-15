@@ -22,7 +22,13 @@
       "name": "Lightning",
       "app_id": "org.lightning_matrix.Lightning",
       "keyring": true,
-      "native": []
+      "native": [
+        {
+          "parent": ".var/app/org.lightning_matrix.Lightning",
+          "name": "teams",
+          "profiles": false
+        }
+      ]
     }
   ],
   "legacy_consent": [

@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.7 — container 2.84.19
+
+- **An agent-bus team may open in Lightning** (Plan 00254 Tasks 5.2 to 5.4). The image carries
+  `helpers/agent_bus/element.py`, which now accepts an entry's `client` (`element` or
+  `lightning`) and writes Element's profile and launcher for an Element team only, and the one
+  Matrix client list (`helpers/pingbus/matrix_clients.json`), which now names the folder
+  holding each team's Lightning instance; the cc deny rules and the kit launcher name it too. So
+  the image is rebuilt once. The launcher itself is unchanged apart from the versions.
+
 ## 3.122.5 — container 2.84.17
 
 - **An agent-bus team entry may name `ca_file`, its CA on this machine** (Plan 00254 Task

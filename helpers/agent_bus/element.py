@@ -15,9 +15,13 @@ can read it. So a user who holds pingbus bundles (`~/.config/pingbus/`, the defa
 refuse a `host` member beside a Matrix client profile (`config.MATRIX_CLIENTS`).
 
 Usage, as the human's desktop user, the profiles as JSON on stdin
-(`[{"team": ..., "base_url": ..., "server_name": ..., "ca_file": ...}]`, `server_name` and
-`ca_file` optional; `ca_file` names the team CA on this machine, for an https team whose
-homeserver is elsewhere, and is read by the CA tasks, not here):
+(`[{"team": ..., "base_url": ..., "server_name": ..., "ca_file": ..., "client": ...}]`,
+`server_name`, `ca_file` and `client` optional; `ca_file` names the team CA on this machine,
+for an https team whose homeserver is elsewhere, and is read by the CA tasks, not here;
+`client`, `element` (the default) or `lightning`, is the client the team opens in. Only an
+Element team gets a profile and launcher; a team declared for Lightning keeps its Element
+profile, the human's session, and loses its Element launcher, because a team has one
+(Plan 00254 DESIGN-client-choice.md)):
 
     python3 -m helpers.agent_bus.element check   # validate and refuse; writes nothing
     python3 -m helpers.agent_bus.element apply   # write; prints CHANGED<TAB><path>
@@ -52,8 +56,12 @@ ELECTRON_STORE_FILE = "electron-config.json"
 SPELLCHECK_SEED = {"spellCheckerEnabled": False}
 APPLICATIONS_DIR = pathlib.PurePosixPath(".local/share/applications")
 
-PROFILE_KEYS = frozenset({"team", "base_url", "server_name", "ca_file"})
+PROFILE_KEYS = frozenset({"team", "base_url", "server_name", "ca_file", "client"})
 REQUIRED_PROFILE_KEYS = ("team", "base_url")
+#: The Matrix client a team opens in (Plan 00254 DESIGN-client-choice.md). Only an Element team
+#: is written here; a Lightning team's is src-go/cmd/agent-bus-lightning's.
+CLIENT_ELEMENT = "element"
+CLIENTS = (CLIENT_ELEMENT, "lightning")
 
 DIR_MODE = 0o700
 PRIVATE_MODE = 0o600
@@ -75,6 +83,7 @@ class Profile:
     # Where this machine holds the team's CA when the homeserver is elsewhere (Plan 00254 Task
     # 4.4). The CA tasks read it; Element's own config does not change.
     ca_file: str | None = None
+    client: str = CLIENT_ELEMENT
 
     @property
     def host(self) -> str:
@@ -126,7 +135,11 @@ def _parse_one(position: int, data: object) -> Profile:
     ca_file = data.get("ca_file")
     if ca_file is not None:
         _check_ca_file(ca_file, base_url, refuse)
-    return Profile(team=team, base_url=base_url, server_name=server_name, ca_file=ca_file)
+    client = data.get("client", CLIENT_ELEMENT)
+    if not isinstance(client, str) or client not in CLIENTS:
+        raise refuse("client", f"must be one of {', '.join(CLIENTS)}")
+    return Profile(team=team, base_url=base_url, server_name=server_name, ca_file=ca_file,
+                   client=client)
 
 
 def _check_ca_file(ca_file: object, base_url: str,
@@ -321,11 +334,16 @@ def stale_teams(home: pathlib.Path, declared: Sequence[str]) -> list[str]:
         match = _LAUNCHER_NAME.fullmatch(path.name)
         if match is None or match.group(1) in declared or not protocol.is_team_name(match.group(1)):
             continue
-        if path.is_symlink() or not path.is_file():
-            continue
-        if _exec_line(match.group(1)) in path.read_text(encoding="utf-8"):
+        if _is_ours(path, match.group(1)):
             stale.append(match.group(1))
     return stale
+
+
+def _is_ours(launcher: pathlib.Path, team: str) -> bool:
+    """A regular file, never through a link, holding the Exec line launcher_text writes."""
+    if launcher.is_symlink() or not launcher.is_file():
+        return False
+    return _exec_line(team) in launcher.read_text(encoding="utf-8")
 
 
 def prune(home: pathlib.Path, declared: Sequence[str]) -> list[pathlib.Path]:
@@ -349,11 +367,14 @@ def prune(home: pathlib.Path, declared: Sequence[str]) -> list[pathlib.Path]:
 
 
 def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]:
-    """Write every profile and launcher, then remove those of teams no longer declared (prune);
-    return the paths changed, in order."""
+    """Write the profile and launcher of every Element team, then remove those of teams no
+    longer declared (prune), and the launcher of each team declared for another client, whose
+    profile is kept; return the paths changed, in order."""
     check_user(home)
     changed: list[pathlib.Path] = []
     for profile in profiles:
+        if profile.client != CLIENT_ELEMENT:
+            continue
         pdir = profile_dir(home, profile.team)
         _ensure_dir(pdir, DIR_MODE, changed)
         _write(pdir / CONFIG_FILE, _dumps(config_json(profile)), PRIVATE_MODE, changed)
@@ -363,6 +384,11 @@ def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]
         launcher.parent.mkdir(parents=True, exist_ok=True)
         _write(launcher, launcher_text(profile).encode("utf-8"), LAUNCHER_MODE, changed)
     changed.extend(prune(home, [profile.team for profile in profiles]))
+    for profile in profiles:
+        launcher = launcher_path(home, profile.team)
+        if profile.client != CLIENT_ELEMENT and _is_ours(launcher, profile.team):
+            launcher.unlink()
+            changed.append(launcher)
     return changed
 
 

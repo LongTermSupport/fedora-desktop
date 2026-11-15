@@ -211,3 +211,23 @@ func rpartition(s, sep string) parted {
 	}
 	return parted{s[:i], s[i+len(sep):], true}
 }
+
+// CheckBaseURL is checkBaseURL for a caller outside the bundle decoder: agent-bus-lightning,
+// which holds a team entry to helpers/agent_bus/element.py's rules.
+func CheckBaseURL(v pycompat.Value, plainHosts []string, refuse func(key, why string) error) error {
+	return checkBaseURL(v, plainHosts, refuse)
+}
+
+// IPHost is element.py's _ip_hosts: the url's host, canonical, when it is an IP literal with no
+// zone (the one host an entry may reach over plain http); none for anything else, or a url
+// urlsplit refuses.
+func IPHost(url string) []string {
+	parts, err := urlsplit(url)
+	if err != nil {
+		return nil
+	}
+	if ip := ipLiteral(parts.hostinfo().hostname()); ip != "" {
+		return []string{ip}
+	}
+	return nil
+}

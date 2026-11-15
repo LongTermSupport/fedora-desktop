@@ -173,17 +173,23 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   `lightning`, or `element`), and a team's host vars may override it with its own `client:`.
   There is no second `agent_bus_lightning_teams` list. Write it as a short DESIGN section in
   this folder first.
-- [ ] ⬜ **Task 5.2**: A Go command under `src-go/` (new tooling is Go) that, per declared team,
+- [ ] 🔄 **Task 5.2** (done in code, not established on a host: `src-go/cmd/agent-bus-lightning`
+  over `src-go/internal/lightning`, L1-L14 in its package doc): A Go command under `src-go/` (new tooling is Go) that, per declared team,
   writes `teams/<team>/{data,config,cache}` under `~/.var/app/org.lightning_matrix.Lightning/`,
   writes `config/MatrixClient/matrix-client.conf` with `[homeserver] url=<team url>` only when the
   file is absent (Lightning rewrites it and owns it afterwards), and writes the launcher
   `agent-bus-<team>-lightning.desktop` with the Phase 3 launch form and the Phase 4 variables.
   It removes the directories' launcher (never a signed-in data root without the owner's consent)
   for a team no longer declared, as `element.py` does. Unit tests through fakes.
-- [ ] ⬜ **Task 5.3**: The play that runs it (an edit to `play-agent-bus-element.yml` generalised,
+- [ ] 🔄 **Task 5.3** (done in code, not established on a host: `play-agent-bus-element.yml`
+  resolves each entry's `client`, refuses any other value first, gives Element and its CA tasks
+  the element teams and Lightning's the lightning teams, and runs the Task 5.2 command after
+  Lightning's CA proof; `element.py` learns `client`): The play that runs it (an edit to `play-agent-bus-element.yml` generalised,
   or a sibling, decided in 5.1), with the same guard as Element: refuse a user holding pingbus
   bundles, because the instance holds the human's Matrix session.
-- [ ] ⬜ **Task 5.4**: Add Lightning's per-team directories to its `native` entry in
+- [ ] 🔄 **Task 5.4** (done in code, not established on a host: the native entry is the folder
+  that holds every team's instance, `teams`, as the list's schema has no wildcard; held by
+  `TestL14TheListCoversTheTeamRoots`): Add Lightning's per-team directories to its `native` entry in
   `src-go/internal/matrixclients/clients.json`, so every #251 guard sees a Lightning session.
 - [ ] ⬜ **Task 5.5**: Deploy through `meta-deploy.bash`; `acceptance.bash` checks each declared
   team's launcher, directories and config, and the CA handshake; the windows and the login are

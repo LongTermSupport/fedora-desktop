@@ -219,6 +219,11 @@ func TestElementTeams(t *testing.T) {
 	if err != nil || got[0].BaseURL != "[1, 'x', True]" {
 		t.Fatalf("base_url is python's str(): %+v, %v", got, err)
 	}
+	// Plan 00254 DESIGN-client-choice.md: an entry's client override is read past, not refused.
+	got, err = HostVars("agent_bus_element_teams:\n  - team: a\n    client: lightning\n    base_url: http://192.0.2.1:6167\n").ElementTeams()
+	if err != nil || !reflect.DeepEqual(got, []Profile{{Team: "a", BaseURL: "http://192.0.2.1:6167"}}) {
+		t.Fatalf("an entry with a client: %+v, %v", got, err)
+	}
 }
 
 func TestAddress(t *testing.T) {

@@ -140,8 +140,11 @@ launch does not start.
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the
    team's name typed. A team watched in Element loses its launcher and Element profile too
-   (`play-agent-bus-element.yml` runs after the team's play); its `agent_bus_element_teams`
-   entry is kept, so the team brought back present gets them again.
+   (`play-agent-bus-element.yml` runs after the team's play); one watched in Lightning loses its
+   launcher and keeps its Lightning instance, named for you to delete. Its
+   `agent_bus_element_teams` entry (the teams this desktop's human watches, whatever the
+   client; each opens in its `client:`, else `agent_bus_matrix_client`, else Element) is kept,
+   so the team brought back present gets them again.
 
 **Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the
 team, then **Wind down the team's sessions**) types `/goal clear` into each running session's

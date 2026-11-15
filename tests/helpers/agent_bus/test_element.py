@@ -137,6 +137,19 @@ class TestParseProfiles(unittest.TestCase):
             with self.subTest(name), self.assertRaises(element.ElementError):
                 element.parse_profiles(data)
 
+    def test_the_client_is_element_unless_named(self) -> None:
+        # Plan 00254 DESIGN-client-choice.md: the play gives every entry its resolved client.
+        self.assertIn("client", element.PROFILE_KEYS)
+        self.assertEqual(profile().client, "element")
+        self.assertEqual(profile(client="element").client, "element")
+        self.assertEqual(profile(client="lightning").client, "lightning")
+
+    def test_client_refusals(self) -> None:
+        for name, value in {"another client": "nheko", "capitals": "Lightning", "empty": "",
+                            "not a string": ["lightning"], "null": None}.items():
+            with self.subTest(name), self.assertRaisesRegex(element.ElementError, "client"):
+                profile(client=value)
+
     def test_no_ca_file_is_none(self) -> None:
         self.assertIsNone(profile().ca_file)
 
@@ -405,6 +418,61 @@ class TestPrune(HomeCase):
         with self.assertRaisesRegex(element.ElementError, "not a directory"):
             element.apply(self.home, ())
         self.assertTrue((target / "config.json").is_file())
+
+
+class TestLightningTeams(HomeCase):
+    """Plan 00254 DESIGN-client-choice.md: a team declared for Lightning gets nothing from
+    Element; its Element profile, the human's signed-in session, is kept, and its Element
+    launcher removed, because one team gets one launcher."""
+
+    def test_a_lightning_team_gets_no_profile_or_launcher(self) -> None:
+        self.assertEqual(element.apply(self.home, (profile(client="lightning"),)), [])
+        self.assertFalse((self.home / ".var").exists())
+        self.assertFalse(element.launcher_path(self.home, "team-a").exists())
+
+    def test_switching_to_lightning_keeps_the_profile_and_removes_the_launcher(self) -> None:
+        element.apply(self.home, (profile(), profile(team="team-b")))
+        launcher = element.launcher_path(self.home, "team-a")
+        changed = element.apply(self.home, (profile(client="lightning"), profile(team="team-b")))
+        self.assertEqual(changed, [launcher])
+        self.assertFalse(launcher.exists())
+        self.assertTrue((element.profile_dir(self.home, "team-a") / "config.json").is_file())
+        self.assertTrue(element.launcher_path(self.home, "team-b").is_file())
+        self.assertEqual(element.apply(self.home, (profile(client="lightning"), profile(team="team-b"))), [])
+
+    def test_switching_back_finds_the_profile(self) -> None:
+        element.apply(self.home, (profile(),))
+        (element.profile_dir(self.home, "team-a") / "session").write_text("signed in")
+        element.apply(self.home, (profile(client="lightning"),))
+        changed = element.apply(self.home, (profile(),))
+        self.assertEqual(changed, [element.launcher_path(self.home, "team-a")])
+        self.assertTrue((element.profile_dir(self.home, "team-a") / "session").is_file())
+
+    def test_an_undeclared_team_last_on_lightning_keeps_its_element_profile(self) -> None:
+        # Prune finds a team by the launcher this module wrote; a team last declared for
+        # Lightning has none, so its Element profile, a session, is left for the owner.
+        element.apply(self.home, (profile(),))
+        element.apply(self.home, (profile(client="lightning"),))
+        self.assertTrue(element.profile_dir(self.home, "team-a").is_dir())
+        element.apply(self.home, ())
+        self.assertTrue(element.profile_dir(self.home, "team-a").is_dir())
+
+    def test_a_launcher_the_human_wrote_is_never_touched(self) -> None:
+        apps = self.home / element.APPLICATIONS_DIR
+        apps.mkdir(parents=True)
+        own = apps / "agent-bus-team-a-element.desktop"
+        own.write_text("[Desktop Entry]\nExec=something else\n")
+        self.assertEqual(element.apply(self.home, (profile(client="lightning"),)), [])
+        self.assertTrue(own.is_file())
+
+    def test_a_symlinked_launcher_is_never_followed(self) -> None:
+        target = self.home / "elsewhere.desktop"
+        target.write_text(element.launcher_text(profile()))
+        apps = self.home / element.APPLICATIONS_DIR
+        apps.mkdir(parents=True)
+        (apps / "agent-bus-team-a-element.desktop").symlink_to(target)
+        self.assertEqual(element.apply(self.home, (profile(client="lightning"),)), [])
+        self.assertTrue(target.is_file())
 
 
 class TestMain(HomeCase):
