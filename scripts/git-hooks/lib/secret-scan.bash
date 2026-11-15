@@ -135,10 +135,8 @@ for entries in groups.values():
         uuid = entry.get("uuid") if isinstance(entry, dict) else None
         if not isinstance(uuid, str) or not uuid:
             continue
-        # Anchored whole-token literal. This exempts exactly this string, never
-        # anything merely containing it, so a real address cannot ride along on a
-        # UUID's coat-tails. Escaped for grep's POSIX ERE, not Python's re: re.escape
-        # also writes `\-`, an undefined escape in ERE that grep warns about.
+        # Anchored whole-token literal, so no address rides along on a UUID's coat-tails.
+        # Escaped for grep's ERE, not by re.escape (its `\-` is undefined in ERE).
         print("^" + re.sub(r"([.\[\]{}()\\*+?^$|])", r"\\\1", uuid) + "$")
 PYEOF
 }
