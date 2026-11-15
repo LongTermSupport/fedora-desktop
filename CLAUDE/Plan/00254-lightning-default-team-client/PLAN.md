@@ -167,7 +167,8 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 5: Per-team instance, launcher and pre-filled config
 
-- [ ] ⬜ **Task 5.1**: Design note (owner decision **D3**, decided 2026-11-15): one home-level
+- [x] ✅ **Task 5.1** ([DESIGN-client-choice.md](DESIGN-client-choice.md); the code default
+  stays `element` until Task 7.1 changes it, so a host that sets nothing is unchanged): Design note (owner decision **D3**, decided 2026-11-15): one home-level
   setting picks the Matrix client for every team, `agent_bus_matrix_client` (default
   `lightning`, or `element`), and a team's host vars may override it with its own `client:`.
   There is no second `agent_bus_lightning_teams` list. Write it as a short DESIGN section in
