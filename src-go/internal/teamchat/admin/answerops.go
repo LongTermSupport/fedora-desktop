@@ -6,9 +6,12 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
@@ -38,6 +41,13 @@ const (
 	keyNotice   = "notice"
 	keyExport   = "export"
 	keyEpoch    = "epoch"
+	keyHuman    = "human"
+)
+
+// The bounds of a human answer's devices (HU13).
+const (
+	maxDevices  = 256
+	maxDeviceID = 255
 )
 
 // answerFits refuses an ok answer the op cannot give (CO3, RC6): a view answers team.view, a
@@ -53,8 +63,22 @@ func answerFits(op string, a Answer) error {
 		return fmt.Errorf("its answer to %s does not fit the op (a view: %v, a notice: %v, an export: %v, an epoch: %v)",
 			op, a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil)
 	}
-	if strings.HasPrefix(op, "restore.") && (a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0) {
+	if (strings.HasPrefix(op, "restore.") || strings.HasPrefix(op, "human.")) &&
+		(a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0) {
 		return fmt.Errorf("its answer to %s carries a handle, a credential, a main room or notes", op)
+	}
+	return humanFits(op, a)
+}
+
+// humanFits is HU13's rule: a human answer answers human.password (a password, no devices) and
+// human.devices (devices, no password), always and only there.
+func humanFits(op string, a Answer) error {
+	password, devices := op == apply.OpHumanPassword, op == apply.OpHumanDevices
+	if (a.Human != nil) != (password || devices) {
+		return fmt.Errorf("its answer to %s does not fit the op (a human answer: %v)", op, a.Human != nil)
+	}
+	if password && (a.Human.Password == "" || a.Human.Devices != nil) || devices && a.Human.Password != "" {
+		return fmt.Errorf("its human answer to %s is not that op's", op)
 	}
 	return nil
 }
@@ -66,6 +90,9 @@ func (a Answer) validateOps() error {
 	}
 	if a.MainRoom != "" && !proto.ValidRoomID(a.MainRoom) {
 		return errors.New("the main room is not a room ID")
+	}
+	if a.Human != nil {
+		return a.validateHuman()
 	}
 	if a.Export != nil || a.Epoch != nil {
 		return a.validateRestore()
@@ -80,6 +107,84 @@ func (a Answer) validateOps() error {
 		return validNotice(*a.Notice)
 	}
 	return validView(*a.View)
+}
+
+// validateHuman is a human answer (HU13): of its own, a password of printable ASCII without a
+// space, or at most maxDevices distinct device IDs of 1 to maxDeviceID such bytes. No error
+// quotes the password.
+func (a Answer) validateHuman() error {
+	if a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 || a.View != nil || a.Notice != nil || a.Export != nil || a.Epoch != nil {
+		return errors.New("a human answer is an answer of its own")
+	}
+	h := a.Human
+	if h.Password != "" && (h.Devices != nil || !printableWord(h.Password, maxSecret)) {
+		return fmt.Errorf("a human answer's password is not 1 to %d printable ASCII bytes without a space, alone", maxSecret)
+	}
+	return validDevices(h.Devices)
+}
+
+// validDevices is at most maxDevices distinct IDs of 1 to maxDeviceID printable bytes, each
+// seen at a time from 0.
+func validDevices(devices []matrix.Device) error {
+	if len(devices) > maxDevices {
+		return fmt.Errorf("a human answer holds more than %d devices", maxDevices)
+	}
+	seen := map[string]bool{}
+	for _, d := range devices {
+		if !printableWord(d.ID, maxDeviceID) || seen[d.ID] || !d.LastSeen.IsZero() && d.LastSeen.UnixMilli() < 0 {
+			return fmt.Errorf("a device is not a distinct ID of 1 to %d printable bytes seen at a time from 0", maxDeviceID)
+		}
+		seen[d.ID] = true
+	}
+	return nil
+}
+
+// printableWord is 1 to most printable ASCII bytes without a space.
+func printableWord(s string, most int) bool {
+	return s != "" && len(s) <= most && !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' || r > '~' })
+}
+
+// encodeDevices is HU5's devices: each ID, and its last sighting in milliseconds or null.
+func encodeDevices(devices []matrix.Device) proto.Value {
+	items := make([]proto.Value, 0, len(devices))
+	for _, d := range devices {
+		seen := proto.Null()
+		if !d.LastSeen.IsZero() {
+			seen = proto.Int(d.LastSeen.UnixMilli())
+		}
+		items = append(items, proto.Obj(proto.M("id", proto.Str(d.ID)), proto.M("last_seen_ms", seen)))
+	}
+	return proto.Arr(items...)
+}
+
+// decodeHumanAnswer reads a human answer: exactly one of password and devices.
+func decodeHumanAnswer(v proto.Value) (*HumanAnswer, error) {
+	if pw, given := v.Get("password"); given {
+		if _, err := exactKeys(v, "password"); err != nil || pw.Kind() != proto.KindString {
+			return nil, errors.New("human: a password answer is one string, alone")
+		}
+		return &HumanAnswer{Password: pw.Str()}, nil
+	}
+	obj, err := exactKeys(v, "devices")
+	if err != nil || obj["devices"].Kind() != proto.KindArray {
+		return nil, errors.New("human: not a password or an array of devices")
+	}
+	devices := []matrix.Device{}
+	for _, item := range obj["devices"].Items() {
+		f, err := exactKeys(item, "id", "last_seen_ms")
+		if err != nil || f["id"].Kind() != proto.KindString {
+			return nil, errors.New("human: a device is not an id and a last_seen_ms")
+		}
+		d := matrix.Device{ID: f["id"].Str()}
+		seen := f["last_seen_ms"]
+		if seen.Kind() == proto.KindInt {
+			d.LastSeen = time.UnixMilli(seen.Int()).UTC()
+		} else if seen.Kind() != proto.KindNull {
+			return nil, errors.New("human: a device's last_seen_ms is not a number or null")
+		}
+		devices = append(devices, d)
+	}
+	return &HumanAnswer{Devices: devices}, nil
 }
 
 // validateRestore is an export's or an epoch's answer: of its own, with sane numbers (RC6).
@@ -155,6 +260,13 @@ func (a Answer) encodeOps() []proto.Member {
 	if e := a.Epoch; e != nil {
 		out = append(out, proto.M(keyEpoch, proto.Obj(proto.M("restore_epoch", proto.Int(e.RestoreEpoch)), proto.M("rev", proto.Int(e.Rev)))))
 	}
+	if h := a.Human; h != nil {
+		if h.Password != "" {
+			out = append(out, proto.M(keyHuman, proto.Obj(proto.M("password", proto.Str(h.Password)))))
+		} else {
+			out = append(out, proto.M(keyHuman, proto.Obj(proto.M("devices", encodeDevices(h.Devices)))))
+		}
+	}
 	return out
 }
 
@@ -217,6 +329,13 @@ func decodeOps(a *Answer, obj map[string]proto.Value) error {
 			return errors.New("notice: posted is not a boolean or why not a string")
 		}
 		a.Notice = &health.Notice{Posted: n["posted"].Bool(), Why: n["why"].Str()}
+	}
+	if v, given := obj[keyHuman]; given {
+		h, err := decodeHumanAnswer(v)
+		if err != nil {
+			return err
+		}
+		a.Human = h
 	}
 	return decodeRestore(a, obj)
 }

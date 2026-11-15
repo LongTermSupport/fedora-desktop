@@ -296,6 +296,7 @@ type Answer struct {
 	Notice     *health.Notice
 	Export     *restore.Export
 	Epoch      *restore.Epoch
+	Human      *HumanAnswer
 	Error      *AnswerError
 }
 
@@ -339,8 +340,8 @@ func (a Answer) validate() error {
 
 func (a Answer) validateFailure() error {
 	if a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0 || a.View != nil || a.Notice != nil ||
-		a.Export != nil || a.Epoch != nil {
-		return errors.New("a failed answer carries no handle, credential, main room, notes, view, notice, export or epoch")
+		a.Export != nil || a.Epoch != nil || a.Human != nil {
+		return errors.New("a failed answer carries no handle, credential, main room, notes, view, notice, export, epoch or human")
 	}
 	if _, ok := classExit[a.Error.Class]; !ok {
 		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
@@ -438,7 +439,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch)
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyHuman)
 	if err != nil {
 		return Answer{}, err
 	}
