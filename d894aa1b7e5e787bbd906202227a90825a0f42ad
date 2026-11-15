@@ -1,3 +1,3 @@
-Kept-Reason: Sub-agent adding RUN_BASH_NOPASSWD_SUDOERS to run.bash; reviewed and merged by fedora-desktop.2
+Kept-Reason: Sub-agent making queue entries skip by name on hosts they do not apply to; reviewed and merged by fedora-desktop.2
 Kept-By: joseph
-Kept-At: 2026-11-15T16:35:19Z
+Kept-At: 2026-11-15T17:00:26Z
