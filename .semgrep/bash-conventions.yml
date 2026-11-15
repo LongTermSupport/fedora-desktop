@@ -448,3 +448,46 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: a loop fed by `done < file`, whose open cannot be checked (fedora-desktop#293)
+  #
+  # WRONG: while IFS= read -r line; do ...; done < "$file"
+  #        -> a file that cannot be opened (unreadable, an I/O error) makes bash print its
+  #           error and run the loop zero times. Where errexit is off (a function called
+  #           under `||` or `&&`, inside an `if`, or with no `set -e`) the caller goes on as
+  #           if the file were empty: check_allowed_hostname read an unreadable rule file as
+  #           "no restriction" and let ccy run.
+  # WRONG: ... done < "$file" || return 1
+  #        -> a loop's status is that of the last body command it ran, so a final
+  #           `[[ -n $x ]] && ...` that is false reports a failure that is not one.
+  # RIGHT: exec {fd}<"$file" || { echo "cannot read $file" >&2; return 1; }
+  #        while IFS= read -r -u "$fd" line; do ...; done
+  #        exec {fd}<&-
+  #
+  # Not matched: `done <<<` and here-documents (nothing to open), `done < <(cmd)` (a process
+  # substitution, whose status is a different defect).
+  - id: bash-loop-redirect-unchecked
+    patterns:
+      - pattern-regex: '(?m)^[^\n#]*\bdone[ \t]*<[ \t]*[^<&( \t\n][^\n]*$'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'fedora-install/**'
+        - 'run.bash'
+      exclude:
+        - 'scripts/test-*'
+    message: >
+      bash-loop-redirect-unchecked: this loop is fed by `done < file`, so a file that
+      cannot be opened runs it zero times, and where errexit is off the caller reads that
+      as an empty file. `|| fail` after `done` does not help: the loop's status is its last
+      body command's. Open the file on its own descriptor first and check that:
+      'exec {fd}<"$f" || { echo "cannot read $f" >&2; return 1; }', read with
+      'read -u "$fd"', and close it with 'exec {fd}<&-'.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

@@ -560,3 +560,47 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/x.XXXXXX")"  # FAIL-FAST-OK: 
 # A comment that quotes the call is not the call.
 # ok: bash-test-scratch-inside-checkout
 # the suite used to run: mktemp -d "$REPO_ROOT/untracked/scratch/y.XXXXXX"
+
+# ── bash-loop-redirect-unchecked (fedora-desktop#293) ──────────────────────────────────
+
+# The defect: an unreadable rule file read as an empty one.
+while IFS= read -r line; do
+    allowed+=("$line")
+# ruleid: bash-loop-redirect-unchecked
+done < "$allowed_file"
+
+# No space, and a status check that checks the last body command instead.
+while IFS= read -r stamp; do
+    kept+=("$stamp")
+# ruleid: bash-loop-redirect-unchecked
+done <"$file" || return 1
+
+# A literal path is opened the same way.
+while read -r a b; do
+    echo "$a $b"
+# ruleid: bash-loop-redirect-unchecked
+done < /etc/hosts
+
+# The fix: the file opened on its own descriptor, the open checked.
+exec {fd}<"$allowed_file" || return 1
+while IFS= read -r -u "$fd" line; do
+    allowed+=("$line")
+# ok: bash-loop-redirect-unchecked
+done
+exec {fd}<&-
+
+# A here-string has nothing to open.
+while IFS= read -r line; do
+    echo "$line"
+# ok: bash-loop-redirect-unchecked
+done <<<"$text"
+
+# A process substitution is another defect's.
+while IFS= read -r line; do
+    echo "$line"
+# ok: bash-loop-redirect-unchecked
+done < <(list_things)
+
+# A comment that quotes the form is not the form.
+# ok: bash-loop-redirect-unchecked
+# the loop used to end: done < "$file"
