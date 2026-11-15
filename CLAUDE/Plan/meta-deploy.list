@@ -51,3 +51,8 @@ playbooks/imports/play-claude-yolo.yml
 # warning and reboots when it returns (ten-minute deadline), recording any session not
 # compacted. Run after the play above, so the verb the cycle calls is installed.
 playbooks/imports/optional/common/play-self-update.yml
+
+# Plan 00254 D1: Lightning is brought to Flathub's latest release on every run, changed only
+# when it was updated. No release carries our upstream fixes yet, so this run should report no
+# change for Lightning; it proves the new step on the host.
+playbooks/imports/optional/common/play-matrix-clients.yml --tags lightning

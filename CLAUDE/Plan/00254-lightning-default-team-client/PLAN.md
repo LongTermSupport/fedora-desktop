@@ -1,6 +1,6 @@
 # Plan 00254: Lightning as the default team client
 
-**Status**: In Progress (the thread-root fix is prototyped; owner decisions D1-D4 open)
+**Status**: In Progress (every reported fix merged upstream, awaiting a release; D3-D4 open)
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: High
@@ -60,14 +60,14 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 1: Track Lightning
 
-- [ ] ⬜ **Task 1.1**: Add `Mizerd/lightning` to the watch list ([Watchlist.md](../../Watchlist.md))
-  with a scope note: releases (tags `v*`), the thread panel, and our upstream issue once posted.
-- [ ] ⬜ **Task 1.2**: Owner decision **D1**, pin the Flatpak commit or not. Recommended: do not
-  pin. Fixes, ours included, arrive through Flathub, and the project ships often. Instead, record
-  the known-good commit after each accepted update in this plan's journal, and give
-  `play-matrix-clients.yml` an optional `lightning_flatpak_commit` host var that, when set, runs
-  `flatpak update --commit=<sha>` and masks updates, as the rollback for a bad release.
-  - [ ] ⬜ Implement whichever D1 chooses; QA with `./scripts/qa-changed.bash`.
+- [x] ✅ **Task 1.1**: Add `Mizerd/lightning` to the watch list ([Watchlist.md](../../Watchlist.md))
+  with a scope note: releases (tags `v*`) and their arrival on Flathub, the thread panel, our
+  issues and pull requests, regressions.
+- [x] ✅ **Task 1.2**: Owner decision **D1**: do not pin; always take the latest release. The
+  maintainer fixed every issue we raised within a day, so keep pulling the latest and keep
+  reporting what we find. `play-matrix-clients.yml` sets `flatpak_update: true`, which runs
+  `flatpak update` on Lightning each run (changed only when it updated). The rollback pin is not
+  built until a bad release calls for it.
 
 ### Phase 2: The thread-root fix
 
@@ -89,8 +89,15 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   pull request [Mizerd/lightning#77](https://github.com/Mizerd/lightning/pull/77) from a fork,
   one commit on `main` `bc05fb11`, with Task 2.2's totals. Also raised: the side panel's fixed
   640 px width cap, [Mizerd/lightning#76](https://github.com/Mizerd/lightning/issues/76).
-- [ ] ⬜ **Task 2.5**: When a release carries the fix and reaches Flathub, confirm it live with a
-  long root message, and delete the patch file (keep the upstream link).
+  All three closed or merged upstream the same day; two more raised since and fixed:
+  [#78](https://github.com/Mizerd/lightning/issues/78) (text selection across messages) and
+  [#79](https://github.com/Mizerd/lightning/issues/79) (thread list uses half its height).
+- [ ] 🔄 **Task 2.5** (waiting: every fix is on upstream `main`, but the latest release is still
+  v0.10.5, which carries none): When a release carries the fixes and reaches Flathub (the play
+  updates Lightning each run), confirm them live, a long root message first, and delete the
+  patch file (keep the upstream link).
+- [ ] 🔄 **Task 2.7** (standing): Keep reporting what we find in Lightning upstream, one issue
+  per defect with a reproduction, and list each here.
 - [ ] ⬜ **Task 2.6** (fallback, only if upstream refuses the fix or two releases pass without it,
   and the owner asks): a play that builds Lightning at a pinned upstream commit plus the patch with
   `flatpak-builder` (`org.kde.Sdk//6.11`, rust-stable extension) under a separate app id, installs
@@ -212,12 +219,12 @@ built on it. **Date**: 2026-11-13
 
 ## Owner decisions
 
-| ID  | Question                                                      | Recommendation                          |
-| --- | ------------------------------------------------------------- | --------------------------------------- |
-| D1  | Pin Lightning's Flatpak commit?                               | No; an optional rollback pin (Task 1.2) |
-| D2  | Post the upstream issue and pull request?                     | Yes, after Task 2.2's build             |
-| D3  | Per-team host vars generic over the client, or a second list? | Generic (Task 5.1)                      |
-| D4  | Fallback build (Task 2.6) if upstream does not take the fix?  | Only if asked, and deleted after        |
+| ID  | Question                                                      | Recommendation                      |
+| --- | ------------------------------------------------------------- | ----------------------------------- |
+| D1  | Pin Lightning's Flatpak commit?                               | Decided: no, update every run (1.2) |
+| D2  | Post the upstream issue and pull request?                     | Yes, after Task 2.2's build         |
+| D3  | Per-team host vars generic over the client, or a second list? | Generic (Task 5.1)                  |
+| D4  | Fallback build (Task 2.6) if upstream does not take the fix?  | Only if asked, and deleted after    |
 
 ## Success Criteria
 
