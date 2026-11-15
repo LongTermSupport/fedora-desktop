@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Unit-test hl_write_localhost_yml (run.bash, Plan 00119, RUN_BASH_VERSION 1.20.0).
+# Unit-test hl_write_localhost_yml (run.bash, Plan 00119, RUN_BASH_VERSION 1.20.0) and
+# hl_reconcile_bools, which declares the boolean localhost.yml keys the RUN_BASH_* 0|1
+# inputs name (ccy_restore_sessions and the two sudoers switches).
 #
 # Extracts the ONE function under test out of run.bash with awk into a temp file and
 # sources that — run.bash itself refuses to be sourced (it provisions on load), and this
@@ -33,7 +35,7 @@ trap 'rm -rf "$work"' EXIT
 # The function under test and the two renderers it composes, each bounded by its own
 # `name() {` … `}` at column 0.
 : > "$work/fn.bash"
-for fn in hl_render_github_block hl_strip_github_block hl_extract_github_block _hl_github_block_filter hl_write_localhost_yml hl_reconcile_ccy_restore; do
+for fn in hl_render_github_block hl_strip_github_block hl_extract_github_block _hl_github_block_filter hl_write_localhost_yml hl_reconcile_bools; do
     awk -v fn="$fn" '$0 == fn "() {" {p=1} p {print} p && /^\}/ {exit}' "$RUN_BASH" >> "$work/fn.bash"
     if ! grep -q "^${fn}() {" "$work/fn.bash"; then
         echo "FAIL: could not extract ${fn} from run.bash" >&2
@@ -47,6 +49,7 @@ info() { :; }
 success() { :; }
 error() { echo "ERROR: $*" >&2; }
 hl_pull_config_source() { echo "FAIL: hl_pull_config_source must not be called" >&2; return 1; }
+headless_fail() { printf 'HEADLESS_FAIL: %s | %s\n' "$1" "$2" >&2; exit 1; }
 # The extract is generated at run time, so there is no tracked path for shellcheck to follow.
 # shellcheck source=/dev/null
 source "$work/fn.bash"
@@ -61,6 +64,8 @@ export HL_USER_LOGIN="tester"
 export HL_USER_NAME="Test User"
 export HL_USER_EMAIL="tester@example.com"
 export RUN_BASH_CONFIG_SOURCE="none"
+# The boolean inputs hl_reconcile_bools reads: none may leak in from the caller's environment.
+unset RUN_BASH_CCY_RESTORE_SESSIONS RUN_BASH_SHUTDOWN_WITH_UPDATE_SUDOERS RUN_BASH_AGENT_BUS_READ_ONLY_SUDOERS
 
 passed=0
 failed=0
@@ -143,40 +148,83 @@ RUN_BASH_CONFIG_SOURCE="my-host" HL_GITHUB_ACCOUNTS="bot:example-bot" HL_GITHUB_
 after=$(sha256sum "$yml" | cut -d' ' -f1)
 check "config source set: an already-configured file is kept byte-identical" "$before" "$after"
 
-echo "=== hl_reconcile_ccy_restore (RUN_BASH_CCY_RESTORE_SESSIONS) ==="
+echo "=== hl_reconcile_bools: RUN_BASH_CCY_RESTORE_SESSIONS ==="
 
 yml="$work/restore.yml"
 printf 'user_login: "kept"\ngithub_accounts:\n  bot: "example-bot"\n' > "$yml"
 before=$(sha256sum "$yml" | cut -d' ' -f1)
-HL_CCY_RESTORE_SESSIONS="" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="" hl_reconcile_bools "$yml"
 after=$(sha256sum "$yml" | cut -d' ' -f1)
 check "restore unset: the file is untouched" "$before" "$after"
 
-HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="1" hl_reconcile_bools "$yml"
 check "restore 1: declared true once" "1" "$(grep -c '^ccy_restore_sessions: true$' "$yml")"
 check "restore 1: the rest of the file preserved" "1" "$(grep -c '^  bot: "example-bot"$' "$yml")"
 
 before=$(sha256sum "$yml" | cut -d' ' -f1)
-HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="1" hl_reconcile_bools "$yml"
 after=$(sha256sum "$yml" | cut -d' ' -f1)
 check "restore 1 again: byte-identical" "$before" "$after"
 
-HL_CCY_RESTORE_SESSIONS="0" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="0" hl_reconcile_bools "$yml"
 check "restore 0: exactly one key" "1" "$(grep -c '^ccy_restore_sessions:' "$yml")"
 check "restore 0: declared false" "1" "$(grep -c '^ccy_restore_sessions: false$' "$yml")"
 
 # A hand-edited file carrying the key twice (true then false) is collapsed to one line.
 printf 'ccy_restore_sessions: true\nuser_login: "kept"\nccy_restore_sessions: false\n' > "$yml"
-HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="1" hl_reconcile_bools "$yml"
 check "duplicate keys: collapsed to one" "1" "$(grep -c '^ccy_restore_sessions:' "$yml")"
 check "duplicate keys: the declared value wins" "1" "$(grep -c '^ccy_restore_sessions: true$' "$yml")"
 check "duplicate keys: other lines preserved" "1" "$(grep -c '^user_login: "kept"$' "$yml")"
 
 # A file holding only the key, flipped: grep -v selects nothing (exit 1), which must not abort.
 printf 'ccy_restore_sessions: false\n' > "$yml"
-HL_CCY_RESTORE_SESSIONS="1" hl_reconcile_ccy_restore "$yml"
+RUN_BASH_CCY_RESTORE_SESSIONS="1" hl_reconcile_bools "$yml"
 check "key-only file: rewritten to the declared value" "ccy_restore_sessions: true" "$(cat "$yml")"
 
+# The two sudoers inputs share the reconcile; each declares the key named for it.
+for input in RUN_BASH_SHUTDOWN_WITH_UPDATE_SUDOERS RUN_BASH_AGENT_BUS_READ_ONLY_SUDOERS; do
+    key="${input#RUN_BASH_}"
+    key="${key,,}"
+    echo "=== hl_reconcile_bools: ${input} ==="
+
+    # First run: the file hl_write_localhost_yml writes fresh gets the key before any play.
+    yml="$work/fresh-${key}.yml"
+    HL_GITHUB_ACCOUNTS="none" HL_GITHUB_SSH_443="0" hl_write_localhost_yml "$yml"
+    (export "${input}=0"; hl_reconcile_bools "$yml")
+    check "${key} 0 on a fresh file: declared false once" "1" "$(grep -c "^${key}: false$" "$yml")"
+    check "${key} 0 on a fresh file: identity kept" "1" "$(grep -c '^github_accounts: {}$' "$yml")"
+
+    yml="$work/${key}.yml"
+    printf 'user_login: "kept"\nccy_restore_sessions: true\n' > "$yml"
+    before=$(sha256sum "$yml" | cut -d' ' -f1)
+    hl_reconcile_bools "$yml"
+    after=$(sha256sum "$yml" | cut -d' ' -f1)
+    check "${key} unset: the file is untouched" "$before" "$after"
+
+    (export "${input}=0"; hl_reconcile_bools "$yml")
+    check "${key} 0: declared false once" "1" "$(grep -c "^${key}: false$" "$yml")"
+    check "${key} 0: the rest of the file preserved" "2" "$(grep -c -E '^(user_login: "kept"|ccy_restore_sessions: true)$' "$yml")"
+
+    before=$(sha256sum "$yml" | cut -d' ' -f1)
+    (export "${input}=0"; hl_reconcile_bools "$yml")
+    after=$(sha256sum "$yml" | cut -d' ' -f1)
+    check "${key} 0 again: byte-identical" "$before" "$after"
+
+    (export "${input}=1"; hl_reconcile_bools "$yml")
+    check "${key} 1 over 0: exactly one key" "1" "$(grep -c "^${key}:" "$yml")"
+    check "${key} 1 over 0: declared true" "1" "$(grep -c "^${key}: true$" "$yml")"
+    check "${key} 1 over 0: the other boolean untouched" "1" "$(grep -c '^ccy_restore_sessions: true$' "$yml")"
+
+    # Without a file (the preflight call) a bad value aborts, naming the input and 0 or 1.
+    got=$(export "${input}=yes"; hl_reconcile_bools 2>&1)
+    rc=$?
+    check "${key} invalid: preflight fails" "1" "$rc"
+    check "${key} invalid: the message names the input and value" "1" "$(grep -c -F "${input}='yes' is not 0 or 1." <<<"$got")"
+    check "${key} invalid: the message names the allowed values" "1" "$(grep -c -F "Set 1 to declare ${key}: true" <<<"$got")"
+    got=$(export "${input}=1"; hl_reconcile_bools 2>&1)
+    check "${key} valid, no file: validates silently" "0:" "$?:${got}"
+done
 echo
 echo "passed: $passed  failed: $failed"
 [ "$failed" -eq 0 ]
