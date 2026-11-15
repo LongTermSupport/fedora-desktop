@@ -37,15 +37,13 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.8, container 2.84.19: the image carries the agent-bus declare helper, which gains
-# element-remote (a remote team's client entry). Installs the launcher and rebuilds ccy-teams,
-# which now says, where it cannot read a team's members without a password, that host_vars may
-# keep the sudoers rule off. The image is rebuilt once at the next ccy start.
+# Issue #302: ccy 3.122.11, container 2.84.20. The image carries pingbus, which now names an
+# unknown option instead of blaming stdin. Installs the launcher; the image is rebuilt once at
+# the next ccy start.
 playbooks/imports/play-claude-yolo.yml
 
-# agent_bus_read_only_sudoers: a host that sets it false in host_vars has
-# /etc/sudoers.d/agent-bus-read-only removed; a host that sets nothing sees no change there.
-# Expected here: no change, unless host_vars sets it.
+# Issue #302: the agent-bus member kit carries the same pingbus. Expected: changed only for the
+# kit's pingbus.
 playbooks/imports/play-agent-bus.yml
 
 # Issue #301: the VM lab's copy of secret-scan.bash (the run-log scrubber's engine) escapes a

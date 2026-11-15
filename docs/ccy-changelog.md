@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.11 — container 2.84.20
+
+- **`pingbus`** names an unknown option (`unrecognized arguments: --to-coordinator,NAME`)
+  instead of saying that `say`, `report`, `ask-human` or `thread` reads its message from stdin
+  when the message was on stdin. The image carries `helpers/pingbus/`, so it is rebuilt once.
+  The launcher itself is unchanged apart from the versions.
+
 ## 3.122.8 — container 2.84.19
 
 - **`declare element-remote`** writes the client entry of an agent-bus team hosted on another
