@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.9 — container 2.84.18
+
+- **A mouse click never answers a prompt** in a ccy session or a host `cc` session. The
+  launcher passes `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=${CLAUDE_CODE_DISABLE_MOUSE_CLICKS:-1}`
+  into the container, and `cc-claude` sets the same default on the host, so a stray click (to
+  focus a window, or to select text) no longer picks a permission answer or a menu item.
+  Exporting the variable on the host overrides it, as with the other defaults. The image is
+  unchanged.
+
 ## 3.122.7 — container 2.84.18
 
 - **An agent-bus team may open in Lightning** (Plan 00254 Tasks 5.2 to 5.4). The image carries
