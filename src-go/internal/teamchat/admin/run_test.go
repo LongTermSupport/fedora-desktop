@@ -143,6 +143,22 @@ func procFor(c Class) *fakeProc {
 	return ownerProc()
 }
 
+// wantBare is a verb's answer to a bare call by a class it admits: a verb that reads its flags
+// first (HV4) is 64, any other one this build lacks, or has with no seams wired, is 1.
+func wantBare(t *testing.T, name string, caller Class, got outcome) {
+	t.Helper()
+	code, want := term.ExitFailure, unbuilt(name)
+	if flagsFirst[name] {
+		code, want = term.ExitUsage, "teamchat-admin: --team is required\n"
+	}
+	if got.code != code || got.stderr != want || got.stdout != "" {
+		t.Errorf("%s by %v = %+v, want %d %q", name, caller, got, code, want)
+	}
+}
+
+// flagsFirst are the built verbs that read their flags before their seams (SPEC-n2h HV4).
+var flagsFirst = map[string]bool{"human password": true, "human logout": true, "human devices": true}
+
 // unbuilt is what a verb this build lacks says, or one built whose seams are not wired.
 func unbuilt(name string) string {
 	if _, built := rootRuns()[name]; built {
@@ -167,9 +183,7 @@ func TestEveryVerbEveryClass(t *testing.T) {
 				}
 			case name == "version" || name == "ctl-child" || strings.HasPrefix(name, "units "):
 			default:
-				if want := unbuilt(name); got.code != term.ExitFailure || got.stderr != want || got.stdout != "" {
-					t.Errorf("%s by %v = %+v, want 1 %q", name, caller, got, want)
-				}
+				wantBare(t, name, caller, got)
 			}
 		}
 	}

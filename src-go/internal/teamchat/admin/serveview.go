@@ -32,10 +32,8 @@ func serveView(ctx context.Context, open Opener, team declare.Team) Answer {
 	if err != nil {
 		return openFailure(err)
 	}
-	admin, ok := o.Admin.(view.Admin)
-	if !ok {
-		return failure(ClassConfig, "the team's admin client cannot read a view")
-	}
+	// apply.Admin holds every call a view makes, so the child's own client reads it.
+	var admin view.Admin = o.Admin
 	in, err := viewInput(team, o.Deps)
 	if err != nil {
 		return failure(ClassConfig, "the team's files: "+err.Error())

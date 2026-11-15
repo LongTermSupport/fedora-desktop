@@ -62,6 +62,9 @@ var argKeys = map[string][]string{
 	apply.OpTeamApply:     {"input", "approved", "reg_key"},
 	OpTeamView:            {keyTeamFile},
 	OpMemberDisconnected:  {keyTeamFile, keyHandle, keyRun, keySinceMS},
+	apply.OpHumanPassword: {keyTeamFile, keyName},
+	apply.OpHumanLogout:   {keyTeamFile, keyName},
+	apply.OpHumanDevices:  {keyTeamFile, keyName},
 }
 
 // The args' keys; each flag of a member verb is the key of the same name (--human-text is
@@ -105,6 +108,8 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 		return serveDisconnected(ctx, open, team, args)
 	case OpRestoreSecure, OpRestoreCheck, OpRestoreSwap, OpRestoreExport, OpRestoreFinish, OpRestoreRevert:
 		return serveRestore(ctx, open, req.Op, team, args)
+	case apply.OpHumanPassword, apply.OpHumanLogout, apply.OpHumanDevices:
+		return serveHuman(ctx, open, req.Op, req.Team, team, args)
 	}
 	var mr apply.MemberRequest
 	if req.Op != apply.OpRoleApply {

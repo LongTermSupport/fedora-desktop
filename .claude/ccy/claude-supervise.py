@@ -233,7 +233,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.73.1"
+__version__ = "3.74.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -4081,8 +4081,10 @@ def load_session_actions_signal(
             return (
                 None,
                 None,
-                f"session-actions signal {path.name} has a non-positive-integer "
-                f"count {count!r}",
+                (
+                    f"session-actions signal {path.name} has a non-positive-integer "
+                    f"count {count!r}"
+                ),
             )
         return path, _render_session_actions_message(count), None
     return None, None, None
@@ -4477,8 +4479,10 @@ def load_operator_signal(
                     None,
                     None,
                     None,
-                    f"operator signal {path.name} has a non-positive-integer minutes "
-                    f"{raw_minutes!r}",
+                    (
+                        f"operator signal {path.name} has a non-positive-integer minutes "
+                        f"{raw_minutes!r}"
+                    ),
                 )
             minutes = raw_minutes
         deadline = ts + minutes * 60.0 if minutes is not None else None
@@ -5102,9 +5106,10 @@ def parse_session_notice_item(item: str) -> tuple[str, str] | None:
         return kind, argument
     if kind == NOTIFY_DEADLINE_REACHED:
         return (kind, argument) if argument == "" else None
-    if kind == _SESSION_NOTICE_RESTARTED:
-        if argument == "" or _VERSION_PATTERN.fullmatch(argument) is not None:
-            return (kind, argument)
+    if kind == _SESSION_NOTICE_RESTARTED and (
+        argument == "" or _VERSION_PATTERN.fullmatch(argument) is not None
+    ):
+        return (kind, argument)
     return None
 
 
@@ -6146,12 +6151,10 @@ class CompactStateMachine:
             return False
         if self._flag_compactions >= _MAX_FLAG_COMPACTIONS:
             return False
-        if (
+        return not (
             self._flag_compact_last_ts is not None
             and now_wall - self._flag_compact_last_ts < _FLAG_COMPACT_BACKOFF_SECONDS
-        ):
-            return False
-        return True
+        )
 
     @property
     def audit_pending(self) -> tuple[str, ...]:
@@ -6350,13 +6353,11 @@ class CompactStateMachine:
             return False
         if abs(observed_wall - event_ts) > _DOWNGRADE_ATTRIBUTION_WINDOW_SECONDS:
             return False
-        if (
+        return not (
             self._last_top_family_seen_session == session
             and self._last_top_family_seen_ts is not None
             and self._last_top_family_seen_ts > event_ts + _DOWNGRADE_SUPERSEDE_SKEW_SECONDS
-        ):
-            return False
-        return True
+        )
 
     def _open_downgrade_episode(
         self, *, session: str, from_family: str, to_family: str, now_wall: float

@@ -54,6 +54,12 @@ playbooks/imports/play-claude-yolo.yml
 # compacted. Run after the play above, so the verb the cycle calls is installed.
 playbooks/imports/optional/common/play-self-update.yml
 
+# Issue #296: rebuilds and reinstalls teamchat-admin with the human verbs (human password,
+# logout, devices), so a declared human of a v2 team can be given a password and sign in from
+# Lightning. Only the admin tag: no unit, team or Tuwunel change. Afterwards, for each human:
+# sudo teamchat-admin human password --team <team> --name <name>
+playbooks/imports/play-teamchat.yml --tags admin
+
 # Plan 00254 D1: Lightning is brought to Flathub's latest release on every run, changed only
 # when it was updated. No release carries our upstream fixes yet, so this run should report no
 # change for Lightning; it proves the new step on the host.
