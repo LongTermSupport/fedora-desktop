@@ -329,6 +329,12 @@ var instanceDirs = []string{"data", "config", "cache"}
             with self.subTest(read=read.__name__), self.assertRaises(ValueError):
                 read(self.GO, "absent")
 
+    def test_a_list_with_no_plain_entries_is_refused(self) -> None:
+        # An empty or unread list would make every instance-folder check pass with nothing checked.
+        for body in ("", '"a\\"b"'):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                al.go_strings(f"var instanceDirs = []string{{{body}}}\n", "instanceDirs")
+
     def test_the_checker_holds_the_products_values(self) -> None:
         source = (al.REPO_ROOT / al.LIGHTNING_GO).read_text(encoding="utf-8")
         self.assertEqual(al.TEAMS_DIR, al.go_text(source, "teamsDir"))

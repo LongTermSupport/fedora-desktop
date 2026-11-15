@@ -73,7 +73,7 @@ def _one(source: str, pattern: str, name: str) -> str:
     """The one match of pattern in a Go source; none or several is refused, never guessed."""
     found = re.findall(pattern, source, re.MULTILINE)
     if len(found) != 1:
-        raise ValueError(f"want exactly one Go constant {name}, found {len(found)}")
+        raise ValueError(f"want exactly one Go constant {name} in {LIGHTNING_GO}, found {len(found)}")
     return found[0]
 
 
@@ -88,8 +88,12 @@ def go_mode(source: str, name: str) -> int:
 
 
 def go_strings(source: str, name: str) -> tuple[str, ...]:
-    """A Go `var name = []string{"a", "b"}` list."""
+    """A Go `var name = []string{"a", "b"}` list of plain entries; an empty list, or an entry
+    this reader cannot take whole, is refused, so no check passes with nothing to check."""
     body = _one(source, rf"^var\s+{re.escape(name)}\s*=\s*\[\]string\{{([^}}]*)\}}\s*$", name)
+    plain = r'"[^"\\]+"'
+    if not re.fullmatch(rf"\s*{plain}(?:\s*,\s*{plain})*\s*,?\s*", body):
+        raise ValueError(f"Go list {name} in {LIGHTNING_GO} is empty or has an entry not read whole: {body!r}")
     return tuple(re.findall(r'"([^"\\]+)"', body))
 
 
