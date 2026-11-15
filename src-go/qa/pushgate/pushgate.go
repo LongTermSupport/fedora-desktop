@@ -62,8 +62,8 @@ const usageText = `usage: qa-push-gate REMOTE [URL]   (git's pre-push arguments;
 
 The pre-push gate on CI's QA verdict (rule ` + RuleID + `). A protected branch (one exempt in
 ` + branchhygiene.PolicyFile + `) moves only to a commit that GitHub CI's QA workflow (` + QAWorkflow + `)
-completed with success on a push. Push the commit to a branch first, wait for CI, then push that
-same commit to the protected branch:
+completed with success on a push. Push the commit to a ci/<topic> branch first (a push to any
+other work branch runs no CI), wait for CI, then push that same commit to the protected branch:
 
   git push origin HEAD:refs/heads/ci/<topic>
   gh run watch                 (or: gh run list --commit <sha>)
