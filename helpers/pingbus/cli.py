@@ -3207,6 +3207,11 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                        namespace: argparse.Namespace | None = None) -> argparse.Namespace:
             parsed, extras = self.parse_known_args(args, namespace)
             command_name = getattr(parsed, "command", None)
+            # An unknown option is named as such: only bare words can be a message given as an
+            # argument instead of on stdin.
+            options = [extra for extra in extras if extra.startswith("-")]
+            if options:
+                self.error(f"unrecognized arguments: {' '.join(options)}")
             if extras and command_name in STDIN_FORMS:
                 raise config.UsageError(
                     f"{command_name} reads the message from stdin: printf '%s\\n' '...' | "
