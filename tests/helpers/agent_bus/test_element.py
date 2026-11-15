@@ -137,6 +137,41 @@ class TestParseProfiles(unittest.TestCase):
             with self.subTest(name), self.assertRaises(element.ElementError):
                 element.parse_profiles(data)
 
+    def test_no_ca_file_is_none(self) -> None:
+        self.assertIsNone(profile().ca_file)
+
+    def test_a_ca_file_for_an_https_team_is_kept(self) -> None:
+        given = profile(base_url="https://bus.example.com:8448", ca_file="/etc/teamchat/team-a.pem")
+        self.assertEqual(given.ca_file, "/etc/teamchat/team-a.pem")
+
+    def test_ca_file_refusals(self) -> None:
+        https = "https://bus.example.com:8448"
+        cases = {
+            "on an http team": {"base_url": BASE_URL, "ca_file": "/etc/teamchat/team-a.pem"},
+            "relative": {"base_url": https, "ca_file": "team-a.pem"},
+            "home shorthand": {"base_url": https, "ca_file": "~/team-a.pem"},
+            "a parent step": {"base_url": https, "ca_file": "/etc/../team-a.pem"},
+            "empty": {"base_url": https, "ca_file": ""},
+            "not a string": {"base_url": https, "ca_file": ["/etc/team-a.pem"]},
+            "a directory": {"base_url": https, "ca_file": "/etc/teamchat/"},
+            "a NUL": {"base_url": https, "ca_file": "/etc/team\x00a.pem"},
+            "a newline": {"base_url": https, "ca_file": "/etc/team\na.pem"},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name), self.assertRaises(element.ElementError) as caught:
+                profile(**overrides)
+            self.assertIn("ca_file", str(caught.exception))
+
+    def test_a_ca_file_refusal_never_quotes_the_path(self) -> None:
+        with self.assertRaises(element.ElementError) as caught:
+            profile(base_url=BASE_URL, ca_file="/srv/secret-place/private.pem")
+        self.assertNotIn("secret-place", str(caught.exception))
+
+    def test_a_ca_file_changes_no_element_config(self) -> None:
+        https = "https://bus.example.com:8448"
+        self.assertEqual(element.config_json(profile(base_url=https, ca_file="/etc/teamchat/team-a.pem")),
+                         element.config_json(profile(base_url=https)))
+
     def test_a_refusal_never_quotes_the_url(self) -> None:
         secret_url = "http://user:hunter2@192.0.2.10:8448"
         with self.assertRaises(element.ElementError) as caught:

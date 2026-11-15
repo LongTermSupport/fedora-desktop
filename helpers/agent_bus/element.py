@@ -15,7 +15,9 @@ can read it. So a user who holds pingbus bundles (`~/.config/pingbus/`, the defa
 refuse a `host` member beside a Matrix client profile (`config.MATRIX_CLIENTS`).
 
 Usage, as the human's desktop user, the profiles as JSON on stdin
-(`[{"team": ..., "base_url": ..., "server_name": ...}]`, `server_name` optional):
+(`[{"team": ..., "base_url": ..., "server_name": ..., "ca_file": ...}]`, `server_name` and
+`ca_file` optional; `ca_file` names the team CA on this machine, for an https team whose
+homeserver is elsewhere, and is read by the CA tasks, not here):
 
     python3 -m helpers.agent_bus.element check   # validate and refuse; writes nothing
     python3 -m helpers.agent_bus.element apply   # write; prints CHANGED<TAB><path>
@@ -36,7 +38,7 @@ import shutil
 import stat
 import sys
 import urllib.parse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from helpers.agent_bus import teamfile
@@ -50,7 +52,7 @@ ELECTRON_STORE_FILE = "electron-config.json"
 SPELLCHECK_SEED = {"spellCheckerEnabled": False}
 APPLICATIONS_DIR = pathlib.PurePosixPath(".local/share/applications")
 
-PROFILE_KEYS = frozenset({"team", "base_url", "server_name"})
+PROFILE_KEYS = frozenset({"team", "base_url", "server_name", "ca_file"})
 REQUIRED_PROFILE_KEYS = ("team", "base_url")
 
 DIR_MODE = 0o700
@@ -70,6 +72,9 @@ class Profile:
     team: str
     base_url: str
     server_name: str
+    # Where this machine holds the team's CA when the homeserver is elsewhere (Plan 00254 Task
+    # 4.4). The CA tasks read it; Element's own config does not change.
+    ca_file: str | None = None
 
     @property
     def host(self) -> str:
@@ -118,7 +123,21 @@ def _parse_one(position: int, data: object) -> Profile:
             data.get("server_name", team + teamfile.SERVER_NAME_SUFFIX))
     except teamfile.TeamFileError as exc:
         raise ElementError(f"team {team}: {exc}") from None
-    return Profile(team=team, base_url=base_url, server_name=server_name)
+    ca_file = data.get("ca_file")
+    if ca_file is not None:
+        _check_ca_file(ca_file, base_url, refuse)
+    return Profile(team=team, base_url=base_url, server_name=server_name, ca_file=ca_file)
+
+
+def _check_ca_file(ca_file: object, base_url: str,
+                   refuse: Callable[[str, str], ElementError]) -> None:
+    """A team's CA file is an absolute, plain path to a file, and only an https team has one."""
+    if urllib.parse.urlsplit(base_url).scheme != "https":
+        raise refuse("ca_file", "is only for a team whose base_url is https")
+    if not isinstance(ca_file, str) or not ca_file.startswith("/") or ca_file.endswith("/"):
+        raise refuse("ca_file", "must be an absolute path to a file")
+    if any(ch in ca_file for ch in "\x00\n\r") or ".." in pathlib.PurePosixPath(ca_file).parts:
+        raise refuse("ca_file", "must be a plain path, with no parent step or control character")
 
 
 def parse_profiles(data: object) -> tuple[Profile, ...]:

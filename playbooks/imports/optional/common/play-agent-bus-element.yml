@@ -47,6 +47,10 @@
     # Where an https team's CA is put for Element (tasks/element-team-ca.yml): nssdb or system,
     # chosen in host_vars by agent_bus_element_ca_store. The play's last task proves it.
     agent_bus_element_ca_default_store: nssdb
+    # A team whose homeserver is not this host names the CA file this machine holds (ca_file,
+    # checked by the helper): its CA is read from there, at its base_url, not from the
+    # homeserver's admin state (Plan 00254 Task 4.4).
+    agent_bus_element_ca_given: "{{ agent_bus_element_profiles | selectattr('ca_file', 'defined') | list }}"
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -128,6 +132,7 @@
         # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
         element_team_ca_approved_root: /var/lib/teamchat-status/teams
         element_team_ca_admin_root: /var/lib/teamchat-admin
+        element_team_ca_given: "{{ agent_bus_element_ca_given }}"
       tags: [agent-bus-element]
 
     # Lightning, the Matrix client on trial to replace Element for a team (Plan 00254): installed,
@@ -143,4 +148,5 @@
         # paths.StatusRoot/teams and paths.AdminStateRoot in src-go/internal/teamchat/paths.
         lightning_team_ca_approved_root: /var/lib/teamchat-status/teams
         lightning_team_ca_admin_root: /var/lib/teamchat-admin
+        lightning_team_ca_given: "{{ agent_bus_element_ca_given }}"
       tags: [agent-bus-lightning]

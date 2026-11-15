@@ -9,6 +9,7 @@
 #       element_team_ca_store: nssdb | system
 #       element_team_ca_approved_root: /var/lib/teamchat-status/teams
 #       element_team_ca_admin_root: /var/lib/teamchat-admin
+#       element_team_ca_given: [{team, base_url, ca_file}, ...]   # optional: a CA held off the homeserver
 #
 # Which teams are https teams, and their CAs, is read by tasks/https-team-ca.yml (the rules
 # are there), shared with tasks/lightning-team-ca.yml.
@@ -45,6 +46,7 @@
     https_team_ca_client: Element
     https_team_ca_approved_root: "{{ element_team_ca_approved_root }}"
     https_team_ca_admin_root: "{{ element_team_ca_admin_root }}"
+    https_team_ca_given: "{{ element_team_ca_given | default([]) }}"
 
 # nssdb: Chromium's database is $HOME/.pki/nssdb. Kept in Element's own data, it outlives a run
 # and is Element's alone.
@@ -160,7 +162,7 @@
       {{ 'Element NSS database ~/.var/app/im.riot.Riot/.pki/nssdb'
          if element_team_ca_store == 'nssdb' else 'host anchors /etc/pki/ca-trust/source/anchors' }}).
       {% for r in element_team_ca_check.results | rejectattr('rc', 'equalto', 0) %}
-      Team {{ r.item.item.key }}, CA file {{ element_team_ca_admin_root }}/{{ r.item.item.key }}/tls/ca.crt,
+      Team {{ r.item.item.key }}, CA file {{ https_team_ca_files[r.item.item.key] }},
       url {{ r.item.item.value }}: {{ r.stderr | default(r.msg | default('')) }}
       {% endfor %}
     quiet: true
