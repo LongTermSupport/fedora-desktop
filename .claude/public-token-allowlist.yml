@@ -24,3 +24,5 @@ public_tokens:
   - LTSCommerce
   - LongTermSupport
   - md-viewer
+  # A common git word that happens to equal an agent-bus member name; owner's decision.
+  - checkout
