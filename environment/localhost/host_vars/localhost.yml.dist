@@ -199,3 +199,11 @@ user_email: "yourname@example.com"
 # Element trusts the CA) or system (the host's trust anchors; every program trusts it). The
 # play's last task checks a handshake from Element's sandbox and fails if the CA is not trusted.
 # agent_bus_element_ca_store: nssdb
+#
+# That CA is read from the homeserver's own admin state, so only the homeserver's host has it.
+# On any other machine (a laptop, a VM), give an https team the path of its CA file there; the
+# play then reads the CA from that file, at the team's base_url, for Element and Lightning alike.
+# The file is the estate's to deliver; a missing one fails the run, naming the path.
+#   - team: <team>
+#     base_url: https://<homeserver name>:<port>
+#     ca_file: /etc/teamchat/<team>-ca.pem

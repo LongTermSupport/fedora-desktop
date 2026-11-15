@@ -175,8 +175,12 @@ play has passed for a team, `teamchat-admin element check` and `apply` say on th
 that Element does not trust the team's CA yet and to run the play.
 
 Whether the Flatpak build honours each store has not yet been seen on a real desktop: that host
-check decides which store the play uses. The play runs only on the homeserver host, where the
-team's `approved.json` is; Element on another machine has no profile from this repository.
+check decides which store the play uses. Without more, the play finds a team's CA only on the
+homeserver host, where the team's `approved.json` and CA are. On any other machine (a laptop, a
+VM), give the team's entry in `agent_bus_element_teams` a `ca_file`: the path of the team's CA on
+that machine. The play then reads the CA from there, at the entry's `https` `base_url`, places it
+and proves the handshake exactly as above, for Element and Lightning alike. Delivering the file to
+that machine is the estate's job; a missing file fails the run, naming the path.
 
 ## Lightning
 

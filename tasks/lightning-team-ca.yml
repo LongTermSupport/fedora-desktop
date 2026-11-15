@@ -9,6 +9,7 @@
 #       lightning_team_ca_teams: [<team id>, ...]
 #       lightning_team_ca_approved_root: /var/lib/teamchat-status/teams
 #       lightning_team_ca_admin_root: /var/lib/teamchat-admin
+#       lightning_team_ca_given: [{team, base_url, ca_file}, ...]   # optional: a CA held off the homeserver
 #
 # Lightning's Matrix TLS is rustls through rustls-native-certs, not NSS, so neither Element store
 # reaches it (Plan 00254 RESEARCH-integration.md section 3). With SSL_CERT_FILE or SSL_CERT_DIR
@@ -40,6 +41,7 @@
     https_team_ca_client: Lightning
     https_team_ca_approved_root: "{{ lightning_team_ca_approved_root }}"
     https_team_ca_admin_root: "{{ lightning_team_ca_admin_root }}"
+    https_team_ca_given: "{{ lightning_team_ca_given | default([]) }}"
 
 - name: Resolve the desktop user's home for Lightning's CA directory
   ansible.builtin.getent:
@@ -147,7 +149,7 @@
       Lightning does not trust the team CA (directory {{ lightning_team_ca_dir }}, read through
       SSL_CERT_DIR beside the runtime bundle in SSL_CERT_FILE).
       {% for r in lightning_team_ca_check.results | rejectattr('rc', 'equalto', 0) %}
-      Team {{ r.item.item.key }}, CA file {{ lightning_team_ca_admin_root }}/{{ r.item.item.key }}/tls/ca.crt,
+      Team {{ r.item.item.key }}, CA file {{ https_team_ca_files[r.item.item.key] }},
       url {{ r.item.item.value }}: {{ r.stderr | default(r.msg | default('')) }}
       {% endfor %}
     quiet: true

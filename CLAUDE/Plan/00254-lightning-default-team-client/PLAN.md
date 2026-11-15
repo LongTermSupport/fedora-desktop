@@ -153,8 +153,12 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   for the host (rustls has no CN fallback).
 - [x] ✅ **Task 4.3**: Docs: a Lightning paragraph in `docs/agent-bus-cross-network.md`; update the
   comment in `play-matrix-clients.yml` that says no CA reaches Lightning.
-- [ ] ⬜ **Task 4.4**: A client on a machine that is not the homeserver host. Today the CA is read
-  from `/var/lib/teamchat-admin/<team>/tls/ca.crt`, so only the homeserver host can place it.
+- [ ] 🔄 **Task 4.4** (done in code: a team entry's optional `ca_file`, checked by
+  `helpers/agent_bus/element.py`, goes to `tasks/https-team-ca.yml` as `https_team_ca_given`,
+  which wins over the homeserver's admin state, for Element and Lightning; NOT ESTABLISHED until a
+  run on a machine holding a delivered CA): A client on a machine that is not the homeserver host.
+  Without it the CA is read from `/var/lib/teamchat-admin/<team>/tls/ca.crt`, so only the
+  homeserver host can place it.
   The CA tasks (Lightning's and Element's) take a team's CA from a path the caller gives, place
   it and prove the handshake as before, with no assumption that the CA is on this host.
   Getting the CA file to the laptop or phone is the estate side's work (agreed with its

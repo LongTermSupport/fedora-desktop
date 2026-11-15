@@ -9,13 +9,20 @@
 #       https_team_ca_client: Element                        # named in the user check's message
 #       https_team_ca_approved_root: /var/lib/teamchat-status/teams
 #       https_team_ca_admin_root: /var/lib/teamchat-admin
+#       https_team_ca_given: [{team: <id>, base_url: https://..., ca_file: /abs/path.pem}, ...]  # optional
 #
 # A team counts when its approved.json (written by `team approve`) names an https url; a team
 # with no approved.json is not a v2 team on this host and an http one needs no CA (X12, X15).
-# The two roots are paths.StatusRoot/teams and paths.AdminStateRoot (src-go teamchat/paths).
+# The two roots are paths.StatusRoot/teams and paths.AdminStateRoot (src-go teamchat/paths),
+# so that reading only works on the homeserver's own host. A client elsewhere (Plan 00254 Task
+# 4.4: a laptop, the dev VM) names the team in https_team_ca_given instead (the shape of an
+# agent_bus_element_teams entry; other keys are ignored): its base_url and the CA
+# file this machine holds, which win over anything found under the two roots. Getting the file
+# onto the machine is the estate's job; a missing one fails the read, naming the path.
 #
 # Leaves, for the importing file:
 #   https_team_ca_https  the https teams, each {key: <team>, value: <url>}
+#   https_team_ca_files  each https team's CA file on this machine, {<team>: <path>}
 #   https_team_ca_pem    the slurp of each one's CA: .item is that pair, .content the PEM, base64
 #   ansible_facts['getent_passwd'][user_login]  the desktop user's uid ([1]) and home ([4]),
 #                        resolved and asserted when there is an https team
@@ -24,14 +31,41 @@
   ansible.builtin.assert:
     that:
       - https_team_ca_teams is sequence and https_team_ca_teams is not string
-    fail_msg: https_team_ca_teams must be a list of team ids, not {{ https_team_ca_teams }}.
+      - https_team_ca_given | default([]) is sequence and https_team_ca_given | default([]) is not string
+    fail_msg: >-
+      https_team_ca_teams must be a list of team ids, not {{ https_team_ca_teams }}, and
+      https_team_ca_given a list of {team, base_url, ca_file}.
     quiet: true
 
-- name: Probe each team's approved fields
+- name: Assert each given CA names a team, an https base_url and an absolute file
+  ansible.builtin.assert:
+    that:
+      - item.team is defined and item.team is string and item.team | length > 0
+      - item.base_url is defined and item.base_url is string and item.base_url is match('https://')
+      - item.ca_file is defined and item.ca_file is string and item.ca_file is match('/')
+    fail_msg: >-
+      Each https_team_ca_given entry needs team, an https base_url and an absolute ca_file; entry
+      {{ item.team | default('(no team)') }} does not.
+    quiet: true
+  loop: "{{ https_team_ca_given | default([]) }}"
+  loop_control:
+    label: "{{ item.team | default('(no team)') }}"
+
+- name: Name the teams whose CA the caller gives
+  ansible.builtin.set_fact:
+    https_team_ca_given_files: >-
+      {{ dict(https_team_ca_given | default([]) | map(attribute='team')
+              | zip(https_team_ca_given | default([]) | map(attribute='ca_file'))) }}
+    https_team_ca_given_https: >-
+      {{ dict(https_team_ca_given | default([]) | map(attribute='team')
+              | zip(https_team_ca_given | default([]) | map(attribute='base_url')))
+         | dict2items }}
+
+- name: Probe each other team's approved fields
   become: true
   ansible.builtin.stat:
     path: "{{ https_team_ca_approved_root }}/{{ item }}/approved.json"
-  loop: "{{ https_team_ca_teams }}"
+  loop: "{{ https_team_ca_teams | reject('in', https_team_ca_given_files) | list }}"
   register: https_team_ca_approved_stat
 
 - name: Read each approved team's fields
@@ -43,19 +77,27 @@
     label: "{{ item.item }}"
   register: https_team_ca_approved
 
-- name: Name the teams whose approved url is https
+- name: Name the https teams, the approved ones here and the given ones, and each one's CA file
   ansible.builtin.set_fact:
     https_team_ca_https: >-
+      {{ (dict(https_team_ca_approved.results | map(attribute='item') | map(attribute='item')
+               | zip(https_team_ca_approved.results | map(attribute='content') | map('b64decode')
+                     | map('from_json') | map(attribute='approved') | map(attribute='url')))
+          | dict2items | selectattr('value', 'match', 'https://') | list)
+         + https_team_ca_given_https }}
+    https_team_ca_files: >-
       {{ dict(https_team_ca_approved.results | map(attribute='item') | map(attribute='item')
-              | zip(https_team_ca_approved.results | map(attribute='content') | map('b64decode')
-                    | map('from_json') | map(attribute='approved') | map(attribute='url')))
-         | dict2items | selectattr('value', 'match', 'https://') | list }}
+              | zip(https_team_ca_approved.results | map(attribute='item') | map(attribute='item')
+                    | map('regex_replace', '^', https_team_ca_admin_root ~ '/')
+                    | map('regex_replace', '$', '/tls/ca.crt')))
+         | combine(https_team_ca_given_files) }}
 
-# A missing CA for an https team fails here, naming the file: X13 makes it at the first apply.
+# A missing CA for an https team fails here, naming the file: X13 makes it at the first apply,
+# and a given one is the caller's to deliver.
 - name: Read each https team's CA
   become: true
   ansible.builtin.slurp:
-    src: "{{ https_team_ca_admin_root }}/{{ item.key }}/tls/ca.crt"
+    src: "{{ https_team_ca_files[item.key] }}"
   loop: "{{ https_team_ca_https }}"
   loop_control:
     label: "{{ item.key }}"

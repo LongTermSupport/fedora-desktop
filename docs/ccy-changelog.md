@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.4 — container 2.84.16
+## 3.122.6 — container 2.84.17
 
 - **An `allowed-hostnames` file that cannot be read stops the launch** (issue #293). The
   launcher reads the rule under `check_allowed_hostname || exit 1`, which turns errexit off, so
@@ -31,6 +31,13 @@ Two version numbers move independently — see
   mounts), the restart budget, the session record and restore manifest readers and the usage
   headers. The new semgrep rule `bash-loop-redirect-unchecked` holds every shipped script to it.
 - No image change.
+
+## 3.122.5 — container 2.84.17
+
+- **An agent-bus team entry may name `ca_file`, its CA on this machine** (Plan 00254 Task
+  4.4). The image carries `helpers/agent_bus/element.py`, which now accepts and checks the key
+  (an absolute plain path, `https` teams only), so the image is rebuilt once. The launcher
+  itself is unchanged apart from the versions.
 
 ## 3.122.0 — container 2.84.16
 
