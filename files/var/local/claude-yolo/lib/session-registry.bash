@@ -526,8 +526,7 @@ ccy_registry_remove() {
 # field is a rejection, never a guess — a guessed record starts the wrong thing in the wrong
 # place.
 ccy_registry_read() {
-    local file="${1:?ccy_registry_read requires a record path}" line key value first=true
-    local -a record_lines
+    local file="${1:?ccy_registry_read requires a record path}" line key value first=true record_lines=()
     REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE="" REC_COMPOSE="" REC_FRESH=""
     REC_ARGS=()
     if [[ ! -r "$file" ]] || ! mapfile -t record_lines <"$file"; then
@@ -772,7 +771,7 @@ ccy_restore_manifest_write() {
 # no, `at` digits or empty, and anything else is a rejection. A missing manifest is a
 # rejection too, with its own message: no restore has run.
 ccy_restore_manifest_read() {
-    local path line key value first=true expect_at=0 expect
+    local path line key value first=true expect_at=0 expect manifest_lines=()
     local width="${#CCY_RESTORE_MANIFEST_KEYS[@]}"
     expect="${CCY_RESTORE_MANIFEST_KEYS[0]}"
     RM_BOOT=""
@@ -783,7 +782,6 @@ ccy_restore_manifest_read() {
         print_error "no session restore has been recorded ($path does not exist)."
         return 1
     fi
-    local -a manifest_lines
     if [[ ! -r "$path" ]] || ! mapfile -t manifest_lines <"$path"; then
         print_error "the restore manifest $path cannot be read."
         return 1

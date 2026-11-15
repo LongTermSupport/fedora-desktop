@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.1 — container 2.84.16
+## 3.122.2 — container 2.84.16
 
 - **An `allowed-hostnames` file that cannot be read stops the launch** (issue #293). The
   launcher reads the rule under `check_allowed_hostname || exit 1`, which turns errexit off, so

@@ -435,10 +435,7 @@ load_project_mounts() {
 
     local line lineno=0 problems=0 parsed src dst opt mounts_fd
     local -A seen_dst=()
-    if ! exec {mounts_fd}<"$mounts_file"; then
-        print_error "$mounts_file cannot be read, so its project mounts cannot be checked"
-        return 1
-    fi
+    exec {mounts_fd}<"$mounts_file" || { print_error "$mounts_file cannot be read, so its project mounts cannot be checked"; return 1; }
     while IFS= read -r -u "$mounts_fd" line || [ -n "$line" ]; do
         lineno=$((lineno + 1))
         line="${line%%#*}"
@@ -801,11 +798,7 @@ check_allowed_hostname() {
     # Parse allowed entries: strip comments and blank lines. A file that is there but cannot be
     # read stops the launch: read as empty, it would lift the restriction it exists to impose.
     local allowed_hostnames=() line allowed_fd
-    if ! exec {allowed_fd}<"$allowed_file"; then
-        print_error "$allowed_file cannot be read, so whether ccy may run on this host cannot be told"
-        echo "Fix the file's permissions, or remove it to lift the restriction." >&2
-        return 1
-    fi
+    exec {allowed_fd}<"$allowed_file" || { print_error "$allowed_file cannot be read, so whether ccy may run on this host cannot be told; fix its permissions, or remove it to lift the restriction"; return 1; }
     while IFS= read -r -u "$allowed_fd" line || [[ -n "$line" ]]; do
         line="${line%%#*}"            # strip inline comments
         line="${line//[[:space:]]/}"  # strip all whitespace
