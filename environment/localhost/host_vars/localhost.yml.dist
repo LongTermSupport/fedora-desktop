@@ -33,6 +33,8 @@ user_email: "yourname@example.com"
 # Optional: no NOPASSWD sudoers rule for shutdown-with-update (default true). For a managed
 # VM whose policy forbids permanent NOPASSWD rules; the script then asks for the sudo password.
 # shutdown_with_update_sudoers: false
+# The same for the agent-bus read-only rule ccy-teams reads team members through (default true).
+# agent_bus_read_only_sudoers: false
 
 # Optional: the SSH key that signs every commit and tag (Plan 00139). Unset, it is
 # ~/.ssh/id, the login key run.bash generates. git signs through the ssh-agent that holds

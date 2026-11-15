@@ -174,7 +174,7 @@ func TestGraphNeedingSudoDrawsTheRestAndFails(t *testing.T) {
 	if code := h.c.Graph(t.Context()); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(h.ErrOut.String(), "The members of alpha are not shown: reading them needs root.") {
+	if !strings.Contains(h.ErrOut.String(), "The members of alpha are not shown: reading them needs root, ") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if !strings.Contains(h.Out.String(), "members: need sudo") || !strings.Contains(h.Out.String(), "role unknown (need sudo)") {

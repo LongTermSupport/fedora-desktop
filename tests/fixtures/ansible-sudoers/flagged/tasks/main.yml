@@ -61,6 +61,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A wildcard argument
   ansible.builtin.template:  # EXPECT-FINDING
@@ -70,6 +71,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: SETENV
   ansible.builtin.template:  # EXPECT-FINDING
@@ -79,6 +81,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: Defaults keeps the caller's PATH
   ansible.builtin.template:  # EXPECT-FINDING
@@ -88,6 +91,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: Defaults turns env_reset off for the command
   ansible.builtin.template:  # EXPECT-FINDING
@@ -97,6 +101,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A group, not a fixed user
   ansible.builtin.template:  # EXPECT-FINDING
@@ -106,6 +111,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: Runs as anyone
   ansible.builtin.template:  # EXPECT-FINDING
@@ -115,6 +121,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: An expression with a bare dot
   ansible.builtin.template:  # EXPECT-FINDING
@@ -124,6 +131,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: An expression anchored at one end
   ansible.builtin.template:  # EXPECT-FINDING
@@ -133,6 +141,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A negated command
   ansible.builtin.template:  # EXPECT-FINDING
@@ -142,6 +151,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target no task deploys
   ansible.builtin.template:  # EXPECT-FINDING
@@ -151,6 +161,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target the user owns
   ansible.builtin.template:  # EXPECT-FINDING
@@ -160,6 +171,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target the group can write
   ansible.builtin.template:  # EXPECT-FINDING
@@ -169,6 +181,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target under a directory the user owns
   ansible.builtin.template:  # EXPECT-FINDING
@@ -178,6 +191,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A link to a file in the user's home
   ansible.builtin.template:  # EXPECT-FINDING
@@ -187,6 +201,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target with no mode
   ansible.builtin.template:  # EXPECT-FINDING
@@ -196,6 +211,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: An alias expanded, and a command with no argument list beside it
   ansible.builtin.template:  # EXPECT-FINDING
@@ -205,6 +221,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: An include
   ansible.builtin.template:  # EXPECT-FINDING
@@ -214,6 +231,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A wildcard in the path
   ansible.builtin.template:  # EXPECT-FINDING
@@ -223,6 +241,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A target an installer puts in place group-writable
   ansible.builtin.template:  # EXPECT-FINDING
@@ -232,6 +251,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A user alias
   ansible.builtin.template:  # EXPECT-FINDING
@@ -241,6 +261,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: No validation
   ansible.builtin.template:  # EXPECT-FINDING
@@ -249,6 +270,7 @@
     owner: root
     group: root
     mode: "0440"
+  when: sudoers_on | bool
 
 - name: A drop-in others can read
   ansible.builtin.template:  # EXPECT-FINDING
@@ -258,6 +280,7 @@
     group: root
     mode: "0644"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A drop-in the user owns
   ansible.builtin.copy:  # EXPECT-FINDING
@@ -267,17 +290,20 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A block in /etc/sudoers with no validation
   ansible.builtin.blockinfile:  # EXPECT-FINDING
     path: /etc/sudoers
     block: '{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool ""'
+    state: "{{ 'present' if sudoers_on | bool else 'absent' }}"
 
 - name: A line with SETENV
   ansible.builtin.lineinfile:  # EXPECT-FINDING
     path: /etc/sudoers.d/line
     line: '{{ user_login }} ALL=(root) NOPASSWD:SETENV: /usr/local/bin/tool ""'
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: Inline content with no argument list
   ansible.builtin.copy:  # EXPECT-FINDING
@@ -287,6 +313,7 @@
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: sudoers_on | bool
 
 - name: A rule written by a shell command
   ansible.builtin.shell: |  # EXPECT-FINDING
@@ -301,4 +328,115 @@
     owner: root
     group: root
     mode: "0440"
+    validate: visudo -cf %s
+  when: sudoers_on | bool
+
+- name: Every rule above goes when the host turns them off
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sudoers.d/alias
+    - /etc/sudoers.d/env-keep
+    - /etc/sudoers.d/glob-arg
+    - /etc/sudoers.d/group
+    - /etc/sudoers.d/group-writable
+    - /etc/sudoers.d/include
+    - /etc/sudoers.d/inline
+    - /etc/sudoers.d/installed-writable
+    - /etc/sudoers.d/line
+    - /etc/sudoers.d/link-to-user
+    - /etc/sudoers.d/missing
+    - /etc/sudoers.d/negation
+    - /etc/sudoers.d/no-args
+    - /etc/sudoers.d/no-mode
+    - /etc/sudoers.d/no-validate
+    - /etc/sudoers.d/not-reset
+    - /etc/sudoers.d/path-glob
+    - /etc/sudoers.d/readable
+    - /etc/sudoers.d/regex-dot
+    - /etc/sudoers.d/regex-unanchored
+    - /etc/sudoers.d/runas-all
+    - /etc/sudoers.d/setenv
+    - /etc/sudoers.d/undeployed
+    - /etc/sudoers.d/user-alias
+    - /etc/sudoers.d/user-owned
+    - /etc/sudoers.d/writable-dir
+  when: not (sudoers_on | bool)
+
+# A NOPASSWD rule must be one a host variable can turn off: the task carries a `when:` on a
+# host variable and the same file removes the rule under the negated condition.
+
+- name: A NOPASSWD rule no host variable can turn off
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/unswitched
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: A switch that nothing removes the rule under
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/never-removed
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  when: never_removed_sudoers | bool
+
+- name: A removal under the same condition, not the negated one
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/removed-same-way
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  when: same_way_sudoers | bool
+
+- name: The removal that never runs when the rule is off
+  ansible.builtin.file:
+    path: /etc/sudoers.d/removed-same-way
+    state: absent
+  when: same_way_sudoers | bool
+
+- name: A removal of another file
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/wrong-removal
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  when: wrong_removal_sudoers | bool
+
+- name: The removal names some other file
+  ansible.builtin.file:
+    path: /etc/sudoers.d/something-else
+    state: absent
+  when: not (wrong_removal_sudoers | bool)
+
+- name: A switch that is a constant
+  ansible.builtin.template:  # EXPECT-FINDING
+    src: "{{ root_dir }}/files/etc/sudoers.d/fine.j2"
+    dest: /etc/sudoers.d/constant
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  when: true
+
+- name: The removal of the constant one
+  ansible.builtin.file:
+    path: /etc/sudoers.d/constant
+    state: absent
+  when: not true
+
+- name: A NOPASSWD line no host variable can turn off
+  ansible.builtin.lineinfile:  # EXPECT-FINDING
+    path: /etc/sudoers.d/unswitched-line
+    line: '{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool ""'
+    create: true
     validate: visudo -cf %s

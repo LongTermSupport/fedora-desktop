@@ -166,7 +166,8 @@ func TestPickerAsksForSudoOnceAndRefusalLeavesWithTheCost(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	for _, want := range []string{
-		"done as root", "play-agent-bus.yml", "sudo was not given your password",
+		"done as root", "play-agent-bus.yml", "unless host_vars sets agent_bus_read_only_sudoers: false",
+		"sudo was not given your password",
 		"ERROR: so the teams' members cannot be shown, and nothing was changed. ccy-teams --list shows the teams without them.\n",
 	} {
 		if !strings.Contains(h.ErrOut.String(), want) {

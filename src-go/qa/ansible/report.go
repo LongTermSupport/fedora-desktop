@@ -35,7 +35,7 @@ func (f Findings) Errors() int {
 func (f Findings) Summary(reportPath string) []string {
 	if f.Errors() == 0 {
 		return []string{fmt.Sprintf("✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; "+
-			"regex backreferences and letter escapes escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
+			"regex backreferences and letter escapes escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets, each NOPASSWD one switchable; scope+guard declarations OK; %d playbook(s) have correct shebang+exec "+
 			"(scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)", f.Playbooks)}
 	}
 	return []string{
@@ -144,7 +144,7 @@ func (f Findings) JSON() ([]byte, error) {
 		add(entry, "play-ux: a setting checked late or demanded by hand, an Ansible CLI outside the checkout, a failure no_log hides, or a command that reports changed on every run")
 	}
 	for _, entry := range f.Sudoers {
-		add(entry, "sudoers-rule: a sudoers rule whose target its user can modify or steer")
+		add(entry, "sudoers-rule: a sudoers rule whose target its user can modify or steer, or a NOPASSWD rule no host variable can turn off")
 	}
 	report := jsonReport{
 		Type:     "ansible",

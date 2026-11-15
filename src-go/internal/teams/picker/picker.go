@@ -39,8 +39,9 @@ import (
 
 // readWhy is what sudo is asked for when the members of a team can only be read as root.
 const readWhy = "Reading who is in each team, and whether its people are signed in, is done as root: " +
-	"the team's admin token is root's. Once play-agent-bus.yml has run, a sudoers rule lets ccy-teams " +
-	"read this without a password; until then, sudo asks."
+	"the team's admin token is root's. play-agent-bus.yml installs a sudoers rule that lets ccy-teams " +
+	"read this without a password, unless host_vars sets agent_bus_read_only_sudoers: false; without " +
+	"the rule, sudo asks."
 
 // maxNoOps is how many refused attempts in a row end the picker: a terminal that answers
 // every key with nothing would otherwise loop for ever.

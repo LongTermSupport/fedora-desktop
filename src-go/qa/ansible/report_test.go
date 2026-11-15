@@ -9,7 +9,7 @@ import (
 
 func TestSummaryPass(t *testing.T) {
 	got := Findings{Playbooks: 3}.Summary("/tmp/x.json")
-	want := []string{"✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences and letter escapes escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets; scope+guard declarations OK; 3 playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)"}
+	want := []string{"✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences and letter escapes escaped right; system files written as root set umask 022; settings checked first, asked for, Ansible CLIs run from the checkout, no_log failures readable; sudoers rules pinned to root-owned targets, each NOPASSWD one switchable; scope+guard declarations OK; 3 playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
 	}

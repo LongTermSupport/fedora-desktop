@@ -70,6 +70,11 @@ func sudoersTree(rule string) fstest.MapFS {
     group: root
     mode: "0440"
     validate: visudo -cf %s
+  when: rule_sudoers | bool
+- ansible.builtin.file:
+    path: /etc/sudoers.d/rule
+    state: absent
+  when: not (rule_sudoers | bool)
 `)},
 		"files/rule.j2": {Data: []byte(rule)},
 		"files/tool":    {Data: []byte("#!/bin/bash\n")},
@@ -143,4 +148,95 @@ func TestSudoersRuleIsReportedByTheGate(t *testing.T) {
 		!strings.Contains(f.Out[0], "  ERROR (sudoers-rule): tasks/main.yml:7: ") {
 		t.Fatalf("%+v", f)
 	}
+}
+
+// switchTree is a tree whose one rule is installed by install and removed by removal, both
+// task lists in the same file; the rule and its target are otherwise clean.
+func switchTree(install, removal string) fstest.MapFS {
+	return fstest.MapFS{
+		"tasks/main.yml": {Data: []byte(`- ansible.builtin.copy:
+    src: "{{ root_dir }}/files/tool"
+    dest: /usr/local/bin/tool
+    owner: root
+    group: root
+    mode: "0755"
+` + install + removal)},
+		"files/rule.j2": {Data: []byte("{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool \"\"\n")},
+		"files/tool":    {Data: []byte("#!/bin/bash\n")},
+	}
+}
+
+const ruleTask = `- ansible.builtin.template:
+    src: "{{ root_dir }}/files/rule.j2"
+    dest: /etc/sudoers.d/rule
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+`
+
+func TestSudoersRuleWantsASwitchAHostCanTurnOff(t *testing.T) {
+	cases := []struct {
+		name, install, removal, want string
+	}{
+		{"no switch", ruleTask, "", "no host variable can turn off"},
+		{
+			"a constant switch", ruleTask + "  when: true\n",
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/rule\n    state: absent\n  when: not true\n", "no host variable can turn off",
+		},
+		{"a switch with no removal", ruleTask + "  when: rule_sudoers | bool\n", "", "no task in this file removes it"},
+		{
+			"a removal that is not negated", ruleTask + "  when: rule_sudoers | bool\n",
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/rule\n    state: absent\n  when: rule_sudoers | bool\n", "no task in this file removes it",
+		},
+		{
+			"a removal of something else", ruleTask + "  when: rule_sudoers | bool\n",
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/other\n    state: absent\n  when: not (rule_sudoers | bool)\n", "no task in this file removes it",
+		},
+		{
+			"a negated removal, spaced differently", ruleTask + "  when: rule_sudoers|bool\n",
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/rule\n    state: absent\n  when: not ( rule_sudoers | bool )\n", "",
+		},
+		{
+			"a removal through a loop", ruleTask + "  when: rule_on\n",
+			"- ansible.builtin.file:\n    path: \"{{ item }}\"\n    state: absent\n  loop:\n    - /etc/sudoers.d/rule\n  when: not rule_on\n", "",
+		},
+		{
+			"the switch on the enclosing block", "- when: rule_on\n  block:\n" + indent(ruleTask),
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/rule\n    state: absent\n  when: not rule_on\n", "",
+		},
+		{
+			"two conditions, removed under not both", ruleTask + "  when:\n    - a_on\n    - b_on\n",
+			"- ansible.builtin.file:\n    path: /etc/sudoers.d/rule\n    state: absent\n  when: not ((a_on) and (b_on))\n", "",
+		},
+		{
+			"a line edit whose state is the switch",
+			"- ansible.builtin.lineinfile:\n    path: /etc/sudoers.d/rule\n    line: '{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/tool \"\"'\n" +
+				"    state: \"{{ 'present' if rule_on else 'absent' }}\"\n    validate: visudo -cf %s\n", "", "",
+		},
+		{"a rule that asks for the password needs no switch", strings.ReplaceAll(ruleTask, "rule.j2", "pw.j2"), "", ""},
+	}
+	for _, c := range cases {
+		tree := switchTree(c.install, c.removal)
+		tree["files/pw.j2"] = &fstest.MapFile{Data: []byte("{{ user_login }} ALL=(root) /usr/local/bin/tool \"\"\n# NOPASSWD in a comment is not read\n")}
+		findings, err := sudoersRule(tree, []string{"tasks"})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		joined := strings.Join(findings, "\n")
+		switch {
+		case c.want == "" && len(findings) != 0:
+			t.Errorf("%s: want none, got\n%s", c.name, joined)
+		case c.want != "" && (len(findings) != 1 || !strings.Contains(joined, c.want)):
+			t.Errorf("%s: want one finding naming %q, got\n%s", c.name, c.want, joined)
+		}
+	}
+}
+
+func indent(s string) string {
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = "    " + l
+	}
+	return strings.Join(lines, "\n") + "\n"
 }

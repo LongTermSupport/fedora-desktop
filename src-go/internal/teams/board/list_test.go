@@ -107,7 +107,7 @@ func TestListNeedingSudoSaysSoAndFails(t *testing.T) {
 	if code := h.c.List(t.Context()); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	want := "The members of alpha are not shown: reading them needs root. Run sudo -v first, or run play-agent-bus.yml once, which installs a rule that lets ccy-teams read them without a password.\n"
+	want := "The members of alpha are not shown: reading them needs root, and no sudoers rule lets ccy-teams do that without a password. Run sudo -v, then this again. play-agent-bus.yml installs that rule, unless host_vars sets agent_bus_read_only_sudoers: false.\n"
 	if h.ErrOut.String() != want {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}

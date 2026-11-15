@@ -69,7 +69,7 @@ stat of what it installed (CLAUDE/QA.md, install-guard-trusts-record), an input 
 picks by membership with no check that its names exist (CLAUDE/QA.md, filter-list-unchecked),
 two tasks that write the same block or line of a file
 with different content (CLAUDE/QA.md, duplicate-managed-block), and a sudoers rule whose target its user can modify or
-steer (CLAUDE/QA.md, sudoers-rule).
+steer, or a NOPASSWD rule no host variable can turn off (CLAUDE/QA.md, sudoers-rule).
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
