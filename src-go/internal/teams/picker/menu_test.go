@@ -55,7 +55,7 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 	rows := h.menuRows()
 	want := []string{
 		"Open alpha in Element",
-		"New password — signs out guest's 2 Element sessions",
+		"New password — signs out guest's 2 sessions on the homeserver",
 	}
 	if len(rows) < 2 || !slices.Equal(rows[:2], want) {
 		t.Fatalf("menu %q", rows)
@@ -86,6 +86,23 @@ func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
 		t.Fatalf("menu %q", rows)
 	}
 	if !strings.Contains(h.ErrOut.String(), "alpha has no Element profile on this desktop yet") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// Plan 00254 Task 6.2: the menu names the client the team opens in.
+func TestATeamsMenuNamesTheClientItOpensIn(t *testing.T) {
+	h := newRig(t)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: lightning\n")
+	h.Script.Fzf = []string{"|alpha", "|Open every team in Lightning", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	rows := h.menuRows()
+	if !slices.Contains(rows, "Open alpha in Lightning") || !slices.Contains(rows, "Open every team in Lightning, a window each") {
+		t.Fatalf("menu %q", rows)
+	}
+	if !strings.Contains(h.ErrOut.String(), "alpha has no Lightning instance on this desktop yet") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
@@ -230,7 +247,7 @@ func TestNewPasswordFromTheMenuAsksFirstAndDefaultsToNo(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.Contains(h.HeaderOf(2), "This signs out guest's 2 Element sessions.") ||
+	if !strings.Contains(h.HeaderOf(2), "This signs out guest's 2 sessions on the homeserver.") ||
 		!slices.Contains(h.Script.FzfArgs[2], "--bind=start:last") {
 		t.Fatalf("header %q", h.HeaderOf(2))
 	}

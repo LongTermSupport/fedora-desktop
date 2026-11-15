@@ -74,12 +74,15 @@ type Wizard struct {
 	// declared and installed in it, so a wait that does not end in the lock adds nothing.
 	Locked      func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	NewPassword func(ctx context.Context, team, human string) error
-	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
-	// Element session: the play made their accounts, so it is offered (ask) or said.
-	SignInGap     func(ctx context.Context, teams []string, ask bool) error
-	LaunchElement func(ctx context.Context, team string) error
-	// SettleClipboard ends a copy of a password NewPassword put on the clipboard: once Element
-	// has been offered, it waits for the paste and clears the clipboard if it still holds it.
+	// SignInGap is, after an apply that failed, the sign-in of the team's people who have never
+	// signed in to its homeserver (each account exists once the play has run): offered or explained.
+	SignInGap func(ctx context.Context, teams []string, ask bool) error
+	// LaunchTeam opens the team in its Matrix client; ClientName names that client, saying why
+	// when it cannot be read.
+	LaunchTeam func(ctx context.Context, team string) error
+	ClientName func(ctx context.Context, team string) string
+	// SettleClipboard ends a copy of a password NewPassword put on the clipboard: once the
+	// team's client has been offered, it waits for the paste and clears the clipboard if it still holds it.
 	SettleClipboard func(ctx context.Context)
 	// ExecLauncher replaces this process with argv in dir. It returns only on failure
 	// (a test's stand-in returns nil).
@@ -116,7 +119,8 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 		Locked:          o.Locked,
 		NewPassword:     l.NewPassword,
 		SignInGap:       l.SignInGap,
-		LaunchElement:   l.Open,
+		LaunchTeam:      l.Open,
+		ClientName:      l.ClientName,
 		SettleClipboard: l.SettleClipboard,
 		ExecLauncher: func(dir string, argv []string) error {
 			return h.Exec(h.Launcher, argv, dir)
@@ -1080,8 +1084,9 @@ func withoutOffered(steps string) string {
 // way is settled last, once Element is open to paste it into, however the offers end.
 func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 	defer c.SettleClipboard(ctx)
+	client := c.ClientName(ctx, o.team)
 	for _, human := range nonEmpty(o.humans) {
-		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to Element now? A password is set and shown here once.", false)
+		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to "+client+" now? A password is set and shown here once.", false)
 		if err != nil {
 			return err
 		}
@@ -1091,11 +1096,11 @@ func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 			}
 		}
 	}
-	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in Element").About("team "+o.team+" · just created"), "Open "+o.team+" in Element now?", false)
+	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in "+client).About("team "+o.team+" · just created"), "Open "+o.team+" in "+client+" now?", false)
 	if err != nil || !yes {
 		return err
 	}
-	return c.offered(c.LaunchElement(ctx, o.team))
+	return c.offered(c.LaunchTeam(ctx, o.team))
 }
 
 // offered is the outcome of something offered after the team was made: it has said why

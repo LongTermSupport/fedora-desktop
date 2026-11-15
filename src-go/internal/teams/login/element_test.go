@@ -23,7 +23,7 @@ func (h rig) withElementProfile(t *testing.T) {
 	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
 }
 
-// ownerDeviceReads is how many times the owner's Element sessions were read.
+// ownerDeviceReads is how many times the owner's sessions on the homeserver were read.
 func (h rig) ownerDeviceReads() int {
 	n := 0
 	for _, c := range h.Fake.Calls() {
@@ -39,13 +39,13 @@ func TestElementOpensTheProfileInItsOwnScopeAndReturnsToTheList(t *testing.T) {
 	h.withElementProfile(t)
 	snap := h.pass(t)
 	reads := h.ownerDeviceReads()
-	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	res, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Done {
 		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
 	}
 	h.pass(t)
 	if h.ownerDeviceReads() != reads+1 {
-		t.Fatalf("the list reads the team's Element sessions again after Element is started: %d then %d", reads, h.ownerDeviceReads())
+		t.Fatalf("the list reads the team's sessions on the homeserver again after Element is started: %d then %d", reads, h.ownerDeviceReads())
 	}
 	var run execx.Cmd
 	for _, c := range h.Fake.Calls() {
@@ -76,7 +76,7 @@ func TestElementFailedLaunchIsExplicitlyAFailureWithTheLogsTail(t *testing.T) {
 	teamtest.MustWrite(t, logPath, "electron chatter on stderr\n")
 	h.OnErr("systemd-run", "gio: failed", 1)
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	_, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("%v", err)
 	}
@@ -93,7 +93,7 @@ func TestElementLaunchFailureThatIsNotAnExitIsReportedToo(t *testing.T) {
 	// the log's directory is a file, so the launch cannot even open its log
 	teamtest.MustWrite(t, h.l.StateDir, "")
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	_, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("%v", err)
 	}
@@ -109,7 +109,7 @@ func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
 	h.passwordable()
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
-	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	for _, want := range []string{
@@ -125,7 +125,7 @@ func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
 // it went to the clipboard, was not offered for it, or was declined for it.
 const afterFirstPassword = "Press Enter to open Element, then sign in there as owner with the password shown above.\n"
 
-// Someone who has never signed in has no Element session for a new password to sign out, and
+// Someone who has never signed in has no session on the homeserver for a new password to sign out, and
 // cannot sign in without one: Enter sets it.
 func TestElementFirstSignInDefaultsToSettingAPassword(t *testing.T) {
 	h := newRig(t)
@@ -134,10 +134,10 @@ func TestElementFirstSignInDefaultsToSettingAPassword(t *testing.T) {
 	h.passwordable()
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
-	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
-	if !strings.Contains(h.HeaderOf(0), "owner has no Element session to sign out.") {
+	if !strings.Contains(h.HeaderOf(0), "owner has no session on the homeserver to sign out.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
@@ -182,7 +182,7 @@ func TestElementAfterAFirstPasswordNeverSaysCopyIt(t *testing.T) {
 			h.Env["WAYLAND_DISPLAY"] = "wayland-test"
 			setUp(h)
 			snap := h.pass(t)
-			if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+			if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 				t.Fatalf("%v", err)
 			}
 			out := h.ErrOut.String()
@@ -203,7 +203,7 @@ func TestElementOpensBeforeTheCopiedPasswordIsCleared(t *testing.T) {
 	h.copiable("a-new-password")
 	h.Script.Fzf = []string{"|YES", "|YES"}
 	snap := h.pass(t)
-	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	launched, read, cleared := h.callIndex("systemd-run"), h.callIndex("wl-paste"), h.callIndex("wl-copy --clear")
@@ -222,7 +222,7 @@ func TestElementNeverSignedInDeclinedStillOpens(t *testing.T) {
 	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
 	h.Script.Fzf = []string{"|EXIT"}
 	snap := h.pass(t)
-	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	if h.Fake.Called(teamtest.SudoBus+"human password") || !h.Fake.Called("systemd-run") {
@@ -237,7 +237,7 @@ func TestElementWithNoProfileOffersToSetItUp(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{"NO"}
 	snap := h.pass(t)
-	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	res, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Refused {
 		t.Fatalf("%v %v", res, err)
 	}
@@ -271,7 +271,7 @@ func TestElementSetUpDeclaresThenRunsThePlayThenOpens(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	snap := h.pass(t)
-	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v: %s", err, h.ErrOut.String())
 	}
 	if h.elementPlays() != 1 {
@@ -295,7 +295,7 @@ func TestElementSetUpIsInOneHoldOfThePlayLock(t *testing.T) {
 		teamtest.MustWrite(t, h.elementLauncher(), "")
 		return execx.Result{}, nil
 	})
-	if _, err := h.l.OpenElement(context.Background(), h.pass(t), "alpha"); err != nil {
+	if _, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha"); err != nil {
 		t.Fatalf("%v: %s", err, h.ErrOut.String())
 	}
 	if !heldAtDeclare || h.PlayLockHeld(t) {
@@ -309,7 +309,7 @@ func TestStoppingTheWaitForThePlayLockSetsNothingUpInElement(t *testing.T) {
 	h.HoldPlayLock(t)
 	h.Script.Gum = []string{"YES"}
 	h.Script.Fzf = []string{"|EXIT"}
-	res, err := h.l.OpenElement(context.Background(), h.pass(t), "alpha")
+	res, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha")
 	if err != nil || res != flow.Refused {
 		t.Fatalf("%v %v", res, err)
 	}
@@ -327,7 +327,7 @@ func TestElementSetUpFailureIsSaidAndKeepsThePicker(t *testing.T) {
 	h.Script.Gum = []string{"YES"}
 	h.OnErr(h.Host.ElementPlay, "play failed", 1)
 	snap := h.pass(t)
-	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	res, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Refused {
 		t.Fatalf("%v %v", res, err)
 	}
@@ -342,7 +342,7 @@ func TestElementSetUpFailureIsSaidAndKeepsThePicker(t *testing.T) {
 	h.OnErr(h.DeclarePrefix("element"), "declare: refused", 78)
 	h.Script.Gum = []string{"YES"}
 	snap = h.pass(t)
-	if res, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil || res != flow.Refused {
+	if res, err := h.l.OpenTeam(context.Background(), snap, "alpha"); err != nil || res != flow.Refused {
 		t.Fatalf("%v %v", res, err)
 	}
 	if h.elementPlays() != 0 || !strings.Contains(h.ErrOut.String(), "declare: refused\n") {
@@ -401,7 +401,7 @@ func TestElementSetUpCancelledEndsWith130(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{"CANCEL"}
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	_, err := h.l.OpenTeam(context.Background(), snap, "alpha")
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitCancelled {
 		t.Fatalf("%v", err)
 	}

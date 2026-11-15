@@ -239,8 +239,11 @@ type tree struct{ home, root, appID string }
 
 func (t tree) team(team string) string { return filepath.Join(t.root, teamsDir, team) }
 
-func (t tree) launcher(team string) string {
-	return filepath.Join(t.home, appsDir, "agent-bus-"+team+"-lightning.desktop")
+func (t tree) launcher(team string) string { return Launcher(t.home, team) }
+
+// Launcher is a team's Lightning launcher under a home (L8): ccy-teams opens the team by it.
+func Launcher(home, team string) string {
+	return filepath.Join(home, appsDir, "agent-bus-"+team+"-lightning.desktop")
 }
 
 // execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none).

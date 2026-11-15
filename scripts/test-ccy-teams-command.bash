@@ -1030,9 +1030,11 @@ printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|YES" "|EXIT" "|ABORT")"
 check "Enter on a person with a session offers Element first, and a password only on request" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
+# The count is of devices on the homeserver, from any client (Plan 00254 Phase 6), so the text
+# names the homeserver, not a client.
 check_has "  the menu names the sessions the password signs out" \
-    "New password — signs out owner's 1 Element session" "$(cat "$TEST_FZF_RAW")"
-check_has "  and the question says it again" "This signs out owner's 1 Element session." "$(cat "$TEST_FZF_RAW")"
+    "New password — signs out owner's 1 session on the homeserver" "$(cat "$TEST_FZF_RAW")"
+check_has "  and the question says it again" "This signs out owner's 1 session on the homeserver." "$(cat "$TEST_FZF_RAW")"
 check_has "  while the reset itself defaults to Exit" "start:last" \
     "$(awk '/This signs out owner/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 reset

@@ -232,6 +232,7 @@ type wzHarness struct {
 	pwdErr  error
 	element []string
 	elemErr error
+	client  string // the client the team opens in; Element when empty
 	// settled is, at each clipboard settle, how many passwords and Element launches came first.
 	settled []string
 	execd   [][]string
@@ -373,10 +374,11 @@ func newWzHarness(t *testing.T) *wzHarness {
 		SettleClipboard: func(context.Context) {
 			h.settled = append(h.settled, fmt.Sprintf("%d/%d", len(h.pwd), len(h.element)))
 		},
-		LaunchElement: func(_ context.Context, team string) error {
+		LaunchTeam: func(_ context.Context, team string) error {
 			h.element = append(h.element, team)
 			return h.elemErr
 		},
+		ClientName: h.clientName,
 		ExecLauncher: func(dir string, argv []string) error {
 			h.execd = append(h.execd, append([]string{dir}, argv...))
 			return h.execErr
@@ -1293,6 +1295,28 @@ func TestAGumThatCannotRunEndsTheRunWithAnError(t *testing.T) {
 }
 
 // ── after create ─────────────────────────────────────────────────────────────────────────
+
+// clientName is the wizard's ClientName: the client the harness says, Element when it says none.
+func (h *wzHarness) clientName(context.Context, string) string {
+	if h.client == "" {
+		return "Element"
+	}
+	return h.client
+}
+
+// Plan 00254 Task 6.2: the offers after create name the client the team opens in.
+func TestTheOffersAfterCreateNameTheTeamsClient(t *testing.T) {
+	h := newWzHarness(t)
+	h.client = "Lightning"
+	h.happyAnswers()
+	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzOK(""), wzExit(1)}
+	wzCode(t, h.invoke(), 0, h)
+	wzContain(t, "gum", strings.Join(h.run.matching("gum confirm"), "\n"),
+		"Sign owner in to Lightning now?", "Open proj in Lightning now?")
+	if !slices.Equal(h.element, []string{"proj"}) {
+		t.Errorf("opened %v", h.element)
+	}
+}
 
 func TestAcceptingTheSignInAndElementOffersRunThem(t *testing.T) {
 	h := newWzHarness(t)

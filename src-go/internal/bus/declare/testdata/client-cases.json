@@ -1,0 +1,62 @@
+{
+  "doc": "Which Matrix client each team opens in (Plan 00254 DESIGN-client-choice.md): a team's own client, else agent_bus_matrix_client, else element. One table read by src-go/internal/bus/declare/clients_test.go and the plan's test_acceptance_lightning.py, so the Go and the plan's Python resolve the same cases. The play's Jinja is not run here. resolves: clients is each declared team's client, default the client of any other team. refuses: goSays is part of the Go refusal; the Python raises Refused or CouldNotEstablish.",
+  "resolves": [
+    {
+      "name": "no setting",
+      "hostVars": "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n",
+      "clients": {"alpha": "element"},
+      "default": "element"
+    },
+    {
+      "name": "the home-level setting only",
+      "hostVars": "agent_bus_matrix_client: lightning\nagent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n",
+      "clients": {"alpha": "lightning"},
+      "default": "lightning"
+    },
+    {
+      "name": "a team override",
+      "hostVars": "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n  - team: beta\n    base_url: http://192.0.2.1:6168\n    client: lightning\n",
+      "clients": {"alpha": "element", "beta": "lightning"},
+      "default": "element"
+    },
+    {
+      "name": "an override back to element",
+      "hostVars": "agent_bus_matrix_client: 'lightning'  # trying it\nagent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: element\n",
+      "clients": {"alpha": "element"},
+      "default": "lightning"
+    },
+    {
+      "name": "no list at all",
+      "hostVars": "agent_bus_matrix_client: lightning\n",
+      "clients": {},
+      "default": "lightning"
+    }
+  ],
+  "refuses": [
+    {
+      "name": "a home-level value",
+      "hostVars": "agent_bus_matrix_client: nheko\n",
+      "goSays": "agent_bus_matrix_client is 'nheko'; the client must be element or lightning"
+    },
+    {
+      "name": "an empty home-level value",
+      "hostVars": "agent_bus_matrix_client:\n",
+      "goSays": "agent_bus_matrix_client is ''; the client must be element or lightning"
+    },
+    {
+      "name": "a team's value",
+      "hostVars": "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: Lightning\n",
+      "goSays": "team alpha's client is 'Lightning'; the client must be element or lightning"
+    },
+    {
+      "name": "a team's value that is not text",
+      "hostVars": "agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.1:6167\n    client: [\"lightning\"]\n",
+      "goSays": "team alpha's client is ['lightning']; the client must be element or lightning"
+    },
+    {
+      "name": "set twice",
+      "hostVars": "agent_bus_matrix_client: element\nagent_bus_matrix_client: lightning\n",
+      "goSays": "agent_bus_matrix_client is set more than once"
+    }
+  ]
+}

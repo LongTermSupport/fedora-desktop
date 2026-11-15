@@ -458,6 +458,16 @@ func TestL8TheLauncherIsRewrittenWhenItDiffers(t *testing.T) {
 	}
 }
 
+// TestL8TheLauncherPathIsTheOneCcyTeamsOpens holds that Launcher, which ccy-teams opens a
+// Lightning team by, is where apply writes the launcher.
+func TestL8TheLauncherPathIsTheOneCcyTeamsOpens(t *testing.T) {
+	w := newWorld(t)
+	w.apply(list(lightningTeam("team-a")))
+	if got := Launcher(w.home, "team-a"); got != w.launcher("team-a") || !exists(got) {
+		t.Fatalf("Launcher is %q, apply wrote %q", got, w.launcher("team-a"))
+	}
+}
+
 // TestL9AStaleLauncherOfOursIsRemoved holds the launcher of a team declared for Element, or not
 // declared at all, removed when it is recognisably this command's, and every other file kept.
 func TestL9AStaleLauncherOfOursIsRemoved(t *testing.T) {

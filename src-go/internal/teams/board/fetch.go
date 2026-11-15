@@ -33,8 +33,8 @@ type seatRead struct {
 	said       tape
 }
 
-// rosterRead is agent-bus list of one team, and the Element sessions of each person on it whose
-// count is not kept.
+// rosterRead is agent-bus list of one team, and the sessions on the homeserver of each person on
+// it whose count is not kept.
 type rosterRead struct {
 	roster  agentbus.Roster
 	err     error

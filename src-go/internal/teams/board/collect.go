@@ -58,7 +58,7 @@ type Collector struct {
 	// Parallel is how many agent-bus calls a pass runs at once; 0 is the default bound.
 	Parallel int
 
-	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
+	// devices is how many sessions each person has on the homeserver (from any client), by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
 	devices map[string]int
 	// workTree is the checkout the command was run in, asked once: why is set when whose
@@ -116,7 +116,7 @@ func (c *Collector) Statuses(ctx context.Context) (map[string]declare.Status, er
 	return s.Status, nil
 }
 
-// ForgetDevices drops what was read of who is signed in to Element, for team's people or, with
+// ForgetDevices drops what was read of each person's sessions on the homeserver, for team's people or, with
 // no team, everyone's: reading each person costs a sudo process, so the list keeps a read until
 // something that changes it is done (a password set, a team applied, removed or created).
 func (c *Collector) ForgetDevices(team string) {
@@ -137,6 +137,7 @@ type teamsRead struct {
 	units    []systemd.Unit
 	declared []declare.Team
 	states   []declare.Status
+	clients  declare.Clients
 }
 
 // HoldTeams starts an open's start-up (SPEC-view.md V41): the next read of the teams is shared
@@ -212,6 +213,7 @@ func (c *Collector) collectTeams(ctx context.Context, s *Snapshot) error {
 		s.Loaded[u.Team] = true
 		s.Active[u.Team] = u.Active
 	}
+	s.Clients = read.clients
 	seen := map[string]bool{}
 	s.addDeclared(seen, read.declared)
 	for _, u := range read.units {
@@ -245,7 +247,13 @@ func (c *Collector) readTeams(ctx context.Context) (*teamsRead, error) {
 		c.Term.PrintError("the teams declared in " + c.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).")
 		return nil, errReported
 	}
-	read := &teamsRead{units: units, declared: declared, states: states}
+	clients, err := c.Declare.MatrixClients(ctx)
+	if err != nil {
+		c.reportErr(err)
+		c.Term.PrintError("the Matrix client each team opens in could not be read from " + c.HostVars + " (the reason is above).")
+		return nil, errReported
+	}
+	read := &teamsRead{units: units, declared: declared, states: states, clients: clients}
 	if c.startup.on {
 		c.startup.read = read
 	}
@@ -365,7 +373,8 @@ func (c *Collector) addDesired(s *Snapshot, records []registry.Record) {
 	}
 }
 
-// signedInWord is a person's SESSION column: how many Element sessions they have.
+// signedInWord is a person's SESSION column: how many sessions (devices) they have on the team's
+// homeserver, whichever client made them; it does not say the team's own client is signed in.
 func signedInWord(devices int) string {
 	if devices == 0 {
 		return WordNeverSignedIn
@@ -392,7 +401,7 @@ func (c *Collector) addWorkTree(ctx context.Context, s *Snapshot) {
 	}
 }
 
-// addMembers notes team's roster, and each person's Element sessions, as read as root without
+// addMembers notes team's roster, and each person's sessions on the homeserver, as read as root without
 // prompting. What could not be read is recorded as a reason, never skipped silently.
 func (c *Collector) addMembers(s *Snapshot, team string, read *rosterRead) {
 	read.said.play(c.Out)

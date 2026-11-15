@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -90,14 +91,16 @@ func lastDestructive(acts []action) []action {
 // kindActions is what can be done to row because of what it is.
 func (r *run) kindActions(row board.Row) []action {
 	team := row.Team
-	open := action{actElement, "Open " + team + " in Element", "open " + team + " in Element"}
+	client := r.clientName(team)
+	open := action{actElement, "Open " + team + " in " + client, "open " + team + " in " + client}
 	start := r.startAction(team)
 	help := action{actHelp, helpLabel, "help"}
 	switch row.Kind {
 	case board.KindTeam:
+		every := r.everyClient()
 		return append(append([]action{
 			open,
-			{actElementAll, "Open every team in Element, a window each", "open every team in Element"},
+			{actElementAll, "Open every team " + every + ", a window each", "open every team " + every},
 			start,
 			{actSettings, "Edit settings", "edit " + team + "'s settings"},
 			{actUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
@@ -111,6 +114,30 @@ func (r *run) kindActions(row board.Row) []action {
 	case board.KindCcy, board.KindCC:
 	}
 	return r.memberActions(row, open, start, help)
+}
+
+// clientName is the Matrix client team opens in, as the pass read it (Plan 00254 Task 6.2).
+func (r *run) clientName(team string) string {
+	if r.snap.Clients.Of(team) == ops.Lightning.Key {
+		return ops.Lightning.Name
+	}
+	return ops.Element.Name
+}
+
+// everyClient is where Open every team opens them: "in Element" when every team opens in one
+// client, else "in its own client".
+func (r *run) everyClient() string {
+	names := map[string]bool{}
+	for _, team := range r.snap.Teams {
+		names[r.clientName(team)] = true
+	}
+	if len(names) > 1 {
+		return "in its own client"
+	}
+	for name := range names {
+		return "in " + name
+	}
+	return "in " + ops.Element.Name
 }
 
 // startAction is starting a ccy session in team, in this folder. Where the header says a new

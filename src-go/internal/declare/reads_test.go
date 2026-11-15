@@ -190,6 +190,21 @@ func TestElementTeams(t *testing.T) {
 	noProcess(t, f)
 }
 
+func TestMatrixClients(t *testing.T) {
+	f := &execx.Fake{}
+	got, err := fileClient(t, f, "agent_bus_matrix_client: lightning\n"+
+		"agent_bus_element_teams:\n  - team: alpha\n    base_url: http://192.0.2.10:6167\n    client: element\n").
+		MatrixClients(context.Background())
+	if err != nil || got.Of("alpha") != ClientElement || got.Of("beta") != ClientLightning {
+		t.Fatalf("%+v %v", got, err)
+	}
+	noProcess(t, f)
+	_, err = fileClient(t, f, "agent_bus_matrix_client: nheko\n").MatrixClients(context.Background())
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("a client that is not element or lightning is declare's refusal: %v", err)
+	}
+}
+
 const choicesText = "agent_bus_teams:\n" +
 	"  - team: alpha\n    org: example-org\n    description: Builds the site\n" +
 	"    repos:\n      - repo: example-org/proj\n" +

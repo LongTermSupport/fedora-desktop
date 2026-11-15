@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 )
 
 // stoppedAtApply is added to a joined LXC member's WHERE when its container was not running at
@@ -66,9 +67,12 @@ type Snapshot struct {
 	// LXC is each team's LXC member record (lxcrecord.Read): which container, user and checkout
 	// each LXC member is, and what the last apply found of it. A team with none, or whose record
 	// could not be read (its row's WHERE says why), has an empty one.
-	LXC            map[string]lxcrecord.Record
+	LXC map[string]lxcrecord.Record
+	// Clients is the Matrix client each team opens in (its client:, else agent_bus_matrix_client,
+	// else element), which its menu names.
+	Clients        declare.Clients
 	MembersUnknown map[string]string // team -> why its members are not shown
-	SignedIn       map[string]string // "<team>|<person>" -> their Element sessions in words
+	SignedIn       map[string]string // "<team>|<person>" -> their sessions on the homeserver, from any client, in words
 	Sessions       map[string]int    // same key -> how many, for the people whose count could be read
 
 	// NeedSudo is " <team>" for each team whose members wait on sudo (a team can repeat).
@@ -91,11 +95,21 @@ func NewSnapshot() *Snapshot {
 	}
 }
 
-// SessionsOf is how many Element sessions person has in team; known is false when the count
-// could not be read, which is not the same as none.
+// SessionsOf is how many sessions (devices) person has on team's homeserver, from any client;
+// known is false when the count could not be read, which is not the same as none.
 func (s *Snapshot) SessionsOf(team, person string) (int, bool) {
 	count, known := s.Sessions[team+"|"+person]
 	return count, known
+}
+
+// Client is the Matrix client team opens in, as the pass read it. The pass refuses any value
+// but element or lightning, so a snapshot that read none (built without a pass) says Element.
+func (s *Snapshot) Client(team string) ops.Client {
+	c, err := ops.ClientNamed(s.Clients.Of(team))
+	if err != nil {
+		return ops.Element
+	}
+	return c
 }
 
 // RoleOf is the role of the member with handle in team, or "" when it is not a member or the
@@ -299,7 +313,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc 
 		}
 		s.Rows = append(s.Rows, Row{
 			Team: team, Member: h.Name, Kind: KindHuman, State: roomWord(h.Membership),
-			Applied: "-", Session: signed, Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-",
+			Applied: "-", Session: signed, Restore: "-", Where: s.Client(team).Name + "; Enter for choices", Handle: "-", Dir: "-",
 		})
 	}
 }
