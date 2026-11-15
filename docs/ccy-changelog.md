@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.9 — container 2.84.18
+## 3.122.10 — container 2.84.18
 
 - **A mouse click never answers a prompt** in a ccy session or a host `cc` session. The
   launcher passes `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=${CLAUDE_CODE_DISABLE_MOUSE_CLICKS:-1}`

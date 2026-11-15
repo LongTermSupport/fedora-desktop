@@ -69,7 +69,7 @@ func TestUnsetVariablesGetTheirDefaults(t *testing.T) {
 		}
 		w.run()
 		c := w.only(t)
-		var want []string
+		want := make([]string, 0, len(Defaults))
 		for _, d := range Defaults {
 			want = append(want, d.Name+"="+d.Value)
 		}

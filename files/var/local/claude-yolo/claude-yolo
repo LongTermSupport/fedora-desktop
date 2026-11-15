@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.9"  # Container 2.84.18: a click never answers a prompt (CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1). See docs/ccy-changelog.md.
+CCY_VERSION="3.122.10"  # Container 2.84.18: a click never answers a prompt (CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -3842,9 +3842,8 @@ CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" ccy_agent_con
     -e "CCY_LIFECYCLE_MAX_AGE_SECONDS=${CCY_LIFECYCLE_MAX_AGE_SECONDS:-}" \
     -e "CCY_LIFECYCLE_DEADLINE_EPOCH=${CCY_LIFECYCLE_DEADLINE_EPOCH:-}" \
     -e "CCY_LIFECYCLE_WARN_MINUTES=${CCY_LIFECYCLE_WARN_MINUTES:-}" \
-    -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
+    -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" -e "CLAUDE_CODE_DISABLE_MOUSE_CLICKS=${CLAUDE_CODE_DISABLE_MOUSE_CLICKS:-1}" \
     -e "CLAUDE_CODE_AUTO_COMPACT_WINDOW=${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-600000}" -e "CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1" \
-    -e "CLAUDE_CODE_DISABLE_MOUSE_CLICKS=${CLAUDE_CODE_DISABLE_MOUSE_CLICKS:-1}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
     -e "COLORTERM=${COLORTERM:-truecolor}" \
