@@ -37,16 +37,27 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.10, container 2.84.19 (image unchanged, no rebuild). Installs the launcher, which
-# passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds cc-claude,
-# which sets the same default for a host cc session: a mouse click no longer answers a prompt,
-# the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in the
-# client its entry names, Element unless a team is set to lightning, and every menu line and
-# message names that client. For a team opening in Lightning whose instance nobody has signed
-# in to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
-# whether to set a new password (Plan 00254 Task 7.1a). Afterwards: in a new session, a click on
-# a prompt option picks nothing; ccy-teams shows the same teams as before, each saying Element.
+# ccy 3.122.10 and 3.122.11, container 2.84.20: one run installs both. Installs the launcher,
+# which passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds
+# cc-claude, which sets the same default for a host cc session: a mouse click no longer answers
+# a prompt, the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in
+# the client its entry names, Element unless a team is set to lightning, and every menu line and
+# message names that client. For a team opening in Lightning whose instance nobody has signed in
+# to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
+# whether to set a new password (Plan 00254 Task 7.1a). Issue #302: the image carries pingbus,
+# which now names an unknown option instead of blaming stdin, so the image is rebuilt once at
+# the next ccy start. Afterwards: in a new session, a click on a prompt option picks nothing;
+# ccy-teams shows the same teams as before, each saying Element.
 playbooks/imports/play-claude-yolo.yml
+
+# Issue #302: the agent-bus member kit carries the same pingbus. Expected: changed only for the
+# kit's pingbus.
+playbooks/imports/play-agent-bus.yml
+
+# Issue #301: the VM lab's copy of secret-scan.bash (the run-log scrubber's engine) escapes a
+# GNOME extension UUID for grep's ERE, not Python's re, so grep no longer warns on a hyphen.
+# Expected: changed only for that one file; skip this entry on a host without the lab.
+playbooks/imports/optional/common/play-vm-test-lab.yml
 
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
 # in (its client:, else agent_bus_matrix_client, else element). With nothing set this host

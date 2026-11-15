@@ -386,10 +386,11 @@ func within(t *testing.T, limit time.Duration, cond func() bool, what func() str
 	}
 }
 
-// env is a member process's environment: the world's home and runtime directory, and a race
-// detector that does not sleep at exit.
+// env is a member process's environment: the world's home and runtime directory, a race
+// detector that does not sleep at exit, and an empty PATH. execx lays Env over the test's own
+// environment, so PATH is emptied here or the host's programs (a logged-in gh) are found.
 func (w *world) env(extra ...string) []string {
-	env := []string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0", "CLAUDE_CONFIG_DIR="}
+	env := []string{"HOME=" + w.home, "XDG_RUNTIME_DIR=" + w.rt, "GORACE=atexit_sleep_ms=0", "CLAUDE_CONFIG_DIR=", "PATH="}
 	if w.arm != "" {
 		env = append(env, envArm+"="+w.arm, envArmDir+"="+w.dir)
 	}

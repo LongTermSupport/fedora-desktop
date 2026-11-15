@@ -62,24 +62,57 @@ def _repo_root(start: pathlib.Path) -> pathlib.Path:
     raise ImportError(f"no ansible.cfg above {start}")
 
 
-sys.path.insert(0, str(_repo_root(pathlib.Path(__file__).resolve())))
+REPO_ROOT = _repo_root(pathlib.Path(__file__).resolve())
+sys.path.insert(0, str(REPO_ROOT))
 declare = importlib.import_module("helpers.agent_bus.declare")
 element = importlib.import_module("helpers.agent_bus.element")
 pingbus_config = importlib.import_module("helpers.pingbus.config")
 
+
+def _one(source: str, pattern: str, name: str) -> str:
+    """The one match of pattern in a Go source; none or several is refused, never guessed."""
+    found = re.findall(pattern, source, re.MULTILINE)
+    if len(found) != 1:
+        raise ValueError(f"want exactly one Go constant {name} in {LIGHTNING_GO}, found {len(found)}")
+    return found[0]
+
+
+def go_text(source: str, name: str) -> str:
+    """A Go string constant `name = "..."`, as a const block or a const line holds it."""
+    return _one(source, rf'^(?:const\s+|\s+){re.escape(name)}\s*=\s*"([^"\\]+)"\s*(?://.*)?$', name)
+
+
+def go_mode(source: str, name: str) -> int:
+    """A Go `name fs.FileMode = 0o...` constant."""
+    return int(_one(source, rf"^\s+{re.escape(name)}\s+fs\.FileMode\s*=\s*0o([0-7]+)\s*(?://.*)?$", name), 8)
+
+
+def go_strings(source: str, name: str) -> tuple[str, ...]:
+    """A Go `var name = []string{"a", "b"}` list of plain entries; an empty list, or an entry
+    this reader cannot take whole, is refused, so no check passes with nothing to check."""
+    body = _one(source, rf"^var\s+{re.escape(name)}\s*=\s*\[\]string\{{([^}}]*)\}}\s*$", name)
+    plain = r'"[^"\\]+"'
+    if not re.fullmatch(rf"\s*{plain}(?:\s*,\s*{plain})*\s*,?\s*", body):
+        raise ValueError(f"Go list {name} in {LIGHTNING_GO} is empty or has an entry not read whole: {body!r}")
+    return tuple(re.findall(r'"([^"\\]+)"', body))
+
+
 LIGHTNING = pingbus_config.MATRIX_CLIENTS.client("Lightning")
 CLIENT_LIGHTNING = "lightning"
 DEFAULT_KEY = "agent_bus_matrix_client"
-# What src-go/internal/lightning writes (lightning.go: teamsDir, caDir, runtimeCA, command,
-# appsDir, settingsIn and the three modes).
-INSTANCE_DIRS = ("data", "config", "cache")
-RUNTIME_CA = "/etc/ssl/certs/ca-certificates.crt"
-COMMAND = "lightning-matrix"
-APPS_DIR = ".local/share/applications"
-SETTINGS_IN = "config/MatrixClient/matrix-client.conf"
-DIR_MODE = 0o700
-SETTINGS_MODE = 0o600
-LAUNCHER_MODE = 0o644
+# What src-go/internal/lightning writes, read from its source in this checkout.
+LIGHTNING_GO = "src-go/internal/lightning/lightning.go"
+_GO = (REPO_ROOT / LIGHTNING_GO).read_text(encoding="utf-8")
+TEAMS_DIR = go_text(_GO, "teamsDir")
+CA_DIR = go_text(_GO, "caDir")
+INSTANCE_DIRS = go_strings(_GO, "instanceDirs")
+RUNTIME_CA = go_text(_GO, "runtimeCA")
+COMMAND = go_text(_GO, "command")
+APPS_DIR = go_text(_GO, "appsDir")
+SETTINGS_IN = go_text(_GO, "settingsIn")
+DIR_MODE = go_mode(_GO, "dirMode")
+SETTINGS_MODE = go_mode(_GO, "settingsMode")
+LAUNCHER_MODE = go_mode(_GO, "launcherMode")
 # Where tasks/lightning-team-ca.yml installs tls-trust-check, in a folder of its own.
 CHECK_DIR = ".local/libexec/tls-trust-check"
 PEM_BEGIN = "-----BEGIN CERTIFICATE-----"
@@ -175,8 +208,8 @@ def exec_line(home: pathlib.Path, team: str) -> str:
     """lightning.go execLine, without its newline."""
     root = app_root(home)
     words = ["Exec=flatpak", "run", "--command=env", LIGHTNING.app_id]
-    words += [f"XDG_{name.upper()}_HOME={root / 'teams' / team / name}" for name in INSTANCE_DIRS]
-    words += [f"SSL_CERT_FILE={RUNTIME_CA}", f"SSL_CERT_DIR={root / 'teamchat-ca'}", COMMAND]
+    words += [f"XDG_{name.upper()}_HOME={root / TEAMS_DIR / team / name}" for name in INSTANCE_DIRS]
+    words += [f"SSL_CERT_FILE={RUNTIME_CA}", f"SSL_CERT_DIR={root / CA_DIR}", COMMAND]
     return " ".join(words)
 
 
@@ -268,7 +301,7 @@ def _check_no_launcher(report: Report, home: pathlib.Path, team: str, client: st
 
 
 def _check_https(report: Report, home: pathlib.Path, t: Team) -> None:
-    ca_dir = app_root(home) / "teamchat-ca"
+    ca_dir = app_root(home) / CA_DIR
     ca = ca_dir / f"{t.team}.pem"
     check = home / CHECK_DIR / "tls-trust-check"
     ready = True
@@ -292,7 +325,7 @@ def check_team(report: Report, home: pathlib.Path, t: Team) -> None:
     if t.client != CLIENT_LIGHTNING:
         _check_no_launcher(report, home, t.team, CLIENT_LIGHTNING)
         return
-    teams = app_root(home) / "teams"
+    teams = app_root(home) / TEAMS_DIR
     for folder in (teams, teams / t.team, *(teams / t.team / name for name in INSTANCE_DIRS)):
         _check_mode(report, t.team, folder, True, DIR_MODE)
     _check_settings(report, t, teams / t.team / SETTINGS_IN)

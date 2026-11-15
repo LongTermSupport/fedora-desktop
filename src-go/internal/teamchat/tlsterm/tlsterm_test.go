@@ -138,10 +138,58 @@ func echo(t *testing.T, c net.Conn, text string) {
 	}
 }
 
-// closed is whether the next read of c ends in EOF or a reset: the server closed it.
-func closed(c net.Conn) bool {
-	_, err := c.Read(make([]byte, 1))
-	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || err != nil
+// closeWait bounds every wait for the server to close a connection: a close that never comes
+// fails its test, rather than hanging the package until its alarm.
+const closeWait = 30 * time.Second
+
+// closed is whether the next read of c ends in EOF or a reset within closeWait: the server
+// closed it.
+func closed(t *testing.T, c net.Conn) bool {
+	t.Helper()
+	return awaitClose(t, c, nil)
+}
+
+// awaitClose is whether a read of c ends in an error within closeWait. With a clock, each
+// waiter armed IdleLimit from the clock's present while it waits is advanced past: a relay's
+// last touch can land after the test's own advance and arm its timer again. A read still
+// blocked at closeWait is no close: c is closed then, so the read ends and the test fails
+// instead of hanging.
+func awaitClose(t *testing.T, c net.Conn, clk *clock.Fake) bool {
+	t.Helper()
+	ended := make(chan error, 1)
+	go func() {
+		_, err := c.Read(make([]byte, 1))
+		ended <- err
+	}()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var rearmed chan error
+	awaitRearm := func() {
+		if clk == nil {
+			return
+		}
+		rearmed = make(chan error, 1)
+		go func(due chan<- error) { due <- clk.AwaitDue(ctx, IdleLimit) }(rearmed)
+	}
+	awaitRearm()
+	limit := time.NewTimer(closeWait)
+	defer limit.Stop()
+	for {
+		select {
+		case err := <-ended:
+			return err != nil
+		case err := <-rearmed:
+			check(t, err)
+			clk.Advance(IdleLimit)
+			awaitRearm()
+		case <-limit.C:
+			if err := c.Close(); err != nil {
+				t.Logf("closing a connection the server left open: %v", err)
+			}
+			<-ended
+			return false
+		}
+	}
 }
 
 // T1: TLS 1.3 on the listen address, the leaf presented, the bytes relayed both ways.
@@ -223,7 +271,7 @@ func TestT2WhatIsNotTLS13NeverReachesTheUpstream(t *testing.T) {
 	check(t, err)
 	_, err = plain.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
 	check(t, err)
-	if !closed(plain) {
+	if !closed(t, plain) {
 		t.Error("plain bytes were not answered with a close")
 	}
 	check(t, plain.Close())
@@ -263,7 +311,7 @@ func TestT3AHandshakeThatNeverEndsIsClosed(t *testing.T) {
 	t.Cleanup(func() { check(t, conn.Close()) })
 	check(t, clk.AwaitDue(t.Context(), HandshakeLimit))
 	clk.Advance(HandshakeLimit)
-	if !closed(conn) {
+	if !closed(t, conn) {
 		t.Fatal("the silent client was not closed")
 	}
 }
@@ -277,7 +325,7 @@ func TestT4AnUpstreamThatIsDownClosesTheClient(t *testing.T) {
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { check(t, c.Close()) })
-	if !closed(c) {
+	if !closed(t, c) {
 		t.Fatal("the client was left open with no upstream")
 	}
 	check(t, srv.Close())
@@ -297,7 +345,7 @@ func TestT5MaxConnsBoundsTheRelays(t *testing.T) {
 	echo(t, first, "one")
 	second, err := client(t, srv.Addrs()[0], k.ca, nil)
 	if err == nil {
-		if !closed(second) {
+		if !closed(t, second) {
 			t.Fatal("a second relay was served beyond MaxConns")
 		}
 		check(t, second.Close())
@@ -335,7 +383,7 @@ func TestT6CloseEndsEverything(t *testing.T) {
 	check(t, err)
 	echo(t, c, "up")
 	check(t, srv.Close())
-	if !closed(c) {
+	if !closed(t, c) {
 		t.Error("a relay outlived Close")
 	}
 	check(t, c.Close())
@@ -362,7 +410,7 @@ func TestT8AnIdleRelayIsClosedAndItsSlotFreed(t *testing.T) {
 	<-up.accepted
 	check(t, clk.AwaitDue(t.Context(), IdleLimit))
 	clk.Advance(IdleLimit)
-	if !closed(idle) {
+	if !awaitClose(t, idle, clk) {
 		t.Fatal("a relay idle for IdleLimit was left open")
 	}
 	leakcheck.Poll(t, func() bool { return len(srv.slots) == 0 })
