@@ -219,8 +219,12 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
   Its slice S5 is built in part, for issue #296 (a declared human could not sign in): `human password`, `logout` and `devices` (HU1-HU5, HU13) on the defaults of section 8. `human lock`
   and `unlock` wait on n2h-D12 (a roster state `locked`, the owner's) and the real-Tuwunel
-  probe n2h-D20. Not done for S5: the `-tags tuwunel` row of HU15 and the rooms step's
-  `changed` lines in a failed answer.
+  probe n2h-D20. HU15's fault rows are built for the account lookup, both roster writes and the
+  reset (`apply/human_fault_test.go`: each then run again, no second valid password, no password
+  in any file of the tree). Not done for S5: HU15's injection into the rooms step's calls, its
+  scan of `ErrChild`'s text and the `execx.Fake` transcript (the verb's child path in
+  `internal/teamchat/admin`), the `-tags tuwunel` row of HU15, and the rooms step's `changed`
+  lines in a failed answer.
   Of six N2 packages with no caller, n2f gave four one and `ccy-teams seats sweep` gave `sweep`
   one (Task 4.2); `declare/hostvars` waits on ccy-teams (Task 4.3):
   [BUILT-n2.md](BUILT-n2.md#the-six-n2-packages-and-their-callers).
