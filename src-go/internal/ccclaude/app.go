@@ -7,12 +7,14 @@
 //
 //   - C1. Every argument goes to claude unchanged; cc-claude has no options of its own. claude
 //     replaces cc-claude (no fork), found on PATH.
-//   - C2. CLAUDE_CODE_AUTO_COMPACT_WINDOW unset or empty is set to DefaultWindow, so Claude
-//     Code compacts at that many tokens and not near the whole window of a 1M-context model.
+//   - C2. Each of Defaults unset or empty is set to its value: CLAUDE_CODE_AUTO_COMPACT_WINDOW
+//     to DefaultWindow, so Claude Code compacts at that many tokens and not near the whole
+//     window of a 1M-context model, and CLAUDE_CODE_DISABLE_MOUSE_CLICKS to 1, so a click in
+//     the terminal never answers a prompt or picks a menu item.
 //   - C3. A value already set is kept, as ccy keeps it: the owner's override wins.
 //   - C4. claude not on PATH: `claude is not installed`, exit 1. Any other failure to exec:
 //     exit 1, naming the error. Never a silent no-op.
-//   - C5. DefaultWindow is the default the ccy launcher passes into its container.
+//   - C5. Each of Defaults is the default the ccy launcher passes into its container.
 //
 // stdout is claude's; cc-claude writes only errors, to stderr.
 package ccclaude
@@ -33,7 +35,18 @@ const (
 	WindowVar = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 	// DefaultWindow is that size in tokens, ccy's (claude-yolo, Plan 00133).
 	DefaultWindow = "600000"
+	// MouseClicksVar turns off Claude Code's mouse-click answers to prompts and menus.
+	MouseClicksVar = "CLAUDE_CODE_DISABLE_MOUSE_CLICKS"
 )
+
+// Default is one variable cc-claude sets when the environment leaves it unset or empty.
+type Default struct {
+	Name  string
+	Value string
+}
+
+// Defaults are the variables ccy passes its container, in the order cc-claude sets them.
+var Defaults = []Default{{WindowVar, DefaultWindow}, {MouseClicksVar, "1"}}
 
 // App is one run. Every field is a seam a test replaces.
 type App struct {
@@ -52,8 +65,10 @@ func NewApp() *App {
 // Run execs claude; it returns only when that failed, or under a fake.
 func (a *App) Run(args []string) term.ExitCode {
 	cmd := execx.Cmd{Name: "claude", Args: args}
-	if a.Getenv(WindowVar) == "" {
-		cmd.Env = []string{WindowVar + "=" + DefaultWindow}
+	for _, d := range Defaults {
+		if a.Getenv(d.Name) == "" {
+			cmd.Env = append(cmd.Env, d.Name+"="+d.Value)
+		}
 	}
 	if err := a.Execer.Exec(cmd); err != nil {
 		if execx.IsNotInstalled(err) {

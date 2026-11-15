@@ -234,13 +234,14 @@ it with a message saying to `cd` into a project or run `claude`, which starts an
 check is `cc-project-dir`, a Go binary beside `cc` that `play-claude-yolo.yml` builds with the
 checkout baked in (Plan 00167).
 
-`cc` sessions compact at the same size as `ccy` sessions: claude is started through
-`cc-claude`, a Go binary beside `cc`, on both the plain and the `--teams`/`--bus` paths, and it
-sets [`CLAUDE_CODE_AUTO_COMPACT_WINDOW`](#claude_code_auto_compact_window--the-auto-compact-ceiling)
-to `600000` unless the shell `cc` runs in already exports a value. A project's `ccy.env` is
-never read on the host, so it does not change a `cc` session's window, and `claude` run
-directly (the way out `cc` names) gets no default at all. A test pins
-`cc-claude`'s default to the launcher's, so the two cannot drift.
+`cc` sessions compact at the same size as `ccy` sessions, and ignore mouse clicks as they do:
+claude is started through `cc-claude`, a Go binary beside `cc`, on both the plain and the
+`--teams`/`--bus` paths, and it sets
+[`CLAUDE_CODE_AUTO_COMPACT_WINDOW`](#claude_code_auto_compact_window--the-auto-compact-ceiling)
+to `600000` and `CLAUDE_CODE_DISABLE_MOUSE_CLICKS` to `1`, each unless the shell `cc` runs in
+already exports a value. A project's `ccy.env` is never read on the host, so it does not change
+a `cc` session's defaults, and `claude` run directly (the way out `cc` names) gets no default
+at all. A test pins each of `cc-claude`'s defaults to the launcher's, so the two cannot drift.
 
 | Event                                              | Result                                                                                                                           |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -1213,6 +1214,7 @@ sources that file after this environment is forwarded.
 | ---------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`               | `1`         | Enables the agent-teams features CCY sessions use                                                                           |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW`                    | `600000`    | Caps session size before auto-compaction; see below                                                                         |
+| `CLAUDE_CODE_DISABLE_MOUSE_CLICKS`                   | `1`         | A click never answers a prompt or picks a menu item; host `cc` sets the same default                                        |
 | `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS` | `1`         | Always set; drops the critical-path `rm` prompt. ccy only: the container is the isolation boundary, host `cc` never sets it |
 | `MAX_THINKING_TOKENS`                                | *(unset)*   | Forwarded only if you export it; CCY does not impose a value                                                                |
 | `TERM` / `COLORTERM`                                 | inherited   | Falls back to `xterm` / `truecolor` if unset on the host                                                                    |

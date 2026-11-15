@@ -37,16 +37,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.8, container 2.84.19: the image carries the agent-bus declare helper, which gains
-# element-remote (a remote team's client entry). Installs the launcher and rebuilds ccy-teams,
-# which now says, where it cannot read a team's members without a password, that host_vars may
-# keep the sudoers rule off. The image is rebuilt once at the next ccy start.
+# ccy 3.122.10, container 2.84.19 (image unchanged, no rebuild). Installs the launcher, which
+# passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds cc-claude,
+# which sets the same default for a host cc session: a mouse click no longer answers a prompt,
+# the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in the
+# client its entry names, Element unless a team is set to lightning, and every menu line and
+# message names that client. Afterwards: in a new session, a click on a prompt option picks
+# nothing; ccy-teams shows the same teams as before, each saying Element.
 playbooks/imports/play-claude-yolo.yml
-
-# agent_bus_read_only_sudoers: a host that sets it false in host_vars has
-# /etc/sudoers.d/agent-bus-read-only removed; a host that sets nothing sees no change there.
-# Expected here: no change, unless host_vars sets it.
-playbooks/imports/play-agent-bus.yml
 
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
 # in (its client:, else agent_bus_matrix_client, else element). With nothing set this host

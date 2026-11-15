@@ -58,29 +58,46 @@ func TestExecsClaudeWithEveryArgument(t *testing.T) {
 	}
 }
 
-// C2.
-func TestUnsetWindowGetsTheDefault(t *testing.T) {
+// C2: each default is set when its variable is unset or empty, all of them in one exec.
+func TestUnsetVariablesGetTheirDefaults(t *testing.T) {
 	for _, set := range []bool{false, true} {
 		w := newWorld()
 		if set {
-			w.env[WindowVar] = ""
+			for _, d := range Defaults {
+				w.env[d.Name] = ""
+			}
 		}
 		w.run()
 		c := w.only(t)
-		want := WindowVar + "=" + DefaultWindow
-		if !slices.Equal(c.Env, []string{want}) {
-			t.Errorf("empty set=%v: env %v, want [%s]", set, c.Env, want)
+		want := make([]string, 0, len(Defaults))
+		for _, d := range Defaults {
+			want = append(want, d.Name+"="+d.Value)
+		}
+		if !slices.Equal(c.Env, want) {
+			t.Errorf("empty set=%v: env %v, want %v", set, c.Env, want)
 		}
 	}
 }
 
+// C2: the two defaults ccy and cc share.
+func TestTheDefaultsAreTheWindowAndMouseClicks(t *testing.T) {
+	want := []Default{{WindowVar, DefaultWindow}, {MouseClicksVar, "1"}}
+	if !slices.Equal(Defaults, want) {
+		t.Errorf("Defaults %v, want %v", Defaults, want)
+	}
+}
+
 // C3.
-func TestAWindowAlreadySetIsKept(t *testing.T) {
-	w := newWorld()
-	w.env[WindowVar] = "250000"
-	w.run()
-	if c := w.only(t); len(c.Env) != 0 {
-		t.Errorf("env %v, want the inherited value untouched", c.Env)
+func TestAValueAlreadySetIsKept(t *testing.T) {
+	for _, d := range Defaults {
+		w := newWorld()
+		w.env[d.Name] = "owner-value"
+		w.run()
+		for _, e := range w.only(t).Env {
+			if strings.HasPrefix(e, d.Name+"=") {
+				t.Errorf("%s set by the owner, but cc-claude passed %s", d.Name, e)
+			}
+		}
 	}
 }
 
@@ -108,9 +125,9 @@ func TestExecFailingOtherwiseFails(t *testing.T) {
 	}
 }
 
-// C5: ccy passes the same default into its container, so cc and ccy sessions compact at the
-// same size. The bash launcher holds its copy in the podman argv; this pins the two together.
-func TestDefaultIsTheCcyLaunchersDefault(t *testing.T) {
+// C5: ccy passes the same defaults into its container, so cc and ccy sessions behave alike.
+// The bash launcher holds its copies in the podman argv; this pins the two together.
+func TestDefaultsAreTheCcyLaunchersDefaults(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -119,13 +136,16 @@ func TestDefaultIsTheCcyLaunchersDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line := regexp.MustCompile(`-e "` + WindowVar + `=\$\{` + WindowVar + `:-([0-9]+)\}"`)
-	found := line.FindAllStringSubmatch(string(raw), -1)
-	if len(found) != 1 {
-		t.Fatalf("the ccy launcher has %d %s defaults, want 1", len(found), WindowVar)
-	}
-	if found[0][1] != DefaultWindow {
-		t.Errorf("ccy defaults %s to %s, cc-claude to %s", WindowVar, found[0][1], DefaultWindow)
+	for _, d := range Defaults {
+		line := regexp.MustCompile(`-e "` + d.Name + `=\$\{` + d.Name + `:-([^}]+)\}"`)
+		found := line.FindAllStringSubmatch(string(raw), -1)
+		if len(found) != 1 {
+			t.Errorf("the ccy launcher has %d %s defaults, want 1", len(found), d.Name)
+			continue
+		}
+		if found[0][1] != d.Value {
+			t.Errorf("ccy defaults %s to %s, cc-claude to %s", d.Name, found[0][1], d.Value)
+		}
 	}
 }
 

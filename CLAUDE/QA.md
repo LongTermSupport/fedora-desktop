@@ -2814,12 +2814,14 @@ printed text matches the FAILED line as readily as the pass. The first defence r
 file the local qa-all wrote; the owner then made GitHub CI's verdict the gate for a protected
 branch: a local verdict and a CI verdict do not both count. The full suite took about an hour
 on every push, so the owner then chose "diff gate, full after" (issue #245): CI's verdict on a
-work branch is `qa-changed.bash` in diff mode on a clean checkout, and the full `qa-all.bash`
+`ci/<topic>` branch is `qa-changed.bash` in diff mode on a clean checkout, and the full `qa-all.bash`
 runs on the protected branch after the move, where a red run is fixed forward. The hooks-daemon
 handler tests (which CI exempts with `QA_HOOK_HANDLERS_EXEMPT`) and `qa-deployed-drift` (which
 reads the host) are covered by `qa-changed.bash` before each commit.
 
-**How to fix a refusal.** Push the commit to a branch, wait for CI, then push that same commit:
+**How to fix a refusal.** Push the commit to a `ci/<topic>` branch (CI runs on a push only to
+`ci/**`, the protected lines and release branches; any other work branch push is a backup, issue
+#306), wait for CI, then push that same commit:
 
 ```bash
 git push origin HEAD:refs/heads/ci/<topic>

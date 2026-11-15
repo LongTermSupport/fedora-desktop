@@ -6,9 +6,10 @@ name: QA
 # protected branch move (rule push-without-qa-verdict, src-go/qa/pushgate).
 #
 # Diff gate, full after (issue #245): work reaches a protected branch through
-# ci/<topic>. A push of a work branch runs ./scripts/qa-changed.bash in diff
-# mode against the tip of the protected line it is built on, and that pass lets
-# the same commit be pushed to the line. A push to a protected branch, a
+# ci/<topic>. A push of a ci/<topic> branch runs ./scripts/qa-changed.bash in
+# diff mode against the tip of the protected line it is built on, and that pass
+# lets the same commit be pushed to the line. Any other work branch push runs
+# nothing. A push to a protected branch, a
 # release-<version> branch or a release tag runs the full ./scripts/qa-all.bash,
 # after the move; a red run there is fixed forward. A pull request runs diff
 # mode against its base. The base job decides which (scripts/qa-ci-scope.bash).
@@ -18,7 +19,10 @@ name: QA
 
 on:
   push:
-    branches: ["**"]
+    # Only where the verdict is used (issue #306): the protected lines (F44, F43, F44-arm, ...),
+    # the ci/<topic> gate and the release workflow's release-<version> branches. A work branch
+    # push is a backup and costs no runner (src-go/qa/toolchain/qatrigger_test.go holds this).
+    branches: ["F[0-9]*", "ci/**", "release-*"]
     tags: ["[0-9]*.[0-9]*.[0-9]*"]
   pull_request:
 
