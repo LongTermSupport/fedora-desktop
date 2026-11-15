@@ -17,6 +17,45 @@ Two version numbers move independently — see
 
 ---
 
+## 3.121.5 — container 2.84.16
+
+- **`ccy-sessions restore --check` refuses the rest of what a launch would refuse from files**
+  (issue #284), and so do `declare` and the self-update cycle's pre-reboot hold. Each was
+  called `RESTORABLE` while its launch at boot stopped at once:
+
+  - a recorded `--ssh-key` that is not a file: `UNRESTORABLE ssh-key-missing` (a relative one
+    is looked for in the session's folder, where its launch runs);
+  - a boot launch's container engine (the record's `--engine`, else podman) that ccy does not
+    know or that is not installed: `engine-unusable`;
+  - a recorded `--network` the boot launch's engine (the record's `--engine`, else podman: the
+    restore unit is never given a shell's `CCY_CONTAINER_ENGINE`) does not list:
+    `network-missing`. The engine is asked for its network list,
+    read-only, as the launcher asks; a list that cannot be read is `network-check-failed`;
+  - a project whose `.claude/ccy/allowed-hostnames` rules this host out (`never`, or no
+    pattern matching it): `host-not-allowed`, by the launcher's own rule ported to Go
+    (`internal/allowedhosts`). A rule file that cannot be read is restorable with a note,
+    because the launch goes ahead then; a hostname that cannot be read is `host-check-failed`;
+  - an SSH key passphrase file the restore would be given that cannot be used: every record is
+    `passphrase-file-unusable`, as the restore starts nothing then. The file is the
+    `CCY_RESTORE_SSH_PASSPHRASE_FILE` variable when set, else the one the restore unit's
+    `ssh-unlock.conf` drop-in names;
+  - a cc record when every token in the pool is past its stamp: `token-pool-expired`. A pool
+    that cannot be read is restorable with a note, as cc then starts on the Desktop account.
+
+  Not judged, because only a probe at boot can tell and they are often transient: a `--teams`
+  seat held elsewhere, the boot network preflight, GitHub reachability and the `claude --help`
+  flag check. A launch stopped by one keeps its record and `verify-restore` names it.
+
+- **`ccy-teams restart` tells a refused start from a question.** A started session that does
+  not take its seats has its pane read as `verify-restore` reads it: a launcher that stopped
+  where nobody could answer fails at once with `NOT-STARTED <reason>` and the sentence it
+  wrote, one that exited fails at once, and one still not seated after 180 s names the
+  question it waits at, or says its screen shows none ccy knows.
+
+- **The bash `ccy_restore_verdict` is removed** (`lib/session-registry.bash`), with its tests
+  and its parity check against the Go `restore.Judge`: nothing has called it since
+  `ccy-sessions` moved to Go. No image rebuild.
+
 ## 3.121.4 — container 2.84.16
 
 - **The image is rebuilt only when the source its builder stage builds from changes, and every

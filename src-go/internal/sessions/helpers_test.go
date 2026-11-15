@@ -115,6 +115,8 @@ func newHarness(t *testing.T) *harness {
 		Executable:  isExecutable,
 		Getuid:      os.Getuid,
 		Tokens:      h.tokens,
+		Hostname:    func() (string, error) { return "box", nil },
+		LookPath:    func(name string) (string, error) { return "/usr/bin/" + name, nil },
 	}
 	h.app.wire()
 	// Root's LXC configuration is absent: LXC keeps its containers in the default path.

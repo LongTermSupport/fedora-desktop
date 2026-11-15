@@ -932,70 +932,6 @@ ccy_registry_supervised() {
     printf '%s\n' "$answer"
 }
 
-# ccy_restore_verdict <prefix> <live 0|1> <screen> <container> [<going>] — one restored
-# session's state, printed as "<STATE>[ <detail>]". PURE: every probe arrives as text, so
-# every shape is testable (scripts/test-ccy-session-registry.bash).
-#   <screen>     the pane's visible text (tmux capture-pane -p)
-#   <container>  for ccy: "up" when the session's container is running, "starting" when
-#                its engine client exists and the container is not yet listed, "-" when
-#                there is no engine client; ignored for cc, which runs claude on the host
-#   <going>      whether set-going has set it going (ccy_restore_going_state): "-" or
-#                "started" (nothing more to wait for), "setting-going", or
-#                "failed:<reason>"; default "-"
-#
-# The screen is judged by its LAST non-blank line, where a prompt waiting for input sits:
-#   DEAD launcher-exited            the trampoline's hold line: the launcher has returned
-#   WAITING-AT-PROMPT <name>        a prompt from ccy_known_prompts
-#   STARTING                        a ccy session with no running container yet
-#   SETTING-GOING                   running, and set-going has not yet seen it take input
-#   NOT-SET-GOING <reason>          running, and set-going left it alone or it never
-#                                   took what was typed
-#   OK                              anything else, with the container up for ccy
-# A session that is not live at all is "DEAD session-not-running".
-ccy_restore_verdict() {
-    local prefix="$1" live="$2" screen="$3" container="$4" going="${5:--}"
-    local last="" line name text
-    if [[ "$live" != 1 ]]; then
-        printf 'DEAD session-not-running\n'
-        return 0
-    fi
-    while IFS= read -r line; do
-        line="${line%"${line##*[![:space:]]}"}"
-        [[ -n "$line" ]] && last="$line"
-    done <<<"$screen"
-    last="${last#"${last%%[![:space:]]*}"}"
-    if [[ "$last" == *"$CCY_SESSION_ENDED_TEXT" ]]; then
-        printf 'DEAD launcher-exited\n'
-        return 0
-    fi
-    while IFS=$'\t' read -r name text; do
-        [[ -n "$name" ]] || continue
-        if [[ "$last" == "$text"* ]]; then
-            printf 'WAITING-AT-PROMPT %s\n' "$name"
-            return 0
-        fi
-    done < <(ccy_known_prompts)
-    case "$prefix" in
-    cc) ;;
-    ccy)
-        if [[ "$container" != up ]]; then
-            printf 'STARTING\n'
-            return 0
-        fi
-        ;;
-    *)
-        printf 'DEAD unknown-launcher-%s\n' "$prefix"
-        return 0
-        ;;
-    esac
-    case "$going" in
-    - | started) printf 'OK\n' ;;
-    setting-going) printf 'SETTING-GOING\n' ;;
-    failed:*) printf 'NOT-SET-GOING %s\n' "${going#failed:}" ;;
-    *) printf 'NOT-SET-GOING unknown-state-%s\n' "$going" ;;
-    esac
-}
-
 # ── setting a restored session going (Plan 00135 Task 8.2, fedora-desktop#88) ──────────
 #
 # A session restored with --continue comes back at an empty prompt with its conversation
@@ -1093,7 +1029,8 @@ ccy_transcript_compacted_since() {
 }
 
 # ccy_restore_going_state <going> <at> <detail> <now> <window> <took-input yes|no|-> — the
-# <going> word ccy_restore_verdict takes, from one manifest entry. PURE.
+# <going> word of one manifest entry (restore.GoingState in Go is the one verify-restore uses;
+# src-go/internal/restore compares the two). PURE.
 #   none                          "-": not this restore's to set going
 #   pending                       "setting-going"
 #   untouched                     "failed:<detail>"

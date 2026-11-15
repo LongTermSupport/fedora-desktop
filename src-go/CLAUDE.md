@@ -96,9 +96,10 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   except a screen `ui.Drain` marks to discard them: the one after a leave, and every screen of a
   destructive flow; a child given the terminal runs in the mode found),
   `engine` (the ccy launcher's container engine: selection, the questions it asks podman or
-  docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc)
-  and `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool
-  verdict; T1-T8).
+  docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc),
+  `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool
+  verdict; T1-T8) and `allowedhosts` (the launcher's allowed-hostnames rule and its bash
+  case-pattern match; H1-H6).
 - `internal/watermark/` — the watermark command (spec `SPEC-wsi-watermark.md`, M1-M14): its
   config files read as `KEY=VALUE` data, the magick and exiftool argv, through `execx`.
 - `internal/wsi/` — the batch speech-to-text recorder the panel starts (same spec, W1-W35):

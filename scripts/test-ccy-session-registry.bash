@@ -682,42 +682,6 @@ else
 fi
 
 echo ""
-echo "=== verdict: one restored session's state, from what its screen shows ==="
-# The prompts come from the same table the launchers print them from, so a case here drives
-# the constant, not a re-typed copy of it.
-check "not live is dead" "DEAD session-not-running" "$(ccy_restore_verdict ccy 0 "" up)"
-check "the trampoline's hold line is a launcher that exited" "DEAD launcher-exited" \
-    "$(ccy_restore_verdict ccy 1 $'...\nccy exited with status 1. '"$CCY_SESSION_ENDED_TEXT"$'\n\n' up)"
-check "Quick Launch waiting is named" "WAITING-AT-PROMPT quick-launch" \
-    "$(ccy_restore_verdict ccy 1 $'Found previous launch configuration\n'"$CCY_PROMPT_QUICK_LAUNCH "$'\n\n\n' -)"
-check "the token chooser, with its count after the constant" "WAITING-AT-PROMPT token-select" \
-    "$(ccy_restore_verdict cc 1 "$CCY_PROMPT_TOKEN_SELECT [0-2]: " -)"
-check "an ssh passphrase prompt, with the key after it" "WAITING-AT-PROMPT ssh-passphrase" \
-    "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_SSH_PASSPHRASE /k/id_ed25519: " -)"
-check "the SSH key menu, as it is printed (a key that could not be recorded)" "WAITING-AT-PROMPT ssh-key" \
-    "$(ccy_restore_verdict ccy 1 $'SSH Key Selection for Claude YOLO\n  1) id_one\n'"$CCY_PROMPT_SSH_KEY [0-1, a] (default: 1): " -)"
-check "the running-container menu" "WAITING-AT-PROMPT existing-containers" \
-    "$(ccy_restore_verdict ccy 1 "  $CCY_PROMPT_EXISTING_CONTAINERS " starting)"
-check "a prompt text higher up the screen does not count: only the last line waits" "OK" \
-    "$(ccy_restore_verdict ccy 1 $'Select token [0-2]: 1\nclaude is running\n' up)"
-check "ccy with no container yet is starting" "STARTING" "$(ccy_restore_verdict ccy 1 "Building image..." -)"
-check "ccy with its client but no listed container is starting" "STARTING" "$(ccy_restore_verdict ccy 1 "" starting)"
-check "ccy with its container up is ok" "OK" "$(ccy_restore_verdict ccy 1 "claude" up)"
-check "cc past its prompts is ok (no container to ask about)" "OK" "$(ccy_restore_verdict cc 1 "claude" -)"
-check "an unknown launcher is not waved through" "DEAD unknown-launcher-zz" "$(ccy_restore_verdict zz 1 "" up)"
-# What set-going did only matters once the session is otherwise OK; a session still at a
-# prompt or starting reports that first.
-check "set going and taken: ok" "OK" "$(ccy_restore_verdict ccy 1 "claude" up started)"
-check "not yet set going: setting-going, not ok" "SETTING-GOING" "$(ccy_restore_verdict cc 1 "claude" - setting-going)"
-check "left alone: not-set-going, with why" "NOT-SET-GOING busy-before-set-going" \
-    "$(ccy_restore_verdict ccy 1 "claude" up failed:busy-before-set-going)"
-check "a starting container outranks setting-going" "STARTING" "$(ccy_restore_verdict ccy 1 "" starting setting-going)"
-check "a prompt outranks not-set-going" "WAITING-AT-PROMPT token-select" \
-    "$(ccy_restore_verdict cc 1 "$CCY_PROMPT_TOKEN_SELECT [0-2]: " - failed:waiting-at-prompt-token-select-after-1200s)"
-check "an unknown going word is not waved through" "NOT-SET-GOING unknown-state-maybe" \
-    "$(ccy_restore_verdict cc 1 "claude" - maybe)"
-
-echo ""
 echo "=== going: from a manifest entry to the word the verdict takes ==="
 check "found running: nothing to wait for" "-" "$(ccy_restore_going_state none "" "" 100 120 -)"
 check "pending: still setting going" "setting-going" "$(ccy_restore_going_state pending "" "" 100 120 -)"
@@ -871,8 +835,6 @@ done
 check "every unreachable-prompt entry still names a real prompt" "" "$stale_allow"
 check "the compose-stop prompt is registered" "yes" \
     "$(grep -q '^compose-stop	' <<<"$(ccy_known_prompts)" && echo yes || echo no)"
-check "a session waiting at compose-stop is reported waiting" "WAITING-AT-PROMPT compose-stop" \
-    "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " up)"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"

@@ -13,16 +13,19 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// The launch argv the declare tests give: a token, a key, a compose answer, two one-shot
-// arguments a launch drops, and claude's own words after `--`.
-var declaredLaunch = []string{"--token", "work", "--ssh-key", "/keys/id_github", "--rebuild", "--compose", "start", "--prompt", "hi", "--", "--model", "opus"}
+// The launch argv the declare tests give: a token, a key (in the checkout, which declareHost
+// makes, since a key that is not there is refused), a compose answer, two one-shot arguments a
+// launch drops, and claude's own words after `--`.
+var declaredLaunch = []string{"--token", "work", "--ssh-key", "keys/id_github", "--rebuild", "--compose", "start", "--prompt", "hi", "--", "--model", "opus"}
 
 // declareHost is a host with no live session and restore on, run as an ordinary user.
 func declareHost(h *harness) string {
 	restoreHost(h)
 	restoreOn(h, true)
 	asUser(h)
-	return realDir(h.t, h, "work/proj")
+	dir := realDir(h.t, h, "work/proj")
+	h.write("work/proj/keys/id_github", "key")
+	return dir
 }
 
 // asUser makes the run an ordinary user's, whoever runs the tests.
@@ -103,7 +106,7 @@ cat "$(ccy_registry_dir)/$name"`, declaredLaunch...)
 	}
 	h.errOut.Reset()
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation to resume): /var/local/claude-yolo/claude-yolo --token work --ssh-key /keys/id_github --compose start --supervise -- --model opus")
+	contains(t, "dry run", h.stderr(), "would start ccy-proj fresh in "+dir+" (no conversation to resume): /var/local/claude-yolo/claude-yolo --token work --ssh-key keys/id_github --compose start --supervise -- --model opus")
 }
 
 func TestDeclaringTheSameRecordAgainChangesNothingEvenWhileItRuns(t *testing.T) {

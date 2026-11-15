@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -316,14 +317,14 @@ func (r *Restart) waitAll(ctx context.Context, jobs []*job) {
 		running, podmanErr := r.containers(ctx)
 		held, unreadable := r.heldSeats(ctx, waiting)
 		for _, j := range waiting {
-			r.judge(j, running, podmanErr, held, unreadable)
+			r.judge(ctx, j, running, podmanErr, held, unreadable)
 		}
 		r.Sleep(r.Waits.Poll)
 	}
 }
 
 // judge is one look at a waiting session.
-func (r *Restart) judge(j *job, running map[string]string, podmanErr error, held map[string]bool, unreadable map[string]string) {
+func (r *Restart) judge(ctx context.Context, j *job, running map[string]string, podmanErr error, held map[string]bool, unreadable map[string]string) {
 	unheld := ""
 	for _, s := range j.seats {
 		if why, bad := unreadable[s.dir]; bad {
@@ -353,12 +354,54 @@ func (r *Restart) judge(j *job, running map[string]string, podmanErr error, held
 			j.done(resultDone, j.startedWords()+"; "+seatWords(j.seats)+" held")
 			return
 		}
-		if late >= r.Waits.Start {
-			j.done(resultFailed, "started, but seat "+unheld+" is not held "+seconds(r.Waits.Start)+
-				" after: it may be waiting at a question; attach it (ccy-sessions)")
-		}
+		r.judgeScreen(ctx, j, unheld, late >= r.Waits.Start)
 	case actNone:
 	}
+}
+
+// judgeScreen reads the pane of a started session that does not hold its seats yet, as
+// verify-restore judges a restored one (restore.Judge, fedora-desktop#284): a launcher that
+// stopped where nobody could answer is NOT-STARTED with the reason it wrote, and fails now; one
+// that returned has exited, and fails now. Once the wait is over, the pane says whether it waits
+// at a question ccy knows.
+func (r *Restart) judgeScreen(ctx context.Context, j *job, unheld string, over bool) {
+	pane, err := r.Tmux.CapturePane(ctx, j.name, false)
+	if err != nil {
+		j.done(resultFailed, "started, but "+err.Error())
+		return
+	}
+	v := restore.Judge(j.rec.Prefix, true, pane, restore.ContainerUp, restore.GoingOutcome{Kind: restore.OutcomeNone})
+	switch {
+	case v.State == restore.StateNotStarted && v.Detail == restore.DetailUnattendedStop:
+		j.done(resultFailed, "started, but it did not start: "+r.stopWords(j, v))
+	case v.Ended():
+		j.done(resultFailed, "started, but its launcher exited before taking seat "+unheld+" ("+v.String()+"); attach it to read why (ccy-sessions)")
+	case !over:
+	case v.State == restore.StateWaitingAtPrompt:
+		j.done(resultFailed, "started, but seat "+unheld+" is not held "+seconds(r.Waits.Start)+
+			" after: it is waiting at the question "+v.Detail+"; attach it (ccy-sessions)")
+	default:
+		j.done(resultFailed, "started, but seat "+unheld+" is not held "+seconds(r.Waits.Start)+
+			" after, and its screen shows no question ccy knows; attach it (ccy-sessions)")
+	}
+}
+
+// stopWords is a launcher's unattended stop as verify-restore says it: NOT-STARTED with the
+// reason and the sentence from its stop file (registry.ReadStop), or the pane's verdict alone
+// when it wrote none.
+func (r *Restart) stopWords(j *job, v restore.Verdict) string {
+	store, err := r.Registry()
+	if err != nil {
+		return v.String() + " (its stop file could not be found: " + err.Error() + "); its record is kept"
+	}
+	stop, found, err := registry.ReadStop(store.Dir(), j.name)
+	switch {
+	case err != nil:
+		return v.String() + " (" + err.Error() + "); its record is kept"
+	case !found:
+		return v.String() + "; its record is kept"
+	}
+	return restore.Verdict{State: restore.StateNotStarted, Detail: stop.Reason}.String() + ": " + stop.Sentence + "; its record is kept"
 }
 
 // fail fails a session; a restart in place withdraws the request it wrote, so the session does

@@ -69,7 +69,31 @@ Usage:
                                                   token-used-up (naming the window and when
                                                   it clears) or token-check-failed; usage
                                                   that cannot be read is RESTORABLE, with a
-                                                  note, as the launch starts on it. With
+                                                  note, as the launch starts on it. Also
+                                                  UNRESTORABLE: every record when the SSH
+                                                  key passphrase file the restore is given
+                                                  (the variable, else the one the unit's
+                                                  ssh-unlock drop-in names) cannot be used
+                                                  (passphrase-file-unusable); a ccy record
+                                                  whose --ssh-key is not a file
+                                                  (ssh-key-missing), whose container engine
+                                                  ccy does not know or is not installed
+                                                  (engine-unusable), whose --network its
+                                                  engine does not list (network-missing; a
+                                                  list that cannot be read is
+                                                  network-check-failed), or whose project's
+                                                  allowed-hostnames rules this host out
+                                                  (host-not-allowed; an unreadable rule
+                                                  file is restorable with a note, as the
+                                                  launch goes ahead); a cc record whose
+                                                  every pool token has expired
+                                                  (token-pool-expired). Not judged, because
+                                                  only a probe at boot can tell and they
+                                                  are often transient: a --teams seat held
+                                                  elsewhere, the boot network preflight,
+                                                  GitHub reachability, and claude's flag
+                                                  check; a launch stopped by one keeps its
+                                                  record and verify-restore names it. With
                                                   restore off there
                                                   is nothing to judge (exit 0). The
                                                   self-update cycle asks this before it warns

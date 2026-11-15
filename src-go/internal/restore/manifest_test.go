@@ -588,18 +588,13 @@ ccy_restore_manifest_update boot-one cc-b pending continue 1700000001 4000 /t/c.
 	}
 }
 
-func TestVerdictAndGoingStateAgreeWithBash(t *testing.T) {
+func TestGoingStateAgreesWithBash(t *testing.T) {
 	s := newStore(t)
-	out := bash(t, s, `ccy_restore_verdict ccy 1 "Use same configuration? [Y/n] " - started
-ccy_restore_verdict cc 1 "claude" - failed:x
-ccy_restore_going_state compacting 100 5 220 120 no
+	out := bash(t, s, `ccy_restore_going_state compacting 100 5 220 120 no
 ccy_restore_going_state untouched "" "" 1 1 -`)
-	want := "WAITING-AT-PROMPT quick-launch\nNOT-SET-GOING x\nfailed:compact-not-started\nfailed:no-reason-recorded\n"
+	want := "failed:compact-not-started\nfailed:no-reason-recorded\n"
 	if out != want {
 		t.Fatalf("bash said %q", out)
-	}
-	if got := Judge("ccy", true, "Use same configuration? [Y/n] ", ContainerNone, GoingOutcome{Kind: OutcomeStarted}).String(); got != "WAITING-AT-PROMPT quick-launch" {
-		t.Fatalf("got %q", got)
 	}
 	if got := GoingState(GoingCompacting, 100, "5", 220, 120, TookNo); got.String() != "failed:compact-not-started" {
 		t.Fatalf("got %q", got)

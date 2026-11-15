@@ -95,7 +95,9 @@ Restarts the team's sessions on this desktop, each resuming its own conversation
     in a fresh container (up to 300 s);
   a running cc session is left running: cc has no supervisor; /exit it and run this again;
   a stopped session is started again as ccy-sessions restore starts it (up to 180 s); one
-    whose conversation was never recorded is named and not started.
+    whose conversation was never recorded is named and not started; one whose launcher
+    refuses to start it is named at once with the reason, as ccy-sessions verify-restore
+    names it, and one still not seated is named with the question it waits at, if any.
 LXC members are left out: restart them inside their container. Without --yes it asks first.
 
 Exit codes:

@@ -2376,7 +2376,14 @@ guessing; the catalogue claims no more than the code does.
   The independent search found other refusals a restore pane reaches that no verdict judges
   (a recorded `--ssh-key` or `--network` that is gone, a held `--teams` seat, the
   allowed-hostnames policy, the network preflight, the passphrase file `restore` checks and
-  `--check` does not, and `cc`'s expired pool), logged as fedora-desktop#284.
+  `--check` does not, and `cc`'s expired pool), logged as fedora-desktop#284. Those judgeable
+  from files or one read-only engine question are now held by `launchRefusal` and
+  `networkRefusal` (`sessions/refusals.go`): `ssh-key-missing`, `network-missing`,
+  `host-not-allowed` (the launcher's rule ported as `internal/allowedhosts`),
+  `passphrase-file-unusable` and `token-pool-expired`, each with its
+  `TestRestoreCheck...` test in `sessions/refusals_test.go`. A held seat, the boot network
+  preflight, GitHub reachability and claude's flag check are left unjudged on purpose: they
+  need a probe at boot or are transient, and a launch stopped by one keeps its record.
 
 - **A test or a code path that works only because root is not subject to permission checks**
   (found by the first CI run of the Go tests, all of it invisible in an agent container, which
