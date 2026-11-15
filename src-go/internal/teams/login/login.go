@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lightning"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
@@ -59,25 +60,34 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops) *Login {
 }
 
 // OpenTeam opens the team in its Matrix client, setting up the client's profile or instance
-// first when it has none, and offering a password to the people who have never signed in. The
+// first when it has none, and offering a password to each person not yet signed in there. The
 // client starts apart from the picker, which goes on; a copied password is settled once it has
-// started. Never signed in means no session on the homeserver from any client, so a person
-// with one (an Element sign-in of a team since moved to Lightning) is offered no password here;
-// New password on their row gives one (Plan 00254 Task 7.1 notes the gap).
+// started. A person with no session on the homeserver has never signed in; for a Lightning
+// team, a person with sessions whose account the team's instance does not hold is signed in
+// from another client only (an Element sign-in of a team since moved to Lightning), and is
+// offered one too, the question defaulting to no because a new password signs those out.
 func (l *Login) OpenTeam(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
 	defer l.SettleClipboard(ctx)
 	c, err := l.clientOf(ctx, team)
 	if err != nil {
 		return flow.Refused, err
 	}
-	if res, err := l.ensureProfile(ctx, team, c); err != nil || res != flow.Done {
-		return res, err
+	if res, setUpErr := l.ensureProfile(ctx, team, c); setUpErr != nil || res != flow.Done {
+		return res, setUpErr
+	}
+	unused, err := l.lightningUnused(snap, team, c)
+	if err != nil {
+		return flow.Done, err
 	}
 	for _, row := range snap.Rows {
-		if row.Team != team || row.Kind != board.KindHuman || snap.SignedIn[team+"|"+row.Member] != board.WordNeverSignedIn {
+		if row.Team != team || row.Kind != board.KindHuman {
 			continue
 		}
-		l.Kit.Tell(row.Member + " has never signed in to " + team + ".")
+		why := notSignedIn(snap, team, row.Member, unused)
+		if why == "" {
+			continue
+		}
+		l.Kit.Tell(why)
 		set, err := l.SetPassword(ctx, snap, team, row.Member)
 		if err != nil {
 			return flow.Done, err
@@ -414,6 +424,48 @@ func (l *Login) ClientName(ctx context.Context, team string) string {
 		return "its Matrix client"
 	}
 	return c.Name
+}
+
+// lightningUnused is whether team opens in Lightning and its instance on this desktop holds
+// no account of any of its humans: nobody has signed in to it yet. ccy-teams does not know which
+// human this desktop is, so it asks of every one; once any has signed in, none is asked about.
+func (l *Login) lightningUnused(snap *board.Snapshot, team string, c ops.Client) (bool, error) {
+	if c != ops.Lightning {
+		return false, nil
+	}
+	for _, row := range snap.Rows {
+		if row.Team != team || row.Kind != board.KindHuman {
+			continue
+		}
+		holds, err := lightning.HoldsAccount(l.Home, team, "@"+row.Member+":"+snap.Server[team])
+		if err != nil || holds {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// notSignedIn is why person is to be offered a password as team opens, or "" when there is
+// none: they have no session on the homeserver, or they have some, from another client, while
+// the team's Lightning instance here is unused.
+func notSignedIn(snap *board.Snapshot, team, person string, lightningUnused bool) string {
+	if snap.SignedIn[team+"|"+person] == board.WordNeverSignedIn {
+		return person + " has never signed in to " + team + "."
+	}
+	count, known := snap.SessionsOf(team, person)
+	if !lightningUnused || !known || count == 0 {
+		return ""
+	}
+	return person + " has " + sessionCount(count) + " on " + team + "'s homeserver, from another client, and nobody is signed in to " +
+		team + "'s Lightning on this desktop yet."
+}
+
+// sessionCount is "1 session" or "3 sessions".
+func sessionCount(n int) string {
+	if n == 1 {
+		return "1 session"
+	}
+	return strconv.Itoa(n) + " sessions"
 }
 
 // clientOf is the Matrix client team opens in (Plan 00254 DESIGN-client-choice.md: its own

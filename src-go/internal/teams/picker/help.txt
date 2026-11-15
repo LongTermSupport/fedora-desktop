@@ -22,7 +22,9 @@ in the team room as pingbus status reads it, each time the list is drawn:
                  these states (the team row says which; play-agent-bus.yml updates it)
   human    a person in the team room: in room, invited or not in room, and how
            many sessions they have on the team's homeserver, from any client (so
-           "1 signed in" may be an Element session of a team now opening in Lightning)
+           "1 signed in" may be an Element session of a team now opening in Lightning;
+           while nobody is signed in to that team's Lightning here, Open asks of each
+           person whether to set a new password, default no)
 Every member is shown by its whole handle, <repo>.<seat>+<host>.<type>, and nothing in the
 list is cut short. On a terminal too narrow for every column, a row keeps TEAM, MEMBER, KIND
 and STATE, and the row's other columns (and a team's description, as ABOUT) are shown above

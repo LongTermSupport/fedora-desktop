@@ -219,13 +219,19 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 7: Switch the default
 
-- [ ] ⬜ **Task 7.1**: Default client becomes Lightning in the host vars defaults,
-  `localhost.yml.dist`, ccy-teams and the docs (`docs/playbooks.md` and the agent-bus docs);
-  Element remains selectable and its plays unchanged.
-  Gap to close with it (from Phase 6): "Open the team" offers a password only to a person with
-  no session on the homeserver, from any client, so a team moved from Element to Lightning
-  opens Lightning with no password offered; the person uses New password on their row. No fact
-  on the desktop says Lightning has never been signed in (Task 6.1).
+- [ ] ⬜ **Task 7.1** (held: built on a work branch and landed only when BOTH gates are met,
+  (a) a Lightning release carrying the thread-root fix is on Flathub (Task 2.5), and (b) this
+  plan's `acceptance.bash` has passed on the host for at least one team set to `lightning`;
+  ordered by the team coordinator on 2026-11-15): Default client becomes Lightning in the host
+  vars defaults, `localhost.yml.dist`, ccy-teams and the docs (`docs/playbooks.md` and the
+  agent-bus docs); Element remains selectable and its plays unchanged.
+- [ ] 🔄 **Task 7.1a** (done in code, not established on a host: `lightning.HoldsAccount`, L15,
+  and `login.OpenTeam`): the switch-client password gap, landed ahead of 7.1. Lightning keeps
+  each account in its own folder of the instance's data root (`MatrixClient/matrix-client/ <localpart>_<server>`), made at sign-in and removed at sign-out, so an instance holding no
+  team human's folder has never been signed in. While that holds, "Open the team" tells each
+  human with sessions on the homeserver (another client's, such as an Element sign-in of a team
+  since moved) so and asks whether to set a new password, default no; once any human's account
+  is there (ccy-teams does not know which human the desktop is), nobody is asked.
 - [ ] ⬜ **Task 7.2**: Owner live check, recorded as PASS, FAIL or NOT TESTED: two teams open in
   two Lightning windows at once; an `@agent` mention reaches the agent; a thread reply is
   threaded by pingbus; an edit arrives as an edit; a long thread root reads in full (after Task

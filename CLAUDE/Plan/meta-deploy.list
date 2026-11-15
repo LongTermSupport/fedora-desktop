@@ -42,8 +42,10 @@
 # which sets the same default for a host cc session: a mouse click no longer answers a prompt,
 # the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in the
 # client its entry names, Element unless a team is set to lightning, and every menu line and
-# message names that client. Afterwards: in a new session, a click on a prompt option picks
-# nothing; ccy-teams shows the same teams as before, each saying Element.
+# message names that client. For a team opening in Lightning whose instance nobody has signed
+# in to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
+# whether to set a new password (Plan 00254 Task 7.1a). Afterwards: in a new session, a click on
+# a prompt option picks nothing; ccy-teams shows the same teams as before, each saying Element.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens

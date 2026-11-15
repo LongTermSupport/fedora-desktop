@@ -617,6 +617,54 @@ func TestL14TheListCoversTheTeamRoots(t *testing.T) {
 	}
 }
 
+// account is where Lightning keeps userSlug's account in team-a's instance.
+func (w *world) account(userSlug string) string {
+	return filepath.Join(w.team("team-a"), "data/MatrixClient/matrix-client", userSlug)
+}
+
+// TestL15AnInstanceSaysWhetherItHoldsAnAccount holds HoldsAccount to the folder Lightning keeps
+// an account in: none in a missing or fresh instance, the person's own folder (the user ID's
+// colons and slashes made underscores) and no other's, and an error where it cannot tell.
+func TestL15AnInstanceSaysWhetherItHoldsAnAccount(t *testing.T) {
+	w := newWorld(t)
+	holds := func(team, userID string) bool {
+		t.Helper()
+		got, err := HoldsAccount(w.home, team, userID)
+		if err != nil {
+			t.Fatalf("%s %s: %v", team, userID, err)
+		}
+		return got
+	}
+	if holds("team-a", "@owner:team-a.agent-bus.internal") {
+		t.Fatal("no instance holds an account")
+	}
+	w.apply(list(lightningTeam("team-a")))
+	if holds("team-a", "@owner:team-a.agent-bus.internal") {
+		t.Fatal("a fresh instance holds an account")
+	}
+	mkdir(t, w.account("other_team-a.agent-bus.internal"))
+	if holds("team-a", "@owner:team-a.agent-bus.internal") {
+		t.Fatal("another person's account counted")
+	}
+	mkdir(t, w.account("owner_team-a.agent-bus.internal"))
+	if !holds("team-a", "@owner:team-a.agent-bus.internal") || holds("team-b", "@owner:team-a.agent-bus.internal") {
+		t.Fatal("the account is the person's in this team's instance only")
+	}
+	mkdir(t, w.account("owner_192.0.2.10_8448"))
+	if !holds("team-a", "@owner:192.0.2.10:8448") {
+		t.Fatal("a server with a port: every colon is an underscore")
+	}
+	for _, bad := range []string{"owner:team-a.agent-bus.internal", "@owner", "@:team-a.agent-bus.internal", "@owner:", ""} {
+		if _, err := HoldsAccount(w.home, "team-a", bad); err == nil {
+			t.Fatalf("user ID %q accepted", bad)
+		}
+	}
+	w.write(w.account("file_team-a.agent-bus.internal"), "")
+	if _, err := HoldsAccount(w.home, "team-a", "@file:team-a.agent-bus.internal"); err == nil {
+		t.Fatal("a file where the account folder goes is not an answer")
+	}
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }

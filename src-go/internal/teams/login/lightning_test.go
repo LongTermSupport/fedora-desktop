@@ -3,6 +3,7 @@ package login
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,6 +32,12 @@ func (h rig) onLightning(t *testing.T, entries string) {
 	h.WriteHostVars(t, text)
 }
 
+// ownerInLightning makes owner's account in alpha's Lightning instance, as Lightning's sign-in does.
+func (h rig) ownerInLightning(t *testing.T) {
+	t.Helper()
+	teamtest.MustWrite(t, filepath.Join(h.l.Home, ".var/app/org.lightning_matrix.Lightning/teams/alpha/data/MatrixClient/matrix-client/owner_alpha.agent-bus.internal/store"), "")
+}
+
 func (h rig) launches() []string {
 	var lines []string
 	for _, c := range h.Fake.Calls() {
@@ -44,6 +51,7 @@ func (h rig) launches() []string {
 func TestOpenTeamOpensALightningTeamInLightning(t *testing.T) {
 	h := newRig(t)
 	h.onLightning(t, "")
+	h.ownerInLightning(t)
 	teamtest.MustWrite(t, h.alphaLightning(), "[Desktop Entry]\n")
 	teamtest.MustWrite(t, h.elementLauncher(), "[Desktop Entry]\n") // the other client's: not opened
 	h.On("systemd-run", "", 0)
@@ -108,6 +116,7 @@ func TestOpenTeamSetsUpALightningTeamThatHasNoLightningLauncher(t *testing.T) {
 	h = newRig(t)
 	h.onLightning(t, "")
 	h.OnDeclare("element", "CHANGED\tteam alpha\n")
+	h.ownerInLightning(t)
 	h.On("systemd-run", "", 0)
 	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
 	h.Script.Gum = []string{"YES"}
@@ -120,6 +129,88 @@ func TestOpenTeamSetsUpALightningTeamThatHasNoLightningLauncher(t *testing.T) {
 	}
 	if h.elementPlays() != 1 || len(h.launches()) != 1 || !strings.HasSuffix(h.launches()[0], "gio launch "+h.alphaLightning()) {
 		t.Fatalf("plays %d launched %q: %s", h.elementPlays(), h.launches(), h.ErrOut.String())
+	}
+}
+
+// Plan 00254 Task 7.1's gap: while the team's Lightning instance holds no human's account, each
+// human with sessions on the homeserver from another client (an Element sign-in of a team since
+// moved to Lightning) is told so and asked about a new password, default no. Once any human's
+// account is there (whoever this desktop is), nobody is asked.
+func TestOpenTeamOffersAPasswordToAPersonLightningHasNoAccountFor(t *testing.T) {
+	h := newRig(t)
+	h.onLightning(t, "")
+	teamtest.MustWrite(t, h.alphaLightning(), "[Desktop Entry]\n")
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	h.Script.Fzf = []string{"|EXIT", "|EXIT", "|EXIT"}
+	res, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha")
+	if err != nil || res != flow.Done {
+		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
+	}
+	for _, want := range []string{
+		"owner has 1 session on alpha's homeserver, from another client, and nobody is signed in to alpha's Lightning on this desktop yet.\n",
+		"guest has 2 sessions on alpha's homeserver, from another client, and nobody is signed in to alpha's Lightning on this desktop yet.\n",
+		"No password was set for owner.\n", "No password was set for guest.\n", "Opening alpha in Lightning.\n",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+	if len(h.Script.FzfArgs) != 3 {
+		t.Fatalf("asked %q, want a question for each of the three humans", h.Script.FzfArgs)
+	}
+	for _, args := range h.Script.FzfArgs {
+		if !slices.Contains(args, "--bind=start:last") {
+			t.Fatalf("%q does not default to no", args)
+		}
+	}
+	if len(h.launches()) != 1 {
+		t.Fatalf("launched %q", h.launches())
+	}
+
+	h = newRig(t)
+	h.onLightning(t, "")
+	teamtest.MustWrite(t, h.alphaLightning(), "[Desktop Entry]\n")
+	teamtest.MustWrite(t, filepath.Join(h.l.Home, ".var/app/org.lightning_matrix.Lightning/teams/alpha/data/MatrixClient/matrix-client/guest_alpha.agent-bus.internal/store"), "")
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	if _, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha"); err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if len(h.Script.FzfArgs) != 0 || strings.Contains(h.ErrOut.String(), "nobody is signed in") {
+		t.Fatalf("asked %q: %s", h.Script.FzfArgs, h.ErrOut.String())
+	}
+}
+
+// A Lightning instance that cannot say whether it holds an account stops the open: nothing is
+// asked and nothing starts.
+func TestOpenTeamStopsWhenLightningsAccountsCannotBeRead(t *testing.T) {
+	h := newRig(t)
+	h.onLightning(t, "")
+	teamtest.MustWrite(t, h.alphaLightning(), "[Desktop Entry]\n")
+	teamtest.MustWrite(t, filepath.Join(h.l.Home, ".var/app/org.lightning_matrix.Lightning/teams/alpha/data/MatrixClient/matrix-client/owner_alpha.agent-bus.internal"), "")
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	if _, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha"); err == nil || !strings.Contains(err.Error(), "is not a folder") {
+		t.Fatalf("err %v", err)
+	}
+	if len(h.Script.FzfArgs) != 0 || len(h.launches()) != 0 {
+		t.Fatalf("asked %q launched %q", h.Script.FzfArgs, h.launches())
+	}
+}
+
+// An Element team is never asked about who is signed in to Lightning.
+func TestOpenTeamAsksNothingOfASignedInElementPerson(t *testing.T) {
+	h := newRig(t)
+	h.onLightning(t, "  - team: alpha\n    base_url: http://192.0.2.10:6167\n    client: element\n")
+	teamtest.MustWrite(t, h.elementLauncher(), "[Desktop Entry]\n")
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	if _, err := h.l.OpenTeam(context.Background(), h.pass(t), "alpha"); err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if len(h.Script.FzfArgs) != 0 {
+		t.Fatalf("asked %q", h.Script.FzfArgs)
 	}
 }
 

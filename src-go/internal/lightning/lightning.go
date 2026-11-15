@@ -46,6 +46,9 @@
 //	   written; a home that cannot be found is a failure (1).
 //	L13 A line that cannot be written to stdout is a failure (1).
 //	L14 The one Matrix client list (matrixclients) names the folder the teams' instances live in.
+//	L15 HoldsAccount says whether a team's instance holds a person's account: the folder
+//	   Lightning keeps it in, named from the user ID as Lightning names it, is a directory.
+//	   ccy-teams asks it for a team that opens in Lightning (Plan 00254 Task 7.1's gap).
 package lightning
 
 import (
@@ -244,6 +247,44 @@ func (t tree) launcher(team string) string { return Launcher(t.home, team) }
 // Launcher is a team's Lightning launcher under a home (L8): ccy-teams opens the team by it.
 func Launcher(home, team string) string {
 	return filepath.Join(home, appsDir, "agent-bus-"+team+"-lightning.desktop")
+}
+
+// accountsIn is the folder of an instance Lightning keeps each account in: its primaryRoot,
+// <XDG_DATA_HOME>/MatrixClient/matrix-client (src/storage/AppDataPaths.cpp), one folder each.
+const accountsIn = "data/MatrixClient/matrix-client"
+
+// HoldsAccount is whether team's Lightning instance under home holds userID's account (L15):
+// the folder Lightning names by safeUserSlug, the ID without its "@" and with every ":", "/"
+// and "\" an underscore. Lightning makes it at sign-in and removes it at sign-out, so a missing
+// one is an instance that person is not signed in to, whether or not the homeserver holds a
+// session of theirs from another client. A user ID not of the form @<localpart>:<server>, or a
+// folder that cannot be looked at or is not a directory, is an error.
+func HoldsAccount(home, team, userID string) (bool, error) {
+	local, server, ok := strings.Cut(strings.TrimPrefix(userID, "@"), ":")
+	if !strings.HasPrefix(userID, "@") || !ok || local == "" || server == "" {
+		return false, fmt.Errorf("%q is not a Matrix user ID (@<localpart>:<server>)", userID)
+	}
+	list, err := matrixclients.Load()
+	if err != nil {
+		return false, err
+	}
+	client, err := lightningClient(list)
+	if err != nil {
+		return false, err
+	}
+	slug := strings.NewReplacer(":", "_", "/", "_", "\\", "_").Replace(local + ":" + server)
+	t := tree{home: home, root: filepath.Join(home, client.FlatpakDir()), appID: client.AppID}
+	path := filepath.Join(t.team(team), accountsIn, slug)
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("whether %s's Lightning instance holds %s's account cannot be told: %w", team, userID, err)
+	case !info.IsDir():
+		return false, fmt.Errorf("%s is not a folder, so whether %s's Lightning instance holds %s's account cannot be told", path, team, userID)
+	}
+	return true, nil
 }
 
 // execLine is the launcher's Exec line for a team, every path absolute (flatpak expands none).
