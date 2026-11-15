@@ -138,47 +138,56 @@ func echo(t *testing.T, c net.Conn, text string) {
 	}
 }
 
-// closeWait bounds every wait for the server to close a connection, and pollEvery is how often
-// a wait calls its poll: a close that never comes fails its test, rather than hanging the
-// package until its alarm.
-const (
-	closeWait = 30 * time.Second
-	pollEvery = 10 * time.Millisecond
-)
+// closeWait bounds every wait for the server to close a connection: a close that never comes
+// fails its test, rather than hanging the package until its alarm.
+const closeWait = 30 * time.Second
 
 // closed is whether the next read of c ends in EOF or a reset within closeWait: the server
 // closed it.
 func closed(t *testing.T, c net.Conn) bool {
 	t.Helper()
-	return awaitClose(t, c, func() {})
+	return awaitClose(t, c, nil)
 }
 
-// awaitClose is whether a read of c ends in an error within closeWait, calling poll every
-// pollEvery while it waits. A read still blocked at closeWait is no close: c is closed then, so
-// the read ends and the test fails instead of hanging.
-func awaitClose(t *testing.T, c net.Conn, poll func()) bool {
+// awaitClose is whether a read of c ends in an error within closeWait. With a clock, each
+// waiter armed IdleLimit from the clock's present while it waits is advanced past: a relay's
+// last touch can land after the test's own advance and arm its timer again. A read still
+// blocked at closeWait is no close: c is closed then, so the read ends and the test fails
+// instead of hanging.
+func awaitClose(t *testing.T, c net.Conn, clk *clock.Fake) bool {
 	t.Helper()
 	ended := make(chan error, 1)
 	go func() {
 		_, err := c.Read(make([]byte, 1))
 		ended <- err
 	}()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var rearmed chan error
+	awaitRearm := func() {
+		if clk == nil {
+			return
+		}
+		rearmed = make(chan error, 1)
+		go func(due chan<- error) { due <- clk.AwaitDue(ctx, IdleLimit) }(rearmed)
+	}
+	awaitRearm()
 	limit := time.NewTimer(closeWait)
 	defer limit.Stop()
-	tick := time.NewTicker(pollEvery)
-	defer tick.Stop()
 	for {
 		select {
 		case err := <-ended:
 			return err != nil
+		case err := <-rearmed:
+			check(t, err)
+			clk.Advance(IdleLimit)
+			awaitRearm()
 		case <-limit.C:
 			if err := c.Close(); err != nil {
 				t.Logf("closing a connection the server left open: %v", err)
 			}
 			<-ended
 			return false
-		case <-tick.C:
-			poll()
 		}
 	}
 }
@@ -401,16 +410,7 @@ func TestT8AnIdleRelayIsClosedAndItsSlotFreed(t *testing.T) {
 	<-up.accepted
 	check(t, clk.AwaitDue(t.Context(), IdleLimit))
 	clk.Advance(IdleLimit)
-	// The relay touches its timer after each write, so its touch for the echo can land after
-	// the advance and arm the timer again from the new present; each such timer is advanced past.
-	rearmed := func() {
-		armed, armErr := clk.Armed(IdleLimit)
-		check(t, armErr)
-		if armed {
-			clk.Advance(IdleLimit)
-		}
-	}
-	if !awaitClose(t, idle, rearmed) {
+	if !awaitClose(t, idle, clk) {
 		t.Fatal("a relay idle for IdleLimit was left open")
 	}
 	leakcheck.Poll(t, func() bool { return len(srv.slots) == 0 })
