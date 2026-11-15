@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.1 — container 2.84.16
+
+- **An `allowed-hostnames` file that cannot be read stops the launch** (issue #293). The
+  launcher reads the rule under `check_allowed_hostname || exit 1`, which turns errexit off, so
+  a file it could not open ran its read loop zero times and read as "no restriction": a `never`
+  was ignored. It now names the file and stops. A last line with no newline is read too, so a
+  `never` typed without one is honoured; it was dropped before, by the bash and by
+  `restore --check`'s Go port alike. `restore --check` calls an unreadable rule file
+  `UNRESTORABLE host-check-failed`, as the launch now stops on it.
+- **Every launcher library loop that reads a file opens it first and checks the open**: the
+  project mounts file (an unreadable one was skipped, and the launch went on without its
+  mounts), the restart budget, the session record and restore manifest readers and the usage
+  headers. The new semgrep rule `bash-loop-redirect-unchecked` holds every shipped script to it.
+- No image change.
+
 ## 3.122.0 — container 2.84.16
 
 - **`ccy-sessions wind-down` compacts every live session before a planned reboot, while its

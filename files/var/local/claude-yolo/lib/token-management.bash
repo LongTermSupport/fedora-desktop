@@ -304,9 +304,13 @@ _usage_bucket_line() {
 # at ~40 ms per call, more than the network round trip it was parsing.
 _usage_extract() {
     local file="$1"
-    local line name value u5="" u7="" r5="" r7="" claim=""
+    local line name value u5="" u7="" r5="" r7="" claim="" headers_fd
 
-    while IFS= read -r line; do
+    if ! exec {headers_fd}<"$file"; then
+        print_error "the usage headers in $file cannot be read."
+        return 1
+    fi
+    while IFS= read -r -u "$headers_fd" line; do
         line="${line%$'\r'}"
         case "$line" in
             [Aa]nthropic-[Rr]atelimit-unified-*) ;;
@@ -322,7 +326,8 @@ _usage_extract() {
             anthropic-ratelimit-unified-7d-reset)       r7="$value" ;;
             anthropic-ratelimit-unified-representative-claim) claim="$value" ;;
         esac
-    done < "$file"
+    done
+    exec {headers_fd}<&-
 
     # A tab or newline inside the value would split the record and silently
     # shift every field after it. The API sends a bare token like `five_hour`,

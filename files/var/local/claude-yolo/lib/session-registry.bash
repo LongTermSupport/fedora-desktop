@@ -527,13 +527,14 @@ ccy_registry_remove() {
 # place.
 ccy_registry_read() {
     local file="${1:?ccy_registry_read requires a record path}" line key value first=true
+    local -a record_lines
     REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE="" REC_COMPOSE="" REC_FRESH=""
     REC_ARGS=()
-    if [[ ! -r "$file" ]]; then
+    if [[ ! -r "$file" ]] || ! mapfile -t record_lines <"$file"; then
         print_error "session record $file cannot be read."
         return 1
     fi
-    while IFS= read -r line || [[ -n "$line" ]]; do
+    for line in "${record_lines[@]}"; do
         if [[ "$first" == true ]]; then
             first=false
             if [[ "$line" != "$CCY_REGISTRY_HEADER" ]]; then
@@ -569,7 +570,7 @@ ccy_registry_read() {
             return 1
             ;;
         esac
-    done <"$file"
+    done
     if [[ "$first" == true ]]; then
         print_error "session record $file is empty."
         return 1
@@ -782,11 +783,12 @@ ccy_restore_manifest_read() {
         print_error "no session restore has been recorded ($path does not exist)."
         return 1
     fi
-    if [[ ! -r "$path" ]]; then
+    local -a manifest_lines
+    if [[ ! -r "$path" ]] || ! mapfile -t manifest_lines <"$path"; then
         print_error "the restore manifest $path cannot be read."
         return 1
     fi
-    while IFS= read -r line || [[ -n "$line" ]]; do
+    for line in "${manifest_lines[@]}"; do
         if [[ "$first" == true ]]; then
             first=false
             if [[ "$line" == "ccy-restore-manifest "* && "$line" != "$CCY_RESTORE_MANIFEST_HEADER" ]]; then
@@ -847,7 +849,7 @@ ccy_restore_manifest_read() {
         esac
         expect_at=$(($((expect_at + 1)) % width))
         expect="${CCY_RESTORE_MANIFEST_KEYS[expect_at]}"
-    done <"$path"
+    done
     if [[ "$first" == true ]]; then
         print_error "the restore manifest $path is empty."
         return 1

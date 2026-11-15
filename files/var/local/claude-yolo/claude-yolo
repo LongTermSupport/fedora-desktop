@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.0"  # Container 2.84.16: sessions compact before a planned reboot, never after the restore (issue 290). See docs/ccy-changelog.md.
+CCY_VERSION="3.122.1"  # Container 2.84.16: a rule or record file that cannot be opened stops what reads it (issue 293). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

@@ -7,13 +7,14 @@
 //
 //   - H1. No file, or an entry that is not a regular file, is no restriction.
 //   - H2. A pattern is a line with everything from its first # removed and every whitespace
-//     character removed; blank results are dropped. A last line with no newline is not read,
-//     as bash's `while read` loop does not read it.
+//     character removed; blank results are dropped. A last line with no newline is read, as
+//     the bash reads it.
 //   - H3. A file with no pattern is no restriction.
 //   - H4. The patterns are tried in file order: `never` refuses (whatever follows), a pattern
 //     that matches the host allows (whatever follows), and a host no pattern matches is refused.
-//   - H5. A file that is there and cannot be read, or cannot be looked at, is an error. Bash read
-//     nothing from an unreadable file and let the launch go on.
+//   - H5. A file that is there and cannot be read is ErrUnreadable: the bash stops the launch on
+//     a file it cannot open (fedora-desktop#293). An entry that cannot be looked at (a symlink
+//     loop) is another error: the bash's `-f` test is false for it, so the launch goes ahead.
 //   - H6. A pattern matches as bash's case statement matches an unquoted pattern (Match).
 package allowedhosts
 
@@ -29,6 +30,11 @@ import (
 
 // Rel is the rule's file, from the checkout's root.
 const Rel = ".claude/ccy/allowed-hostnames"
+
+// ErrUnreadable is a regular rule file that could not be read: the launcher stops on it. An
+// entry that could not even be looked at is another error, which the launcher's `-f` test
+// reads as no file.
+var ErrUnreadable = errors.New("the allowed-hostnames file could not be read")
 
 // never is the pattern that refuses every host.
 const never = "never"
@@ -56,11 +62,10 @@ func Read(dir string) ([]string, bool, error) {
 	}
 	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return nil, false, fmt.Errorf("%s could not be read: %w", path, err)
+		return nil, false, fmt.Errorf("%w: %s: %w", ErrUnreadable, path, err)
 	}
-	lines := strings.Split(string(raw), "\n")
 	var patterns []string
-	for _, line := range lines[:len(lines)-1] {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if hash := strings.IndexByte(line, '#'); hash >= 0 {
 			line = line[:hash]
 		}

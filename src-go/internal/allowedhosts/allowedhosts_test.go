@@ -37,15 +37,19 @@ func TestNoFileIsNoRestriction(t *testing.T) {
 }
 
 // H2: comments (whole-line and inline) and every space are stripped; blank lines are dropped;
-// a last line with no newline is not read, as bash's read loop does not read it.
+// a last line with no newline is read, as the bash reads it (fedora-desktop#293: a `never`
+// written without one was dropped, lifting the restriction).
 func TestPatternsAreReadAsTheBashReadsThem(t *testing.T) {
 	dir := writeRule(t, "# a comment\n\n  lab-* # the lab\n\tbox 1\nlast-unterminated")
 	got, present, err := Read(dir)
 	if err != nil || !present {
 		t.Fatalf("%v %v", present, err)
 	}
-	if want := []string{"lab-*", "box1"}; !slices.Equal(got, want) {
+	if want := []string{"lab-*", "box1", "last-unterminated"}; !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+	if v, err := Judge(writeRule(t, "never"), "box"); err != nil || !v.Never {
+		t.Fatalf("an unterminated never: %+v %v", v, err)
 	}
 }
 
@@ -92,8 +96,8 @@ func TestAnUnreadableFileIsAnError(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, Rel), 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Judge(dir, "box"); err == nil {
-		t.Fatal("an unreadable file was judged")
+	if _, err := Judge(dir, "box"); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("an unreadable file: %v, want ErrUnreadable", err)
 	}
 }
 
@@ -107,8 +111,8 @@ func TestAnUnstattableFileIsAnError(t *testing.T) {
 	if err := os.Symlink(path, path); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Read(dir); err == nil || errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("a symlink loop: %v", err)
+	if _, _, err := Read(dir); err == nil || errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrUnreadable) {
+		t.Fatalf("a symlink loop: %v, want a stat error that is not ErrUnreadable", err)
 	}
 }
 

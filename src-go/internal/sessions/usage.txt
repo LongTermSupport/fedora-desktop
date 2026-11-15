@@ -104,9 +104,9 @@ Usage:
                                                   list that cannot be read is
                                                   network-check-failed), or whose project's
                                                   allowed-hostnames rules this host out
-                                                  (host-not-allowed; an unreadable rule
-                                                  file is restorable with a note, as the
-                                                  launch goes ahead); a cc record whose
+                                                  (host-not-allowed; a rule file that
+                                                  cannot be read is host-check-failed, as
+                                                  the launch stops on it); a cc record whose
                                                   every pool token has expired
                                                   (token-pool-expired). Not judged, because
                                                   only a probe at boot can tell and they

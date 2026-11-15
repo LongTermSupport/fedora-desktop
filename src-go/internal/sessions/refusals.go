@@ -100,10 +100,11 @@ func (a *App) dropInPassphraseFile() (string, string) {
 }
 
 // hostRefusal is the launcher's hostname rule (check_allowed_hostname, allowedhosts) for this
-// host in the record's checkout. A rule file that cannot be read is a note, not a refusal: the
-// launcher calls check_allowed_hostname under `|| exit 1`, so its read loop fails quietly and
-// the launch goes ahead (fedora-desktop#284). A hostname that cannot be read is refused: the
-// launcher would match an empty name, which no pattern but * allows.
+// host in the record's checkout. A rule file that cannot be read is refused, as the launcher
+// refuses it (fedora-desktop#293); an entry that cannot even be looked at is a note, not a
+// refusal: the launcher's `-f` test is false for it and the launch goes ahead. A hostname that
+// cannot be read is refused: the launcher would match an empty name, which no pattern but *
+// allows.
 func (a *App) hostRefusal(rec registry.Record, file string) restorePlan {
 	host, err := a.Hostname()
 	if err != nil {
@@ -112,8 +113,11 @@ func (a *App) hostRefusal(rec registry.Record, file string) restorePlan {
 	rule := filepath.Join(rec.Dir, allowedhosts.Rel)
 	v, err := allowedhosts.Judge(rec.Dir, host)
 	switch {
+	case errors.Is(err, allowedhosts.ErrUnreadable):
+		return restorePlan{why: whyHostCheckFailed, sentence: rule + " cannot be read, so whether ccy may run on this host cannot be judged, and its launch would stop (" +
+			err.Error() + "). Fix the file's permissions" + keptAt(file)}
 	case err != nil:
-		return restorePlan{note: rule + " could not be read (" + err.Error() + "); the launch goes ahead when it cannot read that file, so it counts as restorable."}
+		return restorePlan{note: rule + " could not be read (" + err.Error() + "); the launcher does not see it as a file and goes ahead, so it counts as restorable."}
 	case v.Never:
 		return restorePlan{why: whyHostNotAllowed, sentence: rule + " says never, so ccy will not run there on any host. Edit that file to restore it" + keptAt(file)}
 	case !v.Allowed:

@@ -433,9 +433,13 @@ load_project_mounts() {
         return 0
     fi
 
-    local line lineno=0 problems=0 parsed src dst opt
+    local line lineno=0 problems=0 parsed src dst opt mounts_fd
     local -A seen_dst=()
-    while IFS= read -r line || [ -n "$line" ]; do
+    if ! exec {mounts_fd}<"$mounts_file"; then
+        print_error "$mounts_file cannot be read, so its project mounts cannot be checked"
+        return 1
+    fi
+    while IFS= read -r -u "$mounts_fd" line || [ -n "$line" ]; do
         lineno=$((lineno + 1))
         line="${line%%#*}"
         line="${line#"${line%%[![:space:]]*}"}"
@@ -467,7 +471,8 @@ load_project_mounts() {
         seen_dst[$dst]=1
         PROJECT_MOUNTS+=(-v "$src:$dst:$opt")
         echo "✓ Project mount: $src → $dst ($opt)"
-    done < "$mounts_file"
+    done
+    exec {mounts_fd}<&-
 
     if [ "$problems" -gt 0 ]; then
         echo "" >&2
@@ -793,13 +798,20 @@ check_allowed_hostname() {
     local current_hostname
     current_hostname=$(hostname)
 
-    # Parse allowed entries: strip comments and blank lines
-    local allowed_hostnames=()
-    while IFS= read -r line; do
+    # Parse allowed entries: strip comments and blank lines. A file that is there but cannot be
+    # read stops the launch: read as empty, it would lift the restriction it exists to impose.
+    local allowed_hostnames=() line allowed_fd
+    if ! exec {allowed_fd}<"$allowed_file"; then
+        print_error "$allowed_file cannot be read, so whether ccy may run on this host cannot be told"
+        echo "Fix the file's permissions, or remove it to lift the restriction." >&2
+        return 1
+    fi
+    while IFS= read -r -u "$allowed_fd" line || [[ -n "$line" ]]; do
         line="${line%%#*}"            # strip inline comments
         line="${line//[[:space:]]/}"  # strip all whitespace
         [[ -n "$line" ]] && allowed_hostnames+=("$line")
-    done < "$allowed_file"
+    done
+    exec {allowed_fd}<&-
 
     # Empty file after parsing = no restriction
     if [[ ${#allowed_hostnames[@]} -eq 0 ]]; then

@@ -164,14 +164,19 @@ ccy_restart_budget_take() {
         return 1
     fi
 
-    local kept=() stamp
+    local kept=() stamp stamp_fd
     if [ -e "$file" ]; then
         if [ ! -f "$file" ] || [ -L "$file" ]; then
             printf 'restart budget: %s is not a regular file.\n' "$file" >&2
             return 1
         fi
-        while IFS= read -r stamp || [ -n "$stamp" ]; do
+        if ! exec {stamp_fd}<"$file"; then
+            printf 'restart budget: %s cannot be read, so the restarts it counts are unknown.\n' "$file" >&2
+            return 1
+        fi
+        while IFS= read -r -u "$stamp_fd" stamp || [ -n "$stamp" ]; do
             if ! [[ "$stamp" =~ ^[0-9]+$ ]]; then
+                exec {stamp_fd}<&-
                 printf 'restart budget: %s is corrupt (a line is not an epoch); remove it to reset the count.\n' \
                     "$file" >&2
                 return 1
@@ -179,7 +184,8 @@ ccy_restart_budget_take() {
             if [ $((now - stamp)) -lt "$window" ]; then
                 kept+=("$stamp")
             fi
-        done <"$file"
+        done
+        exec {stamp_fd}<&-
     fi
 
     if [ "${#kept[@]}" -ge "$max" ]; then

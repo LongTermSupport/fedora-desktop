@@ -127,10 +127,10 @@ func TestRestoreCheckRefusesARecordWhoseEngineCannotRun(t *testing.T) {
 
 // fedora-desktop#284 item 4: allowed-hostnames that rules this host out (never, or no pattern
 // matching it) stops the launch (check_allowed_hostname), so restore --check calls it
-// UNRESTORABLE host-not-allowed. A file that cannot be read stays RESTORABLE with a note: the
-// launcher calls check_allowed_hostname under `|| exit 1`, so its read loop fails quietly and the
-// launch goes ahead. A hostname that cannot be read is host-check-failed: the launcher matches
-// an empty name, which no pattern but * allows. cc does not read the rule.
+// UNRESTORABLE host-not-allowed. An entry that cannot be looked at (a symlink loop) stays
+// RESTORABLE with a note: the launcher's `-f` test is false for it, so the launch goes ahead. A
+// hostname that cannot be read is host-check-failed: the launcher matches an empty name, which
+// no pattern but * allows. cc does not read the rule.
 func TestRestoreCheckRefusesAProjectThatRulesThisHostOut(t *testing.T) {
 	h := checkHost(t)
 	rules := map[string]string{"never": "never\n", "other": "other-host\n", "mine": "# this host\nbo?\n", "loop": ""}
@@ -156,13 +156,30 @@ func TestRestoreCheckRefusesAProjectThatRulesThisHostOut(t *testing.T) {
 		"ERROR: ccy-never cannot be restored: "+filepath.Join(h.root, "never")+"/.claude/ccy/allowed-hostnames says never, so ccy will not run there on any host.",
 		"ERROR: ccy-other cannot be restored: "+filepath.Join(h.root, "other")+"/.claude/ccy/allowed-hostnames allows other-host, not this host (box).",
 		"ccy-loop: "+filepath.Join(h.root, "loop")+"/.claude/ccy/allowed-hostnames could not be read (",
-		"); the launch goes ahead when it cannot read that file, so it counts as restorable.\n")
+		"); the launcher does not see it as a file and goes ahead, so it counts as restorable.\n")
 
 	h = checkHost(t)
 	h.app.Hostname = func() (string, error) { return "", errors.New("no uname") }
 	ccyRecord(t, h, "ccy-mine", realDir(t, h, "mine"))
 	h.write("mine/.claude/ccy/allowed-hostnames", "box\n")
 	checkSays(t, h, 1, "ccy-mine UNRESTORABLE host-check-failed\n")
+}
+
+// fedora-desktop#293: a rule file that is there and cannot be read stops the launch
+// (check_allowed_hostname refuses it), so restore --check calls it host-check-failed.
+func TestRestoreCheckRefusesAProjectWhoseHostRuleCannotBeRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file whatever its mode")
+	}
+	h := checkHost(t)
+	dir := realDir(t, h, "locked")
+	h.write("locked/.claude/ccy/allowed-hostnames", "box\n")
+	if err := os.Chmod(filepath.Join(dir, ".claude/ccy/allowed-hostnames"), 0); err != nil {
+		t.Fatal(err)
+	}
+	ccyRecord(t, h, "ccy-locked", dir)
+	checkSays(t, h, 1, "ccy-locked UNRESTORABLE host-check-failed\n")
+	contains(t, "why", h.stderr(), "cannot be read, so whether ccy may run on this host cannot be judged")
 }
 
 // passphraseCheck is a host with restore on and a ccy and a cc record, for the passphrase file.

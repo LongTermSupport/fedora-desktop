@@ -99,6 +99,7 @@ gate	ccy-agent-bus	scripts/test-ccy-agent-bus.bash	ccy agent team bus entrypoint
 gate	ccy-teams	scripts/test-ccy-teams.bash	ccy --teams launcher tests failed	count
 gate	cc-teams	scripts/test-cc-teams.bash	cc --teams library tests failed	count
 gate	ccy-gitignore-safety	scripts/test-ccy-gitignore-safety.bash	ccy .gitignore guard tests failed	count
+gate	ccy-allowed-hostnames	scripts/test-ccy-allowed-hostnames.bash	ccy allowed-hostnames rule tests failed	count
 gate	ccy-env-local-dist	scripts/test-ccy-env-local-dist.bash	ccy ccy.env.local.dist tests failed	count
 gate	ccy-lifecycle	scripts/test-ccy-lifecycle.bash	ccy session-lifecycle unit tests failed	count
 gate	wsi-stop-grace	scripts/test-wsi-stop-grace.bash	speech-to-text stop grace tests failed	count
