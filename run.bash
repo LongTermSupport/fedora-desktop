@@ -3771,7 +3771,6 @@ show_menu() {
         ;;
     esac
   done
-  return 0
 }
 
 # Hardware detection function

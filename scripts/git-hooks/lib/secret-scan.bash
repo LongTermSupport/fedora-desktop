@@ -59,7 +59,7 @@ _hook_grep_v() {
 hook_keep_unwhitelisted() {
     local token_re="$1"
     shift
-    local line masked tokens left w rc
+    local line masked tokens left w rc flags
     while IFS= read -r line; do
         if [ -z "$line" ]; then
             continue
@@ -77,14 +77,9 @@ hook_keep_unwhitelisted() {
             if [ -z "$left" ]; then
                 break
             fi
-            case "$w" in
-                i:*)
-                    left=$(printf '%s' "$left" | _hook_grep_v -viE -- "${w#i:}") || rc=$?
-                    ;;
-                *)
-                    left=$(printf '%s' "$left" | _hook_grep_v -vE -- "$w") || rc=$?
-                    ;;
-            esac
+            flags=-vE
+            [[ $w == i:* ]] && flags=-viE w=${w#i:}
+            left=$(printf '%s' "$left" | _hook_grep_v "$flags" -- "$w") || rc=$?
             if [ "${rc:-0}" -eq 2 ]; then
                 return 1
             fi
@@ -315,7 +310,6 @@ PYEOF
     then
         return 1
     fi
-    return 0
 }
 
 # Scan text (stdin) for denylisted identifiers.
@@ -323,27 +317,20 @@ PYEOF
 # deduplicated — never the value.
 hook_scan_text_for_private() {
     local denylist="$1"
-    local text field token
+    local text field token denylist_fd
     text=$(cat)
 
-    if [ ! -s "$denylist" ]; then
-        return 0
-    fi
-    if [ -z "$text" ]; then
+    if [ ! -s "$denylist" ] || [ -z "$text" ]; then
         return 0
     fi
 
     local -A seen=()
-    local denylist_fd
     if ! exec {denylist_fd}<"$denylist"; then
         echo "secret-scan: the denylist $denylist cannot be read, so nothing can be checked against it" >&2
         return 1
     fi
     while IFS=$'\t' read -r -u "$denylist_fd" field token; do
-        if [ -z "$token" ]; then
-            continue
-        fi
-        if [ -n "${seen[$field]:-}" ]; then
+        if [ -z "$token" ] || [ -n "${seen[$field]:-}" ]; then
             continue
         fi
         # -w, not a bare substring match. A short identity token matches inside longer,

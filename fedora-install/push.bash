@@ -289,18 +289,15 @@ push_config() {
 
     local sensitive_pattern="(password|passwd|secret|token|api_key|api_secret|private_key|passphrase)"
 
-    local plain_violations=() yml_fd
-    exec {yml_fd}<"$LOCALHOST_YML" || die "Cannot read ${LOCALHOST_YML}, so its vault encryption cannot be checked."
-    while IFS= read -r -u "$yml_fd" line; do
-        [[ -z "$line" ]] && continue
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        if echo "$line" | grep -qiE "^\s*[a-z_]*(${sensitive_pattern})[a-z_]*\s*:"; then
-            if ! echo "$line" | grep -q "!vault"; then
-                plain_violations+=("$line")
-            fi
+    local plain_violations=() yml_lines=()
+    mapfile -t yml_lines <"$LOCALHOST_YML" || die "Cannot read ${LOCALHOST_YML}, so its vault encryption cannot be checked."
+    for line in "${yml_lines[@]}"; do
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        if echo "$line" | grep -qiE "^\s*[a-z_]*(${sensitive_pattern})[a-z_]*\s*:" &&
+            ! echo "$line" | grep -q "!vault"; then
+            plain_violations+=("$line")
         fi
     done
-    exec {yml_fd}<&-
 
     if [[ ${#plain_violations[@]} -gt 0 ]]; then
         warning "${#plain_violations[@]} plain-text secret(s) found — encrypting in-place..."

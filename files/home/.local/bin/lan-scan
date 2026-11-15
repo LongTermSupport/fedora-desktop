@@ -79,26 +79,21 @@ cmd_scan() {
 
     # arp-scan is fastest for L2 discovery — shows MAC vendor strings
     # Run twice to improve reliability (devices don't always respond to every probe)
-    local tmpraw tmpdedup
+    local tmpraw rows
     tmpraw=$(mktemp)
-    tmpdedup=$(mktemp)
     arp-scan --localnet --interface="$iface" --plain 2>/dev/null >> "$tmpraw"
     arp-scan --localnet --interface="$iface" --plain 2>/dev/null >> "$tmpraw"
 
     # Deduplicate by IP (keep first MAC/vendor seen), then sort by IP numerically
-    awk -F'\t' '!seen[$1]++ { print }' "$tmpraw" \
-        | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n > "$tmpdedup"
+    rows=$(awk -F'\t' '!seen[$1]++ { print }' "$tmpraw" \
+        | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
 
     # Column headers
     printf "${BOLD}%-18s  %-20s  %-30s  %s${NC}\n" "IP Address" "MAC Address" "Hostname" "Vendor / Info"
     printf "%-18s  %-20s  %-30s  %s\n" "──────────────────" "────────────────────" "──────────────────────────────" "────────────────────────────"
 
-    local qnap_found=() scan_fd
-    if ! exec {scan_fd}<"$tmpdedup"; then
-        echo "lan-scan: cannot read the scan results in $tmpdedup" >&2
-        return 1
-    fi
-    while IFS=$'\t' read -r -u "$scan_fd" ip mac vendor; do
+    local qnap_found=()
+    while IFS=$'\t' read -r ip mac vendor; do
         [ -z "$ip" ] && continue
         local hostname
         hostname=$(resolve_hostname "$ip")
@@ -108,10 +103,9 @@ cmd_scan() {
         else
             printf "%-18s  %-20s  %-30s  %s\n" "$ip" "$mac" "$hostname" "$vendor"
         fi
-    done
-    exec {scan_fd}<&-
+    done <<<"$rows"
 
-    rm -f "$tmpraw" "$tmpdedup"
+    rm -f "$tmpraw"
     echo ""
 
     if [ ${#qnap_found[@]} -gt 0 ]; then

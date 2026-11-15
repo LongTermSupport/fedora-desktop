@@ -304,13 +304,10 @@ _usage_bucket_line() {
 # at ~40 ms per call, more than the network round trip it was parsing.
 _usage_extract() {
     local file="$1"
-    local line name value u5="" u7="" r5="" r7="" claim="" headers_fd
+    local line name value u5="" u7="" r5="" r7="" claim="" lines=()
 
-    if ! exec {headers_fd}<"$file"; then
-        print_error "the usage headers in $file cannot be read."
-        return 1
-    fi
-    while IFS= read -r -u "$headers_fd" line; do
+    mapfile -t lines <"$file" || { print_error "the usage headers in $file cannot be read."; return 1; }
+    for line in "${lines[@]}"; do
         line="${line%$'\r'}"
         case "$line" in
             [Aa]nthropic-[Rr]atelimit-unified-*) ;;
@@ -327,7 +324,6 @@ _usage_extract() {
             anthropic-ratelimit-unified-representative-claim) claim="$value" ;;
         esac
     done
-    exec {headers_fd}<&-
 
     # A tab or newline inside the value would split the record and silently
     # shift every field after it. The API sends a bare token like `five_hour`,
@@ -558,7 +554,6 @@ usage_prime_cache() {
             fi
         done
     fi
-    return 0
 }
 
 # Splits a cache record into the caller's u5 r5 u7 r7 claim, keeping empty fields.
@@ -661,7 +656,6 @@ usage_render_block() {
     if [ -n "$claim" ]; then
         printf "       ${DIM}binding limit: %s${RESET}\n" "$(_usage_claim_label "$claim")"
     fi
-    return 0
 }
 
 # Function to list available tokens
@@ -1028,7 +1022,6 @@ create_token() {
     # a successful creation as "Cancelled".
     CREATED_TOKEN_FILE="$token_file"
 
-    return 0
 }
 
 # Function to select a token interactively

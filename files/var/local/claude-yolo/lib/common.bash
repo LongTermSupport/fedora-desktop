@@ -402,7 +402,6 @@ check_git_repo() {
         echo "  3. Run command from there" >&2
         return 1
     fi
-    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -478,7 +477,6 @@ load_project_mounts() {
         echo "  to launch without this project's declared mounts." >&2
         return 1
     fi
-    return 0
 }
 
 # The .claude/ccy/ directory contains sensitive session data that should NEVER
@@ -763,7 +761,6 @@ ccy_env_local_dist_sync() {
         echo "   Review: diff .claude/ccy/ccy.env.local.dist .claude/ccy/ccy.env.local" >&2
         echo "   Update it where it is placed (its IaC), not in the checkout." >&2
     fi
-    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
