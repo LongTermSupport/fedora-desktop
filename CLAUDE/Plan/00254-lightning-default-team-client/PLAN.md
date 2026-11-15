@@ -1,6 +1,6 @@
 # Plan 00254: Lightning as the default team client
 
-**Status**: In Progress (every reported fix merged upstream, awaiting a release; D3-D4 open)
+**Status**: In Progress (every reported fix merged upstream, awaiting a release; D4 open)
 **Created**: 2026-11-13
 **Owner**: joseph
 **Priority**: High
@@ -153,12 +153,21 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   for the host (rustls has no CN fallback).
 - [x] ✅ **Task 4.3**: Docs: a Lightning paragraph in `docs/agent-bus-cross-network.md`; update the
   comment in `play-matrix-clients.yml` that says no CA reaches Lightning.
+- [ ] ⬜ **Task 4.4**: A client on a machine that is not the homeserver host. Today the CA is read
+  from `/var/lib/teamchat-admin/<team>/tls/ca.crt`, so only the homeserver host can place it.
+  The CA tasks (Lightning's and Element's) take a team's CA from a path the caller gives, place
+  it and prove the handshake as before, with no assumption that the CA is on this host.
+  Getting the CA file to the laptop or phone is the estate side's work (agreed with its
+  coordinator on 2026-11-15); this task only consumes the file. Humans can sign in to a v2 team only once
+  issue #296 is fixed.
 
 ### Phase 5: Per-team instance, launcher and pre-filled config
 
-- [ ] ⬜ **Task 5.1**: Design note (owner decision **D3**): make the per-team host vars generic over
-  the client (one `client:` per team, default `lightning`) instead of a second
-  `agent_bus_lightning_teams` list. Write it as a short DESIGN section in this folder first.
+- [ ] ⬜ **Task 5.1**: Design note (owner decision **D3**, decided 2026-11-15): one home-level
+  setting picks the Matrix client for every team, `agent_bus_matrix_client` (default
+  `lightning`, or `element`), and a team's host vars may override it with its own `client:`.
+  There is no second `agent_bus_lightning_teams` list. Write it as a short DESIGN section in
+  this folder first.
 - [ ] ⬜ **Task 5.2**: A Go command under `src-go/` (new tooling is Go) that, per declared team,
   writes `teams/<team>/{data,config,cache}` under `~/.var/app/org.lightning_matrix.Lightning/`,
   writes `config/MatrixClient/matrix-client.conf` with `[homeserver] url=<team url>` only when the
@@ -180,7 +189,8 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 - [ ] ⬜ **Task 6.1**: In `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open
   every team, a window each" launch the team's client launcher, Lightning by default; the
   sign-in check (`signInAfter`) learns Lightning's data root. Tests through the existing fakes.
-- [ ] ⬜ **Task 6.2**: A way to pick Element for a team in ccy-teams, stored in the team's host vars.
+- [ ] ⬜ **Task 6.2**: ccy-teams opens each team in the client that the home-level setting
+  names, or in the team's own `client:` override (D3), and says which client it opened.
 
 ### Phase 7: Switch the default
 
@@ -219,12 +229,12 @@ built on it. **Date**: 2026-11-13
 
 ## Owner decisions
 
-| ID  | Question                                                      | Recommendation                      |
-| --- | ------------------------------------------------------------- | ----------------------------------- |
-| D1  | Pin Lightning's Flatpak commit?                               | Decided: no, update every run (1.2) |
-| D2  | Post the upstream issue and pull request?                     | Yes, after Task 2.2's build         |
-| D3  | Per-team host vars generic over the client, or a second list? | Generic (Task 5.1)                  |
-| D4  | Fallback build (Task 2.6) if upstream does not take the fix?  | Only if asked, and deleted after    |
+| ID  | Question                                                      | Recommendation                                             |
+| --- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| D1  | Pin Lightning's Flatpak commit?                               | Decided: no, update every run (1.2)                        |
+| D2  | Post the upstream issue and pull request?                     | Yes, after Task 2.2's build                                |
+| D3  | Per-team host vars generic over the client, or a second list? | Decided: one home-level setting, a per-team override (5.1) |
+| D4  | Fallback build (Task 2.6) if upstream does not take the fix?  | Only if asked, and deleted after                           |
 
 ## Success Criteria
 
