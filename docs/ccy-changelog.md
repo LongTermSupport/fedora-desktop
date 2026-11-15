@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.11 — container 2.84.20
+
+- **`pingbus`** names an unknown option (`unrecognized arguments: --to-coordinator,NAME`)
+  instead of saying that `say`, `report`, `ask-human` or `thread` reads its message from stdin
+  when the message was on stdin. The image carries `helpers/pingbus/`, so it is rebuilt once.
+  The launcher itself is unchanged apart from the versions.
+
 ## 3.122.10 — container 2.84.19
 
 - **A mouse click never answers a prompt** in a ccy session or a host `cc` session. The

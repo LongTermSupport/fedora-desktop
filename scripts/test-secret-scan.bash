@@ -288,6 +288,26 @@ mkdir -p "${ABSENT_ROOT}"
 assert_filter "an absent vars file yields no exemption and no error" \
     "1: uuid: ${DECLARED_UUID}" "${ABSENT_ROOT}" "1: uuid: ${DECLARED_UUID}"
 
+# A UUID with a hyphen is exempt and its exemption is a valid ERE (issue #301). Python's
+# re.escape writes `-` as `\-`, an undefined escape in POSIX ERE, which GNU grep 3.8+ warns about
+# and may one day read differently. Derived from the declared UUID, so no new address literal.
+HYPHEN_ROOT="${TMPROOT}/hyphen-root"
+HYPHEN_UUID="dash-${DECLARED_UUID}"
+mkdir -p "${HYPHEN_ROOT}/vars"
+printf 'gnome_shell_extensions:\n  group:\n    - uuid: %s\n' "${HYPHEN_UUID}" \
+    >"${HYPHEN_ROOT}/vars/gnome-shell-extensions.yml"
+assert_filter "a declared UUID with a hyphen is exempt" \
+    "" "${HYPHEN_ROOT}" "1: ${HYPHEN_UUID}"
+HYPHEN_STDERR="$(printf '1: %s\n' "${HYPHEN_UUID}" \
+    | hook_filter_match_lines "${EMAIL_PAT}" "${HYPHEN_ROOT}" 2>&1 >/dev/null)"
+if [[ -z "${HYPHEN_STDERR}" ]]; then
+    printf 'PASS: a hyphenated UUID exemption makes grep print nothing on stderr\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: the hyphenated UUID exemption made grep complain: %s\n' "${HYPHEN_STDERR}"
+    FAILED=$((FAILED + 1))
+fi
+
 # ── unit-name-with-suffix-read-as-email (issue #204) ─────────────────────────────────────
 #
 # A systemd unit name is exempt (`name@instance.service`), but the exemption was anchored at the

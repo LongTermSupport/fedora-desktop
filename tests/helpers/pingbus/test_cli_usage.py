@@ -59,6 +59,14 @@ class StdinCommandStrayText(unittest.TestCase):
                 self.assertIn(f"| pingbus --team T {command}", err)
                 self.assertNotIn("unrecognized", err)
 
+    def test_an_unknown_option_is_named_not_blamed_on_stdin(self) -> None:
+        # A comma-joined `--to-coordinator,NAME` is a flag pingbus does not know, not text on
+        # the command line: the error names the flag (issue #302).
+        code, err = run("--team", "T", "say", "--to-coordinator,X")
+        self.assertEqual(code, cli.EXIT_USAGE, err)
+        self.assertIn("unrecognized arguments: --to-coordinator,X", err)
+        self.assertNotIn("reads the message from stdin", err)
+
 
 if __name__ == "__main__":
     unittest.main()
