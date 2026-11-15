@@ -31,6 +31,7 @@ type Admin interface {
 	CreateAccount(ctx context.Context, userID, password, displayName string) (matrix.Account, error)
 	SetLocked(ctx context.Context, userID string, locked bool) error
 	ResetPassword(ctx context.Context, userID, password string) error
+	Devices(ctx context.Context, userID string) ([]matrix.Device, error)
 	SetDeactivated(ctx context.Context, userID string, deactivated bool) error
 	LoginDevice(ctx context.Context, userName, password, deviceID string) (matrix.Session, error)
 	Send(ctx context.Context, roomID, eventType, txnID string, content json.RawMessage) (string, error)
@@ -105,6 +106,10 @@ type Result struct {
 	Handle     string
 	Credential *Credential
 	Notes      []string
+	// Password is `human password`'s new password, and Devices `human devices`' answer (HU2,
+	// HU5); both are empty for every other operation.
+	Password Password
+	Devices  []matrix.Device
 }
 
 // run is one operation over a team's files; op is the operation a role change records as

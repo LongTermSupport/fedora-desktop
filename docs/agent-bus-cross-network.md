@@ -146,6 +146,20 @@ declared `teamchat_site` (default `local`) and from nothing else. A declared sit
 machine's hostname, a dot-label of it, or a DNS label of a team's URL host is refused; that check
 is best effort, and the guarantee is that no code path reads a hostname into a handle.
 
+## Humans
+
+A human is named in the team's `humans` list, and `team apply` creates the account with a
+random password nobody sees. Root gives the human a way in:
+
+- `teamchat-admin human password --team <team> --name <name>` sets a new 32-character password,
+  prints it once and signs every device out. On a terminal it is shown on the alternate screen
+  and cleared on Enter, so no scrollback keeps it.
+- `human logout` signs every device out and leaves no usable password, for a lost phone; run
+  `human password` again to let the human back in.
+- `human devices` lists the account's devices.
+
+`human lock` and `human unlock` are not built yet.
+
 ## Element
 
 An Element Desktop profile for an `https` team only works if Element trusts the team CA. The

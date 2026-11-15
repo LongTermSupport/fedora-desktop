@@ -104,6 +104,8 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"lxc apply": lxcApply, "lxc restart": lxcRestart,
 		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 		"units list": unitsList, "units print": unitsPrint,
+		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),
+		"human devices": humanVerb(apply.OpHumanDevices),
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
@@ -196,11 +198,18 @@ const issuedClearPrompt = "\nThis holds the credential's secret: pipe the verb i
 // no scrollback; on a stream that is not a terminal (the pipe into `teamchat seat
 // place-issued`), or with no credential, the document is the one plain line it always was.
 func answerIssued(e Env, w work) term.ExitCode {
-	screen := &term.SecretScreen{W: e.Stdout, Terminal: w.bundle.Kind() == proto.KindObject && e.isTerminal(e.Stdout)}
-	screen.Show(string(w.doc) + "\n")
+	return answerOnScreen(e, w.doc, w.bundle.Kind() == proto.KindObject, issuedClearPrompt)
+}
+
+// answerOnScreen writes a verb's one document: one holding a secret, on a terminal, on the
+// alternate screen with prompt and cleared on Enter, so the secret stays in no scrollback;
+// otherwise as one plain line.
+func answerOnScreen(e Env, doc []byte, secret bool, prompt string) term.ExitCode {
+	screen := &term.SecretScreen{W: e.Stdout, Terminal: secret && e.isTerminal(e.Stdout)}
+	screen.Show(string(doc) + "\n")
 	var readErr error
 	if screen.Showing() {
-		screen.Show(issuedClearPrompt)
+		screen.Show(prompt)
 		if e.Stdin != nil {
 			if _, err := bufio.NewReader(e.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
 				readErr = fmt.Errorf("cannot read the Enter that clears the credential: %w", err)

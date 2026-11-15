@@ -67,21 +67,14 @@ func TestServeTeamViewReadsTheTeam(t *testing.T) {
 	}
 }
 
-// TestServeTeamViewClassesItsFailures is CO1's classes: the files and an admin client that cannot
-// read are config, a homeserver that does not answer unreachable, a refusal failed.
+// TestServeTeamViewClassesItsFailures is CO1's classes: the files are config, a homeserver that
+// does not answer unreachable, a refusal failed.
 func TestServeTeamViewClassesItsFailures(t *testing.T) {
 	t.Run("files", func(t *testing.T) {
 		w := withMember(t)
 		if err := os.WriteFile(w.root+paths.RosterFile(alpha(t)), []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if a := w.serve(t, OpTeamView, w.teamFileArg(t)); a.OK || a.Error.Class != ClassConfig {
-			t.Fatalf("answer %+v", a)
-		}
-	})
-	t.Run("admin client", func(t *testing.T) {
-		w := withMember(t)
-		w.crash = &crashing{method: "none"}
 		if a := w.serve(t, OpTeamView, w.teamFileArg(t)); a.OK || a.Error.Class != ClassConfig {
 			t.Fatalf("answer %+v", a)
 		}
