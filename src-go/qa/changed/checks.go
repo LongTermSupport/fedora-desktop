@@ -446,8 +446,8 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	if err != nil {
 		return checkResult{}, err
 	}
-	if err := os.WriteFile(filepath.Join(mirror, ".semgrepignore"), nil, 0o600); err != nil {
-		return checkResult{}, fmt.Errorf("cannot write the mirror's .semgrepignore: %w", err)
+	if writeErr := os.WriteFile(filepath.Join(mirror, ".semgrepignore"), nil, 0o600); writeErr != nil {
+		return checkResult{}, fmt.Errorf("cannot write the mirror's .semgrepignore: %w", writeErr)
 	}
 	handed := make([]string, 0, len(cp.items))
 	for _, f := range cp.items {
@@ -503,8 +503,8 @@ func semgrepFindings(report string, handed []string) (checkResult, error) {
 		}
 		gating.Errors = append(gating.Errors, e)
 	}
-	if err := gating.Judge("shell", handed); err != nil {
-		return checkResult{output: out.String() + err.Error() + "\n", code: 1}, nil
+	if judgeErr := gating.Judge("shell", handed); judgeErr != nil {
+		return checkResult{output: fmt.Sprintf("%s%v\n", out.String(), judgeErr), code: 1}, nil
 	}
 	for _, r := range decoded.Results {
 		fmt.Fprintf(&out, "%s:%d %s %s\n", r.Path, r.Start.Line, r.CheckID, r.Extra.Message)
