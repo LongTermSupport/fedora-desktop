@@ -31,7 +31,7 @@ files/home/.local/bin/rclone-cache-warm	101	1	110	-
 files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
 files/home/.local/bin/rdt	90	6	70	-
 files/home/.local/bin/ssh-agent-start	104	6	107	-
-files/home/.local/bin/ssh-keys-rekey	223	5	248	-
+files/home/.local/bin/ssh-keys-rekey	223	5	244	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-

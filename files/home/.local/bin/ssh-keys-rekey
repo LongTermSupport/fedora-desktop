@@ -53,7 +53,11 @@ MAX_TRIES=3   # bounded retries on recoverable input mistakes (typos, mismatches
 # or from a prompt. So this script is its own SSH_ASKPASS: run so, it answers ssh-keygen's
 # prompt from its environment, the new passphrase for a new one, the current one otherwise.
 if [ -n "${SSH_KEYS_REKEY_ASKPASS:-}" ]; then
-    case "${1:-}" in "Enter new passphrase"*|"Enter same passphrase again"*) printf '%s\n' "${REKEY_NEW-}" ;; *) printf '%s\n' "${REKEY_OLD-}" ;; esac
+    # One arm per line: written on one line, the case blinds semgrep's bash parser (#317).
+    case "${1:-}" in
+        "Enter new passphrase"* | "Enter same passphrase again"*) printf '%s\n' "${REKEY_NEW-}" ;;
+        *) printf '%s\n' "${REKEY_OLD-}" ;;
+    esac
     exit 0
 fi
 export SSH_ASKPASS SSH_ASKPASS_REQUIRE=force SSH_KEYS_REKEY_ASKPASS=1
@@ -204,8 +208,7 @@ while :; do
 
     if [ "$opened" -gt 0 ]; then
         # Mixed passphrases — a retry cannot fix this. Fail fast with guidance.
-        echo "" >&2
-        echo "These key(s) did NOT open with that passphrase:" >&2
+        printf '%s\n' "" "These key(s) did NOT open with that passphrase:" >&2
         printf '    %s\n' "${failed[@]}" >&2
         echo "…but others did, so your keys do not all share one passphrase." >&2
         echo "ssh-keys-rekey only handles a single shared passphrase." >&2
@@ -326,7 +329,5 @@ if command -v secret-tool >/dev/null; then
     echo "gcr will prompt for the new passphrase the next time each key is used." >&2
 fi
 
-echo "" >&2
-echo "Done. Rekeyed ${#KEYS[@]} key(s)." >&2
-echo "Backups kept in: $BACKUP_DIR" >&2
-echo "Once you've confirmed the new passphrase works, you can remove that directory." >&2
+printf '%s\n' "" "Done. Rekeyed ${#KEYS[@]} key(s)." "Backups kept in: $BACKUP_DIR" \
+    "Once you've confirmed the new passphrase works, you can remove that directory." >&2

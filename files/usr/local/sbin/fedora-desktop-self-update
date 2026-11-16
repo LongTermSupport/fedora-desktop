@@ -103,7 +103,8 @@ unwritable_by_others() {
     # stat's own message, rather than judging an empty owner and mode.
     local st
     st="$(stat -c '%u %a' -- "$1")" || return 1
-    [[ "${st% *}" == 0 || "${st% *}" == "${EUID}" ]] && ((!(8#${st#* } & 8#022)))
+    # A leading 0 reads the mode as octal; written 8#, it blinds semgrep's bash parser (#317).
+    [[ "${st% *}" == 0 || "${st% *}" == "${EUID}" ]] && (( (0${st#* } & 022) == 0 ))
 }
 if [[ -L "${ALLOWED_SIGNERS}" || ! -f "${ALLOWED_SIGNERS}" ]] ||
     ! unwritable_by_others "${ALLOWED_SIGNERS}" || ! unwritable_by_others "${ETC}"; then
