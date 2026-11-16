@@ -266,6 +266,31 @@ func TestAwaitNoticesThenGivesUp(t *testing.T) {
 }
 
 // Await ends when stop is closed, with ErrStopped and nothing said.
+// passedClock is a clock on which every hold has already passed when Await first looks, as
+// after a suspended machine, or a test that moves a fake clock past both holds before the
+// waiter reaches its select.
+type passedClock struct{}
+
+func (passedClock) Hold(time.Duration) (<-chan time.Time, func() bool) {
+	c := make(chan time.Time, 1)
+	c <- time.Time{}
+	return c, func() bool { return false }
+}
+
+// The notice and the bound both passed together still give the notice before the error: the
+// error never comes without it. Repeated, because select picks at random among cases ready
+// together.
+func TestABoundPassedWithTheNoticeStillGivesTheNoticeFirst(t *testing.T) {
+	for range 20 {
+		var errs syncBuffer
+		_, err := Await(Options{Prog: "ask", Err: &errs, Clock: passedClock{}, GiveUpAfter: time.Minute}, make(chan string), nil)
+		var none *NoInputError
+		if !errors.As(err, &none) || !strings.HasPrefix(errs.String(), "ask: waiting for input on stdin") {
+			t.Fatalf("%v %q", err, errs.String())
+		}
+	}
+}
+
 func TestAwaitEndsOnStop(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)

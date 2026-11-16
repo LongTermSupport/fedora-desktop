@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.17 — container 2.84.25
+## 3.122.18 — container 2.84.26
 
 - **pingbus never waits in silence on stdin** (issue #260). A command run with no input in
   an agent's shell gets an open pipe that never ends, and `pingbus thread Q<n> --close` waited

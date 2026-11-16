@@ -115,6 +115,25 @@ func TestAnOpenPipeIsNoticedThenGivenUpOn(t *testing.T) {
 	}
 }
 
+// The bound firing before the notice (a clock that passes both at once) still gives the notice
+// first: the refusal never comes without it.
+func TestABoundBeforeTheNoticeStillGivesTheNoticeFirst(t *testing.T) {
+	r, w := pipe(t)
+	if w == nil {
+		t.Fatal("no writer")
+	}
+	c := stdinreadtest.NewClock()
+	var errs syncBuffer
+	got := start(r, Options{Prog: "tool", Err: &errs, GiveUpAfter: PipedGiveUp, Clock: c})
+	armed(t, c, NoticeAfter)
+	c.Fire(PipedGiveUp)
+	res := <-got
+	var none *NoInputError
+	if !errors.As(res.err, &none) || !strings.HasPrefix(errs.String(), "tool: waiting for input on stdin") {
+		t.Fatalf("%v stderr %q", res.err, errs.String())
+	}
+}
+
 // With no bound the notice comes and the read waits on: input that then arrives is read whole.
 func TestWithNoBoundTheNoticeComesAndTheReadWaitsOn(t *testing.T) {
 	r, w := pipe(t)

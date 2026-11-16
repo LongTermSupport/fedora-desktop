@@ -183,8 +183,13 @@ func Await[T any](o Options, arrived <-chan T, stop <-chan struct{}) (T, error) 
 			case v := <-arrived:
 				return v, nil
 			default:
-				return zero, &NoInputError{After: o.GiveUpAfter}
 			}
+			// A bound that passed with the notice still pending (both ready together) says
+			// the notice first, so the refusal never comes without it.
+			if notice != nil && o.GiveUpAfter >= NoticeAfter {
+				o.say()
+			}
+			return zero, &NoInputError{After: o.GiveUpAfter}
 		}
 	}
 }

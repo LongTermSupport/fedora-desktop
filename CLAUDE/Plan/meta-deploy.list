@@ -56,12 +56,12 @@ playbooks/imports/optional/common/play-photography.yml
 # Afterwards: both deployed files match the checkout (the service rendered).
 playbooks/imports/optional/common/play-advanced-kernel-management.yml
 
-# Issue #260 (ccy 3.122.17, container 2.84.25): pingbus, teamchat and the launcher never wait
+# Issue #260 (ccy 3.122.18, container 2.84.26): pingbus, teamchat and the launcher never wait
 # in silence on stdin. Installs the launcher; the image carries helpers/stdin_text and the
 # rebuilt pingbus and teamchat, and is rebuilt once at the next ccy start. pingbus's
 # thread --close reads no stdin unless --note - is given; a text verb (say, reply, report)
 # refuses a terminal, says on stderr after a second that it is waiting, and exits 64 if nothing
-# has come within 60 s. Afterwards: a new ccy session starts, on container 2.84.25.
+# has come within 60 s. Afterwards: a new ccy session starts, on container 2.84.26.
 playbooks/imports/play-claude-yolo.yml
 
 # Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the
