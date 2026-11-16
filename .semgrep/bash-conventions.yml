@@ -492,3 +492,43 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # bash-loop-procsub-unchecked (fedora-desktop#295): a reader fed by a process substitution,
+  # `done < <(cmd)`, `mapfile -t a < <(cmd)` or `read -r x < <(cmd)`. bash does not wait for
+  # `cmd`, and neither errexit nor pipefail sees its status, so a `cmd` that fails gives no
+  # lines and the reader takes that for "nothing there". The secret scan in the git hooks read
+  # a scan that could not open its denylist as a clean one.
+  #
+  # Not matched: a reader whose next command (after any continuation lines and whole-line
+  # comments) is `wait "$!"`, which
+  # collects the substitution's status (bash 4.4 and later); an output process substitution
+  # (`> >(tee log)`); a here-string; a file.
+  - id: bash-loop-procsub-unchecked
+    patterns:
+      # One regex, not a pattern-either: semgrep then never needs the bash parse, which fails
+      # outright on some scripts this rule must still read.
+      - pattern-regex: '(?m)^[^\n#]*(?:\bdone[ \t]*|\b(?:mapfile|readarray|read)\b[^\n#]*)<[ \t]*<\([^\n]*$'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+      - pattern-not-regex: '(?m)^[^\n#]*<[ \t]*<\([^\n]*(?:\\\n[^\n]*)*(?:\n[ \t]*#[^\n]*)*\n[ \t]*wait[ \t]+"?\$!"?(?:[ \t]|$)'
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'fedora-install/**'
+        - 'run.bash'
+      exclude:
+        - 'scripts/test-*'
+    message: >
+      bash-loop-procsub-unchecked: this reader is fed by a process substitution, `< <(cmd)`,
+      and bash never checks `cmd`'s status, so a `cmd` that fails reads as no output. Collect
+      it on the next line with 'wait "$!" || { echo "cmd failed" >&2; return 1; }' (at top
+      level under `set -e`, a plain 'wait "$!"' stops the script by itself), as long as the
+      body starts no background job or substitution of its own. Or capture the text first,
+      'out=$(cmd) || ...', and read 'done <<<"$out"', but not for NUL-separated output (a
+      variable cannot hold a NUL) and mind that an empty "$out" still feeds one empty line.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

@@ -595,12 +595,74 @@ while IFS= read -r line; do
 # ok: bash-loop-redirect-unchecked
 done <<<"$text"
 
-# A process substitution is another defect's.
+# A process substitution is another defect's (bash-loop-procsub-unchecked, whose fix is here).
 while IFS= read -r line; do
     echo "$line"
 # ok: bash-loop-redirect-unchecked
 done < <(list_things)
+wait "$!"
 
 # A comment that quotes the form is not the form.
 # ok: bash-loop-redirect-unchecked
 # the loop used to end: done < "$file"
+
+# ── bash-loop-procsub-unchecked (fedora-desktop#295) ───────────────────────────────────
+
+# The defect: a scan that could not run read as a clean scan.
+while IFS= read -r field; do
+    found+=("$field")
+# ruleid: bash-loop-procsub-unchecked
+done < <(printf '%s' "$text" | scan_for_private "$list")
+
+# No space, and a status check that checks the loop instead of the producer.
+while read -r name; do
+    echo "$name"
+# ruleid: bash-loop-procsub-unchecked
+done< <(list_networks) || return 1
+
+# mapfile, readarray and a lone read lose the producer's status the same way.
+# ruleid: bash-loop-procsub-unchecked
+mapfile -t keys < <(discover_keys)
+# ruleid: bash-loop-procsub-unchecked
+readarray -d '' -t args < <(canonical_args "$@")
+# ruleid: bash-loop-procsub-unchecked
+read -r width height < <(identify_size "$file")
+
+# The fix: the substitution's status collected on the next line.
+while IFS= read -r -d '' path; do
+    paths+=("$path")
+# ok: bash-loop-procsub-unchecked
+done < <(find "$dir" -type f -print0)
+wait "$!" || { echo "find failed in $dir" >&2; return 1; }
+# ok: bash-loop-procsub-unchecked
+mapfile -t keys < <(discover_keys)
+# A comment between the reader and its wait changes nothing.
+wait $!
+# ok: bash-loop-procsub-unchecked
+done < <(find "$dir" -type f \
+    -name '*.yml' -print0)
+wait "$!"
+
+# A wait that is not the next command collects nothing for this reader.
+# ruleid: bash-loop-procsub-unchecked
+mapfile -t keys < <(discover_keys)
+echo "found ${#keys[@]}"
+wait "$!"
+
+# Or: the producer's output captured first, its status checked, then read.
+fields=$(printf '%s' "$text" | scan_for_private "$list") || return 1
+while IFS= read -r field; do
+    found+=("$field")
+# ok: bash-loop-procsub-unchecked
+done <<<"$fields"
+keys_text=$(discover_keys) || return 1
+# ok: bash-loop-procsub-unchecked
+mapfile -t keys <<<"$keys_text"
+
+# An output process substitution has no producer whose status is lost to a reader.
+# ok: bash-loop-procsub-unchecked
+exec > >(tee "$log") 2>&1
+
+# A comment that quotes the form is not the form.
+# ok: bash-loop-procsub-unchecked
+# the loop used to end: done < <(list_things)
