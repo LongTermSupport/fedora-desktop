@@ -71,13 +71,38 @@ put "$m" 1.0.1 a 1 f44
 tip=$(git -C "$m" rev-parse F44)
 git -C "$m" switch -q work
 git -C "$m" merge -q --no-verify --no-ff -m sync F44
+sync=$(git -C "$m" rev-parse HEAD)
 check "an unbumped merge committed past the hook is refused" "1 yes" "$(judge "$m" "$tip" "$tip..HEAD") $(has 'CCY version bump required')"
-check "…and the refusal names the merge" "yes" "$(has "$(git -C "$m" rev-parse HEAD)")"
+check "…and the refusal names the merge" "yes" "$(has "✗ merge $sync is refused")"
 
-put "$m" 1.0.2 b 1 bumped
+put "$m" 1.0.2 b 2 bumped
 git -C "$m" switch -q F44
 git -C "$m" merge -q --no-verify --no-ff -m land work
-check "the bump made after it does not excuse it" "1" "$(judge "$m" "$tip" "$tip..HEAD")"
+land=$(git -C "$m" rev-parse HEAD)
+check "the bump made after it does not excuse it, and the later merge is judged too" "1 yes yes no" \
+    "$(judge "$m" "$tip" "$tip..HEAD") $(has "✗ merge $sync is refused") $(has "🔍 merge $land") $(has "✗ merge $land")"
+
+# Two syncs of F44 changing the same library: the second merge's checkout must not trip over the
+# first merge's tree, left staged in the scratch clone.
+m=$(repo)
+git -C "$m" switch -q -c work
+put "$m" 1.0.1 b 1 work
+git -C "$m" switch -q F44
+put "$m" 1.0.1 a 1 f44
+git -C "$m" switch -q work
+git -C "$m" merge -q --no-verify --no-ff --no-commit F44
+put "$m" 1.0.2 a 1 b 1 sync-one
+one=$(git -C "$m" rev-parse HEAD)
+git -C "$m" switch -q F44
+put "$m" 1.0.3 a 2 f44-again
+tip=$(git -C "$m" rev-parse F44)
+git -C "$m" switch -q work
+git -C "$m" merge -q --no-verify --no-ff --no-commit F44
+put "$m" 1.0.4 a 2 b 1 sync-two
+two=$(git -C "$m" rev-parse HEAD)
+first_tip=$(git -C "$m" rev-parse F44~1)
+check "two syncs changing one library are both judged, and pass" "0 yes yes" \
+    "$(judge "$m" "$first_tip" "$first_tip..HEAD") $(has "🔍 merge $one") $(has "🔍 merge $two")"
 
 # The same work merged above F44's version passes, as does a range with no merge at all.
 m=$(repo)
