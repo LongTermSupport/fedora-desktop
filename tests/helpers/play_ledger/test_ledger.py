@@ -75,6 +75,7 @@ class TestBuildRecord(unittest.TestCase):
                 "dirty",
                 "dirty_paths",
                 "dirty_paths_truncated",
+                "narrowed",
                 "play_sha256",
                 "outcome",
                 "changed",
@@ -82,6 +83,23 @@ class TestBuildRecord(unittest.TestCase):
                 "finished",
             },
         )
+
+    def test_a_full_run_records_no_narrowing(self):
+        self.assertEqual(self._record()["narrowed"], {})
+
+    def test_a_narrowed_run_records_its_options_with_tags_sorted(self):
+        record = self._record(narrowed={"tags": ["member", "inbox"], "limit": "localhost"})
+        self.assertEqual(record["narrowed"], {"tags": ["inbox", "member"], "limit": "localhost"})
+
+    def test_an_unknown_narrowing_option_is_refused(self):
+        with self.assertRaises(ValueError):
+            self._record(narrowed={"forks": "5"})
+
+    def test_a_narrowing_option_must_carry_a_value(self):
+        for narrowed in ({"tags": []}, {"tags": [""]}, {"limit": ""}, {"start_at_task": None},
+                         {"skip_tags": "member"}):
+            with self.subTest(narrowed=narrowed), self.assertRaises(ValueError):
+                self._record(narrowed=narrowed)
 
     def test_the_schema_version_is_stamped(self):
         # So a later reader can refuse a shape it does not understand rather than
@@ -206,21 +224,125 @@ class TestGenesisRecord(unittest.TestCase):
         self.assertNotIn("play", genesis)
 
 
+def _run_line(play, finished, outcome="ok", narrowed=None):
+    return ledger.serialise(
+        ledger.build_record(
+            play=play,
+            name="X",
+            commit=COMMIT,
+            dirty=False,
+            play_sha256="a" * 64,
+            outcome=outcome,
+            changed=0,
+            started=finished,
+            finished=finished,
+            narrowed=narrowed,
+        )
+    )
+
+
+class TestIsFullRun(unittest.TestCase):
+    def test_a_run_with_no_narrowing_is_full(self):
+        self.assertIs(ledger.is_full_run({"narrowed": {}}), True)
+
+    def test_a_narrowed_run_is_not_full(self):
+        self.assertIs(ledger.is_full_run({"narrowed": {"tags": ["member"]}}), False)
+
+    def test_a_record_from_before_narrowing_was_kept_reads_as_full(self):
+        """Nothing can say what such a run covered, and every run before was judged full."""
+        self.assertIs(ledger.is_full_run({}), True)
+
+
+class TestDescribeNarrowing(unittest.TestCase):
+    def test_it_spells_the_options_as_the_command_line_did(self):
+        text = ledger.describe_narrowing(
+            {"tags": ["a", "b"], "skip_tags": ["c"], "limit": "h", "start_at_task": "Install it",
+             "step": True}
+        )
+        self.assertEqual(
+            text, "--tags a,b --skip-tags c --limit h --start-at-task 'Install it' --step"
+        )
+
+    def test_step_is_recorded_only_as_true(self):
+        with self.assertRaises(ValueError):
+            ledger.build_record(
+                play=PLAY, name="X", commit=COMMIT, dirty=False, play_sha256="a" * 64,
+                outcome="ok", changed=0, started="2026-09-14T10:00:00Z",
+                finished="2026-09-14T10:00:00Z", narrowed={"step": "yes"},
+            )
+
+
+class TestForgetRecord(unittest.TestCase):
+    def test_it_names_the_play_and_when(self):
+        record = ledger.forget_record(play=PLAY, at="2026-09-14T10:00:00Z")
+        self.assertEqual(
+            record, {"schema": ledger.SCHEMA, "kind": "forget", "play": PLAY, "at": "2026-09-14T10:00:00Z"}
+        )
+
+    def test_the_play_must_be_repo_relative_and_the_time_utc(self):
+        with self.assertRaises(ValueError):
+            ledger.forget_record(play="/abs/play.yml", at="2026-09-14T10:00:00Z")
+        with self.assertRaises(ValueError):
+            ledger.forget_record(play=PLAY, at="yesterday")
+
+
+class TestFoldLatestFull(unittest.TestCase):
+    """Issue #278: a tagged run that failed made the whole play due for ever."""
+
+    def test_a_narrowed_run_does_not_replace_the_last_full_run(self):
+        lines = [
+            _run_line(PLAY, "2026-09-01T00:00:00Z", outcome="ok"),
+            _run_line(PLAY, "2026-09-14T00:00:00Z", outcome="failed", narrowed={"tags": ["member"]}),
+        ]
+        self.assertEqual(ledger.fold_latest_full(lines)[PLAY]["outcome"], "ok")
+        self.assertEqual(ledger.fold_latest(lines)[PLAY]["outcome"], "failed")
+
+    def test_a_play_only_ever_run_narrowed_has_no_full_run(self):
+        lines = [_run_line(PLAY, "2026-09-14T00:00:00Z", narrowed={"limit": "localhost"})]
+        self.assertEqual(ledger.fold_latest_full(lines), {})
+        self.assertEqual(list(ledger.fold_latest(lines)), [PLAY])
+
+    def test_a_later_full_run_still_wins(self):
+        lines = [
+            _run_line(PLAY, "2026-09-01T00:00:00Z", outcome="failed", narrowed={"tags": ["x"]}),
+            _run_line(PLAY, "2026-09-14T00:00:00Z", outcome="failed"),
+        ]
+        self.assertEqual(ledger.fold_latest_full(lines)[PLAY]["finished"], "2026-09-14T00:00:00Z")
+
+
+class TestForget(unittest.TestCase):
+    """A play cleared on a host where it does not apply: its runs until then are dropped."""
+
+    def _forget(self, at):
+        return ledger.serialise(ledger.forget_record(play=PLAY, at=at))
+
+    def test_runs_up_to_the_forget_are_dropped_from_both_folds(self):
+        lines = [_run_line(PLAY, "2026-09-01T00:00:00Z", outcome="failed"), self._forget("2026-09-02T00:00:00Z")]
+        self.assertEqual(ledger.fold_latest(lines), {})
+        self.assertEqual(ledger.fold_latest_full(lines), {})
+
+    def test_a_run_after_the_forget_counts_again(self):
+        lines = [
+            self._forget("2026-09-02T00:00:00Z"),
+            _run_line(PLAY, "2026-09-01T00:00:00Z", outcome="failed"),
+            _run_line(PLAY, "2026-09-03T00:00:00Z", outcome="ok"),
+        ]
+        self.assertEqual(ledger.fold_latest(lines)[PLAY]["outcome"], "ok")
+
+    def test_a_forget_touches_no_other_play(self):
+        other = "playbooks/imports/play-python.yml"
+        lines = [_run_line(other, "2026-09-01T00:00:00Z"), self._forget("2026-09-02T00:00:00Z")]
+        self.assertEqual(list(ledger.fold_latest(lines)), [other])
+
+    def test_a_forget_with_no_play_is_an_error(self):
+        line = json.dumps({"schema": ledger.SCHEMA, "kind": "forget", "at": "2026-09-02T00:00:00Z"})
+        with self.assertRaises(ValueError):
+            ledger.fold_latest([line])
+
+
 class TestFoldLatest(unittest.TestCase):
     def _line(self, play, finished, outcome="ok"):
-        return ledger.serialise(
-            ledger.build_record(
-                play=play,
-                name="X",
-                commit=COMMIT,
-                dirty=False,
-                play_sha256="a" * 64,
-                outcome=outcome,
-                changed=0,
-                started=finished,
-                finished=finished,
-            )
-        )
+        return _run_line(play, finished, outcome)
 
     def test_the_latest_record_per_play_wins(self):
         lines = [

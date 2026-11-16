@@ -72,6 +72,50 @@ class TestShouldRecord(unittest.TestCase):
         self.assertIs(plugin_support.should_record({"diff": True, "forks": 5}), True)
 
 
+#: What `ansible-playbook site.yml` leaves in CLIARGS for the four narrowing options
+#: (asserted against the real CLI in test_source_position_against_real_ansible).
+FULL_RUN_CLIARGS = {"tags": ("all",), "skip_tags": (), "subset": None, "start_at_task": None,
+                    "step": False}
+
+
+class TestNarrowing(unittest.TestCase):
+    """Issue #278: a run narrowed by --tags, --skip-tags, --limit or --start-at-task did
+    not cover the whole play, so the ledger records which options narrowed it."""
+
+    def _narrowing(self, **overrides: object) -> dict:
+        return plugin_support.narrowing(FULL_RUN_CLIARGS | overrides)
+
+    def test_a_full_run_is_not_narrowed(self) -> None:
+        self.assertEqual(self._narrowing(), {})
+
+    def test_tags_narrow_the_run(self) -> None:
+        self.assertEqual(self._narrowing(tags=("member",)), {"tags": ["member"]})
+
+    def test_tags_that_include_all_do_not_narrow_it(self) -> None:
+        self.assertEqual(self._narrowing(tags=("all", "never")), {})
+
+    def test_skip_tags_limit_and_start_at_task_each_narrow_it(self) -> None:
+        self.assertEqual(
+            self._narrowing(skip_tags=("slow",), subset="localhost", start_at_task="Install it"),
+            {"skip_tags": ["slow"], "limit": "localhost", "start_at_task": "Install it"},
+        )
+
+    def test_step_narrows_it_because_the_operator_may_skip_any_task(self) -> None:
+        self.assertEqual(self._narrowing(step=True), {"step": True})
+
+    def test_an_absent_option_does_not_narrow_it(self) -> None:
+        self.assertEqual(plugin_support.narrowing({}), {})
+
+    def test_the_answer_is_one_build_record_accepts(self) -> None:
+        narrowed = self._narrowing(tags=("b", "a"), subset="h")
+        record = ledger.build_record(
+            play="playbooks/imports/play-x.yml", name="X", commit=FORTY_HEX, dirty=False,
+            play_sha256=SIXTY_FOUR_HEX, outcome="ok", changed=0, started=STAMP, finished=STAMP,
+            narrowed=narrowed,
+        )
+        self.assertEqual(record["narrowed"], {"tags": ["a", "b"], "limit": "h"})
+
+
 class _FakeOrigin:
     """The shape ansible-core 2.19 puts on a play as `_origin`.
 

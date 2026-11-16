@@ -68,7 +68,12 @@ packages by package with the commands built from them, such as
 its inputs (or the group_vars file) was uncommitted during that run: each run records which
 paths were uncommitted, so a stray file no play reads makes no play run again. A record
 that cannot name them all (one from before they were recorded, or more than 50) counts as
-any input. It warns about this before it asks. A removed play
+any input. It warns about this before it asks. Only a full run decides a play: a run
+narrowed by `--tags`, `--skip-tags`, `--limit`, `--start-at-task` or `--step` covered part of it, so
+a failed one is named but does not make the play run again. A play whose run failed on a
+machine where it cannot apply is cleared with
+`python3 -m helpers.play_ledger.check_freshness --forget-play <play>` from the checkout,
+which the failure line prints; it is judged again once it runs. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
@@ -80,7 +85,7 @@ the plays `--changed` runs, and it prints this command with the checkout's full 
 
 **To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
 on this machine as a numbered menu, in the same order, and marks with `*` the ones that
-have to run again: changed since they last ran, or their last run failed. Type a number
+have to run again: changed since they last ran, or their last full run failed. Type a number
 (`3`), several (`1 4` or `1,4`), `a` for every play marked `*`, or `q` to quit. A mistyped
 answer says what was wrong and asks again, up to three times, and end of input cancels
 without running anything. The pick runs at once, in menu order, under the same play lock
@@ -1029,8 +1034,8 @@ below):
   because both use one judgement (`helpers/play_ledger/changed_plays.py`): a play whose
   own file or any file it deploys changed since the commit it last ran from (each finding
   names up to three changed paths, and on a line of its own up to three changed Go
-  packages with the commands built from them), whose last run failed, or which last ran from a
-  checkout with uncommitted changes. Below them the report prints the command that runs
+  packages with the commands built from them), whose last full run failed, or which last ran
+  from a checkout with uncommitted changes. Below them the report prints the command that runs
   them all, ready to paste: this checkout's full path, found where the code runs, plus
   `run.bash --changed`. Only plays under `playbooks/imports/` are judged, as by
   `--changed`; the status document's coverage for the section names the plays it cannot
