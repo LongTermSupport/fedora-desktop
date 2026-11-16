@@ -519,14 +519,15 @@ hl_ssh_agent_start() {
   # It answers ONLY the first question for the key (and ssh-keygen's confirmation of a new
   # one). ssh-add asks a wrong answer "Bad passphrase, try again" for ever, so answering
   # that too turns a wrong passphrase into a run that never ends; refusing it fails at once.
-  cat > "$HL_ASKPASS" <<'HL_ASKPASS_BODY'
+  # The delimiter has no underscore: one blinds semgrep's bash parser to the rest of the file (#317).
+  cat > "$HL_ASKPASS" <<'ASKPASS'
 #!/usr/bin/env bash
 case "$1" in
 "Enter passphrase for "*|"Enter same passphrase again:"*) exec cat -- "$HL_SSH_PP_FILE" ;;
 esac
 echo "run.bash askpass: not answering: $1" >&2
 exit 1
-HL_ASKPASS_BODY
+ASKPASS
   HL_SECRET_FILES+=("$HL_SSH_PP_FILE" "$HL_ASKPASS")
   export HL_SSH_PP_FILE
   local _agent_out _kg_out
