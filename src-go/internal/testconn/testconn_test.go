@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // recorder is the part of a test Bound reports to.
@@ -49,12 +50,13 @@ func (c *closer) Close() error {
 
 // manual is a timer seam that fires when the test says.
 type manual struct {
+	limit   time.Duration
 	fire    func()
 	stopped bool
 }
 
-func (m *manual) after(f func()) func() bool {
-	m.fire = f
+func (m *manual) after(d time.Duration, f func()) func() bool {
+	m.limit, m.fire = d, f
 	return func() bool {
 		wasArmed := !m.stopped && m.fire != nil
 		m.stopped = true
@@ -65,6 +67,9 @@ func (m *manual) after(f func()) func() bool {
 func TestAWaitPastTheLimitFailsTheTestAndClosesTheConnection(t *testing.T) {
 	rec, c, clock := &recorder{TB: t}, &closer{}, &manual{}
 	bound(rec, c, clock.after)
+	if clock.limit != Limit {
+		t.Fatalf("armed for %v, want %v", clock.limit, Limit)
+	}
 	clock.fire()
 	rec.cleanUp()
 	if c.closes != 1 || len(rec.errs) != 1 || !strings.Contains(rec.errs[0], "no answer within") {

@@ -28,15 +28,15 @@ const Limit = time.Minute
 // ends with an error instead of blocking to the package's timeout. The timer stops when tb ends.
 func Bound(tb testing.TB, c io.Closer) {
 	tb.Helper()
-	bound(tb, c, func(f func()) func() bool { return time.AfterFunc(Limit, f).Stop })
+	bound(tb, c, func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop })
 }
 
-// bound is Bound with the timer a seam: arm makes f run once Limit has passed and returns the
+// bound is Bound with the timer a seam: after arms f to run once d has passed and returns the
 // timer's Stop, which reports whether it stopped f from running.
-func bound(tb testing.TB, c io.Closer, arm func(func()) func() bool) {
+func bound(tb testing.TB, c io.Closer, after func(time.Duration, func()) func() bool) {
 	tb.Helper()
 	fired := make(chan struct{})
-	stop := arm(func() {
+	stop := after(Limit, func() {
 		defer close(fired)
 		tb.Errorf("testconn: no answer within %v; closing the %T so the wait on it ends", Limit, c)
 		if err := c.Close(); err != nil {

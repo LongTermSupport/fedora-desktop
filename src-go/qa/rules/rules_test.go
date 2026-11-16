@@ -99,6 +99,10 @@ func TestSelfChildStderr(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SelfChildStderr, "fix/internal/selfchild", "fix/internal/argschild", "fix/internal/fileschild", "fix/internal/otherchild")
 }
 
+func TestTestConnRead(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TestConnRead, "fix/internal/connread", "fix/internal/fakepeer")
+}
+
 func TestTestSpin(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TestSpin, "fix/internal/spin")
 }
