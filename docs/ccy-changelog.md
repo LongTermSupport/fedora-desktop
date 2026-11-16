@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.13 — container 2.84.21
+
+- **A command read through `< <(cmd)` that fails stops the launch** (issue #295). bash never
+  checks the status of a process substitution, so a `podman network ls` that could not run
+  read as "no networks", an unreadable `~/.ssh` as "no keys", and a failed argument builder
+  as an empty argv. ccy and `cc` now collect each one's status with `wait "$!"` and stop
+  with a message saying what failed. No `~/.ssh` is still no keys, and the other engine
+  (docker under podman) not answering still skips its cross-engine check, now with a note
+  on stderr. The image is unchanged.
+
 ## 3.122.12 — container 2.84.21
 
 - **A dropped team's kept Element profile is named** (issue #299). Each Element profile the

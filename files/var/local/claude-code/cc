@@ -71,6 +71,8 @@ ccy_tmux_banner
 # is still in this argv — and everything left in it goes to claude, which would refuse an
 # option it does not know.
 mapfile -t CC_ARGS < <(ccy_registry_launch_args "$@")
+# The builder's own status (#295): one that stopped part way leaves an argv that looks whole.
+wait "$!" || { echo "cc: could not build claude's arguments." >&2; exit 1; }
 set -- "${CC_ARGS[@]}"
 # ccy-sessions restore marks the launches it makes with CCY_SESSION_RESTORE=1. cc has no
 # prompt with one safe answer to give (its token chooser is a person's choice, and
@@ -160,18 +162,12 @@ fi
 # dir. Say so rather than leaving the credential stranded and unmentioned.
 if [ "$CRED_BAK" != "$CRED_BAK_DEFAULT" ] && [ -f "$CRED_BAK_DEFAULT" ]; then
     print_error "A parked Desktop credential is stranded at the default location"
-    {
-        echo "  stranded: $CRED_BAK_DEFAULT"
-        echo "  in use:   $CLAUDE_CONFIG_HOME"
-        echo
-        echo "CLAUDE_CONFIG_DIR moved the config dir after an earlier cc run parked"
-        echo "a credential under \$HOME/.claude. No cc run will ever restore it from"
-        echo "there. Move it where it belongs, or delete it if it is stale:"
-        echo
-        echo "  mv -i '$CRED_BAK_DEFAULT' '$HOME/.claude/.credentials.json'"
-        echo "  # or, if you no longer want that login:"
-        echo "  rm -i '$CRED_BAK_DEFAULT'"
-    } >&2
+    printf '%s\n' "  stranded: $CRED_BAK_DEFAULT" "  in use:   $CLAUDE_CONFIG_HOME" "" \
+        "CLAUDE_CONFIG_DIR moved the config dir after an earlier cc run parked" \
+        "a credential under \$HOME/.claude. No cc run will ever restore it from" \
+        "there. Move it where it belongs, or delete it if it is stale:" "" \
+        "  mv -i '$CRED_BAK_DEFAULT' '$HOME/.claude/.credentials.json'" \
+        "  # or, if you no longer want that login:" "  rm -i '$CRED_BAK_DEFAULT'" >&2
     exit 1
 fi
 

@@ -131,6 +131,9 @@ resolve_github_ssh_alias() {
             break
         fi
     done < <(awk '$1 == "identityfile" { print $2 }' <<< "$cfg")
+    # awk's own status (#295). It writes its few lines in one flush at exit, so the `break`
+    # above never cuts it off part way.
+    wait "$!" || { echo "Could not read the IdentityFile lines ssh -G gave for $alias." >&2; return 1; }
     printf '%s\t%s\t%s\n' "$hostname" "${port:-22}" "$keyfile"
     return 0
 }
@@ -363,7 +366,9 @@ probe_gh_keys_for_remote() {
                 echo "no gh-token-${alias} function" > "$PROBE_LOG_DIR/${alias}.token.err"
             fi
         fi
-    done < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
+    done < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" | sort)
+    # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
+    wait "$!" || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
 
     # Restore the original active account so the user's shell state is
     # unaffected. Failure here goes to the log dir but does not fail the
@@ -429,7 +434,9 @@ discover_and_select_ssh_keys() {
     # These keys are managed by play-github-cli-multi.yml which creates keys with
     # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
     # See: playbooks/imports/play-github-cli-multi.yml
-    mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
+    # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
+    mapfile -t GITHUB_KEYS < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" | sort)
+    wait "$!" || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
 
     local alias_rc=0
     detect_project_github_alias "." || alias_rc=$?
@@ -466,24 +473,13 @@ discover_and_select_ssh_keys() {
     fi
 
     if [ "$alias_rc" -ne 0 ] && [ ${#GITHUB_KEYS[@]} -eq 0 ] && [ "$agent_ok" = false ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "⚠  WARNING: No SSH Keys Available"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "No github_ SSH key in ~/.ssh/, no ssh-agent holding a key, and the project"
-        echo "remote does not use an ssh-config alias bound to GitHub."
-        echo "Git push operations will NOT work without SSH keys."
-        echo ""
-        echo "To set up GitHub SSH keys, run:"
-        echo "  ansible-playbook playbooks/imports/play-github-cli-multi.yml"
-        echo ""
-        echo "Or specify a key manually:"
-        echo "  $tool_name --ssh-key ~/.ssh/<your-key>"
-        echo ""
-        echo "Or log in with agent forwarding (ssh -A) and pass:"
-        echo "  $tool_name --ssh-agent"
-        echo ""
+        printf '%s\n' "" "════════════════════════════════════════════════════════════════════════════════" \
+            "⚠  WARNING: No SSH Keys Available" "════════════════════════════════════════════════════════════════════════════════" "" \
+            "No github_ SSH key in ~/.ssh/, no ssh-agent holding a key, and the project" \
+            "remote does not use an ssh-config alias bound to GitHub." "Git push operations will NOT work without SSH keys." "" \
+            "To set up GitHub SSH keys, run:" "  ansible-playbook playbooks/imports/play-github-cli-multi.yml" "" \
+            "Or specify a key manually:" "  $tool_name --ssh-key ~/.ssh/<your-key>" "" \
+            "Or log in with agent forwarding (ssh -A) and pass:" "  $tool_name --ssh-agent" ""
         # Enter is the only answer that starts a session, and with nobody to press it (a
         # restore, a restart, no terminal) it is taken: the session starts as it did before.
         if ccy_launch_unattended; then
@@ -509,7 +505,7 @@ discover_and_select_ssh_keys() {
         echo "Probing GitHub accounts against remote: $remote_url"
         echo "(checks .permissions.push via gh-token-<alias> — sequential, ~1-3 seconds)"
 
-        working_keys=$(probe_gh_keys_for_remote "$remote_url")
+        working_keys=$(probe_gh_keys_for_remote "$remote_url") || return 1
 
         local match_count=0
         if [ -n "$working_keys" ]; then
@@ -1679,17 +1675,11 @@ build_ssh_mounts_and_validate() {
                 echo "  What it said:"
                 echo ""
                 printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-"(no output)"}"
-                echo ""
-                echo "This is almost always GitHub being briefly unavailable, NOT a"
-                echo "problem with your keys or your configuration. Check"
-                echo "https://www.githubstatus.com/ and try again shortly."
-                echo ""
-                echo "The cross-check being skipped here only confirms that the token"
-                echo "from ${token_func} belongs to the same account as the SSH key."
-                echo "To launch anyway without it:"
-                echo ""
-                echo "  CCY_SKIP_TOKEN_OWNER_CHECK=1 ccy"
-                echo ""
+                printf '%s\n' "" "This is almost always GitHub being briefly unavailable, NOT a" \
+                    "problem with your keys or your configuration. Check" "https://www.githubstatus.com/ and try again shortly." "" \
+                    "The cross-check being skipped here only confirms that the token" \
+                    "from ${token_func} belongs to the same account as the SSH key." "To launch anyway without it:" "" \
+                    "  CCY_SKIP_TOKEN_OWNER_CHECK=1 ccy" ""
                 if [ -z "${CCY_SKIP_TOKEN_OWNER_CHECK:-}" ]; then
                     return 1
                 fi

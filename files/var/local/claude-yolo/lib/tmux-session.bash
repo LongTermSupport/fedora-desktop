@@ -49,7 +49,7 @@ ccy_tmux_list() {
         printf '%s\n' "$listing"
         return 0
     fi
-    if [[ "$listing" == *"no server running"* ]] || [[ "$listing" == *"No such file or directory"* ]]; then
+    if [[ "$listing" == *"no server running"* || "$listing" == *"No such file or directory"* ]]; then
         return 0
     fi
     print_error "tmux list-sessions failed: $listing"
@@ -64,7 +64,7 @@ ccy_tmux_project_sessions() {
     local listing name attached dir
     listing=$(ccy_tmux_list) || return 1
     while read -r name attached dir; do
-        [[ -n "$name" ]] || continue
+        # An empty line has no name, which the prefix match below already refuses.
         if [[ "$dir" == "$PWD" && "$name" == "${CCY_TMUX_SESSION_PREFIX}-"* ]]; then
             printf '%s %s %s\n' "$name" "$attached" "$dir"
         fi
@@ -91,12 +91,11 @@ ccy_tmux_next_name() {
 ccy_tmux_is_detached() {
     local clients rc=0
     clients=$(_ccy_tmux_clients "$1") || rc=$?
-    if [[ "$rc" -eq 2 ]]; then
-        return 1
-    elif [[ "$rc" -ne 0 ]]; then
-        return 2
-    fi
-    [[ -z "$clients" ]]
+    case "$rc" in
+    0) [[ -z "$clients" ]] ;;
+    2) return 1 ;;
+    *) return 2 ;;
+    esac
 }
 
 # The hook that enforces one terminal per session. It runs on the server for every attach;
@@ -126,12 +125,14 @@ ccy_tmux_attach() {
         return 1
     fi
     clients=$(_ccy_tmux_clients "$name") || rc=$?
-    if [[ "$rc" -eq 2 ]]; then
+    case "$rc" in
+    0) ;;
+    2)
         echo "'$name' has ended." >&2
         return 0
-    elif [[ "$rc" -ne 0 ]]; then
-        return 1
-    fi
+        ;;
+    *) return 1 ;;
+    esac
     if [[ -n "$clients" ]]; then
         print_error "'$name' is open in another terminal, so this terminal was not attached to it."
         return 3
@@ -179,8 +180,7 @@ ccy_tmux_teams_arg() {
 # ccy_tmux_seats_shared <wanted> <held> — true when the two canonical lists
 # (`<seat>@<team>,...`) name a seat in common. PURE.
 ccy_tmux_seats_shared() {
-    local item
-    local -a wanted=()
+    local item wanted=()
     IFS=, read -r -a wanted <<<"$1"
     for item in "${wanted[@]}"; do
         [[ ",$2," == *",$item,"* ]] && return 0
@@ -264,15 +264,12 @@ ccy_tmux_offer() {
 # directory (the seats a session holds); a column not given is left out altogether rather
 # than padded.
 ccy_tmux_row() {
-    local state="detached"
+    local state="detached" extra=""
     if [[ "$2" != "0" ]]; then
         state="open elsewhere"
     fi
-    if [[ -n "${4:-}" ]]; then
-        printf '%-28s  %-15s  %-22s  %s' "$1" "$state" "$4" "${3/#${HOME}/\~}"
-        return 0
-    fi
-    printf '%-28s  %-15s  %s' "$1" "$state" "${3/#${HOME}/\~}"
+    [[ -z "${4:-}" ]] || printf -v extra '%-22s  ' "$4"
+    printf '%-28s  %-15s  %s%s' "$1" "$state" "$extra" "${3/#${HOME}/\~}"
 }
 
 # ccy_tmux_header <keys line> [more lines...] — the picker header: the key legend first,
@@ -330,10 +327,10 @@ CCY_TMUX_NEW_ROW="Start a new session here"
 ccy_tmux_insulate() {
     local project="${1:?ccy_tmux_insulate requires a project name}"
     shift
-    [[ $# -gt 0 ]] || {
+    if [[ $# -eq 0 ]]; then
         print_error "ccy_tmux_insulate requires a command to run"
         return 1
-    }
+    fi
 
     if [[ -n "${TMUX:-}" ]]; then
         # Inside tmux already. On the ccy server that is the re-exec landing: nothing to
@@ -412,8 +409,11 @@ ccy_tmux_insulate() {
     shift
     local -a launch=() replay=()
     ccy_registry_wants_restore "$@" || restore=no
+    # Each builder's own status (#295): one that stopped part way leaves an argv that looks whole.
     mapfile -t launch < <(ccy_registry_launch_args "$@")
+    wait "$!" || { echo "Could not build the launch arguments for session '$name'." >&2; return 1; }
     mapfile -t replay < <(ccy_registry_replay_args "$CCY_TMUX_SESSION_PREFIX" "${launch[@]}")
+    wait "$!" || { echo "Could not build the replay arguments for session '$name'." >&2; return 1; }
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session
