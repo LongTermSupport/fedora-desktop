@@ -8,6 +8,9 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // ErrInputEnded is the input ending before an answer (Ctrl-D, or no more piped input): the
@@ -38,6 +41,12 @@ type Choice struct {
 // In is read by one goroutine, a line at a time and only when a question asks for one; a read
 // that a cancel abandoned is the answer to the next question. That goroutine waits for the
 // next question for as long as the process runs.
+//
+// A piped answer is bounded and a typed one is not (issue #260): when In is not a terminal, each
+// line is waited for through stdinread.Await, so after a second with nothing the question says on
+// Err that it is waiting, and after stdinread.PipedGiveUp with nothing it fails (an open pipe
+// nothing writes to would otherwise hold the command for ever); a slow script that sends each
+// answer within the bound is answered. A terminal is a person, who may think as long as needed.
 type Lines struct {
 	In  io.Reader
 	Out io.Writer
@@ -49,6 +58,13 @@ type Lines struct {
 	// EchoOff turns the terminal's echo off for a Secret's line and returns what puts it back
 	// (ttyecho.Off); with none, Secret refuses to ask.
 	EchoOff func() (restore func() error, err error)
+	// Prog names the command in the notice of a piped answer that has not come; Err is where it
+	// goes (stderr when nil); Clock times it (the real clock when nil); IsTerminal tells a
+	// terminal In from a pipe (term.FileIsTerminal when nil).
+	Prog       string
+	Err        io.Writer
+	Clock      stdinread.Clock
+	IsTerminal func(any) bool
 
 	want    chan struct{}
 	replies chan lineRead
@@ -226,24 +242,11 @@ func (l *Lines) readLine(ctx context.Context) (string, error) {
 	}
 	got := l.ended
 	if got == nil {
-		if l.want == nil {
-			l.want, l.replies, l.read = make(chan struct{}), make(chan lineRead, 1), make(chan struct{})
-			go readLines(bufio.NewReader(l.In), l.want, l.replies, l.read)
+		r, err := l.nextLine(ctx)
+		if err != nil {
+			return "", err
 		}
-		if !l.pending {
-			l.want <- struct{}{}
-			l.pending = true
-		}
-		select {
-		case r := <-l.replies:
-			l.pending = false
-			if r.err != nil {
-				l.ended = &r
-			}
-			got = &r
-		case <-ctx.Done():
-			return "", fmt.Errorf("%w: %w", ErrCancelled, context.Cause(ctx))
-		}
+		got = &r
 	}
 	line, err := got.line, got.err
 	switch {
@@ -256,6 +259,55 @@ func (l *Lines) readLine(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read the answer: %w", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// nextLine asks the reader of In (started on the first question) for a line and waits for it;
+// a read that ended the input is kept as the answer to every later question.
+func (l *Lines) nextLine(ctx context.Context) (lineRead, error) {
+	if l.want == nil {
+		l.want, l.replies, l.read = make(chan struct{}), make(chan lineRead, 1), make(chan struct{})
+		go readLines(bufio.NewReader(l.In), l.want, l.replies, l.read)
+	}
+	if !l.pending {
+		l.want <- struct{}{}
+		l.pending = true
+	}
+	r, err := l.awaitLine(ctx)
+	if err != nil {
+		return lineRead{}, err
+	}
+	l.pending = false
+	if r.err != nil {
+		l.ended = &r
+	}
+	return r, nil
+}
+
+// awaitLine is the next line the reader of In sends: from a terminal, whenever it comes; from
+// anything else, through stdinread.Await's notice and bound (see Lines). The end of ctx cancels.
+func (l *Lines) awaitLine(ctx context.Context) (lineRead, error) {
+	cancelled := func() error { return fmt.Errorf("%w: %w", ErrCancelled, context.Cause(ctx)) }
+	isTerminal := l.IsTerminal
+	if isTerminal == nil {
+		isTerminal = term.FileIsTerminal
+	}
+	if isTerminal(l.In) {
+		select {
+		case r := <-l.replies:
+			return r, nil
+		case <-ctx.Done():
+			return lineRead{}, cancelled()
+		}
+	}
+	o := stdinread.Options{Prog: l.Prog, Err: l.Err, Clock: l.Clock, GiveUpAfter: stdinread.PipedGiveUp}
+	r, err := stdinread.Await(o, l.replies, ctx.Done())
+	switch {
+	case errors.Is(err, stdinread.ErrStopped):
+		return lineRead{}, cancelled()
+	case err != nil:
+		return lineRead{}, fmt.Errorf("read the answer: %w", err)
+	}
+	return r, nil
 }
 
 // readSecret is readLine with the echo off, put back however the read ends.

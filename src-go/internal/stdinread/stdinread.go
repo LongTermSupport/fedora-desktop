@@ -27,6 +27,10 @@ import (
 // NoticeAfter is how long nothing may arrive before the reader says it is waiting.
 const NoticeAfter = time.Second
 
+// PipedGiveUp is the bound on silence of input a command must not wait for ever on: a verb's
+// text, and each piped answer to a prompt (internal/ui).
+const PipedGiveUp = time.Minute
+
 // Clock is the one clock call the reader needs: a channel that receives once d has passed, and
 // its stop. internal/teamchat/clock's clocks are one, and System is its real one.
 type Clock interface {
@@ -88,34 +92,51 @@ type result struct {
 	err  error
 }
 
-// wait is the read's answer: the notice once nothing has arrived for NoticeAfter, the refusal
-// once nothing has arrived for GiveUpAfter, and otherwise the input, read to its end.
+// wait is the read's answer: Await on the first byte (or the end), then the input, read to its
+// end however slowly it comes.
 func (o Options) wait(w *watched, done <-chan result) ([]byte, error) {
+	if _, err := Await(o, w.started, nil); err != nil {
+		// The background read stays blocked on the pipe until it ends or the process does; a
+		// command refused here exits, which ends it.
+		return nil, err
+	}
+	res := <-done
+	if res.err != nil {
+		return nil, fmt.Errorf("read stdin: %w", res.err)
+	}
+	return res.data, nil
+}
+
+// ErrStopped is an Await its stop channel ended.
+var ErrStopped = errors.New("stopped waiting for input on stdin")
+
+// Await is the one wait for input on stdin, shared by Read and the prompt seam (internal/ui,
+// whose piped answers it bounds a line at a time): what arrived first returned as it came. Once
+// nothing has arrived for NoticeAfter it says on o.Err that it is waiting and how to end the
+// input; with o.GiveUpAfter it refuses once nothing has arrived for that long (*NoInputError);
+// a receive from stop (nil: never) ends it with ErrStopped.
+func Await[T any](o Options, arrived <-chan T, stop <-chan struct{}) (T, error) {
+	o = o.withDefaults()
 	notice, stopNotice := o.Clock.Hold(NoticeAfter)
 	defer stopNotice()
 	var giveUp <-chan time.Time
 	if o.GiveUpAfter > 0 {
-		c, stop := o.Clock.Hold(o.GiveUpAfter)
-		defer stop()
+		c, stopGiveUp := o.Clock.Hold(o.GiveUpAfter)
+		defer stopGiveUp()
 		giveUp = c
 	}
-	started := w.started
+	var zero T
 	for {
 		select {
-		case res := <-done:
-			if res.err != nil {
-				return nil, fmt.Errorf("read stdin: %w", res.err)
-			}
-			return res.data, nil
-		case <-started:
-			notice, giveUp, started = nil, nil, nil
+		case v := <-arrived:
+			return v, nil
+		case <-stop:
+			return zero, ErrStopped
 		case <-notice:
 			notice = nil
 			o.say()
 		case <-giveUp:
-			// The background read stays blocked on the pipe until it ends or the process does;
-			// a command refused here exits, which ends it.
-			return nil, &NoInputError{After: o.GiveUpAfter}
+			return zero, &NoInputError{After: o.GiveUpAfter}
 		}
 	}
 }

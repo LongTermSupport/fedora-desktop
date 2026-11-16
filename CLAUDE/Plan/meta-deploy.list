@@ -39,7 +39,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.10 to 3.122.14, container 2.84.23: one run installs them. Installs the launcher,
+# ccy 3.122.10 to 3.122.15, container 2.84.24: one run installs them. Installs the launcher,
 # which passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds
 # cc-claude, which sets the same default for a host cc session: a mouse click no longer answers
 # a prompt, the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in

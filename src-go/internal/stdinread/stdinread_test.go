@@ -237,6 +237,45 @@ func TestTheDefaultsReadInputThatIsThere(t *testing.T) {
 	}
 }
 
+// Await is the shared wait: what arrives is returned as it came, with nothing said.
+func TestAwaitReturnsWhatArrives(t *testing.T) {
+	arrived := make(chan string, 1)
+	arrived <- "yes"
+	var errs syncBuffer
+	got, err := Await(Options{Err: &errs, Clock: clock.NewFake(0, 0), GiveUpAfter: time.Minute}, arrived, nil)
+	if err != nil || got != "yes" || errs.String() != "" {
+		t.Fatalf("%q %v %q", got, err, errs.String())
+	}
+}
+
+// Await says it is waiting after NoticeAfter and refuses after GiveUpAfter.
+func TestAwaitNoticesThenGivesUp(t *testing.T) {
+	f := clock.NewFake(0, 0)
+	var errs syncBuffer
+	got := make(chan error, 1)
+	go func() {
+		_, err := Await(Options{Prog: "ask", Err: &errs, Clock: f, GiveUpAfter: time.Minute}, make(chan string), nil)
+		got <- err
+	}()
+	due(t, f, NoticeAfter)
+	due(t, f, time.Minute-NoticeAfter)
+	var none *NoInputError
+	if err := <-got; !errors.As(err, &none) || !strings.HasPrefix(errs.String(), "ask: waiting for input on stdin") {
+		t.Fatalf("%v %q", err, errs.String())
+	}
+}
+
+// Await ends when stop is closed, with ErrStopped and nothing said.
+func TestAwaitEndsOnStop(t *testing.T) {
+	stop := make(chan struct{})
+	close(stop)
+	var errs syncBuffer
+	_, err := Await(Options{Err: &errs, Clock: clock.NewFake(0, 0)}, make(chan int), stop)
+	if !errors.Is(err, ErrStopped) || errs.String() != "" {
+		t.Fatalf("%v %q", err, errs.String())
+	}
+}
+
 // Without a program name the notice names stdin alone.
 func TestTheNoticeWithoutAProgramName(t *testing.T) {
 	f := clock.NewFake(0, 0)
