@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const (
@@ -207,7 +208,7 @@ func (w *world) listen(lines ...string) *link {
 		}
 		serving.Wait()
 	})
-	serving.Go(func() { l.serve(lines) })
+	serving.Go(func() { l.serve(w.t, lines) })
 	return l
 }
 
@@ -219,7 +220,9 @@ func closeOnce(c io.Closer) error {
 	return nil
 }
 
-func (l *link) serve(lines []string) {
+func (l *link) serve(t *testing.T, lines []string) {
+	t.Helper()
+	testconn.Bound(t, l.ln)
 	for {
 		c, err := l.ln.AcceptUnix()
 		if err != nil {
@@ -231,7 +234,7 @@ func (l *link) serve(lines []string) {
 			}
 			return
 		}
-		l.answer(c, lines)
+		l.answer(t, c, lines)
 	}
 }
 
@@ -256,7 +259,9 @@ func pass[T any](l *link, ch chan<- T, v T) {
 	}
 }
 
-func (l *link) answer(c *net.UnixConn, lines []string) {
+func (l *link) answer(t *testing.T, c *net.UnixConn, lines []string) {
+	t.Helper()
+	testconn.Bound(t, c)
 	defer func() {
 		l.mu.Lock()
 		l.conn = nil

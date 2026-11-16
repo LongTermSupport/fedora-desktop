@@ -16,7 +16,9 @@
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand. Words after
 #                                  it are ansible-playbook arguments: name the play's tags
-#                                  (--tags lightning) so only the changed part runs
+#                                  (--tags lightning) so only the changed part runs. A
+#                                  tagged run never decides the play's state, so a later
+#                                  changed-plays still runs the play in full if it is due
 #   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for

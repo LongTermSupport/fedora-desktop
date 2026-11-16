@@ -44,6 +44,35 @@ def should_record(cliargs: dict[str, Any]) -> bool:
     return not any(bool(cliargs.get(flag)) for flag in _NO_OP_FLAGS)
 
 
+#: The CLIARGS key each narrowing option is read from: `--limit` is stored as `subset`.
+_NARROWING_CLIARGS = {"tags": "tags", "skip_tags": "skip_tags", "limit": "subset",
+                      "start_at_task": "start_at_task", "step": "step"}
+
+
+def narrowing(cliargs: dict[str, Any]) -> dict[str, Any]:
+    """The options that narrowed this run to part of its plays, for `ledger.build_record`.
+
+    Empty for a full run. `ansible-playbook` fills `tags` with `all` when none is given,
+    and a tag list that holds `all` still runs every task, so it narrows nothing
+    (issue #278).
+    """
+    narrowed: dict[str, Any] = {}
+    for option, key in _NARROWING_CLIARGS.items():
+        value = cliargs.get(key)
+        if not value:
+            continue
+        if option in ("tags", "skip_tags"):
+            tags = sorted(str(tag) for tag in value)
+            if option == "tags" and "all" in tags:
+                continue
+            narrowed[option] = tags
+        elif option == "step":
+            narrowed[option] = True
+        else:
+            narrowed[option] = str(value)
+    return narrowed
+
+
 def source_position(origin: Any, legacy: Any) -> Any:
     """Normalise Ansible's two shapes for "where did this play come from".
 

@@ -253,6 +253,19 @@ class TestRecordContents(unittest.TestCase):
         self.assertEqual(seen, [f"/repo/{PLAY}"])
         self.assertEqual(record["play_sha256"], "b" * 64)
 
+    def test_a_full_run_records_no_narrowing(self):
+        rc = _collector()
+        rc.on_play_start(play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z")
+        self.assertEqual(rc.on_end(at="2026-09-14T10:01:00Z")[0]["narrowed"], {})
+
+    def test_the_runs_narrowing_is_carried_onto_every_play(self):
+        """Issue #278: a `--tags member` run must not read as the play's whole outcome."""
+        rc = _collector(narrowed={"tags": ["member"]})
+        rc.on_play_start(play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z")
+        rc.on_play_start(play_path=f"/repo/{OTHER}", name="Y", at="2026-09-14T10:01:00Z")
+        records = rc.on_end(at="2026-09-14T10:02:00Z")
+        self.assertEqual([record["narrowed"] for record in records], [{"tags": ["member"]}] * 2)
+
 
 if __name__ == "__main__":
     unittest.main()

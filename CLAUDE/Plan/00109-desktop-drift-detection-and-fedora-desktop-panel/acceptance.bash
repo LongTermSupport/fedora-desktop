@@ -356,6 +356,8 @@ for number, line in enumerate(lines, start=1):
     if record.get("kind") == "genesis":
         genesis += 1
         continue
+    if record.get("kind") == "forget":
+        continue
     play = record.get("play")
     if isinstance(play, str) and play:
         counts[play] = counts.get(play, 0) + 1

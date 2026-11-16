@@ -434,6 +434,119 @@ class TestDefaultWiring(unittest.TestCase):
             self.assertEqual(judge.call_args.kwargs, {"repo_root": "/repo"})
 
 
+def _append(base: str, play: str, *, outcome: str, finished: str,
+            narrowed: dict | None = None) -> None:
+    store.append_record(base, ledger.build_record(
+        play=play, name=play, commit=FORTY_HEX, dirty=False, play_sha256=SIXTY_FOUR_HEX,
+        outcome=outcome, changed=0, started=finished, finished=finished, narrowed=narrowed,
+    ))
+
+
+class TestJudgesFullRunsOnly(unittest.TestCase):
+    """Issue #278: the report and `run.bash --changed` judge a play from its full runs."""
+
+    def test_a_failed_narrowed_run_is_not_what_the_judge_is_handed(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="ok", finished="2026-09-14T09:00:00Z")
+            _append(base, A, outcome="failed", finished="2026-09-15T09:00:00Z",
+                    narrowed={"tags": ["member"]})
+            _run(base, _judgement({A: changed_plays.STATE_CURRENT}))
+            self.assertEqual(ASKED[0][A]["outcome"], "ok")
+
+
+class TestForgetPlay(unittest.TestCase):
+    """Issue #278: a play whose last run failed on a host where it cannot apply stayed
+    due for ever. The operator's route out drops its runs from every fold, and only for
+    a play that is failed, so a good record is never thrown away by mistake."""
+
+    def _forget(self, base: str, play: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        code = check_freshness.forget_play(base=base, play=play, stdout=out, stderr=err)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_failed_play_is_forgotten(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP)
+            _append(base, B, outcome="ok", finished=STAMP)
+            code, out, _ = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertIn(f"play-ledger: forgot the runs of {A}", out)
+            self.assertEqual(list(ledger.fold_latest(store.read_lines(base))), [B])
+
+    def test_a_forgotten_play_reads_as_not_run_here_to_the_login_report(self) -> None:
+        """Its pins and its panel row go too: "cannot apply here" means not run here."""
+        from helpers.host_health import login_report
+
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP)
+            _append(base, B, outcome="ok", finished=STAMP)
+            self.assertEqual(login_report.plays_run_here(base), {A, B})
+            self._forget(base, A)
+            self.assertEqual(login_report.plays_run_here(base), {B})
+
+    def test_a_play_whose_last_run_succeeded_is_left_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="ok", finished=STAMP)
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn("[FATAL]", err)
+            self.assertEqual(list(ledger.fold_latest(store.read_lines(base))), [A])
+
+    def test_a_failed_full_run_is_forgotten_though_a_later_narrowed_run_passed(self) -> None:
+        """`--changed` judges the full run and prints this remedy; refusing it would leave
+        the host stuck exactly as before."""
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished="2026-09-14T09:00:00Z")
+            _append(base, A, outcome="ok", finished="2026-09-15T09:00:00Z",
+                    narrowed={"tags": ["member"]})
+            code, _, _ = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(ledger.fold_latest_full(store.read_lines(base)), {})
+
+    def test_a_good_full_run_is_kept_though_a_later_narrowed_run_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="ok", finished="2026-09-14T09:00:00Z")
+            _append(base, A, outcome="failed", finished="2026-09-15T09:00:00Z",
+                    narrowed={"tags": ["member"]})
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(f"the last full run of {A} here succeeded", err)
+            self.assertEqual(list(ledger.fold_latest_full(store.read_lines(base))), [A])
+
+    def test_a_play_only_ever_run_narrowed_is_refused(self) -> None:
+        """Nothing judges it, so nothing is stuck and there is nothing to forget."""
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP, narrowed={"limit": "h"})
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(f"no full run of {A} is recorded here", err)
+
+    def test_a_play_with_no_record_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(f"no full run of {A} is recorded here", err)
+
+    def test_the_cli_takes_the_play(self) -> None:
+        with tempfile.TemporaryDirectory() as state:
+            base = ledger.ledger_dir({"XDG_STATE_HOME": state}, "/unused")
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP)
+            with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = check_freshness.main(["--forget-play", A])
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(ledger.fold_latest(store.read_lines(base)), {})
+
+
 class TestClearBroken(unittest.TestCase):
     """The operator's route out of a recorded hole (issue #46).
 

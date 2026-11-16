@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/tlsterm"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // The tests are Plan 00246 SPEC-cross-network X33 at the host: a new team CA and a new leaf,
@@ -287,12 +288,14 @@ func echoServer(t *testing.T) netip.AddrPort {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
+	testconn.Bound(t, ln)
 	wg.Go(func() {
 		for {
 			c, aerr := ln.Accept()
 			if aerr != nil {
 				return
 			}
+			testconn.Bound(t, c)
 			wg.Go(func() {
 				if _, cerr := io.Copy(c, c); cerr != nil {
 					t.Logf("the echo ended: %v", cerr)

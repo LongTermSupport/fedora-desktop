@@ -51,6 +51,8 @@ DOCUMENTATION = """
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
+      - Records which of --tags, --skip-tags, --limit, --start-at-task and --step narrowed the run,
+        so a run that covered only part of a play never decides that play's state.
       - Records nothing for a play outside the repo root, such as a private play run from a
         linked worktree, and prints one LEDGER-PLAY-NOT-TRACKED line to stderr naming it.
       - After the records are written, restarts host-health-collect.service and waits for
@@ -102,6 +104,7 @@ class CallbackModule(CallbackBase):
         self._broken = False
         self._playbook_file: str | None = None
         self._names_playbooks = False
+        self._narrowed: dict = {}
         # Unlike the event methods below, an exception HERE is not swallowed —
         # Ansible instantiates callbacks outside that protection, so a bad
         # XDG_STATE_HOME would abort every playbook in the repo over a ledger
@@ -111,6 +114,7 @@ class CallbackModule(CallbackBase):
             cliargs = dict(context.CLIARGS)
             self._enabled = plugin_support.should_record(cliargs)
             self._names_playbooks = plugin_support.names_playbooks(cliargs)
+            self._narrowed = plugin_support.narrowing(cliargs)
         except Exception as error:
             self._broken = True
             self._warn(f"{plugin_support.FAILURE_MARKER}: {type(error).__name__}: {error}")
@@ -138,6 +142,7 @@ class CallbackModule(CallbackBase):
                 dirty=repo.dirty_state(_REPO_ROOT),
                 hash_play=repo.sha256_file,
                 repo_root=_REPO_ROOT,
+                narrowed=self._narrowed,
             )
         return self._collector
 

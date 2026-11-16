@@ -27,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const (
@@ -220,19 +221,22 @@ func (w *world) serve(hang bool, lines []string) *link {
 			w.t.Error(err)
 		}
 	})
+	testconn.Bound(w.t, ln)
 	go func() {
 		for {
 			c, err := ln.AcceptUnix()
 			if err != nil {
 				return
 			}
-			l.answer(c, hang, lines)
+			l.answer(w.t, c, hang, lines)
 		}
 	}()
 	return l
 }
 
-func (l *link) answer(c *net.UnixConn, hang bool, lines []string) {
+func (l *link) answer(t *testing.T, c *net.UnixConn, hang bool, lines []string) {
+	t.Helper()
+	testconn.Bound(t, c)
 	defer func() {
 		if err := c.Close(); err != nil {
 			return

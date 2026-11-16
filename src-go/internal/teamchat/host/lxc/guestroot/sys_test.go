@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // call is one system call the recorder saw.
@@ -454,6 +456,7 @@ func TestLinuxSysDialsAndReads(t *testing.T) {
 	if cerr := conn.Close(); cerr != nil {
 		t.Fatal(cerr)
 	}
+	testconn.Bound(t, ln)
 	accepted, err := ln.Accept()
 	if err != nil {
 		t.Fatal(err)

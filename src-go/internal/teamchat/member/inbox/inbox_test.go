@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/fakeinbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/inbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // token is a value no other text in these tests holds, so finding it anywhere is a leak.
@@ -314,12 +315,14 @@ func TestDialReachesAListenerItDidNotStart(t *testing.T) {
 		}
 	}()
 	got := make(chan string, 1)
+	testconn.Bound(t, l)
 	go func() {
 		conn, aerr := l.Accept()
 		if aerr != nil {
 			got <- aerr.Error()
 			return
 		}
+		testconn.Bound(t, conn)
 		buf := make([]byte, 512)
 		n, rerr := conn.Read(buf)
 		if rerr != nil {

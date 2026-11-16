@@ -15,7 +15,7 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple
 
 from helpers.play_ledger import ledger, repo
@@ -50,9 +50,13 @@ class RunCollector:
         dirty: repo.DirtyState,
         hash_play: Callable[[str], str],
         repo_root: str,
+        narrowed: Mapping[str, Any] | None = None,
     ) -> None:
+        """`narrowed` is the run's narrowing (`plugin_support.narrowing`), the same for
+        every play the run holds."""
         self._commit = commit
         self._dirty = dirty
+        self._narrowed = dict(narrowed or {})
         self._hash_play = hash_play
         self._repo_root = os.path.realpath(repo_root)
         self._records: list[dict[str, Any]] = []
@@ -123,6 +127,7 @@ class RunCollector:
                 dirty=self._dirty.dirty,
                 dirty_paths=self._dirty.paths,
                 dirty_paths_truncated=self._dirty.truncated,
+                narrowed=self._narrowed,
                 play_sha256=self._hash_play(play["absolute"]),
                 outcome=play["outcome"],
                 changed=play["changed"],
