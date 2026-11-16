@@ -35,7 +35,7 @@ func newWorld(t *testing.T, fakeToken string) world {
 	t.Helper()
 	clk := clock.NewFake(time.Hour, 1_760_000_000_000)
 	path := filepath.Join(t.TempDir(), "4242.sock")
-	fake, err := fakeinbox.Start(t, path, fakeinbox.Options{Token: fakeToken, Clock: clk})
+	fake, err := fakeinbox.Start(path, fakeinbox.Options{Token: fakeToken, Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}

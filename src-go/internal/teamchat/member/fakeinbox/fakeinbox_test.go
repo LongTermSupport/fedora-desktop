@@ -41,7 +41,7 @@ func start(t *testing.T, opt fakeinbox.Options) rig {
 	if opt.Token == "" {
 		opt.Token = token
 	}
-	b, err := fakeinbox.Start(t, filepath.Join(t.TempDir(), "7.sock"), opt)
+	b, err := fakeinbox.Start(filepath.Join(t.TempDir(), "7.sock"), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,11 +255,11 @@ func TestStartRefusesBadOptions(t *testing.T) {
 		"negative dup":  {Token: token, Clock: clk, DupWindow: -time.Second},
 		"negative cap":  {Token: token, Clock: clk, Bucket: -1},
 	} {
-		if b, err := fakeinbox.Start(t, filepath.Join(dir, "x.sock"), opt); err == nil {
+		if b, err := fakeinbox.Start(filepath.Join(dir, "x.sock"), opt); err == nil {
 			t.Fatalf("%s: started %v", name, b.Path())
 		}
 	}
-	if b, err := fakeinbox.Start(t, filepath.Join(dir, "missing", "x.sock"), fakeinbox.Options{Token: token, Clock: clk}); err == nil {
+	if b, err := fakeinbox.Start(filepath.Join(dir, "missing", "x.sock"), fakeinbox.Options{Token: token, Clock: clk}); err == nil {
 		t.Fatalf("started in a missing directory: %v", b.Path())
 	}
 }
@@ -322,7 +322,7 @@ func TestRemoveUnlinksThePath(t *testing.T) {
 
 func TestCloseEndsAHeldConnectionAndRemovesThePath(t *testing.T) {
 	clk := clock.NewFake(0, 0)
-	b, err := fakeinbox.Start(t, filepath.Join(t.TempDir(), "8.sock"), fakeinbox.Options{Token: token, Clock: clk})
+	b, err := fakeinbox.Start(filepath.Join(t.TempDir(), "8.sock"), fakeinbox.Options{Token: token, Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}

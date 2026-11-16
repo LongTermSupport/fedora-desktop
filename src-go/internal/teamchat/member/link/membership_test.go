@@ -22,7 +22,7 @@ func (w *linkWorld) inbox() *fakeinbox.Inbox {
 	w.t.Helper()
 	sock := w.inboxSocket()
 	check(w.t, os.MkdirAll(filepath.Dir(sock), 0o700))
-	in, err := fakeinbox.Start(t, sock, fakeinbox.Options{Token: heldToken, Clock: w.clk})
+	in, err := fakeinbox.Start(sock, fakeinbox.Options{Token: heldToken, Clock: w.clk})
 	check(w.t, err)
 	w.t.Cleanup(func() { check(w.t, in.Close()) })
 	return in

@@ -24,7 +24,7 @@ func TestDeliveryOverTheInboxSocket(t *testing.T) {
 	check(t, os.WriteFile(dw.transcript, nil, 0o600))
 	// t.TempDir is short enough for a unix socket path (107 bytes).
 	path := filepath.Join(t.TempDir(), "1.sock")
-	ib, err := fakeinbox.Start(t, path, fakeinbox.Options{Token: testToken, Clock: dw.clk})
+	ib, err := fakeinbox.Start(path, fakeinbox.Options{Token: testToken, Clock: dw.clk})
 	check(t, err)
 	t.Cleanup(func() { check(t, ib.Close()) })
 	a := tid(t, "alpha")
