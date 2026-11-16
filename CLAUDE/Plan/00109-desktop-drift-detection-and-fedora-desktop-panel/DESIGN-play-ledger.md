@@ -22,11 +22,21 @@ lose the axis Phase 2 needs.
 | `dirty`                 | `true` \| `false`                                   | whether the tree had uncommitted changes                    |
 | `dirty_paths`           | `["files/home/x.conf"]`                             | which paths were uncommitted (modified, staged, untracked)  |
 | `dirty_paths_truncated` | `false`                                             | the list was cut at 50 paths, so it does not name them all  |
+| `narrowed`              | `{"tags": ["member"]}`                              | the options that narrowed the run; `{}` for a full run      |
 | `play_sha256`           | `9f2c…`                                             | hash of the play file **as executed**                       |
 | `outcome`               | `ok` \| `failed` \| `unreachable`                   | from the run's stats for that play's hosts                  |
 | `changed`               | `3`                                                 | task-level changed count, for "did this run do anything"    |
 | `started` / `finished`  | `2026-09-14T09:31:07Z`                              | UTC, ISO 8601                                               |
 | `schema`                | `1`                                                 | so a later reader can refuse a shape it does not understand |
+
+### Only a full run decides a play
+
+A run narrowed by `--tags`, `--skip-tags`, `--limit`, `--start-at-task` or `--step` covered
+part of its play, so it says nothing about the rest (issue #278). The callback records those
+options as `narrowed` (`plugin_support.narrowing`). `ledger.fold_latest_full` folds full runs
+only, and is what `changed_plays.judge` and the freshness check are handed. `ledger.fold_latest`
+still folds every run, for the readers that ask what has run here. A record from before the
+field existed reads as full, as every run was judged then.
 
 ### Dirty is judged per input
 
@@ -148,6 +158,12 @@ The one thing written at creation is a `genesis` record: schema version, creatio
 the commit at that moment. It lets a reader tell *"no record because it was never run"* from
 *"no record because the ledger is younger than the run"* — without it, the ledger's own age is
 unknowable and its silences are ambiguous. A report covering a period before `genesis` says so.
+
+The one other non-run record is `forget` (schema, `kind: forget`, `play`, `at`), appended by
+`check_freshness --forget-play` for a play whose last full run failed on a host where it cannot
+apply (issue #278). Both folds drop that play's runs finished up to `at`, so to every reader the
+play reads as never run here until it runs again. So "no record" means "never run here, or set
+aside as not applying here".
 
 ## 5. What Phase 2 may and may not conclude
 

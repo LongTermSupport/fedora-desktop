@@ -209,36 +209,6 @@ class TestFilelessRunsAgainstRealAnsible(unittest.TestCase):
         )
         self.assertIs(self._names_playbooks("console", ["ansible-console", "localhost"]), False)
 
-
-class TestNarrowingAgainstRealAnsible(unittest.TestCase):
-    """Issue #278: the ledger tells a full run from a narrowed one only by the CLIARGS
-    keys the real CLI sets. A fake of those keys cannot catch Ansible renaming one."""
-
-    def _narrowing(self, argv: list[str]) -> dict:
-        result = subprocess.run(
-            [_ansible_python(), "-c", NARROWING_PROBE.format(repo=REPO_ROOT, argv=argv)],
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=REPO_ROOT,
-            stdin=subprocess.DEVNULL,
-        )
-        if result.returncode != 0:
-            self.fail(f"the narrowing probe could not run:\n{result.stderr.strip()}")
-        return json.loads(result.stdout)
-
-    def test_a_plain_run_is_not_narrowed(self) -> None:
-        self.assertEqual(self._narrowing(["ansible-playbook", "site.yml"]), {})
-
-    def test_each_narrowing_option_is_read_from_the_real_cli(self) -> None:
-        argv = ["ansible-playbook", "site.yml", "--tags", "member,inbox", "--skip-tags", "slow",
-                "--limit", "localhost", "--start-at-task", "Install it"]
-        self.assertEqual(
-            self._narrowing(argv),
-            {"tags": ["inbox", "member"], "skip_tags": ["slow"], "limit": "localhost",
-             "start_at_task": "Install it"},
-        )
-
     def _run(
         self, command: str, argv: list[str], state_home: str, stdin: str = ""
     ) -> subprocess.CompletedProcess:
@@ -289,6 +259,36 @@ class TestNarrowingAgainstRealAnsible(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn(plugin_support.FAILURE_MARKER, result.stderr)
             self.assertEqual(os.listdir(state_home), [])
+
+
+class TestNarrowingAgainstRealAnsible(unittest.TestCase):
+    """Issue #278: the ledger tells a full run from a narrowed one only by the CLIARGS
+    keys the real CLI sets. A fake of those keys cannot catch Ansible renaming one."""
+
+    def _narrowing(self, argv: list[str]) -> dict:
+        result = subprocess.run(
+            [_ansible_python(), "-c", NARROWING_PROBE.format(repo=REPO_ROOT, argv=argv)],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=REPO_ROOT,
+            stdin=subprocess.DEVNULL,
+        )
+        if result.returncode != 0:
+            self.fail(f"the narrowing probe could not run:\n{result.stderr.strip()}")
+        return json.loads(result.stdout)
+
+    def test_a_plain_run_is_not_narrowed(self) -> None:
+        self.assertEqual(self._narrowing(["ansible-playbook", "site.yml"]), {})
+
+    def test_each_narrowing_option_is_read_from_the_real_cli(self) -> None:
+        argv = ["ansible-playbook", "site.yml", "--tags", "member,inbox", "--skip-tags", "slow",
+                "--limit", "localhost", "--start-at-task", "Install it", "--step"]
+        self.assertEqual(
+            self._narrowing(argv),
+            {"tags": ["inbox", "member"], "skip_tags": ["slow"], "limit": "localhost",
+             "start_at_task": "Install it", "step": True},
+        )
 
 
 class TestPlayOutsideTheRepoAgainstRealAnsible(unittest.TestCase):

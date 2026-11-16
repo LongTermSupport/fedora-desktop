@@ -475,6 +475,18 @@ class TestForgetPlay(unittest.TestCase):
             self.assertIn(f"play-ledger: forgot the runs of {A}", out)
             self.assertEqual(list(ledger.fold_latest(store.read_lines(base))), [B])
 
+    def test_a_forgotten_play_reads_as_not_run_here_to_the_login_report(self) -> None:
+        """Its pins and its panel row go too: "cannot apply here" means not run here."""
+        from helpers.host_health import login_report
+
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP)
+            _append(base, B, outcome="ok", finished=STAMP)
+            self.assertEqual(login_report.plays_run_here(base), {A, B})
+            self._forget(base, A)
+            self.assertEqual(login_report.plays_run_here(base), {B})
+
     def test_a_play_whose_last_run_succeeded_is_left_alone(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
@@ -484,12 +496,44 @@ class TestForgetPlay(unittest.TestCase):
             self.assertIn("[FATAL]", err)
             self.assertEqual(list(ledger.fold_latest(store.read_lines(base))), [A])
 
+    def test_a_failed_full_run_is_forgotten_though_a_later_narrowed_run_passed(self) -> None:
+        """`--changed` judges the full run and prints this remedy; refusing it would leave
+        the host stuck exactly as before."""
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished="2026-09-14T09:00:00Z")
+            _append(base, A, outcome="ok", finished="2026-09-15T09:00:00Z",
+                    narrowed={"tags": ["member"]})
+            code, _, _ = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(ledger.fold_latest_full(store.read_lines(base)), {})
+
+    def test_a_good_full_run_is_kept_though_a_later_narrowed_run_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="ok", finished="2026-09-14T09:00:00Z")
+            _append(base, A, outcome="failed", finished="2026-09-15T09:00:00Z",
+                    narrowed={"tags": ["member"]})
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(f"the last full run of {A} here succeeded", err)
+            self.assertEqual(list(ledger.fold_latest_full(store.read_lines(base))), [A])
+
+    def test_a_play_only_ever_run_narrowed_is_refused(self) -> None:
+        """Nothing judges it, so nothing is stuck and there is nothing to forget."""
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
+            _append(base, A, outcome="failed", finished=STAMP, narrowed={"limit": "h"})
+            code, _, err = self._forget(base, A)
+            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertIn(f"no full run of {A} is recorded here", err)
+
     def test_a_play_with_no_record_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
             code, _, err = self._forget(base, A)
             self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn(f"no run of {A} is recorded here", err)
+            self.assertIn(f"no full run of {A} is recorded here", err)
 
     def test_the_cli_takes_the_play(self) -> None:
         with tempfile.TemporaryDirectory() as state:

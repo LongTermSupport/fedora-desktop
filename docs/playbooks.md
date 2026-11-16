@@ -69,7 +69,7 @@ its inputs (or the group_vars file) was uncommitted during that run: each run re
 paths were uncommitted, so a stray file no play reads makes no play run again. A record
 that cannot name them all (one from before they were recorded, or more than 50) counts as
 any input. It warns about this before it asks. Only a full run decides a play: a run
-narrowed by `--tags`, `--skip-tags`, `--limit` or `--start-at-task` covered part of it, so
+narrowed by `--tags`, `--skip-tags`, `--limit`, `--start-at-task` or `--step` covered part of it, so
 a failed one is named but does not make the play run again. A play whose run failed on a
 machine where it cannot apply is cleared with
 `python3 -m helpers.play_ledger.check_freshness --forget-play <play>` from the checkout,
@@ -85,7 +85,7 @@ the plays `--changed` runs, and it prints this command with the checkout's full 
 
 **To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
 on this machine as a numbered menu, in the same order, and marks with `*` the ones that
-have to run again: changed since they last ran, or their last run failed. Type a number
+have to run again: changed since they last ran, or their last full run failed. Type a number
 (`3`), several (`1 4` or `1,4`), `a` for every play marked `*`, or `q` to quit. A mistyped
 answer says what was wrong and asks again, up to three times, and end of input cancels
 without running anything. The pick runs at once, in menu order, under the same play lock

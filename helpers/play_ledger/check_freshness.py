@@ -289,24 +289,26 @@ def clear_broken(
 def forget_play(*, base: str, play: str, stdout: TextIO, stderr: TextIO = sys.stderr) -> int:
     """Set aside a failed play's runs on a host where it cannot apply (issue #278).
 
-    Without this a play whose run failed here, and whose full run cannot pass here either,
-    stays due for `run.bash --changed` for ever. Only a play whose latest run did not
-    succeed is forgotten: a good record is the ledger's evidence, and dropping it by a typo
-    would make a deployed play read as never run. The runs stay in the file; a later run
-    of the play counts again.
+    Without this a play whose full run failed here, and cannot pass here, stays due for
+    `run.bash --changed` for ever. The play is judged as `--changed` judges it, by its latest
+    FULL run: only one that did not succeed is forgotten, because a good record is the
+    ledger's evidence, and dropping it by a typo would make a deployed play read as never
+    run. Forgotten, the play reads as never run here for every reader of the ledger (the
+    login report's pins and the panel's play list too), which is what "cannot apply here"
+    means. The runs stay in the file; a later run of the play counts again.
     """
     try:
-        latest = ledger.fold_latest(store.read_lines(base)).get(play)
+        latest = ledger.fold_latest_full(store.read_lines(base)).get(play)
     except ValueError as error:
         stderr.write(f"[FATAL] play-ledger: the ledger cannot be read: {error}\n")
         return EXIT_UNTRUSTWORTHY
     if latest is None:
-        stderr.write(f"[FATAL] play-ledger: no run of {play} is recorded here, so there is "
-                     "nothing to forget.\n")
+        stderr.write(f"[FATAL] play-ledger: no full run of {play} is recorded here, so "
+                     "nothing judges it and there is nothing to forget.\n")
         return EXIT_UNTRUSTWORTHY
     if latest["outcome"] == "ok":
-        stderr.write(f"[FATAL] play-ledger: the last run of {play} here succeeded, so it is "
-                     "not failed and is left as it is.\n")
+        stderr.write(f"[FATAL] play-ledger: the last full run of {play} here succeeded, so "
+                     "it is not failed and is left as it is.\n")
         return EXIT_UNTRUSTWORTHY
     store.append_record(base, ledger.forget_record(play=play, at=repo.utc_now()))
     stdout.write(f"play-ledger: forgot the runs of {play} up to now; it is not judged here "

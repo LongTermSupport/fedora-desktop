@@ -46,7 +46,7 @@ def should_record(cliargs: dict[str, Any]) -> bool:
 
 #: The CLIARGS key each narrowing option is read from: `--limit` is stored as `subset`.
 _NARROWING_CLIARGS = {"tags": "tags", "skip_tags": "skip_tags", "limit": "subset",
-                      "start_at_task": "start_at_task"}
+                      "start_at_task": "start_at_task", "step": "step"}
 
 
 def narrowing(cliargs: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +66,8 @@ def narrowing(cliargs: dict[str, Any]) -> dict[str, Any]:
             if option == "tags" and "all" in tags:
                 continue
             narrowed[option] = tags
+        elif option == "step":
+            narrowed[option] = True
         else:
             narrowed[option] = str(value)
     return narrowed

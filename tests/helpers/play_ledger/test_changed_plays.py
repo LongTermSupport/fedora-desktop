@@ -296,10 +296,9 @@ class TestNarrowedRuns(_Case):
         with tempfile.TemporaryDirectory() as base:
             _seed(base, [(BASIC, COMMIT_A, "failed")])
             _, _, err = self._run(base, changed={})
-            self.assertIn(f"changed-plays: {BASIC}: its last run here did not succeed; if it "
-                          "cannot apply on this host, clear it with: cd <your fedora-desktop "
-                          "checkout> && python3 -m helpers.play_ledger.check_freshness "
-                          f"--forget-play {BASIC}\n", err)
+            self.assertIn(f"changed-plays: {BASIC}: its last full run here did not succeed; if "
+                          "it cannot apply on this host, clear it with: cd /repo && python3 -m "
+                          f"helpers.play_ledger.check_freshness --forget-play {BASIC}\n", err)
 
     def test_a_forgotten_play_is_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -335,9 +334,9 @@ class TestReasons(_Case):
             code, out, err = self._run(base, changed={COMMIT_A: self.GO_CHANGE})
             self.assertEqual(code, changed_plays.EXIT_OK)
             self.assertEqual(out, f"RUN {BASIC}\nRUN {FREEZE}\n")
-            self.assertEqual(err, f"changed-plays: {BASIC}: its last run here did not succeed; "
-                                  "if it cannot apply on this host, clear it with: "
-                                  f"{changed_plays.FORGET_COMMAND} {BASIC}\n"
+            self.assertEqual(err, f"changed-plays: {BASIC}: its last full run here did not "
+                                  "succeed; if it cannot apply on this host, clear it with: "
+                                  f"{changed_plays.forget_command('/repo', BASIC)}\n"
                                   f"changed-plays: {FREEZE}: changed Go packages: src-go/internal/ui"
                                   " (built into podfreeze)\n")
 

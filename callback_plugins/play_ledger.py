@@ -51,7 +51,7 @@ DOCUMENTATION = """
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
-      - Records which of --tags, --skip-tags, --limit and --start-at-task narrowed the run,
+      - Records which of --tags, --skip-tags, --limit, --start-at-task and --step narrowed the run,
         so a run that covered only part of a play never decides that play's state.
       - Records nothing for a play outside the repo root, such as a private play run from a
         linked worktree, and prints one LEDGER-PLAY-NOT-TRACKED line to stderr naming it.

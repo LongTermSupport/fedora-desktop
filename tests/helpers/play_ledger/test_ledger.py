@@ -93,7 +93,7 @@ class TestBuildRecord(unittest.TestCase):
 
     def test_an_unknown_narrowing_option_is_refused(self):
         with self.assertRaises(ValueError):
-            self._record(narrowed={"step": True})
+            self._record(narrowed={"forks": "5"})
 
     def test_a_narrowing_option_must_carry_a_value(self):
         for narrowed in ({"tags": []}, {"tags": [""]}, {"limit": ""}, {"start_at_task": None},
@@ -256,9 +256,20 @@ class TestIsFullRun(unittest.TestCase):
 class TestDescribeNarrowing(unittest.TestCase):
     def test_it_spells_the_options_as_the_command_line_did(self):
         text = ledger.describe_narrowing(
-            {"tags": ["a", "b"], "skip_tags": ["c"], "limit": "h", "start_at_task": "Install it"}
+            {"tags": ["a", "b"], "skip_tags": ["c"], "limit": "h", "start_at_task": "Install it",
+             "step": True}
         )
-        self.assertEqual(text, "--tags a,b --skip-tags c --limit h --start-at-task 'Install it'")
+        self.assertEqual(
+            text, "--tags a,b --skip-tags c --limit h --start-at-task 'Install it' --step"
+        )
+
+    def test_step_is_recorded_only_as_true(self):
+        with self.assertRaises(ValueError):
+            ledger.build_record(
+                play=PLAY, name="X", commit=COMMIT, dirty=False, play_sha256="a" * 64,
+                outcome="ok", changed=0, started="2026-09-14T10:00:00Z",
+                finished="2026-09-14T10:00:00Z", narrowed={"step": "yes"},
+            )
 
 
 class TestForgetRecord(unittest.TestCase):

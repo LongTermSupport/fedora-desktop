@@ -124,14 +124,17 @@ def cleared_path(base: str) -> str:
 
 #: The `ansible-playbook` options that narrow a run to part of a play, each with the flag
 #: that spells it. A run with any of them did not cover the whole play, so it never decides
-#: the play's state (issue #278). List-valued options are the tag lists.
+#: the play's state (issue #278). List-valued options are the tag lists; `step` (which lets
+#: the operator skip any task) is a switch, recorded as True.
 NARROWING_FLAGS = {
     "tags": "--tags",
     "skip_tags": "--skip-tags",
     "limit": "--limit",
     "start_at_task": "--start-at-task",
+    "step": "--step",
 }
 _NARROWING_LISTS = frozenset({"tags", "skip_tags"})
+_NARROWING_SWITCHES = frozenset({"step"})
 
 
 def _require(condition: bool, message: str) -> None:
@@ -150,6 +153,9 @@ def _validated_narrowing(narrowed: Mapping[str, Any]) -> dict[str, Any]:
                      and all(isinstance(tag, str) and tag for tag in value),
                      f"{option} must be a non-empty list of tags, got {value!r}")
             checked[option] = sorted(value)
+        elif option in _NARROWING_SWITCHES:
+            _require(value is True, f"{option} is a switch and is recorded as true, got {value!r}")
+            checked[option] = True
         else:
             _require(isinstance(value, str) and bool(value),
                      f"{option} must be a non-empty string, got {value!r}")
@@ -170,7 +176,12 @@ def describe_narrowing(narrowed: Mapping[str, Any]) -> str:
         if option not in narrowed:
             continue
         value = narrowed[option]
-        words.append(f"{flag} {','.join(value) if option in _NARROWING_LISTS else shlex.quote(value)}")
+        if option in _NARROWING_SWITCHES:
+            words.append(flag)
+        elif option in _NARROWING_LISTS:
+            words.append(f"{flag} {','.join(value)}")
+        else:
+            words.append(f"{flag} {shlex.quote(value)}")
     return " ".join(words)
 
 

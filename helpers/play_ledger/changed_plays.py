@@ -47,13 +47,14 @@ import argparse
 import os
 import posixpath
 import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from helpers.play_ledger import git_history, group_vars, ledger, plugin_support, retired, store
+from helpers.play_ledger import git_history, group_vars, ledger, retired, store
 from helpers.self_update import affected_plays
 
 EXIT_OK = 0
@@ -72,12 +73,14 @@ RUN_STATES = (STATE_STALE, STATE_FAILED)
 #: How many changed paths (or Go packages, or commands) a reason names before it counts the rest.
 PATHS_SHOWN = 3
 
-#: The command, short of the play, that clears a failed play on a host where it cannot
-#: apply (issue #278). Spelled with `cd` because `python3 -m` resolves off the cwd.
-FORGET_COMMAND = (
-    f"cd {plugin_support.CHECKOUT_PLACEHOLDER} && "
-    "python3 -m helpers.play_ledger.check_freshness --forget-play"
-)
+def forget_command(repo_root: str, play: str) -> str:
+    """The command that clears a failed play on a host where it cannot apply (issue #278).
+
+    Spelled with `cd` to this checkout, because `python3 -m` resolves off the cwd. The
+    line goes to the person at this terminal, so it names the real path.
+    """
+    return (f"cd {shlex.quote(repo_root)} && "
+            f"python3 -m helpers.play_ledger.check_freshness --forget-play {shlex.quote(play)}")
 
 MAIN_PLAYBOOK ="playbooks/playbook-main.yml"
 _IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
@@ -380,8 +383,8 @@ def run(
             stdout.write(f"PLAY {judgement.states[play]} {play}\n")
         elif play in runs:
             stdout.write(f"RUN {play}\n")
-            why = ([f"its last run here did not succeed; if it cannot apply on this host, "
-                    f"clear it with: {FORGET_COMMAND} {play}"]
+            why = ([f"its last full run here did not succeed; if it cannot apply on this host, "
+                    f"clear it with: {forget_command(repo_root, play)}"]
                    if judgement.states[play] == STATE_FAILED else reasons(judgement, play))
             if why:
                 stderr.write(f"changed-plays: {play}: {'; '.join(why)}\n")

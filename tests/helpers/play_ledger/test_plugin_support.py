@@ -74,7 +74,8 @@ class TestShouldRecord(unittest.TestCase):
 
 #: What `ansible-playbook site.yml` leaves in CLIARGS for the four narrowing options
 #: (asserted against the real CLI in test_source_position_against_real_ansible).
-FULL_RUN_CLIARGS = {"tags": ("all",), "skip_tags": (), "subset": None, "start_at_task": None}
+FULL_RUN_CLIARGS = {"tags": ("all",), "skip_tags": (), "subset": None, "start_at_task": None,
+                    "step": False}
 
 
 class TestNarrowing(unittest.TestCase):
@@ -98,6 +99,9 @@ class TestNarrowing(unittest.TestCase):
             self._narrowing(skip_tags=("slow",), subset="localhost", start_at_task="Install it"),
             {"skip_tags": ["slow"], "limit": "localhost", "start_at_task": "Install it"},
         )
+
+    def test_step_narrows_it_because_the_operator_may_skip_any_task(self) -> None:
+        self.assertEqual(self._narrowing(step=True), {"step": True})
 
     def test_an_absent_option_does_not_narrow_it(self) -> None:
         self.assertEqual(plugin_support.narrowing({}), {})
