@@ -48,8 +48,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # xz-utils is not decoration: GNU tar shells out to the `xz` binary for -J, and
 # upstream shellcheck ships ONLY a .tar.xz. Without it the pinned-toolchain layer
-# dies on "tar (child): xz: Cannot exec". gitleaks below survives because its
-# asset is .tar.gz and gzip is built in.
+# dies on "tar (child): xz: Cannot exec". gitleaks, in the same layer, needs
+# no xz: its asset is .tar.gz and gzip is built in.
 
 # python3-pytest, python3-numpy and python3-pil exist for tests/clip_scan/,
 # the one test tree in this repo that is not stdlib-only (helpers/ tests are,
@@ -104,19 +104,22 @@ COPY .qa-versions /tmp/.qa-versions
 # Every download in this file is chosen by the image's architecture (dpkg --print-architecture),
 # mapped to each upstream's own spelling, and checked against one pinned sha256 per
 # architecture (the release API's digest for that asset); any other architecture fails the
-# build naming the tool. The shellcheck checksums belong to the SHELLCHECK pin in
-# /.qa-versions: bump them with it.
+# build naming the tool. The shellcheck and gitleaks checksums belong to the SHELLCHECK and
+# GITLEAKS pins in /.qa-versions: bump them with them. gitleaks is the secret scan
+# scripts/qa-gitleaks.bash runs, the one CI's gitleaks job runs.
 ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
+ARG GITLEAKS_SHA256_AMD64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
 RUN set -eux; \
     . /tmp/.qa-versions; \
     pipx install "ruff==${RUFF}"; \
     pipx install "semgrep==${SEMGREP}"; \
     arch="$(dpkg --print-architecture)"; \
     case "${arch}" in \
-        amd64) sc_arch=x86_64; sc_sha="${SHELLCHECK_SHA256_AMD64}" ;; \
-        arm64) sc_arch=aarch64; sc_sha="${SHELLCHECK_SHA256_ARM64}" ;; \
-        *) echo "shellcheck: no build pinned for ${arch}" >&2; exit 1 ;; \
+        amd64) sc_arch=x86_64; sc_sha="${SHELLCHECK_SHA256_AMD64}"; gl_arch=x64; gl_sha="${GITLEAKS_SHA256_AMD64}" ;; \
+        arm64) sc_arch=aarch64; sc_sha="${SHELLCHECK_SHA256_ARM64}"; gl_arch=arm64; gl_sha="${GITLEAKS_SHA256_ARM64}" ;; \
+        *) echo "shellcheck, gitleaks: no build pinned for ${arch}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/shellcheck.tar.xz \
         "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.${sc_arch}.tar.xz"; \
@@ -124,6 +127,12 @@ RUN set -eux; \
     tar -xJf /tmp/shellcheck.tar.xz -C /tmp; \
     install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck; \
     rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK}"; \
+    curl -fsSL -o /tmp/gitleaks.tgz \
+        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS}/gitleaks_${GITLEAKS}_linux_${gl_arch}.tar.gz"; \
+    echo "${gl_sha}  /tmp/gitleaks.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks; \
+    install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks; \
+    rm -f /tmp/gitleaks.tgz /tmp/gitleaks; \
     rm -f /tmp/.qa-versions
 
 # Install GitHub CLI (gh) - used by git configuration playbook
@@ -152,25 +161,6 @@ RUN arch="$(dpkg --print-architecture)" \
     && echo "${yq_sha}  /tmp/yq" | sha256sum -c - \
     && install -m 0755 /tmp/yq /usr/local/bin/yq \
     && rm -f /tmp/yq
-
-# Install gitleaks (secret scanner) - lets us reproduce the CI "gitleaks secret
-# scan" job locally with `gitleaks dir .` before pushing. Pinned to the SAME
-# version the QA workflow (.github/workflows/qa.yml) installs so local and CI
-# results match exactly; bump both together.
-ARG GITLEAKS_VERSION=8.30.1
-ARG GITLEAKS_SHA256_AMD64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-ARG GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
-RUN arch="$(dpkg --print-architecture)" \
-    && case "${arch}" in \
-        amd64) gl_arch=x64; gl_sha="${GITLEAKS_SHA256_AMD64}" ;; \
-        arm64) gl_arch=arm64; gl_sha="${GITLEAKS_SHA256_ARM64}" ;; \
-        *) echo "gitleaks: no build pinned for ${arch}" >&2; exit 1 ;; \
-    esac \
-    && wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${gl_arch}.tar.gz" \
-    && echo "${gl_sha}  /tmp/gitleaks.tgz" | sha256sum -c - \
-    && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
-    && rm /tmp/gitleaks.tgz \
-    && chmod +x /usr/local/bin/gitleaks
 
 # gum serves ccy-teams (src-go/cmd/ccy-teams), whose create flow asks with
 # it, and lets its prompts be tried here against the real tool. Debian 12 has no package,

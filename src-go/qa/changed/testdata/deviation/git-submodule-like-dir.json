@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck gitleaks\n⚠ not covered by qa-changed: emptydir/.keep\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

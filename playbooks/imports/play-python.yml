@@ -36,19 +36,26 @@
     golangci_lint_dir: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-{{ golangci_lint_arch_names[ansible_facts['architecture']] }}"
     golangci_lint_archive: "{{ golangci_lint_dir }}.tar.gz"
     golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
+    gitleaks_arch_names:
+      x86_64: x64
+      aarch64: arm64
+    gitleaks_archive: "gitleaks_{{ qa_versions.GITLEAKS }}_linux_{{ gitleaks_arch_names[ansible_facts['architecture']] }}.tar.gz"
+    gitleaks_release: "https://github.com/gitleaks/gitleaks/releases/download/v{{ qa_versions.GITLEAKS }}"
   tasks:
     - name: Audience guard — end play on a consumer install
       ansible.builtin.meta: end_play
       when: install_audience != 'developer'
 
-    - name: Fail on an architecture shellcheck or golangci-lint publishes no build for
+    - name: Fail on an architecture shellcheck, golangci-lint or gitleaks publishes no build for
       ansible.builtin.assert:
         that:
           - ansible_facts['architecture'] in shellcheck_arch_names
           - ansible_facts['architecture'] in golangci_lint_arch_names
+          - ansible_facts['architecture'] in gitleaks_arch_names
         fail_msg: >-
-          shellcheck and golangci-lint: no build for {{ ansible_facts['architecture'] }}
-          (published: {{ shellcheck_arch_names | list | intersect(golangci_lint_arch_names | list) | join(', ') }})
+          shellcheck, golangci-lint and gitleaks: no build for {{ ansible_facts['architecture'] }}
+          (published: {{ shellcheck_arch_names | list | intersect(golangci_lint_arch_names | list)
+          | intersect(gitleaks_arch_names | list) | join(', ') }})
 
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -247,6 +254,46 @@
     - name: Remove the golangci-lint download
       ansible.builtin.file:
         path: "/tmp/{{ golangci_lint_archive }}"
+        state: absent
+
+    # gitleaks (the secret scan of scripts/qa-gitleaks.bash, which qa-all, qa-changed and the
+    # pre-push hook run) is a static Go binary, at the same pin the CCY image and CI install.
+    - name: Check the installed gitleaks version
+      ansible.builtin.command:
+        cmd: gitleaks --version
+      register: gitleaks_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+
+    # The checksum is read from the release's own checksums file and verified by get_url.
+    - name: Download gitleaks at the pinned version
+      ansible.builtin.get_url:
+        url: "{{ gitleaks_release }}/{{ gitleaks_archive }}"
+        dest: "/tmp/{{ gitleaks_archive }}"
+        checksum: "sha256:{{ gitleaks_release }}/gitleaks_{{ qa_versions.GITLEAKS }}_checksums.txt"
+        mode: "0644"
+      when: >-
+        gitleaks_installed.rc != 0
+        or (gitleaks_installed.stdout | trim) != ('gitleaks version ' ~ qa_versions.GITLEAKS)
+
+    - name: Install gitleaks at the pinned version
+      become: true
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ gitleaks_archive }}"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - gitleaks
+        owner: root
+        group: root
+        mode: "0755"
+      when: >-
+        gitleaks_installed.rc != 0
+        or (gitleaks_installed.stdout | trim) != ('gitleaks version ' ~ qa_versions.GITLEAKS)
+
+    - name: Remove the gitleaks download
+      ansible.builtin.file:
+        path: "/tmp/{{ gitleaks_archive }}"
         state: absent
 
     # The installs above are not self-verifying: pipx can succeed while the binary

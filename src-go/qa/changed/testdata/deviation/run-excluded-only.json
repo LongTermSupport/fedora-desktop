@@ -1,8 +1,9 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck bash-limits\nskipped (excluded tree): untracked/skip.bash\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck bash-limits\ncheck gitleaks\nskipped (excluded tree): untracked/skip.bash\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ gitleaks: whole gate (no secret gitleaks finds in what a commit would carry)\n✓ qa-changed passed: 1 changed file(s). To land it, push the commit to ci/\u003ctopic\u003e: CI's pass there lets a protected branch move (CLAUDE/QA.md#push-without-qa-verdict).\n",
  "stderr": "",
  "status": 0,
  "log": [
-  "gate:qa-bash-limits.bash json="
+  "gate:qa-bash-limits.bash json=",
+  "gate:qa-gitleaks.bash json="
  ]
 }

@@ -42,6 +42,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Issue #329: the pre-push hook, qa-all and qa-changed now run CI's gitleaks secret scan
+# (scripts/qa-gitleaks.bash), so this host needs gitleaks at the GITLEAKS pin of .qa-versions.
+# Installs it in /usr/local/bin, checked against the release's own checksums file. First in the
+# list, because until it has run every push from this checkout stops at the hook (exit 2,
+# "gitleaks is not installed"). Expected: changed for the gitleaks download and install only;
+# the play's last task, qa-toolchain, then reports gitleaks among the matching tools.
+playbooks/imports/play-python.yml
+
 # Issue #323: changed-plays now also runs a play with no ledger record whose files here show
 # it ran. On this host that is play-claude-devtools, play-ddev and play-qobuz, and
 # play-self-update is due as well; none has converged since its files were deployed. Each is

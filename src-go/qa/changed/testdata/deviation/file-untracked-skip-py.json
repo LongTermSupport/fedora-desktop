@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck gitleaks\nskipped (excluded tree): untracked/skip.py\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

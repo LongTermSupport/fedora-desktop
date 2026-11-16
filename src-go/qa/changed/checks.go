@@ -53,6 +53,7 @@ const (
 	toolAnsible    = "ansible-playbook"
 	toolNode       = "node"
 	toolGo         = "go"
+	toolGitleaks   = "gitleaks"
 	nounFiles      = "file(s)"
 )
 
@@ -105,6 +106,7 @@ var checkDefs = []checkDef{
 	{id: "hook-handlers", fixed: "whole gate (the project hook handlers pass their tests under the daemon's interpreter)", gate: true, whole: true, tools: []string{toolBash}, run: runHookHandlers},
 	{id: "plan-tests", fixed: "whole gate (every active plan folder's own Python tests pass, each run from its folder)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runPlanTests},
 	{id: "vmtest-manifest", fixed: "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runVmtestManifest},
+	{id: "gitleaks", fixed: "whole gate (no secret gitleaks finds in what a commit would carry)", gate: true, whole: true, tools: []string{toolBash, toolGitleaks}, run: runGitleaks},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -268,6 +270,11 @@ func runStdinWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkRes
 
 func runStdinWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-stdin-wait.bash")
+}
+
+// runGitleaks runs CI's gitleaks scan over what a commit of the work tree would carry.
+func runGitleaks(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-gitleaks.bash")
 }
 
 func runVersionPins(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

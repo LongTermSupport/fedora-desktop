@@ -7,7 +7,8 @@
 # phase
 #   also    every matching row applies, in order, and none stops the others
 #   first   the first matching row classifies the file and ends the search
-#   post    after every file is classified, when any file matched the kind: any:@sh, any:@py
+#   post    after every file is classified, when any file matched the kind: any:@sh, any:@py,
+#           or any:@file (any changed file that still exists)
 #   perfile-gate  not a rule: the qa-*.bash gates that scripts/qa-gates.tsv lists which are NOT suites
 #                 (run per file above, run whole as a gate, or inspecting the host)
 # match
@@ -303,5 +304,9 @@ post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
 post	any:@sh	argv-leak	-
 post	any:@sh,any:@py	secret-screen	-
+# The gitleaks gate (issue #329, SPEC-qa-changed B64) runs whole once any changed file still
+# exists: a secret can be in any file, and CI's gitleaks job scans the whole tree. It covers no
+# file, and a change of deletions only carries no new text to scan.
+post	any:@file	gitleaks	-
 post	any:@sh,any:@py	gh-poll	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-gh-poll qa-secret-screen qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-gh-poll qa-secret-screen qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams qa-gitleaks

@@ -141,6 +141,7 @@ func (s *session) classify(ctx context.Context, files collected) error {
 	if len(files.deleted) > 0 {
 		s.plan.add("docs", "", "")
 	}
+	s.kinds[kindFile] = len(files.existing)
 	for _, pr := range s.routing.post {
 		if slices.ContainsFunc(pr.anyOf, func(kind string) bool { return s.kinds[kind] > 0 }) {
 			for _, id := range pr.checks {

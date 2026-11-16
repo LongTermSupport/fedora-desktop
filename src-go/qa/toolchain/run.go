@@ -140,6 +140,6 @@ func judge(env Env, root string, pins map[string]string, floor goFloor, out, err
 var remedy = []string{
 	"  These gates are version-dependent, so this machine would report a",
 	"  different verdict from the CCY container and from CI. Bring it into line:",
-	"    host      ./playbooks/imports/play-python.yml   (installs golangci-lint; go via the play-golang.yml it imports)",
+	"    host      ./playbooks/imports/play-python.yml   (installs golangci-lint and gitleaks; go via the play-golang.yml it imports)",
 	"    container ccy --rebuild   (the image bakes .qa-versions at build time)",
 }

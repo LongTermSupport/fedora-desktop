@@ -23,6 +23,7 @@ var pinnedTools = []pinnedTool{
 	{"semgrep", "SEMGREP", func(s string) string { return field(firstLine(s), 0) }},
 	{"shellcheck", "SHELLCHECK", shellcheckVersion},
 	{"golangci-lint", "GOLANGCI_LINT", func(s string) string { return field(firstLine(s), 3) }},
+	{"gitleaks", "GITLEAKS", func(s string) string { return field(firstLine(s), 2) }},
 }
 
 func firstLine(s string) string {

@@ -34,6 +34,9 @@ gate	go-vuln	scripts/qa-go-vuln.bash	govulncheck found a vulnerability src-go re
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 gate	private-names	scripts/qa-private-names.bash tree HEAD	a tracked file names an install (team, seat, container, host or client project), or the guard could not judge in a ccy container	detail:private-names: ([0-9]+ file[(]s[)] scanned against [0-9]+ terms, 0 finding[(]s[)]|SKIPPED.*)
+# CI's gitleaks secret scan, over what a commit of the work tree would carry (issue #329); the
+# pre-push hook runs the same script over each pushed commit.
+gate	gitleaks	scripts/qa-gitleaks.bash	gitleaks found a secret in what a commit would carry, or could not scan (gitleaks missing: see the line above)	detail:GITLEAKS-OK .+
 # The seven report stages. Their reports are merged into the machine report.
 stage	bash	scripts/qa-bash.bash	ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	python	scripts/qa-python.bash	ERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
@@ -56,6 +59,7 @@ gate	plan-tests	scripts/qa-plan-tests.bash	an active plan folder's own Python te
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
 gate	raw-prune-tests	scripts/test-raw-prune.bash	raw-prune deleted or listed a RAW that has a JPG	count
+gate	gitleaks-tests	scripts/test-qa-gitleaks.bash	the local gitleaks gate missed a planted secret, scanned an ignored file, or passed with no verdict	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
 gate	meta-deploy-queue	scripts/test-meta-deploy.bash	meta-deploy.list queue tests failed	count
 gate	ccy-rootless-guard	scripts/test-ccy-rootless-guard.bash	ccy rootless-engine guard unit tests failed	count

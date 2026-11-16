@@ -169,7 +169,8 @@ func TestPlaybookAndTaskAndVarsYAML(t *testing.T) {
 		t.Fatalf("a playbook: %v", keys(p))
 	}
 	p = w.classify([]string{"untracked/pb.yml"})
-	if !reflect.DeepEqual(p.skipped, []string{"untracked/pb.yml"}) || len(p.uncovered) != 0 || len(p.checks) != 0 {
+	// B64: an existing file, skipped or not, runs only the gitleaks gate.
+	if !reflect.DeepEqual(p.skipped, []string{"untracked/pb.yml"}) || len(p.uncovered) != 0 || !reflect.DeepEqual(keys(p), []string{"gitleaks"}) {
 		t.Fatalf("an excluded yml: %v", p.skipped)
 	}
 }
@@ -218,7 +219,7 @@ func TestTaskAndVarsYAMLMapToThePlaybooksThatNameThem(t *testing.T) {
 		t.Fatalf("notes: %v", p.notes)
 	}
 	p = w.classify([]string{"other/thing.yml"})
-	if len(p.checks) != 0 || !reflect.DeepEqual(p.uncovered, []string{"other/thing.yml"}) {
+	if !reflect.DeepEqual(keys(p), []string{"gitleaks"}) || !reflect.DeepEqual(p.uncovered, []string{"other/thing.yml"}) {
 		t.Fatalf("an unmapped yml is named, not dropped: %v %v", keys(p), p.uncovered)
 	}
 }
@@ -525,7 +526,7 @@ func TestASemgrepFileNothingReadsIsUncovered(t *testing.T) {
 	w.touch(".semgrep/unread.py", "# x")
 	for _, f := range []string{".semgrep/unread.yml", ".semgrep/unread.py"} {
 		p := w.classify([]string{f})
-		if !reflect.DeepEqual(p.uncovered, []string{f}) || len(p.skipped) != 0 || len(keys(p)) != 0 {
+		if !reflect.DeepEqual(p.uncovered, []string{f}) || len(p.skipped) != 0 || !reflect.DeepEqual(keys(p), []string{"gitleaks"}) {
 			t.Errorf("%s: uncovered %v skipped %v checks %v", f, p.uncovered, p.skipped, keys(p))
 		}
 	}
@@ -1374,5 +1375,21 @@ func TestTheArgvLeakGateRunsForTheFilesItGuards(t *testing.T) {
 	}
 	if p := w.classify(nil, "playbooks/imports/gone.yml"); !p.has("argv-leak") {
 		t.Errorf("a deleted play must run the gate: %v", keys(p))
+	}
+}
+
+// B64: CI's gitleaks job scans the whole tree, and a secret can be in any file, so any changed
+// file that still exists runs the gitleaks gate (a post rule, any:@file), which judges no file of
+// its own: it covers nothing. A change of deletions only carries no new text and runs it not.
+func TestEveryExistingChangedFileRunsTheGitleaksGateAndADeletionDoesNot(t *testing.T) {
+	w := newWorld(t)
+	w.touch("other/notes.txt", "x")
+	p := w.classify([]string{"other/notes.txt"})
+	if !p.has("gitleaks") || !reflect.DeepEqual(p.uncovered, []string{"other/notes.txt"}) {
+		t.Fatalf("an existing file: checks %v uncovered %v", keys(p), p.uncovered)
+	}
+	p = w.classify(nil, "other/gone.txt")
+	if p.has("gitleaks") || !reflect.DeepEqual(p.uncovered, []string{"other/gone.txt"}) {
+		t.Fatalf("a deletion: checks %v uncovered %v", keys(p), p.uncovered)
 	}
 }

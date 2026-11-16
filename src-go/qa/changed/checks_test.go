@@ -87,7 +87,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "hook-handler-rules-files", "walk-open-files", "stdin-wait-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "teamchat-keeps-off-v1", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "hidden-bindings", "lxc-attach-streams", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "go-deps", "go-vuln", "hook-handlers", "plan-tests", "vmtest-manifest", "gitleaks", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -135,6 +135,7 @@ func TestSummaries(t *testing.T) {
 		"gh-scopes":             "gh-scope-outside-ssot rule, whole gate",
 		"walk-open":             "walk-opens-non-regular-file rule, whole gate",
 		"stdin-wait":            "stdin-read-unbounded rule, whole gate",
+		"gitleaks":              "whole gate (no secret gitleaks finds in what a commit would carry)",
 		"find-race":             "find-race-negated-stat-test rule, whole gate",
 		"arch-pin":              "arch-pinned-artefact rule, whole gate",
 		"argv-leak":             "secret-in-argv rules, whole gate",
@@ -415,12 +416,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "teamchat-keeps-off-v1", "hook-handlers", "plan-tests", "lxc-attach-streams"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "find-race", "arch-pin", "argv-leak", "place-issued-token", "boot-hold", "gh-poll", "secret-screen", "ready-wait", "plan-script-logging", "stt-rules", "walk-open", "stdin-wait", "hook-handler-rules", "version-pins", "vmtest-manifest", "go-deps", "go-vuln", "teamchat-keeps-off-v1", "hook-handlers", "plan-tests", "lxc-attach-streams", "gitleaks"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-find-race.bash", "qa-arch-pin.bash", "qa-argv-leak.bash", "qa-place-issued-token.bash", "qa-boot-hold.bash", "qa-gh-poll.bash", "qa-secret-screen.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-walk-open.bash", "qa-stdin-wait.bash", "qa-hook-handler-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-teamchat-separate.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-find-race.bash", "qa-arch-pin.bash", "qa-argv-leak.bash", "qa-place-issued-token.bash", "qa-boot-hold.bash", "qa-gh-poll.bash", "qa-secret-screen.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-walk-open.bash", "qa-stdin-wait.bash", "qa-hook-handler-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash", "qa-teamchat-separate.bash", "qa-hook-handlers.bash", "qa-plan-tests.bash", "qa-lxc-attach-streams.bash", "qa-gitleaks.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
@@ -710,4 +711,19 @@ type failingRunner struct{}
 
 func (failingRunner) Run(context.Context, proc.Cmd) (proc.Result, error) {
 	return proc.Result{}, os.ErrNotExist
+}
+
+// A missing tool is reported with how to get it, so every tool a check needs has a fix line
+// (eslint is a path in the checkout, which its preflight names itself).
+func TestEveryToolACheckNeedsSaysHowToGetIt(t *testing.T) {
+	for _, d := range checkDefs {
+		for _, tool := range d.tools {
+			if tool == eslintTool {
+				continue
+			}
+			if toolFix[tool] == "" {
+				t.Errorf("check %s needs %s, which toolFix gives no fix for", d.id, tool)
+			}
+		}
+	}
 }

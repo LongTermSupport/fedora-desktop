@@ -8,7 +8,8 @@
 #   qa-gitleaks.bash push REMOTE URL  each pushed commit's own tree (git's ref lines on stdin);
 #                                     the pre-push hook runs this.
 # Each tree is copied into a scratch directory and scanned there with CI's command,
-# `gitleaks dir . --redact --no-banner --verbose`, which reads the tree's own .gitleaks.toml.
+# `gitleaks dir . --redact --no-banner --verbose`, which reads the tree's own .gitleaks.toml
+# (plus --no-color, for the log a QA run captures).
 # Findings are redacted. Exit codes: 0 no secret, 1 a secret, 2 bad usage or no verdict.
 set -euo pipefail
 
@@ -20,7 +21,7 @@ die() {
 # scan DIR WHAT runs gitleaks over DIR; a secret is status 1, a scan that failed is exit 2.
 scan() {
     local rc=0
-    (cd "$1" && gitleaks dir . --redact --no-banner --verbose --exit-code 3) || rc=$?
+    (cd "$1" && gitleaks dir . --redact --no-banner --verbose --no-color --exit-code 3) || rc=$?
     case "${rc}" in
         0) return 0 ;;
         3)

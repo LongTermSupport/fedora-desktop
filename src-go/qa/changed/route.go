@@ -16,6 +16,8 @@ const (
 	kindPyTpl  = "@pytemplate"
 	kindListed = "@listed"
 	kindGlob   = "glob"
+	// kindFile is a post condition only: any changed file that still exists.
+	kindFile   = "@file"
 	listShell  = "shell"
 	listPython = "python"
 )
@@ -211,8 +213,8 @@ func (r *routing) addPost(line int, condField, checkField string) error {
 	var anyOf []string
 	for cond := range strings.SplitSeq(condField, ",") {
 		kind, ok := strings.CutPrefix(cond, "any:")
-		if !ok || (kind != kindSh && kind != kindPy) {
-			return fmt.Errorf("unknown post condition %q (want any:@sh or any:@py)", cond)
+		if !ok || (kind != kindSh && kind != kindPy && kind != kindFile) {
+			return fmt.Errorf("unknown post condition %q (want any:@sh, any:@py or any:@file)", cond)
 		}
 		anyOf = append(anyOf, kind)
 	}

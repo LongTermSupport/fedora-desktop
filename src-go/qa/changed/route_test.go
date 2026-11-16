@@ -33,6 +33,7 @@ first	@py	ruff,unit-tests	covered,tree:python
 first	@sh	bash-syntax,shellcheck,semgrep	covered,tree:shell
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
+post	any:@file	gitleaks	-
 perfile-gate	qa-bash qa-python	qa-go
 `
 
@@ -42,7 +43,7 @@ func TestLoadRoutingParsesEveryColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.also) != 4 || len(r.first) != 5 || len(r.post) != 2 {
+	if len(r.also) != 4 || len(r.first) != 5 || len(r.post) != 3 {
 		t.Fatalf("rule counts: %d %d %d", len(r.also), len(r.first), len(r.post))
 	}
 	if !reflect.DeepEqual(r.perFileGates, []string{"qa-bash", "qa-python", "qa-go"}) {
@@ -72,6 +73,9 @@ func checkParsedRules(t *testing.T, r *routing) {
 	}
 	if !reflect.DeepEqual(r.post[1].anyOf, []string{"@sh", "@py"}) {
 		t.Fatalf("post: %+v", r.post[1])
+	}
+	if !reflect.DeepEqual(r.post[2].anyOf, []string{"@file"}) {
+		t.Fatalf("post: %+v", r.post[2])
 	}
 }
 

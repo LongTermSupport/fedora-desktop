@@ -220,6 +220,7 @@ var toolFix = map[string]string{
 	toolSemgrep:    pythonPlay,
 	toolRuff:       pythonPlay,
 	toolPython:     pythonPlay,
+	toolGitleaks:   pythonPlay,
 	toolGo:         "Deploy it: ansible-playbook playbooks/imports/play-golang.yml",
 	toolAnsible:    "Install ansible (sudo dnf install ansible) via the repo's IaC.",
 	toolNode:       "Deploy it: ansible-playbook playbooks/imports/play-nvm-install.yml",
