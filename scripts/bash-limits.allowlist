@@ -25,13 +25,13 @@ files/home/.local/bin/ccdt	144	6	117	-
 files/home/.local/bin/fedora-desktop-health.j2	108	2	88	-
 files/home/.local/bin/gshell-nested	95	2	97	-
 files/home/.local/bin/lan-scan	189	10	213	-
-files/home/.local/bin/qnap-finder	135	4	178	-
-files/home/.local/bin/raw-prune	119	1	95	assoc
+files/home/.local/bin/qnap-finder	133	4	171	-
+files/home/.local/bin/raw-prune	105	1	93	assoc
 files/home/.local/bin/rclone-cache-warm	101	1	110	-
 files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
 files/home/.local/bin/rdt	90	6	70	-
-files/home/.local/bin/ssh-agent-start	109	6	111	-
-files/home/.local/bin/ssh-keys-rekey	224	5	249	-
+files/home/.local/bin/ssh-agent-start	104	6	107	-
+files/home/.local/bin/ssh-keys-rekey	223	5	248	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-
@@ -41,8 +41,8 @@ files/usr/local/bin/agent-bus	119	9	124	-
 files/usr/local/bin/compress	96	2	63	-
 files/usr/local/bin/shutdown-with-update	286	10	295	-
 files/usr/local/bin/uncompress	106	2	80	-
-files/usr/local/sbin/agent-bus-install	987	62	1155	assoc,data
-files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
+files/usr/local/sbin/agent-bus-install	985	62	1152	assoc,data
+files/usr/local/sbin/fedora-desktop-self-update	92	2	99	-
 files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
@@ -60,7 +60,7 @@ files/var/local/claude-yolo/lib/ssh-handling.bash	1393	40	1692	-
 files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
 files/var/local/claude-yolo/lib/token-management.bash	1008	27	1078	-
 files/var/local/colours	65	16	65	-
-files/var/local/docker-in-lxc	667	20	525	-
+files/var/local/docker-in-lxc	665	20	524	-
 files/var/local/ps1-prompt	76	6	78	-
 run.bash	2778	66	2715	assoc,data
 scripts/check-displaylink-status.sh	211	1	231	-

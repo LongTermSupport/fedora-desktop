@@ -266,8 +266,7 @@ put_file() {
         && [[ $(stat -c '%a %U %G' -- "$dest") == "${mode#0} $owner $group" ]]; then
         return 0
     fi
-    local tmp
-    tmp="$(dirname -- "$dest")/.${dest##*/}.$PROG.$$"
+    local tmp="${dest%/*}/.${dest##*/}.$PROG.$$" # DEST is an absolute path
     install -m "$mode" -o "$owner" -g "$group" -T -- "$src" "$tmp"
     mv -fT -- "$tmp" "$dest"
     PUT_CHANGED=1
@@ -282,8 +281,7 @@ put_symlink() {
         return 0
     fi
     [[ ! -e $link || -L $link ]] || die "$EXIT_FAIL" "$link exists and is not a symlink"
-    local tmp
-    tmp="$(dirname -- "$link")/.${link##*/}.$PROG.$$"
+    local tmp="${link%/*}/.${link##*/}.$PROG.$$" # LINK is an absolute path
     ln -sfnT -- "$target" "$tmp"
     mv -fT -- "$tmp" "$link"
     PUT_CHANGED=1
@@ -778,9 +776,7 @@ cmd_team() {
     local dir=$STATE_ROOT/$team
     local -a check_args=(render check)
     [[ ! -f $dir/team.json ]] || check_args+=("--previous=$dir/team.json")
-    local status=0
-    admin_tool "${check_args[@]}" <"$file" >"$WORK_DIR/team.json" || status=$?
-    ((status == 0)) || die "$status" "team file $file refused (above)"
+    admin_tool "${check_args[@]}" <"$file" >"$WORK_DIR/team.json" || die "$?" "team file $file refused (above)"
 
     local state port
     state=$(jq -r .state "$WORK_DIR/team.json")
@@ -788,7 +784,9 @@ cmd_team() {
     [[ $state == present ]] || die "$EXIT_CONFIG" "team $team is state $state: run $PROG remove --team $team"
     local -a listen allow
     mapfile -t listen < <(jq -r '.listen[]' "$WORK_DIR/team.json")
+    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of the checked team file"
     mapfile -t allow < <(jq -r '.allow_from[]' "$WORK_DIR/team.json")
+    wait "$!" || die "$EXIT_FAIL" "cannot read the allow_from addresses of the checked team file"
     assert_port_free "$team" "$port"
 
     local ip_json address
@@ -1023,15 +1021,15 @@ cmd_backups() {
     require_team_dir "$team"
     local meta=$STATE_ROOT/$team/backups/meta tars path id when
     tars=$(state_tar_dir "$team")
+    # Indexed by the id itself: an indexed array expands in index order, which is oldest
+    # first, with no sort to run. The pattern keeps every subscript a plain decimal.
     local -a ids=()
     for path in "$meta"/*; do
         id=${path##*/}
         if [[ $id =~ ^[1-9][0-9]*$ && -f $tars/agent-bus-state-$id.tar ]]; then
-            ids+=("$id")
+            ids[id]=$id
         fi
     done
-    ((${#ids[@]})) || return 0
-    mapfile -t ids < <(printf '%s\n' "${ids[@]}" | sort -n)
     for id in "${ids[@]}"; do
         when=$(date -u -r "$tars/agent-bus-state-$id.tar" '+%Y-%m-%d %H:%M UTC')
         printf 'BACKUP\t%s\t%s\n' "$id" "$when"
@@ -1097,6 +1095,7 @@ cmd_restore() {
     wait_ready "$hs" "$port"
     local -a listen
     mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
+    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
     assert_listening "$port" "${listen[@]}"
     admin_tool bootstrap "$team"
 }
@@ -1143,6 +1142,7 @@ cmd_check() {
 
     local -a listen
     mapfile -t listen < <(jq -r '.listen[]' "$dir/team.json")
+    wait "$!" || die "$EXIT_FAIL" "cannot read the listen addresses of $dir/team.json"
     local want got
     got=$(bound_addresses "$port")
     want=$(expected_addresses "${listen[@]}")

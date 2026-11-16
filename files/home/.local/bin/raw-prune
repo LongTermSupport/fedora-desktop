@@ -68,35 +68,25 @@ echo -e "${BOLD}Scanning ${CYAN}${SEARCH_DIR}${NC}${BOLD} for RAW files without 
 # Build a set of JPG filename stems (lowercased, no extension, no path).
 # Using an associative array gives O(1) lookup per RAW file.
 declare -A jpg_stems
+declare -l stem # lowercased on every assignment: matching is case-insensitive
 while IFS= read -r -d '' jpg; do
-    stem=$(basename "$jpg")
-    stem="${stem%.*}"
-    jpg_stems["${stem,,}"]=1
+    stem="${jpg##*/}"
+    jpg_stems["${stem%.*}"]=1
 done < <(find "$SEARCH_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -print0)
+# Both finds must succeed: a JPG in a folder find could not read would leave its RAW
+# looking orphaned, and this tool deletes orphans. errexit stops on find's own message.
+wait "$!"
 
 # Walk RAW files; collect ones whose stem is missing from the JPG set.
 orphans=()
 while IFS= read -r -d '' raw; do
-    stem=$(basename "$raw")
-    stem="${stem%.*}"
-    if [ -z "${jpg_stems[${stem,,}]:-}" ]; then
+    stem="${raw##*/}"
+    if [ -z "${jpg_stems[${stem%.*}]:-}" ]; then
         orphans+=("$raw")
     fi
-done < <(find "$SEARCH_DIR" -type f \( \
-    -iname '*.arw' -o \
-    -iname '*.cr2' -o \
-    -iname '*.cr3' -o \
-    -iname '*.crw' -o \
-    -iname '*.dng' -o \
-    -iname '*.nef' -o \
-    -iname '*.nrw' -o \
-    -iname '*.orf' -o \
-    -iname '*.pef' -o \
-    -iname '*.raf' -o \
-    -iname '*.rw2' -o \
-    -iname '*.srw' -o \
-    -iname '*.x3f' \
-    \) -print0)
+done < <(find "$SEARCH_DIR" -type f -regextype posix-extended \
+    -iregex '.*\.(arw|cr2|cr3|crw|dng|nef|nrw|orf|pef|raf|rw2|srw|x3f)' -print0)
+wait "$!"
 
 count=${#orphans[@]}
 if [ "$count" -eq 0 ]; then
@@ -114,9 +104,7 @@ total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
 
 echo ""
 echo -e "${BOLD}Found ${CYAN}${count}${NC}${BOLD} orphan RAW file(s) (${CYAN}${total_human}${BOLD} total):${NC}"
-for f in "${orphans[@]}"; do
-    echo -e "  ${YELLOW}${f}${NC}"
-done
+printf "  ${YELLOW}%s${NC}\n" "${orphans[@]}"
 echo ""
 
 if [ "$DRY_RUN" = true ]; then

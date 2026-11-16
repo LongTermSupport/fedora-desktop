@@ -79,11 +79,10 @@ swa_has_remote_command() {
 # swa_discover_keys — print candidate private keys in SWA_SSH_DIR, one per line.
 # Skips public keys and the usual non-key files.
 swa_discover_keys() {
-    local f name
+    local f
     for f in "$SWA_SSH_DIR"/*; do
         [ -f "$f" ] || continue
-        name="$(basename "$f")"
-        case "$name" in
+        case "${f##*/}" in
             *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak) continue ;;
         esac
         printf '%s\n' "$f"
@@ -105,6 +104,7 @@ swa_start_ephemeral_agent() {
     local -a keys=() chosen=()
     local i key num choice
     mapfile -t keys < <(swa_discover_keys)
+    wait "$!" || { echo "Cannot list the keys in $SWA_SSH_DIR" >&2; return 1; }
 
     echo "Agent forwarding (-A) requested — starting a dedicated ssh-agent." >&2
     eval "$(ssh-agent -s)"
@@ -119,7 +119,7 @@ swa_start_ephemeral_agent() {
     echo "Private keys in $SWA_SSH_DIR:" >&2
     i=1
     for key in "${keys[@]}"; do
-        echo "  $i) $(basename "$key")" >&2
+        echo "  $i) ${key##*/}" >&2
         i=$((i + 1))
     done
     echo "  a) Add all" >&2
@@ -143,9 +143,9 @@ swa_start_ephemeral_agent() {
 
     for key in "${chosen[@]}"; do
         if ssh-add "$key"; then
-            echo "  Added: $(basename "$key")" >&2
+            echo "  Added: ${key##*/}" >&2
         else
-            echo "  FAILED: $(basename "$key")" >&2
+            echo "  FAILED: ${key##*/}" >&2
         fi
     done
 
