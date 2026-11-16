@@ -47,6 +47,7 @@ from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limi
                              protocol, relay, sentlog, syncer, watcherstate)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
+from helpers.stdin_text import stdin_text
 
 PROG = "pingbus"
 TOOL_VERSION = "0.2.0"
@@ -757,6 +758,10 @@ class Runtime:
     #: How long `seat disconnected` waits for a seat the session held to be let go: a closed
     #: terminal runs the launcher's exit while the container is still stopping.
     disconnect_wait_s: float = 15.0
+    #: How a text verb waits for its stdin (helpers/stdin_text), and how long before it gives up:
+    #: an agent's shell gives a command run with no input an open pipe that never ends (#260).
+    stdin_wait: stdin_text.Wait = stdin_text.readable
+    stdin_give_up_s: float = 60.0
     #: The keeper's ties to its process: dying with its parent, and its output once running.
     die_with_parent: Callable[[], object] = lambda: die_with_parent()
     detach: Callable[[pathlib.Path, bool], object] = lambda log, ready: detach_keeper(log, ready)
@@ -1166,9 +1171,20 @@ def _record_sent(environ: Mapping[str, str], err: TextIO, entry: dict) -> None:
                   f"so it will not be echoed: {getattr(exc, 'strerror', None) or exc}\n")
 
 
-def _read_text(stdin: BinaryIO) -> str:
+def _read_stdin(args: argparse.Namespace, err: TextIO, limit: int) -> bytes:
+    """A text verb's stdin, at most `limit` bytes. A terminal is refused at once, and stdin that
+    gives nothing says so on stderr and is given up on after `stdin_give_up_s` (#260)."""
+    rt: Runtime = args.runtime
+    try:
+        return stdin_text.read(args.stdin, prog=PROG, err=err, limit=limit, give_up_s=rt.stdin_give_up_s,
+                               refuse_terminal=True, wait=rt.stdin_wait)
+    except stdin_text.NoInput as exc:
+        form = f"printf '%s\\n' '...' | {PROG} --team T {args.command}{STDIN_FORMS[args.command]}"
+        raise config.UsageError(f"{args.command}: {exc}; it reads its text from stdin: {form}") from None
+
+
+def _read_text(raw: bytes) -> str:
     """`say`'s text: stdin as UTF-8, less one trailing newline (what `echo` adds)."""
-    raw = stdin.read(SAY_READ_MAX)
     if raw.endswith(b"\n"):
         raw = raw[:-1]
     if len(raw) > protocol.MAX_AGENT_TEXT_BYTES:
@@ -1187,7 +1203,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     if args.re is not None and not protocol.is_event_id(args.re):
         raise protocol.Refusal("re")
     member = _sending_member(args, environ)
-    text = _read_text(args.stdin)
+    text = _read_text(_read_stdin(args, err, SAY_READ_MAX))
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
@@ -1208,10 +1224,10 @@ QUESTION_RE = re.compile(r"Q([1-9][0-9]{0,8})")
 NO_ROOM = "team {team} has no {purpose} room yet; it is created by the agent-bus play"
 
 
-def _read_side_text(stdin: BinaryIO, cap: int) -> str:
+def _read_side_text(args: argparse.Namespace, err: TextIO, cap: int) -> str:
     """A report's, question's or thread post's text: stdin as UTF-8, less one trailing
     newline. Over `cap` bytes is refused as `body`, never cut (Plan 00211 SPEC §7)."""
-    raw = stdin.read(cap + 2)
+    raw = _read_stdin(args, err, cap + 2)
     if raw.endswith(b"\n"):
         raw = raw[:-1]
     if len(raw) > cap:
@@ -1256,7 +1272,7 @@ def cmd_report(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
     """SPEC §7: stdin as a quiet notice in the reports room, for the humans to read."""
     rt: Runtime = args.runtime
     member = _one_member(environ, args.team)
-    text = _read_side_text(args.stdin, protocol.MAX_REPORT_BYTES)
+    text = _read_side_text(args, err, protocol.MAX_REPORT_BYTES)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     protocol.check_report_text(text)
@@ -1304,7 +1320,7 @@ def cmd_ask_human(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
     """SPEC §8.2: a coordinator's question, numbered `Q<n>` after the highest in the room."""
     rt: Runtime = args.runtime
     member = _one_member(environ, args.team)
-    text = _read_side_text(args.stdin, protocol.MAX_QUESTION_BYTES)
+    text = _read_side_text(args, err, protocol.MAX_QUESTION_BYTES)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     _coordinator(member, record, "ask-human")
@@ -1351,7 +1367,14 @@ def cmd_thread(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
     if args.re is not None and not protocol.is_event_id(args.re):
         raise protocol.Refusal("re")
     member = _one_member(environ, args.team)
-    text = _read_side_text(args.stdin, protocol.MAX_THREAD_BYTES)
+    if args.note is not None and args.note != "-":
+        raise config.UsageError("thread --note: give - to read the closing note from stdin")
+    if args.note is not None and not args.close:
+        raise config.UsageError("thread --note - is for --close; a post without --close reads its text "
+                                "from stdin anyway")
+    # A close with no note never touches stdin, which in an agent's shell may never end (#260).
+    reads = not args.close or args.note is not None
+    text = _read_side_text(args, err, protocol.MAX_THREAD_BYTES) if reads else ""
     protocol.check_thread_text(text, closing=args.close)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
@@ -2669,7 +2692,7 @@ HOOK_INPUT_MAX = hooks.INPUT_MAX_BYTES
 def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """A Claude Code hook: stdin hook JSON, stdout hook JSON, always exit 0 (§13)."""
     rt: Runtime = args.runtime
-    raw = args.stdin.read(HOOK_INPUT_MAX + 1)
+    raw = stdin_text.read(args.stdin, prog=PROG, err=err, limit=HOOK_INPUT_MAX + 1, wait=rt.stdin_wait)
     post = rt.post or functools.partial(post_goodbye, rt, environ, err)
     result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err,
                        post=post)
@@ -2679,7 +2702,9 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
 
 def cmd_status_line(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """The session's status line, with its agent-bus teams (statusline.py): the kit's statusLine."""
-    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ, err=err)
+    raw = stdin_text.read(args.stdin, prog=PROG, err=err, limit=HOOK_INPUT_MAX + 1,
+                          wait=args.runtime.stdin_wait)
+    text, status = statusline.render(raw, environ, err=err)
     out.write(text + "\n")
     return status
 
@@ -3308,7 +3333,9 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                      "a coordinator's post from stdin in a question's thread of the questions room")
     thread.add_argument("question", nargs="?", metavar="Q<n>")
     thread.add_argument("--ask", action="store_true", help="mention the humans, so Element notifies")
-    thread.add_argument("--close", action="store_true", help="close the question; the text may be empty")
+    thread.add_argument("--close", action="store_true",
+                        help="close the question; stdin is not read unless --note - is given")
+    thread.add_argument("--note", metavar="-", help="with --close, read a closing note from stdin")
     thread.add_argument("--re", metavar="EVENT_ID",
                         help="the questions-room message this answers (the REPLY command gives it)")
     questions = command("questions", cmd_questions,

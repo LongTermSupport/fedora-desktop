@@ -15,6 +15,27 @@ the index, not the record.
 
 ---
 
+## 1.38.1 — the plays with no ledger record are told apart, and listed compactly (issue #323)
+
+A file a package owns no longer counts as a sign that a play ran unless `rpm -V` reports its
+content changed from the package's own, and a file two plays deploy counts for neither. A
+play with no record that none of its files shows ran is `NEVER`; one that deploys no file
+that can be looked for (it only installs packages, say) is the new marker `UNJUDGED`,
+because whether it ran cannot be told. `--changed` lists each kind as a count and the play
+names on one line, on stdout with the other lists, and runs neither. `--rerun` gives each
+its own word, and `--all` prints the state `unjudged`.
+
+## 1.38.0 — `--changed` judges plays with no ledger record too (issue #323)
+
+`--changed` used to judge only the plays the play ledger had a record of, so a play that
+deployed its files here before the ledger existed, or not through `run.bash`, was never run
+again and never named. Now a host play with no record here runs when a file its copy or
+template tasks deploy is on this machine (the reason line names the files), and one with
+nothing of it found is listed as never run here, not judged, and not run: running every
+unrecorded play would install what the owner never chose. `--rerun` shows both, the first
+marked `*`, the second unmarked as "never run here, not judged". The helper's new marker is
+`NEVER <play>`, and `--all` prints the states `unrecorded` and `never`.
+
 ## 1.37.0 — the two sudoers switches can be declared headless
 
 A host whose policy forbids permanent `NOPASSWD` sudoers rules had no way to say so before

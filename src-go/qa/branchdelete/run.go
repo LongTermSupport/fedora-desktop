@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootargs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread"
 )
 
 // ExitCode is the status branch-delete-list exits with.
@@ -39,6 +40,8 @@ type Env struct {
 	// Git runs git in the repository root.
 	Git      proc.Runner
 	ReadFile func(path string) ([]byte, error)
+	// Clock times the wait for the candidate list on Stdin; nil is the real clock.
+	Clock stdinread.Clock
 }
 
 const usageText = `usage: branch-delete-list [--root DIR] [--scripts DIR] [FILE]
@@ -152,7 +155,7 @@ func readCandidates(env Env, file string) ([]string, error) {
 	var data []byte
 	var err error
 	if file == "" || file == "-" {
-		data, err = io.ReadAll(env.Stdin)
+		data, err = stdinread.Read(env.Stdin, stdinread.Options{Prog: "branch-delete-list", Err: env.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: env.Clock})
 	} else {
 		if !filepath.IsAbs(file) {
 			file = filepath.Join(env.Cwd, file)

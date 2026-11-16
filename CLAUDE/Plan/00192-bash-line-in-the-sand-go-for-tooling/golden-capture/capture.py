@@ -18,6 +18,7 @@ The same world semantics are implemented again in Go (golden_test.go); the two m
 import argparse
 import fcntl
 import hashlib
+import importlib
 import json
 import os
 import pty
@@ -31,6 +32,9 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+stdin_text = importlib.import_module("helpers.stdin_text.stdin_text")
 SCENARIOS = REPO / "src-go/internal/freeze/golden/testdata/scenarios.json"
 DEFAULT_REV = "67c20b7f"  # lxcfreeze in Go, the last commit before the bash tools were deleted
 TOOLS = {
@@ -150,7 +154,7 @@ def answer(world, state, argv):
 
 def run_fzf(world, state, args):
     log(state, ["fzf", *args])
-    rows = sys.stdin.read().split("\n")
+    rows = stdin_text.read(sys.stdin, prog="fake fzf").split("\n")
     if rows and rows[-1] == "":
         rows.pop()
     replies = world.get("fzf", [])

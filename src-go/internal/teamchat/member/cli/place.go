@@ -45,7 +45,9 @@ func runPlaceIssued(e Env, inv Invocation) term.ExitCode {
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
-	placed, err := placeissued.Place(context.Background(), placeDeps(state, runtime, key), e.Stdin)
+	d := placeDeps(state, runtime, key)
+	d.Watch.Err, d.Watch.Clock = e.Stderr, e.Clock
+	placed, err := placeissued.Place(context.Background(), d, e.Stdin)
 	if err != nil {
 		return placeissued.Report(e.Stderr, err)
 	}

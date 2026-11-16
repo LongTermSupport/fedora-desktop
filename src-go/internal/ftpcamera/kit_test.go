@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
 )
@@ -36,8 +37,11 @@ type kit struct {
 	config   string
 	stdin    string
 	stdinTTY bool
-	colour   bool
-	proc     fstest.MapFS
+	// pipe, when set, is the run's stdin in place of stdin's text; clock times a wait on it.
+	pipe       io.Reader
+	stdinClock stdinread.Clock
+	colour     bool
+	proc       fstest.MapFS
 	// random is the source of the hotspot password's words.
 	random io.Reader
 
@@ -165,7 +169,10 @@ func (k *kit) path(names ...string) {
 func (k *kit) writeConfig(text string) { writeFile(k.t, k.config, text) }
 
 func (k *kit) app() *App {
-	stdin := strings.NewReader(k.stdin)
+	var stdin io.Reader = strings.NewReader(k.stdin)
+	if k.pipe != nil {
+		stdin = k.pipe
+	}
 	return &App{Env: Env{
 		Runner: kitRunner{k: k},
 		Execer: k.fake,
@@ -189,6 +196,7 @@ func (k *kit) app() *App {
 		ConfigPath: k.config,
 		Echo:       k.echo,
 		Random:     k.random,
+		Clock:      k.stdinClock,
 	}}
 }
 

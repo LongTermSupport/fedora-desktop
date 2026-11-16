@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
@@ -76,7 +77,8 @@ func (s StatusNames) Name(team paths.TeamID) (paths.DisplayName, error) {
 
 // Env is what a run reads and writes: whether the process is root, the desktop user's home and
 // uid (whose files the profile and the consent must be), the sources, and the streams (stdout
-// carries only the CHANGED lines).
+// carries only the CHANGED lines). Clock times the notice and the bound of the input's read
+// (internal/stdinread); nil is the real clock.
 type Env struct {
 	Root      bool
 	Home      string
@@ -85,6 +87,7 @@ type Env struct {
 	Names     Names
 	Stdout    io.Writer
 	Stderr    io.Writer
+	Clock     stdinread.Clock
 }
 
 // Check validates the input and every team's sources and writes nothing. A team not approved
@@ -134,12 +137,18 @@ func Apply(env Env, stdin io.Reader) error {
 
 var errRoot = fmt.Errorf("%w: run as the human's desktop user, not root", ErrRefused)
 
-// start refuses root (EL5) and reads the input (EL1).
+// start refuses root (EL5) and reads the input (EL1): said on stderr once nothing has arrived
+// for a second, and refused once nothing has arrived for stdinread.PipedGiveUp.
 func start(env Env, stdin io.Reader) ([]paths.TeamID, error) {
 	if env.Root {
 		return nil, errRoot
 	}
-	data, err := io.ReadAll(io.LimitReader(stdin, maxInput+1))
+	data, err := stdinread.Read(stdin, stdinread.Options{
+		Prog: "teamchat-admin element", Err: env.Stderr, Limit: maxInput + 1, GiveUpAfter: stdinread.PipedGiveUp, Clock: env.Clock,
+	})
+	if none, ok := errors.AsType[*stdinread.NoInputError](err); ok {
+		return nil, fmt.Errorf("%w: the input: %w", ErrRefused, none)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("element: reading the input: %w", err)
 	}

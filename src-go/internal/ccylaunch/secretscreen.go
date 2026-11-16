@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -31,7 +32,7 @@ func (f Front) secretScreen(context.Context) term.ExitCode {
 	}
 	screen := &term.SecretScreen{W: f.Stdout, Terminal: isTerminal(f.Stdout)}
 	screen.Open()
-	err := f.showSecret(screen)
+	err := f.showSecret(screen, isTerminal)
 	screen.Close()
 	if err == nil {
 		err = screen.Err()
@@ -42,10 +43,14 @@ func (f Front) secretScreen(context.Context) term.ExitCode {
 	return term.ExitOK
 }
 
-func (f Front) showSecret(screen *term.SecretScreen) error {
+func (f Front) showSecret(screen *term.SecretScreen, isTerminal func(any) bool) error {
 	if f.Stdin != nil {
-		if _, err := io.Copy(screen, f.Stdin); err != nil {
-			return errors.New("could not show the text:" + err.Error())
+		// Shown as it arrives, with the notice once nothing has come for a second (issue 260) but
+		// no bound: what feeds it (sudo grep, a vault decrypt) may first wait on a password the
+		// person types for as long as they need.
+		o := stdinread.Options{Prog: "ccy " + altScreenFlag, Err: f.Stderr, Clock: f.InputClock, IsTerminal: isTerminal}
+		if _, err := stdinread.Copy(screen, f.Stdin, o); err != nil {
+			return errors.New("could not show the text: " + err.Error())
 		}
 	}
 	if !screen.Showing() {

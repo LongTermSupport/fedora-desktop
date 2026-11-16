@@ -10,6 +10,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -22,13 +23,21 @@ const maxRestartArgs = 1 << 20
 // back with the --teams of <session>'s record, which a hot add or remove changed while the
 // session ran. The launcher names the session (its one rule for which session it IS; "" for an
 // unnamed launch), so the TMUX it inherited plays no part. Unnamed, or with no record, they
-// pass unchanged.
-func (f *Find) RestartArgs(_ context.Context, args []string, in io.Reader, out io.Writer) term.ExitCode {
+// pass unchanged. Stdin is read through stdinread: a stdin on which nothing arrives within
+// stdinread.PipedGiveUp (an open pipe nothing writes to) is refused, exit 1, naming the bound.
+func (f *Find) RestartArgs(_ context.Context, args []string, stdin io.Reader, out io.Writer) term.ExitCode {
 	if len(args) != 1 {
 		f.say("ccy-teams: 'internal restart-args' takes the session (\"\" for none); it reads the arguments NUL separated on stdin. See ccy-teams --help.")
 		return term.ExitUsage
 	}
-	data, err := io.ReadAll(io.LimitReader(in, maxRestartArgs+1))
+	data, err := stdinread.Read(stdin, stdinread.Options{
+		Prog: "ccy-teams internal restart-args", Err: f.Host.Stderr, Limit: maxRestartArgs + 1,
+		GiveUpAfter: stdinread.PipedGiveUp, Clock: f.Clock,
+	})
+	if none, ok := errors.AsType[*stdinread.NoInputError](err); ok {
+		f.say("ccy-teams: internal restart-args: " + none.Error() + "; the launcher pipes the arguments NUL separated.")
+		return term.ExitFailure
+	}
 	if err != nil || len(data) > maxRestartArgs || (len(data) > 0 && data[len(data)-1] != 0) {
 		f.say("ccy-teams: internal restart-args: the arguments on stdin are not a NUL-terminated list.")
 		return term.ExitFailure

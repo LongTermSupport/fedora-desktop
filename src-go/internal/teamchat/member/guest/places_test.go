@@ -161,7 +161,7 @@ func (w *world) issued(b seat.Bundle, kind seat.Kind, token string) []byte {
 
 func (w *world) place(data []byte) ([]What, error) {
 	var r recorder
-	err := PlaceBundle(w.t.Context(), w.home, w.key, w.clock, bytes.NewReader(data), &r)
+	err := PlaceBundle(w.t.Context(), w.home, w.key, w.clock, Input{Stdin: bytes.NewReader(data)}, &r)
 	return r.whats, err
 }
 
@@ -173,10 +173,10 @@ func (failingReader) Read([]byte) (int, error) { return 0, errors.New("a broken 
 func TestAnUnreadableStdinIsAnError(t *testing.T) {
 	w := newWorld(t)
 	var r recorder
-	if err := PlaceBundle(t.Context(), w.home, w.key, w.clock, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
+	if err := PlaceBundle(t.Context(), w.home, w.key, w.clock, Input{Stdin: failingReader{}}, &r); err == nil || errors.As(err, new(*exits.Error)) {
 		t.Fatalf("place-bundle: %v", err)
 	}
-	if err := Membership(w.home, w.key, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
+	if err := Membership(w.home, w.key, Input{Stdin: failingReader{}}, &r); err == nil || errors.As(err, new(*exits.Error)) {
 		t.Fatalf("membership: %v", err)
 	}
 }
@@ -209,7 +209,7 @@ func TestAFailedWriteIsAnError(t *testing.T) {
 
 func (w *world) placeBetween(data []byte, between func()) ([]What, error) {
 	var r recorder
-	err := placeBundle(w.t.Context(), w.home, w.key, w.clock, bytes.NewReader(data), &r, between)
+	err := placeBundle(w.t.Context(), w.home, w.key, w.clock, Input{Stdin: bytes.NewReader(data)}, &r, between)
 	return r.whats, err
 }
 
@@ -568,7 +568,7 @@ func TestPlaceBundleRefusesAnotherUsersSeat(t *testing.T) {
 
 func (w *world) membership(data []byte) ([]What, error) {
 	var r recorder
-	err := Membership(w.home, w.key, bytes.NewReader(data), &r)
+	err := Membership(w.home, w.key, Input{Stdin: bytes.NewReader(data)}, &r)
 	return r.whats, err
 }
 

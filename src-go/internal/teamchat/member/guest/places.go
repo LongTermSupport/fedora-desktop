@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
@@ -85,13 +86,13 @@ const (
 
 // PlaceBundle is `guest place-bundle` (GU3): the issued token bundle on stdin placed as its
 // team's seat under seat k's state root in the guest's home.
-func PlaceBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, stdin io.Reader, out changes) error {
-	return placeBundle(ctx, h, k, clock, stdin, out, func() {})
+func PlaceBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, in Input, out changes) error {
+	return placeBundle(ctx, h, k, clock, in, out, func() {})
 }
 
 // placeBundle is PlaceBundle with between run after the token's rename, before seat.json's.
-func placeBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, stdin io.Reader, out changes, between func()) error {
-	data, err := readCapped(stdin, maxIssued)
+func placeBundle(ctx context.Context, h *Identity, k paths.SeatKey, clock Clock, in Input, out changes, between func()) error {
+	data, err := in.readCapped(OpPlaceBundle, maxIssued)
 	if err != nil {
 		return err
 	}
@@ -254,8 +255,8 @@ func replaceIfDiffers(root *homefs.Root, full string, data []byte, limit int, ou
 
 // Membership is `guest membership` (GU4): the desired membership on stdin, for the session
 // lxc-<key>, written as seat k's desired.json in its canonical bytes.
-func Membership(h *Identity, k paths.SeatKey, stdin io.Reader, out changes) error {
-	data, err := readCapped(stdin, state.MaxDesired)
+func Membership(h *Identity, k paths.SeatKey, in Input, out changes) error {
+	data, err := in.readCapped(OpMembership, state.MaxDesired)
 	if over, ok := errors.AsType[*exits.Error](err); ok && over.Code == exits.CodeBundle {
 		return exits.New(exits.CodeMembership, nil, msgDesired)
 	}
@@ -436,11 +437,38 @@ func seatFault(team paths.TeamID, err error) error {
 	return err
 }
 
-// readCapped reads all of r, refusing more than limit bytes as 78 bundle.
-func readCapped(r io.Reader, limit int) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+// Input is an op's stdin and how its read is watched (internal/stdinread): where the notice
+// that it is waiting goes (nil: os.Stderr) and the clock of that notice and of the bound (nil:
+// the real one). The host writes and closes each op's input; the bound ends an op run with an
+// input that never comes.
+type Input struct {
+	Stdin io.Reader
+	Err   io.Writer
+	Clock stdinread.Clock
+}
+
+const msgNoInput exits.Template = "teamchat {} had no input: {}; pipe its input in"
+
+// read is at most limit bytes of the input; nothing arriving within stdinread.PipedGiveUp is 64
+// usage naming the bound, for team (nil: none named).
+func (in Input) read(op Op, team *paths.TeamID, limit int64) ([]byte, error) {
+	data, err := stdinread.Read(in.Stdin, stdinread.Options{
+		Prog: "teamchat " + op.Verb, Err: in.Err, Limit: limit, GiveUpAfter: stdinread.PipedGiveUp, Clock: in.Clock,
+	})
+	if none, ok := errors.AsType[*stdinread.NoInputError](err); ok {
+		return nil, exits.New(exits.CodeUsage, team, msgNoInput, exits.Words(op.Verb), exits.Words(none.Error()))
+	}
+	return data, err
+}
+
+// readCapped reads all of the input, refusing more than limit bytes as 78 bundle.
+func (in Input) readCapped(op Op, limit int) ([]byte, error) {
+	data, err := in.read(op, nil, int64(limit)+1)
+	if errors.As(err, new(*exits.Error)) {
+		return nil, err
+	}
 	if err != nil {
-		return nil, fmt.Errorf("guest: read stdin: %w", err)
+		return nil, fmt.Errorf("guest: %w", err)
 	}
 	if len(data) > limit {
 		return nil, exits.New(exits.CodeBundle, nil, msgBundle)

@@ -46,6 +46,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"unit-holds-boot-target", "issue #263, Defence Before Fix: no systemd unit a boot target wants declares a start longer than 90 s without being ordered after that target"},
 	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"walk-opens-non-regular-file", "issue #191, Defence Before Fix: no Python opens an entry a directory walk found without checking it is a regular file"},
+	{"stdin-read-unbounded", "issue #260, Defence Before Fix: no Python reads stdin directly instead of through helpers/stdin_text, which says when it is waiting and takes a bound"},
 	{"podman-store-probe-race", "issue #152: the rootless store ownership probe prints nothing for a file a container deletes during the walk, raced for real"},
 	{"github-poll-too-often", "Defence Before Fix: no script or recipe polls GitHub more often than once a minute, which spent the shared API limit"},
 	{"raw-prune-tests", "raw-prune deletes files and had no suite; the #295 sweep found it deleting a RAW whose JPG sat in a folder find could not read"},

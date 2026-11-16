@@ -243,7 +243,8 @@ or at your next prompt: from then on act in the new role.
   as a `HUMAN` line whose `ROOM` is `questions:Q<n>` (or `questions:-`, attached to no
   question). Answer it, then pass the answer to each agent that asked
   (`pingbus say --to ASKER --re 'THEIR_EVENT_ID'`), then close the question
-  (`pingbus thread Q1 --close`). The `REPLY` command of such a line is
+  (`pingbus thread Q1 --close`, which reads no stdin; to close with a note, pipe it to
+  `pingbus thread Q1 --close --note -`). The `REPLY` command of such a line is
   `pingbus --team TEAM thread Q<n>`: it posts into the question's thread, quietly, or with
   `--ask` so the humans are notified; for an unattached message it is
   `pingbus thread --re 'EVENT_ID'`. A `revises:` line means the human corrected an earlier

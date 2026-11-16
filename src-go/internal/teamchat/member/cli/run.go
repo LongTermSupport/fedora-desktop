@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -15,7 +16,8 @@ import (
 // Env is what a run of the binary is given: its arguments after the program name, its
 // standard streams, the source digest the build set, its environment, and the verbs built
 // outside this package. cmd/teamchat passes those in Verbs, so cli imports none of the
-// packages that build them (the keeper imports cli for its launch line; n3c-D5).
+// packages that build them (the keeper imports cli for its launch line; n3c-D5). Clock times
+// the notice and the bound of a read of Stdin (internal/stdinread); nil is the real clock.
 type Env struct {
 	Args   []string
 	Stdin  io.Reader
@@ -24,6 +26,7 @@ type Env struct {
 	Digest string
 	Getenv func(string) string
 	Verbs  map[string]RunFunc
+	Clock  stdinread.Clock
 }
 
 // RunFunc is one verb's body: the binary's Env and its parsed command line, to its exit.

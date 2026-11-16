@@ -27,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import typing
 import unittest
 import urllib.parse
 from unittest import mock
@@ -221,16 +222,20 @@ class BusCase(unittest.TestCase):
             upstream=lambda: self.upstream,
         )
 
-    def run_cli(self, *argv: str, stdin: str | bytes = b"", long_poll_ms: int = LONG_POLL_MS,
-                env: dict[str, str] | None = None, sleep=None,
-                monotonic=None) -> tuple[int, str, str]:
+    def run_cli(self, *argv: str, stdin: str | bytes | typing.BinaryIO = b"",
+                long_poll_ms: int = LONG_POLL_MS, env: dict[str, str] | None = None, sleep=None,
+                monotonic=None, stdin_wait=None) -> tuple[int, str, str]:
+        """`stdin` is text or bytes, or a stream for a test of how stdin is read; `stdin_wait`
+        replaces the reader's wait for input (helpers/stdin_text), so no test reads the clock."""
         out, err = io.StringIO(), io.StringIO()
-        data = stdin.encode("utf-8") if isinstance(stdin, str) else stdin
+        if isinstance(stdin, str | bytes):
+            stdin = io.BytesIO(stdin.encode("utf-8") if isinstance(stdin, str) else stdin)
         threads: list[threading.Thread] = []
+        runtime = self.runtime(long_poll_ms, sleep=sleep, monotonic=monotonic, threads=threads)
+        if stdin_wait is not None:
+            runtime.stdin_wait = stdin_wait
         code = cli.main(list(argv), environ=env or self.env, stdout=out, stderr=err,
-                        stdin=io.BytesIO(data),
-                        runtime=self.runtime(long_poll_ms, sleep=sleep, monotonic=monotonic,
-                                             threads=threads))
+                        stdin=stdin, runtime=runtime)
         self.returned_at = time.monotonic()
         # A team's thread (`watch`'s, `wait`'s) outlives `main` and may still write to the
         # streams: they are read once every thread this run started has ended (issue #180).

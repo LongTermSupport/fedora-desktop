@@ -25,7 +25,7 @@ func TestStripSuspendDropsOnlyTheSuspendByte(t *testing.T) {
 
 func TestTheGuardRunsTheChildOnATerminalAndFiltersItsInput(t *testing.T) {
 	out := &bytes.Buffer{}
-	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader("ab\x1acd\n"), Out: out, InFd: -1}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: strings.NewReader("ab\x1acd\n"), Out: out, InFd: -1}
 	exit, err := g.Run(execx.Cmd{Name: "sh", Args: []string{"-c", `test -t 0 || exit 9; IFS= read -r line; printf '<%s>' "$line"; exit 4`}})
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestTheGuardGivesTheSessionTheTerminalsSizeAndPutsTheModeBack(t *testing.T)
 		t.Fatal(err)
 	}
 	out := &bytes.Buffer{}
-	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: out, InFd: fd}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: strings.NewReader(""), Out: out, InFd: fd}
 	if _, err = g.Run(execx.Cmd{Name: "stty", Args: []string{"size"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestTheGuardPassesAWindowChangeOn(t *testing.T) {
 			t.Error(cerr)
 		}
 	})
-	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(person.Fd())}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(person.Fd())}
 	exit, err := g.Run(execx.Cmd{Name: "sh", Args: []string{"-c", `kill -WINCH "$PPID"; sleep 0.3`}})
 	if err != nil || exit.Code != 0 {
 		t.Fatalf("exit %d, %v", exit.Code, err)
@@ -107,7 +107,7 @@ func TestTheGuardEndsTheKeyCopyWithTheSession(t *testing.T) {
 	signal.Notify(primed, syscall.SIGWINCH)
 	signal.Stop(primed)
 	leakcheck.Check(t)
-	g := &PtyGuard{Foreground: execx.OS{}, In: person, Out: &bytes.Buffer{}, InFd: fd}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: person, Out: &bytes.Buffer{}, InFd: fd}
 	exit, err := g.Run(execx.Cmd{Name: "true"})
 	if err != nil || exit.Code != 0 {
 		t.Fatalf("exit %d, %v", exit.Code, err)
@@ -115,7 +115,7 @@ func TestTheGuardEndsTheKeyCopyWithTheSession(t *testing.T) {
 }
 
 func TestTheGuardRefusesAnInputThatIsNotATerminal(t *testing.T) {
-	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(os.Stdin.Fd())}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: int(os.Stdin.Fd())}
 	if _, err := unix.IoctlGetTermios(g.InFd, unix.TCGETS); err == nil {
 		t.Skip("the test's stdin is a terminal")
 	}
@@ -125,7 +125,7 @@ func TestTheGuardRefusesAnInputThatIsNotATerminal(t *testing.T) {
 }
 
 func TestTheGuardReportsAChildThatCannotStart(t *testing.T) {
-	g := &PtyGuard{Foreground: execx.OS{}, In: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: -1}
+	g := &PtyGuard{Foreground: execx.OS{}, Stdin: strings.NewReader(""), Out: &bytes.Buffer{}, InFd: -1}
 	if _, err := g.Run(execx.Cmd{Name: "/nonexistent/program"}); err == nil {
 		t.Fatal("want an error")
 	}

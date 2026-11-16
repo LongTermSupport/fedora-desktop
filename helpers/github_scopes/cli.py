@@ -27,6 +27,7 @@ import subprocess
 import sys
 
 from helpers.github_scopes import scopes
+from helpers.stdin_text import stdin_text
 
 DEFAULT_SCOPES_FILE = pathlib.Path(__file__).resolve().parents[2] / "vars" / "github-required-scopes.yml"
 HOST = "github.com"
@@ -82,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "required":
         print(",".join(required))
     elif args.command == "missing":
-        lacking = scopes.missing(required, scopes.parse_granted_response(sys.stdin.read()))
+        lacking = scopes.missing(required, scopes.parse_granted_response(stdin_text.read(sys.stdin, prog=parser.prog)))
         if args.marker:
             print(f"MISSING:{','.join(lacking)}" if lacking else "OK")
         elif lacking:

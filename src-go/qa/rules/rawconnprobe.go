@@ -63,7 +63,7 @@ func runRawConnProbe(pass *analysis.Pass) {
 // func(func(uintptr) bool) error.
 func isRawConnWait(pass *analysis.Pass, call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || (sel.Sel.Name != "Read" && sel.Sel.Name != "Write") || len(call.Args) != 1 {
+	if !ok || (sel.Sel.Name != methodRead && sel.Sel.Name != "Write") || len(call.Args) != 1 {
 		return false
 	}
 	m, isFunc := pass.TypesInfo.Uses[sel.Sel].(*types.Func)

@@ -16,6 +16,7 @@ import (
 // line of its FailureError.
 const (
 	msgEmpty       exits.Template = "nothing on stdin; pipe in the answer of teamchat-admin member add, return or reissue"
+	msgNoInput     exits.Template = "{}; pipe in the answer of teamchat-admin member add, return or reissue"
 	msgTooBig      exits.Template = "the document on stdin is larger than an issued seat can be"
 	msgNotJSON     exits.Template = "the document on stdin is not strict JSON"
 	msgTrailing    exits.Template = "the document on stdin has content after its JSON value"

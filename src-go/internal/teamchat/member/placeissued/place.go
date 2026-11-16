@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -29,6 +30,9 @@ type Deps struct {
 	Credential seat.Credential
 	// Reach asks whether a new seat's homeserver answers from this machine.
 	Reach seat.Reacher
+	// Watch is how stdin's read is watched: its Err (nil: os.Stderr) and Clock (nil: the real
+	// one); Read sets the rest.
+	Watch stdinread.Options
 }
 
 // OS is the Deps of the real machine: the real clock, the pool password as the pool's credential
@@ -68,15 +72,15 @@ func (notUsed) Disconnected(context.Context, seat.Notice) (seat.Outcome, error) 
 	return seat.Outcome{}, errNotUsed
 }
 
-// Place places the issued seat on r in the pool of d.Checkout: Read judges the document first, and
-// a refused document touches nothing. Then the store is opened and its allocation lock taken; a
+// Place places the issued seat on stdin in the pool of d.Checkout: ReadWatched judges the
+// document first, its read watched by d.Watch, and a refused document touches nothing. Then the store is opened and its allocation lock taken; a
 // crashed placement's leftovers go to quarantine; and the seat is claimed, filled and swapped in
 // by the store's own placement, which refuses a team on another homeserver, a credential of
 // another kind, and a new seat whose homeserver does not answer. A seat that already has a record
 // is replaced and the old record quarantined with its credential unlinked. Every refusal is a
 // *FailureError; an error reading stdin is returned as it is.
-func Place(ctx context.Context, d Deps, r io.Reader) (Placed, error) {
-	is, err := Read(r)
+func Place(ctx context.Context, d Deps, stdin io.Reader) (Placed, error) {
+	is, err := ReadWatched(stdin, d.Watch)
 	if err != nil {
 		return Placed{}, err
 	}

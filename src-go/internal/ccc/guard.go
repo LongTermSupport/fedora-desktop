@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/keyrelay"
 )
 
 // suspendByte is ctrl+z. Claude Code's terminal UI stops itself with SIGSTOP when it reads it,
@@ -37,9 +37,9 @@ type Guard interface {
 // supervisor, so the guard is here instead.
 type PtyGuard struct {
 	Foreground execx.Foregrounder
-	In         io.Reader
+	Stdin      io.Reader
 	Out        io.Writer
-	// InFd is In's terminal, put in raw mode and followed for its size; -1 when In is not one.
+	// InFd is Stdin's terminal, put in raw mode and followed for its size; -1 when Stdin is not one.
 	InFd int
 }
 
@@ -58,7 +58,9 @@ func (g *PtyGuard) Run(c execx.Cmd) (execx.Exit, error) {
 	if err != nil {
 		return execx.Exit{}, errors.Join(err, slave.Close(), master.Close())
 	}
-	keys, err := g.copyKeys(master)
+	// The keys are relayed through the keyrelay seam, which reads the terminal only once poll
+	// finds a key and ends when stopped.
+	keys, err := keyrelay.Start(master, g.Stdin, g.InFd, stripSuspend)
 	if err != nil {
 		return execx.Exit{}, errors.Join(err, restore(), slave.Close(), master.Close())
 	}
@@ -76,9 +78,9 @@ func (g *PtyGuard) Run(c execx.Cmd) (execx.Exit, error) {
 	}
 	// The key copy is stopped, then the pseudo-terminal closed, which ends a write to it the
 	// session left unread; only then is the copy waited for.
-	stopErr := keys.stop()
+	stopErr := keys.Stop()
 	masterErr := master.Close()
-	keysErr := keys.wait()
+	keysErr := keys.Wait()
 	return exit, errors.Join(runErr, closeErr, drainErr, stopErr, masterErr, keysErr, restore())
 }
 
@@ -171,103 +173,6 @@ func copyOut(w io.Writer, master *os.File) error {
 		return nil
 	}
 	return fmt.Errorf("copy the session's output: %w", err)
-}
-
-// keyCopy is the copy of the person's keys to the session, on a goroutine of its own.
-type keyCopy struct {
-	// pipe stops the copy: once its write end is closed, its read end polls as hung up.
-	pipe [2]int
-	done chan struct{}
-	// err is why the copy could not wait for a key, read once done is closed.
-	err error
-}
-
-// copyKeys starts the copy of In to master; stop then wait end it.
-func (g *PtyGuard) copyKeys(master *os.File) (*keyCopy, error) {
-	k := &keyCopy{done: make(chan struct{})}
-	if err := unix.Pipe2(k.pipe[:], unix.O_CLOEXEC); err != nil {
-		return nil, fmt.Errorf("make the pipe that stops the key copy: %w", err)
-	}
-	go k.copy(master, g.In, g.InFd)
-	return k, nil
-}
-
-// copy copies in to master without the suspend byte until either side ends or the copy is
-// stopped. A read of the person's terminal blocks until the next key, and closing the terminal
-// does not end it (os.Stdin is in blocking mode), so the terminal is read only once poll finds a
-// key on it. An in with no terminal (inFd -1, a test's reader) is read directly, and must end by
-// itself.
-func (k *keyCopy) copy(master *os.File, in io.Reader, inFd int) {
-	defer close(k.done)
-	buf := make([]byte, 4096)
-	for {
-		if inFd >= 0 {
-			waiting, err := k.keyWaiting(inFd)
-			if err != nil || !waiting {
-				k.err = err
-				return
-			}
-		}
-		n, err := in.Read(buf)
-		if n > 0 {
-			if _, werr := master.Write(stripSuspend(buf[:n])); werr != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
-// keyWaiting waits until the terminal at fd can be read (a key, or a hang-up the read then
-// reports); false once the copy is stopped.
-func (k *keyCopy) keyWaiting(fd int) (bool, error) {
-	terminal, err := pollIn(fd)
-	if err != nil {
-		return false, err
-	}
-	stop, err := pollIn(k.pipe[0])
-	if err != nil {
-		return false, err
-	}
-	fds := []unix.PollFd{terminal, stop}
-	for {
-		_, err := unix.Poll(fds, -1)
-		switch {
-		case errors.Is(err, unix.EINTR):
-			continue
-		case err != nil:
-			return false, fmt.Errorf("wait for a key: %w", err)
-		}
-		return fds[1].Revents == 0, nil
-	}
-}
-
-// pollIn is poll's entry for fd becoming readable.
-func pollIn(fd int) (unix.PollFd, error) {
-	if fd < 0 || fd > math.MaxInt32 {
-		return unix.PollFd{}, fmt.Errorf("wait for a key: descriptor %d is not one poll takes", fd)
-	}
-	return unix.PollFd{Fd: int32(fd), Events: unix.POLLIN}, nil
-}
-
-// stop ends a wait for a key at once; a key being copied is still written.
-func (k *keyCopy) stop() error {
-	if err := unix.Close(k.pipe[1]); err != nil {
-		return fmt.Errorf("stop the key copy: %w", err)
-	}
-	return nil
-}
-
-// wait is the copy's end, and closes the pipe that stopped it.
-func (k *keyCopy) wait() error {
-	<-k.done
-	err := k.err
-	if cerr := unix.Close(k.pipe[0]); cerr != nil {
-		err = errors.Join(err, fmt.Errorf("close the pipe that stopped the key copy: %w", cerr))
-	}
-	return err
 }
 
 // openPty is a new pseudo-terminal pair, neither side made ccc's controlling terminal.

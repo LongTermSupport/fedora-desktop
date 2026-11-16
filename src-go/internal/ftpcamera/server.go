@@ -396,7 +396,8 @@ func (s *session) wifiJoin(ctx context.Context) error {
 // showWifi shows the hotspot's Wi-Fi password for the camera to join, on the secret screen
 // (the terminal's alternate screen), before the FTP server starts, and leaves that screen on
 // Enter: the password stays in no scrollback once the session's log runs (issue 255). Nothing
-// is shown when stdout is not a terminal, where it would stay. Ctrl-C ends the wait.
+// is shown when stdout is not a terminal, where it would stay. Ctrl-C ends the wait; a piped
+// Enter that does not come within stdinread.PipedGiveUp fails the session.
 func (s *session) showWifi(ctx context.Context) error {
 	c := s.c
 	if s.wifiPass == "" || !c.env.IsTerminal(c.env.Stdout) {
@@ -405,24 +406,16 @@ func (s *session) showWifi(ctx context.Context) error {
 	screen := &term.SecretScreen{W: c.out.w, Terminal: true}
 	screen.Show(fmt.Sprintf("\nJoin the camera to the Wi-Fi network %s with the password\n\n    %s\n\n"+
 		"Press Enter once the camera has joined: the password is then cleared from the screen.\n", s.hotspot.ssid, s.wifiPass))
-	read := make(chan struct{})
-	go func() {
-		_, err := bufio.NewReader(c.env.Stdin).ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			c.err.f("ftp-camera: reading the Enter: %v\n", err)
-		}
-		close(read)
-	}()
-	select {
-	case <-read:
-	case <-ctx.Done():
-	}
+	waitErr := c.awaitEnter(ctx, "Wi-Fi password")
 	screen.Close()
+	if waitErr != nil && ctx.Err() == nil {
+		waitErr = c.failErr("%v", waitErr)
+	}
 	s.wifiShown = true
 	if err := screen.Err(); err != nil {
 		return c.failErr("could not show the Wi-Fi password: %v", err)
 	}
-	return ctx.Err()
+	return waitErr
 }
 
 func (s *session) hotspotRows() {

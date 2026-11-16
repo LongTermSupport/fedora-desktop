@@ -178,7 +178,7 @@ func TestDecliningARetryCancels(t *testing.T) {
 	if code := w.app.Run(context.Background(), nil); code != term.ExitCancelled {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(w.stderr.String(), "Please answer") {
+	if !strings.Contains(w.stderr.String(), "Answer y or n.") {
 		t.Fatalf("stderr %q", w.stderr)
 	}
 }

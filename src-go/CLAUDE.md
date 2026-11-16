@@ -90,6 +90,9 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   `ccy-sessions wind-down` calls; W1-W6), `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
   `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
   login without `gh auth switch`),
+  `stdinread` (the one reader of a command's piped stdin: a notice on stderr once nothing has
+  arrived for a second, a bound after which it refuses, a terminal refused on request; issue
+  #260, rule `project_stdin_seam`),
   `duration` (`duration.Times`, a Duration times a number that refuses a product past int64,
   for a number no refusal in its package bounds: `project_duration_overflow`),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
@@ -214,7 +217,7 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   tmux target forms, no wall clock in tests, no real-time bound a test can shorten, teamchat's
   launch value branched on only in its agent seam, a teamchat send's room decided for each room
   by name (never main's path for every room but one), no Duration built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
-  its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
+  its error, stdin read only through `internal/stdinread` or a `ui` prompt (an open pipe never ends), no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
@@ -573,7 +576,11 @@ The same engine, given its `HookHandlers` spec, is `qa/cmd/qa-hook-handler-rules
 daemon loads; Python only, proven against `.semgrep/hook-handlers.py`); its real-semgrep tests
 are in the command package. Given its `WalkOpen` spec it is `qa/cmd/qa-walk-open` and
 `scripts/qa-walk-open.bash`, the gate for `.semgrep/walk-open.yml` (`walk-opens-non-regular-file`,
-issue #191; Python only, proven against `.semgrep/walk-open.py`).
+issue #191; Python only, proven against `.semgrep/walk-open.py`). Given its `StdinWait` spec it is
+`qa/cmd/qa-stdin-wait` and `scripts/qa-stdin-wait.bash`, the gate for `.semgrep/stdin-wait.yml`
+(`stdin-read-unbounded`, issue #260; Python only, proven against `.semgrep/stdin-wait.py`). A
+file every rule of its language excludes by `paths.exclude` is never handed to semgrep (S10a);
+the glob matcher is `semgrepreport.CompileExcludes`, shared with the ghscopes engine.
 
 `qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
 the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner

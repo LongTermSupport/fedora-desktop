@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 )
@@ -37,13 +39,23 @@ const (
 	jsonSpace = " \t\r\n"
 )
 
-// Read is the issued seat on r: strict JSON within maxDocument bytes, either the issued
+// Read is ReadWatched with its notice on os.Stderr, timed by the real clock.
+func Read(stdin io.Reader) (seat.Issued, error) { return ReadWatched(stdin, stdinread.Options{}) }
+
+// ReadWatched is the issued seat on stdin: strict JSON within maxDocument bytes, either the issued
 // document itself (a seat and one credential) or the answer of teamchat-admin member add,
 // return or reissue around it (its bundle member, with only the members that answer has), read
 // by seat.DecodeIssued. A refusal is a *FailureError of 78 bundle that quotes nothing of the
-// document; a read error is returned as it is.
-func Read(r io.Reader) (seat.Issued, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxDocument+1))
+// document; a read error is returned as it is. The read is watched by w (its Err and Clock;
+// internal/stdinread): a stdin nothing has arrived on after a second is said on w.Err, and one
+// still silent at stdinread.PipedGiveUp is refused naming the bound (its *stdinread.NoInputError
+// is in the refusal).
+func ReadWatched(stdin io.Reader, w stdinread.Options) (seat.Issued, error) {
+	w.Prog, w.Limit, w.GiveUpAfter = "teamchat seat place-issued", maxDocument+1, stdinread.PipedGiveUp
+	data, err := stdinread.Read(stdin, w)
+	if none, ok := errors.AsType[*stdinread.NoInputError](err); ok {
+		return seat.Issued{}, &FailureError{Object: exits.New(exits.CodeBundle, nil, msgNoInput, exits.Words(none.Error())), err: err}
+	}
 	if err != nil {
 		return seat.Issued{}, fmt.Errorf("placeissued: read stdin: %w", err)
 	}

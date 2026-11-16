@@ -77,6 +77,7 @@ forge = importlib.import_module("helpers.pingbus.forge")
 limits = importlib.import_module("helpers.pingbus.limits")
 protocol = importlib.import_module("helpers.pingbus.protocol")
 screen = importlib.import_module("helpers.agent_bus.screen")
+stdin_text = importlib.import_module("helpers.stdin_text.stdin_text")
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -460,7 +461,7 @@ def _read(path: str) -> str:
 
 
 def _json_stdin() -> object:
-    return json.loads(sys.stdin.read())
+    return json.loads(stdin_text.read(sys.stdin, prog="acceptance_check"))
 
 
 def _print_json(value: object) -> None:
@@ -513,7 +514,7 @@ COMMANDS = {
     "set-limit": (3, lambda a: _set_limit(*a)),
     "member-field": (2, lambda a: print(_field(a[0], a[1]))),
     "handle": (1, lambda a: print(handle_of(_field(a[0], "user_id")))),
-    "login-body": (1, lambda a: _print_json(login_body(a[0], sys.stdin.read().removesuffix("\n")))),
+    "login-body": (1, lambda a: _print_json(login_body(a[0], stdin_text.read(sys.stdin, prog="acceptance_check").removesuffix("\n")))),
     "access-token": (0, lambda a: _show_secret(access_token(_json_stdin()))),
     "event-id": (0, lambda a: print(event_id_of(_json_stdin()))),
     "room-path": (1, lambda a: print(room_path(a[0]))),

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -66,7 +67,7 @@ func run(e cli.Env, d deps) term.ExitCode {
 	defer relays.Wait()
 	defer cancel(nil)
 	relays.Go(func() { relay(ctx, d.signals, cancel) })
-	raw, ok := readStdin(ctx, e.Stdin)
+	raw, ok := readStdin(ctx, e, d.clock)
 	if !ok {
 		return cancelExit(ctx)
 	}
@@ -118,14 +119,16 @@ func cancelExit(ctx context.Context) term.ExitCode {
 }
 
 // readStdin is the payload, read beside the cancel so a signal during the read still ends the
-// render; a stdin that fails to read, or none, is no payload. False is a cancel first.
-func readStdin(ctx context.Context, stdin io.Reader) ([]byte, bool) {
-	if stdin == nil {
+// render; a stdin that fails to read, or none, is no payload. False is a cancel first. Claude
+// Code always writes and closes the payload, so the read has no bound; a payload that has not
+// ended after a second is said on stderr (internal/stdinread).
+func readStdin(ctx context.Context, e cli.Env, clk stdinread.Clock) ([]byte, bool) {
+	if e.Stdin == nil {
 		return nil, true
 	}
 	got := make(chan []byte, 1)
 	go func() {
-		raw, err := io.ReadAll(io.LimitReader(stdin, maxPayload+1))
+		raw, err := stdinread.Read(e.Stdin, stdinread.Options{Prog: "teamchat status-line", Err: e.Stderr, Limit: maxPayload + 1, Clock: clk})
 		if err != nil {
 			raw = nil
 		}

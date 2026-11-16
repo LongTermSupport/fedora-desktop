@@ -23,6 +23,8 @@ import re
 import sys
 from typing import TextIO
 
+from helpers.stdin_text import stdin_text
+
 EXIT_OK = 0
 EXIT_INVALID = 2
 
@@ -88,7 +90,7 @@ def render(principal: str, keys: list[str]) -> str:
 def main(*, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     try:
         try:
-            given = json.loads(stdin.read())
+            given = json.loads(stdin_text.read(stdin, prog="signers", err=stderr))
         except json.JSONDecodeError as error:
             raise InvalidSigners(f"the input is not JSON: {error}") from error
         if not isinstance(given, dict) or not {"principal", "keys", "key"} <= given.keys():

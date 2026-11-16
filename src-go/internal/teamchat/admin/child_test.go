@@ -342,7 +342,7 @@ func (errReader) Read([]byte) (int, error) { return 0, errors.New("eio") }
 func TestCtlChildUnreadableStdin(t *testing.T) {
 	var stdout, stderr strings.Builder
 	code := Run(t.Context(), Env{Args: []string{"ctl-child"}, Stdin: errReader{}, Stdout: &stdout, Stderr: &stderr, Proc: childProc(), Digest: digest})
-	if code != term.ExitFailure || !strings.Contains(stdout.String(), "cannot read the request: eio") {
+	if code != term.ExitFailure || !strings.Contains(stdout.String(), "cannot read the request: read stdin: eio") {
 		t.Fatalf("unreadable stdin: %d %q %q", code, stdout.String(), stderr.String())
 	}
 }

@@ -29,6 +29,7 @@ import argparse
 import sys
 
 from helpers.vmtest import scenarios
+from helpers.stdin_text import stdin_text
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        manifest = scenarios.load_manifest(sys.stdin.read(), args.fedora_version)
+        manifest = scenarios.load_manifest(stdin_text.read(sys.stdin, prog=parser.prog), args.fedora_version)
         if args.scenario is not None:
             scenario = manifest.scenarios.get(args.scenario)
             if scenario is None:

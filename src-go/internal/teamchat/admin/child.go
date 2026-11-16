@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"path/filepath"
 	"regexp"
@@ -107,7 +106,7 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err := checkStarted(e.Proc); err != nil {
 		return fail(e.Stderr, ExitConfig, "ctl-child was not started by root's child spec: "+err.Error())
 	}
-	raw, err := io.ReadAll(io.LimitReader(e.Stdin, maxRequest+1))
+	raw, err := e.readStdin("ctl-child", maxRequest)
 	if err != nil {
 		return childFailed(e, "cannot read the request: "+err.Error())
 	}

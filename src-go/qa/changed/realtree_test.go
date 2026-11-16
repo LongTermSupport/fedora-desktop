@@ -249,6 +249,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/secret-screen.fixture.yml":  "check:secret-screen",
 	".semgrep/walk-open.yml":              "check:walk-open",
 	".semgrep/walk-open.py":               "check:walk-open",
+	".semgrep/stdin-wait.yml":             "check:stdin-wait",
+	".semgrep/stdin-wait.py":              "check:stdin-wait",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {

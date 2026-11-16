@@ -16,6 +16,8 @@ import pathlib
 import re
 import sys
 
+from helpers.stdin_text import stdin_text
+
 PLACEHOLDER_RE = re.compile(r"@([A-Z][A-Z0-9_]*)@")
 
 
@@ -49,7 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     pairs = list(args.set)
     if args.set_stdin:
-        pairs.extend(line.rstrip("\n") for line in sys.stdin if line.strip())
+        lines = stdin_text.read(sys.stdin, prog=parser.prog).split("\n")
+        pairs.extend(line for line in lines if line.strip())
     values: dict[str, str] = {}
     for item in pairs:
         name, separator, value = item.partition("=")

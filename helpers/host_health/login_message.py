@@ -89,7 +89,7 @@ _RUNS_CHANGED = "every play that changed or failed since it ran here"
 
 #: The play states `run.bash --changed` runs, as `play_runner.runnable` writes them into
 #: the document.
-_RUN_STATES = frozenset({freshness.STALE, freshness.FAILED})
+_RUN_STATES = frozenset({freshness.STALE, freshness.FAILED, freshness.UNRECORDED})
 
 
 def _checkout() -> str:

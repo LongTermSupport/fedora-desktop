@@ -61,6 +61,8 @@ import unicodedata
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
+from helpers.stdin_text import stdin_text
+
 COMMAND = "pingbus status-line"
 #: The Go port of this command (src-go/cmd/pingbus-status-line, Plan 00213), which the member
 #: kit and a seated session run; this module is its parity oracle. A settings file naming
@@ -557,6 +559,7 @@ def main() -> int:
     """The zipapp's entry for `pingbus status-line` (bundle.py), without the cli."""
     for signum in CANCEL_SIGNALS:
         signal.signal(signum, _cancelled)
-    text, status = render(sys.stdin.buffer.read(INPUT_MAX_BYTES + 1), os.environ)
+    raw = stdin_text.read(sys.stdin.buffer, prog="pingbus status-line", limit=INPUT_MAX_BYTES + 1)
+    text, status = render(raw, os.environ)
     sys.stdout.write(text + "\n")
     return status

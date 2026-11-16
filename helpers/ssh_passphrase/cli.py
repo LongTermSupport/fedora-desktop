@@ -25,6 +25,8 @@ import subprocess
 import sys
 import tempfile
 
+from helpers.stdin_text import stdin_text
+
 PASSPHRASE_VAR = "SSH_PASSPHRASE_HELPER_VALUE"
 ASKPASS_SCRIPT = '#!/bin/sh\nprintf \'%s\\n\' "$' + PASSPHRASE_VAR + '"\n'
 
@@ -67,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("strip", help="remove the passphrase from the key, in place").add_argument("key")
     args = parser.parse_args(argv)
 
-    passphrase = read_passphrase(sys.stdin.read())
+    passphrase = read_passphrase(stdin_text.read(sys.stdin, prog=parser.prog))
     if passphrase == "":
         print("ssh_passphrase: no passphrase on stdin; nothing was run", file=sys.stderr)
         return 2

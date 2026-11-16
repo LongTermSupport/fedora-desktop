@@ -70,7 +70,7 @@ RC=0
 SOURCE="$SCRATCH/source"
 mkdir -p "$SOURCE/helpers" "$SOURCE/files/usr/local/share/agent-bus/resolve" \
     "$SOURCE/files/etc/systemd/system" "$SOURCE/files/usr/local/bin" "$SOURCE/files/usr/local/sbin"
-cp -r "$REPO_ROOT/helpers/pingbus" "$REPO_ROOT/helpers/agent_bus" "$SOURCE/helpers/"
+cp -r "$REPO_ROOT/helpers/pingbus" "$REPO_ROOT/helpers/agent_bus" "$REPO_ROOT/helpers/stdin_text" "$SOURCE/helpers/"
 cp "$REPO_ROOT"/files/etc/systemd/system/agent-bus-* "$SOURCE/files/etc/systemd/system/"
 cp "$REPO_ROOT"/files/usr/local/share/agent-bus/resolve/*.conf "$SOURCE/files/usr/local/share/agent-bus/resolve/"
 cp "$REPO_ROOT/files/usr/local/bin/agent-bus" "$SOURCE/files/usr/local/bin/"

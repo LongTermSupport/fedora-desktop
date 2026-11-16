@@ -223,6 +223,11 @@ def _checkout_module(name: str) -> object:
     return importlib.import_module(name)
 
 
+def _stdin() -> str:
+    """Stdin whole, through the checkout's reader, which says when it is waiting."""
+    return _checkout_module("helpers.stdin_text.stdin_text").read(sys.stdin, prog="m7_check")
+
+
 def _declare() -> object:
     return _checkout_module("helpers.agent_bus.declare")
 
@@ -976,10 +981,10 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "login-body": (
         1,
         lambda a: _print(
-            json.dumps(login_body(a[0], sys.stdin.read().removesuffix("\n")))
+            json.dumps(login_body(a[0], _stdin().removesuffix("\n")))
         ),
     ),
-    "access-token": (0, lambda a: _print(access_token(json.loads(sys.stdin.read())))),
+    "access-token": (0, lambda a: _print(access_token(json.loads(_stdin())))),
     "expect-topic": (2, lambda a: expect_topic(_json_file(a[0]), a[1])),
     "user-line": (1, lambda a: print(user_line(a[0]), end="")),
     "turns": (1, lambda a: _print(turns(_read(a[0])))),
@@ -990,7 +995,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     ),
     "seat-containers": (
         1,
-        lambda a: _lines(seat_containers(sys.stdin.read(), a[0].split(","))),
+        lambda a: _lines(seat_containers(_stdin(), a[0].split(","))),
     ),
     "expect-list-row": (3, lambda a: expect_list_row(_read(a[0]), a[1], a[2])),
     "expect-block": (-1, lambda a: expect_block(_read(a[0]), _groups(a[1:], 3))),
@@ -1011,7 +1016,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,
-        lambda a: _print(session_status_line(pathlib.Path(a[0]), sys.stdin.read().encode("utf-8"))),
+        lambda a: _print(session_status_line(pathlib.Path(a[0]), _stdin().encode("utf-8"))),
     ),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
     "expect-segment-rows": (2, lambda a: expect_segment(_read(a[0]), a[1], inner=False)),

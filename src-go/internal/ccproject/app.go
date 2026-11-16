@@ -19,7 +19,7 @@
 //     CCY_SESSION_RESTORE is set: a restore has no answer to give): the refusal, exit 1,
 //     nothing read.
 //   - P6. Outside a work tree at a terminal: the directory is named and the fedora-desktop
-//     checkout offered, `[Y/n]` on stderr. Empty, y or yes (any case) prints the checkout on
+//     checkout offered, `[Y/n]` on stderr (ui.Lines). Empty, y or yes (lower, title or upper case) prints the checkout on
 //     stdout, exit 0; n or no is the refusal, exit 1. Anything else re-prompts, up to
 //     maxTries asks, then the refusal, exit 1. End of input is cancelled: the refusal, exit 1.
 //   - P7. The checkout is not a git work tree (moved, deleted): exit 1 before asking, naming
@@ -30,27 +30,26 @@
 package ccproject
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 const (
 	tool     = "cc-project-dir"
 	usage    = "usage: cc-project-dir   (prints the directory cc starts its session in)\n"
 	maxTries = 3
-	play     = "playbooks/imports/play-claude-yolo.yml"
+	// headingWidth is the width a question's heading wraps to.
+	headingWidth = 80
+	play         = "playbooks/imports/play-claude-yolo.yml"
 )
-
-var errCancelled = errors.New("cancelled")
 
 // App is one run. Every field is a seam a test replaces.
 type App struct {
@@ -145,8 +144,8 @@ func (a *App) offer(ctx context.Context, git *gitx.Git, cwd string) term.ExitCod
 		return a.failf("the fedora-desktop checkout recorded at build time, %s, is not a git work tree; re-run %s from the checkout", a.RootDir, play)
 	}
 	a.sayf("cc: %s is not in a git repository, so no project settings (hooks, status line) would load.\n", cwd)
-	yes, err := a.ask()
-	if errors.Is(err, errCancelled) {
+	yes, err := a.ask(ctx)
+	if errors.Is(err, ui.ErrCancelled) {
 		a.sayf("cc: cancelled.\n")
 		return a.refuse(cwd)
 	}
@@ -161,25 +160,10 @@ func (a *App) offer(ctx context.Context, git *gitx.Git, cwd string) term.ExitCod
 	return term.ExitOK
 }
 
-// ask is the bounded [Y/n] loop.
-func (a *App) ask() (bool, error) {
-	in := bufio.NewReader(a.Stdin)
-	for range maxTries {
-		a.sayf("Start cc in the fedora-desktop checkout, %s, instead? [Y/n] ", a.RootDir)
-		line, err := in.ReadString('\n')
-		if err != nil {
-			a.sayf("\n")
-			return false, errCancelled
-		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
-		case "", "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		}
-		a.sayf("Please answer y or n.\n")
-	}
-	return false, fmt.Errorf("no valid answer after %d tries", maxTries)
+// ask is the bounded [Y/n] loop (ui.Lines.YesNo), asked on the terminal Stdin.
+func (a *App) ask(ctx context.Context) (bool, error) {
+	lines := &ui.Lines{In: a.Stdin, Out: a.Stderr, Err: a.Stderr, Prog: tool, Width: headingWidth, IsTerminal: a.IsTerminal, Tries: maxTries}
+	return lines.YesNo(ctx, ui.Here("cc", "Project directory"), "Start cc in the fedora-desktop checkout, "+a.RootDir+", instead?", true)
 }
 
 func (a *App) refuse(cwd string) term.ExitCode {

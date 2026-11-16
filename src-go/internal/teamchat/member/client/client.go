@@ -108,7 +108,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 	switch op {
 	case wire.OpReply, wire.OpSay, wire.OpPing, wire.OpReport:
 		var err error
-		if args, stdin, err = sendArgs(e, inv, op); err != nil {
+		if args, stdin, err = sendArgs(e, inv, op, clk); err != nil {
 			return wire.Request{}, 0, err
 		}
 	case wire.OpWait:

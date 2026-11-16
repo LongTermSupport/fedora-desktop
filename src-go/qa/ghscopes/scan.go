@@ -157,7 +157,7 @@ func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode
 	}
 	var lost []string
 	for _, f := range files {
-		if !seen[f] && !excl.matches(f) {
+		if !seen[f] && !excl.Matches(f) {
 			lost = append(lost, f)
 		}
 	}

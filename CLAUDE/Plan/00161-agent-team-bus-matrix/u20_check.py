@@ -94,7 +94,13 @@ checkout = importlib.import_module("helpers.agent_bus.checkout")
 hooks = importlib.import_module("helpers.pingbus.hooks")
 envelope = importlib.import_module("helpers.pingbus.envelope")
 protocol = importlib.import_module("helpers.pingbus.protocol")
+stdin_text = importlib.import_module("helpers.stdin_text.stdin_text")
 up = importlib.import_module("u01_probe")
+
+
+def _stdin() -> str:
+    return stdin_text.read(sys.stdin, prog="u20_check")
+
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -846,9 +852,9 @@ COMMANDS = {
     "expect-sole-coordinator": (2, lambda a: _verdict(expect_sole_coordinator(_read(a[0]), a[1]))),
     "expect-member": (4, lambda a: _verdict(expect_member(_read(a[0]), a[1], a[2], a[3]))),
     "expect-same-handles": (2, lambda a: _verdict(expect_same_handles(_read(a[0]), _read(a[1])))),
-    "supervised-watcher": (0, lambda a: print(" ".join(supervised_watcher(sys.stdin.read())))),
-    "seat-containers": (1, lambda a: _print_lines(seat_containers(sys.stdin.read(), a[0]))),
-    "expect-no-seats-label": (0, lambda a: _verdict(expect_no_seats_label(json.loads(sys.stdin.read())))),
+    "supervised-watcher": (0, lambda a: print(" ".join(supervised_watcher(_stdin())))),
+    "seat-containers": (1, lambda a: _print_lines(seat_containers(_stdin(), a[0]))),
+    "expect-no-seats-label": (0, lambda a: _verdict(expect_no_seats_label(json.loads(_stdin())))),
     "launch-keys": (3, lambda a: _print_lines(launch_keys(
         pathlib.Path(a[0]), a[1], launch_choice_keys(pathlib.Path(a[2]).read_text(encoding="utf-8"))))),
     "ccy-token": (1, lambda a: print(_token(a[0]).name)),

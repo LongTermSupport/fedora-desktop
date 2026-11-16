@@ -250,19 +250,29 @@ printf '#!/usr/bin/env bash\necho "fixture play ran with: $*"\nexit 5\n' \
 chmod 0755 "$PLAY_CHECKOUT/$FIXTURE_PLAY"
 printf '#!/usr/bin/env bash\necho "unlisted play ran"\n' >"$PLAY_CHECKOUT/playbooks/imports/play-unlisted.yml"
 chmod 0755 "$PLAY_CHECKOUT/playbooks/imports/play-unlisted.yml"
+# The gate judges the plays as the panel's list does (changed_plays.judge), so the checkout is
+# a git one with a playbook-main.yml, and the ledger's run is at its commit: the fixture play
+# is current and offered; play-unlisted has no record and no file to look for, so it is not.
+printf -- '- import_playbook: imports/play-fixture.yml\n' >"$PLAY_CHECKOUT/playbooks/playbook-main.yml"
+printf 'helpers\n' >"$PLAY_CHECKOUT/.gitignore"
+play_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$PLAY_CHECKOUT" "$@"; }
+play_git init -q
+play_git add -A
+play_git -c user.email=test@example.com -c user.name=test -c commit.gpgsign=false commit -qm fixture
+PLAY_COMMIT="$(play_git rev-parse HEAD)"
 RUNNER="$WORK_DIR/fedora-desktop-health-runner"
 render "$PLAY_CHECKOUT" "$RUNNER"
 
 STATE_LEDGER="$WORK_DIR/ledger-state"
 mkdir -p "$STATE_LEDGER"
-PYTHONPATH="$REPO_ROOT" python3 - "$STATE_LEDGER" "$FIXTURE_PLAY" <<'PYEOF'
+PYTHONPATH="$REPO_ROOT" python3 - "$STATE_LEDGER" "$FIXTURE_PLAY" "$PLAY_COMMIT" <<'PYEOF'
 import sys
 
 from helpers.play_ledger import ledger, store
 
-state_home, play = sys.argv[1:3]
+state_home, play, commit = sys.argv[1:4]
 base = ledger.ledger_dir({"XDG_STATE_HOME": state_home}, "/nonexistent-home")
-commit, stamp = "e" * 40, "2026-09-14T09:00:00Z"
+stamp = "2026-09-14T09:00:00Z"
 store.ensure_ledger(base, commit=commit, at=stamp)
 store.append_record(base, ledger.build_record(
     play=play, name=play, commit=commit, dirty=False, play_sha256="1" * 64,
@@ -291,10 +301,10 @@ esac
 check "--run-play: it says what the play exited with, on stderr" "yes" "$got"
 
 run_play "$WORK_DIR/ru.out" "$WORK_DIR/ru.err" --run-play playbooks/imports/play-unlisted.yml
-check "--run-play: a play the ledger does not list is refused with 64" "64" "$?"
+check "--run-play: a play the panel does not offer is refused with 64" "64" "$?"
 check "--run-play: a refused play does not run" "" "$(cat "$WORK_DIR/ru.out")"
 case "$(cat "$WORK_DIR/ru.err")" in
-    *refused*ledger*) got=yes ;;
+    *refused*"does not offer"*) got=yes ;;
     *) got="no: [$(cat "$WORK_DIR/ru.err")]" ;;
 esac
 check "--run-play: the refusal says why" "yes" "$got"

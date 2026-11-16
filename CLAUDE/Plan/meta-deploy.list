@@ -23,9 +23,12 @@
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
-#   changed-plays                  every play that has run here and has to run again, as
-#                                  one unit: the checkout's ./run.bash --changed --yes, in
-#                                  playbook-main.yml order, stopping at the first failure
+#   changed-plays                  every play that has to run again here (one that has run
+#                                  here, or one with no ledger record whose files here
+#                                  show it ran), as one unit: the checkout's
+#                                  ./run.bash --changed --yes, in playbook-main.yml order,
+#                                  stopping at the first failure; the other plays with no
+#                                  record (NEVER, UNJUDGED) are named and never run
 #
 # changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
 # plays it runs when it starts, so the entries above it have already run (a play an entry
@@ -39,19 +42,44 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #295: the raw-prune fix (it could delete a RAW whose JPG sat in a folder it could not
-# read). changed-plays did not deploy it: play-photography has no play-ledger record on this
-# host, so --changed never judges it (issue #323). The deployed clip-scan is stale too. The
-# whole play runs, so the ledger records it and a later changed-plays judges it. Expected:
-# changed for ~/.local/bin/raw-prune and ~/.local/bin/clip-scan; RapidRAW and ART unchanged.
-# Afterwards: sha256sum of each deployed copy matches its files/home/.local/bin/ source.
-playbooks/imports/optional/common/play-photography.yml
-# Issue #323 sweep: play-advanced-kernel-management has no play-ledger record here either, and
-# its deployed manage-kernel-versions.py and service unit are older than the checkout. Neither
-# change alters which kernels are kept: the script now names the kernel's arch from the machine
-# instead of a fixed x86_64 (the same argv on x86_64), and the service starts after
-# multi-user.target so boot no longer waits on dnf (issue #263). installonly_limit=3 is already
-# set. The play's own initial analysis run follows, as on every run. Expected: changed for the
-# script and the service, a systemd reload; versionlocks as the analysis reports them.
-# Afterwards: both deployed files match the checkout (the service rendered).
-playbooks/imports/optional/common/play-advanced-kernel-management.yml
+# Issue #323: changed-plays now also runs a play with no ledger record whose files here show
+# it ran. On this host that is play-claude-devtools, play-ddev and play-qobuz, and
+# play-self-update is due as well; none has converged since its files were deployed. Each is
+# first run in check mode with a diff, which applies nothing and is not ledgered, so the
+# changes can be read before they are made. Expected: changes only inside what each play
+# already manages. Afterwards: report each diff; stop before any real run if one adds a user
+# to the docker group, changes the Docker daemon config or opens a port. The real runs are
+# queued only once the diffs are read.
+playbooks/imports/optional/common/play-claude-devtools.yml --check --diff
+# The ddev check: Docker-backed. Read its diff for the docker group, daemon config and ports.
+playbooks/imports/optional/common/play-ddev.yml --check --diff
+# The qobuz check: the rescrobbled user service and its config.
+playbooks/imports/optional/common/play-qobuz.yml --check --diff
+# The self-update check: its inputs changed since it last ran here.
+playbooks/imports/optional/common/play-self-update.yml --check --diff
+
+# Issue #260 (ccy 3.122.18, container 2.84.26): pingbus, teamchat and the launcher never wait
+# in silence on stdin. Installs the launcher; the image carries helpers/stdin_text and the
+# rebuilt pingbus and teamchat, and is rebuilt once at the next ccy start. pingbus's
+# thread --close reads no stdin unless --note - is given; a text verb (say, reply, report)
+# refuses a terminal, says on stderr after a second that it is waiting, and exits 64 if nothing
+# has come within 60 s. Afterwards: a new ccy session starts, on container 2.84.26.
+playbooks/imports/play-claude-yolo.yml
+
+# Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the
+# kit's pingbus and its helpers/stdin_text.
+playbooks/imports/play-agent-bus.yml
+
+# Issue #260: the lab's vmtest modules read stdin through helpers/stdin_text, which says on
+# stderr when it is waiting for input that has not ended; the play now deploys it beside them.
+# Expected: changed for the vmtest modules that read stdin and the new stdin_text directory;
+# skip this entry on a host without the lab.
+playbooks/imports/optional/common/play-vm-test-lab.yml
+
+# Issue #260: every other play whose inputs changed (the Go commands built from
+# internal/stdinread and internal/ui: teamchat-admin, ccy-teams and the hooks). Those the
+# entries above ran are not due again. Since #323 this also runs, for real, the four plays
+# checked above (play-claude-devtools, play-ddev, play-qobuz, play-self-update). So run it
+# only once their diffs have been read and cleared; if any diff is not cleared, stop the list
+# here and report. Afterwards report what changed.
+changed-plays

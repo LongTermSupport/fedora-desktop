@@ -1,0 +1,61 @@
+# Semgrep rule for Python that reads its input from stdin. Run by scripts/qa-stdin-wait.bash
+# over every Python file git would publish, after the rule is proven against
+# .semgrep/stdin-wait.py. The reasoning, and how to fix a finding, is in CLAUDE/QA.md under
+# "stdin-read-unbounded".
+rules:
+  # Rule: stdin is read only through helpers/stdin_text (Defence Before Fix; CLAUDE/QA.md
+  # "stdin-read-unbounded"; issue #260).
+  #
+  # A read of stdin returns at end of input. When stdin is an open pipe that nothing writes to
+  # and nothing closes, which is what an agent's shell gives a command run with no input, it
+  # never returns and says nothing. `pingbus thread Q<n> --close` run that way waited silently
+  # for over two minutes. helpers/stdin_text says on stderr that it is waiting once nothing has
+  # arrived for a moment, and a caller that must not wait for ever gives it a bound.
+  #
+  # WRONG: text = sys.stdin.read()
+  # RIGHT: text = stdin_text.read(sys.stdin.buffer, prog="tool").decode("utf-8")
+  #
+  # Any read of sys.stdin (also .buffer), or of a stream a CLI was handed as `stdin` (a parameter
+  # or an attribute named so), by read, readline, readlines, iteration or json.load. The reader
+  # itself, helpers/stdin_text/, is the one place a raw read is made. The scripts of finished
+  # plans (CLAUDE/Plan/Completed/, CLAUDE/Plan/Archive/) are left out because nothing runs
+  # them any more: a plan's scripts are run while the plan is open, and a script moved there
+  # with its plan has no caller to hang.
+  - id: stdin-read-unbounded
+    languages: [python]
+    paths:
+      exclude:
+        - "/helpers/stdin_text/**"
+        - "/CLAUDE/Plan/Completed/**"
+        - "/CLAUDE/Plan/Archive/**"
+    pattern-either:
+      - pattern: sys.stdin.buffer.read(...)
+      - pattern: sys.stdin.buffer.readline(...)
+      - pattern: json.load(sys.stdin)
+      - pattern: |
+          for $LINE in sys.stdin.buffer:
+            ...
+      - pattern: |
+          for $LINE in stdin:
+            ...
+      - pattern: |
+          for $LINE in $X.stdin:
+            ...
+      - pattern: ($E for $LINE in sys.stdin)
+      - pattern: ($E for $LINE in sys.stdin if $COND)
+      - pattern: '[$E for $LINE in sys.stdin]'
+      - pattern: '[$E for $LINE in sys.stdin if $COND]'
+      - pattern: $X.stdin.read(...)
+      - pattern: $X.stdin.readline(...)
+      - pattern: $X.stdin.readlines(...)
+      - pattern: stdin.read(...)
+      - pattern: stdin.readline(...)
+      - pattern: stdin.readlines(...)
+    message: >
+      stdin-read-unbounded: this reads stdin directly, and a read of an open pipe that nothing
+      writes to or closes waits for ever and says nothing. Read it with
+      helpers.stdin_text.read(), which tells the user it is waiting, and give it a bound where
+      the command must not wait for ever. See CLAUDE/QA.md "stdin-read-unbounded".
+    severity: ERROR
+    metadata:
+      dbf-class: a command that waits silently for ever on stdin

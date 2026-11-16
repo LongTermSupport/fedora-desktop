@@ -29,7 +29,7 @@ func run(ctx context.Context, args []string) term.ExitCode {
 	app := &ccc.App{
 		Runner:          runner,
 		Foreground:      runner,
-		Guard:           &ccc.PtyGuard{Foreground: runner, In: os.Stdin, Out: os.Stdout, InFd: terminalFd(os.Stdin)},
+		Guard:           &ccc.PtyGuard{Foreground: runner, Stdin: os.Stdin, Out: os.Stdout, InFd: terminalFd(os.Stdin)},
 		Stdin:           os.Stdin,
 		Stdout:          os.Stdout,
 		Stderr:          os.Stderr,
@@ -54,10 +54,10 @@ func identityOf(me *user.User, err error) (ccc.Identity, error) {
 	return ccc.Identity{Login: me.Username, FullName: fullName(me)}, nil
 }
 
-// terminalFd is f's descriptor when f is a terminal, for the guard's raw mode; -1 otherwise.
-func terminalFd(f *os.File) int {
-	if term.FileIsTerminal(f) {
-		return int(f.Fd())
+// terminalFd is stdin's descriptor when it is a terminal, for the guard's raw mode; -1 otherwise.
+func terminalFd(stdin *os.File) int {
+	if term.FileIsTerminal(stdin) {
+		return int(stdin.Fd())
 	}
 	return -1
 }

@@ -51,7 +51,7 @@ func humanVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		doc, secret, err := humanWork(ctx, sys, op, team, name)
 		err = errors.Join(err, lock.Release())
 		if doc != nil {
-			if code = answerOnScreen(e, doc, secret, humanClearPrompt); code != term.ExitOK {
+			if code = answerOnScreen(ctx, e, doc, secret, humanClearPrompt); code != term.ExitOK {
 				return code
 			}
 		}

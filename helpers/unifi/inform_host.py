@@ -17,6 +17,7 @@ import argparse
 import sys
 
 from helpers.unifi.client import UnifiClient
+from helpers.stdin_text import stdin_text
 
 DEFAULT_URL = "https://localhost:8443"
 DEFAULT_USER = "unifi-admin"
@@ -52,7 +53,7 @@ def main(argv, stdout, stderr, stdin, client_factory=UnifiClient):
     args = parser.parse_args(argv)
 
     # On stdin, never in the environment: the play's environment: is on a command line.
-    password = stdin.read().removesuffix("\n")
+    password = stdin_text.read(stdin, prog=parser.prog).removesuffix("\n")
     if not password:
         print("no UniFi admin password on stdin; the play passes the vaulted password there",
               file=stderr)

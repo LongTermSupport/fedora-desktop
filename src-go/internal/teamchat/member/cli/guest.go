@@ -75,6 +75,9 @@ func (systemClock) Now() time.Time { return time.Now() }
 
 func clock() guest.Clock { return systemClock{lock.SystemClock()} }
 
+// input is the op's stdin, its notice on the run's stderr, timed by the run's clock.
+func input(e Env) guest.Input { return guest.Input{Stdin: e.Stdin, Err: e.Stderr, Clock: e.Clock} }
+
 // asSeat runs a seat op as the identified guest on --key's seat, with its output contract, the
 // home closed after.
 func asSeat(e Env, inv Invocation, op guest.Op, run func(*guest.Identity, paths.SeatKey, *guest.Output) error) term.ExitCode {
@@ -96,18 +99,18 @@ func runGuestCheck(e Env, inv Invocation) term.ExitCode {
 	if err != nil || inv.Team == nil {
 		return guest.Finish(e.Stderr, guest.OpCheck, usage(msgGuestFlags))
 	}
-	return guest.Finish(e.Stderr, guest.OpCheck, guest.NewChecker().Check(context.Background(), u, *inv.Team, e.Stdin))
+	return guest.Finish(e.Stderr, guest.OpCheck, guest.NewChecker().Check(context.Background(), u, *inv.Team, input(e)))
 }
 
 func runPlaceBundle(e Env, inv Invocation) term.ExitCode {
 	return asSeat(e, inv, guest.OpPlaceBundle, func(id *guest.Identity, k paths.SeatKey, out *guest.Output) error {
-		return guest.PlaceBundle(context.Background(), id, k, clock(), e.Stdin, out)
+		return guest.PlaceBundle(context.Background(), id, k, clock(), input(e), out)
 	})
 }
 
 func runMembership(e Env, inv Invocation) term.ExitCode {
 	return asSeat(e, inv, guest.OpMembership, func(id *guest.Identity, k paths.SeatKey, out *guest.Output) error {
-		return guest.Membership(id, k, e.Stdin, out)
+		return guest.Membership(id, k, input(e), out)
 	})
 }
 

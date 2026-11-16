@@ -63,6 +63,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                                                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                                     |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner                                      | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                                     |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                                                  | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                                   |
+| `project_test_conn_read`          | a test's read of a connection, or accept on a listener, that nothing bounds, so code under test that never answers blocks the test to the package's timeout                            | `tlsterm` `closed(c)`: CI hung for 30 minutes (fedora-desktop#300, #307)                                                                                                            |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still                         | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140)           |
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                  | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                                  |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                               | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                      |
@@ -83,6 +84,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
+| `project_stdin_seam`              | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever                                             | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260)                                                                                   |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -1587,6 +1589,76 @@ closes, `clock.AwaitDue`, a poke), or poll with `leakcheck.Poll`.
   call without waiting for the engine's follow-up, is not a shape a rule can see (which call
   has a follow-up is the engine's meaning): see [Defect classes that cannot be a
   rule](#defect-classes-that-cannot-be-a-rule).
+
+### project_test_conn_read
+
+In a `_test.go` file, or a package whose name starts with `fake` (code only tests run), a read
+that waits on a network peer:
+
+- a `Read` on a value of a connection's shape (methods `Read`, `SetReadDeadline` and `RemoteAddr`);
+- an `Accept`, `AcceptTCP` or `AcceptUnix` on a listener;
+- such a connection handed to a reader parameter that is not a connection (`io.ReadAll`,
+  `io.ReadFull`, `io.Copy`'s source, `bufio.NewReader`, `bufio.NewScanner`, `json.NewDecoder`).
+
+A read in a goroutine is judged too, because the test, or a cleanup that waits for the goroutine,
+blocks as long as the read does.
+
+The read is bounded when its function declaration does one of these to the same expression:
+
+- before the read, calls `testconn.Bound` on it, sets a deadline on it, or arms
+  `time.AfterFunc` with a literal that closes it;
+- anywhere, closes it in a `select` case on a timer (`time.After`, a Timer's or Ticker's `C`), as
+  tlsterm's `awaitClose` does;
+- for a read in a `go` statement, closes it in a `Cleanup` (an accept loop that the test's end
+  stops).
+
+Tests read no wall clock (`project_testclock`), so they cannot set a deadline. The fix is
+`testconn.Bound(t, c)` (`internal/testconn`) in the function that waits on `c`. It arms a fixed
+one-minute timer that fails the test and closes `c`, and the timer stops when the test ends.
+
+- Red, fixture: `testdata/src/fix/internal/connread` and `fakepeer`. Flagged forms:
+
+  - the originating `closed(c)`;
+  - an accept;
+  - a `*net.TCPConn`;
+  - the standard wrappers;
+  - a deadline on the wrong conn or after the read;
+  - a goroutine's read awaited bare;
+  - an echo goroutine a cleanup waits for;
+  - a fake package's `AcceptUnix` and `Read`.
+
+  Clean forms:
+
+  - a deadline, `AfterFunc` close or `Bound` set first;
+  - `awaitClose`;
+  - an accept loop the cleanup ends;
+  - a write;
+  - a conn handed to a function that takes a conn.
+
+- Red, real tree: 32 findings in 18 files, every one a teamchat or `stt` test, plus `fakeinbox`.
+  The independent search found the same sites and four groups the rule cannot see; those are
+  under "Not caught" and were fixed by hand.
+
+- Green: every wait bound with `testconn.Bound`; 0 findings.
+
+- Allowed, by the owner's decision (#307, Q26), one row of `connReadAllowances` with its reason:
+  the fake inbox's accept loop (`fakeinbox` `Inbox.accept`), a goroutine for the inbox's life
+  that Close ends and no test waits on; binding it to a test's TB was tried and does not compile.
+  `TestTestConnReadAllowance` proves a row excuses its one function only (a second unbounded
+  read in the same package, and a function of the same name on no receiver, still fail), and
+  `TestTestConnReadAllowancesAreOneRow` holds the table to that one row.
+
+- Not caught:
+
+  - a read in a non-test helper whose package name does not start with `fake`;
+  - a bound set in another function (a constructor);
+  - a read through a wrapper whose type is not of a connection's shape (`wire.Conn`'s `Recv`, a
+    decoder over a `bufio.Reader` built elsewhere);
+  - a goroutine read that only a cleanup's close ends while the test body waits for that goroutine.
+
+- Next wider rule, not built: judge the wait on a channel that a reading goroutine feeds (a bare
+  `<-done`), which is a channel receive and a different class. A test that waits on a channel
+  with no timer hangs whatever the channel waits for; that class needs its own rule.
 
 ### project_poll_pure
 
@@ -3164,6 +3236,67 @@ decides whether it is wanted.
   `sessions.TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox` and
   `TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox` reproduce the defect;
   `tmuxccy.TestSubmit*` prove the retry, the bound and the failures.
+
+### project_stdin_seam
+
+**What it is about.** A read of stdin returns at end of input. When stdin is an open pipe that
+nothing writes to and nothing closes, which is what an agent's shell gives a command run with no
+input, the read never returns and the command says nothing (issue #260: `pingbus thread Q<n> --close` waited over two minutes). Stdin is read in one place, `internal/stdinread`, which says
+on stderr once nothing has arrived for a second that it is waiting and how to end the input,
+takes a bound after which it refuses (`GiveUpAfter`), and refuses a terminal for input that is
+never typed (`RefuseTerminal`); and a person's answer is read only through `internal/ui`, whose
+`Lines` waits on a piped answer with the same notice and bound (`stdinread.Await`), a line at a
+time, and on a terminal for as long as the person needs.
+
+**What it flags**, in every package of both modules but the stdin seams (`internal/stdinread`,
+`internal/ui`, `internal/execx`, `internal/keyrelay` (the terminal relayed to a child until its
+owner's stop pipe ends it, read only once poll finds a key), `internal/term`, `internal/ttyecho`) and a test double's (a
+package whose name ends in `test`), `_test.go` files not judged: a read of stdin (`os.Stdin`, or
+a variable, parameter or field named `stdin` or `Stdin` whose type has `Read([]byte) (int, error)`) by `io.ReadAll`, `ReadFull`, `ReadAtLeast`, `Copy`, `CopyN`, `CopyBuffer`,
+`LimitReader`, `TeeReader`, `MultiReader`, `bufio.NewReader`, `NewReaderSize`, `NewScanner`,
+`json.NewDecoder`, `csv.NewReader`, `xml.NewDecoder`, or its own `Read`, `ReadString`,
+`ReadByte`, `ReadBytes`, `ReadRune`, `ReadLine` or `WriteTo`; and stdin handed on under another
+name, which would hide its read: an argument to a reader parameter not named `stdin`/`Stdin`
+(outside the seams), a variable or field of another name assigned from it, and a struct
+literal's field of another name (but a seam's own type, such as `ui.Lines`' `In`). Passing stdin
+along as stdin, asking whether it is a terminal, comparing it with nil and taking its descriptor
+are not reads. A `Stdin` that is a string (a request's field) is not stdin.
+
+**Not caught**: stdin returned from a function, or kept in a slice or map and read elsewhere; an
+unkeyed struct literal; a reader built by reflection; Python, which the semgrep rule
+`stdin-read-unbounded` covers. The next wider rule considered was a taint of stdin through every
+value built from it (a `bufio.Reader` held and read later, a reader returned and read by the
+caller); it was not built because the hand-off clauses already make every route out of a
+function under another name a finding, and the sweep found no read the narrower rule missed.
+
+**How to fix a violation.** Piped input: `data, err := stdinread.Read(stdin, stdinread.Options{Prog: "tool", Limit: n, GiveUpAfter: time.Minute})`, handing
+`bytes.NewReader(data)` on if a callee wants a reader. A person's answer: a prompt through
+`internal/ui` (`ui.Lines`), which bounds a piped answer.
+
+- Red, fixture: `testdata/stdinseam/src/fix/internal/badstdin` (`bad.go`: the defect's own
+  form, `io.ReadAll(io.LimitReader(e.Stdin, n))`, then `os.Stdin`, a parameter, a pointer's
+  field, a scanner, a decoder, a copy, a full read, a method read, a tee, a multi-reader, and
+  stdin handed to a reader parameter, a variable and two fields of other names; `bad_test.go`, a
+  test that reads, clean), beside `goodstdin` (stdin passed along as stdin, asked about, given to
+  a child, to the shared reader and to the ui seam, a string named `Stdin`, the descriptor:
+  clean), the seams `stdinread`, `ui`, `execx` and `term` and the test double `teams/teamtest`
+  (reading freely, clean), and `cmd/tool` (a command's main, flagged). The root is its own,
+  because the seams are matched by package path. With the analyzer reporting nothing the test
+  missed all 29 diagnostics (the 14 of `bad.go` twice, its package judged with and without its
+  test file, and the command's one), and it passed once the rule was written. `keyrelay` (the
+  relay seam, clean) and `badrelay` (the same relay outside it, flagged) were added with the
+  relay seam.
+- Sweep: committed red with 29 findings in 26 files across both modules; every one fixed, by
+  kind: piped machine input read through `stdinread.Read` with the 60 s bound (teamchat's text
+  verbs, guest facts and bundles, `place-issued`, element, the admin requests and declarations,
+  lightning, the launcher's `--secret-screen` through `stdinread.Copy`, which streams, and in the
+  `qa` module git's pre-push input and the branch-delete list through the twin
+  `qa/internal/stdinread`); Claude Code's hook and status-line payloads with the notice alone;
+  every person's answer through `ui.Lines` (ccc, cc-project-dir, ftp-camera, the Enter that
+  clears a secret screen, `--build-lock`); stdin handed on renamed to `stdin` with its callee's
+  read through a seam (guest, `placeissued.Place`, `teams/find`, `reexec`); and the ctrl+z
+  guard's key relay moved, unchanged, into `internal/keyrelay`. Each entry point has an
+  open-pipe test on a fake clock. Green: the rule reports nothing over either module.
 
 ## Control
 

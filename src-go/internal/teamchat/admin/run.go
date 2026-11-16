@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -31,7 +32,8 @@ const (
 // what Wire builds at the first verb that needs it (WR1; both nil while unwired). IsTerminal
 // says whether a stream is a terminal (nil: term.FileIsTerminal); a member verb's issued
 // credential is shown on one through term.SecretScreen, and the Enter that clears it is read
-// from Stdin.
+// from Stdin. Clock times the wait for stdin (the real clock when nil): a verb's input is given
+// up on once nothing has arrived for stdinread.PipedGiveUp, and so is a piped Enter (issue 260).
 type Env struct {
 	Args           []string
 	Stdin          io.Reader
@@ -41,6 +43,7 @@ type Env struct {
 	Sys            *System
 	Wire           func() (*System, error)
 	IsTerminal     func(any) bool
+	Clock          stdinread.Clock
 }
 
 // isTerminal is IsTerminal, or term.FileIsTerminal when it is nil.
@@ -49,6 +52,15 @@ func (e Env) isTerminal(v any) bool {
 		return term.FileIsTerminal(v)
 	}
 	return e.IsTerminal(v)
+}
+
+// readStdin is the verb prog's input on stdin, at most limit bytes and one more (so an input
+// over the cap is seen as one), refused when nothing has arrived within stdinread.PipedGiveUp.
+func (e Env) readStdin(prog string, limit int64) ([]byte, error) {
+	return stdinread.Read(e.Stdin, stdinread.Options{
+		Prog: "teamchat-admin " + prog, Err: e.Stderr, Limit: limit + 1, GiveUpAfter: stdinread.PipedGiveUp,
+		Clock: e.Clock, IsTerminal: e.IsTerminal,
+	})
 }
 
 // Run is `teamchat-admin`: it finds the verb, decides the caller class, refuses the wrong one

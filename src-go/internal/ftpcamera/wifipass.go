@@ -1,7 +1,6 @@
 package ftpcamera
 
 import (
-	"bufio"
 	"context"
 	_ "embed" // words.txt is embedded verbatim
 	"encoding/binary"
@@ -99,7 +98,7 @@ func uniformIndex(random io.Reader, n int) (int, error) {
 
 // newHotspotPasswordMode prints a new hotspot password on stdout and nothing else (E67).
 // play-ftp-camera.yml runs it when no password is saved, and vaults what it prints.
-func (c *cli) newHotspotPasswordMode() term.ExitCode {
+func (c *cli) newHotspotPasswordMode(ctx context.Context) term.ExitCode {
 	words, err := hotspotWords()
 	if err != nil {
 		return c.fail("could not make a hotspot password: %v", err)
@@ -114,10 +113,11 @@ func (c *cli) newHotspotPasswordMode() term.ExitCode {
 	screen.Show(pass + "\n")
 	if screen.Showing() {
 		screen.Show("Press Enter to clear the password from the screen.\n")
-		if _, err := bufio.NewReader(c.env.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
-			c.err.f("ftp-camera: reading the Enter: %v\n", err)
-		}
+		waitErr := c.awaitEnter(ctx, "New hotspot password")
 		screen.Close()
+		if waitErr != nil {
+			return c.fail("%v", waitErr)
+		}
 	}
 	if err := screen.Err(); err != nil {
 		return c.fail("could not write the hotspot password: %v", err)
