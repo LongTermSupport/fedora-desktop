@@ -13,9 +13,9 @@ import (
 )
 
 // Driller is the restore drill (issue #324) over the machine: Run is drill.Run on the declared
-// drill port, Clean is drill.Clean, each scratch team under its own lock.
+// drill port, recording where it ran, Clean is drill.Clean, each scratch team under its own lock.
 type Driller interface {
-	Run(ctx context.Context, port int) (drill.Outcome, error)
+	Run(ctx context.Context, port int, where restore.Where) (drill.Outcome, error)
 	Clean(ctx context.Context) ([]paths.TeamID, error)
 }
 
@@ -23,6 +23,7 @@ type Driller interface {
 const (
 	flagPort  = "port"
 	flagClean = "clean"
+	flagWhere = "where"
 )
 
 // The drill port's range: never a privileged port.
@@ -32,7 +33,7 @@ const (
 )
 
 // drillHelp is `restore-drill --help`, its payload.
-const drillHelp = `usage: ` + paths.AdminBinary + ` restore-drill --port <port> [--clean]
+const drillHelp = `usage: ` + paths.AdminBinary + ` restore-drill --port <port> [--where host|vm-lab] [--clean]
        ` + paths.AdminBinary + ` restore-drill --clean
 
 Proves restore on this machine: a scratch team (rd- and 12 hex) is applied on the declared drill
@@ -42,18 +43,21 @@ proof record restore needs is written only when every clause attempted passed; t
 the held session are recorded skipped, so restore stays refused until they can pass. The record
 is evidence about this machine and is never copied to another.
 
+--where is where the drill runs, recorded in the proof's where field: host (the default) or
+vm-lab, which the VM lab's checker passes.
+
 The drill refuses to run on a machine that holds any other team, or an earlier drill's leftover:
 --clean removes the leftovers (a recorded restore discarded, then the team purged) and nothing
 else. stdout is one JSON document. Exit 0 the drill passed (or --clean alone cleaned), 1 a check
 or an operation failed (no record written), 64 usage, 70 refused.
 `
 
-// restoreDrill is `restore-drill --port P [--clean]`: --clean removes the leftovers of an earlier
+// restoreDrill is `restore-drill --port P [--where W] [--clean]`: --clean removes the leftovers of an earlier
 // drill, then --port runs a drill on the declared drill port. Its one JSON document says what
 // was cleaned and, for a drill, its team, each clause's verdict, what failed and whether the
 // proof record was written. A refusal is 70, a failed check 1 with the document printed.
 func restoreDrill(ctx context.Context, e Env, args []string) term.ExitCode {
-	port, clean, err := drillArgs(args)
+	req, err := drillArgs(args)
 	if errors.Is(err, errHelp) {
 		return answer(e, drillHelp)
 	}
@@ -73,16 +77,16 @@ func restoreDrill(ctx context.Context, e Env, args []string) term.ExitCode {
 	}
 	members := []proto.Member{proto.M("v", proto.Int(wireMajor))}
 	var cleaned []paths.TeamID
-	if clean {
+	if req.clean {
 		if cleaned, err = d.Clean(ctx); err != nil {
 			return failWith(e, err)
 		}
 	}
 	members = append(members, proto.M("cleaned", teamArray(cleaned)))
-	if port == 0 {
+	if req.port == 0 {
 		return answer(e, string(proto.Obj(members...).Compact())+"\n")
 	}
-	out, err := d.Run(ctx, port)
+	out, err := d.Run(ctx, req.port, req.where)
 	if err != nil && !errors.Is(err, drill.ErrFailed) {
 		return failWith(e, err)
 	}
@@ -99,31 +103,43 @@ func restoreDrill(ctx context.Context, e Env, args []string) term.ExitCode {
 // errHelp is --help asked.
 var errHelp = errors.New("help")
 
-// drillArgs is the grammar: --port P and --clean, at least one; port is 0 when not given.
-func drillArgs(args []string) (int, bool, error) {
-	flags, err := parseFlags(args, []string{flagPort}, flagClean, "help")
+// drillRequest is the verb's arguments: port is 0 when not given, where host by default.
+type drillRequest struct {
+	port  int
+	clean bool
+	where restore.Where
+}
+
+// drillArgs is the grammar: --port P and --clean, at least one; --where only with --port.
+func drillArgs(args []string) (drillRequest, error) {
+	flags, err := parseFlags(args, []string{flagPort, flagWhere}, flagClean, "help")
 	if err != nil {
-		return 0, false, err
+		return drillRequest{}, err
 	}
 	if flags["help"] == flagTrue {
 		if len(flags) > 1 {
-			return 0, false, usagef("--help takes no other flag")
+			return drillRequest{}, usagef("--help takes no other flag")
 		}
-		return 0, false, errHelp
+		return drillRequest{}, errHelp
 	}
-	clean := flags[flagClean] == flagTrue
+	req := drillRequest{clean: flags[flagClean] == flagTrue, where: restore.WhereHost}
+	if w, given := flags[flagWhere]; given {
+		req.where = restore.Where(w)
+		if req.where != restore.WhereHost && req.where != restore.WhereVMLab {
+			return drillRequest{}, usagef("--where is %s or %s", restore.WhereHost, restore.WhereVMLab)
+		}
+	}
 	v, given := flags[flagPort]
 	if !given {
-		if !clean {
-			return 0, false, usagef("--port P runs the drill, --clean removes an earlier drill's leftovers")
+		if _, where := flags[flagWhere]; where || !req.clean {
+			return drillRequest{}, usagef("--port P runs the drill (--where says where), --clean removes an earlier drill's leftovers")
 		}
-		return 0, true, nil
+		return req, nil
 	}
-	port, err := strconv.Atoi(v)
-	if err != nil || strconv.Itoa(port) != v || port < minDrillPort || port > maxDrillPort {
-		return 0, false, usagef("--port is the declared drill port, a number from %d to %d", minDrillPort, maxDrillPort)
+	if req.port, err = strconv.Atoi(v); err != nil || strconv.Itoa(req.port) != v || req.port < minDrillPort || req.port > maxDrillPort {
+		return drillRequest{}, usagef("--port is the declared drill port, a number from %d to %d", minDrillPort, maxDrillPort)
 	}
-	return port, clean, nil
+	return req, nil
 }
 
 func teamArray(ids []paths.TeamID) proto.Value {

@@ -28,6 +28,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -153,39 +154,64 @@ func (m machine) system(digest string) (*admin.System, error) {
 // restoreSeams are the restore engine and the drill. DC8, n2g-D8: the engine only once the
 // restore drill's proof record, root's own, is of this build, the installed Tuwunel and this
 // systemd major, with every clause of H-C5 and H-C15 passed. The drill's own restores and
-// discards are what make the proof, so its engine is not gated.
+// discards are what make the proof, so its engine is not gated; its key is the one Restore
+// checks, read the same way.
 func (m machine) restoreSeams(sys *admin.System, d paths.Digest, self string, systemd *units.Manager, backups func() (backup.Deps, error)) {
 	root, stateOwnerUID := m.root, m.stateOwnerUID
-	sys.Restore = func(ctx context.Context) (admin.Restorer, error) {
+	key := func(ctx context.Context) (restore.Key, error) {
 		pin, err := m.readPin()
 		if err != nil {
-			return nil, err
+			return restore.Key{}, err
 		}
 		systemdVersion, err := systemd.SystemdVersion(ctx)
 		if err != nil {
+			return restore.Key{}, err
+		}
+		return restore.Key{Software: d, Tuwunel: pin.Version, Systemd: systemdVersion}, nil
+	}
+	deps := func(context.Context) (restore.Deps, error) { return m.engineDeps(sys, self, systemd, backups) }
+	engine := func(ctx context.Context) (admin.Restorer, error) {
+		dd, err := deps(ctx)
+		if err != nil {
 			return nil, err
 		}
-		if err := restore.Proven(root, stateOwnerUID, restore.Key{Software: d, Tuwunel: pin.Version, Systemd: systemdVersion}); err != nil {
+		return admin.Engine{Deps: dd}, nil
+	}
+	sys.Restore = func(ctx context.Context) (admin.Restorer, error) {
+		k, err := key(ctx)
+		if err != nil {
 			return nil, err
 		}
-		return m.engine(sys, self, systemd, backups)
+		if err := restore.Proven(root, stateOwnerUID, k); err != nil {
+			return nil, err
+		}
+		return engine(ctx)
 	}
 	sys.Drill = func(context.Context) (admin.Driller, error) {
-		return admin.HostDrill{Sys: sys, Engine: func(context.Context) (admin.Restorer, error) {
-			return m.engine(sys, self, systemd, backups)
-		}}, nil
+		return admin.HostDrill{
+			Sys: sys, Engine: engine, Deps: deps, Key: key,
+			TakeBackup: func(ctx context.Context, held *teamlock.Lock) (int64, error) {
+				b, err := backups()
+				if err != nil {
+					return 0, err
+				}
+				res, err := backup.Take(ctx, b, held, nil)
+				return res.Backup, err
+			},
+			Dial: hostnet.Answers, Drill: drill.Run,
+		}, nil
 	}
 }
 
-// engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
-// team lock it holds.
-func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (admin.Restorer, error) {
+// engineDeps is the restore engine's Deps over the host's adapters (RW1, SM4), its hooks unset;
+// the engine is run by the verb under the team lock it holds.
+func (m machine) engineDeps(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (restore.Deps, error) {
 	b, err := backups()
 	if err != nil {
-		return nil, err
+		return restore.Deps{}, err
 	}
 	root, stateOwnerUID := m.root, m.stateOwnerUID
-	return admin.Engine{Deps: restore.Deps{
+	return restore.Deps{
 		Root: root, CtlUID: b.CtlUID, StateOwnerUID: stateOwnerUID,
 		Units: restoreUnits{systemd}, Ready: b.Ready, Run: m.runner,
 		Child: admin.RestoreChild{Live: sys.Child, Unit: func(argv []string) admin.Child { return admin.UnitChild{Runner: m.runner, Argv: argv} }},
@@ -216,7 +242,7 @@ func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, 
 		Sandbox: host.TeamSandbox,
 		Version: func(team paths.TeamID) (paths.ServerVersion, error) { return host.ReadUnitsVersion(root, team) },
 		Self:    self,
-	}}, nil
+	}, nil
 }
 
 // regKey is the registration key an applied config holds; a config without one was not

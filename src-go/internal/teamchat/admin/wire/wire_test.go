@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
@@ -191,8 +192,9 @@ func TestRestoreIsUnproven(t *testing.T) {
 	}
 }
 
-// The drill is the host's, and needs no proof record (it makes one): its engine is the restore
-// engine without the proof gate. Its rig is not built, so a drill is refused (70).
+// The drill is the host's, and needs no proof record (it makes one): drill.Run over the rig,
+// the TCP dial hostnet.Answers, the restore engine's Deps without the proof gate and with its
+// hooks unset, and the proof's key read as Restore reads it.
 func TestTheDrillIsTheHostsAndNeedsNoProof(t *testing.T) {
 	sys := build(t, &fakeMachine{root: t.TempDir()})
 	d, err := sys.Drill(t.Context())
@@ -200,12 +202,33 @@ func TestTheDrillIsTheHostsAndNeedsNoProof(t *testing.T) {
 		t.Fatalf("Drill: %v", err)
 	}
 	hd, ok := d.(admin.HostDrill)
-	if !ok || hd.Sys != sys || hd.Engine == nil {
+	if !ok || hd.Sys != sys {
 		t.Fatalf("Drill = %#v", d)
 	}
-	out, err := d.Run(t.Context(), 8470)
-	if !errors.Is(err, drill.ErrRefused) || admin.ExitCodeOf(err) != admin.ExitRefused || out.Written {
-		t.Fatalf("Run = %+v, %v", out, err)
+	if missing := nilFields(reflect.ValueOf(hd)); len(missing) != 0 {
+		t.Fatalf("the drill leaves %q unset", missing)
+	}
+	if reflect.ValueOf(hd.Drill).Pointer() != reflect.ValueOf(drill.Run).Pointer() ||
+		reflect.ValueOf(hd.Dial).Pointer() != reflect.ValueOf(hostnet.Answers).Pointer() {
+		t.Errorf("the drill is not drill.Run, or its dial not hostnet.Answers")
+	}
+	drillSeams(t, hd)
+}
+
+// drillSeams holds the drill's Deps (hooks unset), its key (Restore's) and its clean-up engine.
+func drillSeams(t *testing.T, hd admin.HostDrill) {
+	t.Helper()
+	deps, err := hd.Deps(t.Context())
+	if err != nil || deps.OnStaged != nil || deps.AfterSwap != nil || deps.Child == nil || deps.FS == nil {
+		t.Fatalf("Deps = %+v, %v", deps, err)
+	}
+	key, err := hd.Key(t.Context())
+	if want := proofOf(t).Key; err != nil || key != want {
+		t.Fatalf("Key = %+v, %v, want %+v", key, err, want)
+	}
+	engine, err := hd.Engine(t.Context())
+	if err != nil || engine == nil {
+		t.Fatalf("Engine = %v, %v", engine, err)
 	}
 }
 

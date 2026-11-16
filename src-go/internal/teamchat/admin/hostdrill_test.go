@@ -3,12 +3,16 @@ package admin
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
@@ -94,13 +98,131 @@ func TestHostDrillCleanStopsAtAFailedDiscard(t *testing.T) {
 	markerKept(t, w, id)
 }
 
-// The machine rig the drill runs on is not built: a drill is refused (70), naming the issue,
-// and touches nothing.
-func TestHostDrillRunIsRefusedUntilItsRigIsBuilt(t *testing.T) {
-	w, h, id := drillHost(t)
-	out, err := h.Run(t.Context(), 8470)
-	if !errors.Is(err, drill.ErrRefused) || !strings.Contains(err.Error(), "#324") || w.engines != 0 || out.Written {
-		t.Fatalf("Run = %+v, %v, %d engines", out, err, w.engines)
+// busyNetwork is the host's network with one more socket listening.
+type busyNetwork struct {
+	host.Network
+
+	busy host.Listener
+}
+
+func (n busyNetwork) Listeners() ([]host.Listener, error) {
+	l, err := n.Network.Listeners()
+	return append(l, n.busy), err
+}
+
+// drillRun is a HostDrill whose drill records the config and the rig it is given.
+type drillRun struct {
+	cfg    drill.Config
+	rig    drill.Rig
+	runs   int
+	keyErr error
+}
+
+func (r *drillRun) wire(t *testing.T, h *HostDrill) restore.Deps {
+	t.Helper()
+	deps := restore.Deps{Root: h.Sys.Host.Root, StateOwnerUID: h.Sys.Host.StateOwnerUID}
+	h.Deps = func(context.Context) (restore.Deps, error) { return deps, nil }
+	v, err := paths.ParseServerVersion("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
 	}
-	markerKept(t, w, id)
+	h.Key = func(context.Context) (restore.Key, error) {
+		return restore.Key{Software: mustDigest(t), Tuwunel: v, Systemd: "256.7-1.fc41"}, r.keyErr
+	}
+	h.TakeBackup = func(context.Context, *teamlock.Lock) (int64, error) { return 1, nil }
+	h.Dial = func(context.Context, netip.AddrPort) (bool, error) { return false, nil }
+	h.Drill = func(_ context.Context, cfg drill.Config, rig drill.Rig) (drill.Outcome, error) {
+		r.runs++
+		r.cfg, r.rig = cfg, rig
+		return drill.Outcome{Written: true}, nil
+	}
+	return deps
+}
+
+// Run is the drill on a fresh rig over the engine's Deps, its hooks unset, with the config of
+// this host, the proof's key, where it runs and the drill port.
+func TestHostDrillRunDrivesTheDrillOnTheRig(t *testing.T) {
+	w, h, _ := drillHost(t)
+	r := &drillRun{}
+	deps := r.wire(t, &h)
+	out, err := h.Run(t.Context(), 8470, restore.WhereVMLab)
+	if err != nil || !out.Written || r.runs != 1 {
+		t.Fatalf("Run = %+v, %v, %d runs", out, err, r.runs)
+	}
+	if c := r.cfg; c.Root != w.root || c.UID != deps.StateOwnerUID || c.Port != 8470 || c.Where != restore.WhereVMLab ||
+		c.Key.Tuwunel.String() != "v1.2.3" || c.Key.Systemd != "256.7-1.fc41" || c.Rand == nil || c.Clock == nil {
+		t.Errorf("config = %+v", c)
+	}
+	rigOK(t, r.rig, deps)
+}
+
+// rigOK holds that rig is a whole DrillRig over deps, the engine's hooks unset, reaching the
+// scratch team's server on loopback.
+func rigOK(t *testing.T, r drill.Rig, deps restore.Deps) {
+	t.Helper()
+	rig, ok := r.(*DrillRig)
+	if !ok {
+		t.Fatalf("rig = %T", r)
+	}
+	if rig.Engine.OnStaged != nil || rig.Engine.AfterSwap != nil || rig.Engine.Root != deps.Root {
+		t.Errorf("the rig's engine = %+v", rig.Engine)
+	}
+	if missing := nilRigFields(rig); len(missing) != 0 {
+		t.Errorf("the rig leaves %q unset", missing)
+	}
+	if got := rig.Base(8470); got != "http://127.0.0.1:8470" {
+		t.Errorf("Base = %q", got)
+	}
+}
+
+// nilRigFields names the rig's func and pointer fields left nil.
+func nilRigFields(rig *DrillRig) []string {
+	v := reflect.ValueOf(rig).Elem()
+	var out []string
+	for i := range v.NumField() {
+		f := v.Field(i)
+		k := f.Kind()
+		if v.Type().Field(i).IsExported() && (k == reflect.Func || k == reflect.Interface || k == reflect.Pointer) && f.IsNil() {
+			out = append(out, v.Type().Field(i).Name)
+		}
+	}
+	return out
+}
+
+// A drill port anything listens on, at any address, is refused (70) before the key is read or
+// the drill runs, naming the socket and its unit.
+func TestHostDrillRunRefusesAPortInUse(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1:8470", "[::]:8470", "192.0.2.10:8470"} {
+		w, h, id := drillHost(t)
+		r := &drillRun{}
+		r.wire(t, &h)
+		w.sys.Host.Network = busyNetwork{w.sys.Host.Network, host.Listener{Addr: netip.MustParseAddrPort(addr), Unit: "other.service"}}
+		out, err := h.Run(t.Context(), 8470, restore.WhereHost)
+		if !errors.Is(err, drill.ErrRefused) || ExitCodeOf(err) != ExitRefused || !strings.Contains(err.Error(), "8470 is in use") ||
+			!strings.Contains(err.Error(), "other.service") || r.runs != 0 || out.Written {
+			t.Errorf("%s: Run = %+v, %v, %d runs", addr, out, err, r.runs)
+		}
+		markerKept(t, w, id)
+	}
+}
+
+// Another port in use is no refusal.
+func TestHostDrillRunIgnoresOtherPorts(t *testing.T) {
+	w, h, _ := drillHost(t)
+	r := &drillRun{}
+	r.wire(t, &h)
+	w.sys.Host.Network = busyNetwork{w.sys.Host.Network, host.Listener{Addr: netip.MustParseAddrPort("127.0.0.1:8471")}}
+	if _, err := h.Run(t.Context(), 8470, restore.WhereHost); err != nil || r.runs != 1 {
+		t.Fatalf("Run = %v, %d runs", err, r.runs)
+	}
+}
+
+// A key that cannot be read stops the drill before it runs.
+func TestHostDrillRunNeedsTheKey(t *testing.T) {
+	_, h, _ := drillHost(t)
+	r := &drillRun{keyErr: errors.New("no systemd version")}
+	r.wire(t, &h)
+	if _, err := h.Run(t.Context(), 8470, restore.WhereHost); err == nil || !strings.Contains(err.Error(), "no systemd version") || r.runs != 0 {
+		t.Fatalf("Run = %v, %d runs", err, r.runs)
+	}
 }

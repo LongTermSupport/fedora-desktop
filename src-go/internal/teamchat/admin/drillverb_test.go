@@ -24,8 +24,8 @@ type fakeDriller struct {
 	cleanErr error
 }
 
-func (f *fakeDriller) Run(_ context.Context, port int) (drill.Outcome, error) {
-	f.calls = append(f.calls, fmt.Sprintf("run %d", port))
+func (f *fakeDriller) Run(_ context.Context, port int, where restore.Where) (drill.Outcome, error) {
+	f.calls = append(f.calls, fmt.Sprintf("run %d %s", port, where))
 	return f.out, f.err
 }
 
@@ -88,6 +88,10 @@ func TestRestoreDrillUsage(t *testing.T) {
 		"an unknown flag":     {"--team", "alpha"},
 		"an argument":         {"8470"},
 		"a valued clean":      {"--clean", "yes"},
+		"an unknown where":    {"--port", "8470", "--where", "lab"},
+		"an empty where":      {"--port", "8470", "--where", ""},
+		"a where twice":       {"--port", "8470", "--where", "host", "--where", "vm-lab"},
+		"a where to clean":    {"--clean", "--where", "vm-lab"},
 	} {
 		w := newDrillWorld(t)
 		got := w.verb(rootProc(), args...)
@@ -104,7 +108,7 @@ func TestRestoreDrillRuns(t *testing.T) {
 		restore.ClauseHC5: restore.VerdictPass, restore.ClausePoolSeat: restore.VerdictSkipped,
 	}}
 	got := w.verb(rootProc(), "--port", "8470")
-	if got.code != term.ExitOK || !slices.Equal(w.driller.calls, []string{"run 8470"}) {
+	if got.code != term.ExitOK || !slices.Equal(w.driller.calls, []string{"run 8470 host"}) {
 		t.Fatalf("%+v, calls %q", got, w.driller.calls)
 	}
 	want := `{"v":1,"cleaned":[],"team":"rd-0123456789ab","checks":{"H-C5":"pass","H-C15.pool-seat":"skipped"},"failed":{},"proof":true}` + "\n"
@@ -122,7 +126,7 @@ func TestRestoreDrillCleans(t *testing.T) {
 		t.Fatalf("%+v, calls %q", got, w.driller.calls)
 	}
 	w = newDrillWorld(t)
-	if got = w.verb(rootProc(), "--clean", "--port", "8470"); got.code != term.ExitOK || !slices.Equal(w.driller.calls, []string{"clean", "run 8470"}) {
+	if got = w.verb(rootProc(), "--clean", "--port", "8470"); got.code != term.ExitOK || !slices.Equal(w.driller.calls, []string{"clean", "run 8470 host"}) {
 		t.Fatalf("%+v, calls %q", got, w.driller.calls)
 	}
 }
@@ -182,7 +186,8 @@ func TestRestoreDrillSeam(t *testing.T) {
 func TestRestoreDrillHelp(t *testing.T) {
 	w := newDrillWorld(t)
 	got := w.verb(rootProc(), "--help")
-	if got.code != term.ExitOK || got.stderr != "" || !strings.Contains(got.stdout, "never copied") || !strings.Contains(got.stdout, "skipped") || w.seams != 0 {
+	if got.code != term.ExitOK || got.stderr != "" || !strings.Contains(got.stdout, "never copied") || !strings.Contains(got.stdout, "skipped") ||
+		!strings.Contains(got.stdout, "--where host|vm-lab") || w.seams != 0 {
 		t.Fatalf("%+v", got)
 	}
 	if got = w.verb(rootProc(), "--help", "--clean"); got.code != term.ExitUsage {
@@ -196,6 +201,20 @@ func TestRestoreDrillIsRoots(t *testing.T) {
 		w := newDrillWorld(t)
 		if got := w.verb(proc, "--port", "8470"); got.code != ExitClass || got.stdout != "" || w.seams != 0 {
 			t.Errorf("uid %d: %+v", proc.uid, got)
+		}
+	}
+}
+
+// --where says where the drill runs, recorded in the proof: host by default, or vm-lab.
+func TestRestoreDrillWhere(t *testing.T) {
+	for want, args := range map[string][]string{
+		"run 8470 host":   {"--port", "8470"},
+		"run 8470 host ":  {"--port", "8470", "--where", "host"},
+		"run 8470 vm-lab": {"--where", "vm-lab", "--port", "8470"},
+	} {
+		w := newDrillWorld(t)
+		if got := w.verb(rootProc(), args...); got.code != term.ExitOK || !slices.Equal(w.driller.calls, []string{strings.TrimSpace(want)}) {
+			t.Errorf("%q: %+v, calls %q", args, got, w.driller.calls)
 		}
 	}
 }
