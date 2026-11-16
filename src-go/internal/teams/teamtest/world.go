@@ -40,9 +40,12 @@ const (
 	BoxMember = "MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\nLIVE\tproj.box+role.lxc\t-\n"
 	// HostVarsAlpha is a host_vars declaring team alpha present on port 6167 at the bus address
 	// 192.0.2.10, with no description: declared, it reads as alpha.agent-bus.internal at
-	// http://192.0.2.10:6167.
-	HostVarsAlpha = "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n  - team: alpha\n    port: 6167\n"
-	UnitAlpha     = "agent-bus-hs@alpha.service loaded active running Homeserver alpha\n"
+	// http://192.0.2.10:6167. It sets agent_bus_matrix_client to element, so the fake machine
+	// is a host that chose Element; HostVarsAlphaOn names another client.
+	HostVarsAlpha = "agent_bus_matrix_client: element\n" + hostVarsAlphaTeams
+	// hostVarsAlphaTeams is HostVarsAlpha without the client setting.
+	hostVarsAlphaTeams = "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n  - team: alpha\n    port: 6167\n"
+	UnitAlpha          = "agent-bus-hs@alpha.service loaded active running Homeserver alpha\n"
 	// LxcPath is where root's LXC keeps its containers (hostcheckout's default); LxcContainer is
 	// one of them.
 	LxcPath      = hostcheckout.DefaultLxcPath
@@ -232,6 +235,15 @@ var declareReads = []string{
 // check. A read panics (scriptable).
 func (w *World) OnDeclare(sub, stdout string) {
 	w.On(w.DeclarePrefix(sub), stdout, 0)
+}
+
+// HostVarsAlphaOn is HostVarsAlpha with agent_bus_matrix_client set to client, or not set at
+// all when client is empty (the default client).
+func HostVarsAlphaOn(client string) string {
+	if client == "" {
+		return hostVarsAlphaTeams
+	}
+	return "agent_bus_matrix_client: " + client + "\n" + hostVarsAlphaTeams
 }
 
 // WriteHostVars makes text the host_vars file the reads answer from.

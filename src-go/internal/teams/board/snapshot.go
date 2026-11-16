@@ -69,7 +69,7 @@ type Snapshot struct {
 	// could not be read (its row's WHERE says why), has an empty one.
 	LXC map[string]lxcrecord.Record
 	// Clients is the Matrix client each team opens in (its client:, else agent_bus_matrix_client,
-	// else element), which its menu names.
+	// else lightning), which its menu names.
 	Clients        declare.Clients
 	MembersUnknown map[string]string // team -> why its members are not shown
 	SignedIn       map[string]string // "<team>|<person>" -> their sessions on the homeserver, from any client, in words

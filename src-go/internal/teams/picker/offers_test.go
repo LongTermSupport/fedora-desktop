@@ -540,7 +540,7 @@ func TestOfferJoinHereSkipsWhatItCannotDecide(t *testing.T) {
 	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
 	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    repos: !vault x\n")
 	r = &run{p: h.p, snap: board.NewSnapshot()}
-	refused := "declare: alpha's repos on line 5 is tagged (vault-encrypted?); ccy-teams reads only plain values"
+	refused := "declare: alpha's repos on line 6 is tagged (vault-encrypted?); ccy-teams reads only plain values"
 	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), refused) {
 		t.Fatalf("%v %q", err, h.ErrOut.String())
 	}

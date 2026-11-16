@@ -51,7 +51,7 @@ func TestTheLauncherOfEachClient(t *testing.T) {
 	}
 }
 
-func TestClientOfIsTheTeamsOwnElseTheHomeLevelElseElement(t *testing.T) {
+func TestClientOfIsTheTeamsOwnElseTheHomeLevelElseLightning(t *testing.T) {
 	r := newOpsRig(t)
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -59,11 +59,12 @@ func TestClientOfIsTheTeamsOwnElseTheHomeLevelElseElement(t *testing.T) {
 		teams []string
 		want  Client
 	}{
-		{"", []string{"beta"}, Element},
-		{"agent_bus_matrix_client: lightning\n", []string{"beta"}, Lightning},
-		{"", []string{"beta:lightning"}, Lightning},
-		{"agent_bus_matrix_client: lightning\n", []string{"beta:element"}, Element},
-		{"agent_bus_matrix_client: lightning\n", []string{"other"}, Lightning},
+		{"", []string{"beta"}, Lightning},
+		{"agent_bus_matrix_client: element\n", []string{"beta"}, Element},
+		{"", []string{"beta:element"}, Element},
+		{"agent_bus_matrix_client: element\n", []string{"beta:lightning"}, Lightning},
+		{"agent_bus_matrix_client: element\n", []string{"other"}, Element},
+		{"", []string{"other"}, Lightning},
 	} {
 		r.watch(t, c.head, c.teams...)
 		if got, err := r.ops.ClientOf(ctx, "beta"); err != nil || got != c.want {
@@ -113,7 +114,7 @@ func TestApplyTeamsOfALightningTeamChecksItsLightningLauncher(t *testing.T) {
 
 func TestRunElementPlayNamesEachTeamsClient(t *testing.T) {
 	r := newOpsRig(t)
-	r.watch(t, "", "a", "b:lightning", "c")
+	r.watch(t, "agent_bus_matrix_client: element\n", "a", "b:lightning", "c")
 	r.on(opsElementPlay, execx.Result{})
 	r.files[r.ops.ElementLauncher("a")] = true
 	r.files[r.lightningLauncher("b")] = true
@@ -126,7 +127,7 @@ func TestRunElementPlayNamesEachTeamsClient(t *testing.T) {
 	}
 
 	f := newOpsRig(t)
-	f.watch(t, "", "a", "b:lightning")
+	f.watch(t, "", "a:element", "b")
 	f.onExit(opsElementPlay, 2, "")
 	if err := f.ops.RunElementPlay(context.Background(), []string{"a", "b"}); err == nil {
 		t.Fatal("want an error")

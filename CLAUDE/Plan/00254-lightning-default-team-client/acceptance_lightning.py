@@ -12,7 +12,7 @@ reads them, through the existing readers rather than a new YAML parser:
   declare's subset (one plain or quoted value; a tag is not read);
 - Lightning's app id and data folder from the one Matrix client list (helpers.pingbus.config).
 
-The resolution is the play's: a team's client:, else agent_bus_matrix_client, else element; a
+The resolution is the play's: a team's client:, else agent_bus_matrix_client, else lightning; a
 team agent_bus_teams declares absent is left out. A lightning team is an https team when its
 entry gives a ca_file (its base_url is then the url) or its approved.json under the approved
 root names an https url, as tasks/https-team-ca.yml decides.
@@ -100,6 +100,8 @@ def go_strings(source: str, name: str) -> tuple[str, ...]:
 LIGHTNING = pingbus_config.MATRIX_CLIENTS.client("Lightning")
 CLIENT_LIGHTNING = "lightning"
 DEFAULT_KEY = "agent_bus_matrix_client"
+# The client of a team when neither its entry nor DEFAULT_KEY names one (Task 7.1).
+DEFAULT_CLIENT = CLIENT_LIGHTNING
 # What src-go/internal/lightning writes, read from its source in this checkout.
 LIGHTNING_GO = "src-go/internal/lightning/lightning.go"
 _GO = (REPO_ROOT / LIGHTNING_GO).read_text(encoding="utf-8")
@@ -150,7 +152,7 @@ def home_default(text: str) -> str:
     found = [m for m in (_DEFAULT_RE.fullmatch(line.rstrip("\r\n")) for line in text.splitlines()) if m]
     if len(found) > 1:
         raise CouldNotEstablish(f"{DEFAULT_KEY} is set more than once")
-    return _scalar(found[0]["rest"]) if found else element.CLIENT_ELEMENT
+    return _scalar(found[0]["rest"]) if found else DEFAULT_CLIENT
 
 
 def _approved_url(approved_root: pathlib.Path, team: str) -> str | None:

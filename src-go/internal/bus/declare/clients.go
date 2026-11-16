@@ -26,11 +26,11 @@ var clients = []string{ClientElement, ClientLightning}
 
 // Clients is the Matrix client each team opens in. It is Go's one definition of the rule
 // play-agent-bus-element.yml applies in its first task: a team's own client, else
-// agent_bus_matrix_client, else element. The default stays element until Plan 00254 Task 7.1.
+// agent_bus_matrix_client, else lightning (Plan 00254 Task 7.1).
 // agent_bus_matrix_client is read only as a top-level key of the host_vars file: Ansible would
 // also take it from group_vars or extra-vars, which ccy-teams does not read, so it is set there.
 type Clients struct {
-	// Default is agent_bus_matrix_client, or element when the host_vars do not set it.
+	// Default is agent_bus_matrix_client, or lightning when the host_vars do not set it.
 	Default string
 	// Teams is the client of each agent_bus_element_teams entry that names one.
 	Teams map[string]string
@@ -76,7 +76,7 @@ func (h HostVars) MatrixClients() (Clients, error) {
 	return out, nil
 }
 
-// homeClient is agent_bus_matrix_client, element when it is not set.
+// homeClient is agent_bus_matrix_client, lightning when it is not set.
 func homeClient(lines []string) (string, error) {
 	var found []string
 	for _, line := range lines {
@@ -88,7 +88,7 @@ func homeClient(lines []string) (string, error) {
 	case len(found) > 1:
 		return "", refusedf("%s is set more than once", matrixClientKey)
 	case len(found) == 0:
-		return ClientElement, nil
+		return ClientLightning, nil
 	}
 	value, err := scalar(found[0], matrixClientKey)
 	if err != nil {

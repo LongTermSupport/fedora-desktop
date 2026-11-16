@@ -10,10 +10,11 @@ Phase 6 build on.
 - A team entry in `agent_bus_element_teams` may carry `client: element` or `client: lightning`,
   which wins for that team.
 - Any other value fails the play, in the first, read-only task, naming the team and the value.
-- **The default stays `element` until Task 7.1.** D3 names Lightning as the client the estate
-  moves to. Phase 7 is where the default changes, after the owner's live check (7.2). Until then a
-  host that sets nothing gets exactly what it has today. The laptop, or any host trying Lightning
-  first, sets `agent_bus_matrix_client: lightning` or a team's `client:`.
+- **The default is `lightning` (Task 7.1).** D3 names Lightning as the client the estate moves
+  to. Task 7.1 changes the default, landing only once a Lightning release with the thread-root
+  fix is on Flathub (Task 2.5) and this plan's acceptance has passed on the host for a team set
+  to `lightning`. A host that sets nothing then opens every team in Lightning; a host that keeps
+  Element sets `agent_bus_matrix_client: element`, or a team's own `client: element`.
 
 The list keeps its name, `agent_bus_element_teams`. It is read and written in several places:
 
