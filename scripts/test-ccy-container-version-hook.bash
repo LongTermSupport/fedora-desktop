@@ -874,6 +874,15 @@ git -C "$m" merge --abort
 git -C "$m" switch -q --detach F44
 check "…and so is that merge made from F44's side" "1 yes" \
     "$(merge_hook "$m" work) $(has 'CCY version bump required')"
+git -C "$m" merge --abort
+# A merge git completes on its own runs pre-merge-commit, not pre-commit (issue #311). The two
+# version lines are the same change, so this merge is clean, and the hook must still refuse it.
+git -C "$m" config core.hooksPath hooks
+rc=0
+git -C "$m" merge -q --no-ff -m clean work >"$work/hook.out" 2>&1 || rc=$?
+check "…and so is that merge when git completes it cleanly (pre-merge-commit)" "1 yes no" \
+    "$rc $(has 'CCY version bump required') $(has 'No sensitive patterns detected')"
+git -C "$m" config --unset core.hooksPath
 
 m=$(merge_repo)
 git -C "$m" switch -q -c work
@@ -884,6 +893,13 @@ git -C "$m" switch -q F44
 merge_f44 "$m" 1.0.1
 git -C "$m" switch -q work
 check "a branch with no ccy change of its own merging F44 passes" "0" "$(merge_hook "$m" origin/F44)"
+git -C "$m" merge --abort
+git -C "$m" config core.hooksPath hooks
+rc=0
+git -C "$m" merge -q --no-ff -m clean origin/F44 >"$work/hook.out" 2>&1 || rc=$?
+check "…and so does that merge when git completes it cleanly, without the per-file secret scan" "0 no" \
+    "$rc $(has 'No sensitive patterns detected')"
+git -C "$m" config --unset core.hooksPath
 
 m=$(merge_repo)
 git -C "$m" switch -q -c one

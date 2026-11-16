@@ -20,6 +20,7 @@ const (
 	f43Tip   = "3333333333333333333333333333333333333333"
 	head     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	incoming = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	missing  = "dddddddddddddddddddddddddddddddddddddddd"
 	policy   = "cap = 10\nwarn_days = 3\nfail_days = 7\nexempt = [\"F44\", \"F42\", \"F43\"]\n"
 )
 
@@ -58,8 +59,11 @@ func (f *fake) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 		return proc.Result{Stdout: f44Tip + "\n"}, nil
 	case "git rev-parse --verify --quiet refs/remotes/origin/F43^{commit}":
 		return proc.Result{Stdout: f43Tip + "\n"}, nil
-	case "git rev-parse --verify --quiet refs/remotes/origin/F42^{commit}":
+	case "git rev-parse --verify --quiet refs/remotes/origin/F42^{commit}",
+		"git rev-parse --verify --quiet " + missing + "^{commit}":
 		return proc.Result{Code: 1}, nil
+	case "git rev-parse --verify --quiet " + f44Tip + "^{commit}":
+		return proc.Result{Stdout: f44Tip + "\n"}, nil
 	}
 	if pair, ok := strings.CutPrefix(key, "git merge-base --is-ancestor "); ok {
 		commit, other, found := strings.Cut(pair, " ")
@@ -307,6 +311,43 @@ func TestAnUnorderableVersionCannotJudge(t *testing.T) {
 		r.tree(head, bad, "1.0")
 		if code := r.run(t); code != ExitCannotRun || r.out.Len() != 0 {
 			t.Fatalf("%q: exit %d, stdout %q", bad, code, r.out.String())
+		}
+	}
+}
+
+// B8: --protected-tip names the line's tip itself (CI judging a merge already on F44, against
+// the tip before the push): a parent is on the line when that commit contains it, and neither the
+// policy nor origin's tips are read.
+func TestAGivenTipStandsForTheLines(t *testing.T) {
+	for name, c := range map[string]struct {
+		on   map[string][]string
+		want string
+	}{
+		"the incoming parent": {map[string][]string{f44Tip: {incoming}}, incoming},
+		"HEAD":                {map[string][]string{f44Tip: {head}}, head},
+		"neither":             {map[string][]string{f43Tip: {head, incoming}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, true, c.on)
+			r.policy = ""
+			r.git.broken = "refs/remotes/origin"
+			if code := r.run(t, "--protected-tip", f44Tip); code != ExitOK || r.out.String() != c.want+"\n" {
+				t.Fatalf("exit %d, stdout %q, stderr %q", code, r.out.String(), r.err.String())
+			}
+		})
+	}
+}
+
+// A tip that names no commit cannot judge; a flag without its value is a usage error.
+func TestAGivenTipMustBeACommit(t *testing.T) {
+	r := newRig(t, true, nil)
+	if code := r.run(t, "--protected-tip", missing); code != ExitCannotRun || !strings.Contains(r.err.String(), missing) {
+		t.Fatalf("exit %d, stderr %q", code, r.err.String())
+	}
+	for _, args := range [][]string{{"--protected-tip"}, {"--protected-tip", f44Tip, "stray"}, {"--protected-tip", ""}} {
+		r = newRig(t, true, nil)
+		if code := r.run(t, args...); code != ExitUsage {
+			t.Fatalf("%q: exit %d", args, code)
 		}
 	}
 }

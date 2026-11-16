@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Judge every merge commit of RANGE by the pre-commit hook's ccy version gates, as if it were being
+# committed now (issue #311). A local hook can be skipped (--no-verify, a client with none); this
+# CI step cannot. Each merge is rebuilt in a shared clone: HEAD at its first parent, its own tree
+# checked out and staged, its second parent as MERGE_HEAD. This checkout's hook then runs there with
+# CCY_VERSION_ONLY (the gates alone) and CCY_PROTECTED_TIP=TIP, the protected line's tip before
+# the merges (qa-ccy-version-base --protected-tip): after a push the line holds both parents.
+# Usage: qa-ccy-merge-commits.bash TIP RANGE   (run from the repository root)
+# Exit codes: 0 every merge passes, 1 a merge is refused, 2 cannot judge, 64 usage.
+set -euo pipefail
+
+if [ "$#" -ne 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
+    echo "usage: qa-ccy-merge-commits.bash TIP RANGE" >&2
+    exit 64
+fi
+tip=$1 range=$2
+hook="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/git-hooks/pre-commit"
+if ! tip=$(git rev-parse -q --verify "$tip^{commit}"); then
+    echo "ERROR: qa-ccy-merge-commits: the tip $1 is not a commit" >&2
+    exit 2
+fi
+if ! merges=$(git rev-list --merges --reverse "$range"); then
+    echo "ERROR: qa-ccy-merge-commits: git cannot list $range" >&2
+    exit 2
+fi
+if [ -z "$merges" ]; then
+    echo "qa-ccy-merge-commits: no merge commits in $range"
+    exit 0
+fi
+
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+git clone -q --shared --no-checkout . "$scratch/repo"
+refused=0
+for merge in $merges; do
+    parents=$(git rev-list --no-walk --parents "$merge")
+    read -r self first second extra <<<"$parents"
+    if [ -n "${extra:-}" ]; then
+        echo "✗ $merge: an octopus merge, which the version gates cannot judge" >&2
+        refused=1
+        continue
+    fi
+    git -C "$scratch/repo" checkout -q --detach "$merge"
+    git -C "$scratch/repo" reset -q --soft "$first"
+    git -C "$scratch/repo" update-ref MERGE_HEAD "$second"
+    echo "🔍 merge $self ($first + $second)"
+    rc=0
+    (cd "$scratch/repo" && CCY_VERSION_ONLY=1 CCY_PROTECTED_TIP="$tip" bash "$hook") || rc=$?
+    case "$rc" in
+    0) ;;
+    1) echo "✗ merge $merge is refused by the ccy version gates (above)" >&2 && refused=1 ;;
+    *) echo "ERROR: qa-ccy-merge-commits: the hook could not judge merge $merge (exit $rc)" >&2 && exit 2 ;;
+    esac
+    git -C "$scratch/repo" update-ref -d MERGE_HEAD
+done
+exit "$refused"

@@ -1,0 +1,7 @@
+#!/bin/bash
+# A merge git completes on its own (no conflict, no --no-commit) runs this hook, never pre-commit,
+# so without it the ccy version gates never judge such a merge (issue #311). It runs pre-commit up
+# to and including those gates and stops before the per-file secret scan: each commit a merge
+# brings was scanned when it was made, and that scan takes minutes on a large merge (issue #214).
+set -euo pipefail
+CCY_VERSION_ONLY=1 exec "$(dirname "${BASH_SOURCE[0]}")/pre-commit"

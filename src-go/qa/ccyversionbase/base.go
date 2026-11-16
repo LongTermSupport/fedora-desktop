@@ -16,6 +16,9 @@
 //	    every merge, a merge of two work branches included. With the hook's own check that the
 //	    version differs from the base's when ccy files differ from it, the base's is exceeded.
 //
+//	B8. --protected-tip SHA: the line's tip is SHA, not origin's tips of the policy's lines (CI
+//	    judging a merge commit already on F44 against the tip before the push, issue #311).
+//
 // A side without the file, or without the version line, sets no floor; a version that is not
 // dotted numbers cannot be ordered (exit 2). The decision is issue #298's.
 //
@@ -49,12 +52,13 @@ const (
 // gitTimeout bounds each git question.
 const gitTimeout = time.Minute
 
-const usageText = `usage: qa-ccy-version-base
+const usageText = `usage: qa-ccy-version-base [--protected-tip SHA]
 
 The commit a ccy version bump is judged against: HEAD outside a merge; in a merge, the parent on a
 protected line (scripts/branch-policy.toml's exempt lines, as origin has them), the later of two;
 an empty line when no parent is on one. A merge whose staged CCY_VERSION or container LABEL is
-below a parent's is refused. Exit codes: 0 named, 1 refused, 2 cannot judge, 64 usage.
+below a parent's is refused. --protected-tip SHA judges "on a protected line" as "in SHA" instead.
+Exit codes: 0 named, 1 refused, 2 cannot judge, 64 usage.
 `
 
 // Env is what the command touches: the streams, git, the checkout and its policy file.
@@ -72,15 +76,18 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 }
 
 func run(ctx context.Context, args []string, env Env, out, errOut *emit.Emitter) ExitCode {
+	tip := ""
 	switch {
 	case len(args) == 1 && (args[0] == "-h" || args[0] == "--help"):
 		out.Block(usageText)
 		return ExitOK
+	case len(args) == 2 && args[0] == "--protected-tip" && args[1] != "":
+		tip = args[1]
 	case len(args) != 0:
 		errOut.Block(usageText)
 		return ExitUsage
 	}
-	base, parents, err := Base(ctx, env)
+	base, parents, err := Base(ctx, env, tip)
 	var behind []string
 	if err == nil {
 		behind, err = Behind(ctx, env, parents)
@@ -101,8 +108,8 @@ func run(ctx context.Context, args []string, env Env, out, errOut *emit.Emitter)
 }
 
 // Base is the commit to judge a bump against, "HEAD", or "" when none is owed, and a merge's
-// two parents (none outside a merge).
-func Base(ctx context.Context, env Env) (string, []string, error) {
+// two parents (none outside a merge). A non-empty tip is the protected line's tip (B8).
+func Base(ctx context.Context, env Env, tip string) (string, []string, error) {
 	incoming, merging, err := revParse(ctx, env, "--verify", "--quiet", "MERGE_HEAD^{commit}")
 	if err != nil || !merging {
 		return "HEAD", nil, err
@@ -114,25 +121,45 @@ func Base(ctx context.Context, env Env) (string, []string, error) {
 	case !found:
 		return "", nil, errors.New("a merge in progress has no HEAD commit")
 	}
-	base, err := protectedParent(ctx, env, head, incoming)
+	tips, err := lineTips(ctx, env, tip)
+	if err != nil {
+		return "", nil, err
+	}
+	base, err := protectedParent(ctx, env, tips, head, incoming)
 	return base, []string{head, incoming}, err
 }
 
-// protectedParent is the parent on a protected line, the later of two, or "" for neither.
-func protectedParent(ctx context.Context, env Env, head, incoming string) (string, error) {
+// lineTips are the protected lines' tips: the given one, or origin's of the policy's lines.
+func lineTips(ctx context.Context, env Env, given string) ([]string, error) {
+	if given != "" {
+		sha, found, err := revParse(ctx, env, "--verify", "--quiet", given+"^{commit}")
+		if err == nil && !found {
+			err = fmt.Errorf("--protected-tip %s names no commit", given)
+		}
+		return []string{sha}, err
+	}
 	pol, err := branchhygiene.ReadPolicy(env.ReadFile, env.Cwd)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	headOn, incomingOn := false, false
+	var tips []string
 	for _, line := range pol.Exempt {
 		tip, exists, err := revParse(ctx, env, "--verify", "--quiet", "refs/remotes/origin/"+line+"^{commit}")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if !exists {
-			continue
+		if exists {
+			tips = append(tips, tip)
 		}
+	}
+	return tips, nil
+}
+
+// protectedParent is the parent some tip contains, the later of two, or "" for neither.
+func protectedParent(ctx context.Context, env Env, tips []string, head, incoming string) (string, error) {
+	headOn, incomingOn := false, false
+	for _, tip := range tips {
+		var err error
 		if headOn, err = orContains(ctx, env, headOn, head, tip); err != nil {
 			return "", err
 		}
