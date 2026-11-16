@@ -146,9 +146,16 @@ func (m machine) system(digest string) (*admin.System, error) {
 		// X33: team rotate-ca replaces the CA, the leaf and the LXC record as apply writes files.
 		RotateWrite: state.WriteFile,
 	}
-	// DC8, n2g-D8: the engine only once the restore drill's proof record, root's own, is of this
-	// build, the installed Tuwunel and this systemd major, with every clause of H-C5 and H-C15
-	// passed.
+	m.restoreSeams(sys, d, self, systemd, backups)
+	return sys, nil
+}
+
+// restoreSeams are the restore engine and the drill. DC8, n2g-D8: the engine only once the
+// restore drill's proof record, root's own, is of this build, the installed Tuwunel and this
+// systemd major, with every clause of H-C5 and H-C15 passed. The drill's own restores and
+// discards are what make the proof, so its engine is not gated.
+func (m machine) restoreSeams(sys *admin.System, d paths.Digest, self string, systemd *units.Manager, backups func() (backup.Deps, error)) {
+	root, stateOwnerUID := m.root, m.stateOwnerUID
 	sys.Restore = func(ctx context.Context) (admin.Restorer, error) {
 		pin, err := m.readPin()
 		if err != nil {
@@ -163,7 +170,11 @@ func (m machine) system(digest string) (*admin.System, error) {
 		}
 		return m.engine(sys, self, systemd, backups)
 	}
-	return sys, nil
+	sys.Drill = func(context.Context) (admin.Driller, error) {
+		return admin.HostDrill{Sys: sys, Engine: func(context.Context) (admin.Restorer, error) {
+			return m.engine(sys, self, systemd, backups)
+		}}, nil
+	}
 }
 
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the

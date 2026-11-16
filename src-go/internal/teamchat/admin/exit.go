@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -17,7 +18,7 @@ import (
 
 // ExitCodeOf is C 3.3's exit code for a failure (RE9, AP11, CV3): a team lock held is 75; a
 // child's failure is its class's code; drift the rooms engine, apply or the host steps refused,
-// a verb's own refusal, a restore under way (RG2) or refused (RS15), a backup of a server not
+// a verb's own refusal, a restore under way (RG2) or refused (RS15), a restore drill refused, a backup of a server not
 // running, and an approve the gate refused, is 70, a homeserver that did not answer usably or
 // kept rate-limiting, or was lost during a backup or a restore (RS15), is 69, anything else 1. The
 // matrix client's own ExitCode is the member side's table and is not used (n2a-D13). An LXC
@@ -44,6 +45,13 @@ func ExitCodeOf(err error) term.ExitCode {
 	return term.ExitFailure
 }
 
+// refusedRestore is a restore under way or refused, a restore drill refused, or a backup of a
+// server not running.
+func refusedRestore(err error) bool {
+	return errors.Is(err, restore.ErrPending) || errors.Is(err, restore.ErrRefused) || errors.Is(err, drill.ErrRefused) ||
+		errors.Is(err, backup.ErrNotRunning)
+}
+
 // verbExit is the code of a failure the verbs' own layer names: the lock and its guard, a lost
 // homeserver, the child, a refusal of a verb's or of the host steps. A lost homeserver comes
 // before the child, so a backup's or the matrix client's 69 wins over any child error it wraps
@@ -52,7 +60,7 @@ func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
 	}
-	if errors.Is(err, restore.ErrPending) || errors.Is(err, restore.ErrRefused) || errors.Is(err, backup.ErrNotRunning) {
+	if refusedRestore(err) {
 		return ExitRefused, true
 	}
 	if errors.Is(err, backup.ErrLost) || errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, matrix.ErrRateLimited) {

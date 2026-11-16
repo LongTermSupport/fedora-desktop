@@ -133,6 +133,19 @@ func TestDecodeMarkerRefuses(t *testing.T) {
 	}
 }
 
+// A marker no drill could read back (no digest) is never written: a scratch team with an
+// unreadable marker would block every drill and be beyond --clean.
+func TestWriteMarkerRefusesAnUnreadableMarker(t *testing.T) {
+	root, uid := host(t)
+	id := team(t, "rd-0123456789ab")
+	if err := WriteMarker(root, id, Marker{StartedMS: 1}); err == nil || !strings.Contains(err.Error(), "read back") {
+		t.Fatalf("WriteMarker = %v", err)
+	}
+	if err := CheckStart(root, uid); err != nil {
+		t.Fatalf("the refused marker left a team behind: %v", err)
+	}
+}
+
 // Q1: the drill starts only on a host that holds no team but marked scratch teams, and no marked
 // scratch team either: a leftover is named with --clean, any other team (an applied team, or a
 // scratch id with no marker) refuses the drill.

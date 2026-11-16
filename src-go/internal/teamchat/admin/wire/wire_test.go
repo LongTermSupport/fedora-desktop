@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore/drill"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
@@ -187,6 +188,24 @@ func TestRestoreIsUnproven(t *testing.T) {
 		if engine, err := build(t, f).Restore(t.Context()); engine != nil || !errors.Is(err, restore.ErrUnproven) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Restore = %v, %v", name, engine, err)
 		}
+	}
+}
+
+// The drill is the host's, and needs no proof record (it makes one): its engine is the restore
+// engine without the proof gate. Its rig is not built, so a drill is refused (70).
+func TestTheDrillIsTheHostsAndNeedsNoProof(t *testing.T) {
+	sys := build(t, &fakeMachine{root: t.TempDir()})
+	d, err := sys.Drill(t.Context())
+	if err != nil {
+		t.Fatalf("Drill: %v", err)
+	}
+	hd, ok := d.(admin.HostDrill)
+	if !ok || hd.Sys != sys || hd.Engine == nil {
+		t.Fatalf("Drill = %#v", d)
+	}
+	out, err := d.Run(t.Context(), 8470)
+	if !errors.Is(err, drill.ErrRefused) || admin.ExitCodeOf(err) != admin.ExitRefused || out.Written {
+		t.Fatalf("Run = %+v, %v", out, err)
 	}
 }
 

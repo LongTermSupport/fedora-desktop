@@ -143,6 +143,7 @@ func buildTable() []verb {
 	group(ClassRoot, "backup")
 	group(ClassRoot, "backups")
 	group(ClassRoot, "restore")
+	group(ClassRoot, "restore-drill")
 	group(ClassRoot, "health")
 	group(ClassRoot, "lxc", "apply", "restart")
 	group(ClassRoot, "check")

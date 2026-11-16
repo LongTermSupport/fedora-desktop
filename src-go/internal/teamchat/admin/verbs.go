@@ -46,6 +46,8 @@ type System struct {
 	Backup     func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
 	Restore func(ctx context.Context) (Restorer, error)
+	// Drill is the restore drill, which writes the proof record Restore needs (issue #324).
+	Drill func(ctx context.Context) (Driller, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.
 	RotateWrite host.FileWriter
 }
@@ -102,7 +104,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 		"lxc apply": lxcApply, "lxc restart": lxcRestart,
-		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
+		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb, "restore-drill": restoreDrill,
 		"units list": unitsList, "units print": unitsPrint,
 		"human password": humanVerb(apply.OpHumanPassword), "human logout": humanVerb(apply.OpHumanLogout),
 		"human devices": humanVerb(apply.OpHumanDevices),

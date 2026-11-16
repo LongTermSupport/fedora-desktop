@@ -96,6 +96,9 @@ func WriteMarker(root string, id paths.TeamID, m Marker) error {
 	if !IsScratch(id) {
 		return fmt.Errorf("%s is not a scratch team id", id)
 	}
+	if _, err := DecodeMarker(EncodeMarker(m)); err != nil {
+		return fmt.Errorf("a marker no drill could read back: %w", err)
+	}
 	if err := os.Mkdir(root+paths.AdminState(id), 0o700); err != nil {
 		return fmt.Errorf("the scratch team's state directory: %w", err)
 	}
