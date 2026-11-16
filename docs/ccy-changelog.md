@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.19 — container 2.84.27
+
+- **teamchat's paths and state name the sealed carry of a team** (issue #324, Plan 00209
+  SPEC-carry CN1-CN5). `internal/teamchat/paths` gains the seal, drill and import records, the
+  root-only carry inbox and staging names, the archive cap's setting, and `TeamStateRoots`, the
+  closed list of every path that holds a team's state; `internal/teamchat/state` gains
+  `OpenOwnedFile`, the streamed twin of `ReadOwnedFile`. Both packages are built into the
+  image's `teamchat`, so it is rebuilt once; nothing a session does changes.
+
 ## 3.122.18 — container 2.84.26
 
 - **pingbus never waits in silence on stdin** (issue #260). A command run with no input in
