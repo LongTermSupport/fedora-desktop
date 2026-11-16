@@ -10,9 +10,12 @@ import (
 )
 
 // TestConnRead forbids a test's read of a connection, or accept on a listener, that nothing bounds.
-var TestConnRead = &analysis.Analyzer{
-	Name: "project_test_conn_read",
-	Doc: `project_test_conn_read flags, in a _test.go file or a package whose name starts with
+var TestConnRead = newTestConnRead(connReadAllowances)
+
+func newTestConnRead(allow []allowance) *analysis.Analyzer {
+	return &analysis.Analyzer{
+		Name: "project_test_conn_read",
+		Doc: `project_test_conn_read flags, in a _test.go file or a package whose name starts with
 "fake" (code only tests run), a read that blocks until a network peer acts: a Read on a value
 of a connection's shape (methods Read, SetReadDeadline and RemoteAddr: net.Conn,
 *net.TCPConn, *net.UnixConn, *tls.Conn, a net.Pipe end), an Accept, AcceptTCP or AcceptUnix on
@@ -35,6 +38,9 @@ does (the defect the test exists to catch), the test blocks until the package's 
 tlsterm's closed(c) called c.Read and CI hung for 30 minutes (fedora-desktop#300), with a
 timeout panic that names no assertion.
 
+A function named in the connReadAllowances table of the rules package, with its reason, is not
+judged; every other function of its package is.
+
 Not caught: a read in a non-test helper whose package name does not start with "fake", a
 bound set in another function (a constructor) or on another expression naming the same
 connection, a read through a wrapper whose own type is not of a connection's shape
@@ -44,19 +50,22 @@ only a cleanup's close ends while the test body waits for that goroutine.
 How to fix: call testconn.Bound(t, c) in the function that waits on c, before the wait (tests
 read no wall clock, so a deadline is not available to them); or run the read in a goroutine and
 wait for it in a select whose timer case closes the connection (tlsterm's awaitClose).`,
-	Run:        perPass(runTestConnRead),
-	ResultType: noResultType,
+		Run: perPass(func(pass *analysis.Pass) {
+			runTestConnRead(pass, allow)
+		}),
+		ResultType: noResultType,
+	}
 }
 
 const connReadMessage = "unbounded connection read (project_test_conn_read): nothing bounds this wait on the peer; call testconn.Bound(t, <it>) first, or close it from a timer case of a select"
 
-func runTestConnRead(pass *analysis.Pass) {
+func runTestConnRead(pass *analysis.Pass, allow []allowance) {
 	for _, f := range pass.Files {
 		if !isTestFile(pass, f) && !strings.HasPrefix(pass.Pkg.Name(), "fake") {
 			continue
 		}
 		for _, decl := range f.Decls {
-			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil && !allowedIn(pass, funcName(fn), allow) {
 				checkConnReads(pass, fn.Body)
 			}
 		}
@@ -83,7 +92,7 @@ func checkConnReads(pass *analysis.Pass, body *ast.BlockStmt) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			read, at := connReadOf(pass, call)
-			if read != nil && !bounded(pass, body, read, at) && !(inGo(at) && closedInCleanup(body, types.ExprString(read))) {
+			if read != nil && !bounded(pass, body, read, at) && (!inGo(at) || !closedInCleanup(body, types.ExprString(read))) {
 				pass.Reportf(call.Pos(), "%s", connReadMessage)
 			}
 		}

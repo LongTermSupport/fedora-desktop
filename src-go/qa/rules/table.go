@@ -424,6 +424,12 @@ var clockAllowances = []clockAllowance{}
 // decision on pull request 124).
 const teamchatClockPkg = "internal/teamchat/clock"
 
+// connReadAllowances are the functions project_test_conn_read does not judge, each with its
+// reason; the owner decided each row (fedora-desktop#307, Q26: this one row and no other).
+var connReadAllowances = []allowance{
+	{pkg: "internal/teamchat/member/fakeinbox", fn: "Inbox.accept", reason: "the fake inbox's accept loop (fakeinbox.go:227) runs in its own goroutine for the inbox's life and ends when Close closes the listener, which every test's cleanup does; it holds no test's wait, and binding it to a test's TB was tried and does not compile (88c43abef, reverted)"},
+}
+
 // realClocks are the real side of a clock seam: each is handed its duration by a caller whose
 // tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
 var realClocks = []allowance{

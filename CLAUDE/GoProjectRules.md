@@ -1593,6 +1593,7 @@ closes, `clock.AwaitDue`, a poke), or poll with `leakcheck.Poll`.
 
 In a `_test.go` file, or a package whose name starts with `fake` (code only tests run), a read
 that waits on a network peer:
+
 - a `Read` on a value of a connection's shape (methods `Read`, `SetReadDeadline` and `RemoteAddr`);
 - an `Accept`, `AcceptTCP` or `AcceptUnix` on a listener;
 - such a connection handed to a reader parameter that is not a connection (`io.ReadAll`,
@@ -1602,6 +1603,7 @@ A read in a goroutine is judged too, because the test, or a cleanup that waits f
 blocks as long as the read does.
 
 The read is bounded when its function declaration does one of these to the same expression:
+
 - before the read, calls `testconn.Bound` on it, sets a deadline on it, or arms
   `time.AfterFunc` with a literal that closes it;
 - anywhere, closes it in a `select` case on a timer (`time.After`, a Timer's or Ticker's `C`), as
@@ -1614,6 +1616,7 @@ Tests read no wall clock (`project_testclock`), so they cannot set a deadline. T
 one-minute timer that fails the test and closes `c`, and the timer stops when the test ends.
 
 - Red, fixture: `testdata/src/fix/internal/connread` and `fakepeer`. Flagged forms:
+
   - the originating `closed(c)`;
   - an accept;
   - a `*net.TCPConn`;
@@ -1624,21 +1627,34 @@ one-minute timer that fails the test and closes `c`, and the timer stops when th
   - a fake package's `AcceptUnix` and `Read`.
 
   Clean forms:
+
   - a deadline, `AfterFunc` close or `Bound` set first;
   - `awaitClose`;
   - an accept loop the cleanup ends;
   - a write;
   - a conn handed to a function that takes a conn.
+
 - Red, real tree: 32 findings in 18 files, every one a teamchat or `stt` test, plus `fakeinbox`.
   The independent search found the same sites and four groups the rule cannot see; those are
   under "Not caught" and were fixed by hand.
+
 - Green: every wait bound with `testconn.Bound`; 0 findings.
+
+- Allowed, by the owner's decision (#307, Q26), one row of `connReadAllowances` with its reason:
+  the fake inbox's accept loop (`fakeinbox` `Inbox.accept`), a goroutine for the inbox's life
+  that Close ends and no test waits on; binding it to a test's TB was tried and does not compile.
+  `TestTestConnReadAllowance` proves a row excuses its one function only (a second unbounded
+  read in the same package, and a function of the same name on no receiver, still fail), and
+  `TestTestConnReadAllowancesAreOneRow` holds the table to that one row.
+
 - Not caught:
+
   - a read in a non-test helper whose package name does not start with `fake`;
   - a bound set in another function (a constructor);
   - a read through a wrapper whose type is not of a connection's shape (`wire.Conn`'s `Recv`, a
     decoder over a `bufio.Reader` built elsewhere);
   - a goroutine read that only a cleanup's close ends while the test body waits for that goroutine.
+
 - Next wider rule, not built: judge the wait on a channel that a reading goroutine feeds (a bare
   `<-done`), which is a channel receive and a different class. A test that waits on a channel
   with no timer hangs whatever the channel waits for; that class needs its own rule.

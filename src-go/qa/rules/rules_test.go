@@ -103,6 +103,26 @@ func TestTestConnRead(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TestConnRead, "fix/internal/connread", "fix/internal/fakepeer")
 }
 
+// An allowance row excuses its one function and nothing else: fakeallowed's Box.accept is not
+// judged, while a second unbounded read in the same package (another method) and a function of
+// the same name on no receiver are; fakepeer, with no row, is judged whole.
+func TestTestConnReadAllowance(t *testing.T) {
+	allow := []allowance{{pkg: "internal/fakeallowed", fn: "Box.accept", reason: "the fixture's excused accept loop"}}
+	analysistest.Run(t, analysistest.TestData(), newTestConnRead(allow), "fix/internal/fakeallowed", "fix/internal/fakepeer")
+}
+
+// The real table excuses exactly one site, the fake inbox's accept loop (fedora-desktop#307,
+// the owner's decision Q26), and gives its reason.
+func TestTestConnReadAllowancesAreOneRow(t *testing.T) {
+	if len(connReadAllowances) != 1 {
+		t.Fatalf("want one allowance row, got %d", len(connReadAllowances))
+	}
+	a := connReadAllowances[0]
+	if a.pkg != "internal/teamchat/member/fakeinbox" || a.fn != "Inbox.accept" || a.reason == "" {
+		t.Fatalf("row %+v", a)
+	}
+}
+
 func TestTestSpin(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TestSpin, "fix/internal/spin")
 }
@@ -207,8 +227,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 49 {
-		t.Fatalf("want 49 rules, got %d", got)
+	if got := len(All()); got != 50 {
+		t.Fatalf("want 50 rules, got %d", got)
 	}
 }
 
