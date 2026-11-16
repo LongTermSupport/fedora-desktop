@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // pipeEnd is net.Pipe's end as a stream: it has no buffer, so a write blocks until the far end
@@ -33,6 +34,7 @@ var target = Target{Socket: "/run/user/1000/cc-socks/9.sock", Token: "pipe-token
 
 func readAuth(t *testing.T, far net.Conn) *bufio.Reader {
 	t.Helper()
+	testconn.Bound(t, far)
 	r := bufio.NewReader(far)
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -135,6 +137,7 @@ func TestAHeldSessionInsideTheUserLineIsPartial(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- c.WriteUser(envelope) }()
 	half := make([]byte, len(UserLine(envelope))/2)
+	testconn.Bound(t, far)
 	if _, err := io.ReadFull(far, half); err != nil {
 		t.Fatal(err)
 	}

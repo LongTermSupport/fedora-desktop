@@ -19,6 +19,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const binDir = "/opt/stt-bin"
@@ -74,6 +75,7 @@ func (s *fakeServer) progress(t *testing.T, params map[string]any) map[string]an
 
 func (s *fakeServer) serve(t *testing.T, l net.Listener) {
 	t.Helper()
+	testconn.Bound(t, l)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -90,6 +92,7 @@ func (s *fakeServer) answer(t *testing.T, conn net.Conn) {
 			t.Error(err)
 		}
 	}()
+	testconn.Bound(t, conn)
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
 		t.Error(err)

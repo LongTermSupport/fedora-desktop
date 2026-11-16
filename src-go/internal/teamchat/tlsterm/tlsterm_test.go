@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/pki"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // fixedNow is the instant the fake clock reads, and the client's view of the time: a leaf made
@@ -54,6 +55,7 @@ func newUpstream(t *testing.T) *upstream {
 	check(t, err)
 	u := &upstream{addr: netip.MustParseAddrPort(ln.Addr().String()), accepted: make(chan struct{}, 64)}
 	var wg sync.WaitGroup
+	testconn.Bound(t, ln)
 	wg.Go(func() {
 		for {
 			c, aerr := ln.Accept()
@@ -61,6 +63,7 @@ func newUpstream(t *testing.T) *upstream {
 				return
 			}
 			u.accepted <- struct{}{}
+			testconn.Bound(t, c)
 			wg.Go(func() {
 				if _, cerr := io.Copy(c, c); cerr != nil {
 					t.Logf("the echo ended: %v", cerr)
@@ -131,6 +134,7 @@ func echo(t *testing.T, c net.Conn, text string) {
 	_, err := c.Write([]byte(text))
 	check(t, err)
 	got := make([]byte, len(text))
+	testconn.Bound(t, c)
 	_, err = io.ReadFull(c, got)
 	check(t, err)
 	if string(got) != text {
@@ -211,6 +215,7 @@ func TestT1RelaysBothWaysOverTLS13(t *testing.T) {
 		errc <- werr
 	}()
 	got := make([]byte, len(blob))
+	testconn.Bound(t, c)
 	_, err = io.ReadFull(c, got)
 	check(t, err)
 	check(t, <-errc)
@@ -249,6 +254,7 @@ func TestT1RelaysAHalfClose(t *testing.T) {
 	_, err = c.Write([]byte("last words"))
 	check(t, err)
 	check(t, c.CloseWrite())
+	testconn.Bound(t, c)
 	all, err := io.ReadAll(c)
 	check(t, err)
 	if string(all) != "last words" {
@@ -360,6 +366,7 @@ func TestT5MaxConnsBoundsTheRelays(t *testing.T) {
 		}
 		if _, werr := third.Write([]byte("again")); werr == nil {
 			got := make([]byte, len("again"))
+			testconn.Bound(t, third)
 			if _, rerr := io.ReadFull(third, got); rerr == nil {
 				break
 			}
