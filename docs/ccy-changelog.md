@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.15 — container 2.84.21
+
+- **The `~/.ssh` key listings no longer fail a launch at random** (issue #321). Read through
+  `< <(find ...)` and checked with `wait "$!"`, the listing's process was once reported as
+  "not a child of this shell" under load, which failed the launch. Both listings now capture
+  their output first, which bash always waits for, and check its status. The image is unchanged.
+
 ## 3.122.14 — container 2.84.21
 
 - **The GitHub account keys are looked for at the top of `~/.ssh` only**, where

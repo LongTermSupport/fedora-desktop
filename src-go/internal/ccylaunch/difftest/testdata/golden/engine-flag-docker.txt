@@ -62,6 +62,7 @@ More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/cont
 
 === stderr
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
+Note: podman did not list its networks; none was checked for this project.
 === calls
 getenforce
 docker info --format '{{.SecurityOptions}}'

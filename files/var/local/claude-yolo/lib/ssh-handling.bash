@@ -344,7 +344,11 @@ probe_gh_keys_for_remote() {
     local original_active=""
     original_active=$(gh api user --jq .login 2>"$PROBE_LOG_DIR/original.err")
 
-    local key_path key_basename alias token_func token api_out api_rc type_check keys_rc=0
+    local key_path key_basename alias token_func token api_out api_rc type_check keys_rc=0 keys_text
+    # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295). Its
+    # status is kept until the active account is put back below. Captured, not read from
+    # < <(...): a wait "$!" on this listing lost the child under load (#321).
+    keys_text=$(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort) || keys_rc=$?
     while IFS= read -r key_path; do
         [ -z "$key_path" ] && continue
         key_basename=$(basename "$key_path")
@@ -366,10 +370,7 @@ probe_gh_keys_for_remote() {
                 echo "no gh-token-${alias} function" > "$PROBE_LOG_DIR/${alias}.token.err"
             fi
         fi
-    done < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort)
-    # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
-    # Its status is kept until the active account is put back below.
-    wait "$!" || keys_rc=$?
+    done <<<"$keys_text"
 
     # Restore the original active account so the user's shell state is
     # unaffected. Failure here goes to the log dir but does not fail the
@@ -393,9 +394,7 @@ _ssh_key_menu_list() {
     else
         echo "Available identities:"
     fi
-    echo ""
-    echo "  0) Continue without SSH key (git push will NOT work)"
-    echo ""
+    printf '%s\n' "" "  0) Continue without SSH key (git push will NOT work)" ""
     for i in "${!shown[@]}"; do
         suffix=""
         [ "$((i+1))" = "$default_pick" ] && suffix=" ← default"
@@ -436,8 +435,10 @@ discover_and_select_ssh_keys() {
     # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
     # See: playbooks/imports/play-github-cli-multi.yml
     # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
-    mapfile -t GITHUB_KEYS < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort)
-    wait "$!" || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
+    # Captured, not read from < <(...): a wait "$!" here lost the child under load (#321).
+    local keys_text
+    keys_text=$(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort) || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
+    ! IFS=$'\n' read -r -d '' -a GITHUB_KEYS <<<"$keys_text"
 
     local alias_rc=0
     detect_project_github_alias "." || alias_rc=$?

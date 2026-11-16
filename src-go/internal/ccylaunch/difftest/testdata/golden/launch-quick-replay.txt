@@ -93,6 +93,7 @@ Quick launching with previous configuration...
 
 ════════════════════════════════════════════════════════════════════════════════
 
+Note: docker did not list its networks; none was checked for this project.
 === calls
 ccy-teams describe-seats --prefix '  Team:    ' ''
 getenforce
