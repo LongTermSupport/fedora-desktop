@@ -258,7 +258,9 @@ def package_state(path: str, *, rpm: Callable[[list[str]], subprocess.CompletedP
     PRISTINE otherwise: a package file left as shipped is there because the package is.
     Every other answer is UNKNOWN: no rpm, an error on stderr, an exit status neither
     command gives for a result, or a digest rpm could not read (`?`, a file this login
-    cannot read). `rpm` is the test seam.
+    cannot read). So in a run that is not root, a package file only root can read is never
+    evidence, however it was customised: the check fails closed rather than ask for root.
+    `rpm` is the test seam.
     """
     rpm = rpm or _run_rpm
     try:
@@ -523,7 +525,7 @@ def reasons(judgement: Judgement, play: str) -> list[str]:
     """
     lines = []
     if play in judgement.deployed:
-        lines.append("never ran through run.bash here; its files are deployed: "
+        lines.append("no run of it is recorded here; files it deploys show it ran: "
                      f"{_shown(judgement.deployed[play], 'file')}")
     lines += [
         f"it takes over {old}, which the checkout removed"

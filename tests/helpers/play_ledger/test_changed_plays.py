@@ -351,15 +351,15 @@ class TestNoLedgerRecord(_Case):
             _seed(base, [(BASIC, COMMIT_A, "ok")])
             code, out, err = self._run(base, changed={}, candidates=[BASIC, DARKROOM], deployed={TIDY})
             self.assertEqual((code, out), (changed_plays.EXIT_OK, f"RUN {DARKROOM}\n"))
-            self.assertEqual(err, f"changed-plays: {DARKROOM}: never ran through run.bash here; "
-                                  f"its files are deployed: {TIDY}\n")
+            self.assertEqual(err, f"changed-plays: {DARKROOM}: no run of it is recorded here; "
+                                  f"files it deploys show it ran: {TIDY}\n")
 
     def test_every_deployed_file_found_is_named(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             _seed(base, [])
             _, _, err = self._run(base, changed={}, candidates=[DARKROOM],
                                   deployed={TIDY, "/etc/darkroom.conf"})
-            self.assertIn(f"its files are deployed: {TIDY}, /etc/darkroom.conf\n", err)
+            self.assertIn(f"files it deploys show it ran: {TIDY}, /etc/darkroom.conf\n", err)
 
     def test_a_play_with_no_record_and_nothing_deployed_is_named_never_and_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -443,7 +443,7 @@ class TestSharedDests(_Case):
             _, out, err = self._run(base, changed={}, candidates=[SHARED_A, SHARED_B],
                                     deployed={self.SHARED, "/etc/shared-b.conf"})
             self.assertEqual(out, f"RUN {SHARED_B}\nNEVER {SHARED_A}\n")
-            self.assertIn("deployed: /etc/shared-b.conf\n", err)
+            self.assertIn("show it ran: /etc/shared-b.conf\n", err)
 
 
 class _Rpm:

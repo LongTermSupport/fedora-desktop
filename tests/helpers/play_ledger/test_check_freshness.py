@@ -465,7 +465,7 @@ class TestNoLedgerRecord(unittest.TestCase):
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
             self.assertEqual(out, f"{B} — no run of it is recorded here, but files it deploys are on "
                                   "this host\n"
-                                  "    never ran through run.bash here; its files are deployed: /etc/b.conf\n")
+                                  "    no run of it is recorded here; files it deploys show it ran: /etc/b.conf\n")
 
     def test_the_panel_gets_the_play_in_a_state_of_its_own(self) -> None:
         with tempfile.TemporaryDirectory() as base:

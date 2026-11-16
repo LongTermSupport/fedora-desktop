@@ -1007,7 +1007,7 @@ Options:
   --changed            Run every play that has to run again: its inputs (its own
                        file, or anything it deploys) changed since it ran here, its
                        last run failed or was from a checkout with uncommitted
-                       changes, or it has no record here but its files are deployed.
+                       changes, or no run is recorded but files it deploys show one.
                        Asks once, then runs them in playbook-main.yml order, optional
                        plays last, and stops at the first failure. Names any play it
                        cannot judge, any that is gone and any with no record here.
@@ -2203,7 +2203,7 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
     case "${_rerun_states[$_i]}" in
       stale)      _rerun_mark="*" _rerun_word="changed since it last ran here" ;;
       failed)     _rerun_mark="*" _rerun_word="its last run failed" ;;
-      unrecorded) _rerun_mark="*" _rerun_word="never ran through run.bash here; its files are deployed" ;;
+      unrecorded) _rerun_mark="*" _rerun_word="no run of it is recorded here; files it deploys show it ran" ;;
       never)      _rerun_mark=" " _rerun_word="no record here; none of its files shows it ran here" ;;
       unjudged)   _rerun_mark=" " _rerun_word="no record here; whether it ran here cannot be told" ;;
       unresolved) _rerun_mark=" " _rerun_word="cannot tell whether it changed" ;;

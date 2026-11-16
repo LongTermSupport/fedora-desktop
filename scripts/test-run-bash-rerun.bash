@@ -234,7 +234,7 @@ echo "=== plays with no ledger record (issue #323) ==="
 printf 'PLAY current %s\nPLAY unrecorded %s\nPLAY never %s\nPLAY unjudged %s\n' "$A" "$B" "$C" "$D" >"$MARKERS"
 run_rerun 'a\n' -- --rerun
 check "a play whose files are deployed is marked" "1" "$(menu_row 2 | grep -c '^  \*')"
-check "and says why" "1" "$(menu_row 2 | grep -c 'its files are deployed')"
+check "and says why" "1" "$(menu_row 2 | grep -c 'files it deploys show it ran')"
 check "a play none of whose files shows a run is not marked" "0" "$(menu_row 3 | grep -c '^  \*')"
 check "and says so" "1" "$(menu_row 3 | grep -c 'no record here; none of its files shows it ran here')"
 check "a play with no file to look for is not marked" "0" "$(menu_row 4 | grep -c '^  \*')"
