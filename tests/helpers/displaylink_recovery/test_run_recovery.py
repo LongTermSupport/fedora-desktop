@@ -34,12 +34,14 @@ SYSFS_DRM = "/sys/class/drm"
 # VM GPU presents one) and Writeback renders into memory. Their modes come from
 # the driver rather than from a monitor across a link, so "connected and
 # advertising modes" does not imply an EDID for them the way it does for DP,
-# HDMI, eDP or DVI.
+# HDMI, eDP or DVI. Unknown is the type a driver gives a connector it claims no
+# link type for, as simpledrm does for the firmware framebuffer: no monitor
+# answers on it either.
 #
 # A DENYLIST on purpose. An unrecognised connector type is asserted against, not
 # skipped, so a linkless type nobody has met yet surfaces here as a failure to
 # look at rather than as a test that quietly stopped checking anything.
-LINKLESS_CONNECTOR_TYPES = frozenset({"Virtual", "Writeback"})
+LINKLESS_CONNECTOR_TYPES = frozenset({"Virtual", "Writeback", "Unknown"})
 
 
 def connector_type(connector_dir: str) -> str:
@@ -159,7 +161,7 @@ class TestConnectorType(unittest.TestCase):
         self.assertEqual(connector_type("/sys/class/drm/card1-eDP-1"), "eDP")
 
     def test_the_linkless_types_are_recognised(self):
-        for name in ("card1-Virtual-1", "card0-Writeback-1"):
+        for name in ("card1-Virtual-1", "card0-Writeback-1", "card0-Unknown-1"):
             with self.subTest(name=name):
                 self.assertIn(
                     connector_type(f"/sys/class/drm/{name}"), LINKLESS_CONNECTOR_TYPES
@@ -188,10 +190,10 @@ class TestEdidByteCountAgainstRealSysfs(unittest.TestCase):
     skips where there is none.
 
     Only connectors with a physical display link are asserted against. A GitHub
-    runner is a VM whose one connected connector is `card1-Virtual-1`: connected,
-    advertising modes, with an `edid` file that reads zero bytes. It met every
-    condition here and failed, because a driver-invented framebuffer has no
-    monitor to read an EDID from. Excluding it does not excuse a zero read — a
+    runner is a VM whose one connected connector has been `card1-Virtual-1` on one
+    image and `card0-Unknown-1` on another: connected, advertising modes, with an
+    `edid` file that reads zero bytes. Each met every condition here and failed,
+    because a driver-invented framebuffer has no monitor to read an EDID from. Excluding it does not excuse a zero read — a
     connector with a real link that reads zero still fails, which is the defect
     this test exists to catch.
     """
