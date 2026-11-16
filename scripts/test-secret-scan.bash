@@ -428,6 +428,48 @@ else
     FAILED=$((FAILED + 1))
 fi
 
+# ── a private-identifier scan that cannot run refuses the commit (fedora-desktop#295) ─────
+#
+# The hooks read the scanner through `done < <(scan)`, whose status bash never checks, so a
+# scan that failed found nothing and the commit passed as clean. The real hooks run in a scratch
+# repository with a synthetic host file, the private-names gate stubbed, and a scanner that
+# fails: each must refuse, and with the real scanner pre-commit must pass (the control).
+HOOK_REPO="${TMPROOT}/hook-repo"
+mkdir -p "${HOOK_REPO}/scripts" "${HOOK_REPO}/environment/localhost/host_vars"
+git -C "${HOOK_REPO}" init -q
+cp -r "${REPO_ROOT}/scripts/git-hooks" "${HOOK_REPO}/scripts/"
+printf '#!/bin/bash\nexit 0\n' >"${HOOK_REPO}/scripts/qa-private-names.bash"
+chmod 755 "${HOOK_REPO}/scripts/qa-private-names.bash"
+printf 'user_name: zebrafinch\n' >"${HOOK_REPO}/environment/localhost/host_vars/localhost.yml"
+printf 'hello\n' >"${HOOK_REPO}/note.txt"
+printf 'a message\n' >"${HOOK_REPO}/msg.txt"
+git -C "${HOOK_REPO}" add note.txt
+hook_rc=0
+(cd "${HOOK_REPO}" && bash scripts/git-hooks/pre-commit) >"${TMPROOT}/hook.out" 2>&1 || hook_rc=$?
+if [[ "${hook_rc}" -eq 0 ]]; then
+    printf 'PASS: with a scan that runs, pre-commit passes a clean change\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: pre-commit refused a clean change (status %s): %s\n' "${hook_rc}" "$(cat "${TMPROOT}/hook.out")"
+    FAILED=$((FAILED + 1))
+fi
+printf '\nhook_scan_text_for_private() { echo "secret-scan: forced failure" >&2; return 1; }\n' \
+    >>"${HOOK_REPO}/scripts/git-hooks/lib/secret-scan.bash"
+assert_hook_refuses_failed_scan() {
+    local hook="$1" rc=0
+    shift
+    (cd "${HOOK_REPO}" && bash "scripts/git-hooks/${hook}" "$@") >"${TMPROOT}/hook.out" 2>&1 || rc=$?
+    if [[ "${rc}" -ne 0 ]] && grep -q 'forced failure' "${TMPROOT}/hook.out"; then
+        printf 'PASS: %s refuses when the private-identifier scan cannot run\n' "${hook}"
+        PASSED=$((PASSED + 1))
+    else
+        printf 'FAIL: %s with a failed scan gave status %s: %s\n' "${hook}" "${rc}" "$(cat "${TMPROOT}/hook.out")"
+        FAILED=$((FAILED + 1))
+    fi
+}
+assert_hook_refuses_failed_scan pre-commit
+assert_hook_refuses_failed_scan commit-msg msg.txt
+
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
 # A structural assertion, because the behaviour above is only reached through this call and
