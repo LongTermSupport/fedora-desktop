@@ -209,11 +209,10 @@ hook_build_private_denylist() {
     local yml="$repo_root/environment/localhost/host_vars/localhost.yml"
     local allow="$repo_root/.claude/public-token-allowlist.yml"
 
-    if [ ! -f "$yml" ]; then
-        return 2
-    fi
-
-    if ! python3 - "$yml" "$allow" > "$outfile" <<'PYEOF'
+    # Python's status is the function's: 0 built, 2 no host file in this checkout or the main one.
+    python3 - "$yml" "$allow" "$repo_root" > "$outfile" <<'PYEOF' || return "$?"
+import os
+import subprocess
 import sys
 import yaml
 
@@ -228,14 +227,19 @@ def _vault(loader, node):
 
 yaml.SafeLoader.add_constructor("!vault", _vault)
 
-yml_path = sys.argv[1]
-allow_path = sys.argv[2]
+yml_path, allow_path, root = sys.argv[1:4]
+if not os.path.isfile(yml_path):
+    # Gitignored, so a linked worktree has none: read its main checkout's (fedora-desktop#313).
+    git = ["git", "-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"]
+    common = subprocess.run(git, check=True, capture_output=True, text=True).stdout.strip()
+    yml_path = os.path.join(common, "..", os.path.relpath(yml_path, root))
+    if not os.path.isfile(yml_path):
+        sys.exit(2)
 
 with open(yml_path) as fh:
     data = yaml.safe_load(fh) or {}
 
-# Public-by-design allowlist (case-insensitive whole-token subtraction).
-allow = set()
+allow = set()  # public-by-design tokens, subtracted case-insensitively
 try:
     with open(allow_path) as fh:
         adoc = yaml.safe_load(fh) or {}
@@ -259,8 +263,7 @@ def add(field, value):
     out.setdefault(s, field)
 
 
-# Top-level identity scalars.
-for field in ("user_email", "user_name"):
+for field in ("user_email", "user_name"):  # top-level identity scalars
     if field in data:
         add(field, data[field])
 
@@ -280,10 +283,7 @@ def harvest_identity_map(field, mapping):
             add(field, v)
 
 
-# The suffix list carries the PLURAL spellings. This repo's convention is the
-# plural (github_accounts, project_personas) — which is why both of those had
-# to be hardcoded below while `lastpass_accounts` and any future
-# `*_accounts` / `*_usernames` key were harvested by nothing at all.
+# Singular and plural spellings, so every *_accounts / *_usernames key is harvested.
 IDENTITY_SUFFIXES = (
     "_username", "_usernames",
     "_account", "_accounts",
@@ -306,9 +306,6 @@ for field, value in data.items():
 for token, field in out.items():
     sys.stdout.write(f"{field}\t{token}\n")
 PYEOF
-    then
-        return 1
-    fi
 }
 
 # Scan text (stdin) for denylisted identifiers.

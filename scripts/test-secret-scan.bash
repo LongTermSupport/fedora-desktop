@@ -417,6 +417,16 @@ else
     printf 'FAIL: with no host file anywhere the builder gave status %s\n' "${wt_rc}"
     FAILED=$((FAILED + 1))
 fi
+mkdir -p "${TMPROOT}/not-a-repo"
+wt_rc=0
+hook_build_private_denylist "${TMPROOT}/not-a-repo" "${TMPROOT}/wt.tsv" 2>"${TMPROOT}/wt.err" || wt_rc=$?
+if [[ "${wt_rc}" -eq 1 ]]; then
+    printf 'PASS: a git that cannot name the main checkout fails the check, never skips it\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: outside a repository the builder gave status %s\n' "${wt_rc}"
+    FAILED=$((FAILED + 1))
+fi
 
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
