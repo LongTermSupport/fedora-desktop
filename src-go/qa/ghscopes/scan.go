@@ -108,10 +108,7 @@ type semgrepReport struct {
 			Line int `json:"line"`
 		} `json:"start"`
 	} `json:"results"`
-	Errors []struct {
-		Type json.RawMessage `json:"type"`
-		Path string          `json:"path"`
-	} `json:"errors"`
+	Errors []semgrepreport.Error `json:"errors"`
 	Paths *struct {
 		Scanned []string `json:"scanned"`
 		Skipped []struct {
@@ -145,7 +142,7 @@ func (g *gate) judge(files []string, excl excludes, rep semgrepReport) (ExitCode
 	if len(rep.Errors) > 0 {
 		lines := make([]string, 0, len(rep.Errors))
 		for _, e := range rep.Errors {
-			lines = append(lines, fmt.Sprintf("%s (%s)", e.Path, strings.Trim(string(e.Type), `"`)))
+			lines = append(lines, e.Describe())
 		}
 		return ExitCannotRun, fmt.Errorf("semgrep reported %d error(s), so those files were not fully analysed:\n%s", len(lines), indent(lines))
 	}

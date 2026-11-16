@@ -52,3 +52,39 @@ func TestScannedCountFoldsDuplicates(t *testing.T) {
 		t.Fatalf("count %d", rep.ScannedCount())
 	}
 }
+
+// partialParsing is semgrep 1.177's report on a shell fixture it read as Python: the error's type
+// is an array, the kind followed by the locations it gave up on.
+const partialParsing = `{"results":[],"errors":[{"code":3,"level":"warn","type":["PartialParsing",[{"path":"shell.fixture","start":{"line":2,"col":6,"offset":0},"end":{"line":2,"col":9,"offset":3}}]],"message":"Syntax error at line shell.fixture:2:\n ` + "`euo`" + ` was unexpected","path":"shell.fixture","spans":[{"file":"shell.fixture","start":{"line":2,"col":6,"offset":0},"end":{"line":2,"col":9,"offset":3}}]}],"paths":{"scanned":["shell.fixture"]}}`
+
+func TestAPartialParsingReportIsReadAndItsErrorNamesTheFileAndLine(t *testing.T) {
+	err := decode(t, partialParsing).Judge("fixture", []string{"shell.fixture"})
+	want := "    shell.fixture:2: Syntax error at line shell.fixture:2: `euo` was unexpected (PartialParsing)"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %v\nwant %q", err, want)
+	}
+}
+
+// A field shaped otherwise than expected must not cost the whole report: the error still counts,
+// and what its type said is shown as semgrep wrote it.
+func TestAnErrorTypeOfAnyShapeDecodes(t *testing.T) {
+	cases := map[string]string{
+		`"Timeout"`:              "Timeout",
+		`["PartialParsing", []]`: "PartialParsing",
+		`["Other"]`:              "Other",
+		`[]`:                     "[]",
+		`7`:                      "7",
+		`{"kind": "x"}`:          `{"kind": "x"}`,
+		`[["nested"], "second"]`: `[["nested"], "second"]`,
+		`null`:                   "",
+	}
+	for raw, want := range cases {
+		rep := decode(t, `{"errors":[{"type":`+raw+`,"path":"a.py","message":"m"}],"paths":{"scanned":["a.py"]}}`)
+		if got := rep.Errors[0].Type.Kind(); got != want {
+			t.Errorf("type %s: kind %q, want %q", raw, got, want)
+		}
+		if err := rep.Judge("Python", []string{"a.py"}); err == nil {
+			t.Errorf("type %s: the error was not counted", raw)
+		}
+	}
+}
