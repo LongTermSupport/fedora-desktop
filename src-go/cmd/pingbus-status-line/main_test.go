@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -9,7 +10,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -31,7 +35,7 @@ func TestRunPrintsTheInnerLineAndExitsZero(t *testing.T) {
 	payload := `{"session_id": "sess-1", "workspace": {"project_dir": "` + project + `"}}`
 	var stdout, stderr bytes.Buffer
 	env := []string{"HOME=" + t.TempDir(), "PATH=/usr/bin:/bin"}
-	code := run(strings.NewReader(payload), &stdout, &stderr, env, fixedCwd(project), make(chan os.Signal))
+	code := run(strings.NewReader(payload), &stdout, &stderr, env, fixedCwd(project), make(chan os.Signal), clock.NewFake(0, 0))
 	if code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
@@ -51,7 +55,7 @@ func TestRunRendersWithoutStdinOrWorkingDirectory(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	noCwd := func() (string, error) { return "", errors.New("gone") }
 	env := []string{"HOME=" + t.TempDir(), "PINGBUS_STATUS_LINE_INNER=1"}
-	if code := run(failingReader{}, &stdout, &stderr, env, noCwd, make(chan os.Signal)); code != term.ExitOK {
+	if code := run(failingReader{}, &stdout, &stderr, env, noCwd, make(chan os.Signal), clock.NewFake(0, 0)); code != term.ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
 	if stdout.String() != "\n" {
@@ -71,8 +75,51 @@ func TestRunCancelledWhileReadingStdin(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	signals <- syscall.SIGTERM
 	var stdout, stderr bytes.Buffer
-	code := run(reader, &stdout, &stderr, nil, fixedCwd("/"), signals)
+	code := run(reader, &stdout, &stderr, nil, fixedCwd("/"), signals, clock.NewFake(0, 0))
 	if code != term.ExitCode(128+int(syscall.SIGTERM)) || stdout.Len() != 0 {
+		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+}
+
+// sentWriter is a stderr that hands each write to the test.
+type sentWriter chan string
+
+func (w sentWriter) Write(p []byte) (int, error) {
+	w <- string(p)
+	return len(p), nil
+}
+
+// Issue 260: a payload that has not come (an open pipe nothing writes to) is said on stderr
+// after stdinread.NoticeAfter; the render goes on waiting for it, and a signal still ends it.
+func TestRunSaysItIsWaitingForThePayload(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, f := range []*os.File{w, r} {
+			if err := f.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				t.Error(err)
+			}
+		}
+	})
+	f := clock.NewFake(0, 0)
+	signals := make(chan os.Signal, 1)
+	var stdout bytes.Buffer
+	stderr := make(sentWriter, 1)
+	done := make(chan term.ExitCode, 1)
+	go func() { done <- run(r, &stdout, stderr, nil, fixedCwd("/"), signals, f) }()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := f.AwaitDue(ctx, stdinread.NoticeAfter); err != nil {
+		t.Fatal(err)
+	}
+	f.Advance(stdinread.NoticeAfter)
+	if said := <-stderr; !strings.HasPrefix(said, "pingbus status-line: waiting for input on stdin") {
+		t.Fatalf("stderr %q", said)
+	}
+	signals <- syscall.SIGTERM
+	if code := <-done; code != term.ExitCode(128+int(syscall.SIGTERM)) || stdout.Len() != 0 {
 		t.Fatalf("exit %d, stdout %q", code, stdout.String())
 	}
 }

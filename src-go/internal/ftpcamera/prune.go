@@ -1,14 +1,16 @@
 package ftpcamera
 
 import (
-	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // orphans are the RAW files under photos/ whose JPG sibling is gone (E37), in walk order.
@@ -86,7 +88,7 @@ func (c *cli) prune(ctx context.Context) error {
 		o.f("  %s%s%s\n", o.y, c.rel(f), o.n)
 	}
 	o.f("\n")
-	yes, answerErr := c.confirmDelete()
+	yes, answerErr := c.confirmDelete(ctx)
 	if answerErr != nil {
 		return c.failErr("could not read the answer: %v", answerErr)
 	}
@@ -112,26 +114,57 @@ func (c *cli) prune(ctx context.Context) error {
 // rel is a path under the upload directory, relative to it.
 func (c *cli) rel(path string) string { return strings.TrimPrefix(path, c.upload+"/") }
 
-// confirmDelete asks the [y/N] question on a terminal and reads one line; only y or Y is yes,
-// and end of input is no (E39). The answer is typed with the terminal's echo on; a read that
-// fails otherwise, or an echo that cannot be given back, is the error.
-func (c *cli) confirmDelete() (bool, error) {
-	if c.env.IsTerminal(c.env.Stdin) {
-		c.err.f("Delete these files? [y/N] ")
-	}
-	var line string
+// confirmDelete asks the [y/N] question on a terminal and reads one line (ui.Lines, which
+// bounds a piped answer); only y or Y is yes, and end of input is no, with a blank line (E39).
+// The answer is typed with the terminal's echo on; a read that fails otherwise, or an echo that
+// cannot be given back, is the error.
+func (c *cli) confirmDelete(ctx context.Context) (bool, error) {
+	terminal := c.env.IsTerminal(c.env.Stdin)
+	var reply string
 	err := c.env.Echo.Given(func() error {
-		var readErr error
-		line, readErr = bufio.NewReader(c.env.Stdin).ReadString('\n')
-		return readErr
+		var askErr error
+		reply, askErr = c.answers(terminal).Ask(ctx, ui.Here("ftp-camera", "Prune"), "Delete these files? [y/N]", nil)
+		return askErr
 	})
 	switch {
-	case errors.Is(err, io.EOF):
-		c.err.f("\n")
+	case errors.Is(err, ui.ErrInputEnded):
+		if !terminal {
+			c.err.f("\n")
+		}
 		return false, nil
 	case err != nil:
 		return false, err
 	}
-	reply := strings.TrimSuffix(line, "\n")
 	return reply == "y" || reply == "Y", nil
+}
+
+// headingWidth is the width a question's heading wraps to.
+const headingWidth = 80
+
+// answers is the run's one ui.Lines on Stdin, so no read of it is buffered where a later
+// question cannot see it. Its questions are drawn on stderr when prompted is set, and drawn
+// nowhere when not (a piped answer, or a screen that already says what to press).
+func (c *cli) answers(prompted bool) *ui.Lines {
+	if c.lines == nil {
+		c.lines = &ui.Lines{In: c.env.Stdin, Err: c.err.w, Prog: "ftp-camera", Width: headingWidth, Clock: c.env.Clock, IsTerminal: c.env.IsTerminal}
+	}
+	c.lines.Out = io.Discard
+	if prompted {
+		c.lines.Out = c.err.w
+	}
+	return c.lines
+}
+
+// awaitEnter waits for Enter on Stdin (a piped one within stdinread.PipedGiveUp), drawing
+// nothing: the screen already says to press it. The end of input is an Enter; the end of ctx
+// is its error, and so is a read that fails (a piped Enter that never came).
+func (c *cli) awaitEnter(ctx context.Context, what string) error {
+	_, err := c.answers(false).Ask(ctx, ui.Here("ftp-camera", what), "Press Enter", nil)
+	switch {
+	case err == nil, errors.Is(err, ui.ErrInputEnded):
+		return nil
+	case ctx.Err() != nil:
+		return ctx.Err()
+	}
+	return fmt.Errorf("reading the Enter: %w", err)
 }

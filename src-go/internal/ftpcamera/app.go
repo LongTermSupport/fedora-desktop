@@ -21,10 +21,12 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/rclonerc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ttyecho"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 //go:embed usage.txt
@@ -76,6 +78,8 @@ type Env struct {
 	Echo *ttyecho.Hold
 	// Random is the cryptographically secure source a new hotspot password is drawn from (E67).
 	Random io.Reader
+	// Clock times the wait for a piped answer on Stdin (ui.Lines); nil is the real clock.
+	Clock stdinread.Clock
 }
 
 // NewEnv is the production environment on the process's own streams.
@@ -183,6 +187,8 @@ type cli struct {
 	tun    tunables
 	upload string
 	link   linkState
+	// lines asks the run's questions on Stdin (answers), made on the first one.
+	lines *ui.Lines
 }
 
 func newCLI(env Env) *cli {
@@ -230,7 +236,7 @@ func (c *cli) run(ctx context.Context, args []string) term.ExitCode {
 		return term.ExitOK
 	}
 	if opts.newPassword {
-		return c.newHotspotPasswordMode()
+		return c.newHotspotPasswordMode(ctx)
 	}
 	tun, problems := readTunables(c.env.Getenv)
 	if len(problems) > 0 {

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.15 — container 2.84.24
+## 3.122.16 — container 2.84.25
 
 - **pingbus never waits in silence on stdin** (issue #260). A command run with no input in
   an agent's shell gets an open pipe that never ends, and `pingbus thread Q<n> --close` waited
@@ -25,10 +25,13 @@ Two version numbers move independently — see
   which says on stderr that it is waiting once nothing has arrived for a second. pingbus's
   text verbs refuse a terminal at once and give up after a minute. `thread --close` reads no
   stdin unless a note is asked for with `--note -`. The image carries `helpers/stdin_text/`,
-  so it is rebuilt once. The Go launcher's line questions (`ccy --build-lock`) keep
-  taking piped answers, but a piped answer that has not come in a minute fails instead of
-  waiting for ever; a typed answer is never bounded. The launcher itself is unchanged apart
-  from the versions.
+  so it is rebuilt once. The Go commands read stdin the same way (`internal/stdinread`):
+  `teamchat say`, `reply` and `report` give up after a minute of silence on stdin (exit 64,
+  naming the bound), the hooks and status lines say they are waiting but are never cut off,
+  and the launcher's questions (`ccy --build-lock`, the Enter that clears `--export-token`)
+  keep taking piped answers but fail one that has not come in a minute; a typed answer is
+  never bounded. `ccy --secret-screen` still shows its text as it arrives and says when
+  nothing has come, with no bound, as what feeds it may first wait on a password.
 
 ## 3.122.12 — container 2.84.21
 

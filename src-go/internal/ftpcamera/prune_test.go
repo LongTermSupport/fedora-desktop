@@ -81,7 +81,7 @@ func TestPruneDeletesOrphansOnYes(t *testing.T) {
 		"Found 2 orphan RAW file(s) (1.6KiB total):\n",
 		"  photos/2026/10/14/RAW/B.ARW\n", "  photos/2026/10/15/RAW/D.ARW\n",
 		"Prune complete: 2 of 2 files removed (1.6KiB freed)\n")
-	k.wantErr("Delete these files? [y/N] ")
+	k.wantErr("ftp-camera › Prune\n", "Delete these files? [y/N]: ")
 	for rel, want := range map[string]bool{
 		"photos/2026/10/14/RAW/A.ARW": true, "photos/2026/10/14/RAW/B.ARW": false,
 		"photos/2026/10/15/RAW/C.arw": true, "photos/2026/10/15/RAW/D.ARW": false,

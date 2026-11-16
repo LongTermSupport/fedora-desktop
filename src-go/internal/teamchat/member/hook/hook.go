@@ -9,7 +9,8 @@
 // nothing within the 300 ms deadline) it answers from its own template: the verbs' exit 69
 // text for keeper.json and the keeper.lock probe (client.ReadDown) as additional context on
 // SessionStart and UserPromptSubmit, {} on Stop and SessionEnd. It writes no file, makes no
-// network call, and prints nothing to stderr.
+// network call, and prints nothing to stderr but the notice of a payload that has not ended
+// after a second (internal/stdinread).
 package hook
 
 import (
@@ -17,11 +18,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"time"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/client"
@@ -101,7 +102,7 @@ func run(e cli.Env, inv cli.Invocation, d deps) term.ExitCode {
 	if err != nil {
 		return say(e, hooktext.Empty())
 	}
-	args := payload(e.Stdin, ev.op)
+	args := payload(e, d.clock, ev.op)
 	args.Socket = variable(e.Getenv(EnvInboxSocket), wire.MaxHookSocket)
 	args.Token = variable(e.Getenv(EnvInboxToken), wire.MaxHookToken)
 	raw, err := json.Marshal(args)
@@ -135,15 +136,16 @@ func say(e cli.Env, a hooktext.Answer) term.ExitCode {
 // payload is the args op's stdin gives: its fields when it is one JSON object within the
 // bound, else unusable with the first reason that holds. A field that is not a string within
 // its bound is absent, not unusable; a stdin that fails to read is json, as nothing whole
-// was read.
-func payload(stdin io.Reader, op string) wire.HookArgs {
+// was read. Claude Code always writes and closes the payload, so the read has no bound; a
+// payload that has not ended after a second is said on stderr (internal/stdinread).
+func payload(e cli.Env, clk stdinread.Clock, op string) wire.HookArgs {
 	unusable := func(why string) wire.HookArgs {
 		return wire.HookArgs{Payload: wire.PayloadUnusable, Unusable: &why}
 	}
-	if stdin == nil {
+	if e.Stdin == nil {
 		return unusable(wire.UnusableJSON)
 	}
-	data, err := io.ReadAll(io.LimitReader(stdin, maxStdin+1))
+	data, err := stdinread.Read(e.Stdin, stdinread.Options{Prog: "teamchat hook", Err: e.Stderr, Limit: maxStdin + 1, Clock: clk})
 	switch {
 	case err != nil:
 		return unusable(wire.UnusableJSON)

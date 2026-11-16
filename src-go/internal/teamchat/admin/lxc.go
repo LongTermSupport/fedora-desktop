@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 
@@ -35,7 +34,7 @@ func lxcApply(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return failWith(e, err)
 	}
-	if req.Decl, err = readDeclaration(e.Stdin); err != nil {
+	if req.Decl, err = readDeclaration(e); err != nil {
 		return failWith(e, err)
 	}
 	d, code := lxcDeps(e, sys)
@@ -134,9 +133,9 @@ func parseTarget(s string) (lxc.Target, error) {
 	return lxc.Target{Container: box, Key: key}, nil
 }
 
-// readDeclaration is the declaration on stdin, read under maxDeclaration.
-func readDeclaration(stdin io.Reader) (declare.Declaration, error) {
-	raw, err := io.ReadAll(io.LimitReader(stdin, maxDeclaration+1))
+// readDeclaration is the declaration on e's stdin, read under maxDeclaration.
+func readDeclaration(e Env) (declare.Declaration, error) {
+	raw, err := e.readStdin("lxc apply", maxDeclaration)
 	if err != nil {
 		return declare.Declaration{}, fmt.Errorf("cannot read the declaration: %w", err)
 	}

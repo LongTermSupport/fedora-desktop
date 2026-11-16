@@ -47,7 +47,7 @@ var helpers = Helpers{
 		if _, err := io.WriteString(h.out, "hello\n"); err != nil {
 			return 2
 		}
-		if _, err := io.ReadAll(h.in); err != nil {
+		if _, err := io.ReadAll(h.stdin); err != nil {
 			return 2
 		}
 		return 0
@@ -415,7 +415,7 @@ func TestMainRefusesAnUnknownHelper(t *testing.T) {
 func TestReadyWaitsForTheReleaseLineOrTheEnd(t *testing.T) {
 	for _, in := range []string{"go\n", ""} {
 		var out bytes.Buffer
-		h := &Helper{in: strings.NewReader(in), out: &out, pid: 42}
+		h := &Helper{stdin: strings.NewReader(in), out: &out, pid: 42}
 		if err := h.Ready(); err != nil {
 			t.Fatalf("stdin %q: %v", in, err)
 		}
@@ -426,14 +426,14 @@ func TestReadyWaitsForTheReleaseLineOrTheEnd(t *testing.T) {
 }
 
 func TestReadyReportsAnUnwritableStdout(t *testing.T) {
-	h := &Helper{in: strings.NewReader(""), out: failWriter{}, pid: 1}
+	h := &Helper{stdin: strings.NewReader(""), out: failWriter{}, pid: 1}
 	if err := h.Ready(); err == nil {
 		t.Fatal("want an error")
 	}
 }
 
 func TestReadyReportsAnUnreadableStdin(t *testing.T) {
-	h := &Helper{in: failReader{}, out: &bytes.Buffer{}, pid: 1}
+	h := &Helper{stdin: failReader{}, out: &bytes.Buffer{}, pid: 1}
 	if err := h.Ready(); err == nil {
 		t.Fatal("want an error")
 	}

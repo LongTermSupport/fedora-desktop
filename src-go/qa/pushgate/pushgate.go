@@ -30,6 +30,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/prepush"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread"
 )
 
 // ExitCode is the gate's status: git refuses the push on any but ExitOK.
@@ -86,6 +87,8 @@ type Env struct {
 	Cwd            string
 	Getenv         func(string) string
 	ReadFile       func(path string) ([]byte, error)
+	// Clock times the wait for the ref lines on Stdin; nil is the real clock.
+	Clock stdinread.Clock
 }
 
 // refusal is a push the gate refuses; anything else that goes wrong is a run that cannot judge.
@@ -125,7 +128,7 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 		errOut.Line("⚠ qa-push-gate: exempt (" + ExemptEnv + "): " + reason)
 		return ExitOK
 	}
-	refs, err := prepush.Parse(env.Stdin)
+	refs, err := prepush.ReadStdin(env.Stdin, stdinread.Options{Prog: "qa-push-gate", Err: env.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: env.Clock})
 	if err != nil {
 		errOut.Line("ERROR: qa-push-gate: " + err.Error())
 		return ExitCannotRun

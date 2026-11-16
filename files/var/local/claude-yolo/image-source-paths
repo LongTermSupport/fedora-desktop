@@ -10,6 +10,7 @@
 :(glob)src-go/internal/matrixclients/*
 :(glob)src-go/internal/pingbus/pyjson/*
 :(glob)src-go/internal/pingbus/statusline/*
+:(glob)src-go/internal/stdinread/*
 :(glob)src-go/internal/teamchat/clock/*
 :(glob)src-go/internal/teamchat/colour/*
 :(glob)src-go/internal/teamchat/failpoint/*

@@ -219,6 +219,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -278,9 +279,12 @@ type Front struct {
 	// CreateTemp makes a temporary file (curl's dumped headers and body, D6); os.CreateTemp
 	// when nil.
 	CreateTemp func(dir, pattern string) (*os.File, error)
-	// Stdin is where --build-lock reads its answer (F14) and --secret-screen its text (F24); no
-	// input when nil.
+	// Stdin is where --build-lock reads its answer (F14), --export-token the Enter that clears
+	// the token (F13) and --secret-screen its text (F24); no input when nil.
 	Stdin io.Reader
+	// InputClock times the wait for an answer piped on Stdin, given up on once nothing has
+	// arrived for stdinread.PipedGiveUp (issue 260); the real clock when nil.
+	InputClock stdinread.Clock
 	// OpenTTY opens the terminal --secret-screen reads its Enter from (F24); /dev/tty when nil.
 	OpenTTY func() (io.ReadCloser, error)
 	// ProcRoot is where processes are looked up (F14); /proc when "".

@@ -29,6 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 )
 
 const (
@@ -52,23 +53,31 @@ const ExitSkip = 77
 // Helpers maps a helper's name to its body, which returns the child's exit code.
 type Helpers map[string]func(h *Helper) int
 
-// Helper is the child's side: its arguments, and the line it is released by.
+// Helper is the child's side: its arguments, and the stdin it is released by.
 type Helper struct {
 	// Args are the arguments Start was given after the helper's name, unchanged.
-	Args []string
-	in   io.Reader
-	out  io.Writer
-	pid  int
+	Args  []string
+	stdin io.Reader
+	out   io.Writer
+	err   io.Writer
+	// clock times the notice of a release not yet come; nil is the real clock.
+	clock stdinread.Clock
+	pid   int
 }
 
+// maxRelease bounds the release read: the parent writes one short line.
+const maxRelease = 64
+
 // Ready tells the parent the helper is ready (its lock taken, its file open), then waits until
-// the parent releases it: a line on stdin, or stdin's end when the parent has gone.
+// the parent releases it: stdin's end, which the parent's release (a line, then the close), its
+// kill and its own end all are. The parent holds the helper as long as its test needs, so the
+// wait has no bound; one still waiting after a second says so on the helper's stderr, which the
+// parent shows if the helper fails.
 func (h *Helper) Ready() error {
 	if _, err := fmt.Fprintf(h.out, "%s %d\n", readyWord, h.pid); err != nil {
 		return fmt.Errorf("reexec: tell the parent: %w", err)
 	}
-	_, err := bufio.NewReader(h.in).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	if _, err := stdinread.Read(h.stdin, stdinread.Options{Prog: "reexec helper", Err: h.err, Limit: maxRelease, Clock: h.clock}); err != nil {
 		return fmt.Errorf("reexec: wait for the release: %w", err)
 	}
 	return nil
@@ -83,7 +92,7 @@ func Main(m Runner, helpers Helpers) int {
 	return mainWith(m, os.Getenv, helpers, os.Stdin, os.Stdout, os.Stderr, os.Args)
 }
 
-func mainWith(m Runner, getenv func(string) string, helpers Helpers, in io.Reader, out, errOut io.Writer, argv []string) int {
+func mainWith(m Runner, getenv func(string) string, helpers Helpers, stdin io.Reader, out, errOut io.Writer, argv []string) int {
 	name := getenv(helperEnv)
 	if name == "" {
 		return m.Run()
@@ -95,7 +104,7 @@ func mainWith(m Runner, getenv func(string) string, helpers Helpers, in io.Reade
 		}
 		return unknownHelper
 	}
-	return body(&Helper{Args: argsOf(argv), in: in, out: out, pid: os.Getpid()})
+	return body(&Helper{Args: argsOf(argv), stdin: stdin, out: out, err: errOut, pid: os.Getpid()})
 }
 
 // argsOf is what follows the first argsMark in argv, nil when there is none.

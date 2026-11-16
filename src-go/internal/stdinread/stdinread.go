@@ -73,6 +73,48 @@ type Options struct {
 // Read is stdin's input, at most o.Limit bytes, read by the rules in the package doc.
 func Read(r io.Reader, o Options) ([]byte, error) {
 	o = o.withDefaults()
+	w, err := o.watch(r)
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan result, 1)
+	go w.readAll(done)
+	return o.wait(w, done)
+}
+
+// Copy is Read for input shown as it arrives (a child's live output, such as a sign-in URL
+// before the token that follows it): the same refusal, limit, notice and bound on silence, but
+// each piece is written to dst as it comes rather than once the input has ended.
+func Copy(dst io.Writer, r io.Reader, o Options) (int64, error) {
+	o = o.withDefaults()
+	w, err := o.watch(r)
+	if err != nil {
+		return 0, err
+	}
+	done := make(chan copyResult, 1)
+	go func() {
+		n, err := io.Copy(dst, w)
+		done <- copyResult{n, err}
+	}()
+	if _, err := Await(o, w.started, nil); err != nil {
+		return 0, err
+	}
+	res := <-done
+	if res.err != nil {
+		return res.n, fmt.Errorf("read stdin: %w", res.err)
+	}
+	return res.n, nil
+}
+
+// copyResult is the background copy's answer.
+type copyResult struct {
+	n   int64
+	err error
+}
+
+// watch is r made ready to read by the rules in the package doc: a terminal refused when asked,
+// the limit applied, and the first byte (or the end) watched for.
+func (o Options) watch(r io.Reader) (*watched, error) {
 	if o.RefuseTerminal && o.IsTerminal(r) {
 		return nil, ErrTerminal
 	}
@@ -80,10 +122,7 @@ func Read(r io.Reader, o Options) ([]byte, error) {
 	if o.Limit > 0 {
 		src = io.LimitReader(r, o.Limit)
 	}
-	w := &watched{r: src, started: make(chan struct{}), onStart: o.onStart}
-	done := make(chan result, 1)
-	go w.readAll(done)
-	return o.wait(w, done)
+	return &watched{r: src, started: make(chan struct{}), onStart: o.onStart}, nil
 }
 
 // result is the background read's answer.
@@ -117,14 +156,16 @@ var ErrStopped = errors.New("stopped waiting for input on stdin")
 // a receive from stop (nil: never) ends it with ErrStopped.
 func Await[T any](o Options, arrived <-chan T, stop <-chan struct{}) (T, error) {
 	o = o.withDefaults()
-	notice, stopNotice := o.Clock.Hold(NoticeAfter)
-	defer stopNotice()
+	// The bound is armed before the notice, so once the notice's timer is armed both are: a
+	// test that waits for the notice's timer and then moves the clock moves it past both.
 	var giveUp <-chan time.Time
 	if o.GiveUpAfter > 0 {
 		c, stopGiveUp := o.Clock.Hold(o.GiveUpAfter)
 		defer stopGiveUp()
 		giveUp = c
 	}
+	notice, stopNotice := o.Clock.Hold(NoticeAfter)
+	defer stopNotice()
 	var zero T
 	for {
 		select {
@@ -136,7 +177,14 @@ func Await[T any](o Options, arrived <-chan T, stop <-chan struct{}) (T, error) 
 			notice = nil
 			o.say()
 		case <-giveUp:
-			return zero, &NoInputError{After: o.GiveUpAfter}
+			// Input that arrived by the bound wins over it: select picks at random among
+			// cases ready together.
+			select {
+			case v := <-arrived:
+				return v, nil
+			default:
+				return zero, &NoInputError{After: o.GiveUpAfter}
+			}
 		}
 	}
 }

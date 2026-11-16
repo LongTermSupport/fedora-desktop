@@ -89,18 +89,25 @@ func (f Front) buildLock(ctx context.Context) term.ExitCode {
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())
 	}
-	in := f.Stdin
-	if in == nil {
-		in = strings.NewReader("")
-	}
-	// One reader for every question: piped answers are read a line at a time, in order.
-	lines := &ui.Lines{In: in, Out: f.Stderr}
+	lines := f.lines("ccy --build-lock")
 	for _, build := range live {
 		if code, done := f.offerStop(ctx, lines, build.rec, build.path); done {
 			return code
 		}
 	}
 	return term.ExitOK
+}
+
+// lines asks the questions of the flag prog on Stdin (no input when nil), its prompts on stderr:
+// one reader for every question, so piped answers are read a line at a time, in order. A typed
+// answer is waited for as long as it takes, a piped one given up on once nothing has arrived for
+// stdinread.PipedGiveUp (issue 260).
+func (f Front) lines(prog string) *ui.Lines {
+	stdin := f.Stdin
+	if stdin == nil {
+		stdin = strings.NewReader("")
+	}
+	return &ui.Lines{In: stdin, Out: f.Stderr, Prog: prog, Err: f.Stderr, Clock: f.InputClock, IsTerminal: f.IsTerminal}
 }
 
 // heldBuild is a build whose holder the front can vouch for, and its lock file.

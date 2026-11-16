@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,16 +102,16 @@ type facts struct {
 // Check is `guest check --user U --team T` (GU2): the caller is U (GU1); the reach facts on
 // stdin are T's; gh, tmux and claude are on the unit's PATH; gh is logged in to github.com;
 // pidfd and inotify work; the homeserver answers. The first miss is 78 with the check's code.
-func (c Checker) Check(ctx context.Context, u paths.GuestUser, team paths.TeamID, stdin io.Reader) error {
+func (c Checker) Check(ctx context.Context, u paths.GuestUser, team paths.TeamID, in Input) error {
 	id, err := Establish(c.Sys, u)
 	if err != nil {
 		return err
 	}
-	return errors.Join(c.check(ctx, id, team, stdin), id.Close())
+	return errors.Join(c.check(ctx, id, team, in), id.Close())
 }
 
-func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, stdin io.Reader) error {
-	f, err := readFacts(stdin, team)
+func (c Checker) check(ctx context.Context, id *Identity, team paths.TeamID, in Input) error {
+	f, err := readFacts(in, team)
 	if err != nil {
 		return err
 	}
@@ -211,10 +210,14 @@ func reach(ctx context.Context, f facts, team paths.TeamID) error {
 }
 
 // readFacts decodes stdin strictly: exactly the four keys, v 2, team equal to --team, a string
-// base_url and a string tls_ca; a refusal quotes nothing of it.
-func readFacts(stdin io.Reader, team paths.TeamID) (facts, error) {
+// base_url and a string tls_ca; a refusal quotes nothing of it. Input that never comes is
+// refused naming the bound.
+func readFacts(in Input, team paths.TeamID) (facts, error) {
 	refused := exits.New(exits.CodeUsage, &team, msgStdin)
-	data, err := io.ReadAll(io.LimitReader(stdin, stdinCap+1))
+	data, err := in.read(OpCheck, &team, stdinCap+1)
+	if errors.As(err, new(*exits.Error)) {
+		return facts{}, err
+	}
 	if err != nil || len(data) > stdinCap {
 		return facts{}, refused
 	}

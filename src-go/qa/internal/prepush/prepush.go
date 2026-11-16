@@ -4,10 +4,13 @@
 package prepush
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread"
 )
 
 // ZeroID is the all-zero object id: a local one is a deletion, a remote one a ref the remote
@@ -22,10 +25,25 @@ type Ref struct {
 // Deletes is whether the push deletes the remote ref, which pushes no commit.
 func (r Ref) Deletes() bool { return r.LocalID == ZeroID }
 
+// ReadStdin is the ref lines git writes on a pre-push hook's stdin, read through stdinread by
+// o (whose bound refuses an open pipe nothing writes to), refusing no stdin at all.
+func ReadStdin(stdin io.Reader, o stdinread.Options) ([]Ref, error) {
+	if stdin == nil {
+		return nil, errNoStdin
+	}
+	data, err := stdinread.Read(stdin, o)
+	if err != nil {
+		return nil, fmt.Errorf("reading the pre-push ref lines: %w", err)
+	}
+	return Parse(bytes.NewReader(data))
+}
+
+var errNoStdin = errors.New("a pre-push run needs the ref lines on stdin")
+
 // Parse reads the ref lines, refusing one without four fields.
 func Parse(in io.Reader) ([]Ref, error) {
 	if in == nil {
-		return nil, errors.New("a pre-push run needs the ref lines on stdin")
+		return nil, errNoStdin
 	}
 	data, err := io.ReadAll(in)
 	if err != nil {

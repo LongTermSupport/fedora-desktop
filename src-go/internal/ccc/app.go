@@ -31,7 +31,6 @@
 package ccc
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -47,6 +46,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tokens"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // Play builds ccc and the image it runs.
@@ -87,7 +87,8 @@ type App struct {
 	// account); it stops the run before anything else.
 	SetupErr error
 
-	answers *bufio.Reader
+	// answers asks the sign-in's questions on Stdin, made when the run starts.
+	answers *ui.Lines
 }
 
 // stopError is a failure already reported, carrying the exit code to end with.
@@ -129,7 +130,7 @@ func (a *App) run(ctx context.Context, args []string) (term.ExitCode, error) {
 	if !a.IsTerminal(a.Stdin) {
 		return term.ExitFailure, errors.New("ccc needs a terminal: run it in a terminal window, or open Claude from the app grid")
 	}
-	a.answers = bufio.NewReader(a.Stdin)
+	a.answers = &ui.Lines{In: a.Stdin, Out: a.Stderr, Err: a.Stderr, Prog: "ccc", Width: headingWidth, IsTerminal: a.IsTerminal, Tries: maxAnswers}
 	git := gitx.New(a.Runner)
 	folder := filepath.Join(a.Home, FolderName)
 	if err = prepareFolder(ctx, git, folder, o.Agent, a.User); err != nil {
@@ -138,7 +139,7 @@ func (a *App) run(ctx context.Context, args []string) (term.ExitCode, error) {
 	if err = a.checkImage(ctx); err != nil {
 		return term.ExitFailure, err
 	}
-	token, err := a.token(o)
+	token, err := a.token(ctx, o)
 	if err != nil {
 		return term.ExitFailure, err
 	}
@@ -198,7 +199,7 @@ func (a *App) checkImage(ctx context.Context) error {
 }
 
 // token is the sign-in token the session runs with (C5).
-func (a *App) token(o options) (string, error) {
+func (a *App) token(ctx context.Context, o options) (string, error) {
 	name := o.Token
 	if name == "" {
 		name = tokenName
@@ -218,11 +219,11 @@ func (a *App) token(o options) (string, error) {
 	if o.Token != "" {
 		return "", fmt.Errorf("no usable token named %q in %s", o.Token, dir)
 	}
-	return a.signIn(o.Agent, dir)
+	return a.signIn(ctx, o.Agent, dir)
 }
 
 // signIn makes a new token in a throwaway container and saves it in the pool.
-func (a *App) signIn(agent Agent, dir string) (string, error) {
+func (a *App) signIn(ctx context.Context, agent Agent, dir string) (string, error) {
 	a.sayf("ccc: first, sign in to Claude. A link will appear: open it, sign in, and paste the code it gives you back here.")
 	for attempt := 1; ; attempt++ {
 		var out bytes.Buffer
@@ -250,7 +251,7 @@ func (a *App) signIn(agent Agent, dir string) (string, error) {
 		if attempt == maxSignIns {
 			return "", fmt.Errorf("gave up after %d sign-ins; run ccc again when you are ready", maxSignIns)
 		}
-		again, err := a.askAgain()
+		again, err := a.askAgain(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -261,32 +262,25 @@ func (a *App) signIn(agent Agent, dir string) (string, error) {
 	}
 }
 
+// headingWidth is the width a question's heading wraps to.
+const headingWidth = 80
+
 // maxAnswers bounds the re-asks of an answer ccc cannot read.
 const maxAnswers = 3
 
-// askAgain asks whether to try the sign-in again: empty, y or yes is yes; n or no is no;
-// anything else is asked again, up to maxAnswers times. End of input is a cancel.
-func (a *App) askAgain() (bool, error) {
-	for range maxAnswers {
-		a.sayf("Try signing in again? [Y/n] ")
-		line, err := a.answers.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return false, fmt.Errorf("read the answer: %w", err)
-		}
-		if errors.Is(err, io.EOF) && line == "" {
-			a.sayf("ccc: cancelled.")
-			return false, stopError{code: term.ExitCancelled}
-		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
-		case "", "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		}
-		a.sayf("Please answer y or n.")
+// askAgain asks whether to try the sign-in again, [Y/n] (ui.Lines.YesNo), asked again on any
+// other answer up to maxAnswers times. The end of input, or no valid answer, is a cancel.
+func (a *App) askAgain(ctx context.Context) (bool, error) {
+	again, err := a.answers.YesNo(ctx, ui.Here("ccc", "Sign in"), "Try signing in again?", true)
+	if gaveUp, ok := errors.AsType[*ui.GaveUpError](err); ok {
+		a.sayf("ccc: %v; cancelled.", gaveUp)
+		return false, stopError{code: term.ExitCancelled}
 	}
-	a.sayf("ccc: cancelled.")
-	return false, stopError{code: term.ExitCancelled}
+	if errors.Is(err, ui.ErrCancelled) {
+		a.sayf("ccc: cancelled.")
+		return false, stopError{code: term.ExitCancelled}
+	}
+	return again, err
 }
 
 // say writes one line to stderr; a write that fails there has nowhere left to be reported.

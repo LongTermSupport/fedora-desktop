@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/prepush"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread"
 )
 
 // ExitCode is the status qa-private-names exits with.
@@ -62,6 +63,8 @@ type Env struct {
 	// ReadFile and WriteFile reach the list and the allowlist (fs.ErrNotExist when absent).
 	ReadFile  func(path string) ([]byte, error)
 	WriteFile func(path string, data []byte) error
+	// Clock times the wait for the ref lines on Stdin; nil is the real clock.
+	Clock stdinread.Clock
 }
 
 const usageText = `usage: qa-private-names COMMAND
@@ -298,7 +301,7 @@ func (a app) scanRange(sel []string, m *Matcher) ([]Hit, int, error) {
 // scanPush reads the pre-push ref lines from stdin and scans each pushed commit the remote does
 // not already hold (prepush.Ref.Selection says which).
 func (a app) scanPush(m *Matcher, remote string) (result, error) {
-	refs, err := prepush.Parse(a.env.Stdin)
+	refs, err := prepush.ReadStdin(a.env.Stdin, stdinread.Options{Prog: "qa-private-names push", Err: a.env.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: a.env.Clock})
 	if err != nil {
 		return result{}, err
 	}

@@ -1,7 +1,6 @@
 package ccylaunch
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	_ "embed" // the import script's body
@@ -13,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tokens"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // F13, `--export-token NAME`: the import script of the name's latest file, printed after the
@@ -89,10 +89,10 @@ func (f Front) exportToken(ctx context.Context) (term.ExitCode, string) {
 		e, why = f.readExport(f.Args[1])
 		return why
 	}
-	return f.inRepoFlag(ctx, check, func(p *term.Printer) (term.ExitCode, error) { return f.printExport(p, e) })
+	return f.inRepoFlag(ctx, check, func(p *term.Printer) (term.ExitCode, error) { return f.printExport(ctx, p, e) })
 }
 
-func (f Front) printExport(p *term.Printer, e export) (term.ExitCode, error) {
+func (f Front) printExport(ctx context.Context, p *term.Printer, e export) (term.ExitCode, error) {
 	switch {
 	case !e.found:
 		f.printError(p, "No token found with name: "+e.name)
@@ -130,7 +130,7 @@ func (f Front) printExport(p *term.Printer, e export) (term.ExitCode, error) {
 	if screen.Showing() {
 		screen.Show("\nCopy it, then press Enter to clear the token from the screen.\n")
 		if f.Stdin != nil {
-			if _, err := bufio.NewReader(f.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
+			if err := f.awaitEnter(ctx, "ccy --export-token"); err != nil {
 				screen.Close()
 				return term.ExitFailure, err
 			}
@@ -138,4 +138,21 @@ func (f Front) printExport(p *term.Printer, e export) (term.ExitCode, error) {
 		screen.Close()
 	}
 	return term.ExitOK, screen.Err()
+}
+
+// clearHeading heads the question of the Enter that clears a secret screen. The screen shows its
+// own prompt, so the question's heading and prompt are not written.
+var clearHeading = ui.Here("ccy", "clear the secret from the screen")
+
+// awaitEnter reads the Enter that clears the flag prog's secret screen through ui.Lines: typed,
+// for as long as the person needs; piped, given up on once nothing has arrived for
+// stdinread.PipedGiveUp (issue 260). The end of the input clears the screen as an Enter does.
+func (f Front) awaitEnter(ctx context.Context, prog string) error {
+	lines := f.lines(prog)
+	lines.Out = io.Discard
+	if _, err := lines.Ask(ctx, clearHeading, "Enter", nil); err != nil && !errors.Is(err, ui.ErrInputEnded) {
+		// The read given up on is still waiting on stdin, so Lines is not closed: the run ends.
+		return err
+	}
+	return lines.Close()
 }

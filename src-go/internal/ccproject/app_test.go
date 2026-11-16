@@ -218,7 +218,7 @@ func TestOfferRePromptsOnAnythingElse(t *testing.T) {
 	if code := w.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.stderr.String())
 	}
-	if w.asked() != 2 || !strings.Contains(w.stderr.String(), "Please answer y or n") {
+	if w.asked() != 2 || !strings.Contains(w.stderr.String(), "Answer y or n.") {
 		t.Errorf("stderr %q", w.stderr.String())
 	}
 }

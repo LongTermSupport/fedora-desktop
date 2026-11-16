@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -20,6 +21,8 @@ type Find struct {
 	Host    *host.Host
 	Git     *gitx.Git
 	Declare *declare.Client
+	// Clock times the wait for restart-args' stdin; nil is the real clock.
+	Clock stdinread.Clock
 }
 
 // New is the Find flow over a host.

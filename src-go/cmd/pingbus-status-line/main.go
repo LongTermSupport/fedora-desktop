@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/statusline"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -23,14 +24,15 @@ func main() {
 	// Subscribed before stdin is read, so a cancel that arrives early is not lost (S12).
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-	os.Exit(int(run(os.Stdin, os.Stdout, os.Stderr, os.Environ(), os.Getwd, signals)))
+	os.Exit(int(run(os.Stdin, os.Stdout, os.Stderr, os.Environ(), os.Getwd, signals, nil)))
 }
 
 // run renders the status line. A cancel by signal exits 128 plus the signal with nothing on
 // stdout (S12); every other render exits 0 (S3): a stdin that cannot be read is no payload and
-// a working directory that cannot be had is an empty one.
+// a working directory that cannot be had is an empty one. clk times the notice of a payload that
+// has not come (the real clock when nil).
 func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, getwd func() (string, error),
-	signals <-chan os.Signal,
+	signals <-chan os.Signal, clk stdinread.Clock,
 ) term.ExitCode {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
@@ -40,7 +42,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, getwd func
 	defer relay.Wait()
 	defer close(done)
 	relay.Go(func() { relaySignals(signals, done, cancel) })
-	raw, ok := readInput(ctx, stdin)
+	raw, ok := readInput(ctx, stdin, stderr, clk)
 	if !ok {
 		return term.ExitCode(statusline.CancelStatus(ctx))
 	}
@@ -59,11 +61,13 @@ func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, getwd func
 }
 
 // readInput is stdin, read beside the cancel so a signal during the read still ends the render
-// (S12). A read that fails is no payload. False means the render was cancelled first.
-func readInput(ctx context.Context, stdin io.Reader) ([]byte, bool) {
+// (S12). A read that fails is no payload. False means the render was cancelled first. Claude
+// Code always writes and closes the payload, so the read is not bounded; a payload that has not
+// come after stdinread.NoticeAfter is said on stderr (issue 260).
+func readInput(ctx context.Context, stdin io.Reader, stderr io.Writer, clk stdinread.Clock) ([]byte, bool) {
 	got := make(chan []byte, 1)
 	go func() {
-		raw, err := io.ReadAll(io.LimitReader(stdin, inputLimit))
+		raw, err := stdinread.Read(stdin, stdinread.Options{Prog: "pingbus status-line", Err: stderr, Limit: inputLimit, Clock: clk})
 		if err != nil {
 			raw = nil
 		}

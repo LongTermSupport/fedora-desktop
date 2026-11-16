@@ -10,10 +10,11 @@ import (
 )
 
 // stdinSeams are the packages that may read stdin: the shared reader; the prompt seam, which
-// refuses a non-terminal before it reads a person's answer; the process seam, which hands a child
-// the stdin it is given; the terminal test and the terminal echo, which ask about the file and
-// never read it. They are matched by path suffix, so the fixtures and the real modules share them.
-var stdinSeams = []string{"internal/stdinread", uiPkg, "internal/execx", "internal/term", "internal/ttyecho"}
+// bounds a piped answer with the shared reader's wait; the process seam, which hands a child
+// the stdin it is given; the relay of the terminal to a child (internal/keyrelay), which ends on a
+// stop its owner controls and reads only once poll finds a key, so it never blocks on a read
+// alone; the terminal test and the terminal echo, which ask about the file and never read it. They are matched by path suffix, so the fixtures and the real modules share them.
+var stdinSeams = []string{"internal/stdinread", uiPkg, "internal/execx", "internal/keyrelay", "internal/term", "internal/ttyecho"}
 
 // bufioPkg is the buffered-reader package's path.
 const bufioPkg = "bufio"
@@ -31,13 +32,13 @@ var stdinReaders = map[[2]string]int{
 // stdinReadMethods are the methods that read their receiver.
 var stdinReadMethods = []string{"Read", "ReadString", "ReadByte", "ReadBytes", "ReadRune", "ReadLine", "WriteTo"}
 
-const stdinSeamFix = " (project_stdin_seam): read it with stdinread.Read, which says when it is waiting and takes a bound, or prompt through internal/ui, which refuses a non-terminal; hand stdin on only as stdin"
+const stdinSeamFix = " (project_stdin_seam): read it with stdinread.Read, which says when it is waiting and takes a bound, or prompt through internal/ui, which bounds a piped answer the same way; hand stdin on only as stdin"
 
 // StdinSeam holds every read of a process's stdin to the seams that bound it.
 var StdinSeam = &analysis.Analyzer{
 	Name: "project_stdin_seam",
 	Doc: `project_stdin_seam flags a read of stdin outside internal/stdinread and the other stdin
-seams (internal/ui, internal/execx, internal/term, internal/ttyecho), in every package of both
+seams (internal/ui, internal/execx, internal/keyrelay, internal/term, internal/ttyecho), in every package of both
 modules but a test double's (a package whose name ends in "test"); _test.go files are not judged.
 
 Stdin is os.Stdin, or a variable, parameter or struct field named stdin or Stdin whose type reads
@@ -58,8 +59,9 @@ asking whether it is a terminal, comparing it with nil and taking its descriptor
 A read of stdin returns at end of input, and an open pipe that nothing writes to and nothing
 closes, which is what an agent's shell gives a command run with no input, never ends: the
 command waits for ever and says nothing (issue #260: pingbus thread --close waited minutes).
-stdinread says when it is waiting and refuses after a bound; a prompt through internal/ui refuses
-a non-terminal before it asks.
+stdinread says when it is waiting and refuses after a bound; a prompt through internal/ui waits
+on a piped answer with the same notice and bound (stdinread.Await), a line at a time, and on a
+terminal for as long as the person needs.
 
 Not caught: stdin returned from a function or kept in a slice or map and read elsewhere, an
 unkeyed struct literal, a reader built by reflection, and Python (the semgrep rule
@@ -67,7 +69,7 @@ stdin-read-unbounded covers it).
 
 How to fix: data, err := stdinread.Read(stdin, stdinread.Options{Prog: "tool", Limit: n,
 GiveUpAfter: time.Minute}) for piped input, handing bytes.NewReader(data) on if a callee wants a
-reader; a prompt through ui, which refuses a non-terminal.`,
+reader; a prompt through ui.Lines, which bounds a piped answer.`,
 	Run:        perPass(runStdinSeam),
 	ResultType: noResultType,
 }

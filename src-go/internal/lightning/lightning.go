@@ -64,6 +64,7 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/matrixclients"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -104,6 +105,9 @@ type App struct {
 	Euid, UID int
 	// Home is a uid's passwd home.
 	Home func(uid int) (string, error)
+	// Clock times the wait for the team list on Stdin, given up on once nothing has arrived for
+	// stdinread.PipedGiveUp (issue 260); the real clock when nil.
+	Clock stdinread.Clock
 }
 
 // refusal is a refused run (78), element.py's ElementError.
@@ -131,7 +135,9 @@ func (a App) Run() term.ExitCode {
 	if err != nil {
 		return a.fail(term.ExitFailure, err.Error())
 	}
-	data, err := io.ReadAll(a.Stdin)
+	data, err := stdinread.Read(a.Stdin, stdinread.Options{
+		Prog: "agent-bus-lightning " + a.Args[0], Err: a.Stderr, GiveUpAfter: stdinread.PipedGiveUp, Clock: a.Clock,
+	})
 	if err != nil {
 		return a.fail(term.ExitFailure, "reading the team list: "+err.Error())
 	}

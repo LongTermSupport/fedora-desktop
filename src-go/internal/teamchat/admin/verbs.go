@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
@@ -179,7 +179,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		w, err := memberWork(ctx, sys, op, team, opArgs)
 		err = errors.Join(err, lock.Release())
 		if w.doc != nil {
-			if code = answerIssued(e, w); code != term.ExitOK {
+			if code = answerIssued(ctx, e, w); code != term.ExitOK {
 				return code
 			}
 		}
@@ -197,21 +197,21 @@ const issuedClearPrompt = "\nThis holds the credential's secret: pipe the verb i
 // on a terminal, is shown on the alternate screen and cleared on Enter, so the secret stays in
 // no scrollback; on a stream that is not a terminal (the pipe into `teamchat seat
 // place-issued`), or with no credential, the document is the one plain line it always was.
-func answerIssued(e Env, w work) term.ExitCode {
-	return answerOnScreen(e, w.doc, w.bundle.Kind() == proto.KindObject, issuedClearPrompt)
+func answerIssued(ctx context.Context, e Env, w work) term.ExitCode {
+	return answerOnScreen(ctx, e, w.doc, w.bundle.Kind() == proto.KindObject, issuedClearPrompt)
 }
 
 // answerOnScreen writes a verb's one document: one holding a secret, on a terminal, on the
 // alternate screen with prompt and cleared on Enter, so the secret stays in no scrollback;
-// otherwise as one plain line.
-func answerOnScreen(e Env, doc []byte, secret bool, prompt string) term.ExitCode {
+// otherwise as one plain line. However the read of the Enter ends, the screen is left.
+func answerOnScreen(ctx context.Context, e Env, doc []byte, secret bool, prompt string) term.ExitCode {
 	screen := &term.SecretScreen{W: e.Stdout, Terminal: secret && e.isTerminal(e.Stdout)}
 	screen.Show(string(doc) + "\n")
 	var readErr error
 	if screen.Showing() {
 		screen.Show(prompt)
 		if e.Stdin != nil {
-			if _, err := bufio.NewReader(e.Stdin).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {
+			if err := awaitEnter(ctx, e); err != nil {
 				readErr = fmt.Errorf("cannot read the Enter that clears the credential: %w", err)
 			}
 		}
@@ -221,6 +221,22 @@ func answerOnScreen(e Env, doc []byte, secret bool, prompt string) term.ExitCode
 		return fail(e.Stderr, term.ExitFailure, "cannot write the answer: "+err.Error())
 	}
 	return term.ExitOK
+}
+
+// clearHeading heads the question of the Enter that clears a secret screen. The screen shows
+// its own prompt, so the question's heading and prompt are not written.
+var clearHeading = ui.Here("teamchat-admin", "clear the secret from the screen")
+
+// awaitEnter reads the Enter that clears a secret screen through ui.Lines: from a terminal for
+// as long as the person needs, from anything else given up on once nothing has arrived for
+// stdinread.PipedGiveUp (issue 260). The end of the input clears the screen as an Enter does.
+func awaitEnter(ctx context.Context, e Env) error {
+	lines := &ui.Lines{In: e.Stdin, Out: io.Discard, Prog: "teamchat-admin", Err: e.Stderr, Clock: e.Clock, IsTerminal: e.IsTerminal}
+	if _, err := lines.Ask(ctx, clearHeading, "Enter", nil); err != nil && !errors.Is(err, ui.ErrInputEnded) {
+		// The read given up on is still waiting on stdin, so Lines is not closed: the verb ends.
+		return err
+	}
+	return lines.Close()
 }
 
 func memberArgs(op string, args []string) (paths.TeamID, []proto.Member, error) {
@@ -464,9 +480,9 @@ func printChanged(e Env, lines []string, err error) term.ExitCode {
 	return term.ExitOK
 }
 
-// readInput is the one-team input on stdin (DR7).
-func readInput(stdin io.Reader) (declare.Input, error) {
-	raw, err := io.ReadAll(io.LimitReader(stdin, maxRequest+1))
+// readInput is the one-team input on e's stdin (DR7), for the verb prog.
+func readInput(e Env, prog string) (declare.Input, error) {
+	raw, err := e.readStdin(prog, maxRequest)
 	if err != nil {
 		return declare.Input{}, fmt.Errorf("cannot read the input: %w", err)
 	}
@@ -501,7 +517,7 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 		return fail(e.Stderr, ExitConfig, "the "+paths.CtlUser+" account: "+err.Error())
 	}
 	d.CtlUID, d.CtlGID = ctl.UID, ctl.GID
-	in, err := readInput(e.Stdin)
+	in, err := readInput(e, "team apply")
 	if err != nil {
 		return failWith(e, err)
 	}
@@ -576,7 +592,7 @@ func teamApprove(_ context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return failWith(e, err)
 	}
-	in, err := readInput(e.Stdin)
+	in, err := readInput(e, "team approve")
 	if err != nil {
 		return failWith(e, err)
 	}

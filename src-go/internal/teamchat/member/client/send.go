@@ -2,10 +2,11 @@ package client
 
 import (
 	"bytes"
-	"io"
+	"errors"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
@@ -24,19 +25,20 @@ const (
 	msgTextSize exits.Template = "the text on stdin is larger than 4096 bytes"
 	msgEmpty    exits.Template = "the text on stdin is empty"
 	msgUTF8     exits.Template = "the text on stdin is not UTF-8"
+	msgNoInput  exits.Template = "teamchat {} read no text: {}; give the text on stdin, such as: echo text | teamchat {}"
 )
 
 // sendArgs are a send verb's args and its text: say and a reply without --verb read stdin,
 // ping and reply --verb never do, so an inherited stdin cannot block them (n3d-D15). The text's
 // rules run here, before anything is sent; every other rule of a send is the link's.
-func sendArgs(e cli.Env, inv cli.Invocation, op string) (any, *string, error) {
+func sendArgs(e cli.Env, inv cli.Invocation, op string, clk stdinread.Clock) (any, *string, error) {
 	switch op {
 	case wire.OpSay:
-		text, err := readText(e, inv)
+		text, err := readText(e, inv, clk)
 		a := wire.SayArgs{Team: inv.Team, To: addressees(inv), ToCoordinator: inv.Has(flagToCoordinator), WaitContact: inv.Has(flagWaitContact)}
 		return a, text, err
 	case wire.OpReport:
-		text, err := readReport(e, inv)
+		text, err := readReport(e, inv, clk)
 		return wire.ReportArgs{Team: inv.Team}, text, err
 	case wire.OpPing:
 		a := wire.PingArgs{
@@ -52,7 +54,7 @@ func sendArgs(e cli.Env, inv cli.Invocation, op string) (any, *string, error) {
 	if a.Verb != nil {
 		return a, nil, nil
 	}
-	text, err := readText(e, inv)
+	text, err := readText(e, inv, clk)
 	return a, text, err
 }
 
@@ -85,8 +87,8 @@ func optional(args []string, i int) *string {
 // readText is the text on stdin (n3d-D28): a terminal is refused before any read; then at most
 // one byte past the cap and its newline is read, one trailing newline is removed, and the
 // text must be 1 to proto.MaxText bytes of UTF-8.
-func readText(e cli.Env, inv cli.Invocation) (*string, error) {
-	data, err := readStdin(e, inv, proto.MaxText+2)
+func readText(e cli.Env, inv cli.Invocation, clk stdinread.Clock) (*string, error) {
+	data, err := readStdin(e, inv, clk, proto.MaxText+2)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +105,20 @@ func readText(e cli.Env, inv cli.Invocation) (*string, error) {
 	return &text, nil
 }
 
-// readStdin is at most limit bytes of stdin; a terminal is refused before any read.
-func readStdin(e cli.Env, inv cli.Invocation, limit int64) ([]byte, error) {
+// readStdin is at most limit bytes of stdin; a terminal is refused before any read. It says on
+// stderr once nothing has arrived for a second, and a stdin that stays silent for
+// stdinread.PipedGiveUp (an open pipe nothing writes to) is 64 usage naming the bound.
+func readStdin(e cli.Env, inv cli.Invocation, clk stdinread.Clock, limit int64) ([]byte, error) {
+	verb := exits.Words(inv.Verb.Name)
 	if term.FileIsTerminal(e.Stdin) {
-		return nil, exits.New(exits.CodeUsage, inv.Team, msgTerminal, exits.Words(inv.Verb.Name), exits.Words(inv.Verb.Name))
+		return nil, exits.New(exits.CodeUsage, inv.Team, msgTerminal, verb, verb)
 	}
-	data, err := io.ReadAll(io.LimitReader(e.Stdin, limit))
+	data, err := stdinread.Read(e.Stdin, stdinread.Options{
+		Prog: "teamchat " + inv.Verb.Name, Err: e.Stderr, Limit: limit, GiveUpAfter: stdinread.PipedGiveUp, Clock: clk,
+	})
+	if none, ok := errors.AsType[*stdinread.NoInputError](err); ok {
+		return nil, exits.New(exits.CodeUsage, inv.Team, msgNoInput, verb, exits.Words(none.Error()), verb)
+	}
 	if err != nil {
 		return nil, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("read its stdin"))
 	}
@@ -121,8 +131,8 @@ func readStdin(e cli.Env, inv cli.Invocation, limit int64) ([]byte, error) {
 // empty text: RP3's role check (11) comes before its size check (10 body), and only the link
 // knows the role. Text that is not UTF-8 cannot travel in the request's JSON, so it is 10
 // schema, as say's.
-func readReport(e cli.Env, inv cli.Invocation) (*string, error) {
-	data, err := readStdin(e, inv, proto.MaxReportBody+2)
+func readReport(e cli.Env, inv cli.Invocation, clk stdinread.Clock) (*string, error) {
+	data, err := readStdin(e, inv, clk, proto.MaxReportBody+2)
 	if err != nil {
 		return nil, err
 	}

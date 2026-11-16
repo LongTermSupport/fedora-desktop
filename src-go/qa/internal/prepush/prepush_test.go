@@ -1,9 +1,16 @@
 package prepush
 
 import (
+	"context"
+	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/stdinread/stdinreadtest"
 )
 
 const (
@@ -48,5 +55,49 @@ func TestSelection(t *testing.T) {
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// Issue 260: the ref lines are read through stdinread, so a run with an open pipe nothing writes
+// to (a hook run by hand in an agent's shell) is refused at the bound, naming it.
+func TestReadStdinOnAnOpenPipeIsBounded(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := errors.Join(w.Close(), r.Close()); err != nil {
+			t.Error(err)
+		}
+	})
+	c := stdinreadtest.NewClock()
+	var errs strings.Builder
+	got := make(chan error, 1)
+	go func() {
+		_, err := ReadStdin(r, stdinread.Options{Prog: "hook", Err: &errs, GiveUpAfter: stdinread.PipedGiveUp, Clock: c})
+		got <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := c.Await(ctx, stdinread.NoticeAfter); err != nil {
+		t.Fatal(err)
+	}
+	c.Fire(stdinread.NoticeAfter)
+	c.Fire(stdinread.PipedGiveUp)
+	if err := <-got; err == nil || !strings.Contains(err.Error(), "within 60 s") {
+		t.Fatalf("%v", err)
+	}
+	if !strings.HasPrefix(errs.String(), "hook: waiting for input on stdin") {
+		t.Fatalf("stderr %q", errs.String())
+	}
+}
+
+func TestReadStdinParsesTheRefLinesAndRefusesNoStdin(t *testing.T) {
+	refs, err := ReadStdin(strings.NewReader("refs/heads/F44 "+a+" refs/heads/F44 "+b+"\n"), stdinread.Options{Clock: stdinreadtest.NewClock()})
+	if err != nil || len(refs) != 1 || refs[0].RemoteID != b {
+		t.Fatalf("%v %v", refs, err)
+	}
+	if _, err := ReadStdin(nil, stdinread.Options{}); err == nil {
+		t.Fatal("want the refusal of no stdin")
 	}
 }

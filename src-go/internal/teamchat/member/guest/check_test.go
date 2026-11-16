@@ -115,7 +115,7 @@ func alpha(t *testing.T) paths.TeamID {
 
 func (w *guestWorld) check(t *testing.T, stdin string) error {
 	t.Helper()
-	return w.checker().Check(t.Context(), agentUser(t), alpha(t), strings.NewReader(stdin))
+	return w.checker().Check(t.Context(), agentUser(t), alpha(t), Input{Stdin: strings.NewReader(stdin)})
 }
 
 // GU2: every check passes; gh is run once, at the path found on the unit's PATH, with that
@@ -214,7 +214,7 @@ func (failReader) Read([]byte) (int, error) { return 0, errors.New("closed") }
 
 func TestCheckRefusesAnUnreadableStdin(t *testing.T) {
 	w := newGuestWorld(t)
-	wantCode(t, w.checker().Check(t.Context(), agentUser(t), alpha(t), failReader{}), 64, exits.CodeUsage)
+	wantCode(t, w.checker().Check(t.Context(), agentUser(t), alpha(t), Input{Stdin: failReader{}}), 64, exits.CodeUsage)
 }
 
 func TestCheckRefusesAHomeOfAnother(t *testing.T) {

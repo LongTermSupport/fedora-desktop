@@ -539,10 +539,11 @@ func TestThePayload(t *testing.T) {
 
 // A stdin that fails to read is unusable json: nothing whole was read.
 func TestAStdinThatFails(t *testing.T) {
-	if got := payload(failingReader{}, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
+	clk := clock.NewFake(boot0, 0)
+	if got := payload(cli.Env{Stdin: failingReader{}}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
 		t.Fatalf("%v", got)
 	}
-	if got := payload(nil, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
+	if got := payload(cli.Env{}, clk, wire.OpHookPrompt); got.Payload != wire.PayloadUnusable || *got.Unusable != wire.UnusableJSON {
 		t.Fatalf("no stdin: %v", got)
 	}
 }

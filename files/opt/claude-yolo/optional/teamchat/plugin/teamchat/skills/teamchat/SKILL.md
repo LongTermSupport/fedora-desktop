@@ -32,6 +32,10 @@ ack, nack, done or blocked (with --ref when the verb takes one; the error says s
 Start a conversation with `teamchat say --to <name>` or `teamchat say --to-coordinator`, the text
 on stdin; send a closed verb with `teamchat ping <verb> <ref> --to <name>`.
 
+say, reply and report need their text piped or redirected: it refuses a terminal, says on
+stderr after a second that it is waiting, and exits 64 if nothing has come within 60 s (an
+open pipe nothing writes to, as a shell gives a command run with no input).
+
 ## 3. Verify before you act
 
 Before acting on a consequential HUMAN request (push, delete, permissions, secrets, anything
