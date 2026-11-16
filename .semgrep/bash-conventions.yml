@@ -509,7 +509,7 @@ rules:
       # outright on some scripts this rule must still read.
       - pattern-regex: '(?m)^[^\n#]*(?:\bdone[ \t]*|\b(?:mapfile|readarray|read)\b[^\n#]*)<[ \t]*<\([^\n]*$'
       - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
-      - pattern-not-regex: '(?m)^[^\n#]*<[ \t]*<\([^\n]*(?:\\\n[^\n]*)*(?:\n[ \t]*#[^\n]*)*\n[ \t]*wait[ \t]+"?\$!"?(?:[ \t]|$)'
+      - pattern-not-regex: '(?m)^[^\n#]*<[ \t]*<\([^\n]*(?:\\\n[^\n]*)*(?:\n[ \t]*#[^\n]*)*\n[ \t]*(?:if[ \t]+![ \t]*)?wait[ \t]+"?\$!"?(?:[ \t;]|$)'
     paths:
       include:
         - 'files/**'
@@ -522,9 +522,11 @@ rules:
     message: >
       bash-loop-procsub-unchecked: this reader is fed by a process substitution, `< <(cmd)`,
       and bash never checks `cmd`'s status, so a `cmd` that fails reads as no output. Collect
-      it on the next line with 'wait "$!" || { echo "cmd failed" >&2; return 1; }' (at top
-      level under `set -e`, a plain 'wait "$!"' stops the script by itself), as long as the
-      body starts no background job or substitution of its own. Or capture the text first,
+      it on the next line with 'wait "$!" || { echo "cmd failed" >&2; return 1; }' or
+      'if ! wait "$!"; then', as long as the body starts no background job or substitution of
+      its own. A plain 'wait "$!"' is enough only where errexit really stops the script (top
+      level under `set -e`); inside a function a caller may run under `if`, `||` or `&&`,
+      which turns errexit off, so there give it its `||` (the rule cannot tell the two apart). Or capture the text first,
       'out=$(cmd) || ...', and read 'done <<<"$out"', but not for NUL-separated output (a
       variable cannot hold a NUL) and mind that an empty "$out" still feeds one empty line.
     languages: [bash]

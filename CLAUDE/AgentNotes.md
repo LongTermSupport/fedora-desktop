@@ -488,7 +488,9 @@ entirely. Both incidents below were found by accident, weeks apart.
 **The gate** (`.semgrep/bash-conventions.yml`, run by `./scripts/qa-all.bash`)
 catches faces 1–3 mechanically: `bash-capture-discards-status`,
 `bash-status-after-block`, `bash-error-hiding-pipe-echo`,
-`bash-error-hiding-or-true`. Genuine exceptions carry a same-line
+`bash-error-hiding-or-true`, and for loops `bash-loop-redirect-unchecked` (a file that cannot
+be opened) and `bash-loop-procsub-unchecked` (a process substitution whose command failed;
+`CLAUDE/QA.md#bash-loop-procsub-unchecked`). Genuine exceptions carry a same-line
 `# FAIL-FAST-OK: <reason>`. Face 4 is a review question, not a rule.
 
 **How to apply:**

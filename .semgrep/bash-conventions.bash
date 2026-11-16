@@ -643,6 +643,13 @@ done < <(find "$dir" -type f \
     -name '*.yml' -print0)
 wait "$!"
 
+# The wait as an if condition checks the status as well.
+# ok: bash-loop-procsub-unchecked
+mapfile -t keys < <(discover_keys)
+if ! wait "$!"; then
+    echo "discover_keys failed" >&2
+fi
+
 # A wait that is not the next command collects nothing for this reader.
 # ruleid: bash-loop-procsub-unchecked
 mapfile -t keys < <(discover_keys)

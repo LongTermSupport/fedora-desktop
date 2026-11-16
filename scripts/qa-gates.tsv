@@ -55,6 +55,7 @@ gate	hook-handlers	scripts/qa-hook-handlers.bash	a hook handler test failed, or 
 gate	plan-tests	scripts/qa-plan-tests.bash	an active plan folder's own Python tests failed, or could not be run to a verdict	detail:PLAN-TESTS-OK .+
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
+gate	raw-prune-tests	scripts/test-raw-prune.bash	raw-prune deleted or listed a RAW that has a JPG	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
 gate	meta-deploy-queue	scripts/test-meta-deploy.bash	meta-deploy.list queue tests failed	count
 gate	ccy-rootless-guard	scripts/test-ccy-rootless-guard.bash	ccy rootless-engine guard unit tests failed	count
