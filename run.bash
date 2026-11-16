@@ -2254,11 +2254,12 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
     else
       declare -A _rerun_seen=()
       for _rerun_word in "${_rerun_words[@]}"; do
-        if [[ ! "$_rerun_word" =~ ^[0-9]+$ ]] || (( 10#$_rerun_word < 1 || 10#$_rerun_word > ${#_rerun_plays[@]} )); then
+        # No leading zero, so the number reads as decimal with no 10# (which blinds semgrep, #317).
+        if [[ ! "$_rerun_word" =~ ^[1-9][0-9]*$ ]] || (( _rerun_word > ${#_rerun_plays[@]} )); then
           _rerun_bad="'${_rerun_word}' is not a choice: use numbers from 1 to ${#_rerun_plays[@]}, a or q."
           break
         fi
-        _rerun_seen[$((10#$_rerun_word - 1))]=1
+        _rerun_seen[$((_rerun_word - 1))]=1
       done
       if [[ -z "$_rerun_bad" ]]; then
         for _i in "${!_rerun_plays[@]}"; do
