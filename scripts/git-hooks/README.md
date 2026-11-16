@@ -5,6 +5,7 @@ This directory contains git hooks that prevent accidental commits of sensitive i
 ## Hooks
 
 - **pre-commit**: Scans staged files for sensitive patterns (API keys, tokens, private emails, etc.)
+- **pre-merge-commit**: Runs `pre-commit`'s ccy version gates alone on a merge git completes without a conflict, which never runs `pre-commit` (issue #311). A merge is judged against its parent on the protected line ([CLAUDE/ContainerRules.md](../../CLAUDE/ContainerRules.md#ccy-version-bump-requirement)); CI judges every merge commit the same way (`scripts/qa-ccy-merge-commits.bash`), since a hook can be skipped
 - **commit-msg**: Validates commit messages for sensitive information
 - **pre-push**: Scans every commit being pushed (message and added lines) for install-specific names: agent teams, seats, containers, hosts and client projects (below); then refuses a push that moves a protected branch (F44, F43, F44-arm: the `exempt` list of `scripts/branch-policy.toml`) to a commit GitHub CI's QA workflow has not passed on a push (`scripts/qa-push-gate.bash`, rule `push-without-qa-verdict` in [CLAUDE/QA.md](../../CLAUDE/QA.md#push-without-qa-verdict)). Work goes to a `ci/<topic>` branch first; once CI is green there, that same commit is pushed to the protected branch
 - **lib/secret-scan.bash**: Sourced by *both* hooks — per-token whitelist filtering and the private-identifier denylist built from the gitignored `localhost.yml`

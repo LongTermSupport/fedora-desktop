@@ -248,6 +248,13 @@ jobs:
           fi
           echo "QA_BASH_LIMITS_BASE=${base}" >> "$GITHUB_ENV"
 
+      # A merge commit is judged by the pre-commit hook's ccy version gates however it was made
+      # (issue #311): a local hook can be skipped, this step cannot. Every merge between the base
+      # found above and HEAD is rebuilt and judged with that base as the protected line's tip,
+      # a pull request's own merge commit included (scripts/qa-ccy-merge-commits.bash).
+      - name: Judge merge commits by the ccy version rule
+        run: ./scripts/qa-ccy-merge-commits.bash "$QA_BASH_LIMITS_BASE" "$QA_BASH_LIMITS_BASE..HEAD"
+
       # The ONE exemption, and it is made here, in the open, not by the gate. The hook-handlers
       # gate (scripts/qa-hook-handlers.bash) runs the project's hooks-daemon handler tests under
       # the daemon's own venv, and this checkout has no daemon: .claude/hooks-daemon/ is
