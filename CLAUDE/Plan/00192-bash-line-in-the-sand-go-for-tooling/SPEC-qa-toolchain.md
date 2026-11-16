@@ -11,7 +11,7 @@ per expectation, cited by number) and a run over the live tree at cut-over.
 
 A gate's verdict belongs to the binary that produced it: two shellchecks four minor releases apart
 reported 141 and 173 issues on one tree. `.qa-versions` is the single statement of the version of
-every tool a gate runs (ruff, semgrep, shellcheck, golangci-lint); the Go toolchain is a floor
+every tool a gate runs (ruff, semgrep, shellcheck, golangci-lint, gitleaks); the Go toolchain is a floor
 taken from `src-go/go.mod` and `src-go/qa/go.mod`, not a pin. This gate asserts the machine matches. Callers: `qa-all`
 (`scripts/qa-gates.tsv`, gate `toolchain`, a `detail:` reader of the stdout line) and `qa-changed`
 (check `toolchain`).
@@ -47,7 +47,7 @@ Numbers are cited by the tests.
 - T4. The file may hold only comments, blank lines and plain assignments `KEY=VALUE`, VALUE one
   literal word (no quotes, no expansion, no command substitution, no `export`, no array, no
   append). Anything else, or a file the parser rejects, is exit 2 naming the line.
-- T5. The keys are exactly `RUFF`, `SEMGREP`, `SHELLCHECK`, `GOLANGCI_LINT`. A missing key, an empty
+- T5. The keys are exactly `RUFF`, `SEMGREP`, `SHELLCHECK`, `GOLANGCI_LINT`, `GITLEAKS`. A missing key, an empty
   value, a duplicated key, or a key outside that set (a pin that no assertion reads) is exit 2
   naming the key.
 - T6. The Go floor is the higher of the `go` directives of `<root>/src-go/go.mod` and
@@ -61,13 +61,14 @@ Numbers are cited by the tests.
 
 ### The assertions
 
-- T8. The tools are asserted in this order: ruff, semgrep, shellcheck, golangci-lint, go. Every
+- T8. The tools are asserted in this order: ruff, semgrep, shellcheck, golangci-lint, gitleaks, go. Every
   one is asserted before the verdict: all mismatches are reported, not the first.
 - T9. A tool is looked up on PATH. Absent is a mismatch, never a skip:
   `✗ toolchain: <tool> is not installed (expected <pin>)`. For go: `(need >= <floor>, <go.mod>)`.
 - T10. The version is read by running `<tool> --version` in the root, bounded in time, from the
   first line (ruff: second field, `ruff 0.16.8`; semgrep: first field, bare number;
-  golangci-lint: fourth field, `golangci-lint has version 2.14.0 built ...`) or, for shellcheck,
+  golangci-lint: fourth field, `golangci-lint has version 2.14.0 built ...`; gitleaks: third
+  field, `gitleaks version 8.30.1`) or, for shellcheck,
   the field after `version:` on the line that starts with it. A run that cannot start, times
   out, exits non-zero, or prints no such version is a mismatch:
   `✗ toolchain: <tool> is installed but its version could not be read (expected <pin>)`, followed by

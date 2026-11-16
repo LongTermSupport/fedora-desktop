@@ -1,6 +1,6 @@
 // Package toolchain is the gate "the QA tools on this machine are the versions the repository
 // pins". A gate's verdict belongs to the binary that produced it, so .qa-versions pins ruff,
-// semgrep, shellcheck and golangci-lint, and the higher go directive of src-go/go.mod and
+// semgrep, shellcheck, golangci-lint and gitleaks, and the higher go directive of src-go/go.mod and
 // src-go/qa/go.mod is a floor for go.
 // Exit 1 says the machine is wrong (a tool absent, unreadable or drifted); exit 2 says the gate
 // could not judge (its pins, go.mod or command line). Under qa-all either fails only this gate.
@@ -56,8 +56,9 @@ type Env struct {
 
 const usageText = `usage: qa-toolchain [--root DIR] [--scripts DIR]
 
-Asserts that ruff, semgrep, shellcheck and golangci-lint are the versions pinned in .qa-versions
-and that go is not older than the higher go directive of src-go/go.mod and src-go/qa/go.mod.
+Asserts that ruff, semgrep, shellcheck, golangci-lint and gitleaks are the versions pinned in
+.qa-versions and that go is not older than the higher go directive of src-go/go.mod and
+src-go/qa/go.mod.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
