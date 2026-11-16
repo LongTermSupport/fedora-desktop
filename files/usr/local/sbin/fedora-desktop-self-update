@@ -144,7 +144,7 @@ wait "$!" || {
 }
 if [[ ${#STRAYS[@]} -gt 0 ]]; then
     printf -v SHOWN '%s; ' "${STRAYS[@]}"
-    echo "fedora-desktop-self-update: the deploy clone holds files its signed commit does not, ignored ones included; nothing from it was run; ${RECLONE}. They are: ${SHOWN%; }" >&2
+    echo "fedora-desktop-self-update: the deploy clone holds files its signed commit does not, ignored ones included; nothing from it was run; ${RECLONE}. They are: ${SHOWN%"; "}" >&2
     exit 20
 fi
 
