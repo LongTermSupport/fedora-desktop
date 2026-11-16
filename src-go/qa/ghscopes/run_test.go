@@ -250,6 +250,18 @@ func TestAnErrorInTheReportIsExitTwo(t *testing.T) {
 	wantIn(t, "stderr", got.stderr, "ERROR:", "a.txt", "Timeout")
 }
 
+// G11: a file semgrep could only partly parse is named with its line and semgrep's message, and
+// the array semgrep gives as the type is read, not taken for a report that cannot be decoded.
+func TestAPartialParseInTheReportIsExitTwoAndSaysWhere(t *testing.T) {
+	w := newWorld(t, nil)
+	w.run.scan = func(files []string) string {
+		return report(scannable(files), nil, nil, `{"type":["PartialParsing",[{"path":"a.txt","start":{"line":3}}]],"path":"a.txt","message":"Syntax error at line a.txt:3","spans":[{"file":"a.txt","start":{"line":3}}]}`)
+	}
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, "a.txt:3: Syntax error at line a.txt:3 (PartialParsing)")
+}
+
 // G12
 func TestAHandedFileThatWasNotScannedIsExitTwo(t *testing.T) {
 	w := newWorld(t, map[string]string{"b.txt": "x\n", "c.txt": "x\n"})

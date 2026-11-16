@@ -38,14 +38,79 @@ type Result struct {
 // Report is the part of semgrep's --json report that a gate judges.
 type Report struct {
 	Results []Result `json:"results"`
-	Errors  []struct {
-		Type    string `json:"type"`
-		Path    string `json:"path"`
-		Message string `json:"message"`
-	} `json:"errors"`
-	Paths *struct {
+	Errors  []Error  `json:"errors"`
+	Paths   *struct {
 		Scanned []string `json:"scanned"`
 	} `json:"paths"`
+}
+
+// Error is one error semgrep reports: a file it could not parse (in full or in part), a rule that
+// timed out on it, or another fault that kept a rule from running.
+type Error struct {
+	Type    ErrorType `json:"type"`
+	Path    string    `json:"path"`
+	Message string    `json:"message"`
+	Spans   []struct {
+		Start struct {
+			Line int `json:"line"`
+		} `json:"start"`
+	} `json:"spans"`
+}
+
+// Describe is the error on one line: the file, the line when semgrep gave one, the message and
+// the kind.
+func (e Error) Describe() string {
+	where := e.Path
+	if where == "" {
+		where = "?"
+	}
+	if line := e.Line(); line > 0 {
+		where = fmt.Sprintf("%s:%d", where, line)
+	}
+	text := fmt.Sprintf("%s: %s", where, e.Text())
+	if kind := e.Type.Kind(); kind != "" {
+		text += " (" + kind + ")"
+	}
+	return text
+}
+
+// Line is the first line semgrep names for the error, or 0 when it names none.
+func (e Error) Line() int {
+	if len(e.Spans) > 0 {
+		return e.Spans[0].Start.Line
+	}
+	return 0
+}
+
+// Text is semgrep's message on one line.
+func (e Error) Text() string { return strings.Join(strings.Fields(e.Message), " ") }
+
+// ErrorType is an error's type as semgrep writes it: a name ("Timeout"), or an array whose first
+// element is the name and the rest what it refers to (["PartialParsing", [locations]]). It is
+// kept raw, so no shape semgrep chooses can make the whole report unreadable and hide the error.
+type ErrorType json.RawMessage
+
+// UnmarshalJSON keeps the value as it is.
+func (t *ErrorType) UnmarshalJSON(data []byte) error {
+	*t = slices.Clone(data)
+	return nil
+}
+
+// Kind is the error's name: the string, or the array's first element when that is a string;
+// any other shape is shown as semgrep wrote it, and nothing (or null) as "".
+func (t ErrorType) Kind() string {
+	var name string
+	if json.Unmarshal(t, &name) == nil {
+		return name
+	}
+	var parts []json.RawMessage
+	if json.Unmarshal(t, &parts) == nil && len(parts) > 0 && json.Unmarshal(parts[0], &name) == nil {
+		return name
+	}
+	if raw := strings.TrimSpace(string(t)); raw != "null" {
+		return raw
+	}
+	return ""
 }
 
 // Decode reads semgrep's stdout as a report. A report with no paths is refused: it cannot be told
@@ -70,11 +135,7 @@ func (r Report) Judge(noun string, handed []string) error {
 	if len(r.Errors) > 0 {
 		lines := make([]string, 0, len(r.Errors))
 		for _, e := range r.Errors {
-			path := e.Path
-			if path == "" {
-				path = "?"
-			}
-			lines = append(lines, fmt.Sprintf("    %s: %s", path, e.Message))
+			lines = append(lines, "    "+e.Describe())
 		}
 		return fmt.Errorf("semgrep could not parse some %s files, so no rule ran on them:\n%s", noun, strings.Join(lines, "\n"))
 	}

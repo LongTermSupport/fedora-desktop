@@ -148,7 +148,11 @@ func (s SelfTest) judge(res proc.Result, copyPath string, marks annotations) err
 	if len(rep.Errors) > 0 {
 		problems := make([]string, 0, len(rep.Errors))
 		for _, e := range rep.Errors {
-			problems = append(problems, name(fmt.Sprintf("semgrep error (%s): %s", e.Type, e.Message)))
+			where := ""
+			if line := e.Line(); line > 0 {
+				where = fmt.Sprintf(" at %s:%d", copyPath, line)
+			}
+			problems = append(problems, name(fmt.Sprintf("semgrep error (%s)%s: %s", e.Type.Kind(), where, e.Text())))
 		}
 		return &FixtureError{Fixture: s.Name, Problems: problems}
 	}

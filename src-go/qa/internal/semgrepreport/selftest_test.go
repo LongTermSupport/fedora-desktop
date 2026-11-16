@@ -364,3 +364,15 @@ func TestSelfTestCannotReadAMissingFixture(t *testing.T) {
 		t.Fatal("a missing fixture proved")
 	}
 }
+
+// A fixture semgrep could only partly parse fails as the fixture's fault, naming where.
+func TestSelfTestFailsAFixtureSemgrepCouldOnlyPartlyParse(t *testing.T) {
+	w := newSelfTestWorld(t, fixtureText)
+	w.reply = func(p string) proc.Result {
+		return proc.Result{Stdout: strings.ReplaceAll(partialParsing, "shell.fixture", p)}
+	}
+	ff := failureOf(t, w.prove(t))
+	if msg := ff.Error(); !strings.Contains(msg, "semgrep error (PartialParsing) at .semgrep/rule.fixture.py:2: ") || strings.Contains(msg, "no report") {
+		t.Fatalf("message:\n%s", msg)
+	}
+}
