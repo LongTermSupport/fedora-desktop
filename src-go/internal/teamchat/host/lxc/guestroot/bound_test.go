@@ -16,6 +16,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/leakcheck"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // stall is a root's bound on a fake clock, moved only once a call is in its stall.
@@ -204,10 +205,12 @@ func TestALateDialIsClosed(t *testing.T) {
 		t.Fatalf("a stalled dial: %v", err)
 	}
 	close(release)
+	testconn.Bound(t, ln)
 	accepted, err := ln.AcceptUnix()
 	if err != nil {
 		t.Fatal(err)
 	}
+	testconn.Bound(t, accepted)
 	if n, rerr := accepted.Read(make([]byte, 1)); n != 0 || rerr == nil {
 		t.Errorf("the late connection was left open: %d %v", n, rerr)
 	}

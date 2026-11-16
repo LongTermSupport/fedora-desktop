@@ -17,6 +17,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/fakeinbox"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const (
@@ -75,6 +76,7 @@ func send(t *testing.T, b *fakeinbox.Inbox, lines ...string) {
 	if err := uc.CloseWrite(); err != nil {
 		t.Fatal(err)
 	}
+	testconn.Bound(t, uc)
 	if _, err := io.Copy(io.Discard, uc); err != nil {
 		t.Fatal(err)
 	}

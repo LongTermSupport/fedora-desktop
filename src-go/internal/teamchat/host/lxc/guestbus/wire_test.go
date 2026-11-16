@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // fakePeer is the guest's systemd at the far end of a net.Pipe: it speaks the server half of
@@ -29,6 +31,7 @@ func pipe(t *testing.T) (net.Conn, *fakePeer) {
 			t.Error(err)
 		}
 	})
+	testconn.Bound(t, server)
 	return client, &fakePeer{conn: server, in: bufio.NewReader(server)}
 }
 

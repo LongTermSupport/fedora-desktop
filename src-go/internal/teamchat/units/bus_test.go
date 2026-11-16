@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const busConfig = `<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
@@ -384,6 +385,7 @@ func TestTheDialEndsWithTheContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	accepted := make(chan net.Conn, 1)
+	testconn.Bound(t, l)
 	go func() {
 		c, aerr := l.Accept()
 		if aerr == nil {

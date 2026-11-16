@@ -27,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const (
@@ -230,6 +231,7 @@ func (w *world) link() *fakeLink {
 	w.t.Helper()
 	select {
 	case l := <-w.links:
+		testconn.Bound(w.t, l.conn)
 		return l
 	case <-w.ended:
 		w.t.Fatalf("the keeper ended before it started a link: %s", w.stderr.String())

@@ -22,6 +22,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const kitHex = "0123456789abcdef"
@@ -162,6 +163,7 @@ func exchange(t *testing.T, c *net.UnixConn, line []byte) []string {
 
 func readAll(t *testing.T, c *net.UnixConn) []string {
 	t.Helper()
+	testconn.Bound(t, c)
 	data, err := io.ReadAll(c)
 	check(t, err)
 	if len(data) == 0 {
@@ -340,6 +342,7 @@ func (w *serverWorld) handOut(t *testing.T) *net.UnixConn {
 	c := w.dial(t)
 	_, err := c.Write(w.request(t, wire.OpRecv, 2*time.Second))
 	check(t, err)
+	testconn.Bound(t, c)
 	line, err := bufio.NewReader(c).ReadString('\n')
 	check(t, err)
 	if d := doneOf(t, strings.TrimSuffix(line, "\n")); d.Ack != "0badcafe" {

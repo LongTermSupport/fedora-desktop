@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // noLink runs recv with no link answering and returns its error object; nothing waits, so the
@@ -219,6 +220,7 @@ func TestALinkThatNeverAnswers(t *testing.T) {
 		}
 	})
 	exit := w.async("recv")
+	testconn.Bound(t, ln)
 	c, err := ln.AcceptUnix()
 	if err != nil {
 		t.Fatal(err)

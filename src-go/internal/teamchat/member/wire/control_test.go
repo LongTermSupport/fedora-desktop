@@ -14,6 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const (
@@ -99,7 +100,9 @@ type received struct {
 	err error
 }
 
-func recv(c *Conn) received {
+func recv(t *testing.T, c *Conn) received {
+	t.Helper()
+	testconn.Bound(t, c)
 	m, fd, err := c.Recv()
 	return received{msg: m, fd: fd, err: err}
 }
@@ -142,7 +145,7 @@ func TestEveryKindRoundTrips(t *testing.T) {
 			fd = seatLock
 		}
 		check(t, p.keeper.Send(m, fd))
-		got := recv(p.link)
+		got := recv(t, p.link)
 		check(t, got.err)
 		if !reflect.DeepEqual(got.msg, m) {
 			t.Errorf("%s: sent %s, received %s", m.Kind, m, got.msg)
@@ -351,7 +354,7 @@ func TestThePeersCloseIsEOF(t *testing.T) {
 	check(t, err)
 	t.Cleanup(func() { check(t, link.Close()) })
 	check(t, keeper.Close())
-	if got := recv(link); !errors.Is(got.err, io.EOF) {
+	if got := recv(t, link); !errors.Is(got.err, io.EOF) {
 		t.Errorf("after the peer's close: %v", got.err)
 	}
 }
@@ -416,7 +419,7 @@ func TestRecvRefusesAndClosesTheDescriptors(t *testing.T) {
 				oob = unix.UnixRights(c.fds...)
 			}
 			check(t, unix.Sendmsg(raw.keeper, c.data, oob, nil, 0))
-			got := recv(raw.link)
+			got := recv(t, raw.link)
 			if !errors.Is(got.err, ErrProtocol) || got.fd != nil {
 				t.Errorf("received %v, %v", got.fd, got.err)
 			}
@@ -432,10 +435,10 @@ func TestRecvGoesOnAfterARefusal(t *testing.T) {
 	raw := rawPair(t)
 	check(t, unix.Sendmsg(raw.keeper, []byte(`{"nope":{}}`), nil, nil, 0))
 	check(t, unix.Sendmsg(raw.keeper, []byte(`{"ready":{}}`), nil, nil, 0))
-	if got := recv(raw.link); !errors.Is(got.err, ErrProtocol) {
+	if got := recv(t, raw.link); !errors.Is(got.err, ErrProtocol) {
 		t.Fatalf("first: %v", got.err)
 	}
-	got := recv(raw.link)
+	got := recv(t, raw.link)
 	check(t, got.err)
 	if got.msg.Kind != KindReady {
 		t.Errorf("second: %s", got.msg)
@@ -462,7 +465,7 @@ func TestAClosedConnFails(t *testing.T) {
 	if err := keeper.Send(Msg{Kind: KindReady, Ready: &Ready{}}, nil); err == nil {
 		t.Error("send on a closed conn")
 	}
-	if got := recv(keeper); got.err == nil || errors.Is(got.err, io.EOF) {
+	if got := recv(t, keeper); got.err == nil || errors.Is(got.err, io.EOF) {
 		t.Errorf("recv on a closed conn: %v", got.err)
 	}
 	if pid, err := keeper.PeerPID(); err == nil {

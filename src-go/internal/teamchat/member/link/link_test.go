@@ -27,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 const mainRoom = "!mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
@@ -439,6 +440,7 @@ func (w *linkWorld) request(op string, deadline time.Duration) string {
 	_, err = c.Write(append(line, '\n'))
 	check(w.t, err)
 	var out strings.Builder
+	testconn.Bound(w.t, c)
 	r := bufio.NewReader(c)
 	for {
 		l, err := r.ReadString('\n')

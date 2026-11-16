@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testchild"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // The kit's binary in these tests is this test binary: run as the helper below, it is the
@@ -198,7 +199,7 @@ func TestOF1HookFromKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	served := make(chan error, 1)
-	go func() { served <- serveOnce(ln, answer) }()
+	go func() { served <- serveOnce(t, ln, answer) }()
 	command := u.command(u.kit.PluginHooks(), "hooks", "UserPromptSubmit", "0", "hooks", "0", "command")
 	if got := string(u.shell(command, `{"prompt":"go on"}`, true).Stdout); got != answer+"\n" {
 		t.Errorf("%q, want %q", got, answer)
@@ -209,11 +210,14 @@ func TestOF1HookFromKit(t *testing.T) {
 }
 
 // serveOnce is a link's answer to one hook request: the answer line, then a done of exit 0.
-func serveOnce(ln *net.UnixListener, answer string) error {
+func serveOnce(t *testing.T, ln *net.UnixListener, answer string) error {
+	t.Helper()
+	testconn.Bound(t, ln)
 	c, err := ln.AcceptUnix()
 	if err != nil {
 		return err
 	}
+	testconn.Bound(t, c)
 	line, err := bufio.NewReader(c).ReadBytes('\n')
 	if err == nil {
 		_, err = c.Write([]byte(answer + "\n" + `{"done":{"exit":0}}` + "\n"))

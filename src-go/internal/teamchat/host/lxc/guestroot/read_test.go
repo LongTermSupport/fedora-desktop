@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // The paths P4's steps read below a guest root (TB1's list).
@@ -460,10 +461,12 @@ func TestDialSocket(t *testing.T) {
 // echoOnce sends one byte over conn and reads it at the listener's end, then closes both.
 func echoOnce(t *testing.T, conn *net.UnixConn, ln *net.UnixListener) {
 	t.Helper()
+	testconn.Bound(t, ln)
 	accepted, err := ln.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
+	testconn.Bound(t, accepted)
 	if _, werr := conn.Write([]byte("x")); werr != nil {
 		t.Fatal(werr)
 	}

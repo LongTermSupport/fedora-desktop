@@ -20,6 +20,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/testconn"
 )
 
 // hookDeadline is the hooks' 300 ms (wire.Deadline).
@@ -74,6 +75,7 @@ func (w *linkWorld) hookCall(op string, a wire.HookArgs) (string, string) {
 	check(w.t, err)
 	_, err = c.Write(append(line, '\n'))
 	check(w.t, err)
+	testconn.Bound(w.t, c)
 	r := bufio.NewReader(c)
 	var lines []string
 	for {
