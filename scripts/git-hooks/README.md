@@ -32,6 +32,8 @@ terms of teams that left the bus.
 
 - `pre-commit` runs `qa-private-names.bash staged`: the added lines and added paths of the staged
   change.
+- `commit-msg` runs `qa-private-names.bash message FILE`: the message, before the commit exists
+  (git's `#` lines are skipped). A name there is refused while it is still one edit away.
 - `pre-push` runs `qa-private-names.bash push`: for each ref, the commits the remote lacks, their
   messages and their added lines. It catches what `--no-verify` or another clone let through.
 - **In a ccy container** (the checkout is under `/workspace`) a list that cannot be built (no

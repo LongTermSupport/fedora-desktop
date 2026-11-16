@@ -90,17 +90,30 @@ const LogFormat = "%x01%H%x1f%B%x02"
 // ScanLog reports the message and the added lines of every commit in `git log -p` output made
 // with LogFormat. Each place is prefixed with the commit's short id.
 func ScanLog(m *Matcher, log string) []Hit {
-	var hits []Hit
-	for _, rec := range strings.Split(log, "\x01")[1:] {
+	recs := strings.Split(log, "\x01")[1:]
+	hits := make([]Hit, 0, len(recs))
+	for _, rec := range recs {
 		id, rest := splitOnce(rec, "\x1f")
 		msg, patch := splitOnce(rest, "\x02")
 		id = id[:min(len(id), 12)]
-		for n, line := range strings.Split(msg, "\n") {
-			if src, ok := m.Find(line); ok {
-				hits = append(hits, Hit{Where: id + ":(commit message)", Line: n + 1, Source: src, Term: m.termOf(line), Text: line})
-			}
-		}
+		hits = append(hits, ScanMessage(m, id+":", msg, false)...)
 		hits = append(hits, ScanDiff(m, id+":", patch)...)
+	}
+	return hits
+}
+
+// ScanMessage reports each line of a commit message, its place the label then
+// "(commit message)". draft is a message the commit-msg hook is given: git drops its `#` lines
+// before committing, so they are not judged.
+func ScanMessage(m *Matcher, label, msg string, draft bool) []Hit {
+	var hits []Hit
+	for n, line := range strings.Split(msg, "\n") {
+		if draft && strings.HasPrefix(line, "#") {
+			continue
+		}
+		if src, ok := m.Find(line); ok {
+			hits = append(hits, Hit{Where: label + "(commit message)", Line: n + 1, Source: src, Term: m.termOf(line), Text: line})
+		}
 	}
 	return hits
 }

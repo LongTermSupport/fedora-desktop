@@ -35,6 +35,9 @@ fi
 # shellcheck source-path=SCRIPTDIR source=lib/secret-scan.bash
 source "$HOOK_LIB"
 
+# The install-specific names pre-commit and pre-push judge, judged here before the commit exists.
+"${HOOK_LIB%/*}/../../qa-private-names.bash" message "$COMMIT_MSG_FILE" >&2
+
 # Read commit message
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
@@ -184,7 +187,6 @@ if [ $FOUND_ISSUES -eq 1 ]; then
     echo ""
     echo "To bypass this check (NOT RECOMMENDED):"
     echo "  git commit --no-verify"
-    echo ""
     exit 1
 fi
 

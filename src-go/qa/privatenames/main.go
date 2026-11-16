@@ -75,6 +75,7 @@ this public repository. The terms are learned from the agent bus and the machine
   push REMOTE URL    the commits about to be pushed, ref lines on stdin (pre-push)
   range ARG...       the commits 'git log' selects with ARG..., messages and added lines
   tree REV           every file of a commit
+  message FILE       a commit message before it is committed (commit-msg), # lines skipped
   -h, --help         this text
 
 In a ccy container a list that cannot be built is exit 2, never a skip. A session on no team
@@ -269,6 +270,15 @@ func (a app) scan(cmd string, rest []string, m *Matcher) (result, error) {
 		return a.scanPush(m, remote)
 	case "tree":
 		return a.scanTree(rest, m)
+	case "message":
+		if len(rest) != 1 {
+			return result{}, errors.New("message needs the commit message file")
+		}
+		msg, err := a.env.ReadFile(rest[0])
+		if err != nil {
+			return result{}, fmt.Errorf("reading the commit message: %w", err)
+		}
+		return result{hits: ScanMessage(m, "", string(msg), true), scanned: "the commit message"}, nil
 	}
 	return result{}, fmt.Errorf("unknown command %q (try --help)", cmd)
 }
