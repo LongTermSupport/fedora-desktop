@@ -73,7 +73,7 @@ func restoreVerb(ctx context.Context, e Env, args []string) term.ExitCode {
 	if sys.Restore == nil {
 		return fail(e.Stderr, ExitConfig, "this wiring has no restore engine")
 	}
-	engine, err := sys.Restore()
+	engine, err := sys.Restore(ctx)
 	if err != nil {
 		return failWith(e, err)
 	}

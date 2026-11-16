@@ -45,7 +45,7 @@ type System struct {
 	LXC        func() (*lxc.Deps, error)
 	Backup     func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
-	Restore func() (Restorer, error)
+	Restore func(ctx context.Context) (Restorer, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.
 	RotateWrite host.FileWriter
 }

@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.16 — container 2.84.22
+
+- **`teamchat`'s path names gain the restore proof record** (issue #324),
+  `/var/lib/teamchat-admin/restore-proof.json`, which `teamchat-admin` reads before it allows a
+  restore. The image's `teamchat` is built from the same names package, so it is rebuilt once;
+  nothing in it reads the new name. The launcher itself is unchanged apart from the versions.
+
 ## 3.122.15 — container 2.84.21
 
 - **The `~/.ssh` key listings no longer fail a launch at random** (issue #321). Read through

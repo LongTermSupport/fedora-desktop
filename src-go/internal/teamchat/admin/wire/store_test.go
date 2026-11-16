@@ -181,7 +181,7 @@ func writeTar(t *testing.T, root string, team paths.TeamID, n int64) backup.Sour
 // engineOf is the restore engine the wiring builds once restore is proven.
 func engineOf(t *testing.T, sys *admin.System) admin.Engine {
 	t.Helper()
-	r, err := sys.Restore()
+	r, err := sys.Restore(t.Context())
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -193,12 +193,12 @@ func engineOf(t *testing.T, sys *admin.System) admin.Engine {
 }
 
 // RW1, SM4, n2g-D8: once restore is proven, System.Restore is the engine over the host's own
-// adapters; production stays refused (TestRestoreIsUnproven).
+// adapters; without a passed proof it stays refused (TestRestoreIsUnproven).
 func TestRestoreEngineIsTheHostsAdapters(t *testing.T) {
 	f := &fakeMachine{root: t.TempDir(), proven: true}
 	sys := build(t, f)
 	d := engineOf(t, sys).Deps
-	if d.Root != f.root || d.CtlUID != 990 || d.StateOwnerUID != 0 || d.Self != "/usr/libexec/teamchat-admin" || d.FS != (restore.OS{Root: f.root}) {
+	if d.Root != f.root || d.CtlUID != 990 || d.StateOwnerUID != f.owner || d.Self != "/usr/libexec/teamchat-admin" || d.FS != (restore.OS{Root: f.root, StateOwnerUID: f.owner}) {
 		t.Fatalf("Deps %+v", d)
 	}
 	if d.Ready != (hostnet.Readiness{}) || d.Clock != (systemClock{}) || d.Rand != rand.Reader {
@@ -293,7 +293,7 @@ func TestRestoreEngineRuns(t *testing.T) {
 		t.Fatalf("Discard with no record = %q, %v", out, err)
 	}
 	sys := build(t, &fakeMachine{root: t.TempDir(), proven: true, noCtl: true})
-	if r, err := sys.Restore(); r != nil || err == nil || !strings.Contains(err.Error(), "no "+paths.CtlUser+" account") {
+	if r, err := sys.Restore(t.Context()); r != nil || err == nil || !strings.Contains(err.Error(), "no "+paths.CtlUser+" account") {
 		t.Fatalf("Restore with no account = %v, %v", r, err)
 	}
 }

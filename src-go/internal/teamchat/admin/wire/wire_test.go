@@ -34,12 +34,20 @@ type fakeMachine struct {
 	noCtl                      bool
 	kitOwner                   int
 	owner                      uint32 // the uid the state's root-owned files are given
-	proven                     bool
+	proven                     bool   // a proof record that enables restore is written under root
+	tuwunel                    string // the pin's Tuwunel version; "" is pinnedTuwunel
+	systemd                    string // systemctl --version's output; "" is systemd 256
 	conn                       units.Conn
 	n                          counts
 }
 
 func (f *fakeMachine) machine() machine {
+	run := &execx.Fake{}
+	systemd := f.systemd
+	if systemd == "" {
+		systemd = "systemd 256 (256.7-1.fc41)\n"
+	}
+	run.On([]string{"/usr/bin/systemctl", "--version"}, execx.Result{Stdout: []byte(systemd)})
 	return machine{
 		root: f.root, proc: f.root + "/proc",
 		self: func() (string, error) { return "/usr/libexec/teamchat-admin", f.selfErr },
@@ -51,8 +59,11 @@ func (f *fakeMachine) machine() machine {
 			return admin.User{UID: 990, GID: 985}, true, f.userErr
 		},
 		ownerGroup: func() (int, error) { f.n.groups++; return 1000, f.groupErr },
-		readPin:    func() (host.Pin, error) { f.n.pins++; return host.Pin{MemoryHigh: "512M"}, f.pinErr },
-		runner:     &execx.Fake{}, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
+		readPin: func() (host.Pin, error) {
+			f.n.pins++
+			return host.Pin{MemoryHigh: "512M", Version: pinVersion(f.tuwunel)}, f.pinErr
+		},
+		runner: run, kernel: guestroot.LinuxKernel{}, kitOwner: f.kitOwner,
 		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
 			if f.conn != nil {
@@ -60,7 +71,6 @@ func (f *fakeMachine) machine() machine {
 			}
 			return nil, errors.New("no bus here")
 		},
-		restoreProven: f.proven,
 		stateOwnerUID: f.owner,
 	}
 }
@@ -80,8 +90,51 @@ func ownerOf(t *testing.T, dir string) uint32 {
 	return st.Uid
 }
 
+// pinnedTuwunel is the fake pin's Tuwunel version unless a test names another.
+const pinnedTuwunel = "v1.2.3"
+
+func pinVersion(s string) paths.ServerVersion {
+	if s == "" {
+		s = pinnedTuwunel
+	}
+	v, err := paths.ParseServerVersion(s)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// proofOf is a record of every clause passed on this test build and the pinned Tuwunel.
+func proofOf(t *testing.T) restore.Proof {
+	t.Helper()
+	d, err := paths.ParseDigest(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := map[restore.Clause]restore.Verdict{}
+	for _, c := range restore.Clauses {
+		checks[c] = restore.VerdictPass
+	}
+	return restore.Proof{Key: restore.Key{Software: d, Tuwunel: pinVersion(""), Systemd: "256.7-1.fc41"}, Checks: checks, PassedMS: 1, Where: restore.WhereVMLab}
+}
+
+// writeProof puts p under the machine's root, owned by the uid the wiring trusts there.
+func writeProof(t *testing.T, f *fakeMachine, p restore.Proof) {
+	t.Helper()
+	if err := os.MkdirAll(f.root+paths.AdminStateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.owner = ownerOf(t, f.root)
+	if err := restore.WriteProof(f.root, p); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func build(t *testing.T, f *fakeMachine) *admin.System {
 	t.Helper()
+	if f.proven {
+		writeProof(t, f, proofOf(t))
+	}
 	sys, err := f.machine().system(digest)
 	if err != nil {
 		t.Fatalf("system: %v", err)
@@ -102,11 +155,51 @@ func nilFields(v reflect.Value, skip ...string) []string {
 	return out
 }
 
-// RW2, n2g-D8: production refuses the restore engine until H-C5 and H-C15 pass.
+// RW2, n2g-D8: production refuses the restore engine with no proof record, and with one that is
+// not of this build, not of the pinned Tuwunel or has a clause not passed; each names it (70).
 func TestRestoreIsUnproven(t *testing.T) {
 	sys := build(t, &fakeMachine{root: t.TempDir()})
-	if engine, err := sys.Restore(); engine != nil || !errors.Is(err, restore.ErrUnproven) {
+	if engine, err := sys.Restore(t.Context()); engine != nil || !errors.Is(err, restore.ErrUnproven) || admin.ExitCodeOf(err) != admin.ExitRefused ||
+		!strings.Contains(err.Error(), "no restore drill has passed") {
 		t.Fatalf("Restore = %v, %v", engine, err)
+	}
+	for name, tc := range map[string]struct {
+		edit    func(*restore.Proof)
+		tuwunel string
+		systemd string
+		want    string
+	}{
+		"another tuwunel":  {func(*restore.Proof) {}, "v2.0.0", "", "for Tuwunel v1.2.3, not v2.0.0"},
+		"another systemd":  {func(*restore.Proof) {}, "", "systemd 257 (257.1-1.fc42)\n", "for systemd 256.7-1.fc41, not 257.1-1.fc42"},
+		"a skipped clause": {func(p *restore.Proof) { p.Checks[restore.ClauseHeldSession] = restore.VerdictSkipped }, "", "", "not passed: H-C15.held-session"},
+		"another build": {func(p *restore.Proof) {
+			d, err := paths.ParseDigest(strings.Repeat("f", 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.Software = d
+		}, "", "", "for another build"},
+	} {
+		f := &fakeMachine{root: t.TempDir(), tuwunel: tc.tuwunel, systemd: tc.systemd}
+		p := proofOf(t)
+		tc.edit(&p)
+		writeProof(t, f, p)
+		if engine, err := build(t, f).Restore(t.Context()); engine != nil || !errors.Is(err, restore.ErrUnproven) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Restore = %v, %v", name, engine, err)
+		}
+	}
+}
+
+// The proof's key is read when the seam is called: a pin or a systemd version that cannot be read
+// fails the seam.
+func TestRestoreNeedsThePinAndTheSystemdVersion(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir(), pinErr: errors.New("no pin")}
+	if engine, err := build(t, f).Restore(t.Context()); engine != nil || err == nil || err.Error() != "no pin" {
+		t.Fatalf("Restore with no pin = %v, %v", engine, err)
+	}
+	f = &fakeMachine{root: t.TempDir(), proven: true, systemd: "not systemd\n"}
+	if engine, err := build(t, f).Restore(t.Context()); engine != nil || err == nil || !strings.Contains(err.Error(), "names no systemd version") {
+		t.Fatalf("Restore with no systemd version = %v, %v", engine, err)
 	}
 }
 

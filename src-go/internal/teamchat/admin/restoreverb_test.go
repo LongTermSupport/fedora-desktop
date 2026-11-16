@@ -101,7 +101,7 @@ func newRestoreWorld(t *testing.T) *restoreWorld {
 		CtlIDs: func() (User, error) { return User{UID: os.Getuid(), GID: os.Getgid()}, nil },
 	}
 	w.engine = &fakeRestorer{t: t, sys: w.sys, out: []byte(`{"v":1,"team":"alpha"}`)}
-	w.sys.Restore = func() (Restorer, error) {
+	w.sys.Restore = func(context.Context) (Restorer, error) {
 		w.engines++
 		if w.seamErr != nil {
 			return nil, w.seamErr

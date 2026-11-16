@@ -60,9 +60,6 @@ type machine struct {
 	// stateOwnerUID owns the state root and root's own files (the CA key among them): root on a
 	// host, and the test's own uid in a test, whose fixtures are its user's.
 	stateOwnerUID uint32
-	// restoreProven is set only once host checks H-C5 and H-C15 have passed (DC8, n2g-D8); a
-	// test sets it to run the engine over these adapters. Until then System.Restore refuses.
-	restoreProven bool
 }
 
 func production() machine {
@@ -149,9 +146,20 @@ func (m machine) system(digest string) (*admin.System, error) {
 		// X33: team rotate-ca replaces the CA, the leaf and the LXC record as apply writes files.
 		RotateWrite: state.WriteFile,
 	}
-	sys.Restore = func() (admin.Restorer, error) {
-		if !m.restoreProven {
-			return nil, restore.ErrUnproven
+	// DC8, n2g-D8: the engine only once the restore drill's proof record, root's own, is of this
+	// build, the installed Tuwunel and this systemd major, with every clause of H-C5 and H-C15
+	// passed.
+	sys.Restore = func(ctx context.Context) (admin.Restorer, error) {
+		pin, err := m.readPin()
+		if err != nil {
+			return nil, err
+		}
+		systemdVersion, err := systemd.SystemdVersion(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := restore.Proven(root, stateOwnerUID, restore.Key{Software: d, Tuwunel: pin.Version, Systemd: systemdVersion}); err != nil {
+			return nil, err
 		}
 		return m.engine(sys, self, systemd, backups)
 	}
