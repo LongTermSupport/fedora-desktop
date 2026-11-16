@@ -39,7 +39,7 @@ type Result struct {
 type Report struct {
 	Results []Result `json:"results"`
 	Errors  []Error  `json:"errors"`
-	Paths *struct {
+	Paths   *struct {
 		Scanned []string `json:"scanned"`
 	} `json:"paths"`
 }

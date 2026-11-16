@@ -109,7 +109,7 @@ type semgrepReport struct {
 		} `json:"start"`
 	} `json:"results"`
 	Errors []semgrepreport.Error `json:"errors"`
-	Paths *struct {
+	Paths  *struct {
 		Scanned []string `json:"scanned"`
 		Skipped []struct {
 			Path string `json:"path"`
