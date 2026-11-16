@@ -14,7 +14,14 @@ import (
 // the stdin it is given; the relay of the terminal to a child (internal/keyrelay), which ends on a
 // stop its owner controls and reads only once poll finds a key, so it never blocks on a read
 // alone; the terminal test and the terminal echo, which ask about the file and never read it. They are matched by path suffix, so the fixtures and the real modules share them.
-var stdinSeams = []string{"internal/stdinread", uiPkg, "internal/execx", "internal/keyrelay", "internal/term", "internal/ttyecho"}
+var stdinSeams = []string{
+	"internal/stdinread",
+	uiPkg,
+	"internal/execx",
+	"internal/term",
+	"internal/ttyecho",
+	"internal/keyrelay",
+}
 
 // bufioPkg is the buffered-reader package's path.
 const bufioPkg = "bufio"

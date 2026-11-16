@@ -20,6 +20,15 @@ import (
 func TestStdinSeam(t *testing.T) {
 	root := filepath.Join(analysistest.TestData(), "stdinseam")
 	analysistest.Run(t, root, StdinSeam,
-		"fix/internal/badstdin", "fix/internal/goodstdin", "fix/internal/stdinread", "fix/internal/ui",
-		"fix/internal/execx", "fix/internal/term", "fix/internal/keyrelay", "fix/internal/badrelay", "fix/internal/teams/teamtest", "fix/cmd/tool")
+		"fix/internal/badstdin",
+		"fix/internal/goodstdin",
+		"fix/internal/stdinread",
+		"fix/internal/ui",
+		"fix/internal/execx",
+		"fix/internal/term",
+		"fix/internal/badrelay",
+		"fix/internal/teams/teamtest",
+		"fix/cmd/tool",
+		"fix/internal/keyrelay",
+	)
 }
