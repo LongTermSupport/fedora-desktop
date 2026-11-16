@@ -249,11 +249,23 @@ jobs:
           echo "QA_BASH_LIMITS_BASE=${base}" >> "$GITHUB_ENV"
 
       # A merge commit is judged by the pre-commit hook's ccy version gates however it was made
-      # (issue #311): a local hook can be skipped, this step cannot. Every merge between the base
-      # found above and HEAD is rebuilt and judged with that base as the protected line's tip,
-      # a pull request's own merge commit included (scripts/qa-ccy-merge-commits.bash).
+      # (issue #311): a local hook can be skipped, this step cannot. Every merge between the line's
+      # tip and HEAD is rebuilt and judged with that tip as the protected line's
+      # (scripts/qa-ccy-merge-commits.bash): in diff mode the scope's base, a pull request's own
+      # merge commit included; on a push of a protected line (F43 and F44-arm as well as F44), the
+      # tip before the push; else, a new ref with no tip before it, the base found above.
       - name: Judge merge commits by the ccy version rule
-        run: ./scripts/qa-ccy-merge-commits.bash "$QA_BASH_LIMITS_BASE" "$QA_BASH_LIMITS_BASE..HEAD"
+        env:
+          MODE: ${{ needs.base.outputs.mode }}
+          EVENT: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          tip="$QA_BASH_LIMITS_BASE"
+          if [ "$MODE" = full ] && [ "$EVENT" = push ] && git rev-parse -q --verify "${PUSH_BEFORE}^{commit}" >/dev/null; then
+            tip="$PUSH_BEFORE"
+          fi
+          ./scripts/qa-ccy-merge-commits.bash "$tip" "$tip..HEAD"
 
       # The ONE exemption, and it is made here, in the open, not by the gate. The hook-handlers
       # gate (scripts/qa-hook-handlers.bash) runs the project's hooks-daemon handler tests under

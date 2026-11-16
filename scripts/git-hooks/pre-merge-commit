@@ -4,4 +4,4 @@
 # to and including those gates and stops before the per-file secret scan: each commit a merge
 # brings was scanned when it was made, and that scan takes minutes on a large merge (issue #214).
 set -euo pipefail
-CCY_VERSION_ONLY=1 exec "$(dirname "${BASH_SOURCE[0]}")/pre-commit"
+exec "$(dirname "${BASH_SOURCE[0]}")/pre-commit" --ccy-version-only
