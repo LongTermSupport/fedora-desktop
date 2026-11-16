@@ -402,7 +402,9 @@ func (r *goldenRunner) semgrep(c proc.Cmd) proc.Result {
 			return walkErr
 		}
 		rel, relErr := filepath.Rel(c.Dir, path)
-		mirror = append(mirror, "./"+rel)
+		if rel != ".semgrepignore" { // the mirror's own ignore file, not a handed file
+			mirror = append(mirror, "./"+rel)
+		}
 		return relErr
 	})
 	if err != nil {
@@ -410,9 +412,14 @@ func (r *goldenRunner) semgrep(c proc.Cmd) proc.Result {
 	}
 	slices.Sort(mirror)
 	r.log = append(r.log, "semgrep "+strings.Join(semgrepArgvAsRecorded(c.Argv[1:]), " ")+" | mirror: "+strings.Join(mirror, " ")+" ")
-	report := `{"results":[]}`
+	scanned := mirror
+	body, marshalErr := json.Marshal(map[string]any{"results": []any{}, "paths": map[string]any{"scanned": scanned}})
+	if marshalErr != nil {
+		r.t.Fatal(marshalErr)
+	}
+	report := string(body)
 	if len(r.findings) > 0 {
-		body, marshalErr := json.Marshal(map[string]any{"results": r.findings})
+		body, marshalErr := json.Marshal(map[string]any{"results": r.findings, "paths": map[string]any{"scanned": scanned}})
 		if marshalErr != nil {
 			r.t.Fatal(marshalErr)
 		}
