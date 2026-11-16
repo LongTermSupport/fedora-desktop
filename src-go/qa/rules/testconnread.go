@@ -28,7 +28,10 @@ testconn.Bound on it, sets a deadline on it (SetDeadline, SetReadDeadline), or a
 time.AfterFunc with a function literal that closes it; anywhere, closes it in a select case
 that receives from a timer (time.After, a Timer's or Ticker's C); or, for a read in a go
 statement, closes it in a function literal handed to Cleanup (an accept loop the test's end
-stops).
+stops). An accept on a listener field x.f is bounded too when x's type has a Close that closes
+f and the package hands that Close to a Cleanup (a fake started with the test's TB): the loop
+ends with the test. Only an accept: a read a test body waits on blocks before any cleanup runs,
+so a conn closed by a registered Close is still judged.
 
 A read with no bound ends only when the peer writes or closes. When the code under test never
 does (the defect the test exists to catch), the test blocks until the package's timeout:
@@ -51,20 +54,21 @@ wait for it in a select whose timer case closes the connection (tlsterm's awaitC
 const connReadMessage = "unbounded connection read (project_test_conn_read): nothing bounds this wait on the peer; call testconn.Bound(t, <it>) first, or close it from a timer case of a select"
 
 func runTestConnRead(pass *analysis.Pass) {
+	owned := cleanupOwners(pass)
 	for _, f := range pass.Files {
 		if !isTestFile(pass, f) && !strings.HasPrefix(pass.Pkg.Name(), "fake") {
 			continue
 		}
 		for _, decl := range f.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
-				checkConnReads(pass, fn.Body)
+				checkConnReads(pass, fn.Body, owned)
 			}
 		}
 	}
 }
 
 // checkConnReads reports every unbounded read in body.
-func checkConnReads(pass *analysis.Pass, body *ast.BlockStmt) {
+func checkConnReads(pass *analysis.Pass, body *ast.BlockStmt, owned map[*types.TypeName]map[string]bool) {
 	var goStmts []*ast.GoStmt
 	ast.Inspect(body, func(n ast.Node) bool {
 		if g, ok := n.(*ast.GoStmt); ok {
@@ -83,7 +87,7 @@ func checkConnReads(pass *analysis.Pass, body *ast.BlockStmt) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			read, at := connReadOf(pass, call)
-			if read != nil && !bounded(pass, body, read, at) && !(inGo(at) && closedInCleanup(body, types.ExprString(read))) {
+			if read != nil && !bounded(pass, body, read, at) && !(inGo(at) && closedInCleanup(body, types.ExprString(read))) && !ownerCleanedUp(pass, call, read, owned) {
 				pass.Reportf(call.Pos(), "%s", connReadMessage)
 			}
 		}
@@ -282,4 +286,113 @@ func closesAfter(pass *analysis.Pass, call *ast.CallExpr, target string) bool {
 		return false
 	}
 	return closesIn(lit.Body.List, target)
+}
+
+// ownerCleanedUp is whether call is an accept on a listener field x.f whose owner's type has a
+// Close, closing f, that the package hands to Cleanup: the accept loop then ends with the test.
+// Only an accept: a read a test body waits on blocks before any cleanup runs.
+func ownerCleanedUp(pass *analysis.Pass, call *ast.CallExpr, read ast.Expr, owned map[*types.TypeName]map[string]bool) bool {
+	method, ok := call.Fun.(*ast.SelectorExpr)
+	field, isField := read.(*ast.SelectorExpr)
+	if !ok || !strings.HasPrefix(method.Sel.Name, "Accept") || !isField {
+		return false
+	}
+	owner := namedOf(pass.TypesInfo.TypeOf(field.X))
+	return owner != nil && owned[owner][field.Sel.Name]
+}
+
+// cleanupOwners is, for each named type of the package whose Close the package hands to a
+// Cleanup (as a method value, or called in a function literal), the fields that Close closes.
+func cleanupOwners(pass *analysis.Pass) map[*types.TypeName]map[string]bool {
+	registered := map[*types.TypeName]bool{}
+	closes := map[*types.TypeName]map[string]bool{}
+	for _, f := range pass.Files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Cleanup" && len(n.Args) == 1 {
+					for _, owner := range closedOwners(pass, n.Args[0]) {
+						registered[owner] = true
+					}
+				}
+			case *ast.FuncDecl:
+				if owner, fields := closeMethodFields(pass, n); owner != nil {
+					closes[owner] = fields
+				}
+			}
+			return true
+		})
+	}
+	owned := map[*types.TypeName]map[string]bool{}
+	for owner := range registered {
+		if fields := closes[owner]; fields != nil {
+			owned[owner] = fields
+		}
+	}
+	return owned
+}
+
+// closedOwners is the named types whose Close arg hands on: a method value v.Close, or a function
+// literal that calls v.Close().
+func closedOwners(pass *analysis.Pass, arg ast.Expr) []*types.TypeName {
+	var owners []*types.TypeName
+	add := func(sel *ast.SelectorExpr) {
+		if sel.Sel.Name == "Close" {
+			if owner := namedOf(pass.TypesInfo.TypeOf(sel.X)); owner != nil {
+				owners = append(owners, owner)
+			}
+		}
+	}
+	switch a := arg.(type) {
+	case *ast.SelectorExpr:
+		add(a)
+	case *ast.FuncLit:
+		ast.Inspect(a.Body, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				if sel, isSel := c.Fun.(*ast.SelectorExpr); isSel {
+					add(sel)
+				}
+			}
+			return true
+		})
+	}
+	return owners
+}
+
+// closeMethodFields is, for a method named Close, its receiver's named type and the fields of
+// the receiver it closes.
+func closeMethodFields(pass *analysis.Pass, fn *ast.FuncDecl) (*types.TypeName, map[string]bool) {
+	if fn.Name.Name != "Close" || fn.Recv == nil || len(fn.Recv.List) != 1 || len(fn.Recv.List[0].Names) != 1 || fn.Body == nil {
+		return nil, nil
+	}
+	recv := fn.Recv.List[0].Names[0].Name
+	owner := namedOf(pass.TypesInfo.TypeOf(fn.Recv.List[0].Type))
+	fields := map[string]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if sel, isSel := c.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == "Close" {
+				if f, isField := sel.X.(*ast.SelectorExpr); isField {
+					if id, isIdent := f.X.(*ast.Ident); isIdent && id.Name == recv {
+						fields[f.Sel.Name] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return owner, fields
+}
+
+// namedOf is the named type of t, through one pointer.
+func namedOf(t types.Type) *types.TypeName {
+	if t == nil {
+		return nil
+	}
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	if n, ok := t.(*types.Named); ok {
+		return n.Obj()
+	}
+	return nil
 }

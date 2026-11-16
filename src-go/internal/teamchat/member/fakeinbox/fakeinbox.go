@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
@@ -71,8 +72,9 @@ type Inbox struct {
 	closed     bool
 }
 
-// Start listens at path.
-func Start(path string, opt Options) (*Inbox, error) {
+// Start listens at path until Close, or until tb ends: the fake's Close is one of tb's cleanups,
+// so its accept loop never outlives the test (rule project_test_conn_read).
+func Start(tb testing.TB, path string, opt Options) (*Inbox, error) {
 	if opt.Token == "" || opt.Clock == nil {
 		return nil, errors.New("fakeinbox: a token and a clock are required")
 	}
@@ -99,6 +101,11 @@ func Start(path string, opt Options) (*Inbox, error) {
 		conns: map[net.Conn]bool{}, seen: map[string]time.Duration{},
 		tokens: float64(opt.Bucket), filled: opt.Clock.Boot(),
 	}
+	tb.Cleanup(func() {
+		if err := b.Close(); err != nil {
+			tb.Errorf("%v", err)
+		}
+	})
 	b.wg.Go(b.accept)
 	return b, nil
 }

@@ -226,7 +226,7 @@ func (c *claudeCode) begin() (ccBegun, error) {
 			return ccBegun{}, err
 		}
 	}
-	inbox, err := fakeinbox.Start(sock, fakeinbox.Options{Token: c.auth, Clock: clock.System()})
+	inbox, err := fakeinbox.Start(t, sock, fakeinbox.Options{Token: c.auth, Clock: clock.System()})
 	if err != nil {
 		return ccBegun{}, err
 	}
