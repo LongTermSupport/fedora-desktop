@@ -913,6 +913,16 @@ git -C "$m" switch -q one
 # The merge keeps one's side of each conflict, its version 1.0.1 included, and takes two's new c.
 check "…but never below a parent's version" "1 yes" \
     "$(merge_hook "$m" -X ours two) $(has 'CCY_VERSION 1.0.1 in the merge is below 1.0.2')"
+git -C "$m" merge --abort
+
+# The version-only mode is an argument (pre-merge-commit, CI), never the environment: a shell that
+# exports these names still gets the full scan, and a normal commit's base stays HEAD. The address
+# is assembled from two halves so this file's own commit is not rejected.
+printf 'contact %s@%s\n' someone real-company.com >"$m/NOTES.txt"
+git -C "$m" add -A
+rc=0
+(cd "$m" && CCY_VERSION_ONLY=1 CCY_PROTECTED_TIP=F44 CCY_BASE=F44 bash hooks/pre-commit) >"$work/hook.out" 2>&1 || rc=$?
+check "an exported version-only name does not skip the secret scan" "1 yes" "$rc $(has 'Email address')"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
