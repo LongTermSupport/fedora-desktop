@@ -329,8 +329,11 @@ class TestApply(HomeCase):
         changed = element.apply(self.home, (profile(),))
         pdir = self.home / ".var/app/im.riot.Riot/config/Element-team-a"
         launcher = self.home / ".local/share/applications/agent-bus-team-a-element.desktop"
-        self.assertEqual(changed, [pdir / "config.json", pdir / "electron-config.json", launcher])
+        marker = pdir / "agent-bus-team"
+        self.assertEqual(changed, [pdir / "config.json", pdir / "electron-config.json", marker, launcher])
         self.assertEqual(json.loads((pdir / "config.json").read_text()), EXPECTED_CONFIG)
+        self.assertEqual(marker.read_text(), "team-a\n")
+        self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
         self.assertEqual(json.loads((pdir / "electron-config.json").read_text()),
                          {"spellCheckerEnabled": False})
         self.assertEqual(launcher.read_text(), element.launcher_text(profile()))
@@ -475,6 +478,68 @@ class TestLightningTeams(HomeCase):
         self.assertTrue(target.is_file())
 
 
+class TestKeptProfiles(HomeCase):
+    """Issue #299: the Element profile of a team last declared for another client, then dropped,
+    has no launcher for prune to find. It may hold a signed-in session, so it is kept and named,
+    never removed; a profile is this module's only when it holds the marker naming its team."""
+
+    def moved_then_dropped(self, team: str = "team-a") -> pathlib.Path:
+        element.apply(self.home, (profile(team=team),))
+        element.apply(self.home, (profile(team=team, client="lightning"),))
+        element.apply(self.home, ())
+        return element.profile_dir(self.home, team)
+
+    def test_a_dropped_teams_kept_profile_is_named(self) -> None:
+        pdir = self.moved_then_dropped()
+        self.assertTrue(pdir.is_dir())
+        self.assertEqual(element.kept_profiles(self.home, ()), [pdir])
+
+    def test_a_declared_team_is_never_named(self) -> None:
+        element.apply(self.home, (profile(),))
+        element.apply(self.home, (profile(client="lightning"),))
+        self.assertEqual(element.kept_profiles(self.home, ("team-a",)), [])
+
+    def test_the_humans_own_profile_is_never_named(self) -> None:
+        own = element.profile_dir(self.home, "work")
+        own.mkdir(parents=True)
+        (own / "config.json").write_text("{}")
+        self.assertEqual(element.kept_profiles(self.home, ()), [])
+
+    def test_a_marker_naming_another_team_does_not_count(self) -> None:
+        pdir = self.moved_then_dropped()
+        (pdir / "agent-bus-team").write_text("team-b\n")
+        self.assertEqual(element.kept_profiles(self.home, ()), [])
+
+    def test_a_symlinked_marker_or_profile_does_not_count(self) -> None:
+        pdir = self.moved_then_dropped()
+        marker = pdir / "agent-bus-team"
+        marker.rename(self.home / "real-marker")
+        marker.symlink_to(self.home / "real-marker")
+        self.assertEqual(element.kept_profiles(self.home, ()), [])
+        other = self.moved_then_dropped("team-b")
+        other.rename(self.home / "real-profile")
+        other.symlink_to(self.home / "real-profile")
+        self.assertEqual(element.kept_profiles(self.home, ()), [])
+
+    def test_a_profile_from_before_the_marker_is_adopted_when_it_is_ours(self) -> None:
+        # A profile written before the marker existed, then moved: its config.json is exactly
+        # the one this module writes for the team, so the move adopts it.
+        element.apply(self.home, (profile(),))
+        pdir = element.profile_dir(self.home, "team-a")
+        (pdir / "agent-bus-team").unlink()
+        changed = element.apply(self.home, (profile(client="lightning"),))
+        self.assertIn(pdir / "agent-bus-team", changed)
+        element.apply(self.home, ())
+        self.assertEqual(element.kept_profiles(self.home, ()), [pdir])
+
+    def test_a_profile_whose_config_is_not_ours_is_not_adopted(self) -> None:
+        pdir = element.profile_dir(self.home, "team-a")
+        pdir.mkdir(parents=True)
+        (pdir / "config.json").write_text("{}")
+        self.assertEqual(element.apply(self.home, (profile(client="lightning"),)), [])
+        self.assertFalse((pdir / "agent-bus-team").exists())
+
+
 class TestMain(HomeCase):
     def run_main(self, argv: list[str], stdin: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -490,10 +555,16 @@ class TestMain(HomeCase):
         code, out, _ = self.run_main(["apply"], data)
         self.assertEqual(code, 0)
         lines = out.splitlines()
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(lines), 4)
         self.assertTrue(all(line.startswith("CHANGED\t") for line in lines))
         code, out, _ = self.run_main(["apply"], data)
         self.assertEqual((code, out), (0, ""))
+
+    def test_apply_names_each_kept_profile(self) -> None:
+        element.apply(self.home, (profile(),))
+        element.apply(self.home, (profile(client="lightning"),))
+        code, out, _ = self.run_main(["apply"], "[]")
+        self.assertEqual((code, out), (0, f"KEPT\t{element.profile_dir(self.home, 'team-a')}\n"))
 
     def test_check_writes_nothing(self) -> None:
         data = json.dumps([{"team": "team-a", "base_url": BASE_URL}])

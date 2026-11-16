@@ -21,10 +21,14 @@ for an https team whose homeserver is elsewhere, and is read by the CA tasks, no
 `client`, `element` (the default) or `lightning`, is the client the team opens in. Only an
 Element team gets a profile and launcher; a team declared for Lightning keeps its Element
 profile, the human's session, and loses its Element launcher, because a team has one
-(Plan 00254 DESIGN-client-choice.md)):
+(Plan 00254 DESIGN-client-choice.md)). Each profile written here holds a marker file naming its
+team, which is how a profile is known to be this module's and not the human's own. A marked
+profile of a team no longer declared that has no launcher (the team was last declared for
+another client) is never removed, as it may hold a signed-in session: apply names it on a
+KEPT<TAB><path> line for the owner to delete (issue #299):
 
     python3 -m helpers.agent_bus.element check   # validate and refuse; writes nothing
-    python3 -m helpers.agent_bus.element apply   # write; prints CHANGED<TAB><path>
+    python3 -m helpers.agent_bus.element apply   # write; prints CHANGED<TAB><path>, KEPT<TAB><path>
 
 Exit 78 on any refusal, with the reason on stderr.
 """
@@ -52,6 +56,8 @@ FLATPAK_APP = "im.riot.Riot"
 PROFILE_PARENT = pathlib.PurePosixPath(config.ELEMENT_FLATPAK_DIR) / "config"
 PROFILE_PREFIX = "Element-"
 CONFIG_FILE = "config.json"
+#: The file in each profile this module writes, holding its team's name and a newline.
+MARKER_FILE = "agent-bus-team"
 ELECTRON_STORE_FILE = "electron-config.json"
 SPELLCHECK_SEED = {"spellCheckerEnabled": False}
 APPLICATIONS_DIR = pathlib.PurePosixPath(".local/share/applications")
@@ -67,6 +73,7 @@ DIR_MODE = 0o700
 PRIVATE_MODE = 0o600
 LAUNCHER_MODE = 0o644
 CHANGED_MARKER = "CHANGED\t"
+KEPT_MARKER = "KEPT\t"
 
 
 class ElementError(Exception):
@@ -366,10 +373,58 @@ def prune(home: pathlib.Path, declared: Sequence[str]) -> list[pathlib.Path]:
     return removed
 
 
+def _marker_text(team: str) -> bytes:
+    return f"{team}\n".encode("utf-8")
+
+
+def _is_marked(pdir: pathlib.Path, team: str) -> bool:
+    """A real profile directory holding the marker, a regular file naming team; never through
+    a link."""
+    if pdir.is_symlink() or not pdir.is_dir():
+        return False
+    marker = pdir / MARKER_FILE
+    if marker.is_symlink() or not marker.is_file():
+        return False
+    return marker.read_bytes() == _marker_text(team)
+
+
+def _adopt(home: pathlib.Path, profile: Profile, changed: list[pathlib.Path]) -> None:
+    """Mark the profile of a team declared for another client when it holds no marker and its
+    config.json is the one this module writes for the team: a profile written before the marker
+    existed. Any other profile is left as it is."""
+    pdir = profile_dir(home, profile.team)
+    config_path = pdir / CONFIG_FILE
+    if pdir.is_symlink() or not pdir.is_dir() or (pdir / MARKER_FILE).exists():
+        return
+    if config_path.is_symlink() or not config_path.is_file():
+        return
+    if config_path.read_bytes() == _dumps(config_json(profile)):
+        _write(pdir / MARKER_FILE, _marker_text(profile.team), PRIVATE_MODE, changed)
+
+
+def kept_profiles(home: pathlib.Path, declared: Sequence[str]) -> list[pathlib.Path]:
+    """The marked profiles of teams not declared, in name order. prune has already removed
+    those that had this module's launcher, so these are kept for the owner to delete."""
+    parent = home / PROFILE_PARENT
+    if not parent.is_dir():
+        return []
+    kept = []
+    for pdir in sorted(parent.iterdir()):
+        if not pdir.name.startswith(PROFILE_PREFIX):
+            continue
+        team = pdir.name[len(PROFILE_PREFIX):]
+        if team in declared or not protocol.is_team_name(team):
+            continue
+        if _is_marked(pdir, team):
+            kept.append(pdir)
+    return kept
+
+
 def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]:
-    """Write the profile and launcher of every Element team, then remove those of teams no
-    longer declared (prune), and the launcher of each team declared for another client, whose
-    profile is kept; return the paths changed, in order."""
+    """Write the profile, marker and launcher of every Element team, then remove those of teams
+    no longer declared (prune), and the launcher of each team declared for another client, whose
+    profile is kept (and marked, when it is ours from before the marker); return the paths
+    changed, in order."""
     check_user(home)
     changed: list[pathlib.Path] = []
     for profile in profiles:
@@ -380,13 +435,17 @@ def apply(home: pathlib.Path, profiles: Sequence[Profile]) -> list[pathlib.Path]
         _write(pdir / CONFIG_FILE, _dumps(config_json(profile)), PRIVATE_MODE, changed)
         _write(pdir / ELECTRON_STORE_FILE, _dumps(SPELLCHECK_SEED), PRIVATE_MODE, changed,
                only_if_absent=True)
+        _write(pdir / MARKER_FILE, _marker_text(profile.team), PRIVATE_MODE, changed)
         launcher = launcher_path(home, profile.team)
         launcher.parent.mkdir(parents=True, exist_ok=True)
         _write(launcher, launcher_text(profile).encode("utf-8"), LAUNCHER_MODE, changed)
     changed.extend(prune(home, [profile.team for profile in profiles]))
     for profile in profiles:
+        if profile.client == CLIENT_ELEMENT:
+            continue
+        _adopt(home, profile, changed)
         launcher = launcher_path(home, profile.team)
-        if profile.client != CLIENT_ELEMENT and _is_ours(launcher, profile.team):
+        if _is_ours(launcher, profile.team):
             launcher.unlink()
             changed.append(launcher)
     return changed
@@ -414,6 +473,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         for path in apply(home, profiles):
             print(f"{CHANGED_MARKER}{path}")
+        for path in kept_profiles(home, [profile.team for profile in profiles]):
+            print(f"{KEPT_MARKER}{path}")
     except ElementError as exc:
         print(f"agent-bus element: {exc}", file=sys.stderr)
         return ElementError.EXIT_CODE

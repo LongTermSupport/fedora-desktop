@@ -44,10 +44,14 @@ Each writer sees the full list, so it can tell the two ways a team leaves it:
 | declared, for the other client                                 | removed                      | **kept** (the human's signed-in session; switching back finds it)                             |
 | no longer declared (Element)                                   | removed                      | removed, as `element.py` prune does today                                                     |
 | no longer declared (Lightning)                                 | removed                      | **kept**, and named on a `KEPT<TAB><path>` line; only the owner deletes a signed-in data root |
-| moved to Lightning, then no longer declared (its Element side) | already gone                 | **kept, and not reported**: prune finds a team by its launcher, which the move removed        |
+| moved to Lightning, then no longer declared (its Element side) | already gone                 | **kept**, and named on a `KEPT<TAB><path>` line (issue #299)                                  |
 
-The last row is a known gap: that Element profile holds a session token and stays until the
-owner deletes it. Reporting it is follow-up work (issue #299), not part of Phase 5.
+Prune finds a team by its launcher, which the move to Lightning removed, so the last row needs
+another sign that a profile is `element.py`'s: each profile it writes holds a marker file,
+`agent-bus-team`, naming its team, and a profile written before the marker is adopted when its
+`config.json` is exactly the one written for that team. A marked profile of a team no longer
+declared is named on a `KEPT` line and shown by the play; the human's own profiles carry no
+marker and are never named.
 
 So `element.py` learns the `client` key: `PROFILE_KEYS` gains it, values `element` and
 `lightning`, and only `element` entries are written. A `lightning` entry protects its profile

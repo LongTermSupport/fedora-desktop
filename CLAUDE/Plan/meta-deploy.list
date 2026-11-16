@@ -67,8 +67,11 @@ playbooks/imports/optional/common/play-vm-test-lab.yml
 # "<team> team (Lightning)" launcher; with no lightning team it writes no instance. Lightning's
 # CA step now takes only lightning teams, so with none it removes the team CAs an earlier run put
 # in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/ and reports changed; Element's CA
-# trust is unchanged. Afterwards report what changed, and any instance the play shows as kept.
-# The plan's acceptance (the next entry) judges what this run wrote.
+# trust is unchanged. Issue #299: each Element team's profile gains a marker file,
+# agent-bus-team, so this run reports changed once for it; a marked profile of a team no longer
+# declared is shown as kept. Afterwards report what changed, and any instance or Element
+# profile the play shows as kept. The plan's acceptance (the next entry) judges what this run
+# wrote.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning
 
 # Plan 00254 Task 5.5: the verdict on the play above, read-only, as the desktop user, no sudo.
