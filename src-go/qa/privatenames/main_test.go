@@ -247,6 +247,41 @@ func TestStagedFindsANameAndNeverPrintsIt(t *testing.T) {
 	}
 }
 
+// The commit-msg hook judges the message before the commit exists: the pre-push scan of the
+// same message comes only once the commit is buried under others (issue #309).
+func TestMessageFindsANameAndNeverPrintsIt(t *testing.T) {
+	msgFile := "/repo/.git/COMMIT_EDITMSG"
+	fl := files{msgFile: "subject line\n\nthe zebra-billing work is done\n"}
+	r := newRig(true, map[string]proc.Result{"pingbus status": {Stdout: status}}, fl, "")
+	if code := r.run("message", msgFile); code != ExitFindings {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+	if !strings.Contains(r.text(), "PRIVATE-NAME (commit message):3 (agent-bus member #") {
+		t.Fatalf("the finding is missing: %s", r.text())
+	}
+	if strings.Contains(strings.ToLower(r.text()), "zebra") {
+		t.Fatalf("a term was printed: %s", r.text())
+	}
+}
+
+func TestMessageSkipsGitsCommentLinesAndPassesClean(t *testing.T) {
+	msgFile := "/repo/.git/COMMIT_EDITMSG"
+	fl := files{msgFile: "subject line\n# On branch zebra-billing\n"}
+	r := newRig(true, map[string]proc.Result{"pingbus status": {Stdout: status}}, fl, "")
+	if code := r.run("message", msgFile); code != ExitOK || !strings.Contains(r.text(), "0 finding(s)") {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+}
+
+func TestMessageWithNoReadableFileCannotJudge(t *testing.T) {
+	r := newRig(true, map[string]proc.Result{"pingbus status": {Stdout: status}}, files{}, "")
+	for _, args := range [][]string{{"message"}, {"message", "/repo/.git/absent"}} {
+		if code := r.run(args...); code != ExitCannotRun {
+			t.Fatalf("%v: exit %d: %s", args, code, r.text())
+		}
+	}
+}
+
 func TestStagedCleanPasses(t *testing.T) {
 	r := newRig(true, map[string]proc.Result{stagedKey: {Stdout: "+++ b/x\n"}, "pingbus status": {Stdout: status}}, files{}, "")
 	if code := r.run("staged"); code != ExitOK || !strings.Contains(r.text(), "0 finding(s)") {
