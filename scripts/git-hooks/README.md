@@ -47,8 +47,8 @@ terms of teams that left the bus.
 - **Matching** is case-insensitive and on word boundaries (a hyphen, dot or slash is a boundary;
   a letter, digit or underscore is not).
 - **Short or generic terms cannot block everything**: a term under six characters is dropped; a
-  term whose every word is generic (`dev`, `infra`, `desktop`, `test`, ...) is dropped; a name's
-  first word is indexed alone only when it is long and not generic; tokens in
+  term whose every word is generic (`dev`, `infra`, `desktop`, `test`, ...) is dropped; a part
+  of a name (its first word) is never a term alone, since it is often an everyday word; tokens in
   `.claude/public-token-allowlist.yml` and this repository's own name are never terms.
 - Findings name the place and the source, with the term's number in the list (`#N` is the list
   line), never the term; a path that holds a term is printed with it masked. For triage,
