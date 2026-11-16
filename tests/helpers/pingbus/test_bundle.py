@@ -30,12 +30,14 @@ sys.path.insert(0, str(REPO_ROOT))
 from helpers.pingbus import bundle, cli, config, protocol
 
 AGENT_BUS_CLI = REPO_ROOT / "helpers" / "agent_bus" / "cli.py"
+#: The packages both archives carry: the two apps and the stdin reader they read text with.
+BUS_PACKAGES = ("pingbus", "agent_bus", "stdin_text")
 
 
 def bus_modules(source: pathlib.Path) -> set[str]:
     """Every module file of the bus packages, found independently of the bundler."""
     found = set()
-    for package in ("pingbus", "agent_bus"):
+    for package in BUS_PACKAGES:
         for path in (source / "helpers" / package).rglob("*.py"):
             if "__pycache__" not in path.parts:
                 found.add(path.relative_to(source).as_posix())
@@ -44,7 +46,7 @@ def bus_modules(source: pathlib.Path) -> set[str]:
 
 def copy_source(dest: pathlib.Path) -> pathlib.Path:
     """The bus packages of this checkout, copied so a test can add files to them."""
-    for package in ("pingbus", "agent_bus"):
+    for package in BUS_PACKAGES:
         shutil.copytree(REPO_ROOT / "helpers" / package, dest / "helpers" / package,
                         ignore=shutil.ignore_patterns("__pycache__"))
     return dest
@@ -84,7 +86,7 @@ class BuildTests(unittest.TestCase):
         self.assertTrue(expected)
         self.assertLessEqual(expected, names)
         generated = {"__main__.py", "helpers/__init__.py", "helpers/pingbus/__init__.py",
-                     "helpers/agent_bus/__init__.py"}
+                     "helpers/agent_bus/__init__.py", "helpers/stdin_text/__init__.py"}
         self.assertEqual(names - expected, generated)
 
     def test_the_bundler_is_not_shipped(self) -> None:

@@ -2,7 +2,8 @@
 
     python3 -m helpers.pingbus.bundle --source <repo> --out <file.pyz> {pingbus,agent-bus}
 
-Both archives carry every `*.py` file under `helpers/pingbus/` and `helpers/agent_bus/`
+Both archives carry every `*.py` file under `helpers/pingbus/`, `helpers/agent_bus/` and
+`helpers/stdin_text/`
 (found by walking the trees, so a module a later unit adds is included with no edit
 here) except this bundler itself, and the data files a module reads through
 `importlib.resources` (`DATA_FILES`, each required); they differ only in `__main__.py`. A
@@ -37,7 +38,8 @@ APPS = {
     "pingbus": "helpers.pingbus.cli",
     "agent-bus": "helpers.agent_bus.cli",
 }
-PACKAGES = ("helpers/pingbus", "helpers/agent_bus")
+#: The two apps, and helpers/stdin_text, the one reader of stdin both use (issue #260).
+PACKAGES = ("helpers/pingbus", "helpers/agent_bus", "helpers/stdin_text")
 #: Build-time only: no app imports it.
 EXCLUDE = frozenset({"helpers/pingbus/bundle.py"})
 #: Files that are not modules but are read by one at run time (the Matrix client list).

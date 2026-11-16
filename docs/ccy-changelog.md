@@ -17,30 +17,15 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.15 — container 2.84.21
+## 3.122.13 — container 2.84.22
 
-- **The `~/.ssh` key listings no longer fail a launch at random** (issue #321). Read through
-  `< <(find ...)` and checked with `wait "$!"`, the listing's process was once reported as
-  "not a child of this shell" under load, which failed the launch. Both listings now capture
-  their output first, which bash always waits for, and check its status. The image is unchanged.
-
-## 3.122.14 — container 2.84.21
-
-- **The GitHub account keys are looked for at the top of `~/.ssh` only**, where
-  `play-github-cli-multi.yml` writes them. With 3.122.13 a subfolder of `~/.ssh` that could not
-  be read (a ControlMaster socket folder) refused every launch; an unreadable `~/.ssh` still
-  does. When the listing fails, the gh account that was active before the probe is put back
-  first. The image is unchanged.
-
-## 3.122.13 — container 2.84.21
-
-- **A command read through `< <(cmd)` that fails stops the launch** (issue #295). bash never
-  checks the status of a process substitution, so a `podman network ls` that could not run
-  read as "no networks", an unreadable `~/.ssh` as "no keys", and a failed argument builder
-  as an empty argv. ccy and `cc` now collect each one's status with `wait "$!"` and stop
-  with a message saying what failed. No `~/.ssh` is still no keys, and the other engine
-  (docker under podman) not answering still skips its cross-engine check, now with a note
-  on stderr. The image is unchanged.
+- **pingbus never waits in silence on stdin** (issue #260). A command run with no input in
+  an agent's shell gets an open pipe that never ends, and `pingbus thread Q<n> --close` waited
+  on it with no word. `pingbus` and `agent-bus` now read stdin through `helpers/stdin_text`,
+  which says on stderr that it is waiting once nothing has arrived for a second. pingbus's
+  text verbs refuse a terminal at once and give up after a minute. `thread --close` reads no
+  stdin unless a note is asked for with `--note -`. The image carries `helpers/stdin_text/`,
+  so it is rebuilt once. The launcher itself is unchanged apart from the versions.
 
 ## 3.122.12 — container 2.84.21
 
