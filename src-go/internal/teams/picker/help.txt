@@ -39,7 +39,7 @@ the list, and Esc or q on the list leaves. There are no shortcut keys. Among the
                            (shown once). If they have sessions on the homeserver it asks
                            first, saying how many it signs out; one never signed in has Sign
                            in instead
-  Open <team> in <client>  in Element, or in Lightning where the host_vars say so (the team's
+  Open <team> in <client>  in Lightning, or in Element where the host_vars say so (the team's
                            client:, else agent_bus_matrix_client); it starts apart, and you
                            stay on the list. Each team is its own window (each is its own
                            Matrix server); a team row also has Open every team, a window each

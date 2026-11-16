@@ -93,7 +93,7 @@ func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
 // Plan 00254 Task 6.2: the menu names the client the team opens in.
 func TestATeamsMenuNamesTheClientItOpensIn(t *testing.T) {
 	h := newRig(t)
-	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: lightning\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlphaOn("lightning"))
 	h.Script.Fzf = []string{"|alpha", "|Open every team in Lightning", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())

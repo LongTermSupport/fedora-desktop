@@ -140,13 +140,13 @@ class SharedCasesTest(Fixture):
 
 
 class ResolveTest(Fixture):
-    def test_the_team_client_wins_over_the_home_setting_which_wins_over_element(self) -> None:
+    def test_the_team_client_wins_over_the_home_setting_which_wins_over_lightning(self) -> None:
         text = host_vars(entry("alpha", "http://192.0.2.1:6167"),
-                         entry("beta", "http://192.0.2.1:6168", client="element"), default="lightning")
+                         entry("beta", "http://192.0.2.1:6168", client="lightning"), default="element")
         teams = al.resolve(text, self.approved)
-        self.assertEqual([(t.team, t.client) for t in teams], [("alpha", "lightning"), ("beta", "element")])
+        self.assertEqual([(t.team, t.client) for t in teams], [("alpha", "element"), ("beta", "lightning")])
         teams = al.resolve(host_vars(entry("alpha", "http://192.0.2.1:6167")), self.approved)
-        self.assertEqual(teams[0].client, "element")
+        self.assertEqual(teams[0].client, "lightning")
 
     def test_a_team_declared_absent_is_left_out(self) -> None:
         text = host_vars(entry("alpha", "http://192.0.2.1:6167", client="lightning"), absent=("alpha",))
@@ -202,7 +202,7 @@ class CheckTest(Fixture):
         self.assertFalse([r for r in rows if r[0] == "HANDSHAKE"])
 
     def test_no_lightning_team_could_not_be_established(self) -> None:
-        code, rows, err = self.run_check(host_vars(entry("alpha", "http://192.0.2.1:6167")))
+        code, rows, err = self.run_check(host_vars(entry("alpha", "http://192.0.2.1:6167"), default="element"))
         self.assertEqual(code, al.EXIT_NOT_ESTABLISHED)
         self.assertIn("no declared team opens in Lightning", err)
 
@@ -277,8 +277,8 @@ class CheckTest(Fixture):
         apps = self.home / ".local/share/applications"
         (apps / "agent-bus-alpha-element.desktop").write_text("[Desktop Entry]\n")
         (apps / "agent-bus-beta-lightning.desktop").write_text("[Desktop Entry]\n")
-        code, rows, _ = self.run_check(host_vars(entry("alpha", "http://192.0.2.1:6167", client="lightning"),
-                                                 entry("beta", "http://192.0.2.1:6168")))
+        code, rows, _ = self.run_check(host_vars(entry("alpha", "http://192.0.2.1:6167"),
+                                                 entry("beta", "http://192.0.2.1:6168", client="element")))
         self.assertEqual(code, al.EXIT_FAIL)
         self.assertEqual({(r[1], r[2]) for r in self.fails(rows)},
                          {("alpha", str(apps / "agent-bus-alpha-element.desktop")),

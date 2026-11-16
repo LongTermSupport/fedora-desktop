@@ -264,7 +264,7 @@ func (c *Client) ElementTeams(context.Context) ([]Profile, error) {
 }
 
 // MatrixClients is the Matrix client each team opens in: its agent_bus_element_teams entry's
-// client, else agent_bus_matrix_client, else element (Plan 00254 DESIGN-client-choice.md).
+// client, else agent_bus_matrix_client, else lightning (Plan 00254 DESIGN-client-choice.md).
 func (c *Client) MatrixClients(context.Context) (Clients, error) {
 	return read(c, busdeclare.HostVars.MatrixClients)
 }

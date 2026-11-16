@@ -70,14 +70,14 @@ launch does not start.
    Every screen starts with where you are and what it acts on, for example
    `Teams › alpha › Add LXC member · step 3/4 Checkout` over
    `into team alpha · container container-a · user agent`.
-   **Each team opens in its own Element window**, like a separate Slack sign-in: each team
-   is its own Matrix server, and an Element window is signed in to one account (GNOME groups
-   the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
-   every team in Element, a window each*. A team opens in Lightning instead where the host_vars
-   say so: its own `client: lightning` in `agent_bus_element_teams`, else
-   `agent_bus_matrix_client: lightning` (Element by default). Every menu line and message then
-   names Lightning, `ccy-teams` opens the team's Lightning launcher in its own window, and
-   setting it up writes the team's own Lightning instance instead of an Element profile. Who
+   **Each team opens in its own Lightning window**, like a separate Slack sign-in: each team
+   is its own Matrix server, and a window is signed in to one account (GNOME groups the
+   windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open every
+   team in Lightning, a window each*. A team opens in Element instead where the host_vars say
+   so: its own `client: element` in `agent_bus_element_teams`, else
+   `agent_bus_matrix_client: element` (Lightning by default). Every menu line and message then
+   names Element, `ccy-teams` opens the team's Element launcher in its own window, and setting
+   it up writes an Element profile instead of the team's own Lightning instance. Who
    has signed in is read from the team's homeserver either way. Why, and the alternatives weighed:
    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
@@ -148,7 +148,7 @@ launch does not start.
    (`play-agent-bus-element.yml` runs after the team's play); one watched in Lightning loses its
    launcher and keeps its Lightning instance, named for you to delete. Its
    `agent_bus_element_teams` entry (the teams this desktop's human watches, whatever the
-   client; each opens in its `client:`, else `agent_bus_matrix_client`, else Element) is kept,
+   client; each opens in its `client:`, else `agent_bus_matrix_client`, else Lightning) is kept,
    so the team brought back present gets them again.
 
 **Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the

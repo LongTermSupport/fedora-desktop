@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.123.0 — container 2.84.19
+
+- **Lightning is the default Matrix client** (Plan 00254 Task 7.1). A team opens in its own
+  `client:`, else `agent_bus_matrix_client`, else Lightning; it was Element. A host that keeps
+  Element sets `agent_bus_matrix_client: element`, or a team its own `client: element`. A host
+  that sets nothing moves every team to Lightning: the agent-bus Element play removes each
+  team's Element launcher and keeps its Element profile and sign-in. The image is unchanged:
+  the Go packages that changed (`declare`, `teams`) are built on the host only.
+
 ## 3.122.10 — container 2.84.19
 
 - **A mouse click never answers a prompt** in a ccy session or a host `cc` session. The

@@ -60,7 +60,7 @@ func TestCollectTeamsReadsEachTeamsMatrixClient(t *testing.T) {
 	}
 
 	h = newRig(t)
-	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: nheko\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlphaOn("nheko"))
 	h.OnDeclare("status", "")
 	h.On("systemctl list-units", teamtest.UnitAlpha, 0)
 	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
@@ -381,7 +381,7 @@ func TestCollectNamesAPersonsClientInWhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.WriteHostVars(t, string(text)+"agent_bus_matrix_client: lightning\n")
+	h.WriteHostVars(t, strings.Replace(string(text), "agent_bus_matrix_client: element\n", "agent_bus_matrix_client: lightning\n", 1))
 	s, err := h.c.Collect(t.Context())
 	if err != nil {
 		t.Fatalf("%v: %s", err, h.ErrOut.String())

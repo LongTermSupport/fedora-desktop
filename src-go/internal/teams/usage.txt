@@ -27,7 +27,7 @@ to the list); the picker's header says what Enter on the row offers. There are n
 keys: every action is a line of that menu. On a seat it begins with attaching its session (as
 ccy-sessions does); on a person who is signed in, with opening the team's Matrix client; on a
 person who never has been, with signing in (a password, shown once); on a team, with opening
-its client. A team opens in Element, or in Lightning where the host_vars say so (the team's
+its client. A team opens in Lightning, or in Element where the host_vars say so (the team's
 client: in agent_bus_element_teams, else agent_bus_matrix_client), and each line names it.
 Among the lines:
   Start a ccy session      in a free or new seat of the row's team, here

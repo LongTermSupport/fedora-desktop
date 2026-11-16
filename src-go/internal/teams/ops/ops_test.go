@@ -188,11 +188,12 @@ func (r *opsRig) onExit(prefix string, code int, stderr string) {
 	r.on(prefix, execx.Result{ExitCode: code, Stderr: []byte(stderr)})
 }
 
-// declareElement makes the host_vars declare an Element profile for each team, in order.
+// declareElement makes the host_vars declare an Element profile for each team, in order, on a
+// host whose agent_bus_matrix_client is element.
 func (r *opsRig) declareElement(t *testing.T, teams ...string) {
 	t.Helper()
 	var text strings.Builder
-	text.WriteString("agent_bus_element_teams:\n")
+	text.WriteString("agent_bus_matrix_client: element\nagent_bus_element_teams:\n")
 	for _, team := range teams {
 		text.WriteString("  - team: " + team + "\n    base_url: http://192.0.2.10:6167\n")
 	}
@@ -466,6 +467,7 @@ func TestElementTeamsKeepsDeclaredOrderAndOnlyNamed(t *testing.T) {
 
 func TestRunElementPlayDirectly(t *testing.T) {
 	r := newOpsRig(t)
+	r.declareElement(t, "a", "b")
 	r.on(opsElementPlay, execx.Result{})
 	r.files[r.home+"/.local/share/applications/agent-bus-a-element.desktop"] = true
 	r.files[r.home+"/.local/share/applications/agent-bus-b-element.desktop"] = true

@@ -41,16 +41,19 @@
 # passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds cc-claude,
 # which sets the same default for a host cc session: a mouse click no longer answers a prompt,
 # the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in the
-# client its entry names, Element unless a team is set to lightning, and every menu line and
-# message names that client. For a team opening in Lightning whose instance nobody has signed
-# in to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
-# whether to set a new password (Plan 00254 Task 7.1a). Afterwards: in a new session, a click on
-# a prompt option picks nothing; ccy-teams shows the same teams as before, each saying Element.
+# client its entry names, Lightning unless the host or the team is set to element (Plan 00254
+# Task 7.1), and every menu line and message names that client. For a team opening in
+# Lightning whose instance nobody has signed in to yet, Open also tells each person with
+# sessions on the homeserver so and asks (default no) whether to set a new password (Plan 00254
+# Task 7.1a). Afterwards: in a new session, a click on
+# a prompt option picks nothing; ccy-teams shows the same teams as before, each saying
+# Lightning unless set to element.
 playbooks/imports/play-claude-yolo.yml
 
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
-# in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
-# changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
+# in (its client:, else agent_bus_matrix_client, else lightning, Task 7.1). With nothing set,
+# every team moves to Lightning: its Element launcher goes, its Element profile and sign-in are
+# kept. It builds and runs the new agent-bus-lightning command, which
 # for a lightning team writes its own instance under
 # ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/, a homeserver settings file and an
 # "<team> team (Lightning)" launcher; with no lightning team it writes no instance. Lightning's
