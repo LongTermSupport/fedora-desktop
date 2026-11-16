@@ -177,7 +177,7 @@ func TestACommitCIHasNotPassedIsRefusedSayingWhy(t *testing.T) {
 			if code := r.run(pushF44); code != ExitRefused {
 				t.Fatalf("exit %d: %s", code, r.text())
 			}
-			r.says(append(tc.want, RuleID, tip[:12], "refs/heads/ci/", "gh run watch", tip+":F44")...)
+			r.says(append(tc.want, RuleID, tip[:12], "refs/heads/ci/", "gh run watch --interval 60", tip+":F44")...)
 		})
 	}
 }

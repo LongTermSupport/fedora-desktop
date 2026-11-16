@@ -9,7 +9,8 @@
 // .semgrep/arch-pin.yml, and given its ArgvLeak spec the secret-in-argv gate over
 // .semgrep/argv-leak.yml, and given its PlaceIssuedToken spec the token-bundle-into-place-issued
 // gate over .semgrep/place-issued-token.yml, given its BootHold spec the
-// unit-holds-boot-target gate over .semgrep/boot-hold.yml, and given its SecretScreen spec the
+// unit-holds-boot-target gate over .semgrep/boot-hold.yml, given its GHPoll spec the
+// github-poll-too-often gate over .semgrep/gh-poll.yml, and given its SecretScreen spec the
 // secret-on-normal-screen gate over .semgrep/secret-screen.yml: one rule file, every published
 // file, the same proofs (for a rule file written for several languages, one fixture each).
 package ghscopes
@@ -135,6 +136,17 @@ var BootHold = Spec{
 	usage:       bootHoldUsageText,
 }
 
+// GHPoll is the github-poll-too-often gate: no script or recipe asks GitHub for a run's state
+// more often than once a minute.
+var GHPoll = Spec{
+	short:       "gh-poll",
+	ruleFile:    ".semgrep/gh-poll.yml",
+	fixtureFile: ".semgrep/gh-poll.fixture",
+	ruleName:    "github-poll-too-often",
+	finding:     "poll GitHub more often than once a minute",
+	usage:       ghPollUsageText,
+}
+
 // SecretScreen is the secret-on-normal-screen gate (issues #255 and #261): shell, Python and
 // Ansible rules in one file, each proven against the fixture in its own language.
 var SecretScreen = Spec{
@@ -221,6 +233,19 @@ const placeIssuedUsageText = `usage: qa-place-issued-token [--root DIR] [--scrip
 Applies the semgrep rule in .semgrep/place-issued-token.yml (a bundle issued with --credential
 token piped into teamchat seat place-issued, which places only a pool seat's password) to every
 file git would publish, after proving the rule against its fixture.
+
+  --root DIR      the repository root (default: the parent of --scripts, else the current directory)
+  --scripts DIR   the scripts directory; the root is its parent
+  -h, --help      this text
+
+Exit codes: 0 clean, 1 a finding, 2 bad usage or the run could not complete.
+`
+
+const ghPollUsageText = `usage: qa-gh-poll [--root DIR] [--scripts DIR]
+
+Applies the semgrep rule in .semgrep/gh-poll.yml (gh's run or checks watcher with no interval
+of 60 seconds or more, so GitHub is asked every 3 seconds) to every file git would publish,
+after proving the rule against its fixture.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

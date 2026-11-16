@@ -66,7 +66,7 @@ completed with success on a push. Push the commit to a ci/<topic> branch first (
 other work branch runs no CI), wait for CI, then push that same commit to the protected branch:
 
   git push origin HEAD:refs/heads/ci/<topic>
-  gh run watch                 (or: gh run list --commit <sha>)
+  gh run watch --interval 60   (or: gh run list --commit <sha>)
   git push origin <sha>:F44
   git push origin --delete ci/<topic>
 
@@ -158,7 +158,7 @@ func (g *gate) refused(errOut *emit.Emitter, ref prepush.Ref, branch, msg string
 	errOut.Line("  " + branch + " is protected: it moves only to a commit CI passed on a push. Push the commit")
 	errOut.Line("  to a branch, wait for CI, then push that same commit to " + branch + ":")
 	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":refs/heads/ci/<topic>")
-	errOut.Line("    gh run watch    (or: gh run list --commit " + ref.LocalID + ")")
+	errOut.Line("    gh run watch --interval 60    (or: gh run list --commit " + ref.LocalID + ")")
 	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":" + branch)
 	errOut.Line("  See CLAUDE/QA.md#" + RuleID)
 }

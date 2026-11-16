@@ -1,0 +1,46 @@
+# Fixture for .semgrep/gh-poll.yml (the gate's self-test). Each "ruleid" line marks the line
+# below it as a finding; each "ok" line marks the line below it as clean. The shapes are the ones
+# found in this repository's scripts, Go strings and recipes.
+
+# --- gh's 3-second default: reported ---
+
+# ruleid: github-poll-too-often
+timeout 3300 gh run watch "$id" --exit-status > /dev/null 2>&1
+# ruleid: github-poll-too-often
+2. `gh run watch` (or `gh run list --commit <sha>`)
+# ruleid: github-poll-too-often
+	errOut.Line("    gh run watch    (or: gh run list --commit " + ref.LocalID + ")")
+# ruleid: github-poll-too-often
+gh pr checks 123 --watch
+# ruleid: github-poll-too-often
+gh run watch "$id" --interval 10
+# ruleid: github-poll-too-often
+gh run watch "$id" -i 5
+# ruleid: github-poll-too-often
+gh run watch "$id" --interval=30
+# ruleid: github-poll-too-often
+gh pr checks --watch --interval 3
+# ruleid: github-poll-too-often
+gh run watch "$id" --exit-status   # --interval 60 later
+
+# --- once a minute or less often: clean ---
+
+# ok: github-poll-too-often
+gh run watch "$id" --exit-status --interval 60
+# ok: github-poll-too-often
+gh run watch "$id" -i 120
+# ok: github-poll-too-often
+gh run watch --interval=300 "$id"
+# ok: github-poll-too-often
+gh pr checks 123 --watch --interval 60
+# ok: github-poll-too-often
+2. `gh run watch --interval 60` (or `gh run list --commit <sha>`)
+
+# --- not a poll: clean ---
+
+# ok: github-poll-too-often
+gh run list --commit "$sha" --json status,conclusion
+# ok: github-poll-too-often
+gh pr checks 123
+# ok: github-poll-too-often
+gh run view 4321 --log-failed

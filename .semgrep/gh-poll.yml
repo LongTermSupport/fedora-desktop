@@ -1,0 +1,45 @@
+rules:
+  # Rule: nothing polls GitHub more often than once a minute (Defence Before Fix; CLAUDE/QA.md
+  # "github-poll-too-often").
+  #
+  # `gh run watch` and `gh pr checks --watch` ask GitHub for the run's state every 3 seconds unless
+  # told otherwise: 1,200 calls an hour from one watcher, against an account limit of 5,000 that
+  # every session, CI poll and hook of the account shares. Two such watchers and a peer's poll
+  # loop exhausted the limit for every seat of a team, and each failed call then reads as a red
+  # run. A run takes minutes, so a minute is the finest grain worth asking at.
+  #
+  # WRONG: gh run watch "$id" --exit-status
+  # RIGHT: gh run watch "$id" --exit-status --interval 60
+  #
+  # Documents are in scope: the recipes in CLAUDE.md and CLAUDE/QA.md are what an agent runs, so
+  # a recipe without the interval is the instance every later one is copied from. Plan records
+  # are not: a journal or a review says what was run, and nothing runs it again.
+  - id: github-poll-too-often
+    patterns:
+      - pattern-either:
+          - pattern-regex: '\bgh[ \t]+run[ \t]+watch\b[^\n]*'
+          - pattern-regex: '\bgh[ \t]+pr[ \t]+checks\b[^\n]*--watch\b[^\n]*'
+      # The same line asks at an interval of 60 seconds or more, in its code: an interval named
+      # only in a trailing comment is a promise, not a flag.
+      - pattern-not-regex: '(?m)^[^#\n]*\bgh[ \t]+(?:run|pr)\b[^#\n]*(?:--interval|-i)(?:[ \t]+|=)(?:[6-9][0-9]|[1-9][0-9]{2,})\b[^\n]*'
+    message: >
+      github-poll-too-often: this asks GitHub for a run's state every 3 seconds (gh's default),
+      which spends the API limit every session of the account shares. Add --interval 60 (or more)
+      on the same line. See CLAUDE/QA.md "github-poll-too-often".
+    paths:
+      exclude:
+        # This rule and its fixture.
+        - '.semgrep/gh-poll.*'
+        # Records, not recipes: nothing runs a plan's journal, review or changelog again. Plan
+        # SCRIPTS are code and stay in.
+        - 'CLAUDE/Plan/**/*.md'
+        - 'docs/*changelog*.md'
+        # Vendored, daemon-deployed and other trees that are not ours are never handed to
+        # semgrep: the gate reads them from scripts/qa-trees.tsv, the one list
+        # (CLAUDE/QA.md "qa-trees-drift"). Name here only what is particular to this rule.
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+      dbf-class: a script or recipe that polls GitHub more often than once a minute
