@@ -77,6 +77,9 @@ func Run(ctx context.Context, e Env) term.ExitCode {
 	if v.class != ClassAny && v.class != class {
 		return fail(e.Stderr, ExitClass, v.name+" must be run by "+v.class.String())
 	}
+	if err := carryGate(e, v.name, rest); err != nil {
+		return failWith(e, err)
+	}
 	if v.run == nil {
 		return fail(e.Stderr, term.ExitFailure, v.name+" is not built yet")
 	}
@@ -147,7 +150,7 @@ func buildTable() []verb {
 			table = append(table, verb{name: head + " " + w, class: class, run: runs[head+" "+w]})
 		}
 	}
-	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca")
+	group(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca", "seal", "export", "import", "carry-check")
 	group(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	group(ClassRoot, "role", "apply")
 	group(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")

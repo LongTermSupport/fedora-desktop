@@ -241,6 +241,31 @@ func TestRestoreGuards(t *testing.T) {
 	}
 }
 
+// SG3: a seal that lands after the dispatcher's read (here, while the engine is asked of the
+// wiring) is still refused by the lock's guard, for a fresh restore and a resume alike.
+func TestRestoreLockGuardRefusesASealThatLandsLate(t *testing.T) {
+	for _, args := range [][]string{{"--backup", "7"}, {"--resume"}} {
+		w := newRestoreWorld(t)
+		if args[0] == "--resume" {
+			w.record()
+		}
+		seam := w.sys.Restore
+		w.sys.Restore = func() (Restorer, error) {
+			if err := os.MkdirAll(w.root+paths.AdminState(alpha(t)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(w.root+paths.SealRecord(alpha(t)), []byte("{}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return seam()
+		}
+		got := w.verb(append([]string{"--team", "alpha"}, args...)...)
+		if got.code != ExitRefused || !strings.Contains(got.stderr, "team alpha is sealed") || len(w.engine.calls) != 0 {
+			t.Errorf("%v: %+v, engine calls %v", args, got, w.engine.calls)
+		}
+	}
+}
+
 // RS15: a busy lock is 75, after the wait.
 func TestRestoreBusy(t *testing.T) {
 	w := newRestoreWorld(t)

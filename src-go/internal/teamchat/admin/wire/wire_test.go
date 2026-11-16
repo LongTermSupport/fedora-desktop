@@ -12,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -311,5 +312,66 @@ func TestTheGuardIsTheRestoreRecordUnderTheRoot(t *testing.T) {
 	}
 	if err := sys.Host.Guard(team); !errors.Is(err, restore.ErrPending) {
 		t.Fatalf("Guard with a record = %v, want restore.ErrPending", err)
+	}
+}
+
+// carriedRoot is a host prefix where team ops has the record at path.
+func carriedRoot(t *testing.T, path func(paths.TeamID) string) (string, paths.TeamID) {
+	t.Helper()
+	root := t.TempDir()
+	team, err := paths.ParseTeamID("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{paths.AdminState(team), paths.CarryDir} {
+		if err := os.MkdirAll(root+dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(root+path(team), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root, team
+}
+
+// SG3, SG4: the lock's guard also refuses each carry record (seal, drill, import), and team
+// remove's guard refuses the drill and the import record but admits the seal.
+func TestTheGuardsRefuseTheCarryRecords(t *testing.T) {
+	for name, path := range map[string]func(paths.TeamID) string{
+		"seal": paths.SealRecord, "drill": paths.DrillRecord, "import": paths.CarryImportRecord,
+	} {
+		root, team := carriedRoot(t, path)
+		sys := build(t, &fakeMachine{root: root})
+		if err := sys.Host.Guard(team); !errors.Is(err, carry.ErrSealed) {
+			t.Errorf("%s: Guard = %v, want carry.ErrSealed", name, err)
+		}
+		err := sys.Host.RemoveGuard(team)
+		switch {
+		case name == "seal" && err != nil:
+			t.Errorf("RemoveGuard of a sealed team = %v, want nil", err)
+		case name != "seal" && !errors.Is(err, carry.ErrSealed):
+			t.Errorf("%s: RemoveGuard = %v, want carry.ErrSealed", name, err)
+		}
+	}
+}
+
+// SG3: the LXC verbs' lock guard refuses a sealed team as the host's does.
+func TestLXCGuardRefusesASealedTeam(t *testing.T) {
+	f := lxcHost(t)
+	team := team(t)
+	for _, dir := range []string{paths.AdminState(team), paths.CarryDir} {
+		if err := os.MkdirAll(f.root+dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(f.root+paths.SealRecord(team), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := build(t, f).LXC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Guard(team); !errors.Is(err, carry.ErrSealed) {
+		t.Fatalf("lxc Guard = %v, want carry.ErrSealed", err)
 	}
 }

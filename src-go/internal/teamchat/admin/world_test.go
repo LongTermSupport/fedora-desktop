@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
@@ -274,8 +275,9 @@ func (w *world) sys() *System {
 			Rand: io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), rand.Reader), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
-			Guard:  restore.Guard(w.root),
-			Backup: func(context.Context, *teamlock.Lock) error { return nil },
+			Guard:       teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
+			RemoveGuard: carry.RemoveGuard(w.root),
+			Backup:      func(context.Context, *teamlock.Lock) error { return nil },
 		},
 		Child:      inProcessChild{w: w},
 		Bundles:    w,

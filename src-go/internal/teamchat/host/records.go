@@ -61,6 +61,28 @@ func strArray(list []string) proto.Value {
 	return proto.Arr(items...)
 }
 
+// Units is what units.json records beyond its digests: the Tuwunel version, port and listen set
+// the team was last started on.
+type Units struct {
+	Version paths.ServerVersion
+	Port    int
+	Listen  []string
+}
+
+func (u unitsRecord) public() Units {
+	return Units{Version: u.version, Port: u.port, Listen: slices.Clone(u.listen)}
+}
+
+// DecodeUnits is the team's units.json decoded strictly, as apply reads it (SPEC-carry SI6: an
+// import checks a carried record against its manifest).
+func DecodeUnits(raw []byte, team paths.TeamID) (Units, error) {
+	u, err := decodeUnits(raw, team)
+	if err != nil {
+		return Units{}, err
+	}
+	return u.public(), nil
+}
+
 func decodeUnits(raw []byte, team paths.TeamID) (unitsRecord, error) {
 	r, err := readRecord(raw, team, "units.json", "restart", "reload", "tuwunel", "port", "listen")
 	if err != nil {

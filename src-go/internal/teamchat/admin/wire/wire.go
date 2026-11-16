@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/ctl"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -126,7 +127,10 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Systemd:   systemd.Host(), Firewall: hostnet.Firewall{Runner: m.runner, Proc: m.proc},
 			Network: hostnet.Network{Proc: m.proc, BridgeName: Bridge}, Ready: hostnet.Readiness{},
 			Status: statusFiles{root: root, tick: tick},
-			Guard:  restore.Guard(root),
+			// SG3: a restore or a carry record refuses every lock-taking verb under its lock;
+			// SG4: team remove admits the seal alone.
+			Guard:       teamlock.All(restore.Guard(root), carry.Guard(root)),
+			RemoveGuard: carry.RemoveGuard(root),
 			Backup: func(ctx context.Context, held *teamlock.Lock) error {
 				d, err := backups()
 				if err == nil {

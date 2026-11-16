@@ -280,18 +280,33 @@ func mkdirAllOrFail(t *testing.T, dir string) {
 	}
 }
 
-// RG3: Remove runs Deps.Guard under the lock; its refusal stops every step and frees the lock.
+// RG3, SG4: Remove runs Deps.RemoveGuard under the lock, not Deps.Guard; its refusal stops
+// every step and frees the lock.
 func TestRemoveIsRefusedByTheGuard(t *testing.T) {
 	w := applied(t)
-	w.log, w.guarded = nil, nil
+	w.log, w.guarded, w.removeGuarded = nil, nil, nil
 	refused := errors.New("a restore is under way")
-	w.guardErr = refused
+	w.removeGuardErr = refused
 	lines, err := Remove(t.Context(), w.deps(), ops(t), true)
 	if !errors.Is(err, refused) || stepOf(t, err).Step != StepLock || len(lines) != 0 {
 		t.Fatalf("lines %q, err %v", lines, err)
 	}
-	if len(w.log) != 0 || !slices.Equal(w.guarded, []paths.TeamID{ops(t)}) {
-		t.Errorf("log %q, guarded %v", w.log, w.guarded)
+	if len(w.log) != 0 || !slices.Equal(w.removeGuarded, []paths.TeamID{ops(t)}) || len(w.guarded) != 0 {
+		t.Errorf("log %q, remove guarded %v, guarded %v", w.log, w.removeGuarded, w.guarded)
 	}
 	lockIsFree(t, w)
+}
+
+// SG4: a team every other verb's guard refuses (a sealed one) is still removed: Remove never
+// asks Deps.Guard.
+func TestRemoveIgnoresTheOtherVerbsGuard(t *testing.T) {
+	w := applied(t)
+	w.guarded = nil
+	w.guardErr = errors.New("team ops is sealed")
+	if _, err := Remove(t.Context(), w.deps(), ops(t), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.guarded) != 0 {
+		t.Errorf("Remove asked Deps.Guard for %v", w.guarded)
+	}
 }

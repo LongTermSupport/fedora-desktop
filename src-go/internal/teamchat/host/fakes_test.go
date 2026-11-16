@@ -97,6 +97,9 @@ type world struct {
 	onBackup func()
 	guarded  []paths.TeamID
 	guardErr error
+	// removeGuarded and removeGuardErr are Deps.RemoveGuard's, team remove's own (SG4).
+	removeGuarded  []paths.TeamID
+	removeGuardErr error
 	// rand is the randomness every apply of this host draws on: the registration key's 64 bytes,
 	// then an endless stream that never repeats, so each key and serial number a later step makes
 	// is its own.
@@ -218,6 +221,10 @@ func (w *world) deps() Deps {
 		Guard: func(team paths.TeamID) error {
 			w.guarded = append(w.guarded, team)
 			return w.guardErr
+		},
+		RemoveGuard: func(team paths.TeamID) error {
+			w.removeGuarded = append(w.removeGuarded, team)
+			return w.removeGuardErr
 		},
 		Backup: func(_ context.Context, held *teamlock.Lock) error {
 			if held == nil {

@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
@@ -19,6 +20,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
 // guestSystemdSocket is the guest systemd's private socket, which root dials (SU2, n3-D24).
@@ -46,7 +48,7 @@ func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lx
 	return &lxc.Deps{
 		Root: root, LockDir: root + paths.AdminRunDir, Clock: clock, LXC: m.containers(), Pin: m.pin(), Bus: guestSystemd,
 		Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
-		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: restore.Guard(root),
+		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: teamlock.All(restore.Guard(root), carry.Guard(root)),
 		Kit: kit, HostKit: root + paths.HostKitDir(kit).String(), HostUIDs: uids, OwnerGID: gid, Bridge: Bridge,
 		BridgeNet: hostnet.Network{Proc: m.proc, BridgeName: Bridge}.Bridge,
 	}, nil

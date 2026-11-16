@@ -465,6 +465,47 @@ func TestTheGuardsRefusalReleasesTheLock(t *testing.T) {
 	}
 }
 
+// SG3: All refuses on the first of its guards that refuses, in order, and runs none after it.
+func TestAllRefusesOnTheFirstRefusal(t *testing.T) {
+	first, second := errors.New("first"), errors.New("second")
+	var ran []string
+	guard := func(name string, err error) Guard {
+		return func(team paths.TeamID) error {
+			ran = append(ran, name)
+			if team != mustTeam(t, "ops") {
+				t.Errorf("guard %s was given %v", name, team)
+			}
+			return err
+		}
+	}
+	err := All(guard("a", nil), guard("b", first), guard("c", second))(mustTeam(t, "ops"))
+	if !errors.Is(err, first) || errors.Is(err, second) {
+		t.Fatalf("All = %v, want the first refusal alone", err)
+	}
+	if strings.Join(ran, ",") != "a,b" {
+		t.Errorf("the guards run were %v, want a,b", ran)
+	}
+	ran = nil
+	if err := All(guard("a", nil), guard("b", nil))(mustTeam(t, "ops")); err != nil {
+		t.Fatalf("All of passing guards = %v", err)
+	}
+	if strings.Join(ran, ",") != "a,b" {
+		t.Errorf("the guards run were %v, want a,b", ran)
+	}
+}
+
+// SG3: a nil member, or no member at all, is refused as Take refuses a nil guard.
+func TestAllRefusesANilOrNoGuard(t *testing.T) {
+	for name, guards := range map[string][]Guard{
+		"none":       nil,
+		"nil member": {Unguarded, nil},
+	} {
+		if err := All(guards...)(mustTeam(t, "ops")); !errors.Is(err, ErrNoGuard) {
+			t.Errorf("%s: All = %v, want ErrNoGuard", name, err)
+		}
+	}
+}
+
 // Unguarded refuses nothing.
 func TestUnguardedRefusesNothing(t *testing.T) {
 	if err := Unguarded(mustTeam(t, "ops")); err != nil {

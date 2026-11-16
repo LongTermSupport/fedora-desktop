@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -81,6 +82,8 @@ func restoreVerb(ctx context.Context, e Env, args []string) term.ExitCode {
 	if a.mode != "" {
 		guard = restore.Recorded(sys.Host.Root)
 	}
+	// SG3: a carry record refuses a restore under its lock too.
+	guard = teamlock.All(guard, carry.Guard(sys.Host.Root))
 	lock, err := teamlock.Take(ctx, sys.Host.LockDir, a.req.Team, "restore", host.PlayWait, sys.Host.Clock, guard)
 	if err != nil {
 		return failWith(e, err)

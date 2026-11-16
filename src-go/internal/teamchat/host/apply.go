@@ -191,8 +191,11 @@ type Deps struct {
 	Ready         Readiness
 	Status        Status
 	Guard         teamlock.Guard
-	Backup        func(ctx context.Context, held *teamlock.Lock) error
-	Bootstrap     func(ctx context.Context, b Bootstrap) ([]string, error)
+	// RemoveGuard is team remove's, judged under its lock instead of Guard: it admits a sealed
+	// team, which Guard refuses (SPEC-carry SG4: carry.RemoveGuard on a host).
+	RemoveGuard teamlock.Guard
+	Backup      func(ctx context.Context, held *teamlock.Lock) error
+	Bootstrap   func(ctx context.Context, b Bootstrap) ([]string, error)
 }
 
 // Error is a failed verb: the step, and whether it is drift a rule refused (exit 70); anything
@@ -743,7 +746,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 // recordedDropIn writes the drop-in of the version and listen set units.json records, unless the
 // one on disk already runs that version.
 func (a *applying) recordedDropIn() error {
-	old := dropInSpec{team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port}
+	old := recordedSpec(a.team, a.units.public(), a.d.Pin.MemoryHigh)
 	if a.haveDropIn && strings.Contains(string(a.dropIn), old.execStart()) {
 		return nil
 	}
@@ -752,6 +755,23 @@ func (a *applying) recordedDropIn() error {
 	}
 	a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
 	return nil
+}
+
+// recordedSpec is the server drop-in of the version and port units.json records, with the pin's
+// memory bound.
+func recordedSpec(team paths.TeamID, u Units, memoryHigh string) dropInSpec {
+	return dropInSpec{team: team, version: u.Version, memoryHigh: memoryHigh, port: u.Port}
+}
+
+// WriteRecordedDropIn writes under root the team's server drop-in made from units.json alone,
+// the text apply's backup start writes: `team carry-check` starts the carried database on the
+// version that last wrote it (SPEC-carry section 6).
+func WriteRecordedDropIn(root string, team paths.TeamID, u Units, memoryHigh string) error {
+	file := root + paths.ServerDropInFile(team)
+	if err := MkdirShared(filepath.Dir(file)); err != nil {
+		return err
+	}
+	return state.WriteFile(file, recordedSpec(team, u, memoryHigh).text(), 0o644, -1)
 }
 
 func (a *applying) writeDropIn(text []byte) error {
