@@ -86,10 +86,15 @@ that adds them carries the CCY version bump.
   and fails naming it, so a new per-team path must join the list or be named in the test's
   exemptions (units, sessions, Element and member-side names).
 
-- **CN5. Constants.** `carry.MaxAge` is 72 h and `carry.MaxAgeDrill` is 24 h (O1);
-  `carry.MaxArchive` is the archive cap (O4); `carry.ExportFormat` is the manifest's `format`
-  integer, 1 today (SX8). All are constants of this repository, not flags, not configuration,
-  and not a driver setting.
+- **CN5. Constants and the one setting.** `carry.MaxAge` is 72 h and `carry.MaxAgeDrill` is
+  24 h (O1); `carry.ExportFormat` is the manifest's `format` integer, 1 today (SX8). These are
+  constants of this repository, not flags, not configuration, and not a driver setting.
+  `carry.MaxArchive`, the archive cap (O4), is the one declared setting: the inventory variable
+  `teamchat_carry_max_archive_bytes`, default 1 GiB (1073741824), which the play writes into
+  the host's teamchat-admin configuration and both export and import read. A value that is
+  absent, unreadable, zero or negative refuses the verb (exit 78) and names the setting; there
+  is no built-in fallback. A source or archive over the cap is refused loudly (exit 70), naming
+  the measured size and the cap, both in bytes (SX4, SI).
 
 ## 1. The seal (SC, `team seal --team T`)
 
@@ -214,7 +219,8 @@ SG3. Root's class only (77 otherwise, BV4's seam `admin.Process`/`classOf`, `adm
   `..`, and fits ustar's 100 + 155 split. Caps: the manifest 1 MiB; each `admin/` and `ctl/`
   file the cap its own reader uses (`fileMax`, `host/apply.go:84`; BK2's for the roster, rooms
   and token); a `*-lost.jsonl` 64 MiB (RS14); `hs/` members none singly; the archive
-  `carry.MaxArchive` (O4). A source over a cap fails the export, naming it.
+  `carry.MaxArchive` (O4, CN5). A source over a cap fails the export, naming the file, its
+  measured size and the cap.
 
 - **SX5. Integrity: the manifest.**
   `{"format": 1, "kind": "sealed"|"drill", "team": T, "server_name": "...", "seal": <SC7's fields from sealed_ms on>, "members": [{"name": "...", "type": "file"|"dir", "mode": "0600", "size": n, "sha256": "<hex>"}...]}`.
@@ -520,16 +526,16 @@ import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O
 
 Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 
-| Code | When                                                                                                                                                           |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | done; a repeat of `team seal` on a sealed team; an export whose archive already exists byte for byte                                                           |
-| 1    | a failure in a step (stop, write, rename, digest mismatch, child failure of its own class aside), "import not done", a drill check that finds an event missing |
-| 64   | usage: `--sha256` missing or not 64 hex, `--drill` on `team seal`, `--resume` with `--discard`, `--team` missing                                               |
-| 69   | the homeserver answered at validation and was lost during the tail read or the check                                                                           |
-| 70   | every refusal of SC1, SD1, SI2-SI7, SI13, SG1-SG6; the archive's kind and flag disagreeing; an age over `MaxAge` or `MaxAgeDrill`; an unknown export format    |
-| 75   | the team lock is busy (import: any holder at all)                                                                                                              |
-| 77   | not root                                                                                                                                                       |
-| 78   | the wiring failed                                                                                                                                              |
+| Code | When                                                                                                                                                                                               |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | done; a repeat of `team seal` on a sealed team; an export whose archive already exists byte for byte                                                                                               |
+| 1    | a failure in a step (stop, write, rename, digest mismatch, child failure of its own class aside), "import not done", a drill check that finds an event missing                                     |
+| 64   | usage: `--sha256` missing or not 64 hex, `--drill` on `team seal`, `--resume` with `--discard`, `--team` missing                                                                                   |
+| 69   | the homeserver answered at validation and was lost during the tail read or the check                                                                                                               |
+| 70   | every refusal of SC1, SD1, SI2-SI7, SI13, SG1-SG6; the archive's kind and flag disagreeing; an age over `MaxAge` or `MaxAgeDrill`; an unknown export format; a source or archive over `MaxArchive` |
+| 75   | the team lock is busy (import: any holder at all)                                                                                                                                                  |
+| 77   | not root                                                                                                                                                                                           |
+| 78   | the wiring failed; `teamchat_carry_max_archive_bytes` absent, unreadable, zero or negative                                                                                                         |
 
 ## 10. The child's carry ops (SC-C)
 
@@ -581,7 +587,8 @@ open.
 - **O4. Size: decided.** `hs/` is carried whole with Tuwunel's backups, measured at about
   4 MB on a real team. There is no `db/`-only fallback, so `min_backup` is never rewritten and
   RV4's refusal keeps its force after a past `--roster-from-backup`. `carry.MaxArchive` is a
-  constant sized with wide headroom over that measure (CN5). Reason: the cost is small and the
+  declared setting, 1 GiB by default, a guard against a runaway archive rather than a size
+  limit (CN5). Reason: the cost is small and the
   alternative would change `restore-epoch.json`.
 - **O5. `carry-check` on the rebuilt bus guest: decided, wanted.** It is the pre-apply proof
   for a sealed import as for a drill (section 6, SI11, SA). The unit is stopped after it for
