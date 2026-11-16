@@ -31,6 +31,8 @@ fi
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 git clone -q --shared --no-checkout . "$scratch/repo"
+# Git refuses update-ref on MERGE_HEAD, a pseudo-ref: it is the file a merge in progress writes.
+merge_head=$(git -C "$scratch/repo" rev-parse --path-format=absolute --git-path MERGE_HEAD)
 refused=0
 for merge in $merges; do
     parents=$(git rev-list --no-walk --parents "$merge")
@@ -42,7 +44,7 @@ for merge in $merges; do
     fi
     git -C "$scratch/repo" checkout -q --detach "$merge"
     git -C "$scratch/repo" reset -q --soft "$first"
-    git -C "$scratch/repo" update-ref MERGE_HEAD "$second"
+    echo "$second" >"$merge_head"
     echo "🔍 merge $self ($first + $second)"
     rc=0
     (cd "$scratch/repo" && CCY_VERSION_ONLY=1 CCY_PROTECTED_TIP="$tip" bash "$hook") || rc=$?
@@ -51,6 +53,6 @@ for merge in $merges; do
     1) echo "✗ merge $merge is refused by the ccy version gates (above)" >&2 && refused=1 ;;
     *) echo "ERROR: qa-ccy-merge-commits: the hook could not judge merge $merge (exit $rc)" >&2 && exit 2 ;;
     esac
-    git -C "$scratch/repo" update-ref -d MERGE_HEAD
+    rm "$merge_head"
 done
 exit "$refused"
