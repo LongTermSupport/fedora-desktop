@@ -63,6 +63,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_test_chown`              | a test that gives a file to another user, which needs root: it passes in an agent container and fails for CI's unprivileged user                                                       | the first CI run of the Go tests: `homefs`, `proof`, `bundle`, `state`, `host/lxc` (Plan 00246)                                                                                     |
 | `project_listing_order`           | a test that asserts the order of a directory listing nothing sorted, which is the filesystem's: it passes on one machine and fails on a CI runner                                      | teamchat `restore`: `TestOSReadDir` expected `[2 5]` and CI listed `[5 2]` (fedora-desktop#140)                                                                                     |
 | `project_test_spin`               | a wait in a test that yields in a loop and has no way to fail, so a condition that never holds spins one CPU to the package's timeout                                                  | `engine` `TestSD3_8bAQueuedSendOutlivesA401`: 29 minutes at `[runnable]` in CI, twice (issue 140)                                                                                   |
+| `project_test_conn_read`          | a test's read of a connection, or accept on a listener, that nothing bounds, so code under test that never answers blocks the test to the package's timeout                            | `tlsterm` `closed(c)`: CI hung for 30 minutes (fedora-desktop#300, #307)                                                                                                            |
 | `project_poll_pure`               | a condition handed to `leakcheck.Poll` or `Drive` that moves a fake clock, sends or closes, so the read after the idle reading moves the world it judged still                         | `engine` `TestWaitRetriesARestoredItemThatCouldNotBeFetched`: the clock advanced inside the condition, a false failure when the engine was idle at the sample (issue 140)           |
 | `project_room_default`            | a teamchat send's room tested against one side room, so every other room (a later one too) takes main's path: posted, re-checked or refused as main's                                  | teamchat `engine`: `postRoom`, `recheck`, `sendFailed` after the reports room (Plan 00209, n3f-b3)                                                                                  |
 | `project_fake_restart`            | a test that stops or restarts a fake server in a function literal or a go statement, off the goroutine that then uses it                                                               | `teamsync` `TestARestartedServerBetweenPolls`: the persist hook restarted fakehs while the test posted, `no answer` in CI (fedora-desktop#149)                                      |
@@ -1587,6 +1588,60 @@ closes, `clock.AwaitDue`, a poke), or poll with `leakcheck.Poll`.
   call without waiting for the engine's follow-up, is not a shape a rule can see (which call
   has a follow-up is the engine's meaning): see [Defect classes that cannot be a
   rule](#defect-classes-that-cannot-be-a-rule).
+
+### project_test_conn_read
+
+In a `_test.go` file, or a package whose name starts with `fake` (code only tests run), a read
+that waits on a network peer:
+- a `Read` on a value of a connection's shape (methods `Read`, `SetReadDeadline` and `RemoteAddr`);
+- an `Accept`, `AcceptTCP` or `AcceptUnix` on a listener;
+- such a connection handed to a reader parameter that is not a connection (`io.ReadAll`,
+  `io.ReadFull`, `io.Copy`'s source, `bufio.NewReader`, `bufio.NewScanner`, `json.NewDecoder`).
+
+A read in a goroutine is judged too, because the test, or a cleanup that waits for the goroutine,
+blocks as long as the read does.
+
+The read is bounded when its function declaration does one of these to the same expression:
+- before the read, calls `testconn.Bound` on it, sets a deadline on it, or arms
+  `time.AfterFunc` with a literal that closes it;
+- anywhere, closes it in a `select` case on a timer (`time.After`, a Timer's or Ticker's `C`), as
+  tlsterm's `awaitClose` does;
+- for a read in a `go` statement, closes it in a `Cleanup` (an accept loop that the test's end
+  stops).
+
+Tests read no wall clock (`project_testclock`), so they cannot set a deadline. The fix is
+`testconn.Bound(t, c)` (`internal/testconn`) in the function that waits on `c`. It arms a fixed
+one-minute timer that fails the test and closes `c`, and the timer stops when the test ends.
+
+- Red, fixture: `testdata/src/fix/internal/connread` and `fakepeer`. Flagged forms:
+  - the originating `closed(c)`;
+  - an accept;
+  - a `*net.TCPConn`;
+  - the standard wrappers;
+  - a deadline on the wrong conn or after the read;
+  - a goroutine's read awaited bare;
+  - an echo goroutine a cleanup waits for;
+  - a fake package's `AcceptUnix` and `Read`.
+
+  Clean forms:
+  - a deadline, `AfterFunc` close or `Bound` set first;
+  - `awaitClose`;
+  - an accept loop the cleanup ends;
+  - a write;
+  - a conn handed to a function that takes a conn.
+- Red, real tree: 32 findings in 18 files, every one a teamchat or `stt` test, plus `fakeinbox`.
+  The independent search found the same sites and four groups the rule cannot see; those are
+  under "Not caught" and were fixed by hand.
+- Green: every wait bound with `testconn.Bound`; 0 findings.
+- Not caught:
+  - a read in a non-test helper whose package name does not start with `fake`;
+  - a bound set in another function (a constructor);
+  - a read through a wrapper whose type is not of a connection's shape (`wire.Conn`'s `Recv`, a
+    decoder over a `bufio.Reader` built elsewhere);
+  - a goroutine read that only a cleanup's close ends while the test body waits for that goroutine.
+- Next wider rule, not built: judge the wait on a channel that a reading goroutine feeds (a bare
+  `<-done`), which is a channel receive and a different class. A test that waits on a channel
+  with no timer hangs whatever the channel waits for; that class needs its own rule.
 
 ### project_poll_pure
 
