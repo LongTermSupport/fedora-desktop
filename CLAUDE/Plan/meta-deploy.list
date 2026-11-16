@@ -39,60 +39,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.10 to 3.122.12, container 2.84.21: one run installs them. Installs the launcher,
-# which passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds
-# cc-claude, which sets the same default for a host cc session: a mouse click no longer answers
-# a prompt, the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in
-# the client its entry names, Element unless a team is set to lightning, and every menu line and
-# message names that client. For a team opening in Lightning whose instance nobody has signed in
-# to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
-# whether to set a new password (Plan 00254 Task 7.1a). Issue #302: the image carries pingbus,
-# which now names an unknown option instead of blaming stdin, and (issue #299) the Element
-# helper, which now marks the profiles it writes; the image is rebuilt once at the next ccy
-# start. Afterwards: in a new session, a click on a prompt option picks nothing;
-# ccy-teams shows the same teams as before, each saying Element.
-playbooks/imports/play-claude-yolo.yml
-
-# Issue #302: the agent-bus member kit carries the same pingbus. Expected: changed only for the
-# kit's pingbus.
-playbooks/imports/play-agent-bus.yml
-
-# Issue #301: the VM lab's copy of secret-scan.bash (the run-log scrubber's engine) escapes a
-# GNOME extension UUID for grep's ERE, not Python's re, so grep no longer warns on a hyphen.
-# Expected: changed only for that one file; skip this entry on a host without the lab.
-playbooks/imports/optional/common/play-vm-test-lab.yml
-
-# Issue #295: every reader fed by `< <(cmd)` now checks cmd, across the ccy launcher and libs,
-# agent-bus-install, fedora-desktop-self-update, docker-in-lxc and the ~/.local/bin tools
-# (raw-prune, qnap-finder, imgpaste, ssh-agent-start, ssh-with-agent, ssh-keys-rekey). The
-# deployed raw-prune is the one that could delete a RAW whose JPG sat in a folder it could not
-# read. Every play whose inputs changed runs; those the entries above ran are not due again.
-# Afterwards: the deployed ~/.local/bin/raw-prune matches the checkout's
-# files/home/.local/bin/raw-prune (sha256sum both), and a new ccy session starts.
-changed-plays
-
-# Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
-# in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
-# changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
-# for a lightning team writes its own instance under
-# ~/.var/app/org.lightning_matrix.Lightning/teams/<team>/, a homeserver settings file and an
-# "<team> team (Lightning)" launcher; with no lightning team it writes no instance. Lightning's
-# CA step now takes only lightning teams, so with none it removes the team CAs an earlier run put
-# in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/ and reports changed; Element's CA
-# trust is unchanged. Issue #299: each Element team's profile gains a marker file,
-# agent-bus-team, so this run reports changed once for it; a marked profile of a team no longer
-# declared is shown as kept. Afterwards report what changed, and any instance or Element
-# profile the play shows as kept. The plan's acceptance (the next entry) judges what this run
-# wrote.
-playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning
-
-# Plan 00254 Task 5.5: the verdict on the play above, read-only, as the desktop user, no sudo.
-# For each team that opens in Lightning: its instance folders (mode 0700), its settings file
-# (0600, naming the team's homeserver) and its launcher (the exact Exec line), no Element
-# launcher beside it, and for an https team its CA in Lightning's CA folder and a handshake from
-# Lightning's sandbox; for each Element team, no Lightning launcher. It starts no window. On a
-# host where no team opens in Lightning it exits 2, COULD NOT ESTABLISH (nothing to check),
-# which is expected until a team is set to lightning. Afterwards report its PASS and FAIL lines
-# and the run directory it names, and check the owner's list it prints at the end (each window
-# opens on its own login page with the homeserver filled in; signing in works).
-00254-lightning-default-team-client/acceptance.bash
+# Issue #295: the raw-prune fix (it could delete a RAW whose JPG sat in a folder it could not
+# read). changed-plays did not deploy it: play-photography has no play-ledger record on this
+# host, so --changed never judges it (issue #323). This runs only the raw-prune task.
+# Expected: changed for ~/.local/bin/raw-prune only. Afterwards: sha256sum of the deployed
+# ~/.local/bin/raw-prune matches the checkout's files/home/.local/bin/raw-prune.
+playbooks/imports/optional/common/play-photography.yml --tags raw-prune
