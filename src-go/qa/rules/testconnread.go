@@ -48,7 +48,7 @@ wait for it in a select whose timer case closes the connection (tlsterm's awaitC
 	ResultType: noResultType,
 }
 
-const connReadMessage = "unbounded connection read (project_test_conn_read): nothing bounds this wait on the peer; set a read deadline on it first, or read in a goroutine and wait for it with a timer"
+const connReadMessage = "unbounded connection read (project_test_conn_read): nothing bounds this wait on the peer; call testconn.Bound(t, <it>) first, or close it from a timer case of a select"
 
 func runTestConnRead(pass *analysis.Pass) {
 	for _, f := range pass.Files {
