@@ -58,7 +58,8 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
     done
     if [ -n "$listed" ]; then
         mapfile -t specs <<<"$listed"
-        built+=$(git diff --cached --name-only --diff-filter=ACDMRT -- "${specs[@]}")$'\n'
+        # Against the pre-commit hook's merge base (issue #298) when it set one, else HEAD.
+        built+=$(git diff --cached --name-only --diff-filter=ACDMRT ${CCY_BASE:+"$CCY_BASE"} -- "${specs[@]}")$'\n'
     fi
 fi
 

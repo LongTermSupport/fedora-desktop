@@ -800,6 +800,104 @@ check "a commit staging nothing under src-go/vendor does not run the gate" "0 0"
 printf 'Report to %s\n' "$email" >"$scan/src-go/internal/NOTES.md"
 check "the same address outside src-go/vendor is rejected" "1 yes" "$(scan_status) $(has 'Email address')"
 
+echo "=== a merge is judged against its parent on the protected line (issue #298) ==="
+# A ccy version names a release on F44, not a commit. Each case is a fresh repository whose
+# origin/F44 and work branches change the ccy libraries; the hook runs mid-merge with the REAL
+# scripts/qa-ccy-version-base.bash (built from this checkout's src-go/qa), which reads the
+# repository's own scripts/branch-policy.toml and origin/F44.
+# merge_repo — a fresh repository at ccy 1.0.0 with two libraries, F44 its line; prints its path.
+merge_repo() {
+    local m
+    m=$(mktemp -d -p "$work" merge.XXXXXX)
+    mkdir -p "$m/files/var/local/claude-yolo/lib" "$m/scripts" "$m/hooks"
+    cp -R "$HOOK_DIR/." "$m/hooks/"
+    stand_ins "$m"
+    printf '#!/bin/sh\nexec "%s/qa-ccy-version-base.bash" "$@"\n' "$SCRIPT_DIR" >"$m/qa-ccy-version-base.bash"
+    chmod 755 "$m/qa-ccy-version-base.bash"
+    printf 'cap = 10\nwarn_days = 3\nfail_days = 7\nexempt = ["F44"]\n' >"$m/scripts/branch-policy.toml"
+    git -C "$m" init -q -b F44
+    git -C "$m" config user.name test
+    git -C "$m" config user.email test@example.com
+    merge_commit "$m" 1.0.0 a 0 b 0 base
+    git -C "$m" update-ref refs/remotes/origin/F44 F44
+    echo "$m"
+}
+# merge_commit <repo> <ccy-version> <lib> <value> [<lib> <value>...] <message> — set and commit.
+merge_commit() {
+    local m="$1" lib="$1/files/var/local/claude-yolo/lib"
+    printf '#!/usr/bin/env bash\nCCY_VERSION="%s"\n' "$2" >"$m/files/var/local/claude-yolo/claude-yolo"
+    shift 2
+    while [ "$#" -gt 1 ]; do
+        printf 'VALUE=%s\n' "$2" >"$lib/$1.bash"
+        shift 2
+    done
+    git -C "$m" add -A
+    git -C "$m" commit -q --no-verify -m "$1"
+}
+# merge_hook <repo> <merge args...> — start a merge without committing, run the real hook. A
+# merge that git itself refuses prints "merge-failed" and its output, so no case can pass on it.
+merge_hook() {
+    local m="$1" rc=0
+    shift
+    if ! git -C "$m" merge -q --no-commit --no-ff "$@" >"$work/merge.out" 2>&1; then
+        cat "$work/merge.out" >&2
+        echo merge-failed
+        return
+    fi
+    (cd "$m" && bash hooks/pre-commit) >"$work/hook.out" 2>&1 || rc=$?
+    echo "$rc"
+}
+# merge_f44 <repo> <ccy> — F44 moves on: library a changes, released as <ccy>.
+merge_f44() {
+    merge_commit "$1" "$2" a 1 f44
+    git -C "$1" update-ref refs/remotes/origin/F44 F44
+}
+
+m=$(merge_repo)
+git -C "$m" switch -q -c work
+merge_commit "$m" 1.0.2 b 1 work
+git -C "$m" switch -q F44
+merge_f44 "$m" 1.0.1
+git -C "$m" switch -q work
+# The two version lines conflict; the merge keeps the branch's higher one, as a person would.
+check "F44 merged into a branch already above it passes" "0" "$(merge_hook "$m" -X ours origin/F44)"
+
+m=$(merge_repo)
+git -C "$m" switch -q -c work
+merge_commit "$m" 1.0.1 b 1 work
+git -C "$m" switch -q F44
+merge_f44 "$m" 1.0.1
+git -C "$m" switch -q work
+check "the same merge at F44's version, ccy changed on both sides, is refused" "1 yes" \
+    "$(merge_hook "$m" origin/F44) $(has 'CCY version bump required')"
+git -C "$m" merge --abort
+git -C "$m" switch -q --detach F44
+check "…and so is that merge made from F44's side" "1 yes" \
+    "$(merge_hook "$m" work) $(has 'CCY version bump required')"
+
+m=$(merge_repo)
+git -C "$m" switch -q -c work
+printf 'notes\n' >"$m/NOTES.txt"
+git -C "$m" add -A
+git -C "$m" commit -q --no-verify -m notes
+git -C "$m" switch -q F44
+merge_f44 "$m" 1.0.1
+git -C "$m" switch -q work
+check "a branch with no ccy change of its own merging F44 passes" "0" "$(merge_hook "$m" origin/F44)"
+
+m=$(merge_repo)
+git -C "$m" switch -q -c one
+merge_commit "$m" 1.0.1 a 1 one
+git -C "$m" switch -q -c two F44
+merge_commit "$m" 1.0.1 b 1 two
+check "two work branches at one version merge without a bump" "0" "$(merge_hook "$m" one)"
+git -C "$m" merge --abort
+merge_commit "$m" 1.0.2 b 2 c 1 two-again
+git -C "$m" switch -q one
+# The merge keeps one's side of each conflict, its version 1.0.1 included, and takes two's new c.
+check "…but never below a parent's version" "1 yes" \
+    "$(merge_hook "$m" -X ours two) $(has 'CCY_VERSION 1.0.1 in the merge is below 1.0.2')"
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

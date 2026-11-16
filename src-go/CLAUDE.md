@@ -638,6 +638,13 @@ mode against the tip of the protected line the branch contains (a pull request: 
 policy is `scripts/branch-policy.toml`; git goes through `qa/internal/proc`, faked in the unit
 tests. Not a gate.
 
+`qa/ccyversionbase` + `qa/cmd/qa-ccy-version-base` (same nested module) are
+`scripts/qa-ccy-version-base.bash`, which the `pre-commit` hook runs during a merge: it names the
+commit the ccy version gates judge the merge against (its parent on a protected line of
+`scripts/branch-policy.toml`, or none for two work branches) and refuses a merge whose
+`CCY_VERSION` or container LABEL is below a parent's (issue #298, B1-B7 in its package doc). The
+rule is [ContainerRules.md](../CLAUDE/ContainerRules.md#ccy-version-bump-requirement).
+
 `internal/testchild` (and its QA-module twin `qa/internal/testchild`) is how a test reads the
 stderr of a child that is its own test binary: without the `program not built with -cover` line
 a `-cover` build with no instrumented package writes (rule `project_self_child_stderr`).

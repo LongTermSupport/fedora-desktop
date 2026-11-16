@@ -84,6 +84,13 @@ CCY_VERSION="3.0.0"  # Removed sessions, simplified state management
 CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 ```
 
+**A merge** is judged against its parent on the protected line, not against HEAD: a ccy version
+names a release on F44, not a commit (issue #298). Both versions (`CCY_VERSION` and the container
+version) must be at least every parent's, and above the F44 parent's when the merge's ccy files
+differ from that parent's. A merge of two work branches owes no bump: it is made when the work
+lands on F44. `scripts/qa-ccy-version-base.bash` (Go, `src-go/qa/ccyversionbase`) names the base
+for the `pre-commit` hook and refuses a version below a parent's.
+
 **What happens if you forget:**
 
 - Pre-commit hook will **REJECT** the commit
