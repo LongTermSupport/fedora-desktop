@@ -1092,6 +1092,12 @@ func TestAChangedPythonFileRunsTheWalkOpenRuleOnThatFile(t *testing.T) {
 	assertPerFilePythonCheck(t, "walk-open-files", "walk-open", "helpers/play_ledger/group_vars.py")
 }
 
+// A changed Python file (by name or shebang) runs the stdin-wait rule over that file only;
+// JavaScript, shell and deleted files do not.
+func TestAChangedPythonFileRunsTheStdinWaitRuleOnThatFile(t *testing.T) {
+	assertPerFilePythonCheck(t, "stdin-wait-files", "stdin-wait", "helpers/pingbus/cli.py")
+}
+
 // assertPerFilePythonCheck holds a per-file Python gate check: a changed .py file and an
 // extensionless Python script each get exactly themselves as its items and never the whole gate;
 // a JavaScript file, a shell script and a deleted Python file get no such check.

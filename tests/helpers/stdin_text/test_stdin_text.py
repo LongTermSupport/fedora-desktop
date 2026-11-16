@@ -105,6 +105,12 @@ class TestRead(unittest.TestCase):
         got = stdin_text.read(io.BytesIO(b"in memory"), prog="tool", err=self.err, wait=_Waits())
         self.assertEqual(got, b"in memory")
 
+    def test_a_text_stream_reads_as_text(self) -> None:
+        pipe = _Pipe(self, b"line one\nline two\n", close_writer=True)
+        with os.fdopen(os.dup(pipe.stream.fileno()), "r", encoding="utf-8") as text:
+            self.assertEqual(stdin_text.read_line(text, prog="tool", err=self.err, wait=_Waits(True)),
+                             "line one\n")
+
     def test_text_is_utf8_with_the_reads_bounds(self) -> None:
         pipe = _Pipe(self, "café\n".encode(), close_writer=True)
         self.assertEqual(stdin_text.read_text(pipe.stream, prog="tool", err=self.err, wait=_Waits(True)),

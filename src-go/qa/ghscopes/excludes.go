@@ -5,26 +5,15 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"regexp"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/qatrees"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // excludes are the rule's own paths.exclude globs: files semgrep drops without saying so.
-type excludes []*regexp.Regexp
-
-// matches is whether a path is dropped by some glob.
-func (e excludes) matches(path string) bool {
-	for _, re := range e {
-		if re.MatchString(path) {
-			return true
-		}
-	}
-	return false
-}
+type excludes = semgrepreport.Excludes
 
 // scope is what the gate leaves unread on purpose: every file scripts/qa-trees.tsv keeps out of
 // all gates (the daemon-deployed files, vendored trees, the semgrep fixtures), which is never
@@ -97,49 +86,16 @@ func parseExcludes(name, rule string) (excludes, error) {
 	if err := yaml.Unmarshal([]byte(rule), &doc); err != nil {
 		return nil, fmt.Errorf("cannot decode %s: %w", name, err)
 	}
-	var out excludes
+	var globs []string
 	for _, r := range doc.Rules {
-		for _, glob := range r.Paths.Exclude {
-			re, err := regexp.Compile(globRegexp(glob))
-			if err != nil {
-				return nil, fmt.Errorf("cannot read the exclude %q in %s: %w", glob, name, err)
-			}
-			out = append(out, re)
-		}
+		globs = append(globs, r.Paths.Exclude...)
 	}
-	if len(out) == 0 {
+	if len(globs) == 0 {
 		return nil, errors.New(name + " declares no paths.exclude list; the coverage check is built around the rule's own excludes")
 	}
+	out, err := semgrepreport.CompileExcludes(globs)
+	if err != nil {
+		return nil, fmt.Errorf("in %s: %w", name, err)
+	}
 	return out, nil
-}
-
-// globRegexp turns a semgrep path glob into an expression that matches the way a gitignore
-// pattern does: at any depth, unless the glob starts with `/`, which anchors it to the root.
-// `*` stays within a path segment, `**` crosses segments and `**/` may match no directory.
-func globRegexp(glob string) string {
-	var b strings.Builder
-	if rooted, ok := strings.CutPrefix(glob, "/"); ok {
-		glob = rooted
-		b.WriteString("^")
-	} else {
-		b.WriteString("^(?:.*/)?")
-	}
-	for i := 0; i < len(glob); i++ {
-		switch {
-		case strings.HasPrefix(glob[i:], "**/"):
-			b.WriteString("(?:.*/)?")
-			i += 2
-		case strings.HasPrefix(glob[i:], "**"):
-			b.WriteString(".*")
-			i++
-		case glob[i] == '*':
-			b.WriteString("[^/]*")
-		case glob[i] == '?':
-			b.WriteString("[^/]")
-		default:
-			b.WriteString(regexp.QuoteMeta(glob[i : i+1]))
-		}
-	}
-	b.WriteString("$")
-	return b.String()
 }

@@ -130,7 +130,7 @@ func openedOf(excluded, handed []string, rule excludes, stillScans []string) ([]
 	var opened, stillScanned []string
 	for _, rel := range excluded {
 		switch {
-		case !slices.Contains(handed, rel) || rule.matches(rel):
+		case !slices.Contains(handed, rel) || rule.Matches(rel):
 		case inRow(rel, stillScans):
 			stillScanned = append(stillScanned, rel)
 		default:

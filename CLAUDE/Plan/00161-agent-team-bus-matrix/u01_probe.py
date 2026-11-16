@@ -51,6 +51,7 @@ import argparse
 import dataclasses
 import datetime
 import fnmatch
+import importlib
 import json
 import os
 import pathlib
@@ -69,6 +70,9 @@ from typing import Any
 import triage_probe as tp
 
 SCRIPT = pathlib.Path(__file__).resolve()
+if str(SCRIPT.parents[3]) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parents[3]))
+stdin_text = importlib.import_module("helpers.stdin_text.stdin_text")
 PLUGIN_NAME = "u01probe"
 HOOK_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd")
 MODEL = "haiku"
@@ -616,7 +620,7 @@ def writer_main(evidence: pathlib.Path) -> int:
 
 
 def hook_main(evidence: pathlib.Path, event: str) -> int:
-    record = mark_record(event, sys.stdin.read(), dict(os.environ), time.time())
+    record = mark_record(event, stdin_text.read(sys.stdin, prog="u01_probe hook"), dict(os.environ), time.time())
     with (evidence / "marks" / f"{event}.jsonl").open("a", encoding="utf-8") as marks:
         marks.write(json.dumps(record) + "\n")
     if event != "SessionStart":

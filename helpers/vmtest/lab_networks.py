@@ -22,6 +22,8 @@ import json
 import re
 import sys
 
+from helpers.stdin_text import stdin_text
+
 VARIABLE = "vm_test_lab_networks"
 _NAME_RE = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 _MIN_PREFIX = 8
@@ -92,7 +94,7 @@ def env_text(networks: dict[str, ipaddress.IPv4Network]) -> str:
 def main(argv: list[str] | None = None) -> int:
     del argv
     try:
-        payload = json.loads(sys.stdin.read())
+        payload = json.loads(stdin_text.read(sys.stdin, prog="lab_networks"))
         if not isinstance(payload, dict) or sorted(payload) != ["networks", "routes"]:
             raise LabNetworksError('the input must be {"networks": {...}, "routes": [...]}')
         text = env_text(check(payload["networks"], payload["routes"]))

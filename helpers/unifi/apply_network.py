@@ -33,6 +33,7 @@ import sys
 
 from helpers.unifi.client import UnifiClient
 from helpers.unifi.desired import DesiredStateError, plan_adoptions, plan_changes, unsettled
+from helpers.stdin_text import stdin_text
 
 DEFAULT_URL = "https://localhost:8443"
 DEFAULT_USER = "unifi-admin"
@@ -49,7 +50,7 @@ def main(argv, stdin, stdout, stderr, client_factory=UnifiClient):
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
 
-    password = stdin.readline().removesuffix("\n")
+    password = stdin_text.read_line(stdin, prog=parser.prog).removesuffix("\n")
     if not password:
         print("no UniFi admin password on the first line of stdin; the play passes the vaulted"
               " password there, before the desired state", file=stderr)

@@ -88,6 +88,15 @@ and `semgrep`, both through `qa/internal/proc`.
   JavaScript, `.py` Python; with any other name (or none) a first line whose interpreter is
   Python (`discovery.PythonShebang`: `python`, `python3.12`, through `env -S`; not
   `sh -c 'exec python'`, not a mention in a comment) is Python. Any other file is exit 2, `ERROR: <path> is neither JavaScript nor Python`.
+- S10a. **The rules' own excludes.** A file that every rule of its language excludes by its
+  `paths.exclude` (matched as semgrep matches it, `semgrepreport.CompileExcludes`) is not handed
+  over, in the default scope and the named scope alike: semgrep would drop it unread, and S15
+  would then refuse the pass. A rule's exclusion is its own, stated in its rule file with the
+  reason; a `paths.exclude` that is not a list of strings is exit 2. A named file left out is said
+  on stdout, `<path>: not judged: the rules of <rule file> exclude it (paths.exclude)`, so a
+  named run never passes silently over what it was given. A language left with no file this way
+  is not scanned (S11), and a named run left with none reports `passed: 0 failed: 0`; the default
+  scope's S9 count is taken before it.
 - S11. **Rules by language.** semgrep applies a rule to an extensionless file only under
   `--scan-unknown-extensions`, and then applies every rule whatever its language. So each language
   is its own scan with a rule file holding only that language's rules, written (mode 0600, with the

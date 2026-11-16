@@ -87,6 +87,7 @@ def _pingbus(name: str) -> object:
 matrix = _pingbus("matrix")
 config = _pingbus("config")
 protocol = _pingbus("protocol")
+stdin_text = importlib.import_module("helpers.stdin_text.stdin_text")
 
 
 class Refused(Exception):
@@ -146,7 +147,9 @@ def _read_stdin_text(stdin: TextIO) -> str:
     """Stdin whole, one trailing newline dropped. Read as bytes where there are bytes, so a
     carriage return in a body is sent, not turned into a newline."""
     raw = getattr(stdin, "buffer", None)
-    text = raw.read().decode("utf-8") if raw is not None else stdin.read()
+    source = raw if raw is not None else stdin
+    read = stdin_text.read(source, prog="bus_human")
+    text = read.decode("utf-8") if isinstance(read, bytes) else read
     return text[:-1] if text.endswith("\n") else text
 
 

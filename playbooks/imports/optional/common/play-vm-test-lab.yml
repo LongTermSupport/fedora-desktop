@@ -170,6 +170,24 @@
         {{ lookup('ansible.builtin.fileglob', root_dir ~ '/helpers/vmtest/*.py', wantlist=true)
            | map('basename') | reject('equalto', 'request.py') | sort }}
 
+    # The vmtest modules read stdin through helpers/stdin_text (issue #260), so it is deployed
+    # beside them; without it the deployed copies fail to import.
+    - name: Ensure ccy-helpers stdin_text library directory exists
+      ansible.builtin.file:
+        path: /usr/local/lib/ccy-helpers/helpers/stdin_text
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy the stdin reader the vmtest modules import
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/helpers/stdin_text/stdin_text.py"
+        dest: /usr/local/lib/ccy-helpers/helpers/stdin_text/stdin_text.py
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Ensure user local bin directory exists
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.local/bin"

@@ -30,6 +30,7 @@ from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import admin, checkout, health, registry, render, screen, teamfile
 from helpers.pingbus import config, inbox, protocol
+from helpers.stdin_text import stdin_text
 
 PROG = "agent-bus"
 TOOL_VERSION = "0.1.0"
@@ -163,7 +164,7 @@ def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Trans
 
 def _stdin_team_file(io: _Io) -> teamfile.TeamFile:
     try:
-        data = teamfile.decode_strict_json(io.stdin.read())
+        data = teamfile.decode_strict_json(stdin_text.read(io.stdin, prog=PROG, err=io.stderr))
     except ValueError as exc:
         raise teamfile.TeamFileError(f"team file: not valid JSON: {exc}") from None
     return teamfile.parse_team_file(data)

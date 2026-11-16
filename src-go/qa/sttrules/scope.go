@@ -71,7 +71,26 @@ func (g *gate) discover(list string) ([]string, error) {
 	return files, nil
 }
 
-// named sorts the named files by language. A named file is judged wherever it lives.
+// withoutExcluded drops the files every rule of their language excludes, which semgrep would drop
+// unread (S10a). A named file dropped this way is said on stdout, so a named run never passes
+// silently over a file it was given.
+func (g *gate) withoutExcluded(set ruleSet, sets fileSets, named bool) fileSets {
+	kept := fileSets{}
+	for _, lang := range g.spec.languages {
+		for _, rel := range sets[lang] {
+			switch {
+			case !set.excluded(lang, rel):
+				kept[lang] = append(kept[lang], rel)
+			case named:
+				fmt.Fprintf(&g.stdout, "%s: not judged: the rules of %s exclude it (paths.exclude)\n", rel, g.spec.ruleFile)
+			}
+		}
+	}
+	return kept
+}
+
+// named sorts the named files by language. A named file is judged wherever it lives, unless the
+// rules themselves exclude it (withoutExcluded).
 func (g *gate) named(paths []string) (fileSets, error) {
 	sets := fileSets{}
 	seen := map[string]bool{}

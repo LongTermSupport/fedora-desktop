@@ -11,6 +11,8 @@ fake homeserver, as test_cli.
 
 from __future__ import annotations
 
+import io
+import os
 import pathlib
 import sys
 import unittest
@@ -22,6 +24,20 @@ from tests.helpers.pingbus import test_cli as bus
 
 QUESTION = "Pick the cost limit\nContext: the nightly run costs money.\nQuestion: what is the cap?"
 OTHER = "Pick a branch\nContext: two branches are open.\nQuestion: which one ships?"
+
+
+class _Unreadable(io.BytesIO):
+    """A stdin that fails the test if anything reads it."""
+
+    def read(self, *_args) -> bytes:
+        raise AssertionError("stdin was read")
+
+    readline = read
+
+
+class _Terminal(io.BytesIO):
+    def isatty(self) -> bool:
+        return True
 
 
 class RoomsCase(bus.BusCase):
@@ -225,6 +241,39 @@ class ThreadTest(RoomsCase):
         code, out, _ = self.run_cli("questions")
         self.assertEqual((code, self.lines(out, "QUESTION")), (cli.EXIT_OK, []))
         self.assertEqual(self.lines(self.run_cli("questions", "--all")[1], "QUESTION")[0][4], "closed")
+
+    def test_close_reads_no_stdin(self):
+        """Issue #260: run with no input in an agent's shell, stdin is an open pipe that never
+        ends, so a close that read it waited for ever. A close with no note never touches it."""
+        code, _, err = self.run_cli("thread", "Q1", "--close", stdin=_Unreadable())
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.side_contents(self.questions)[-1][protocol.QUESTION_STATE_KEY]["state"], "closed")
+
+    def test_close_with_note_reads_the_note_from_stdin(self):
+        code, _, err = self.run_cli("thread", "Q1", "--close", "--note", "-", stdin="Settled: 40")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        content = self.side_contents(self.questions)[-1]
+        self.assertEqual(content[protocol.QUESTION_STATE_KEY]["state"], "closed")
+        self.assertIn("Settled: 40", content["body"])
+
+    def test_a_note_is_given_only_as_stdin_and_only_with_close(self):
+        self.assertEqual(self.run_cli("thread", "Q1", "--note", "-", stdin="x")[0], cli.EXIT_USAGE)
+        self.assertEqual(self.run_cli("thread", "Q1", "--close", "--note", "file.txt")[0], cli.EXIT_USAGE)
+
+    def test_a_post_refuses_a_terminal_at_once(self):
+        code, _, err = self.run_cli("thread", "Q1", stdin=_Terminal(b"typed"))
+        self.assertEqual(code, cli.EXIT_USAGE)
+        self.assertIn("terminal", err)
+
+    def test_a_post_with_no_input_says_so_then_gives_up(self):
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, write_fd)
+        with os.fdopen(read_fd, "rb") as stream:
+            code, _, err = self.run_cli("thread", "Q1", stdin=stream, stdin_wait=lambda fd, timeout: False)
+        self.assertEqual(code, cli.EXIT_USAGE)
+        self.assertIn("waiting for input on stdin", err)
+        self.assertIn("no input arrived on stdin within 60 s", err)
+        self.assertEqual(self.side_contents(self.questions)[-1][protocol.QUESTION_KEY]["n"], 1)
 
     def test_re_answers_an_unattached_message(self):
         loose = self.answer("by the way, the budget moved")

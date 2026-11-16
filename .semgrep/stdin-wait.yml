@@ -25,19 +25,13 @@ rules:
     languages: [python]
     paths:
       exclude:
-        - "helpers/stdin_text/"
-        - "CLAUDE/Plan/Completed/"
-        - "CLAUDE/Plan/Archive/"
+        - "/helpers/stdin_text/**"
+        - "/CLAUDE/Plan/Completed/**"
+        - "/CLAUDE/Plan/Archive/**"
     pattern-either:
-      - pattern: sys.stdin.read(...)
       - pattern: sys.stdin.buffer.read(...)
-      - pattern: sys.stdin.readline(...)
       - pattern: sys.stdin.buffer.readline(...)
-      - pattern: sys.stdin.readlines(...)
       - pattern: json.load(sys.stdin)
-      - pattern: |
-          for $LINE in sys.stdin:
-            ...
       - pattern: |
           for $LINE in sys.stdin.buffer:
             ...

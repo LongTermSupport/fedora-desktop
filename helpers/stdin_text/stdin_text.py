@@ -14,7 +14,7 @@ from __future__ import annotations
 import select
 import sys
 from collections.abc import Callable
-from typing import BinaryIO, TextIO
+from typing import IO, AnyStr, BinaryIO, TextIO
 
 #: How long nothing may arrive before the reader says it is waiting.
 NOTICE_AFTER_S = 1.0
@@ -33,7 +33,7 @@ def readable(fd: int, timeout_s: float) -> bool:
     return bool(ready)
 
 
-def _descriptor(stream: BinaryIO) -> int | None:
+def _descriptor(stream: IO[AnyStr]) -> int | None:
     """The stream's descriptor, or None for one with none (an in-memory stream in a test)."""
     try:
         return stream.fileno()
@@ -41,7 +41,7 @@ def _descriptor(stream: BinaryIO) -> int | None:
         return None
 
 
-def _await(stream: BinaryIO, *, prog: str, err: TextIO, give_up_s: float | None,
+def _await(stream: IO[AnyStr], *, prog: str, err: TextIO, give_up_s: float | None,
            refuse_terminal: bool, wait: Wait) -> None:
     if refuse_terminal and stream.isatty():
         raise NoInput("stdin is a terminal; give the input with a pipe or a file (< FILE)")
@@ -55,17 +55,17 @@ def _await(stream: BinaryIO, *, prog: str, err: TextIO, give_up_s: float | None,
         raise NoInput(f"no input arrived on stdin within {give_up_s:g} s")
 
 
-def read(stream: BinaryIO, *, prog: str, err: TextIO = sys.stderr, limit: int = -1,
+def read(stream: IO[AnyStr], *, prog: str, err: TextIO = sys.stderr, limit: int = -1,
          give_up_s: float | None = None, refuse_terminal: bool = False,
-         wait: Wait = readable) -> bytes:
-    """Up to `limit` bytes of `stream` (all of it for -1), to end of input."""
+         wait: Wait = readable) -> AnyStr:
+    """Up to `limit` bytes (characters, of a text stream) of `stream`, all of it for -1."""
     _await(stream, prog=prog, err=err, give_up_s=give_up_s, refuse_terminal=refuse_terminal, wait=wait)
     return stream.read(limit)
 
 
-def read_line(stream: BinaryIO, *, prog: str, err: TextIO = sys.stderr, limit: int = -1,
+def read_line(stream: IO[AnyStr], *, prog: str, err: TextIO = sys.stderr, limit: int = -1,
               give_up_s: float | None = None, refuse_terminal: bool = False,
-              wait: Wait = readable) -> bytes:
+              wait: Wait = readable) -> AnyStr:
     """One line of `stream`, newline included, as a password prompt's input is read."""
     _await(stream, prog=prog, err=err, give_up_s=give_up_s, refuse_terminal=refuse_terminal, wait=wait)
     return stream.readline(limit)

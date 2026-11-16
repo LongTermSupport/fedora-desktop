@@ -51,6 +51,7 @@ from dataclasses import dataclass
 
 from helpers.agent_bus import teamfile
 from helpers.pingbus import config, protocol
+from helpers.stdin_text import stdin_text
 
 FLATPAK_APP = "im.riot.Riot"
 PROFILE_PARENT = pathlib.PurePosixPath(config.ELEMENT_FLATPAK_DIR) / "config"
@@ -464,7 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ElementError("run as the human's desktop user, not root")
         home = _running_home()
         try:
-            data = teamfile.decode_strict_json(sys.stdin.read())
+            data = teamfile.decode_strict_json(stdin_text.read(sys.stdin, prog=parser.prog))
         except ValueError as exc:
             raise ElementError(f"profiles: not valid JSON ({exc})") from None
         profiles = parse_profiles(data)

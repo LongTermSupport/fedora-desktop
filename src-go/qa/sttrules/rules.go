@@ -31,6 +31,23 @@ var nounOf = map[language]string{langJS: "JavaScript", langPy: "Python"}
 type ruleSet struct {
 	nodes map[language][]*yaml.Node
 	ids   map[language][]string
+	// excludes is each rule's paths.exclude, by language, one entry per rule.
+	excludes map[language][]semgrepreport.Excludes
+}
+
+// excluded is whether every rule of the language excludes the file, so semgrep would drop it
+// unread (S10a).
+func (set ruleSet) excluded(lang language, rel string) bool {
+	rules := set.excludes[lang]
+	if len(rules) == 0 {
+		return false
+	}
+	for _, excl := range rules {
+		if !excl.Matches(rel) {
+			return false
+		}
+	}
+	return true
 }
 
 // requireSemgrep is that semgrep runs at all; the reason it does not is part of the error.
@@ -98,14 +115,19 @@ func (s Spec) parseRules(data []byte) (ruleSet, error) {
 	if err != nil {
 		return ruleSet{}, err
 	}
-	set := ruleSet{nodes: map[language][]*yaml.Node{}, ids: map[language][]string{}}
+	set := ruleSet{nodes: map[language][]*yaml.Node{}, ids: map[language][]string{}, excludes: map[language][]semgrepreport.Excludes{}}
 	for i, rule := range list.Content {
 		id, lang, err := s.identify(rule, i+1)
 		if err != nil {
 			return ruleSet{}, err
 		}
+		excl, err := s.excludesOf(rule, id)
+		if err != nil {
+			return ruleSet{}, err
+		}
 		set.nodes[lang] = append(set.nodes[lang], rule)
 		set.ids[lang] = append(set.ids[lang], id)
+		set.excludes[lang] = append(set.excludes[lang], excl)
 	}
 	for _, lang := range s.languages {
 		if len(set.nodes[lang]) == 0 {
@@ -113,6 +135,20 @@ func (s Spec) parseRules(data []byte) (ruleSet, error) {
 		}
 	}
 	return set, nil
+}
+
+// excludesOf is a rule's paths.exclude, compiled; one written in any other shape is the rule file
+// being unusable.
+func (s Spec) excludesOf(rule *yaml.Node, id string) (semgrepreport.Excludes, error) {
+	globs, err := semgrepreport.RuleExcludes(rule)
+	if err != nil {
+		return nil, fmt.Errorf("%s: rule %s: %w", s.ruleFile, id, err)
+	}
+	excl, err := semgrepreport.CompileExcludes(globs)
+	if err != nil {
+		return nil, fmt.Errorf("%s: rule %s: %w", s.ruleFile, id, err)
+	}
+	return excl, nil
 }
 
 // rulesList is the sequence under the document's rules key.

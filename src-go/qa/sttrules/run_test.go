@@ -440,6 +440,76 @@ func TestANamedFileInAnExcludedTreeIsJudgedBecauseItWasNamed(t *testing.T) {
 	}
 }
 
+// excludingRules is rulesText with the Python rule excluding the reader tree and a single file, and
+// one JavaScript rule excluding a file the other JavaScript rule still reads.
+const excludingRules = `rules:
+  - id: model-present-without-weights
+    languages: [javascript]
+    pattern-regex: 'snap\w+'
+    message: m
+    severity: ERROR
+  - id: model-present-without-weights
+    languages: [python]
+    paths:
+      exclude:
+        - 'helpers/reader/**'
+        - '/top.py'
+    pattern-regex: 'snap\w+'
+    message: m
+    severity: ERROR
+  - id: dropdown-label-carries-explanation
+    languages: [javascript]
+    paths:
+      exclude: ['extensions/panel.js']
+    pattern-regex: 'x'
+    message: m
+    severity: ERROR
+`
+
+// S10a: a file every rule of its language excludes is never handed to semgrep, which would drop it
+// unread (and S15 would refuse the pass); one only some rules exclude is still handed over.
+func TestAFileTheRulesExcludeIsNotHandedOver(t *testing.T) {
+	w := newWorld(t, map[string]string{
+		ruleFile: excludingRules, "helpers/reader/r.py": "x = 1\n", "top.py": "x = 1\n", "sub/top.py": "x = 1\n",
+	})
+	w.wantExit(ExitOK, w.run())
+	want := []string{"extensions/panel.js", "helpers/mod.py", "sub/top.py"}
+	if got := w.fake.handedFiles(); !slices.Equal(got, want) {
+		t.Fatalf("handed %v, want %v", got, want)
+	}
+	if strings.Contains(w.stdout.String(), "not judged") {
+		t.Fatalf("the default scope named an excluded file:\n%s", w.stdout.String())
+	}
+}
+
+// S10a: a named file the rules exclude is left out and said so; a run left with nothing to scan
+// scans nothing and passes over nothing it was not told about.
+func TestANamedFileTheRulesExcludeIsLeftOutAndSaidSo(t *testing.T) {
+	w := newWorld(t, map[string]string{ruleFile: excludingRules, "helpers/reader/r.py": "x = 1\n"})
+	w.wantExit(ExitOK, w.run("helpers/reader/r.py", "helpers/mod.py"))
+	if got := w.fake.handedFiles(); !slices.Equal(got, []string{"helpers/mod.py"}) {
+		t.Fatalf("handed %v", got)
+	}
+	w.wantStdout("helpers/reader/r.py: not judged: the rules of "+ruleFile+" exclude it (paths.exclude)\n", "passed: 1 failed: 0\n")
+	w = newWorld(t, map[string]string{ruleFile: excludingRules, "helpers/reader/r.py": "x = 1\n"})
+	w.wantExit(ExitOK, w.run("helpers/reader/r.py"))
+	if len(w.fake.scans()) != 0 {
+		t.Fatalf("scanned %v", w.fake.scans())
+	}
+	w.wantStdout("helpers/reader/r.py: not judged", "passed: 0 failed: 0\n")
+}
+
+// S10a: an exclude list that is not a list of strings is the rule file being unusable, exit 2.
+func TestAnExcludeThatIsNotAListOfStringsIsExitTwo(t *testing.T) {
+	bad := strings.Replace(excludingRules, "exclude: ['extensions/panel.js']", "exclude: extensions/panel.js", 1)
+	w := newWorld(t, map[string]string{ruleFile: bad})
+	w.wantExit(ExitCannotRun, w.run())
+	w.wantStderr("ERROR: "+ruleFile, "paths.exclude is not a list")
+	if len(w.fake.scans()) != 0 {
+		t.Fatal("a scan ran")
+	}
+}
+
 // S10
 func TestNamedPathsAreMadeRelativeAndJudgedOnce(t *testing.T) {
 	w := newWorld(t, nil)
