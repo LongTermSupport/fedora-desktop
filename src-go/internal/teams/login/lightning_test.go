@@ -25,7 +25,7 @@ func (h rig) alphaLightning() string {
 // after it.
 func (h rig) onLightning(t *testing.T, entries string) {
 	t.Helper()
-	text := teamtest.HostVarsAlpha + "agent_bus_matrix_client: lightning\n"
+	text := teamtest.HostVarsAlphaOn("lightning")
 	if entries != "" {
 		text += "agent_bus_element_teams:\n" + entries
 	}
@@ -295,7 +295,7 @@ func TestClientNameReportsWhyTheClientCouldNotBeRead(t *testing.T) {
 	if got := h.l.ClientName(t.Context(), "alpha"); got != "Lightning" {
 		t.Fatalf("got %q", got)
 	}
-	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_matrix_client: nheko\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlphaOn("nheko"))
 	if got := h.l.ClientName(t.Context(), "alpha"); got != "its Matrix client" {
 		t.Fatalf("got %q", got)
 	}

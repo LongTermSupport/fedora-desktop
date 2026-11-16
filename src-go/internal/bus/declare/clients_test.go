@@ -82,8 +82,8 @@ func TestMatrixClientsRefusesATaggedValue(t *testing.T) {
 
 // A commented or nested key of the same name is not the setting.
 func TestMatrixClientsReadsOnlyTheTopLevelKey(t *testing.T) {
-	got, err := HostVars("# agent_bus_matrix_client: lightning\nother:\n  agent_bus_matrix_client: lightning\n").MatrixClients()
-	if err != nil || got.Default != ClientElement {
+	got, err := HostVars("# agent_bus_matrix_client: element\nother:\n  agent_bus_matrix_client: element\n").MatrixClients()
+	if err != nil || got.Default != ClientLightning {
 		t.Fatalf("%+v %v", got, err)
 	}
 }

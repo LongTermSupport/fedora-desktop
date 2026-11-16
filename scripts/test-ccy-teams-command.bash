@@ -516,7 +516,9 @@ check "the sudoers template grants exactly two read-only commands" \
 HOME_DIR="$SCRATCH/home"
 mkdir -p "$HOME_DIR"
 HOST_VARS="$SCRATCH/localhost.yml"
+# The machine chose Element (agent_bus_matrix_client), so the Element flows are what open.
 cat >"$HOST_VARS" <<'EOF'
+agent_bus_matrix_client: element
 agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: alpha
@@ -1232,7 +1234,7 @@ NO_TEAMS="$SCRATCH/no-teams.yml"
 fresh_no_teams() {
     reset
     : >"$STATE/units"
-    printf 'agent_bus_address: 192.0.2.10\n' >"$NO_TEAMS"
+    printf 'agent_bus_matrix_client: element\nagent_bus_address: 192.0.2.10\n' >"$NO_TEAMS"
     rm -f "$STATE/applied/"*
 }
 
@@ -1322,7 +1324,7 @@ check_has "  the summary says so in words" "everything example-org owns: any rep
 
 # No bus address declared yet: asked for (a bad one refused, bounded), then declared with the team.
 fresh_no_teams
-printf 'user_login: someone\n' >"$NO_TEAMS"
+printf 'agent_bus_matrix_client: element\nuser_login: someone\n' >"$NO_TEAMS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER '=Builds the example site' ENTER ENTER \
     '=not-an-ip' '=192.0.2.10' YES NO NO NO)")"
 check "no bus address: asked for, and the team is created" "rc=0" "$(rc_of "$out")"
@@ -1358,6 +1360,7 @@ check_has "  the summary names them" "only these repositories, on any branch: ex
 # The old default path limit: offered once, removed through declare.py, and applied.
 fresh_no_teams
 cat >"$NO_TEAMS" <<'EOF'
+agent_bus_matrix_client: element
 agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: legacy
@@ -1381,6 +1384,7 @@ check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
 check "  then applied" "yes" "$(logged "$(played_for "$NO_TEAMS" legacy)")"
 fresh_no_teams
 cat >"$NO_TEAMS" <<'EOF'
+agent_bus_matrix_client: element
 agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: legacy
@@ -1409,6 +1413,7 @@ check "  and after never, not offered again" "no" "$(logged "limit, so any path"
 echo "== a checkout no team covers"
 fresh_no_teams
 cat >"$NO_TEAMS" <<'EOF'
+agent_bus_matrix_client: element
 agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: elsewhere

@@ -168,7 +168,7 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 ### Phase 5: Per-team instance, launcher and pre-filled config
 
 - [x] ✅ **Task 5.1** ([DESIGN-client-choice.md](DESIGN-client-choice.md); the code default
-  stays `element` until Task 7.1 changes it, so a host that sets nothing is unchanged): Design note (owner decision **D3**, decided 2026-11-15): one home-level
+  is `lightning` from Task 7.1, `element` before it): Design note (owner decision **D3**, decided 2026-11-15): one home-level
   setting picks the Matrix client for every team, `agent_bus_matrix_client` (default
   `lightning`, or `element`), and a team's host vars may override it with its own `client:`.
   There is no second `agent_bus_lightning_teams` list. Write it as a short DESIGN section in
@@ -205,7 +205,7 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   check reads no client data root: the count is of sessions on the team's homeserver, from any
   client, and every text that shows it says so. No data root can say whether Lightning is
   signed in: both clients keep the token in the keyring, and the play writes the instance's
-  folders before Lightning first opens. The default stays Element until Task 7.1): In
+  folders before Lightning first opens. The default is Lightning from Task 7.1): In
   `src-go/internal/teams/ops` and `.../picker`, "Open the team" and "Open every team, a window
   each" launch the launcher of the client the team resolves to. Tests through the existing
   fakes.
@@ -219,10 +219,14 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
 
 ### Phase 7: Switch the default
 
-- [ ] ⬜ **Task 7.1** (held: built on a work branch and landed only when BOTH gates are met,
-  (a) a Lightning release carrying the thread-root fix is on Flathub (Task 2.5), and (b) this
-  plan's `acceptance.bash` has passed on the host for at least one team set to `lightning`;
-  ordered by the team coordinator on 2026-11-15): Default client becomes Lightning in the host
+- [ ] 🔄 **Task 7.1** (done in code on the work branch `lightning-default-client`, held: it
+  lands only when BOTH gates are met, (a) a Lightning release carrying the thread-root fix is
+  on Flathub (Task 2.5), and (b) this plan's `acceptance.bash` has passed on the host for at
+  least one team set to `lightning`; ordered by the team coordinator on 2026-11-15. The default
+  is `ClientLightning` in `declare.HostVars.MatrixClients`, `default('lightning')` in the play,
+  `DEFAULT_CLIENT` in `acceptance_lightning.py`, all held by the shared `client-cases.json`; the
+  ccy-teams fake machine and its bash suite now say `agent_bus_matrix_client: element`, so the
+  Element flows they test are still what opens): Default client becomes Lightning in the host
   vars defaults, `localhost.yml.dist`, ccy-teams and the docs (`docs/playbooks.md` and the
   agent-bus docs); Element remains selectable and its plays unchanged.
 - [ ] 🔄 **Task 7.1a** (done in code, not established on a host: `lightning.HoldsAccount`, L15,

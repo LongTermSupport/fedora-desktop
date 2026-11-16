@@ -12,7 +12,7 @@
 # WHICH TEAMS: acceptance_lightning.py reads environment/localhost/host_vars/localhost.yml
 # through the play's own readers (helpers.agent_bus.declare for the lists, element.py's
 # parse_profiles for the entries) and resolves each team's client as the play does: its
-# client:, else agent_bus_matrix_client, else element; a team declared absent is left out.
+# client:, else agent_bus_matrix_client, else lightning; a team declared absent is left out.
 # It refuses a user holding ~/.config/pingbus/ bundles, by element.py's check_user.
 #
 # CHECKS, for each lightning team (each named by team and file when it fails):

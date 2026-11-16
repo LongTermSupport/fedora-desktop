@@ -469,7 +469,7 @@ func sessionCount(n int) string {
 }
 
 // clientOf is the Matrix client team opens in (Plan 00254 DESIGN-client-choice.md: its own
-// client, else agent_bus_matrix_client, else Element), read from the host_vars now. When it
+// client, else agent_bus_matrix_client, else Lightning), read from the host_vars now. When it
 // cannot be read the reason is said and the flow ends with a failure.
 func (l *Login) clientOf(ctx context.Context, team string) (ops.Client, error) {
 	c, err := l.Ops.ClientOf(ctx, team)

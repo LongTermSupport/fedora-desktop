@@ -122,6 +122,7 @@ func TestTheElementPlayRunsInsideTheSameHold(t *testing.T) {
 
 func TestRunElementPlayAloneTakesTheLockItself(t *testing.T) {
 	r := newOpsRig(t)
+	r.declareElement(t, "beta")
 	r.on(opsElementPlay, execx.Result{})
 	r.files[r.home+"/.local/share/applications/agent-bus-beta-element.desktop"] = true
 	if err := r.ops.RunElementPlay(t.Context(), []string{"beta"}); err != nil {

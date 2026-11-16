@@ -4,7 +4,7 @@
 # a desktop whose human watches a team runs it.
 #
 # agent_bus_element_teams is the teams this desktop's human watches, whatever the client. Each
-# team opens in its own client:, else agent_bus_matrix_client, else element (Plan 00254
+# team opens in its own client:, else agent_bus_matrix_client, else lightning (Plan 00254
 # DESIGN-client-choice.md); the first read-only task refuses any other value, and each
 # client's steps get the whole list with client on every entry.
 #
@@ -42,11 +42,11 @@
     audience: developer   # all | developer — see CLAUDE/AnsibleStyle.md
     agent_bus_element_declared: "{{ agent_bus_element_teams | default([]) }}"
     # The Matrix client each team opens in (Plan 00254 DESIGN-client-choice.md): the team's own
-    # client, else the home-level agent_bus_matrix_client, else element. The first read-only
+    # client, else the home-level agent_bus_matrix_client, else lightning. The first read-only
     # task refuses any other value; each client's steps then get the whole list, with client on
     # every entry, so each can tell a team moved to the other client from one not declared.
     agent_bus_matrix_clients: [element, lightning]
-    agent_bus_matrix_client_default: "{{ agent_bus_matrix_client | default('element') }}"
+    agent_bus_matrix_client_default: "{{ agent_bus_matrix_client | default('lightning') }}"
     # A team ccy-teams remove declared absent keeps its entry here (so it comes back with its
     # team) but gets no profile: the helper removes the launcher and profile of every team it
     # wrote one for that this list does not name, and never one this list names.

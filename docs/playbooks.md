@@ -871,7 +871,7 @@ Element Desktop for watching an agent team bus (Plan 00161):
   team's homeserver and an "<team> team (Element)" launcher
   (`flatpak run im.riot.Riot --profile <team>`)
 - Each team opens in its `client:` (`element` or `lightning`), else `agent_bus_matrix_client`,
-  else Element. A Lightning team gets its own instance under
+  else Lightning. A Lightning team gets its own instance under
   `~/.var/app/org.lightning_matrix.Lightning/teams/<team>/`, its homeserver pre-filled, and an
   "<team> team (Lightning)" launcher, written by the Go command `agent-bus-lightning` (tag
   `agent-bus-lightning`). A team moved to the other client loses its launcher there and keeps
