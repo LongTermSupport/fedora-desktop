@@ -642,7 +642,8 @@ tests. Not a gate.
 `scripts/qa-ccy-version-base.bash`, which the `pre-commit` hook runs during a merge: it names the
 commit the ccy version gates judge the merge against (its parent on a protected line of
 `scripts/branch-policy.toml`, or none for two work branches) and refuses a merge whose
-`CCY_VERSION` or container LABEL is below a parent's (issue #298, B1-B7 in its package doc). The
+`CCY_VERSION` or container LABEL is below a parent's (issue #298, B1-B8 in its package doc;
+`--protected-tip` serves `scripts/qa-ccy-merge-commits.bash`, CI's judgement of merge commits). The
 rule is [ContainerRules.md](../CLAUDE/ContainerRules.md#ccy-version-bump-requirement).
 
 `internal/testchild` (and its QA-module twin `qa/internal/testchild`) is how a test reads the

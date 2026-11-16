@@ -147,11 +147,17 @@ CCY_HELPER_DIR="helpers/ssh_agent_filter"
 # parent on a protected line, or empty (no bump owed) when neither parent is on one. A ccy version
 # names a release, not a commit (issue #298). scripts/qa-ccy-version-base.bash decides it, and
 # refuses a merge whose version is below a parent's; the image libraries read it as CCY_BASE.
+# git runs this hook with no arguments. pre-merge-commit and CI's merge judgement
+# (scripts/qa-ccy-merge-commits.bash) pass --ccy-version-only [--protected-tip SHA]: the version
+# gates alone, never from the environment, so no exported variable can skip the secret scan.
+ccy_only="" ccy_tip=()
+if [ "${1:-}" = --ccy-version-only ]; then ccy_only=1 ccy_tip=("${@:2}"); fi
+export CCY_BASE=""
 ccy_base=HEAD
 CCY_CHANGES=("${STAGED_CHANGE_LIST[@]}")
 if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-    ccy_base=$("${HOOK_LIB%/*}/../../qa-ccy-version-base.bash")
-    export CCY_BASE="$ccy_base"
+    ccy_base=$("${HOOK_LIB%/*}/../../qa-ccy-version-base.bash" "${ccy_tip[@]}")
+    CCY_BASE="$ccy_base"
     ccy_changes=""
     if [ -n "$ccy_base" ]; then ccy_changes=$(git diff --cached --name-only --diff-filter=ACDMRT "$ccy_base"); fi
     mapfile -t CCY_CHANGES < <(printf '%s' "$ccy_changes")
@@ -257,6 +263,9 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
     fi
 fi
 
+# pre-merge-commit (a merge git completes on its own) runs only the gates above (issue #311).
+[ -z "$ccy_only" ] || exit 0
+
 FOUND_ISSUES=0
 
 # Check each staged file
@@ -306,17 +315,10 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
         [ -z "$MATCH_LINES" ] && continue
 
         if [ $FOUND_ISSUES -eq 0 ]; then
-            echo ""
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}⚠  SENSITIVE INFORMATION DETECTED${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "This is a PUBLIC REPOSITORY. Never commit:"
-            echo "  • Personal information (names, emails, usernames)"
-            echo "  • Credentials (API keys, tokens, passwords)"
-            echo "  • Local paths with usernames"
-            echo "  • Company/infrastructure references"
-            echo ""
+            printf '%b\n' "" "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "${RED}⚠  SENSITIVE INFORMATION DETECTED${NC}" \
+                "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "" "This is a PUBLIC REPOSITORY. Never commit:" \
+                "  • Personal information (names, emails, usernames)" "  • Credentials (API keys, tokens, passwords)" \
+                "  • Local paths with usernames" "  • Company/infrastructure references" ""
         fi
 
         echo -e "${YELLOW}File: $FILE${NC}"
@@ -413,23 +415,15 @@ else
 fi
 
 if [ $FOUND_ISSUES -eq 1 ]; then
-    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${RED}COMMIT REJECTED${NC}"
-    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "Actions to take:"
-    echo "  1. For EXAMPLES, swap in a reserved placeholder (see the 'Fix:' line above):"
-    echo "       IPs    → 192.0.2.x / 198.51.100.x / 203.0.113.x   (RFC 5737)"
-    echo "       Email  → name@example.com (subdomains OK)         (RFC 2606)"
-    echo "       Host   → host.example.com / *.test / *.invalid    (RFC 2606)"
-    echo "       User   → {{ user_login }} or <user>"
-    echo "     Full schema: CLAUDE/ExampleValues.md"
-    echo "  2. For REAL secrets, remove them and use Ansible Vault; rotate if exposed."
-    echo "  3. Review CLAUDE/SecurityRules.md 'Public Repository Warning' section."
-    echo ""
-    echo "To bypass this check (NOT RECOMMENDED):"
-    echo "  git commit --no-verify"
-    echo ""
+    printf '%b\n' "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "${RED}COMMIT REJECTED${NC}" "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "" \
+        "Actions to take:" "  1. For EXAMPLES, swap in a reserved placeholder (see the 'Fix:' line above):" \
+        "       IPs    → 192.0.2.x / 198.51.100.x / 203.0.113.x   (RFC 5737)" \
+        "       Email  → name@example.com (subdomains OK)         (RFC 2606)" \
+        "       Host   → host.example.com / *.test / *.invalid    (RFC 2606)" \
+        "       User   → {{ user_login }} or <user>" "     Full schema: CLAUDE/ExampleValues.md" \
+        "  2. For REAL secrets, remove them and use Ansible Vault; rotate if exposed." \
+        "  3. Review CLAUDE/SecurityRules.md 'Public Repository Warning' section." "" \
+        "To bypass this check (NOT RECOMMENDED):" "  git commit --no-verify" ""
     exit 1
 fi
 

@@ -89,7 +89,9 @@ names a release on F44, not a commit (issue #298). Both versions (`CCY_VERSION` 
 version) must be at least every parent's, and above the F44 parent's when the merge's ccy files
 differ from that parent's. A merge of two work branches owes no bump: it is made when the work
 lands on F44. `scripts/qa-ccy-version-base.bash` (Go, `src-go/qa/ccyversionbase`) names the base
-for the `pre-commit` hook and refuses a version below a parent's.
+for the `pre-commit` hook and refuses a version below a parent's. A merge git completes without a
+conflict runs `pre-merge-commit`, which runs the same gates (issue #311), and CI judges every merge
+commit of a run the same way (`scripts/qa-ccy-merge-commits.bash`), since a local hook can be skipped.
 
 **What happens if you forget:**
 
