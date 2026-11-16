@@ -3,7 +3,8 @@
 # container version bump: a changed line that is not blank. A `#` line is skipped as a comment
 # only in code (.py, .sh, .bash, or no extension) and never as a shebang: in a SKILL.md or a .txt
 # guide it is a heading. A deletion is all `-` lines, so it counts too. With no HEAD (a first
-# commit) every file counts. Called by lib/ccy-image-staged.bash.
+# commit) every file counts. Called by lib/ccy-image-staged.bash. A merge's change is judged
+# against CCY_BASE, the pre-commit hook's base (issue #298), when it is set.
 # Usage: ccy-image-copied-changed.bash FILE...   (run from the repository root)
 set -euo pipefail
 
@@ -12,7 +13,7 @@ if ! git rev-parse -q --verify HEAD >/dev/null; then
     exit 0
 fi
 # Captured first, not piped, so a large diff cannot be cut short.
-diff=$(git diff --cached HEAD -- "$@")
+diff=$(git diff --cached "${CCY_BASE:-HEAD}" -- "$@")
 awk '
     /^diff --git / { file = $NF; sub(/^b\//, "", file); prose = (file ~ /\.[^\/]+$/ && file !~ /\.(py|sh|bash)$/); next }
     /^(---|\+\+\+) (a\/|b\/|\/dev\/null)/ { next }

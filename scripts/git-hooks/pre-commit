@@ -142,7 +142,21 @@ CCY_HELPER_DIR="helpers/ssh_agent_filter"
 # Task 4.5) carries CCY_VERSION too, from -ldflags, so its own sources demand the same bump; its
 # tests and the differential harness under it do not change the program. So does every package
 # the front builds from: lib/ccy-staged.bash asks Go (see it), and a failure ends the commit.
-CCY_STAGED_TEXT=$("${HOOK_LIB%/*}/ccy-staged.bash" "$CCY_SCRIPT" "$CCY_LIB_DIR" "$CCY_HELPER_DIR" "${STAGED_CHANGE_LIST[@]}")
+#
+# Both version gates judge a commit against ccy_base: HEAD, except in a merge, where it is the
+# parent on a protected line, or empty (no bump owed) when neither parent is on one. A ccy version
+# names a release, not a commit (issue #298). scripts/qa-ccy-version-base.bash decides it, and
+# refuses a merge whose version is below a parent's; the image libraries read it as CCY_BASE.
+ccy_base=HEAD
+CCY_CHANGES=("${STAGED_CHANGE_LIST[@]}")
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+    ccy_base=$("${HOOK_LIB%/*}/../../qa-ccy-version-base.bash")
+    export CCY_BASE="$ccy_base"
+    ccy_changes=""
+    if [ -n "$ccy_base" ]; then ccy_changes=$(git diff --cached --name-only --diff-filter=ACDMRT "$ccy_base"); fi
+    mapfile -t CCY_CHANGES < <(printf '%s' "$ccy_changes")
+fi
+CCY_STAGED_TEXT=$("${HOOK_LIB%/*}/ccy-staged.bash" "$CCY_SCRIPT" "$CCY_LIB_DIR" "$CCY_HELPER_DIR" "${CCY_CHANGES[@]}")
 mapfile -t CCY_STAGED < <(printf '%s' "$CCY_STAGED_TEXT")
 
 if [ ${#CCY_STAGED[@]} -gt 0 ]; then
@@ -156,27 +170,18 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     # here-string is a single process over a seekable temp file, so there is no
     # pipe head left to SIGPIPE.
     #
-    # CCY_VERSION lives in the launcher, so a lib-only commit cannot bump it —
-    # it has to stage the launcher too. Leaving STAGED_VERSION empty here and
-    # filling it from HEAD below is what makes that fall out: the versions
-    # compare equal, and the gate rejects.
-    STAGED_VERSION=""
-    # --quiet exits 1 when the launcher is staged: no pipe, so no SIGPIPE.
-    if ! git diff --cached --quiet -- "$CCY_SCRIPT"; then
-        ccy_staged_src=$(git show ":$CCY_SCRIPT")
-        STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
-    fi
+    # CCY_VERSION lives in the launcher, so a lib-only commit cannot bump it: the staged
+    # launcher still holds the base's version, the two compare equal, and the gate rejects.
+    ccy_staged_src=$(git show ":$CCY_SCRIPT")
+    STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
 
-    # Extract HEAD version (empty if the file does not exist in HEAD).
+    # The base's version (empty if the file does not exist there).
     HEAD_VERSION=""
-    if ccy_head_src=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null); then
+    if ccy_head_src=$(git show "$ccy_base:$CCY_SCRIPT" 2>/dev/null); then
         HEAD_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_head_src")
     fi
 
-    # A lib-only commit leaves the version exactly as HEAD has it.
-    STAGED_VERSION="${STAGED_VERSION:-$HEAD_VERSION}"
-
-    # If file exists in HEAD and version hasn't changed
+    # If file exists in the base and version hasn't changed
     if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
         # Check if any REAL code line changed (added/removed) in ANY staged CCY
         # file, ignoring the +++/--- diff headers and lines that are only
@@ -184,37 +189,17 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
         # awk succeeds iff at least one real code line remains. The diff is captured first, for
         # the reason given at the CCY_VERSION extraction above: a reader that stops at the first
         # hit SIGPIPEs a git still writing a large diff, and under pipefail the check read false.
-        ccy_diff=$(git diff --cached HEAD -- "${CCY_STAGED[@]}")
+        ccy_diff=$(git diff --cached "$ccy_base" -- "${CCY_STAGED[@]}")
         if awk '/^[+-]/ && !/^[+-][+-][+-]/ && !/^[+-][[:space:]]*(#|$)/ { found = 1; exit }
             END { exit !found }' <<<"$ccy_diff"; then
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo -e "CCY code was modified but CCY_VERSION was not bumped.\nCurrent version: $STAGED_VERSION\n"
-            echo "Staged CCY file(s):"
+            printf '%b\n' "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "${RED}COMMIT REJECTED: CCY version bump required${NC}" \
+                "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "" "CCY code was modified but CCY_VERSION was not bumped." \
+                "Current version: $STAGED_VERSION" "" "Staged CCY file(s):"
             printf '  %s\n' "${CCY_STAGED[@]}"
-            cat <<EOF
-
-The version lives in the launcher, so a lib/ change must stage
-$CCY_SCRIPT as well — the libraries are part of the same
-program and the runtime hash covers all of them.
-
-Actions to take:
-  1. Bump CCY_VERSION in $CCY_SCRIPT
-     - Patch (x.y.Z): Bug fixes, minor changes
-     - Minor (x.Y.0): New features, backward compatible
-     - Major (X.0.0): Breaking changes
-
-  2. Update the version comment to describe the change
-
-Example:
-  CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
-
-To bypass this check (NOT RECOMMENDED):
-  git commit --no-verify
-
-EOF
+            printf '%s\n' "" "Bump CCY_VERSION in $CCY_SCRIPT (patch x.y.Z for a fix, minor x.Y.0 for a feature," \
+                "major X.0.0 for a break) and describe the change in its comment. The version lives in the" \
+                "launcher, so a lib/ change stages the launcher too. In a merge it is judged against" \
+                "the parent on the protected line ($ccy_base)." ""
             exit 1
         fi
     elif [ -n "$HEAD_VERSION" ]; then
@@ -240,7 +225,7 @@ fi
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
-CCY_IMAGE_TEXT=$("${HOOK_LIB%/*}/ccy-image-staged.bash" "$CCY_CONTEXT" "${STAGED_CHANGE_LIST[@]}")
+CCY_IMAGE_TEXT=$("${HOOK_LIB%/*}/ccy-image-staged.bash" "$CCY_CONTEXT" "${CCY_CHANGES[@]}")
 mapfile -t CCY_IMAGE_STAGED < <(printf '%s' "$CCY_IMAGE_TEXT")
 
 if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
@@ -250,7 +235,7 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
     staged_launcher=$(git show ":$CCY_SCRIPT")
     STAGED_REQUIRED=$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/{print $2; exit}' <<<"$staged_launcher")
     HEAD_LABEL=""
-    if head_dockerfile=$(git show "HEAD:$CCY_DOCKERFILE" 2>/dev/null); then
+    if head_dockerfile=$(git show "$ccy_base:$CCY_DOCKERFILE" 2>/dev/null); then
         HEAD_LABEL=$(awk -F'"' '/^LABEL claude-yolo-version=/{print $2; exit}' <<<"$head_dockerfile")
     fi
     if [ "$STAGED_LABEL" != "$STAGED_REQUIRED" ]; then
@@ -260,14 +245,12 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
     fi
     if [ -n "$HEAD_LABEL" ] && [ "$STAGED_LABEL" = "$HEAD_LABEL" ]; then
         # The library lists only the files whose change needs the bump (see it).
-        echo -e "${RED}COMMIT REJECTED [CCY-IMAGE-INPUT]: CCY container version bump required${NC}"
-        echo ""
-        echo "These files are baked into the image, and a running container only"
-        echo "picks up a change through a container version bump:"
+        printf '%b\n' "${RED}COMMIT REJECTED [CCY-IMAGE-INPUT]: CCY container version bump required${NC}" "" \
+            "These files are baked into the image, and a running container only" \
+            "picks up a change through a container version bump:"
         printf '  %s\n' "${CCY_IMAGE_STAGED[@]}"
-        echo ""
-        echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and REQUIRED_CONTAINER_VERSION"
-        echo "in $CCY_SCRIPT to the same new value (currently $STAGED_LABEL), and stage both."
+        printf '%s\n' "" "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and REQUIRED_CONTAINER_VERSION" \
+            "in $CCY_SCRIPT to the same new value (currently $STAGED_LABEL), and stage both."
         exit 1
     elif [ -n "$HEAD_LABEL" ]; then
         echo "✓ CCY container version bumped: $HEAD_LABEL → $STAGED_LABEL"
