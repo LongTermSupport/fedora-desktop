@@ -2501,6 +2501,27 @@ Area D's migration files (the v1 export, the carry plan, the migration log, D 5.
 this backup: they stay where D writes them, on the same disk as the backups, so DC14's limit
 applies to them too (operations 17).
 
+##### What a backup holds
+
+A backup `N` is two halves, taken under one team lock (above), and neither is useful alone:
+
+- **The admin half**, `/var/lib/teamchat-admin/<team>/backups/<N>.tar`, root 0600. Its members,
+  in order (`backup/tar.go`): `backup.json` (the manifest: version, time, server name),
+  `team.json`, `config.toml`, `roster.json`, `rooms.json`, `admin.token`, and, from manifest
+  version 2, the team CA's `ca.crt` and `ca.key`. The TLS leaf is not carried.
+- **The homeserver's half**, Tuwunel's own database backup `N`, under
+  `/var/lib/private/teamchat/<team>/backups/` (`meta/N` and its data). The admin tar holds no
+  database; the database backup holds no admin state.
+
+BV3's `usable` flag means both halves are present. Seat files (a member's bundle, a pool seat's
+`seat.json`) are in neither half: they live with the member (n2g-D13) and are exported and
+imported on the member's side. A copy taken off the machine needs both halves, and putting one
+back on a machine that never held the team is not built (DC14; the `backup import` of issue
+#324's design is separate work). The restore drill's proof record,
+`/var/lib/teamchat-admin/restore-proof.json`, is in neither half either: it is evidence about
+the machine that ran the drill (its systemd, kernel and SELinux policy), and is never copied to
+another machine. The human page is [docs/agent-bus-backups.md](../../../docs/agent-bus-backups.md).
+
 #### 3.12.2 Restore
 
 `teamchat-admin restore --team T --backup N` (password sudo from ccy-teams), under the team lock. v1's

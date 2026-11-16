@@ -330,6 +330,7 @@ ccy --top
 - [Agent team bus: LXC members from another repository](agent-bus-lxc-members.md) — What a provisioner of LXC containers must provide for their agents to join a team on this desktop
 - [Agent team bus protocol](agent-bus-protocol.md) — Wire format, verbs, validation, limits and the `pingbus` commands
 - [Agent team bus v2: members on other networks](agent-bus-cross-network.md) — Declared networks, the team's own CA and TLS terminator, issuing a credential over ssh, Element and the CA
+- [Agent team bus v2: what a backup holds](agent-bus-backups.md) — The two halves of a team backup, what is in neither, and what a copy off the machine needs
 
 **Releases**
 
