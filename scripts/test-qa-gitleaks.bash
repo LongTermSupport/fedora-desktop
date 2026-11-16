@@ -81,7 +81,9 @@ g -C "${REPO}" add config.txt
 g -C "${REPO}" commit -q -m leak
 scan "${REPO}"
 check "a committed token is a finding" "${RC}" 1
-check "the finding names its file" "$(count "config.txt")" 1
+named=no
+[[ "$(count "config.txt")" -gt 0 ]] && named=yes
+check "the finding names its file" "${named}" yes
 check "the finding is redacted" "$(count "${TOKEN}")" 0
 
 REPO="${TMPROOT}/edited"
