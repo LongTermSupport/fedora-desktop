@@ -56,12 +56,13 @@ new_repo() {
     g -C "${repo}" commit -q -m clean
 }
 
-# scan runs the gate in a repository and prints its exit status, keeping its output in $OUT.
+# scan runs the gate in a repository, setting $RC to its exit status and $OUT to its output. It
+# is called directly, never in $(...), so both reach the caller.
 scan() {
-    local repo="$1" rc=0
+    local repo="$1"
     shift
-    OUT="$(cd "${repo}" && bash "${TOOL}" "$@" 2>&1)" || rc=$?
-    printf '%d' "${rc}"
+    RC=0
+    OUT="$(cd "${repo}" && bash "${TOOL}" "$@" 2>&1)" || RC=$?
 }
 
 # count is how many lines of $OUT hold the text.
@@ -69,7 +70,8 @@ count() { awk -v text="$1" 'index($0, text) {n++} END {print n + 0}' <<<"${OUT}"
 
 REPO="${TMPROOT}/clean"
 new_repo "${REPO}"
-check "a clean tree passes" "$(scan "${REPO}")" 0
+scan "${REPO}"
+check "a clean tree passes" "${RC}" 0
 check "a clean tree says so" "$(count "GITLEAKS-OK ")" 1
 
 REPO="${TMPROOT}/committed"
@@ -77,24 +79,29 @@ new_repo "${REPO}"
 printf 'token = "%s"\n' "${TOKEN}" >"${REPO}/config.txt"
 g -C "${REPO}" add config.txt
 g -C "${REPO}" commit -q -m leak
-check "a committed token is a finding" "$(scan "${REPO}")" 1
+scan "${REPO}"
+check "a committed token is a finding" "${RC}" 1
+check "the finding names its file" "$(count "config.txt")" 1
 check "the finding is redacted" "$(count "${TOKEN}")" 0
 
 REPO="${TMPROOT}/edited"
 new_repo "${REPO}"
 printf 'token = "%s"\n' "${TOKEN}" >>"${REPO}/notes.txt"
-check "a token in an uncommitted edit is a finding" "$(scan "${REPO}")" 1
+scan "${REPO}"
+check "a token in an uncommitted edit is a finding" "${RC}" 1
 
 REPO="${TMPROOT}/untracked"
 new_repo "${REPO}"
 printf 'token = "%s"\n' "${TOKEN}" >"${REPO}/new.txt"
-check "a token in a file git would add is a finding" "$(scan "${REPO}")" 1
+scan "${REPO}"
+check "a token in a file git would add is a finding" "${RC}" 1
 
 REPO="${TMPROOT}/ignored"
 new_repo "${REPO}"
 mkdir -p "${REPO}/untracked"
 printf 'token = "%s"\n' "${TOKEN}" >"${REPO}/untracked/scratch.txt"
-check "a token in an ignored file is not scanned" "$(scan "${REPO}")" 0
+scan "${REPO}"
+check "a token in an ignored file is not scanned" "${RC}" 0
 
 REPO="${TMPROOT}/push"
 new_repo "${REPO}"
@@ -105,12 +112,12 @@ g -C "${REPO}" commit -q -m leak
 leak="$(g -C "${REPO}" rev-parse HEAD)"
 g -C "${REPO}" rm -q config.txt
 zero="0000000000000000000000000000000000000000"
-check "push: a pushed commit with a token is a finding" \
-    "$(scan "${REPO}" push origin url <<<"refs/heads/x ${leak} refs/heads/x ${zero}")" 1
-check "push: a clean pushed commit passes" \
-    "$(scan "${REPO}" push origin url <<<"refs/heads/x ${clean} refs/heads/x ${zero}")" 0
-check "push: a deleted ref scans nothing" \
-    "$(scan "${REPO}" push origin url <<<"(delete) ${zero} refs/heads/x ${leak}")" 0
+scan "${REPO}" push origin url <<<"refs/heads/x ${leak} refs/heads/x ${zero}"
+check "push: a pushed commit with a token is a finding" "${RC}" 1
+scan "${REPO}" push origin url <<<"refs/heads/x ${clean} refs/heads/x ${zero}"
+check "push: a clean pushed commit passes" "${RC}" 0
+scan "${REPO}" push origin url <<<"(delete) ${zero} refs/heads/x ${leak}"
+check "push: a deleted ref scans nothing" "${RC}" 0
 
 REPO="${TMPROOT}/nogitleaks"
 new_repo "${REPO}"
@@ -119,8 +126,10 @@ mkdir -p "${nopath}"
 for tool in git bash mktemp tar rm cat dirname; do
     ln -s "$(command -v "${tool}")" "${nopath}/${tool}"
 done
-check "no gitleaks is exit 2" "$(PATH="${nopath}" scan "${REPO}")" 2
-check "bad usage is exit 2" "$(scan "${REPO}" sideways)" 2
+PATH="${nopath}" scan "${REPO}"
+check "no gitleaks is exit 2" "${RC}" 2
+scan "${REPO}" sideways
+check "bad usage is exit 2" "${RC}" 2
 
 printf '\npassed: %d   failed: %d\n' "${PASSED}" "${FAILED}"
 [[ "${FAILED}" -eq 0 ]]
