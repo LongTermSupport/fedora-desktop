@@ -139,7 +139,8 @@ The host's tool inventory is owned by Ansible. A missing tool is an IaC gap, not
 While iterating, run `./scripts/qa-changed.bash` before each commit (only the checks the diff needs, ESLint for extension JavaScript included); it also covers the two checks CI cannot run (the hooks-daemon handler tests and `qa-deployed-drift`). **GitHub CI is the gate for a protected branch** (F44, F43, F44-arm): the pre-push hook lets one move only to a commit CI passed on a push. **Diff gate, full after:** on a `ci/<topic>` branch CI runs `qa-changed.bash` in diff mode against the tip of the protected line the branch is built on; that pass lets the same commit move the protected branch, whose push then runs the full `qa-all.bash` in CI (a red one is fixed forward). No local `qa-all.bash` is required before a push:
 
 1. `git push origin HEAD:refs/heads/ci/<topic>` — CI runs diff-mode `qa-changed.bash`
-2. `gh run watch` (or `gh run list --commit <sha>`)
+2. `gh run watch --interval 60` (or `gh run list --commit <sha>`); never poll GitHub more
+   often than once a minute (rule [github-poll-too-often](CLAUDE/QA.md#github-poll-too-often))
 3. `git push origin <sha>:F44` — the same commit, once CI is green; CI then runs `qa-all.bash` on F44
 4. `git push origin --delete ci/<topic>`
 

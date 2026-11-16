@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck go-deps\ncheck go-vuln\nsuite scripts/test-teams.bash: builds from src-go/go.sum\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\ncheck gh-poll\ncheck go-deps\ncheck go-vuln\nsuite scripts/test-teams.bash: builds from src-go/go.sum\n",
  "stderr": "",
  "status": 0,
  "log": []

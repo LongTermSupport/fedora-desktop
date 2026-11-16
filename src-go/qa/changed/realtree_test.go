@@ -241,6 +241,8 @@ var semgrepReaders = map[string]string{
 	".semgrep/place-issued-token.fixture": "check:place-issued-token",
 	".semgrep/boot-hold.yml":              "check:boot-hold",
 	".semgrep/boot-hold.fixture":          "check:boot-hold",
+	".semgrep/gh-poll.yml":                "check:gh-poll",
+	".semgrep/gh-poll.fixture":            "check:gh-poll",
 	".semgrep/secret-screen.yml":          "check:secret-screen",
 	".semgrep/secret-screen.bash":         "check:secret-screen",
 	".semgrep/secret-screen.py":           "check:secret-screen",

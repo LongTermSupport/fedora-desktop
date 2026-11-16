@@ -47,6 +47,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"arch-pinned-artefact", "Plan 00243, Defence Before Fix: no download, package or image fixed to one CPU architecture with no selection by the architecture the build or host runs on"},
 	{"walk-opens-non-regular-file", "issue #191, Defence Before Fix: no Python opens an entry a directory walk found without checking it is a regular file"},
 	{"podman-store-probe-race", "issue #152: the rootless store ownership probe prints nothing for a file a container deletes during the walk, raced for real"},
+	{"github-poll-too-often", "Defence Before Fix: no script or recipe polls GitHub more often than once a minute, which spent the shared API limit"},
 	{"ccy-allowed-hostnames", "issue #293, Defence Before Fix: an unreadable allowed-hostnames rule file stops the launch instead of looping over nothing, and its own suite proves it"},
 	{"ccy-merge-commits", "issue #311: CI judges every merge commit of a run by the pre-commit ccy version gates, and its own suite proves it"},
 }
