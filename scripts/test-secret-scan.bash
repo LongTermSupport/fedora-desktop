@@ -386,6 +386,38 @@ else
     FAILED=$((FAILED + 1))
 fi
 
+# ── a linked worktree is screened with its main checkout's host file (fedora-desktop#313) ──
+#
+# The host file is gitignored, so a worktree made by a bare `git worktree add` has none of its
+# own, and the denylist check was skipped there with an info line. The worktree shares its
+# repository with the main checkout, which has the file. Synthetic values only.
+WT_MAIN="${TMPROOT}/wt-main"
+WT_HOST_DIR="${WT_MAIN}/environment/localhost/host_vars"
+mkdir -p "${WT_HOST_DIR}"
+git -C "${WT_MAIN}" init -q
+git -C "${WT_MAIN}" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m root
+git -C "${WT_MAIN}" worktree add -q "${TMPROOT}/wt-linked"
+printf 'user_name: zebrafinch\n' >"${WT_HOST_DIR}/localhost.yml"
+wt_rc=0
+hook_build_private_denylist "${TMPROOT}/wt-linked" "${TMPROOT}/wt.tsv" || wt_rc=$?
+if [[ "${wt_rc}" -eq 0 ]] && grep -qx $'user_name\tzebrafinch' "${TMPROOT}/wt.tsv"; then
+    printf 'PASS: a linked worktree builds the denylist from its main checkout\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: a linked worktree gave status %s and %s\n' "${wt_rc}" "$(cat "${TMPROOT}/wt.tsv")"
+    FAILED=$((FAILED + 1))
+fi
+rm "${WT_HOST_DIR}/localhost.yml"
+wt_rc=0
+hook_build_private_denylist "${TMPROOT}/wt-linked" "${TMPROOT}/wt.tsv" || wt_rc=$?
+if [[ "${wt_rc}" -eq 2 ]]; then
+    printf 'PASS: with no host file in either checkout the check is still the optional skip\n'
+    PASSED=$((PASSED + 1))
+else
+    printf 'FAIL: with no host file anywhere the builder gave status %s\n' "${wt_rc}"
+    FAILED=$((FAILED + 1))
+fi
+
 # ── the real hook must actually use the word-boundary matcher ────────────────────────────
 #
 # A structural assertion, because the behaviour above is only reached through this call and
