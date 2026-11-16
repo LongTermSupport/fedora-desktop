@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.12 — container 2.84.21
+
+- **A dropped team's kept Element profile is named** (issue #299). Each Element profile the
+  agent-bus Element play writes holds a marker file, `agent-bus-team`, naming its team. A
+  marked profile of a team no longer declared, such as one last moved to Lightning, is never
+  removed, as it may hold a signed-in session; the play shows it as kept for the owner to
+  delete. The image carries `helpers/agent_bus/`, so it is rebuilt once. The launcher itself
+  is unchanged apart from the versions.
+
 ## 3.122.11 — container 2.84.20
 
 - **`pingbus`** names an unknown option (`unrecognized arguments: --to-coordinator,NAME`)

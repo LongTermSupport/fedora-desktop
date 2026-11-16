@@ -156,6 +156,23 @@
       changed_when: agent_bus_element_apply.stdout_lines | select('match', agent_bus_element_changed_re) | list | length > 0
       tags: [agent-bus-element]
 
+    # The Element profile of a team last declared for Lightning and then dropped has no launcher
+    # to be pruned by, and may hold a signed-in session, so the helper names it on a KEPT line
+    # (issue #299) and it is shown here for the owner to delete; the run does not fail on it.
+    - name: Show each Element profile kept for a team no longer declared
+      ansible.builtin.debug:
+        msg: >-
+          Kept, not deleted (it may hold a signed-in session; delete it by hand when it is no
+          longer wanted): {{ agent_bus_element_kept | join(', ') }}
+      vars:
+        agent_bus_element_kept: >-
+          {{ agent_bus_element_apply.stdout_lines | select('match', '^KEPT\t')
+             | map('regex_replace', '^KEPT\t', '') | list }}
+      when:
+        - not ansible_check_mode
+        - agent_bus_element_kept | length > 0
+      tags: [agent-bus-element]
+
     # Last of Element's steps, because its last task is the proof: for each declared team whose approved url is
     # https, the team CA placed where Element reads it and a handshake from Element's sandbox
     # checked against it (SPEC-cross-network X34). A team with no v2 approval here is untouched.

@@ -37,7 +37,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy 3.122.10 and 3.122.11, container 2.84.20: one run installs both. Installs the launcher,
+# ccy 3.122.10 to 3.122.12, container 2.84.21: one run installs them. Installs the launcher,
 # which passes CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1 into each new ccy session, and rebuilds
 # cc-claude, which sets the same default for a host cc session: a mouse click no longer answers
 # a prompt, the wheel still scrolls. Rebuilds ccy-teams (Plan 00254 Phase 6): each team opens in
@@ -45,8 +45,9 @@
 # message names that client. For a team opening in Lightning whose instance nobody has signed in
 # to yet, Open also tells each person with sessions on the homeserver so and asks (default no)
 # whether to set a new password (Plan 00254 Task 7.1a). Issue #302: the image carries pingbus,
-# which now names an unknown option instead of blaming stdin, so the image is rebuilt once at
-# the next ccy start. Afterwards: in a new session, a click on a prompt option picks nothing;
+# which now names an unknown option instead of blaming stdin, and (issue #299) the Element
+# helper, which now marks the profiles it writes; the image is rebuilt once at the next ccy
+# start. Afterwards: in a new session, a click on a prompt option picks nothing;
 # ccy-teams shows the same teams as before, each saying Element.
 playbooks/imports/play-claude-yolo.yml
 
@@ -67,8 +68,11 @@ playbooks/imports/optional/common/play-vm-test-lab.yml
 # "<team> team (Lightning)" launcher; with no lightning team it writes no instance. Lightning's
 # CA step now takes only lightning teams, so with none it removes the team CAs an earlier run put
 # in ~/.var/app/org.lightning_matrix.Lightning/teamchat-ca/ and reports changed; Element's CA
-# trust is unchanged. Afterwards report what changed, and any instance the play shows as kept.
-# The plan's acceptance (the next entry) judges what this run wrote.
+# trust is unchanged. Issue #299: each Element team's profile gains a marker file,
+# agent-bus-team, so this run reports changed once for it; a marked profile of a team no longer
+# declared is shown as kept. Afterwards report what changed, and any instance or Element
+# profile the play shows as kept. The plan's acceptance (the next entry) judges what this run
+# wrote.
 playbooks/imports/optional/common/play-agent-bus-element.yml --tags agent-bus-element,agent-bus-lightning
 
 # Plan 00254 Task 5.5: the verdict on the play above, read-only, as the desktop user, no sudo.
