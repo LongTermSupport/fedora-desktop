@@ -20,8 +20,9 @@ set -euo pipefail
 dockerfile=$1/Dockerfile
 builder=$(awk '$1 == "FROM" { b = ($NF == "ccy-builder"); next } b' "$dockerfile")
 # The stage's RUN lines joined over their continuations, split into commands. A Go command read
-# any other way (no ./ package, or go install, run or generate) prints "!".
-mapfile -t packages < <(awk '
+# any other way (no ./ package, or go install, run or generate) prints "!". Captured, so errexit
+# sees awk's status (#295); split on newlines so no package is no element, not one empty one.
+package_text=$(awk '
     { line = line " " $0 }
     /\\$/ { sub(/\\$/, "", line); next }
     {
@@ -36,6 +37,7 @@ mapfile -t packages < <(awk '
         }
         line = ""
     }' <<<"$builder")
+! IFS=$'\n' read -r -d '' -a packages <<<"$package_text"
 if [[ " ${packages[*]} " == *" ! "* ]]; then
     echo "COMMIT REJECTED [CCY-IMAGE-INPUT]: the ccy-builder stage of $dockerfile runs Go in a form this hook cannot read; build ./ packages with plain go build commands (see scripts/git-hooks/lib/ccy-image-source-paths.bash)." >&2
     exit 1

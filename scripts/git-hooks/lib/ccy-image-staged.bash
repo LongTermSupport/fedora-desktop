@@ -27,7 +27,8 @@ paths=("$dockerfile" vars/fzf-pin.yml)
 built=$'\n'
 if git cat-file -e ":$dockerfile" 2>/dev/null; then
     staged=$(git show ":$dockerfile")
-    mapfile -t sources < <(awk '
+    # Captured, so errexit sees awk's status (#295); split on newlines so none is no element.
+    source_text=$(awk '
         $1 == "COPY" {
             from = 0; n = 0
             for (i = 2; i <= NF; i++) {
@@ -36,6 +37,7 @@ if git cat-file -e ":$dockerfile" 2>/dev/null; then
             }
             if (!from) for (i = 1; i < n; i++) { s = args[i]; sub(/\/$/, "", s); print s }
         }' <<<"$staged")
+    ! IFS=$'\n' read -r -d '' -a sources <<<"$source_text"
     for src in "${sources[@]}"; do paths+=("$context/$src" "files/opt/claude-yolo/$src"); done
     listed=""
     if git cat-file -e ":$list" 2>/dev/null; then listed=$(git show ":$list"); fi

@@ -83,16 +83,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-mapfile -t auth_accounts < <(
-    gh auth status 2>&1 \
-        | grep "Logged in to github.com account" \
-        | grep -oE "account [^ ]+" \
-        | awk '{print $2}'
-)
-
-if [[ ${#auth_accounts[@]} -eq 0 ]]; then
-    die "No GitHub accounts found. Run: gh auth login"
-fi
+mapfile -t auth_accounts < <(gh auth status 2>&1 \
+    | grep "Logged in to github.com account" \
+    | grep -oE "account [^ ]+" \
+    | awk '{print $2}')
+# The pipeline's status (#295): gh failing, or no account line (grep exits 1), both stop here.
+wait "$!" || die "No usable GitHub account: 'gh auth status' failed or lists none. Run: gh auth status, then gh auth login"
 
 if [[ -n "$selected_account" ]]; then
     found=false

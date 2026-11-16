@@ -65,6 +65,8 @@ while IFS= read -r -d '' playbook; do
     chmod +x "$playbook"
 
 done < <(find "$PLAYBOOK_DIR" -type f -name "*.yml" -print0)
+# find's own status: one that failed would read as "no playbooks" (#295).
+wait "$!"
 
 echo ""
 echo "✅ Done!"

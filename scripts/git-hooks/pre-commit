@@ -106,6 +106,8 @@ STAGED_SCAN_TEXT="$("${HOOK_LIB%/*}/staged-scan-list.bash")"
 ! IFS=$'\n' read -r -d '' -a STAGED_FILE_LIST <<<"$STAGED_SCAN_TEXT"
 # The version gates judge deletions too: a file deleted from the repo is still in the image.
 mapfile -t STAGED_CHANGE_LIST < <(git diff --cached --name-only --diff-filter=ACDMRT)
+# git's own status (#295): a diff that failed would read as nothing staged and pass the commit.
+wait "$!"
 
 if [ ${#STAGED_CHANGE_LIST[@]} -eq 0 ]; then
     echo "✓ No files staged for commit"
@@ -160,10 +162,10 @@ if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
     CCY_BASE="$ccy_base"
     ccy_changes=""
     if [ -n "$ccy_base" ]; then ccy_changes=$(git diff --cached --name-only --diff-filter=ACDMRT "$ccy_base"); fi
-    mapfile -t CCY_CHANGES < <(printf '%s' "$ccy_changes")
+    ! IFS=$'\n' read -r -d '' -a CCY_CHANGES <<<"$ccy_changes"
 fi
 CCY_STAGED_TEXT=$("${HOOK_LIB%/*}/ccy-staged.bash" "$CCY_SCRIPT" "$CCY_LIB_DIR" "$CCY_HELPER_DIR" "${CCY_CHANGES[@]}")
-mapfile -t CCY_STAGED < <(printf '%s' "$CCY_STAGED_TEXT")
+! IFS=$'\n' read -r -d '' -a CCY_STAGED <<<"$CCY_STAGED_TEXT"
 
 if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     echo "🔍 Checking CCY version bump requirement (${#CCY_STAGED[@]} CCY file(s) staged)..."
@@ -232,7 +234,7 @@ fi
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
 CCY_IMAGE_TEXT=$("${HOOK_LIB%/*}/ccy-image-staged.bash" "$CCY_CONTEXT" "${CCY_CHANGES[@]}")
-mapfile -t CCY_IMAGE_STAGED < <(printf '%s' "$CCY_IMAGE_TEXT")
+! IFS=$'\n' read -r -d '' -a CCY_IMAGE_STAGED <<<"$CCY_IMAGE_TEXT"
 
 if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
     echo "🔍 Checking CCY container version bump requirement (${#CCY_IMAGE_STAGED[@]} image file(s) changed)..."
@@ -321,8 +323,7 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
                 "  • Local paths with usernames" "  • Company/infrastructure references" ""
         fi
 
-        echo -e "${YELLOW}File: $FILE${NC}"
-        echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
+        printf '%b\n' "${YELLOW}File: $FILE${NC}" "${YELLOW}Issue: $DESCRIPTION${NC}"
 
         # Show context (up to 3 matching lines)
         head -3 <<<"$MATCH_LINES" | while IFS=: read -r LINE_NUM LINE_CONTENT; do

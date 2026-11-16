@@ -111,16 +111,12 @@ fi
 
 ## ── Account selection ─────────────────────────────────────────────────────────
 
-mapfile -t auth_accounts < <(
-    gh auth status 2>&1 \
-        | grep "Logged in to github.com account" \
-        | grep -oE "account [^ ]+" \
-        | awk '{print $2}'
-)
-
-if [[ ${#auth_accounts[@]} -eq 0 ]]; then
-    die "No GitHub accounts found. Run: gh auth login"
-fi
+mapfile -t auth_accounts < <(gh auth status 2>&1 \
+    | grep "Logged in to github.com account" \
+    | grep -oE "account [^ ]+" \
+    | awk '{print $2}')
+# The pipeline's status (#295): gh failing, or no account line (grep exits 1), both stop here.
+wait "$!" || die "No usable GitHub account: 'gh auth status' failed or lists none. Run: gh auth status, then gh auth login"
 
 if [[ -n "$selected_account" ]]; then
     found=false
@@ -470,7 +466,9 @@ push_projects() {
             fi
         done < <(gh api /user/memberships/orgs \
             --paginate \
-            --jq '.[] | select(.role == "admin") | .organization.login' 2>/dev/null)
+            --jq '.[] | select(.role == "admin") | .organization.login')
+        # A failed lookup would leave this account's orgs unmapped, silently (#295).
+        wait "$!" || die "Listing the orgs of @${_gh_user} failed (gh api /user/memberships/orgs)"
     done
 
     gh auth switch --hostname github.com --user "$selected_account"
@@ -542,6 +540,8 @@ push_projects() {
         info "  ${BOLD}${rel_path}${NC} ${ARROW} ${origin_url}${key_alias:+ [key: ${key_alias}]}"
         repo_count=$((repo_count + 1))
     done < <(find "$PROJECTS_DIR" -maxdepth 6 -name ".git" -type d | sort)
+    # find's status: one that failed would push a short manifest as complete (#295).
+    wait "$!" || die "Scanning ${PROJECTS_DIR} for repositories failed"
 
     echo
     success "Found ${repo_count} repositories"
@@ -574,13 +574,10 @@ case "$subcommand" in
     all)
         push_config
         push_projects
-        echo
-        echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}${BOLD}║              All backups pushed successfully!                ║${NC}"
-        echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
-        echo
-        echo -e "${CYAN}On a fresh install, run.bash pulls localhost.yml automatically.${NC}"
-        echo -e "${CYAN}Projects can be restored with: ./fedora-install/pull-projects.bash${NC}"
-        echo
+        printf '%b\n' "" "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}" \
+            "${GREEN}${BOLD}║              All backups pushed successfully!                ║${NC}" \
+            "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}" "" \
+            "${CYAN}On a fresh install, run.bash pulls localhost.yml automatically.${NC}" \
+            "${CYAN}Projects can be restored with: ./fedora-install/pull-projects.bash${NC}" ""
         ;;
 esac

@@ -66,6 +66,8 @@ printf '\n%s\n' "${PREFLIGHT_VERDICT:-All preflight checks passed.}"
 header "Available setup scripts"
 
 mapfile -t SETUP_SCRIPTS < <(find "$SCRIPT_DIR" -maxdepth 1 -name "setup-*.bash" | sort)
+# find's own status: one that failed would read as "no scripts found" (#295).
+wait "$!"
 
 if [[ ${#SETUP_SCRIPTS[@]} -eq 0 ]]; then
     echo "No setup-*.bash scripts found in $SCRIPT_DIR"
@@ -101,7 +103,5 @@ if [[ "$RAN_ANY" == "true" ]]; then
     echo "Setup complete."
 else
     echo "Nothing run. Execute individual scripts directly:"
-    for script in "${SETUP_SCRIPTS[@]}"; do
-        echo "  $script"
-    done
+    printf '  %s\n' "${SETUP_SCRIPTS[@]}"
 fi
