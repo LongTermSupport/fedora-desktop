@@ -81,10 +81,8 @@ done
 
 ## ── Preflight ─────────────────────────────────────────────────────────────────
 
-echo -e "${BOLD}Fedora Desktop — Push Backup${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}Mode: ${BOLD}${subcommand}${NC}"
-echo
+printf '%b\n' "${BOLD}Fedora Desktop — Push Backup${NC}" \
+    "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" "${CYAN}Mode: ${BOLD}${subcommand}${NC}" ""
 
 if ! command -v gh > /dev/null; then
     die "GitHub CLI (gh) is not installed. Run: sudo dnf install gh"
@@ -466,8 +464,10 @@ push_projects() {
         done < <(gh api /user/memberships/orgs \
             --paginate \
             --jq '.[] | select(.role == "admin") | .organization.login')
-        # A failed lookup would leave this account's orgs unmapped, silently (#295).
-        wait "$!" || die "Listing the orgs of @${_gh_user} failed (gh api /user/memberships/orgs)"
+        # A failed lookup would leave this account's orgs unmapped, so their repositories would
+        # be pushed under the wrong key: stop, with the selected account active again (#295).
+        wait "$!" || { gh auth switch --hostname github.com --user "$selected_account"
+            die "Listing the orgs of @${_gh_user} failed. If its login needs renewing: gh auth refresh -h github.com -u ${_gh_user}"; }
     done
 
     gh auth switch --hostname github.com --user "$selected_account"

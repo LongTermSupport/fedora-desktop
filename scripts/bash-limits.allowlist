@@ -17,7 +17,7 @@ CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
 CLAUDE/Plan/meta-deploy.bash	158	0	180	assoc
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	220	5	247	-
-fedora-install/push.bash	446	9	395	assoc,data
+fedora-install/push.bash	445	9	394	assoc,data
 fedora-install/setup-netinstall-boot.bash	958	30	1138	-
 files/etc/profile.d/zz_lts-fedora-desktop.bash	82	8	89	-
 files/home/.local/bin/bash-history-rank	68	1	46	-
@@ -56,7 +56,7 @@ files/var/local/claude-yolo/lib/network-management.bash	952	30	1110	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	806	35	827	data
-files/var/local/claude-yolo/lib/ssh-handling.bash	1379	40	1688	-
+files/var/local/claude-yolo/lib/ssh-handling.bash	1377	40	1685	-
 files/var/local/claude-yolo/lib/tmux-session.bash	313	19	370	ui
 files/var/local/claude-yolo/lib/token-management.bash	1008	27	1078	-
 files/var/local/colours	65	16	65	-

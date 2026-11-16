@@ -344,7 +344,7 @@ probe_gh_keys_for_remote() {
     local original_active=""
     original_active=$(gh api user --jq .login 2>"$PROBE_LOG_DIR/original.err")
 
-    local key_path key_basename alias token_func token api_out api_rc type_check
+    local key_path key_basename alias token_func token api_out api_rc type_check keys_rc=0
     while IFS= read -r key_path; do
         [ -z "$key_path" ] && continue
         key_basename=$(basename "$key_path")
@@ -366,9 +366,10 @@ probe_gh_keys_for_remote() {
                 echo "no gh-token-${alias} function" > "$PROBE_LOG_DIR/${alias}.token.err"
             fi
         fi
-    done < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" | sort)
+    done < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort)
     # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
-    wait "$!" || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
+    # Its status is kept until the active account is put back below.
+    wait "$!" || keys_rc=$?
 
     # Restore the original active account so the user's shell state is
     # unaffected. Failure here goes to the log dir but does not fail the
@@ -378,7 +379,7 @@ probe_gh_keys_for_remote() {
         restore_out=$(gh auth switch --hostname github.com --user "$original_active" 2>&1)
         printf "%s\n" "$restore_out" > "$PROBE_LOG_DIR/restore.log"
     fi
-    return 0
+    [ "$keys_rc" -eq 0 ] || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
 }
 
 # Print the key menu's current list. Called only from discover_and_select_ssh_keys,
@@ -435,7 +436,7 @@ discover_and_select_ssh_keys() {
     # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
     # See: playbooks/imports/play-github-cli-multi.yml
     # No ~/.ssh is no account keys; a find that cannot read it is a fault, not "none" (#295).
-    mapfile -t GITHUB_KEYS < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" | sort)
+    mapfile -t GITHUB_KEYS < <(set -o pipefail; [ ! -d "$HOME/.ssh" ] || find "$HOME/.ssh" -maxdepth 1 -type f -name "github_*" ! -name "*.pub" | sort)
     wait "$!" || { echo "Could not list the GitHub account keys in $HOME/.ssh (see above)." >&2; return 1; }
 
     local alias_rc=0
@@ -605,12 +606,10 @@ discover_and_select_ssh_keys() {
         shown=("${!candidates[@]}")
     fi
 
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "SSH Key Selection for Claude YOLO"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "No SSH key was specified with --ssh-key flag."
+    printf '%s\n' "" "════════════════════════════════════════════════════════════════════════════════" \
+        "SSH Key Selection for Claude YOLO" \
+        "════════════════════════════════════════════════════════════════════════════════" "" \
+        "No SSH key was specified with --ssh-key flag."
     echo "Probe result: $probe_status"
 
     local list_pending=true default_pick="" selection confirm picked p is_pusher

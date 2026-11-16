@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.14 — container 2.84.21
+
+- **The GitHub account keys are looked for at the top of `~/.ssh` only**, where
+  `play-github-cli-multi.yml` writes them. With 3.122.13 a subfolder of `~/.ssh` that could not
+  be read (a ControlMaster socket folder) refused every launch; an unreadable `~/.ssh` still
+  does. When the listing fails, the gh account that was active before the probe is put back
+  first. The image is unchanged.
+
 ## 3.122.13 — container 2.84.21
 
 - **A command read through `< <(cmd)` that fails stops the launch** (issue #295). bash never
