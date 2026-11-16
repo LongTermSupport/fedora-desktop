@@ -30,7 +30,7 @@ var stdinReaders = map[[2]string]int{
 }
 
 // stdinReadMethods are the methods that read their receiver.
-var stdinReadMethods = []string{"Read", "ReadString", "ReadByte", "ReadBytes", "ReadRune", "ReadLine", "WriteTo"}
+var stdinReadMethods = []string{methodRead, "ReadString", "ReadByte", "ReadBytes", "ReadRune", "ReadLine", "WriteTo"}
 
 const stdinSeamFix = " (project_stdin_seam): read it with stdinread.Read, which says when it is waiting and takes a bound, or prompt through internal/ui, which bounds a piped answer the same way; hand stdin on only as stdin"
 
@@ -264,7 +264,7 @@ func readsBytes(t types.Type) bool {
 		sets = append(sets, types.NewMethodSet(types.NewPointer(t)))
 	}
 	return slices.ContainsFunc(sets, func(ms *types.MethodSet) bool {
-		sel := ms.Lookup(nil, "Read")
+		sel := ms.Lookup(nil, methodRead)
 		return sel != nil && isByteRead(sel.Type())
 	})
 }

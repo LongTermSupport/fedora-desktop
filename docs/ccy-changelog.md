@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.16 — container 2.84.25
+## 3.122.17 — container 2.84.25
 
 - **pingbus never waits in silence on stdin** (issue #260). A command run with no input in
   an agent's shell gets an open pipe that never ends, and `pingbus thread Q<n> --close` waited
@@ -32,6 +32,31 @@ Two version numbers move independently — see
   keep taking piped answers but fail one that has not come in a minute; a typed answer is
   never bounded. `ccy --secret-screen` still shows its text as it arrives and says when
   nothing has come, with no bound, as what feeds it may first wait on a password.
+
+## 3.122.15 — container 2.84.21
+
+- **The `~/.ssh` key listings no longer fail a launch at random** (issue #321). Read through
+  `< <(find ...)` and checked with `wait "$!"`, the listing's process was once reported as
+  "not a child of this shell" under load, which failed the launch. Both listings now capture
+  their output first, which bash always waits for, and check its status. The image is unchanged.
+
+## 3.122.14 — container 2.84.21
+
+- **The GitHub account keys are looked for at the top of `~/.ssh` only**, where
+  `play-github-cli-multi.yml` writes them. With 3.122.13 a subfolder of `~/.ssh` that could not
+  be read (a ControlMaster socket folder) refused every launch; an unreadable `~/.ssh` still
+  does. When the listing fails, the gh account that was active before the probe is put back
+  first. The image is unchanged.
+
+## 3.122.13 — container 2.84.21
+
+- **A command read through `< <(cmd)` that fails stops the launch** (issue #295). bash never
+  checks the status of a process substitution, so a `podman network ls` that could not run
+  read as "no networks", an unreadable `~/.ssh` as "no keys", and a failed argument builder
+  as an empty argv. ccy and `cc` now collect each one's status with `wait "$!"` and stop
+  with a message saying what failed. No `~/.ssh` is still no keys, and the other engine
+  (docker under podman) not answering still skips its cross-engine check, now with a note
+  on stderr. The image is unchanged.
 
 ## 3.122.12 — container 2.84.21
 

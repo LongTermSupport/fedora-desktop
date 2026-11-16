@@ -107,7 +107,7 @@ func connReadOf(pass *analysis.Pass, call *ast.CallExpr) (ast.Expr, token.Pos) {
 		if fn, isFunc := pass.TypesInfo.Uses[sel.Sel].(*types.Func); isFunc && fn.Signature().Recv() != nil {
 			recv := pass.TypesInfo.TypeOf(sel.X)
 			switch {
-			case sel.Sel.Name == "Read" && connShaped(recv):
+			case sel.Sel.Name == methodRead && connShaped(recv):
 				return sel.X, call.Pos()
 			case strings.HasPrefix(sel.Sel.Name, "Accept") && listenerShaped(recv, sel.Sel.Name):
 				return sel.X, call.Pos()
@@ -142,7 +142,7 @@ func paramAt(sig *types.Signature, i int) types.Type {
 
 // connShaped is whether t has a connection's methods: Read, SetReadDeadline and RemoteAddr.
 func connShaped(t types.Type) bool {
-	return t != nil && methodNamed(t, "Read") != nil && methodNamed(t, "SetReadDeadline") != nil && methodNamed(t, "RemoteAddr") != nil
+	return t != nil && methodNamed(t, methodRead) != nil && methodNamed(t, "SetReadDeadline") != nil && methodNamed(t, "RemoteAddr") != nil
 }
 
 // listenerShaped is whether t has a listener's methods: the accept method named (Accept,
@@ -159,7 +159,7 @@ func listenerShaped(t types.Type, acceptName string) bool {
 // readerNotConn is whether t is an interface a reader satisfies that a connection's own
 // handlers do not ask for: it has Read and no SetReadDeadline.
 func readerNotConn(t types.Type) bool {
-	return types.IsInterface(t) && methodNamed(t, "Read") != nil && methodNamed(t, "SetReadDeadline") == nil
+	return types.IsInterface(t) && methodNamed(t, methodRead) != nil && methodNamed(t, "SetReadDeadline") == nil
 }
 
 // methodNamed is the exported method name of t, or of *t (a method an addressable value has).

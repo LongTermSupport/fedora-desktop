@@ -93,6 +93,13 @@ also	files/*,playbooks/*,tasks/*,helpers/*,src-go/internal/*,src-go/cmd/*	boot-h
 also	.semgrep/boot-hold.yml,.semgrep/boot-hold.fixture	boot-hold	covered
 also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-boot-hold/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	boot-hold	-
 also	scripts/qa-boot-hold.bash,scripts/lib/go-tool.bash	boot-hold	-
+# The github-poll-too-often gate (check gh-poll) runs whole (one semgrep pass, seconds) for a
+# change to a file that can poll GitHub or tell someone to: a shell or Python script anywhere, a
+# document, a workflow, a play, task or vars file, a files/ tool, a helper, Go, and its own rule,
+# fixture, wrapper or tool (a shell or Python file anywhere by the post row below); the rule and
+# fixture are its own data and count as covered.
+also	*.md,.github/*,playbooks/*,tasks/*,vars/*,files/*,helpers/*,src-go/*	gh-poll	-
+also	.semgrep/gh-poll.yml,.semgrep/gh-poll.fixture	gh-poll	covered
 # The secret-on-normal-screen gate (check secret-screen) runs whole (one semgrep pass, seconds)
 # for a change to a file that can write a secret to a terminal: a play, task or vars file, a
 # files/ tool or template, a helper, the checkout's vault helper; a shell script or Python file
@@ -278,7 +285,7 @@ also	files/etc/sudoers.d/*,files/usr/local/sbin/*	ansible-patterns	-
 # with no check and no cover: the patterns row above, or the suite that names the file in
 # scripts/qa-gates.tsv (selected by name), covers it.
 first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
-first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/place-issued-token.*,.semgrep/boot-hold.*,.semgrep/secret-screen.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/stdin-wait.*,.semgrep/lxc-attach-streams.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/find-race.*,.semgrep/arch-pin.*,.semgrep/argv-leak.*,.semgrep/place-issued-token.*,.semgrep/boot-hold.*,.semgrep/gh-poll.*,.semgrep/secret-screen.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*,.semgrep/hook-handlers.*,.semgrep/walk-open.*,.semgrep/stdin-wait.*,.semgrep/lxc-attach-streams.bash	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
@@ -296,4 +303,5 @@ post	any:@sh,any:@py	hidden-bindings	-
 post	any:@sh	lxc-attach-streams	-
 post	any:@sh	argv-leak	-
 post	any:@sh,any:@py	secret-screen	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-secret-screen qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams
+post	any:@sh,any:@py	gh-poll	-
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-find-race qa-arch-pin qa-argv-leak qa-place-issued-token qa-boot-hold qa-gh-poll qa-secret-screen qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-hook-handler-rules qa-walk-open qa-stdin-wait qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers qa-plan-tests qa-lxc-attach-streams

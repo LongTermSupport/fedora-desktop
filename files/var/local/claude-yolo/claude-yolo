@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.16"  # Container 2.84.25: pingbus, teamchat and the launcher never wait in silence on stdin (issue #260). See docs/ccy-changelog.md.
+CCY_VERSION="3.122.17"  # Container 2.84.25: pingbus, teamchat and the launcher never wait in silence on stdin (issue #260). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -2669,7 +2669,9 @@ else
                     MATCHING_NETWORKS+=("$net")
                 fi
             fi
-        done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+        done < <(container_cmd network ls --format "{{.Name}}")
+        # The listing's own status: an engine that cannot list is not one with no networks (#295).
+        wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
 
     # Query the OTHER engine to detect mismatches
     OTHER_ENGINE=""
@@ -2700,15 +2702,15 @@ else
                 fi
             fi
         done < <("$OTHER_ENGINE" network ls --format "{{.Name}}" 2>/dev/null)
+        # Installed but not answering (docker's daemon stopped, or no access to its socket) is an
+        # engine with no networks this launch can reach, as an absent one is; said, not silent (#295).
+        wait "$!" || echo "Note: $OTHER_ENGINE did not list its networks; none was checked for this project." >&2 # FAIL-FAST-OK: the other engine is optional, its silence is reported
     fi
 
 # Show cross-engine mismatch warning BEFORE normal network detection
 if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "⚠️  CROSS-ENGINE NETWORK MISMATCH DETECTED"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
+    printf '%s\n' "" "════════════════════════════════════════════════════════════════════════════════" \
+        "⚠️  CROSS-ENGINE NETWORK MISMATCH DETECTED" "════════════════════════════════════════════════════════════════════════════════" ""
 
     if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
         # CCY using Podman, but networks found in Docker
@@ -2830,7 +2832,8 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                                         MATCHING_NETWORKS+=("$net")
                                                     fi
                                                 fi
-                                            done < <(podman network ls --format "{{.Name}}" 2>/dev/null)
+                                            done < <(podman network ls --format "{{.Name}}")
+                                            wait "$!" || { print_error "podman could not list its networks (see above)."; exit 1; }
 
                                             if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
                                                 AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
@@ -3108,7 +3111,8 @@ else
         if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
             ALL_NETWORKS+=("$net")
         fi
-    done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+    done < <(container_cmd network ls --format "{{.Name}}")
+    wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
 
     # Check for compose files if no matching network found (and not already handled). A compose
     # question answered above (started, or a no) is this launch's answer: it is not asked twice.
@@ -3178,7 +3182,8 @@ else
                                             MATCHING_NETWORKS+=("$net")
                                         fi
                                     fi
-                                done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+                                done < <(container_cmd network ls --format "{{.Name}}")
+                                wait "$!" || { print_error "$CONTAINER_ENGINE could not list its networks (see above)."; exit 1; }
 
                                 if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
                                     AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
@@ -3329,32 +3334,16 @@ elif [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
             echo ""
         fi
 
-        echo "────────────────────────────────────────────────────────────────────────────────"
-        echo "Debugging steps:"
-        echo "────────────────────────────────────────────────────────────────────────────────"
-        echo ""
-        echo "  1. Test the network manually:"
-        echo "     podman run --rm --network $SELECTED_NETWORK alpine wget -q -O- --timeout=5 http://google.com"
-        echo ""
-        echo "  2. Check if rootless podman is using pasta (expected):"
-        echo "     podman info | grep rootlessNetworkCmd"
-        echo ""
-        echo "  3. Recreate the network:"
-        echo "     podman-compose down"
-        echo "     podman network rm $SELECTED_NETWORK"
-        echo "     podman-compose up -d"
-        echo ""
-        echo "  4. Use default podman network instead:"
-        echo "     ccy --network podman"
-        echo ""
-        echo "  5. Check network config:"
-        echo "     podman network inspect $SELECTED_NETWORK | grep -E 'internal|driver'"
-        echo ""
-        echo "  6. Skip this check entirely if you already know the network works — e.g. a"
-        echo "     fenced CI runner that proves its own egress before ever calling ccy:"
-        echo "     CCY_SKIP_NETWORK_PREFLIGHT=1 ccy"
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        printf '%s\n' "────────────────────────────────────────────────────────────────────────────────" \
+            "Debugging steps:" "────────────────────────────────────────────────────────────────────────────────" "" \
+            "  1. Test the network manually:" "     podman run --rm --network $SELECTED_NETWORK alpine wget -q -O- --timeout=5 http://google.com" "" \
+            "  2. Check if rootless podman is using pasta (expected):" "     podman info | grep rootlessNetworkCmd" "" \
+            "  3. Recreate the network:" "     podman-compose down" "     podman network rm $SELECTED_NETWORK" "     podman-compose up -d" "" \
+            "  4. Use default podman network instead:" "     ccy --network podman" "" \
+            "  5. Check network config:" "     podman network inspect $SELECTED_NETWORK | grep -E 'internal|driver'" "" \
+            "  6. Skip this check entirely if you already know the network works — e.g. a" \
+            "     fenced CI runner that proves its own egress before ever calling ccy:" "     CCY_SKIP_NETWORK_PREFLIGHT=1 ccy" "" \
+            "════════════════════════════════════════════════════════════════════════════════"
         exit 1
     fi
 fi
@@ -3508,6 +3497,7 @@ fi
 # exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
 # GPU_DEVICE_DIR is /dev/dri unless CCY_GPU_DEVICE_DIR overrides it (lib/host-paths.bash).
 mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "$GPU_DEVICE_DIR")
+wait "$!" || { print_error "Could not work out the GPU device flags for $GPU_DEVICE_DIR."; exit 1; }
 if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
