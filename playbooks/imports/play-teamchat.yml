@@ -50,6 +50,12 @@
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
+#   teamchat_restore_drill   optional boolean, default false: this host may run
+#                            `teamchat-admin restore-drill` (issue #324). Only where it is true is
+#                            teamchat_restore_drill_port, then required, labelled for the team
+#                            units under SELinux. The port is never opened in the firewall: the
+#                            drill's scratch team listens on loopback only. Leave it false on a
+#                            host that serves a real team, since the drill refuses beside one.
 # Not built, refused by name when set: teamchat_address (the teamchat0 bus address),
 # teamchat_lxc_members, and the Element team list (its own play).
 #
@@ -110,13 +116,21 @@
           - teamchat_approve_teams is not defined or (teamchat_approve_teams is sequence and teamchat_approve_teams is not string)
           - teamchat_address | default('') == ''
           - teamchat_lxc_members | default([]) | length == 0
+          - teamchat_restore_drill | default(false) is boolean
+          - >-
+            not (teamchat_restore_drill | default(false)) or (teamchat_restore_drill_port is defined
+            and teamchat_restore_drill_port is integer and teamchat_restore_drill_port >= 1024
+            and teamchat_restore_drill_port <= 65535
+            and teamchat_restore_drill_port not in (tc_teams | selectattr('port', 'defined') | map(attribute='port') | list))
         fail_msg: >-
           play-teamchat.yml refused its inputs. The target's architecture ({{ tc_arch }}) needs a row
           in vars/teamchat-arch.yml and a tuwunel_sha256_{{ tc_arch }} line in the Tuwunel pin;
           teamchat_owner_group must be a group name; teamchat_teams must be a list of mappings with
           a unique team each; teamchat_only_teams and teamchat_approve_teams must be lists;
           teamchat_address and teamchat_lxc_members are not built in this play yet and must be
-          unset or empty.
+          unset or empty. teamchat_restore_drill must be true or false, and when true
+          teamchat_restore_drill_port must be an integer port from 1024 to 65535 that no declared
+          team uses.
         quiet: true
       tags: [always]
 
@@ -601,6 +615,16 @@
           loop: "{{ tc_scoped_present }}"
           loop_control:
             label: "{{ item.team }}:{{ item.port }}"
+
+        # Labelled only where the drill is enabled: on any other host it would be unused surface.
+        # No firewall task: the drill's scratch team serves on loopback only.
+        - name: Label the Restore Drill's Port for the Team Units
+          community.general.seport:
+            ports: "{{ teamchat_restore_drill_port | string }}"
+            proto: tcp
+            setype: teamchat_port_t
+            state: present
+          when: teamchat_restore_drill | default(false)
 
     - name: Approve the Teams the Operator Names
       ansible.builtin.command:

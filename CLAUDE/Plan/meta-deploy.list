@@ -55,3 +55,12 @@ playbooks/imports/optional/common/play-photography.yml
 # script and the service, a systemd reload; versionlocks as the analysis reports them.
 # Afterwards: both deployed files match the checkout (the service rendered).
 playbooks/imports/optional/common/play-advanced-kernel-management.yml
+# Issue #324: teamchat-admin's restore now reads a restore proof record and stays refused
+# without one, and the play gains teamchat_restore_drill (default false) and the drill port's
+# SELinux label. The admin tag rebuilds and installs teamchat-admin and its link; the selinux
+# tag re-checks the teamchat module and the team port labels. This host does not set
+# teamchat_restore_drill, so no drill port is labelled, no port is opened and NO drill runs on
+# this host. Expected: changed for the teamchat-admin copy and its link; the SELinux tasks
+# unchanged. Afterwards: `teamchat-admin restore --team T --backup N` answers exit 70 naming
+# the missing restore proof.
+playbooks/imports/play-teamchat.yml --tags admin,selinux
