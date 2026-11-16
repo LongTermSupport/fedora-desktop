@@ -62,6 +62,15 @@ playbooks/imports/play-agent-bus.yml
 # Expected: changed only for that one file; skip this entry on a host without the lab.
 playbooks/imports/optional/common/play-vm-test-lab.yml
 
+# Issue #295: every reader fed by `< <(cmd)` now checks cmd, across the ccy launcher and libs,
+# agent-bus-install, fedora-desktop-self-update, docker-in-lxc and the ~/.local/bin tools
+# (raw-prune, qnap-finder, imgpaste, ssh-agent-start, ssh-with-agent, ssh-keys-rekey). The
+# deployed raw-prune is the one that could delete a RAW whose JPG sat in a folder it could not
+# read. Every play whose inputs changed runs; those the entries above ran are not due again.
+# Afterwards: the deployed ~/.local/bin/raw-prune matches the checkout's
+# files/home/.local/bin/raw-prune (sha256sum both), and a new ccy session starts.
+changed-plays
+
 # Plan 00254 Tasks 5.2 to 5.4: the agent-bus Element play learns which client each team opens
 # in (its client:, else agent_bus_matrix_client, else element). With nothing set this host
 # changes nothing for Element. It builds and runs the new agent-bus-lightning command, which
