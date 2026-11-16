@@ -46,3 +46,12 @@
 # changed for ~/.local/bin/raw-prune and ~/.local/bin/clip-scan; RapidRAW and ART unchanged.
 # Afterwards: sha256sum of each deployed copy matches its files/home/.local/bin/ source.
 playbooks/imports/optional/common/play-photography.yml
+# Issue #323 sweep: play-advanced-kernel-management has no play-ledger record here either, and
+# its deployed manage-kernel-versions.py and service unit are older than the checkout. Neither
+# change alters which kernels are kept: the script now names the kernel's arch from the machine
+# instead of a fixed x86_64 (the same argv on x86_64), and the service starts after
+# multi-user.target so boot no longer waits on dnf (issue #263). installonly_limit=3 is already
+# set. The play's own initial analysis run follows, as on every run. Expected: changed for the
+# script and the service, a systemd reload; versionlocks as the analysis reports them.
+# Afterwards: both deployed files match the checkout (the service rendered).
+playbooks/imports/optional/common/play-advanced-kernel-management.yml
