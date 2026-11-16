@@ -25,18 +25,29 @@ each, for the person reading `run.bash --changed`.
     UNRESOLVED <play> <where>   not changed as far as can be told, but it holds a reference
                                 the mapper cannot follow, so a change there would be missed
     GONE <play>                 it ran here, and the checkout no longer has it
-    NEVER <play>                it has no ledger record here and none of its files were
-                                found deployed: not judged, and not run (issue #323)
+    NEVER <play>                it has no ledger record here, and none of the files it
+                                deploys shows that it ran here: not run (issue #323)
+    UNJUDGED <play>             it has no ledger record here, and deploys no file that can
+                                be looked for, so whether it ran here cannot be told: not run
 
 A removed play that `retired-plays.json` maps to a successor is not GONE: the successor
 is RUN until a successful run of it, at a commit without the old play, has taken it over.
 
 A host play of the checkout with no ledger record here at all (it ran before the ledger
 existed, or not through run.bash) is RUN when a file its copy and template tasks deploy is
-on this host, for its inputs may have changed since and nothing records when it last ran;
-its reason line names the files found (`deployed_path` says which `dest:` values count).
-With none found it is NEVER: running every play this host has no record of would install
-what the owner never chose. With `--all` these are `PLAY unrecorded` and `PLAY never`.
+on this host and shows that it ran, for its inputs may have changed since and nothing
+records when it last ran; its reason line names those files. `deployed_path` says which
+`dest:` values can be looked for. A file found counts only when no other host play deploys
+it too (which put it there cannot be told) and no package owns it, or rpm reports its
+digest changed from the package's own: a package's file as shipped is there because the
+package is (`package_state`; when rpm cannot answer, the file does not count). With no
+such file the play is NEVER, or UNJUDGED when it deploys nothing that can be looked for:
+running every play this host has no record of would install what the owner never chose.
+With `--all` these are `PLAY unrecorded`, `PLAY never` and `PLAY unjudged`.
+
+The blind spot: a play that only installs packages, enables services or edits files in
+place (no copy or template `dest:` this can resolve) leaves nothing this looks for, so on
+a host where it ran before the ledger it is UNJUDGED, never RUN, however stale it is.
 
 Only host plays count, the ones under `playbooks/imports/`. A probe under untracked/ or a
 play under `playbooks/dev/`, which works on the repo, is never mentioned. Nor is a play
@@ -60,6 +71,7 @@ import re
 import shlex
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import TextIO
@@ -72,20 +84,34 @@ EXIT_NO_ANSWER = 2
 
 #: The states `--all` prints. STALE is changed inputs or a dirty run; FAILED a last run that
 #: did not succeed; UNRESOLVED has a reference the mapper cannot follow; CURRENT is none.
-#: UNRECORDED has no ledger record here but files of it are deployed; NEVER has no record and
-#: nothing of it was found here.
+#: UNRECORDED has no ledger record here and a file of it here shows it ran; NEVER has no
+#: record and none of the files it names shows that; UNJUDGED has no record and names no
+#: file that can be looked for.
 STATE_STALE = "stale"
 STATE_FAILED = "failed"
 STATE_UNRESOLVED = "unresolved"
 STATE_CURRENT = "current"
 STATE_UNRECORDED = "unrecorded"
 STATE_NEVER = "never"
+STATE_UNJUDGED = "unjudged"
 
 #: The states `run.bash --changed` runs.
 RUN_STATES = (STATE_STALE, STATE_FAILED, STATE_UNRECORDED)
 
 #: The one template a deployed path may hold and still be looked for: the login running this.
 _USER_LOGIN = re.compile(r"\{\{\s*user_login\s*\}\}")
+
+#: What rpm says of a deployed file (`package_state`). Only UNOWNED and MODIFIED show that a
+#: play put it there; UNKNOWN is rpm not answering, and never counts as either.
+PACKAGE_UNOWNED = "unowned"
+PACKAGE_PRISTINE = "pristine"
+PACKAGE_MODIFIED = "modified"
+PACKAGE_UNKNOWN = "unknown"
+_EVIDENCE = (PACKAGE_UNOWNED, PACKAGE_MODIFIED)
+
+#: One `rpm -V` line: nine test flags (the third the file digest), an optional attribute
+#: letter (`c` for a config file), then the path.
+_VERIFY_LINE = re.compile(r"^([.SM5DLUGTP?]{9})\s+(?:[cdglr]\s+)?(/.*)$")
 
 #: How many changed paths (or Go packages, or commands) a reason names before it counts the rest.
 PATHS_SHOWN = 3
@@ -126,9 +152,10 @@ class Judgement:
     `changed_go` holds, for a stale play, the Go packages among its changed inputs, each
     with the commands built from it. `changed_vars` holds, for a stale play, the changed
     variables of the group_vars file it reads. `deployed` holds, for a host play with no
-    ledger record here (UNRECORDED), the files of it found on this host; `never` is every
-    host play with no record here and nothing of it found, in run order, which no catch-up
-    runs and which is not in `order`.
+    ledger record here (UNRECORDED), the files of it here that show it ran. `never` is
+    every host play with no record here that names files to look for, none of which shows
+    that, and `unjudged` every one that names none; both are in run order, neither is in
+    `order`, and no catch-up runs them.
     """
 
     order: tuple[str, ...]
@@ -144,6 +171,7 @@ class Judgement:
     dirty_inputs: dict[str, list[str]] = field(default_factory=dict)
     deployed: dict[str, list[str]] = field(default_factory=dict)
     never: tuple[str, ...] = ()
+    unjudged: tuple[str, ...] = ()
 
     @property
     def runs(self) -> list[str]:
@@ -214,6 +242,48 @@ def _deployed_file(path: str) -> bool:
     return os.path.lexists(path) and not os.path.isdir(path)
 
 
+def _run_rpm(args: list[str]) -> subprocess.CompletedProcess:
+    """`rpm <args>` in the C locale, whose messages `package_state` reads. `check=False`:
+    rpm exits 1 both for an unowned file and for a verify that found a difference, so
+    `package_state` judges every exit status itself."""
+    return subprocess.run(["rpm", *args], capture_output=True, text=True, check=False,
+                          env={**os.environ, "LC_ALL": "C"})
+
+
+def package_state(path: str, *, rpm: Callable[[list[str]], subprocess.CompletedProcess] | None = None) -> str:
+    """What rpm says of the deployed file `path`: one of the PACKAGE_ values.
+
+    A file no package owns (`rpm -qf` says so) is UNOWNED. One a package owns is MODIFIED
+    only when `rpm -Vf` flags its digest (`5`) as differing from the package's own, and
+    PRISTINE otherwise: a package file left as shipped is there because the package is.
+    Every other answer is UNKNOWN: no rpm, an error on stderr, an exit status neither
+    command gives for a result, or a digest rpm could not read (`?`, a file this login
+    cannot read). `rpm` is the test seam.
+    """
+    rpm = rpm or _run_rpm
+    try:
+        owner = rpm(["-qf", path])
+        if (owner.returncode == 1 and not owner.stderr
+                and owner.stdout.strip() == f"file {path} is not owned by any package"):
+            return PACKAGE_UNOWNED
+        if owner.returncode != 0 or owner.stderr or not owner.stdout.strip():
+            return PACKAGE_UNKNOWN
+        verify = rpm(["-Vf", "--nodeps", "--noscripts", path])
+    except OSError:
+        return PACKAGE_UNKNOWN
+    if verify.returncode not in (0, 1) or verify.stderr:
+        return PACKAGE_UNKNOWN
+    digests = [match.group(1)[2] for match in map(_VERIFY_LINE.match, verify.stdout.splitlines())
+               if match and match.group(2) == path]
+    if "5" in digests:
+        return PACKAGE_MODIFIED
+    return PACKAGE_UNKNOWN if "?" in digests else PACKAGE_PRISTINE
+
+
+def _package_state(path: str) -> str:
+    return package_state(path)
+
+
 def _login() -> str:
     return pwd.getpwuid(os.getuid()).pw_name
 
@@ -234,6 +304,7 @@ def judge(
     play_text: Callable[[str, affected_plays.Inputs], str] = group_vars.play_text,
     candidates: Callable[[str], list[str]] = affected_plays.candidate_plays,
     exists: Callable[[str], bool] = _deployed_file,
+    package_state: Callable[[str], str] | None = None,
     login: Callable[[], str] = _login,
 ) -> Judgement:
     """Judge every host play in `latest` (the ledger folded to each play's last run), and
@@ -244,9 +315,10 @@ def judge(
 
     `recorded` is every play the ledger holds any record of (`ledger.recorded_plays`), the
     plays `latest` leaves out (a narrowed or a forgotten one) included; it defaults to the
-    plays in `latest`. A host play outside it is UNRECORDED when a file it deploys
-    (`deployed_path` of its copy and template `dest:` values) is on this host, which a run
-    from before the ledger or not through run.bash leaves; else it is NEVER, and not run.
+    plays in `latest`. A host play outside it is UNRECORDED when a file it deploys here
+    shows it ran (`_unrecorded` says which do), which a run from before the ledger or not
+    through run.bash leaves; else it is NEVER, or UNJUDGED when it names no file that can be
+    looked for. Neither is run.
 
     Raises `NoAnswer` rather than return a partial judgement. The callables are test seams.
     """
@@ -254,7 +326,14 @@ def judge(
     tracked_at = tracked_at or (
         lambda root, commit, play: git_history.path_exists_at(root, commit, play)
     )
-    inputs_of = inputs_of or affected_plays.play_inputs
+    read_inputs = inputs_of or affected_plays.play_inputs
+    inputs_seen: dict[str, affected_plays.Inputs] = {}
+
+    def inputs_of(root: str, play: str) -> affected_plays.Inputs:
+        """Each play's inputs read once: the unrecorded plays' judgement reads every play's."""
+        if play not in inputs_seen:
+            inputs_seen[play] = read_inputs(root, play)
+        return inputs_seen[play]
 
     try:
         position = {play: index for index, play in enumerate(main_order(repo_root))}
@@ -325,8 +404,10 @@ def judge(
         else:
             states[play] = STATE_CURRENT
 
-    deployed = _unrecorded(set(latest) if recorded is None else set(recorded), repo_root=repo_root,
-                           candidates=candidates, inputs_of=inputs_of, exists=exists, login=login)
+    deployed, unjudged = _unrecorded(
+        set(latest) if recorded is None else set(recorded), repo_root=repo_root,
+        candidates=candidates, inputs_of=inputs_of, exists=exists,
+        package_state=package_state or _package_state, login=login)
     for play, found in deployed.items():
         if found:
             states[play] = STATE_UNRECORDED
@@ -357,8 +438,10 @@ def judge(
         changed_vars=changed_vars,
         dirty_inputs=dirty_inputs,
         deployed={play: found for play, found in deployed.items() if found},
-        never=tuple(sorted((play for play, found in deployed.items() if not found and play not in states),
+        never=tuple(sorted((play for play, found in deployed.items()
+                            if not found and play not in states and play not in unjudged),
                            key=run_order)),
+        unjudged=tuple(sorted(unjudged - set(states), key=run_order)),
     )
 
 
@@ -369,26 +452,48 @@ def _unrecorded(
     candidates: Callable[[str], list[str]],
     inputs_of: Callable[[str, str], affected_plays.Inputs],
     exists: Callable[[str], bool],
+    package_state: Callable[[str], str],
     login: Callable[[], str],
-) -> dict[str, list[str]]:
-    """For each host play of the checkout with no ledger record, the files of it found here,
-    each once, in the order the play names them. Raises `NoAnswer`."""
+) -> tuple[dict[str, list[str]], set[str]]:
+    """For each host play of the checkout with no ledger record, the files of it here that
+    show it ran, each once, in the order the play names them; and the plays among them
+    that name no file that can be looked for (`deployed_path`). Raises `NoAnswer`.
+
+    A file shows a run when it is here (`exists`), no other host play of the checkout
+    deploys it (which of them put it there cannot be told), and no package owns it or its
+    digest differs from the package's own (`package_state`).
+    """
     try:
-        plays = [play for play in candidates(repo_root) if play not in recorded]
+        every = candidates(repo_root)
+        plays = [play for play in every if play not in recorded]
         user = login() if plays else ""
     except Exception as error:
         raise NoAnswer(f"cannot list the host plays of the checkout: {error}") from error
+    if not plays:
+        return {}, set()
+    paths: dict[str, list[str]] = {}
+    for play in every:
+        try:
+            resolved = (deployed_path(dest, user) for dest in inputs_of(repo_root, play).dests)
+            paths[play] = [path for path in dict.fromkeys(resolved) if path is not None]
+        except Exception as error:
+            raise NoAnswer(
+                f"cannot read the files {play} deploys, to judge the plays with no ledger "
+                f"record here: {error}",
+                f"run a play by name instead: ./run.bash {play}",
+            ) from error
+    declared = Counter(path for play in every for path in paths[play])
     found: dict[str, list[str]] = {}
     for play in plays:
         try:
-            paths = (deployed_path(dest, user) for dest in inputs_of(repo_root, play).dests)
-            found[play] = [path for path in dict.fromkeys(paths) if path is not None and exists(path)]
+            found[play] = [path for path in paths[play] if declared[path] == 1 and exists(path)
+                           and package_state(path) in _EVIDENCE]
         except Exception as error:
             raise NoAnswer(
                 f"cannot judge {play}, which has no ledger record here: {error}",
                 f"run it by name instead: ./run.bash {play}",
             ) from error
-    return found
+    return found, {play for play in plays if not paths[play]}
 
 
 def _reads(inputs: affected_plays.Inputs, path: str) -> bool:
@@ -492,8 +597,9 @@ def run(
                 stderr.write(f"changed-plays: {play}: {'; '.join(why)}\n")
         elif play in judgement.unresolved:
             stdout.writelines(f"UNRESOLVED {play} {where}\n" for where in judgement.unresolved[play])
-    stdout.writelines(f"PLAY {STATE_NEVER} {play}\n" if list_all else f"NEVER {play}\n"
-                      for play in judgement.never)
+    for state, plays in ((STATE_NEVER, judgement.never), (STATE_UNJUDGED, judgement.unjudged)):
+        stdout.writelines(f"PLAY {state} {play}\n" if list_all else f"{state.upper()} {play}\n"
+                          for play in plays)
     if not list_all:
         stderr.writelines(
             f"changed-plays: {play}: its last run here, narrowed by "

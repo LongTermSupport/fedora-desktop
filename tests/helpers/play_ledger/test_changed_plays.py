@@ -40,6 +40,11 @@ FREEZE = "playbooks/imports/optional/common/play-podfreeze.yml"
 DARKROOM = "playbooks/imports/optional/common/play-darkroom.yml"
 VENDOR_GPU = "playbooks/imports/optional/hardware-specific/play-vendor-gpu.yml"
 TEMPLATED = "playbooks/imports/optional/common/play-templated.yml"
+#: A play that only installs packages: no dest at all.
+PACKAGES_ONLY = "playbooks/imports/optional/common/play-packages-only.yml"
+#: Two plays that both deploy /opt/shared-tool/run.
+SHARED_A = "playbooks/imports/optional/common/play-shared-a.yml"
+SHARED_B = "playbooks/imports/optional/common/play-shared-b.yml"
 
 OLD = "playbooks/imports/play-claude-code.yml"
 
@@ -92,6 +97,9 @@ INPUTS = {
     VENDOR_GPU: Inputs(exact={VENDOR_GPU}, dests=["/etc/modprobe.d/vendor-gpu.conf"]),
     TEMPLATED: Inputs(exact={TEMPLATED}, dests=["{{ user_bin_dir }}/templated-tool",
                                                "/var/lib/{{ user_login }}/{{ item }}"]),
+    PACKAGES_ONLY: Inputs(exact={PACKAGES_ONLY}),
+    SHARED_A: Inputs(exact={SHARED_A}, dests=["/opt/shared-tool/run"]),
+    SHARED_B: Inputs(exact={SHARED_B}, dests=["/opt/shared-tool/run", "/etc/shared-b.conf"]),
 }
 
 #: The login the stubbed cases run as, and the paths "deployed" on their stubbed host.
@@ -131,10 +139,12 @@ class _Case(unittest.TestCase):
     def _run(self, base: str, *, changed: dict[str, list[str]], present=None, tracked=None,
              diff_error: Exception | None = None, main_order: list[str] | None = None,
              tracked_at=None, retired: dict[str, str] | None = None, list_all: bool = False,
-             candidates: list[str] | None = None, deployed: set[str] | None = None):
+             candidates: list[str] | None = None, deployed: set[str] | None = None,
+             packages: dict[str, str] | None = None):
         """changed: commit -> paths changed from it to the working tree. `candidates` are
         the host plays the checkout has (none by default), `deployed` the host paths that
-        exist, as seen by the login LOGIN."""
+        exist, as seen by the login LOGIN, and `packages` what rpm says of a deployed path
+        (no package owns one it does not name)."""
         present = set(INPUTS) if present is None else present
         tracked = set(INPUTS) if tracked is None else tracked
         order = MAIN_ORDER if main_order is None else main_order
@@ -159,6 +169,7 @@ class _Case(unittest.TestCase):
             retired_plays=lambda root: retired_map,
             candidates=lambda root: list(candidates or []),
             exists=lambda path: path in (deployed or set()),
+            package_state=lambda path: (packages or {}).get(path, changed_plays.PACKAGE_UNOWNED),
             login=lambda: LOGIN,
             list_all=list_all,
         )
@@ -364,12 +375,145 @@ class TestNoLedgerRecord(_Case):
             self.assertEqual(out, f"PLAY current {BASIC}\nPLAY unrecorded {DARKROOM}\n"
                                   f"PLAY never {VENDOR_GPU}\n")
 
-    def test_a_dest_templated_with_anything_but_the_login_is_no_evidence(self) -> None:
+    def test_a_play_whose_dests_are_all_templated_past_the_login_is_unjudged(self) -> None:
+        """It names no file that can be looked for, so whether it ran here cannot be told."""
         with tempfile.TemporaryDirectory() as base:
             _seed(base, [])
             _, out, _ = self._run(base, changed={}, candidates=[TEMPLATED],
                                   deployed={"{{ user_bin_dir }}/templated-tool", "/var/lib/alice/{{ item }}"})
-            self.assertEqual(out, f"NEVER {TEMPLATED}\n")
+            self.assertEqual(out, f"UNJUDGED {TEMPLATED}\n")
+
+    def test_a_play_that_only_installs_packages_is_unjudged_not_never(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            code, out, _ = self._run(base, changed={}, candidates=[PACKAGES_ONLY, VENDOR_GPU])
+            self.assertEqual((code, out), (changed_plays.EXIT_OK,
+                                           f"NEVER {VENDOR_GPU}\nUNJUDGED {PACKAGES_ONLY}\n"))
+            _, out, _ = self._run(base, changed={}, candidates=[PACKAGES_ONLY, VENDOR_GPU], list_all=True)
+            self.assertEqual(out, f"PLAY never {VENDOR_GPU}\nPLAY unjudged {PACKAGES_ONLY}\n")
+
+
+class TestPackageOwnedDests(_Case):
+    """A deployed file an RPM owns shows a run only when its content differs from the
+    package's own; a pristine one is there because the package is (play-ftp-camera's
+    /etc/vsftpd/vsftpd.conf belongs to vsftpd)."""
+
+    CONF = "/etc/modprobe.d/vendor-gpu.conf"
+
+    def _out(self, state: str) -> str:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _, out, _ = self._run(base, changed={}, candidates=[VENDOR_GPU], deployed={self.CONF},
+                                  packages={self.CONF: state})
+            return out
+
+    def test_a_pristine_package_file_is_no_evidence(self) -> None:
+        self.assertEqual(self._out(changed_plays.PACKAGE_PRISTINE), f"NEVER {VENDOR_GPU}\n")
+
+    def test_a_package_file_whose_digest_changed_is_evidence(self) -> None:
+        self.assertEqual(self._out(changed_plays.PACKAGE_MODIFIED), f"RUN {VENDOR_GPU}\n")
+
+    def test_a_file_rpm_cannot_answer_for_is_no_evidence(self) -> None:
+        self.assertEqual(self._out(changed_plays.PACKAGE_UNKNOWN), f"NEVER {VENDOR_GPU}\n")
+
+    def test_a_file_no_package_owns_is_evidence(self) -> None:
+        self.assertEqual(self._out(changed_plays.PACKAGE_UNOWNED), f"RUN {VENDOR_GPU}\n")
+
+
+class TestSharedDests(_Case):
+    """A file two candidate plays both deploy cannot say which of them put it there."""
+
+    SHARED = "/opt/shared-tool/run"
+
+    def test_a_shared_file_is_no_evidence_for_the_unrecorded_play(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(SHARED_A, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, candidates=[SHARED_A, SHARED_B], deployed={self.SHARED})
+            self.assertEqual(out, f"NEVER {SHARED_B}\n")
+
+    def test_a_shared_file_is_no_evidence_when_neither_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _, out, _ = self._run(base, changed={}, candidates=[SHARED_A, SHARED_B], deployed={self.SHARED})
+            self.assertEqual(out, f"NEVER {SHARED_A}\nNEVER {SHARED_B}\n")
+
+    def test_a_file_of_its_own_still_counts_and_only_it_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _, out, err = self._run(base, changed={}, candidates=[SHARED_A, SHARED_B],
+                                    deployed={self.SHARED, "/etc/shared-b.conf"})
+            self.assertEqual(out, f"RUN {SHARED_B}\nNEVER {SHARED_A}\n")
+            self.assertIn("deployed: /etc/shared-b.conf\n", err)
+
+
+class _Rpm:
+    """A stand-in rpm: argv -> (returncode, stdout, stderr), or an OSError to raise."""
+
+    def __init__(self, answers: dict[str, tuple[int, str, str] | OSError]) -> None:
+        self.answers = answers
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: list[str]) -> subprocess.CompletedProcess:
+        self.calls.append(args)
+        answer = self.answers[args[0]]
+        if isinstance(answer, OSError):
+            raise answer
+        code, out, err = answer
+        return subprocess.CompletedProcess(["rpm", *args], code, out, err)
+
+
+class TestPackageState(unittest.TestCase):
+    """What `rpm -qf` and `rpm -Vf` say of one deployed path, read strictly."""
+
+    PATH = "/etc/vsftpd/vsftpd.conf"
+    OWNED = (0, "vsftpd-3.0.5-1.fc44.x86_64\n", "")
+
+    def _state(self, **answers) -> str:
+        rpm = _Rpm({"-qf": answers.get("qf", self.OWNED), "-Vf": answers.get("vf", (0, "", ""))})
+        self.rpm = rpm
+        return changed_plays.package_state(self.PATH, rpm=rpm)
+
+    def test_a_file_no_package_owns(self) -> None:
+        self.assertEqual(self._state(qf=(1, f"file {self.PATH} is not owned by any package\n", "")),
+                         changed_plays.PACKAGE_UNOWNED)
+        self.assertEqual([call[0] for call in self.rpm.calls], ["-qf"])
+
+    def test_a_package_file_that_verifies_clean_is_pristine(self) -> None:
+        self.assertEqual(self._state(), changed_plays.PACKAGE_PRISTINE)
+        self.assertEqual(self.rpm.calls, [["-qf", self.PATH], ["-Vf", "--nodeps", "--noscripts", self.PATH]])
+
+    def test_other_files_of_the_package_differing_leave_it_pristine(self) -> None:
+        self.assertEqual(self._state(vf=(1, "S.5....T.  c /etc/vsftpd/ftpusers\n", "")),
+                         changed_plays.PACKAGE_PRISTINE)
+
+    def test_a_changed_digest_is_modified(self) -> None:
+        self.assertEqual(self._state(vf=(1, f"S.5....T.  c {self.PATH}\n", "")), changed_plays.PACKAGE_MODIFIED)
+        self.assertEqual(self._state(vf=(1, f"..5......    {self.PATH}\n", "")), changed_plays.PACKAGE_MODIFIED)
+
+    def test_only_the_digest_flag_counts(self) -> None:
+        self.assertEqual(self._state(vf=(1, f"S.?....T.  c {self.PATH}\n", "")), changed_plays.PACKAGE_UNKNOWN)
+        self.assertEqual(self._state(vf=(1, f".M.......  c {self.PATH}\n", "")), changed_plays.PACKAGE_PRISTINE)
+
+    def test_rpm_that_cannot_run_or_answers_oddly_is_unknown(self) -> None:
+        for answers in ({"qf": FileNotFoundError("rpm")},
+                        {"qf": (1, "", "error: cannot open Packages database\n")},
+                        {"qf": (0, "", "")},
+                        {"vf": FileNotFoundError("rpm")},
+                        {"vf": (1, "", "error: rpmdb open failed\n")},
+                        {"vf": (2, "", "")}):
+            with self.subTest(answers=answers):
+                self.assertEqual(self._state(**answers), changed_plays.PACKAGE_UNKNOWN)
+
+    def test_the_real_runner_asks_rpm_in_the_c_locale_and_checks_nothing_itself(self) -> None:
+        with mock.patch.object(changed_plays.subprocess, "run") as run:
+            changed_plays._run_rpm(["-qf", self.PATH])
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["rpm", "-qf", self.PATH])
+        self.assertEqual((kwargs["check"], kwargs["env"]["LC_ALL"]), (False, "C"))
+
+
+class TestRecordedPlaysAreNotUnrecorded(_Case):
+    """Any record at all, a forgotten or a narrowed one too, keeps a play out of #323's rules."""
 
     def test_a_recorded_plays_judgement_is_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -878,6 +1022,23 @@ class TestRealPlayInputs(unittest.TestCase):
                          changed_plays.STATE_STALE)
         self.assertEqual(self._states(["files/usr/local/share/agent-bus/tuwunel.pin"])[self.AGENT_BUS],
                          changed_plays.STATE_STALE)
+
+    def test_the_ftp_camera_play_is_not_run_for_a_pristine_vsftpd_conf(self) -> None:
+        """Issue #323 review: vsftpd's own /etc/vsftpd/vsftpd.conf, unedited, is there
+        because the package is, and says nothing about play-ftp-camera having run."""
+        ftp = "playbooks/imports/optional/common/play-ftp-camera.yml"
+        conf = "/etc/vsftpd/vsftpd.conf"
+        self.assertIn(conf, affected_plays.play_inputs(self.REPO_ROOT, ftp).dests)
+
+        def judged(state: str) -> changed_plays.Judgement:
+            return changed_plays.judge(
+                {}, repo_root=self.REPO_ROOT, main_order=lambda root: [],
+                candidates=lambda root: [ftp], exists=lambda path: path == conf,
+                package_state=lambda path: state, login=lambda: LOGIN,
+            )
+
+        self.assertEqual(judged(changed_plays.PACKAGE_PRISTINE).never, (ftp,))
+        self.assertEqual(judged(changed_plays.PACKAGE_MODIFIED).deployed, {ftp: [conf]})
 
     def test_the_group_vars_file_is_an_input_of_no_play(self) -> None:
         """Else a change to it reruns that play whatever changed: the helpers that judge

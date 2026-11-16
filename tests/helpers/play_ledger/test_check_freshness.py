@@ -13,6 +13,7 @@ import contextlib
 import hashlib
 import io
 import os
+import pwd
 import subprocess
 import sys
 import tempfile
@@ -22,7 +23,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import changed_plays, check_freshness, fetch_clock, ledger, repo, store
+from helpers.play_ledger import changed_plays, check_freshness, fetch_clock, freshness, ledger, repo, store
 
 FORTY_HEX = "e" * 40
 SIXTY_FOUR_HEX = "1" * 64
@@ -54,13 +55,14 @@ def _judgement(states: dict[str, str] | None = None, *, gone: tuple[str, ...] = 
                changed_go: dict[str, dict[str, frozenset[str]]] | None = None,
                dirty_inputs: dict[str, list[str]] | None = None,
                deployed: dict[str, list[str]] | None = None,
-               never: tuple[str, ...] = ()) -> changed_plays.Judgement:
+               never: tuple[str, ...] = (),
+               unjudged: tuple[str, ...] = ()) -> changed_plays.Judgement:
     states = states or {}
     return changed_plays.Judgement(
         order=tuple(states) + gone, states=states, gone=gone, unresolved=unresolved or {},
         changed_inputs=changed or {}, dirty=dirty, took_over=took_over or {},
         not_judged=not_judged, changed_go=changed_go or {}, dirty_inputs=dirty_inputs or {},
-        deployed=deployed or {}, never=never,
+        deployed=deployed or {}, never=never, unjudged=unjudged,
     )
 
 
@@ -99,12 +101,16 @@ class TestCleanRun(unittest.TestCase):
                                                  unresolved={A: ["somewhere"]}))
             self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
 
-    def test_an_empty_ledger_is_clean_and_judges_nothing(self) -> None:
+    def test_an_empty_ledger_is_still_judged_but_not_fetched_for(self) -> None:
+        """Issue #323: run.bash --changed judges the plays with no record on an empty
+        ledger, so the report does too; with nothing ever run here there is no fetch age
+        to report, so it does not fetch."""
         with tempfile.TemporaryDirectory() as base:
             store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
-            code, _, _ = _run(base)
-            self.assertEqual(code, check_freshness.EXIT_OK)
-            self.assertEqual(ASKED, [])
+            fetched: list[str] = []
+            code, out, _ = _run(base, fetch=fetched.append)
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
+            self.assertEqual((ASKED, fetched), ([{}], []))
 
     def test_an_absent_ledger_is_clean_not_an_error(self) -> None:
         """Nothing has been run here since it would have been created. That is a state
@@ -112,6 +118,13 @@ class TestCleanRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outer:
             code, _, _ = _run(os.path.join(outer, "never-made"))
             self.assertEqual(code, check_freshness.EXIT_OK)
+
+    def test_an_empty_ledger_reports_a_play_whose_files_show_it_ran(self) -> None:
+        with tempfile.TemporaryDirectory() as outer:
+            code, out, _ = _run(os.path.join(outer, "never-made"),
+                                _judgement({B: changed_plays.STATE_UNRECORDED}, deployed={B: ["/etc/b.conf"]}))
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertTrue(out.startswith(f"{B} — "), out)
 
 
 class TestFindings(unittest.TestCase):
@@ -423,13 +436,22 @@ class TestCoverage(unittest.TestCase):
         self.assertEqual(self._sentence(changed_plays.NoAnswer("x")), [])
 
     def test_it_names_the_plays_with_no_record_and_nothing_deployed(self) -> None:
-        """Issue #323: not judged, not run, and not left out without a word."""
+        """Issue #323: not run, and not left out without a word."""
         coverage = self._sentence(_judgement({A: changed_plays.STATE_CURRENT}, never=(B,)))
         self.assertTrue(coverage[0].startswith("1 play under playbooks/imports/ judged"), coverage[0])
-        self.assertIn(f"1 other host play has no ledger record here and none of its files were "
-                      f"found deployed, so it is not judged: {B}", coverage[0])
+        self.assertIn(f"1 other host play has no ledger record here and none of the files it "
+                      f"deploys shows that it ran here, so it is not run: {B}", coverage[0])
         coverage = self._sentence(_judgement({}, never=(A, B)))
-        self.assertIn("2 other host plays have no ledger record here", coverage[0])
+        self.assertIn("2 other host plays have no ledger record here and none of the files they "
+                      "deploy shows", coverage[0])
+
+    def test_it_names_the_plays_it_cannot_tell_about(self) -> None:
+        coverage = self._sentence(_judgement({}, never=(A,), unjudged=(B,)))
+        self.assertIn(f"; 1 other host play has no ledger record here and deploys no file that "
+                      f"can be looked for, so whether it ran here cannot be told and it is not run: {B}",
+                      coverage[0])
+        coverage = self._sentence(_judgement({}, unjudged=(A, B)))
+        self.assertIn("2 other host plays have no ledger record here and deploy no file", coverage[0])
 
 
 class TestNoLedgerRecord(unittest.TestCase):
@@ -441,8 +463,18 @@ class TestNoLedgerRecord(unittest.TestCase):
             code, out, _ = _run(base, _judgement({A: changed_plays.STATE_CURRENT, B: changed_plays.STATE_UNRECORDED},
                                                  deployed={B: ["/etc/b.conf"]}))
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertEqual(out, f"{B} — changed since it was run here\n"
+            self.assertEqual(out, f"{B} — no run of it is recorded here, but files it deploys are on "
+                                  "this host\n"
                                   "    never ran through run.bash here; its files are deployed: /etc/b.conf\n")
+
+    def test_the_panel_gets_the_play_in_a_state_of_its_own(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            judged: list = []
+            _run(base, _judgement({B: changed_plays.STATE_UNRECORDED}, deployed={B: ["/etc/b.conf"]}),
+                 judged=judged)
+            self.assertEqual([verdict.state for verdict in judged], [freshness.UNRECORDED])
+            self.assertIn(freshness.UNRECORDED, freshness.REPORTABLE)
 
     def test_a_play_with_no_record_and_nothing_deployed_is_silent(self) -> None:
         with tempfile.TemporaryDirectory() as base:
@@ -882,12 +914,7 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
             for name in self.NAMES:
                 self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name))
                 self._write(root, f"files/home/{name}.conf", "v1\n")
-            # Neither has a ledger record; only the first one's file is on this host.
-            for name in ("unrecorded", "absent"):
-                self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name).replace(
-                    f"/tmp/{name}.conf", os.path.join(state, f"{name}.conf")))
-                self._write(root, f"files/home/{name}.conf", "v1\n")
-            self._write(state, "unrecorded.conf", "v1\n")
+            self._unrecorded_plays(root, state)
             self._git(root, "add", ".")
             self._git(root, "commit", "-q", "-m", "first")
             first = self._git(root, "rev-parse", "HEAD").strip()
@@ -911,25 +938,62 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
                       encoding="utf-8") as handle:
                 handle.write("# an edit not yet committed\n")
 
-            with mock.patch.dict(os.environ, _isolated_git_env(), clear=True):
-                runner_out = io.StringIO()
-                self.assertEqual(changed_plays.run(base=base, repo_root=root, stdout=runner_out,
-                                                   stderr=io.StringIO()), changed_plays.EXIT_OK)
-                report_out = io.StringIO()
-                self.assertEqual(
-                    check_freshness.run(base=base, repo_root=root, stdout=report_out,
-                                        stderr=io.StringIO(), fetch=lambda r: None),
-                    check_freshness.EXIT_FINDINGS)
-
-            lines = runner_out.getvalue().splitlines()
-            runner = [line.removeprefix("RUN ") for line in lines if line.startswith("RUN ")]
-            report = [line.split(" — ")[0] for line in report_out.getvalue().splitlines()
-                      if not line.startswith(" ")]
+            runner, others, report = self._both(base, root)
             want = [f"playbooks/imports/play-{name}.yml" for name in self.NAMES if name != "current"]
-            self.assertEqual(runner, [*want, "playbooks/imports/play-unrecorded.yml"])
+            self.assertEqual(runner, [*want, *self.UNRECORDED_RUN])
             self.assertEqual(report, runner)
-            self.assertEqual([line for line in lines if not line.startswith("RUN ")],
-                             ["NEVER playbooks/imports/play-absent.yml"])
+            self.assertEqual(others, self.UNRECORDED_NOT_RUN)
+
+    def test_on_an_empty_ledger_they_name_the_same_plays_too(self) -> None:
+        """Review of #323: the report used to return silently on an empty ledger, while
+        run.bash --changed ran the plays whose files show they ran."""
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as state:
+            self._git(root, "init", "-q")
+            self._write(root, changed_plays.MAIN_PLAYBOOK, "")
+            self._unrecorded_plays(root, state)
+            runner, others, report = self._both(os.path.join(state, "never-made"), root)
+            self.assertEqual(runner, self.UNRECORDED_RUN)
+            self.assertEqual(report, runner)
+            self.assertEqual(others, self.UNRECORDED_NOT_RUN)
+
+    #: Of the plays with no ledger record (issue #323), the ones whose file here shows a run.
+    UNRECORDED_RUN = ["playbooks/imports/play-login.yml", "playbooks/imports/play-unrecorded.yml"]
+    UNRECORDED_NOT_RUN = ["NEVER playbooks/imports/play-absent.yml"]
+
+    def _unrecorded_plays(self, root: str, state: str) -> None:
+        """Plays with no ledger record. Only unrecorded's file and login's, whose dest names
+        `{{ user_login }}` (rule 3, through the real mapper), are on this host."""
+        for name in ("unrecorded", "absent"):
+            self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name).replace(
+                f"/tmp/{name}.conf", os.path.join(state, f"{name}.conf")))
+            self._write(root, f"files/home/{name}.conf", "v1\n")
+        self._write(state, "unrecorded.conf", "v1\n")
+        self._write(root, "playbooks/imports/play-login.yml", self.COPY_TASK.format(name="login").replace(
+            "/tmp/login.conf", os.path.join(state, "{{ user_login }}.conf")))
+        self._write(root, "files/home/login.conf", "v1\n")
+        self._write(state, f"{pwd.getpwuid(os.getuid()).pw_name}.conf", "v1\n")
+
+    def _both(self, base: str, root: str) -> tuple[list[str], list[str], list[str]]:
+        """The plays run.bash --changed runs, its other lines, and the plays the report names.
+        rpm is a stand-in that owns no file, so the run needs no rpm and reads no host."""
+        def rpm(args: list[str]) -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(args, 1, f"file {args[-1]} is not owned by any package\n", "")
+
+        with mock.patch.dict(os.environ, _isolated_git_env(), clear=True), \
+                mock.patch.object(changed_plays, "_run_rpm", rpm):
+            runner_out = io.StringIO()
+            self.assertEqual(changed_plays.run(base=base, repo_root=root, stdout=runner_out,
+                                               stderr=io.StringIO()), changed_plays.EXIT_OK)
+            report_out = io.StringIO()
+            self.assertEqual(
+                check_freshness.run(base=base, repo_root=root, stdout=report_out,
+                                    stderr=io.StringIO(), fetch=lambda r: None),
+                check_freshness.EXIT_FINDINGS)
+        lines = runner_out.getvalue().splitlines()
+        report = [line.split(" — ")[0] for line in report_out.getvalue().splitlines()
+                  if not line.startswith(" ")]
+        return ([line.removeprefix("RUN ") for line in lines if line.startswith("RUN ")],
+                [line for line in lines if not line.startswith("RUN ")], report)
 
 
 # Must stay LAST in the file. `unittest.main()` here collects only what is defined

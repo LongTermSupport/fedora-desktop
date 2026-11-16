@@ -17,7 +17,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from helpers.host_health import play_runner
-from helpers.play_ledger import freshness, ledger, store
+from helpers.play_ledger import changed_plays, check_freshness, freshness, ledger, store
 
 FORTY_HEX = "e" * 40
 SIXTY_FOUR_HEX = "1" * 64
@@ -80,16 +80,16 @@ class TestValidate(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
         self.checkout = _Checkout(self._dir.name)
-        self.ledgered = {PLAY, "playbooks/imports/not-executable.yml",
-                         "playbooks/imports/absent.yml"}
+        self.offered = {PLAY, "playbooks/imports/not-executable.yml",
+                        "playbooks/imports/absent.yml"}
 
     def tearDown(self) -> None:
         self._dir.cleanup()
 
     def validate(self, play: str) -> str:
-        return play_runner.validate(play, repo_root=self.checkout.root, ledgered=self.ledgered)
+        return play_runner.validate(play, repo_root=self.checkout.root, offered=self.offered)
 
-    def test_a_ledgered_executable_play_resolves_to_its_absolute_path(self) -> None:
+    def test_an_offered_executable_play_resolves_to_its_absolute_path(self) -> None:
         self.assertEqual(self.validate(PLAY), os.path.realpath(self.checkout.play))
 
     def test_every_malformed_name_is_refused(self) -> None:
@@ -109,13 +109,13 @@ class TestValidate(unittest.TestCase):
             with self.subTest(play=play), self.assertRaises(play_runner.PlayRefused):
                 self.validate(play)
 
-    def test_a_play_the_ledger_does_not_list_is_refused(self) -> None:
+    def test_a_play_the_panel_does_not_offer_is_refused(self) -> None:
         self.checkout.add("playbooks/imports/never-run-here.yml")
         with self.assertRaises(play_runner.PlayRefused) as caught:
             self.validate("playbooks/imports/never-run-here.yml")
-        self.assertIn("ledger", str(caught.exception))
+        self.assertIn("does not offer", str(caught.exception))
 
-    def test_a_ledgered_play_missing_from_the_checkout_is_refused(self) -> None:
+    def test_an_offered_play_missing_from_the_checkout_is_refused(self) -> None:
         with self.assertRaises(play_runner.PlayRefused):
             self.validate("playbooks/imports/absent.yml")
 
@@ -132,17 +132,33 @@ class TestValidate(unittest.TestCase):
         os.chmod(outside, 0o755)
         link = os.path.join(self.checkout.root, "playbooks", "imports", "linked.yml")
         os.symlink(outside, link)
-        self.ledgered.add("playbooks/imports/linked.yml")
+        self.offered.add("playbooks/imports/linked.yml")
         with self.assertRaises(play_runner.PlayRefused):
             self.validate("playbooks/imports/linked.yml")
 
 
-class TestMain(unittest.TestCase):
-    """The executor the on-demand command calls: stdout is the path, and only the path."""
+UNRECORDED = "playbooks/imports/play-unrecorded.yml"
+NEVER = "playbooks/imports/play-never.yml"
+UNJUDGED = "playbooks/imports/play-unjudged.yml"
+GONE = "playbooks/imports/play-gone.yml"
+
+
+def _judgement() -> changed_plays.Judgement:
+    """PLAY ran here and is current; UNRECORDED has no record but its files show it ran;
+    NEVER and UNJUDGED have no record and are not run; GONE ran here and is gone."""
+    states = {PLAY: changed_plays.STATE_CURRENT, UNRECORDED: changed_plays.STATE_UNRECORDED}
+    return changed_plays.Judgement(
+        order=(PLAY, UNRECORDED, GONE), states=states, gone=(GONE,), unresolved={},
+        changed_inputs={}, dirty=frozenset(), took_over={}, not_judged=(),
+        deployed={UNRECORDED: ["/etc/unrecorded.conf"]}, never=(NEVER,), unjudged=(UNJUDGED,),
+    )
+
+
+class _Ledger(unittest.TestCase):
+    """A ledger with one run of PLAY, and a judge that answers `_judgement()`."""
 
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
-        self.checkout = _Checkout(os.path.join(self._dir.name, "checkout"))
         self.state_home = os.path.join(self._dir.name, "state")
         self.base = ledger.ledger_dir({"XDG_STATE_HOME": self.state_home}, self._dir.name)
         store.ensure_ledger(self.base, commit=FORTY_HEX, at=STAMP)
@@ -151,18 +167,76 @@ class TestMain(unittest.TestCase):
             play_sha256=SIXTY_FOUR_HEX, outcome="ok", changed=0,
             started=STAMP, finished=STAMP,
         ))
+        self.asked: list[tuple[dict, dict]] = []
 
     def tearDown(self) -> None:
         self._dir.cleanup()
 
-    def main(self, play: str) -> tuple[int, str, str]:
+    def judge(self, latest: dict, **kwargs) -> changed_plays.Judgement:
+        self.asked.append((latest, kwargs))
+        return _judgement()
+
+
+class TestOffered(_Ledger):
+    """Review of #323: the gate accepts exactly the plays the list offers, no more."""
+
+    def test_it_is_exactly_what_runnable_offers_for_the_same_judgement(self) -> None:
+        offered = play_runner.offered_plays(self.base, "/repo", judge=self.judge)
+        rows = play_runner.runnable(check_freshness.verdicts(_judgement()))
+        self.assertEqual(offered, {row["play"] for row in rows})
+        self.assertEqual(offered, {PLAY, UNRECORDED})
+
+    def test_the_judge_gets_the_full_runs_and_every_recorded_play(self) -> None:
+        play_runner.offered_plays(self.base, "/repo", judge=self.judge)
+        latest, kwargs = self.asked[0]
+        self.assertEqual(list(latest), [PLAY])
+        self.assertEqual(kwargs, {"repo_root": "/repo", "recorded": frozenset({PLAY})})
+
+    def test_a_broken_ledger_offers_nothing(self) -> None:
+        with open(ledger.sentinel_path(self.base), "w", encoding="utf-8") as handle:
+            handle.write("a hole\n")
+        with self.assertRaises(ValueError):
+            play_runner.offered_plays(self.base, "/repo", judge=self.judge)
+        self.assertEqual(self.asked, [])
+
+
+class TestMain(_Ledger):
+    """The executor the on-demand command calls: stdout is the path, and only the path."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = _Checkout(os.path.join(self._dir.name, "checkout"))
+        for play in (UNRECORDED, NEVER, UNJUDGED):
+            self.checkout.add(play)
+
+    def main(self, play: str, judge=None) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         code = play_runner.main(
             ["--repo-root", self.checkout.root, "--validate", play],
             environ={"XDG_STATE_HOME": self.state_home}, home=self._dir.name,
-            stdout=out, stderr=err,
+            stdout=out, stderr=err, judge=judge or self.judge,
         )
         return code, out.getvalue(), err.getvalue()
+
+    def test_a_play_with_no_record_whose_files_show_it_ran_is_accepted(self) -> None:
+        """runnable() offers it, so the gate must pass it (review of #323)."""
+        code, out, _ = self.main(UNRECORDED)
+        self.assertEqual((code, out), (0, f"{os.path.realpath(os.path.join(self.checkout.root, UNRECORDED))}\n"))
+
+    def test_a_play_not_offered_is_refused_though_it_is_in_the_checkout(self) -> None:
+        for play in (NEVER, UNJUDGED):
+            with self.subTest(play=play):
+                code, out, err = self.main(play)
+                self.assertEqual((code, out), (play_runner.EXIT_REFUSED, ""))
+                self.assertIn("does not offer", err)
+
+    def test_a_judgement_that_cannot_be_made_refuses_every_play(self) -> None:
+        def no_answer(latest: dict, **kwargs) -> changed_plays.Judgement:
+            raise changed_plays.NoAnswer("cannot judge x", "run it by name instead")
+
+        code, out, err = self.main(PLAY, judge=no_answer)
+        self.assertEqual((code, out), (play_runner.EXIT_LEDGER_UNREADABLE, ""))
+        self.assertIn("cannot judge x", err)
 
     def test_an_accepted_play_prints_its_path_and_nothing_else(self) -> None:
         code, out, err = self.main(PLAY)

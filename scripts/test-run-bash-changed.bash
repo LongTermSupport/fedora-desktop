@@ -61,12 +61,13 @@ if os.environ.get("TEST_JUDGE_ERR"):
     sys.stderr.write(os.environ["TEST_JUDGE_ERR"] + "\n")
 sys.exit(int(os.environ.get("TEST_JUDGE_RC", "0")))
 EOF
-for name in play-a play-b play-c; do
+for name in play-a play-b play-c play-d; do
     printf -- '- hosts: localhost\n  tasks: []\n' >"$CHECKOUT/playbooks/imports/$name.yml"
 done
 A="playbooks/imports/play-a.yml"
 B="playbooks/imports/play-b.yml"
 C="playbooks/imports/play-c.yml"
+D="playbooks/imports/play-d.yml"
 
 RUNTIME="$SCRATCH/runtime"
 mkdir -m 700 "$RUNTIME"
@@ -131,7 +132,7 @@ run_changed() {
     out="$(printf '%b' "$input" | env -u RUN_BASH_HEADLESS -u FEDORA_DESKTOP_PLAY_LOCK_FD \
         HOME="$FAKE_HOME" PATH="$BIN:/usr/bin:/bin" XDG_RUNTIME_DIR="$RUNTIME" \
         TEST_LOG="$LOG" TEST_LOCK="$LOCK" TEST_MARKERS="$MARKERS" TEST_CHECKOUT="$CHECKOUT" "${assigns[@]}" \
-        bash "$CHECKOUT/run.bash" "$@" 2>&1)"
+        bash "$CHECKOUT/run.bash" "$@" 2>"${STDERR_TO:-/dev/stdout}")"
     rc=$?
 }
 calls() { if [ -f "$LOG" ]; then cat "$LOG"; fi; }
@@ -207,17 +208,24 @@ run_changed '' -- --changed
 check "with only those, nothing runs and it still names them" "yes" \
     "$([ -z "$(plays_run)" ] && grep -q "$B" <<<"$out" && echo yes || echo no)"
 
-echo "=== plays with no ledger record and nothing deployed (issue #323) ==="
-printf 'NEVER %s\nRUN %s\n' "$B" "$A" >"$MARKERS"
+echo "=== plays with no ledger record that show no run here (issue #323) ==="
+printf 'NEVER %s\nNEVER %s\nUNJUDGED %s\nRUN %s\n' "$B" "$C" "$D" "$A" >"$MARKERS"
 run_changed 'y\n' -- --changed
 check "exits 0" "0" "$rc"
-check "runs only the RUN play, never the NEVER one" "play-a.yml " "$(plays_run)"
-check "names it as never run here, not judged" "yes" "$(yes_if grep -q "never run here, not judged" <<<"$out")"
-check "and names the play" "yes" "$(yes_if grep -q "^     $B$" <<<"$out")"
-printf 'NEVER %s\n' "$B" >"$MARKERS"
+check "runs only the RUN play, neither NEVER nor UNJUDGED" "play-a.yml " "$(plays_run)"
+check "counts the NEVER plays and says what is known of them" "yes" \
+    "$(yes_if grep -q "2 play(s) have no ledger record here and none of the files they deploy shows they ran here, so they are not run:" <<<"$out")"
+check "and names them on one line" "yes" "$(yes_if grep -q "^     play-b.yml play-c.yml$" <<<"$out")"
+check "counts the UNJUDGED play and says it cannot be told" "yes" \
+    "$(yes_if grep -q "1 play(s) have no ledger record here and deploy no file that can be looked for, so whether they ran here cannot be told and they are not run:" <<<"$out")"
+check "and names it" "yes" "$(yes_if grep -q "^     play-d.yml$" <<<"$out")"
+run_changed 'y\n' STDERR_TO=/dev/null -- --changed
+check "both lists are on stdout, beside the gone and cannot-tell lines" "2" \
+    "$(grep -c "have no ledger record here" <<<"$out")"
+printf 'NEVER %s\nUNJUDGED %s\n' "$B" "$D" >"$MARKERS"
 run_changed '' -- --changed
 check "with only those, nothing runs and it still names them" "yes" \
-    "$([ -z "$(plays_run)" ] && grep -q "$B" <<<"$out" && echo yes || echo no)"
+    "$([ -z "$(plays_run)" ] && grep -q "play-b.yml" <<<"$out" && grep -q "play-d.yml" <<<"$out" && echo yes || echo no)"
 
 echo "=== the judge cannot answer ==="
 printf 'RUN %s\n' "$A" >"$MARKERS"

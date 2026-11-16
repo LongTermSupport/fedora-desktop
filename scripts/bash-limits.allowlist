@@ -62,7 +62,7 @@ files/var/local/claude-yolo/lib/token-management.bash	1008	27	1078	-
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	665	20	524	-
 files/var/local/ps1-prompt	76	6	78	-
-run.bash	2776	66	2715	assoc,data
+run.bash	2771	66	2714	assoc,data
 scripts/check-displaylink-status.sh	211	1	231	-
 scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	360	9	365	-

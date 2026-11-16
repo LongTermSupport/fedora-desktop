@@ -24,10 +24,11 @@
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
 #   changed-plays                  every play that has to run again here (one that has run
-#                                  here, or one with no ledger record whose files are
-#                                  deployed here), as one unit: the checkout's
+#                                  here, or one with no ledger record whose files here
+#                                  show it ran), as one unit: the checkout's
 #                                  ./run.bash --changed --yes, in playbook-main.yml order,
-#                                  stopping at the first failure
+#                                  stopping at the first failure; the other plays with no
+#                                  record (NEVER, UNJUDGED) are named and never run
 #
 # changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
 # plays it runs when it starts, so the entries above it have already run (a play an entry
@@ -41,8 +42,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #323: changed-plays now also runs a play with no ledger record whose files are
-# deployed here. On this host that is play-claude-devtools, play-ddev and play-qobuz, and
+# Issue #323: changed-plays now also runs a play with no ledger record whose files here show
+# it ran. On this host that is play-claude-devtools, play-ddev and play-qobuz, and
 # play-self-update is due as well; none has converged since its files were deployed. Each is
 # first run in check mode with a diff, which applies nothing and is not ledgered, so the
 # changes can be read before they are made. Expected: changes only inside what each play

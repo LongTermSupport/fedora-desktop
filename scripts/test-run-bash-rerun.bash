@@ -231,15 +231,17 @@ check "and is not numbered in the menu" "0" "$(menu_row 2 | grep -c .)"
 check "the rest runs" "play-a.yml " "$(plays_run)"
 
 echo "=== plays with no ledger record (issue #323) ==="
-printf 'PLAY current %s\nPLAY unrecorded %s\nPLAY never %s\n' "$A" "$B" "$C" >"$MARKERS"
+printf 'PLAY current %s\nPLAY unrecorded %s\nPLAY never %s\nPLAY unjudged %s\n' "$A" "$B" "$C" "$D" >"$MARKERS"
 run_rerun 'a\n' -- --rerun
 check "a play whose files are deployed is marked" "1" "$(menu_row 2 | grep -c '^  \*')"
 check "and says why" "1" "$(menu_row 2 | grep -c 'its files are deployed')"
-check "a play with nothing deployed is not marked" "0" "$(menu_row 3 | grep -c '^  \*')"
-check "and has its own word" "1" "$(menu_row 3 | grep -c 'not judged')"
+check "a play none of whose files shows a run is not marked" "0" "$(menu_row 3 | grep -c '^  \*')"
+check "and says so" "1" "$(menu_row 3 | grep -c 'no record here; none of its files shows it ran here')"
+check "a play with no file to look for is not marked" "0" "$(menu_row 4 | grep -c '^  \*')"
+check "and says it cannot be told" "1" "$(menu_row 4 | grep -c 'no record here; whether it ran here cannot be told')"
 check "a runs the marked one only" "play-b.yml " "$(plays_run)"
-run_rerun '3\n' -- --rerun
-check "the unmarked one can still be picked by number" "play-c.yml " "$(plays_run)"
+run_rerun '3 4\n' -- --rerun
+check "the unmarked ones can still be picked by number" "play-c.yml play-d.yml " "$(plays_run)"
 
 echo "=== a dirty checkout ==="
 printf 'PLAY stale %s\n' "$A" >"$MARKERS"

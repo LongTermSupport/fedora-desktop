@@ -1,19 +1,20 @@
 """The panel's play runner: which plays it lists, and the gate a requested play passes
 (Plan 00109, Task 4.3).
 
-**The list** is the plays under `playbooks/imports/` this host's ledger has seen, the
-ones `changed_plays.judge` judges, each with the state `check_freshness` reports for it —
-fresh, stale, failed or unresolved. It is derived from that
-check's own verdicts, never recomputed: a freshness rule reimplemented here, or in the
-panel's JavaScript, would be a second check that drifts from the one under test
-(DESIGN-panel.md §8). A GONE play is left out, because there is nothing to run and the
-health section already reports it.
+**The list** is the plays under `playbooks/imports/` that `changed_plays.judge` judges, each
+with the state `check_freshness` reports for it — fresh, stale, failed, unresolved, or
+unrecorded (no ledger record here, but a file it deploys here shows it ran; issue #323).
+It is derived from that check's own verdicts, never recomputed: a freshness rule
+reimplemented here, or in the panel's JavaScript, would be a second check that drifts from
+the one under test (DESIGN-panel.md §8). A GONE play is left out, because there is nothing
+to run and the health section already reports it, and so are the plays the judgement does
+not run (NEVER, UNJUDGED).
 
 **The gate** is `validate`. The play name reaches the on-demand command from a state
 file the panel read, so it is judged as untrusted input: a repo-relative path under
-`playbooks/`, spelled canonically, one the ledger lists, present in this checkout,
-executable, and not a symlink out of the playbooks tree. Anything else is refused with
-the reason, and no path is printed.
+`playbooks/`, spelled canonically, one the list offers (`offered_plays`, the same judgement
+made again now), present in this checkout, executable, and not a symlink out of the
+playbooks tree. Anything else is refused with the reason, and no path is printed.
 
 The command then runs the play through its own shebang, which hands it to `run.bash`.
 Nothing here runs a play: this module answers which, and whether.
@@ -28,17 +29,18 @@ import os
 import posixpath
 import re
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TextIO
 
-from helpers.play_ledger import freshness, ledger, store
+from helpers.play_ledger import changed_plays, check_freshness, freshness, ledger, store
 
 #: The only tree the runner launches from.
 PLAYBOOKS_DIR = "playbooks"
 
 #: Refused: the name failed the gate. 64 is the command's own usage status.
 EXIT_REFUSED = 64
-#: The ledger could not be read, so no name can be shown to be one it lists.
+#: The ledger could not be read or the plays judged, so no name can be shown to be one the
+#: panel offers.
 EXIT_LEDGER_UNREADABLE = 2
 
 #: Path segments of letters, digits, `.`, `_` and `-`, ending in `.yml`. An allowlist,
@@ -65,7 +67,25 @@ def runnable(verdicts: Iterable[freshness.Verdict]) -> list[dict[str, str]]:
     )
 
 
-def validate(play: str, *, repo_root: str, ledgered: set[str]) -> str:
+def offered_plays(base: str, repo_root: str, *,
+                  judge: Callable[..., changed_plays.Judgement] = changed_plays.judge) -> set[str]:
+    """The plays `runnable` offers for this host's ledger at `base`, judged now.
+
+    The same judgement and verdicts as the list (`check_freshness`), so the gate accepts
+    exactly what the panel can have offered. Raises `ValueError` for a ledger that cannot be
+    read or has a recorded hole (the panel offers nothing then), and `changed_plays.NoAnswer`
+    when the plays cannot be judged. `judge` is the test seam.
+    """
+    broken = store.broken_reason(base)
+    if broken is not None:
+        raise ValueError(f"the play ledger has a recorded hole: {broken}")
+    lines = store.read_lines(base)
+    judgement = judge(ledger.fold_latest_full(lines), repo_root=repo_root,
+                      recorded=ledger.recorded_plays(lines))
+    return {row["play"] for row in runnable(check_freshness.verdicts(judgement))}
+
+
+def validate(play: str, *, repo_root: str, offered: set[str]) -> str:
     """The play's absolute path, or `PlayRefused` naming the rule it broke."""
     if not isinstance(play, str) or not _PLAY_RE.match(play):
         raise PlayRefused(
@@ -74,10 +94,10 @@ def validate(play: str, *, repo_root: str, ledgered: set[str]) -> str:
         )
     if posixpath.normpath(play) != play or ".." in play.split("/"):
         raise PlayRefused(f"{play!r} is not spelled canonically")
-    if play not in ledgered:
+    if play not in offered:
         raise PlayRefused(
-            f"{play} is not in this host's play ledger, so the panel cannot have "
-            "offered it"
+            f"the panel does not offer {play} on this host (as run.bash --rerun judges "
+            "the plays now), so it cannot be run from there"
         )
 
     tree = os.path.join(os.path.realpath(repo_root), PLAYBOOKS_DIR)
@@ -106,6 +126,7 @@ def main(
     home: str | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    judge: Callable[..., changed_plays.Judgement] = changed_plays.judge,
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=_repo_root_default())
@@ -117,13 +138,17 @@ def main(
     base = ledger.ledger_dir(environment, home if home is not None else os.path.expanduser("~"))
 
     try:
-        ledgered = set(ledger.fold_latest(store.read_lines(base)))
+        offered = offered_plays(base, arguments.repo_root, judge=judge)
     except (OSError, ValueError) as error:
         err.write(f"the play ledger cannot be read, so no play can be run from it: {error}\n")
         return EXIT_LEDGER_UNREADABLE
+    except changed_plays.NoAnswer as no_answer:
+        err.writelines(f"{line}\n" for line in ("the plays cannot be judged, so none is run "
+                                                "from the panel:", *no_answer.lines))
+        return EXIT_LEDGER_UNREADABLE
 
     try:
-        path = validate(arguments.validate, repo_root=arguments.repo_root, ledgered=ledgered)
+        path = validate(arguments.validate, repo_root=arguments.repo_root, offered=offered)
     except PlayRefused as error:
         err.write(f"refused: {error}\n")
         return EXIT_REFUSED

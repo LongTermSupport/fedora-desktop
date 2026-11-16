@@ -7,11 +7,11 @@ the panel's play rows carry, and the report built from it. No I/O.
 
 Two rules carry the plan's weight and are easy to erode:
 
-1. **A play with no record and nothing deployed is silent.** It has never been run here,
-   and the correct output for it is nothing. Reporting every never-run optional play as
-   stale on day one — there are dozens — is how a health check trains its reader to
-   ignore it. One with no record whose files ARE deployed here ran before the ledger, or
-   not through run.bash, and is STALE: `run.bash --changed` runs it (issue #323).
+1. **A play with no record is silent unless a file of it here shows it ran.** Reporting
+   every never-run optional play as stale on day one — there are dozens — is how a health
+   check trains its reader to ignore it. One with no record whose files here show it ran
+   (before the ledger, or not through run.bash) is UNRECORDED, and `run.bash --changed`
+   runs it (issue #323); `changed_plays` says which files show that.
 2. **A known-broken ledger answers nothing at all.** While the `BROKEN` sentinel
    exists the history has holes, and a per-play verdict from an incomplete history
    is a specific false statement — worse than the general warning it replaces.
@@ -34,9 +34,11 @@ FAILED = "failed"
 UNRESOLVED = "unresolved"
 #: It ran here, and the checkout does not have it.
 GONE = "gone"
+#: No run of it is recorded here, but a file it deploys here shows that it ran (issue #323).
+UNRECORDED = "unrecorded"
 
 #: Faults: the plays `run.bash --changed` runs, and the ones the checkout does not have.
-REPORTABLE = (STALE, FAILED, GONE)
+REPORTABLE = (STALE, FAILED, UNRECORDED, GONE)
 
 
 class Verdict(NamedTuple):

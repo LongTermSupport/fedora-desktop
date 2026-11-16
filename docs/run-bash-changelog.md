@@ -15,6 +15,16 @@ the index, not the record.
 
 ---
 
+## 1.38.1 — the plays with no ledger record are told apart, and listed compactly (issue #323)
+
+A file a package owns no longer counts as a sign that a play ran unless `rpm -V` reports its
+content changed from the package's own, and a file two plays deploy counts for neither. A
+play with no record that none of its files shows ran is `NEVER`; one that deploys no file
+that can be looked for (it only installs packages, say) is the new marker `UNJUDGED`,
+because whether it ran cannot be told. `--changed` lists each kind as a count and the play
+names on one line, on stdout with the other lists, and runs neither. `--rerun` gives each
+its own word, and `--all` prints the state `unjudged`.
+
 ## 1.38.0 — `--changed` judges plays with no ledger record too (issue #323)
 
 `--changed` used to judge only the plays the play ledger had a record of, so a play that

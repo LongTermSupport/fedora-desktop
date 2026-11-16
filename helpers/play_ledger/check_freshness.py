@@ -48,13 +48,13 @@ EXIT_UNTRUSTWORTHY = 2
 _STATE_LABEL = {
     freshness.STALE: "changed since it was run here",
     freshness.FAILED: "its last run here did not succeed",
+    freshness.UNRECORDED: "no run of it is recorded here, but files it deploys are on this host",
     freshness.GONE: "no longer in the checkout",
 }
 
 _VERDICT_STATE = {
     changed_plays.STATE_STALE: freshness.STALE,
-    # No record here, and its files are deployed: run.bash --changed runs it, so it is due.
-    changed_plays.STATE_UNRECORDED: freshness.STALE,
+    changed_plays.STATE_UNRECORDED: freshness.UNRECORDED,
     changed_plays.STATE_FAILED: freshness.FAILED,
     changed_plays.STATE_UNRESOLVED: freshness.UNRESOLVED,
     changed_plays.STATE_CURRENT: freshness.FRESH,
@@ -84,8 +84,9 @@ def run(
 
     `coverage`, when given, receives one sentence saying what was judged and what was not:
     the plays outside `playbooks/imports/`, the plays holding a reference nobody can
-    follow, and the host plays with no ledger record and none of their files deployed here.
-    None is a fault, and `run.bash --changed` runs none.
+    follow, and the host plays with no ledger record that no file here shows ran (NEVER) or
+    that deploy no file to look for (UNJUDGED). None is a fault, and `run.bash --changed`
+    runs none.
 
     `unchecked` is where findings that mean *"nothing was checked against upstream"* go
     — the refs-are-old answer, which is a real finding but not a fault anybody has
@@ -114,15 +115,14 @@ def run(
         stderr.write(f"play-freshness: the ledger cannot be read: {error}\n")
         return EXIT_UNTRUSTWORTHY
 
-    if not recorded:
-        # Nothing has ever been run here. Silence is the correct output.
-        return EXIT_OK
-
+    # With nothing ever run here there is no fetch age to judge, so no fetch; the plays are
+    # still judged, because run.bash --changed judges the unrecorded ones on this ledger too.
     offline: str | None = None
     reached_remote = False
     try:
-        fetch(repo_root)
-        reached_remote = True
+        if recorded:
+            fetch(repo_root)
+            reached_remote = True
     except Exception as error:
         # Offline at login is ordinary, so a failed fetch is NOT untrustworthy on its
         # own. What matters is how long it has been — a fact about this host rather
@@ -153,13 +153,13 @@ def run(
         stderr.writelines(f"play-freshness: {line}\n" for line in no_answer.lines)
         return EXIT_UNTRUSTWORTHY
 
-    verdicts = [_verdict(judgement, play) for play in judgement.order]
+    judgement_verdicts = verdicts(judgement)
     if judged is not None:
-        judged.extend(verdicts)
+        judged.extend(judgement_verdicts)
     if coverage is not None:
         coverage.append(coverage_sentence(judgement))
 
-    status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
+    status = _emit(freshness.build_report(verdicts=judgement_verdicts, broken_reason=None), stdout, stderr)
     if offline is not None:
         # An offline run still judged, on the refs it had. What is reported is the
         # age of those refs, and only once it is past the bound. It goes to the
@@ -170,12 +170,17 @@ def run(
     return status
 
 
+def verdicts(judgement: changed_plays.Judgement) -> list[freshness.Verdict]:
+    """Every judged play's verdict, in run order: what the report and the panel list."""
+    return [_verdict(judgement, play) for play in judgement.order]
+
+
 def _verdict(judgement: changed_plays.Judgement, play: str) -> freshness.Verdict:
     """One play's verdict, with the reasons a reader acts on as its detail lines."""
     if play in judgement.gone:
         return freshness.Verdict(play, freshness.GONE)
     state = _VERDICT_STATE[judgement.states[play]]
-    if state != freshness.STALE:
+    if state not in (freshness.STALE, freshness.UNRECORDED):
         return freshness.Verdict(play, state)
     return freshness.Verdict(play, state, tuple(changed_plays.reasons(judgement, play)))
 
@@ -199,10 +204,21 @@ def coverage_sentence(judgement: changed_plays.Judgement) -> str:
         )
     never = len(judgement.never)
     if never:
+        one = never == 1
         sentence += (
-            f"; {never} other host {'play has' if never == 1 else 'plays have'} no ledger record "
-            f"here and none of {'its' if never == 1 else 'their'} files were found deployed, so "
-            f"{'it is' if never == 1 else 'they are'} not judged: {', '.join(judgement.never)}"
+            f"; {never} other host {'play has' if one else 'plays have'} no ledger record here and "
+            f"none of the files {'it deploys' if one else 'they deploy'} shows that "
+            f"{'it' if one else 'they'} ran here, so {'it is' if one else 'they are'} not run: "
+            f"{', '.join(judgement.never)}"
+        )
+    unjudged = len(judgement.unjudged)
+    if unjudged:
+        one = unjudged == 1
+        sentence += (
+            f"; {unjudged} other host {'play has' if one else 'plays have'} no ledger record here "
+            f"and {'deploys' if one else 'deploy'} no file that can be looked for, so whether "
+            f"{'it' if one else 'they'} ran here cannot be told and {'it is' if one else 'they are'} "
+            f"not run: {', '.join(judgement.unjudged)}"
         )
     others = len(judgement.not_judged)
     if others:
