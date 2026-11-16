@@ -76,16 +76,20 @@ machine where it cannot apply is cleared with
 which the failure line prints; it is judged again once it runs. A removed play
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
-follow), and any other play that is no longer in the checkout. It runs neither.
+follow), and any other play that is no longer in the checkout. It runs neither. A play with
+no record in the ledger here (it ran before the ledger existed, or not through `run.bash`)
+runs when a file its copy or template tasks deploy is on this machine, and its reason line
+names those files. One with nothing of it found is listed as never run here, not judged,
+and is not run.
 `./run.bash --changed --yes` runs the list without asking, for a caller nobody answers,
 such as meta-deploy's `changed-plays` entry; it still needs a terminal, because a headless
 run refuses `--changed`. The
 health report judges plays the same way, so the plays it lists as changed or failed are
 the plays `--changed` runs, and it prints this command with the checkout's full path.
 
-**To pick the plays yourself, run `./run.bash --rerun`.** It lists every play that has run
-on this machine as a numbered menu, in the same order, and marks with `*` the ones that
-have to run again: changed since they last ran, or their last full run failed. Type a number
+**To pick the plays yourself, run `./run.bash --rerun`.** It lists the checkout's plays as
+`--changed` judges them, as a numbered menu in the same order, and marks with `*` the ones
+that have to run again; the plays never run here are listed unmarked. Type a number
 (`3`), several (`1 4` or `1,4`), `a` for every play marked `*`, or `q` to quit. A mistyped
 answer says what was wrong and asks again, up to three times, and end of input cancels
 without running anything. The pick runs at once, in menu order, under the same play lock
@@ -1035,11 +1039,13 @@ below):
   own file or any file it deploys changed since the commit it last ran from (each finding
   names up to three changed paths, and on a line of its own up to three changed Go
   packages with the commands built from them), whose last full run failed, or which last ran
-  from a checkout with uncommitted changes. Below them the report prints the command that runs
+  from a checkout with uncommitted changes, or which has no ledger record here but whose
+  deployed files are on this machine. Below them the report prints the command that runs
   them all, ready to paste: this checkout's full path, found where the code runs, plus
   `run.bash --changed`. Only plays under `playbooks/imports/` are judged, as by
   `--changed`; the status document's coverage for the section names the plays it cannot
-  judge (a reference it cannot follow) and the ledgered plays outside that directory
+  judge (a reference it cannot follow), the plays never run here, and the ledgered plays
+  outside that directory
 - A play that was run here and has since been deleted is reported as "no longer in the
   checkout". When a play is merged into another, add it to
   `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the

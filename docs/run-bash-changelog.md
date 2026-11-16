@@ -15,6 +15,17 @@ the index, not the record.
 
 ---
 
+## 1.38.0 — `--changed` judges plays with no ledger record too (issue #323)
+
+`--changed` used to judge only the plays the play ledger had a record of, so a play that
+deployed its files here before the ledger existed, or not through `run.bash`, was never run
+again and never named. Now a host play with no record here runs when a file its copy or
+template tasks deploy is on this machine (the reason line names the files), and one with
+nothing of it found is listed as never run here, not judged, and not run: running every
+unrecorded play would install what the owner never chose. `--rerun` shows both, the first
+marked `*`, the second unmarked as "never run here, not judged". The helper's new marker is
+`NEVER <play>`, and `--all` prints the states `unrecorded` and `never`.
+
 ## 1.37.0 — the two sudoers switches can be declared headless
 
 A host whose policy forbids permanent `NOPASSWD` sudoers rules had no way to say so before

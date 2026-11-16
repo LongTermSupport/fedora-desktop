@@ -23,9 +23,11 @@
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
-#   changed-plays                  every play that has run here and has to run again, as
-#                                  one unit: the checkout's ./run.bash --changed --yes, in
-#                                  playbook-main.yml order, stopping at the first failure
+#   changed-plays                  every play that has to run again here (one that has run
+#                                  here, or one with no ledger record whose files are
+#                                  deployed here), as one unit: the checkout's
+#                                  ./run.bash --changed --yes, in playbook-main.yml order,
+#                                  stopping at the first failure
 #
 # changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
 # plays it runs when it starts, so the entries above it have already run (a play an entry

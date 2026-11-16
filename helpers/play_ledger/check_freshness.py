@@ -53,6 +53,8 @@ _STATE_LABEL = {
 
 _VERDICT_STATE = {
     changed_plays.STATE_STALE: freshness.STALE,
+    # No record here, and its files are deployed: run.bash --changed runs it, so it is due.
+    changed_plays.STATE_UNRECORDED: freshness.STALE,
     changed_plays.STATE_FAILED: freshness.FAILED,
     changed_plays.STATE_UNRESOLVED: freshness.UNRESOLVED,
     changed_plays.STATE_CURRENT: freshness.FRESH,
@@ -81,8 +83,9 @@ def run(
     the whole one.
 
     `coverage`, when given, receives one sentence saying what was judged and what was not:
-    the plays outside `playbooks/imports/`, and the plays holding a reference nobody can
-    follow. Neither is a fault, and `run.bash --changed` runs neither.
+    the plays outside `playbooks/imports/`, the plays holding a reference nobody can
+    follow, and the host plays with no ledger record and none of their files deployed here.
+    None is a fault, and `run.bash --changed` runs none.
 
     `unchecked` is where findings that mean *"nothing was checked against upstream"* go
     — the refs-are-old answer, which is a real finding but not a fault anybody has
@@ -91,7 +94,8 @@ def run(
     that has to tell them apart by wording gets it wrong.
     """
     fetch = fetch or git_history.fetch
-    judge = judge or (lambda latest, root: changed_plays.judge(latest, repo_root=root))
+    recorded: frozenset[str] = frozenset()
+    judge = judge or (lambda latest, root: changed_plays.judge(latest, repo_root=root, recorded=recorded))
 
     broken = store.broken_reason(base)
     if broken is not None:
@@ -101,14 +105,16 @@ def run(
         return _emit(report, stdout, stderr)
 
     try:
-        latest = ledger.fold_latest_full(store.read_lines(base))
+        lines = store.read_lines(base)
+        latest = ledger.fold_latest_full(lines)
+        recorded = ledger.recorded_plays(lines)
     except ValueError as error:
         # The fold refuses a corrupt line rather than skipping it. Softening that
         # into a clean report here would undo the only reason it raises.
         stderr.write(f"play-freshness: the ledger cannot be read: {error}\n")
         return EXIT_UNTRUSTWORTHY
 
-    if not latest:
+    if not recorded:
         # Nothing has ever been run here. Silence is the correct output.
         return EXIT_OK
 
@@ -190,6 +196,13 @@ def coverage_sentence(judgement: changed_plays.Judgement) -> str:
             f"; {unresolved} of them {'holds' if unresolved == 1 else 'hold'} a reference that "
             "cannot be followed, so a change there is not seen: "
             f"{', '.join(sorted(judgement.unresolved))}"
+        )
+    never = len(judgement.never)
+    if never:
+        sentence += (
+            f"; {never} other host {'play has' if never == 1 else 'plays have'} no ledger record "
+            f"here and none of {'its' if never == 1 else 'their'} files were found deployed, so "
+            f"{'it is' if never == 1 else 'they are'} not judged: {', '.join(judgement.never)}"
         )
     others = len(judgement.not_judged)
     if others:

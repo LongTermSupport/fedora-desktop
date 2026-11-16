@@ -207,6 +207,18 @@ run_changed '' -- --changed
 check "with only those, nothing runs and it still names them" "yes" \
     "$([ -z "$(plays_run)" ] && grep -q "$B" <<<"$out" && echo yes || echo no)"
 
+echo "=== plays with no ledger record and nothing deployed (issue #323) ==="
+printf 'NEVER %s\nRUN %s\n' "$B" "$A" >"$MARKERS"
+run_changed 'y\n' -- --changed
+check "exits 0" "0" "$rc"
+check "runs only the RUN play, never the NEVER one" "play-a.yml " "$(plays_run)"
+check "names it as never run here, not judged" "yes" "$(yes_if grep -q "never run here, not judged" <<<"$out")"
+check "and names the play" "yes" "$(yes_if grep -q "^     $B$" <<<"$out")"
+printf 'NEVER %s\n' "$B" >"$MARKERS"
+run_changed '' -- --changed
+check "with only those, nothing runs and it still names them" "yes" \
+    "$([ -z "$(plays_run)" ] && grep -q "$B" <<<"$out" && echo yes || echo no)"
+
 echo "=== the judge cannot answer ==="
 printf 'RUN %s\n' "$A" >"$MARKERS"
 run_changed 'y\n' TEST_JUDGE_RC=2 TEST_JUDGE_ERR="changed-plays: the ledger cannot be read" -- --changed

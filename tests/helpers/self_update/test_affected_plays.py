@@ -306,6 +306,47 @@ class TestInputs(FixtureCase):
         self.assertTrue(ap.affects(ap.play_inputs(self.fx.root, play), play))
 
 
+class TestDestinations(FixtureCase):
+    """Where a play puts files on the host (issue #323): the `dest:` of every copy and
+    template task in the play and the task files it walks, as written, for
+    `changed_plays` to look for on a host where the play has no ledger record."""
+
+    def test_copy_and_template_dests_are_kept_as_written_in_walk_order(self) -> None:
+        self.fx.file("files/bin/tool")
+        self.fx.file("tasks/more.yml", """
+            - name: Config
+              ansible.builtin.template:
+                src: tool.conf.j2
+                dest: "/home/{{ user_login }}/.config/tool.conf"
+        """)
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.copy:
+                    src: "{ROOT}/files/bin/tool"
+                    dest: /usr/local/bin/tool
+                - ansible.builtin.include_tasks: "{ROOT}/tasks/more.yml"
+        """)
+        self.assertEqual(ap.play_inputs(self.fx.root, play).dests,
+                         ["/usr/local/bin/tool", "/home/{{ user_login }}/.config/tool.conf"])
+
+    def test_a_dest_of_any_other_module_is_not_kept(self) -> None:
+        play = self.fx.play("playbooks/imports/play-a.yml", """
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.lineinfile:
+                    dest: /etc/hosts
+                    line: "x"
+                - ansible.builtin.get_url:
+                    url: https://example.com/tool
+                    dest: /usr/local/bin
+                - ansible.builtin.git:
+                    repo: https://example.com/repo.git
+                    dest: /opt/repo
+        """)
+        self.assertEqual(ap.play_inputs(self.fx.root, play).dests, [])
+
+
 class TestLoopedReferences(FixtureCase):
     """A templated tail the play text fills in with literals names those paths, not the
     directory above them (Plan 00229, Task 1.5): a loop of names over files/home/.local/bin/

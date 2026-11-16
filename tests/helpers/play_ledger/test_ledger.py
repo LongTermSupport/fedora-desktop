@@ -340,6 +340,25 @@ class TestForget(unittest.TestCase):
             ledger.fold_latest([line])
 
 
+class TestRecordedPlays(unittest.TestCase):
+    """Issue #323: every play the ledger holds any record of, which no fold drops."""
+
+    def test_narrowed_runs_and_forgets_count_and_genesis_does_not(self):
+        other = "playbooks/imports/play-python.yml"
+        forgotten = "playbooks/imports/play-fonts.yml"
+        lines = [
+            ledger.serialise(ledger.genesis_record(commit="a" * 40, at="2026-09-01T00:00:00Z")),
+            _run_line(PLAY, "2026-09-14T00:00:00Z", narrowed={"tags": ["x"]}),
+            _run_line(other, "2026-09-14T00:00:00Z"),
+            ledger.serialise(ledger.forget_record(play=forgotten, at="2026-09-02T00:00:00Z")),
+        ]
+        self.assertEqual(ledger.recorded_plays(lines), frozenset({PLAY, other, forgotten}))
+
+    def test_a_corrupt_line_raises(self):
+        with self.assertRaises(ValueError):
+            ledger.recorded_plays(["{not json"])
+
+
 class TestFoldLatest(unittest.TestCase):
     def _line(self, play, finished, outcome="ok"):
         return _run_line(play, finished, outcome)

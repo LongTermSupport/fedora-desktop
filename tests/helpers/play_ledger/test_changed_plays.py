@@ -36,6 +36,10 @@ OPT_A = "playbooks/imports/optional/common/play-a-optional.yml"
 SCRATCH = "untracked/scratch/probe.yml"
 DEV = "playbooks/dev/play-repo-tool.yml"
 FREEZE = "playbooks/imports/optional/common/play-podfreeze.yml"
+#: Plays with no ledger record on the stubbed host (issue #323).
+DARKROOM = "playbooks/imports/optional/common/play-darkroom.yml"
+VENDOR_GPU = "playbooks/imports/optional/hardware-specific/play-vendor-gpu.yml"
+TEMPLATED = "playbooks/imports/optional/common/play-templated.yml"
 
 OLD = "playbooks/imports/play-claude-code.yml"
 
@@ -83,7 +87,16 @@ INPUTS = {
     OPT_B: Inputs(exact={OPT_B}),
     FREEZE: Inputs(exact={FREEZE}, go_packages={"src-go/internal/ui", "src-go/cmd/podfreeze"},
                    go_builders={"src-go/internal/ui": {"podfreeze"}, "src-go/cmd/podfreeze": {"podfreeze"}}),
+    DARKROOM: Inputs(exact={DARKROOM}, dests=["/var/lib/{{ user_login }}/bin/darkroom-tidy",
+                                             "/etc/darkroom.conf"]),
+    VENDOR_GPU: Inputs(exact={VENDOR_GPU}, dests=["/etc/modprobe.d/vendor-gpu.conf"]),
+    TEMPLATED: Inputs(exact={TEMPLATED}, dests=["{{ user_bin_dir }}/templated-tool",
+                                               "/var/lib/{{ user_login }}/{{ item }}"]),
 }
+
+#: The login the stubbed cases run as, and the paths "deployed" on their stubbed host.
+LOGIN = "alice"
+TIDY = "/var/lib/alice/bin/darkroom-tidy"
 
 
 def _isolated_git_env() -> dict[str, str]:
@@ -117,8 +130,11 @@ def _write(root: str, path: str, text: str) -> None:
 class _Case(unittest.TestCase):
     def _run(self, base: str, *, changed: dict[str, list[str]], present=None, tracked=None,
              diff_error: Exception | None = None, main_order: list[str] | None = None,
-             tracked_at=None, retired: dict[str, str] | None = None, list_all: bool = False):
-        """changed: commit -> paths changed from it to the working tree."""
+             tracked_at=None, retired: dict[str, str] | None = None, list_all: bool = False,
+             candidates: list[str] | None = None, deployed: set[str] | None = None):
+        """changed: commit -> paths changed from it to the working tree. `candidates` are
+        the host plays the checkout has (none by default), `deployed` the host paths that
+        exist, as seen by the login LOGIN."""
         present = set(INPUTS) if present is None else present
         tracked = set(INPUTS) if tracked is None else tracked
         order = MAIN_ORDER if main_order is None else main_order
@@ -141,6 +157,9 @@ class _Case(unittest.TestCase):
             inputs_of=lambda root, play: INPUTS[play],
             main_order=lambda root: order,
             retired_plays=lambda root: retired_map,
+            candidates=lambda root: list(candidates or []),
+            exists=lambda path: path in (deployed or set()),
+            login=lambda: LOGIN,
             list_all=list_all,
         )
         return code, out.getvalue(), err.getvalue()
@@ -308,6 +327,94 @@ class TestNarrowedRuns(_Case):
             self.assertEqual(out, "")
 
 
+class TestNoLedgerRecord(_Case):
+    """Issue #323: a host play with no ledger record here is never dropped without a word.
+
+    Its files deployed here (a run from before the ledger, or not through run.bash) make it
+    run; with nothing of it found, it is named NEVER and not run, because running every
+    play this host never chose would install what the owner never asked for.
+    """
+
+    def test_a_play_with_no_record_whose_files_are_deployed_runs_and_says_why(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok")])
+            code, out, err = self._run(base, changed={}, candidates=[BASIC, DARKROOM], deployed={TIDY})
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, f"RUN {DARKROOM}\n"))
+            self.assertEqual(err, f"changed-plays: {DARKROOM}: never ran through run.bash here; "
+                                  f"its files are deployed: {TIDY}\n")
+
+    def test_every_deployed_file_found_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _, _, err = self._run(base, changed={}, candidates=[DARKROOM],
+                                  deployed={TIDY, "/etc/darkroom.conf"})
+            self.assertIn(f"its files are deployed: {TIDY}, /etc/darkroom.conf\n", err)
+
+    def test_a_play_with_no_record_and_nothing_deployed_is_named_never_and_not_run(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok")])
+            code, out, _ = self._run(base, changed={}, candidates=[BASIC, VENDOR_GPU], deployed={TIDY})
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, f"NEVER {VENDOR_GPU}\n"))
+
+    def test_the_rerun_list_gives_each_its_own_state(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok")])
+            _, out, _ = self._run(base, changed={}, candidates=[BASIC, DARKROOM, VENDOR_GPU],
+                                  deployed={TIDY}, list_all=True)
+            self.assertEqual(out, f"PLAY current {BASIC}\nPLAY unrecorded {DARKROOM}\n"
+                                  f"PLAY never {VENDOR_GPU}\n")
+
+    def test_a_dest_templated_with_anything_but_the_login_is_no_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _, out, _ = self._run(base, changed={}, candidates=[TEMPLATED],
+                                  deployed={"{{ user_bin_dir }}/templated-tool", "/var/lib/alice/{{ item }}"})
+            self.assertEqual(out, f"NEVER {TEMPLATED}\n")
+
+    def test_a_recorded_plays_judgement_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "ok"), (YOLO, COMMIT_A, "ok")])
+            _, out, err = self._run(base, changed={COMMIT_A: [BASIC]}, candidates=[BASIC, YOLO],
+                                    deployed={TIDY})
+            self.assertEqual(out, f"RUN {BASIC}\n")
+            self.assertEqual(err, f"changed-plays: {BASIC}: changed: {BASIC}\n")
+
+    def test_a_forgotten_play_is_not_judged_as_never_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(DARKROOM, COMMIT_A, "failed")])
+            store.append_record(base, ledger.forget_record(play=DARKROOM, at="2026-09-26T09:00:00Z"))
+            _, out, _ = self._run(base, changed={}, candidates=[DARKROOM], deployed={TIDY})
+            self.assertEqual(out, "")
+
+    def test_a_play_only_ever_run_narrowed_is_not_judged_as_never_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [])
+            _append_run(base, DARKROOM, outcome="ok", finished=STAMP, narrowed={"tags": ["x"]})
+            _, out, _ = self._run(base, changed={}, candidates=[DARKROOM], deployed={TIDY})
+            self.assertEqual(out, "")
+
+
+class TestDeployedPath(unittest.TestCase):
+    """Issue #323: which `dest:` values name a host path, as the login running the helper."""
+
+    def test_a_literal_absolute_path_is_itself(self) -> None:
+        self.assertEqual(changed_plays.deployed_path("/etc/darkroom.conf", LOGIN), "/etc/darkroom.conf")
+
+    def test_the_user_login_is_filled_in(self) -> None:
+        self.assertEqual(changed_plays.deployed_path("/var/lib/{{ user_login }}/bin/x", LOGIN),
+                         "/var/lib/alice/bin/x")
+        self.assertEqual(changed_plays.deployed_path("/var/lib/{{user_login}}/x", LOGIN), "/var/lib/alice/x")
+
+    def test_any_other_template_is_no_evidence(self) -> None:
+        for dest in ("{{ user_bin_dir }}/x", "/home/{{ user_login }}/{{ item }}",
+                     "/home/{{ user_login | lower }}/x", "/etc/{% if a %}x{% endif %}"):
+            self.assertIsNone(changed_plays.deployed_path(dest, LOGIN), dest)
+
+    def test_a_relative_path_or_a_directory_is_no_evidence(self) -> None:
+        for dest in ("x.conf", "~/.config/x", "/usr/local/bin/", ""):
+            self.assertIsNone(changed_plays.deployed_path(dest, LOGIN), dest)
+
+
 class TestReasons(_Case):
     """Plan 00192 Task 3.8: why each play runs, for a person, on stderr; stdout stays markers."""
 
@@ -322,6 +429,7 @@ class TestReasons(_Case):
                 exists_now=lambda root, play: True,
                 inputs_of=lambda root, play: INPUTS[play],
                 main_order=lambda root: MAIN_ORDER,
+                candidates=lambda root: [],
             )
             self.assertEqual(judgement.states[FREEZE], changed_plays.STATE_STALE)
             self.assertEqual(judgement.changed_go[FREEZE], {"src-go/internal/ui": frozenset({"podfreeze"})})
@@ -371,6 +479,7 @@ class TestGroupVars(unittest.TestCase):
             group_vars_at=group_vars_at,
             group_vars_now=lambda root: new_vars,
             play_text=lambda root, inputs: next(text for play, text in self.TEXTS.items() if INPUTS[play] is inputs),
+            candidates=lambda root: [],
         )
 
     def _stale(self, judgement) -> list[str]:
@@ -754,6 +863,7 @@ class TestRealPlayInputs(unittest.TestCase):
             latest, repo_root=self.REPO_ROOT,
             changed_since=lambda root, commit: changed,
             main_order=lambda root: [],
+            candidates=lambda root: [],
         )
         return judgement.states
 
@@ -790,6 +900,7 @@ class TestRealPlayInputs(unittest.TestCase):
                 latest, repo_root=self.REPO_ROOT,
                 changed_since=lambda root, commit: [GROUP_VARS], main_order=lambda root: [],
                 group_vars_at=lambda root, commit: now, group_vars_now=lambda root: new,
+                candidates=lambda root: [],
             ).states
 
         unread = states(f"{now}\nnot_read_by_any_play_3_11: 1\n")

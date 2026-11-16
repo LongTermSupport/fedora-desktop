@@ -52,12 +52,15 @@ def _judgement(states: dict[str, str] | None = None, *, gone: tuple[str, ...] = 
                took_over: dict[str, list[str]] | None = None,
                not_judged: tuple[str, ...] = (),
                changed_go: dict[str, dict[str, frozenset[str]]] | None = None,
-               dirty_inputs: dict[str, list[str]] | None = None) -> changed_plays.Judgement:
+               dirty_inputs: dict[str, list[str]] | None = None,
+               deployed: dict[str, list[str]] | None = None,
+               never: tuple[str, ...] = ()) -> changed_plays.Judgement:
     states = states or {}
     return changed_plays.Judgement(
         order=tuple(states) + gone, states=states, gone=gone, unresolved=unresolved or {},
         changed_inputs=changed or {}, dirty=dirty, took_over=took_over or {},
         not_judged=not_judged, changed_go=changed_go or {}, dirty_inputs=dirty_inputs or {},
+        deployed=deployed or {}, never=never,
     )
 
 
@@ -419,6 +422,36 @@ class TestCoverage(unittest.TestCase):
     def test_no_answer_states_no_coverage(self) -> None:
         self.assertEqual(self._sentence(changed_plays.NoAnswer("x")), [])
 
+    def test_it_names_the_plays_with_no_record_and_nothing_deployed(self) -> None:
+        """Issue #323: not judged, not run, and not left out without a word."""
+        coverage = self._sentence(_judgement({A: changed_plays.STATE_CURRENT}, never=(B,)))
+        self.assertTrue(coverage[0].startswith("1 play under playbooks/imports/ judged"), coverage[0])
+        self.assertIn(f"1 other host play has no ledger record here and none of its files were "
+                      f"found deployed, so it is not judged: {B}", coverage[0])
+        coverage = self._sentence(_judgement({}, never=(A, B)))
+        self.assertIn("2 other host plays have no ledger record here", coverage[0])
+
+
+class TestNoLedgerRecord(unittest.TestCase):
+    """Issue #323: the report names what `run.bash --changed` runs for a play with no record."""
+
+    def test_a_play_with_no_record_whose_files_are_deployed_is_a_finding_with_its_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_CURRENT, B: changed_plays.STATE_UNRECORDED},
+                                                 deployed={B: ["/etc/b.conf"]}))
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertEqual(out, f"{B} — changed since it was run here\n"
+                                  "    never ran through run.bash here; its files are deployed: /etc/b.conf\n")
+
+    def test_a_play_with_no_record_and_nothing_deployed_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            judged: list = []
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_CURRENT}, never=(B,)), judged=judged)
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
+            self.assertEqual([verdict.play for verdict in judged], [A])
+
 
 class TestDefaultWiring(unittest.TestCase):
     def test_run_defaults_to_the_real_fetch_and_the_shared_judgement(self) -> None:
@@ -431,7 +464,7 @@ class TestDefaultWiring(unittest.TestCase):
                                        stdout=io.StringIO(), stderr=io.StringIO())
             self.assertEqual(code, 0)
             fetch.assert_called_once_with("/repo")
-            self.assertEqual(judge.call_args.kwargs, {"repo_root": "/repo"})
+            self.assertEqual(judge.call_args.kwargs, {"repo_root": "/repo", "recorded": frozenset({A})})
 
 
 def _append(base: str, play: str, *, outcome: str, finished: str,
@@ -817,7 +850,9 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
     The report and the runner must name the same plays, on a real repository and the real
     ledger, for each way a play has to run again: a file it deploys changed (its own file
     untouched), its last run failed, it ran from a dirty checkout, its own file changed in the
-    working tree and not yet committed. One play is current and must be in neither.
+    working tree and not yet committed. One play is current and must be in neither. Of two
+    plays with no ledger record (issue #323), the one whose file is deployed is in both and
+    the one with nothing deployed in neither.
     """
 
     COPY_TASK = (
@@ -847,6 +882,12 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
             for name in self.NAMES:
                 self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name))
                 self._write(root, f"files/home/{name}.conf", "v1\n")
+            # Neither has a ledger record; only the first one's file is on this host.
+            for name in ("unrecorded", "absent"):
+                self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name).replace(
+                    f"/tmp/{name}.conf", os.path.join(state, f"{name}.conf")))
+                self._write(root, f"files/home/{name}.conf", "v1\n")
+            self._write(state, "unrecorded.conf", "v1\n")
             self._git(root, "add", ".")
             self._git(root, "commit", "-q", "-m", "first")
             first = self._git(root, "rev-parse", "HEAD").strip()
@@ -880,12 +921,15 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
                                         stderr=io.StringIO(), fetch=lambda r: None),
                     check_freshness.EXIT_FINDINGS)
 
-            runner = [line.removeprefix("RUN ") for line in runner_out.getvalue().splitlines()]
+            lines = runner_out.getvalue().splitlines()
+            runner = [line.removeprefix("RUN ") for line in lines if line.startswith("RUN ")]
             report = [line.split(" — ")[0] for line in report_out.getvalue().splitlines()
                       if not line.startswith(" ")]
             want = [f"playbooks/imports/play-{name}.yml" for name in self.NAMES if name != "current"]
-            self.assertEqual(runner, want)
+            self.assertEqual(runner, [*want, "playbooks/imports/play-unrecorded.yml"])
             self.assertEqual(report, runner)
+            self.assertEqual([line for line in lines if not line.startswith("RUN ")],
+                             ["NEVER playbooks/imports/play-absent.yml"])
 
 
 # Must stay LAST in the file. `unittest.main()` here collects only what is defined
