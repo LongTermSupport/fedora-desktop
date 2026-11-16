@@ -204,8 +204,11 @@ func TestRestoreEngineIsTheHostsAdapters(t *testing.T) {
 	if d.Ready != (hostnet.Readiness{}) || d.Clock != (systemClock{}) || d.Rand != rand.Reader {
 		t.Fatalf("Deps %+v", d)
 	}
-	if missing := nilFields(reflect.ValueOf(d)); len(missing) > 0 {
+	if missing := nilFields(reflect.ValueOf(d), "OnStaged", "AfterSwap"); len(missing) > 0 {
 		t.Fatalf("restore.Deps seams left nil: %v", missing)
+	}
+	if d.OnStaged != nil || d.AfterSwap != nil {
+		t.Fatal("a real restore runs the drill's hooks: OnStaged and AfterSwap must be nil")
 	}
 	if reflect.TypeOf(d.Approvals) != reflect.TypeOf(sys.Host.Approvals) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) {
 		t.Fatalf("Approvals %T, Status %T: not the host's", d.Approvals, d.Status)

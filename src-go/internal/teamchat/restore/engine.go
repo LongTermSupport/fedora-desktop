@@ -440,6 +440,11 @@ func (e *engine) stillStaged(err error) error {
 // then the record at swap.
 func (e *engine) swap(ctx context.Context) (Answer, error) {
 	t := e.team()
+	if e.d.OnStaged != nil {
+		if err := e.d.OnStaged(ctx, t); err != nil {
+			return Answer{}, e.stillStaged(err)
+		}
+	}
 	floor, err := readFloor(e.d, t)
 	if epoch := e.rec.Roster.RestoreEpoch; err == nil && epoch > floor.Epoch {
 		err = e.d.FS.WriteFile(paths.RestoreEpochFile(t), EncodeEpochFloor(floor.Raised(EpochFloor{Epoch: epoch})))
@@ -491,6 +496,11 @@ func (e *engine) swapped(ctx context.Context) error {
 		return err
 	}
 	e.changed = append(e.changed, changed...)
+	if e.d.AfterSwap != nil {
+		if err = e.d.AfterSwap(ctx, t); err != nil {
+			return err
+		}
+	}
 	if err = e.write(StepStart); err != nil {
 		return err
 	}
