@@ -710,7 +710,7 @@ class TestTheCommandThatClearsChangedPlays(unittest.TestCase):
     `run.bash --changed`, its path resolved where the code runs, never written in."""
 
     def test_a_stale_or_failed_play_yields_the_command(self) -> None:
-        for state in ("stale", "failed"):
+        for state in ("stale", "failed", "unrecorded"):
             command = login_message.run_changed_command(
                 with_plays([{"play": "playbooks/imports/play-a.yml", "state": state}]),
                 checkout="/home/me/fedora-desktop",

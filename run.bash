@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.37.0"
+RUN_BASH_VERSION="1.38.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -988,7 +988,7 @@ PLAY_ARGS=()
 CHANGED_PLAYS=false
 # --yes: --changed runs its list without asking, for a caller nobody answers (meta-deploy).
 ASSUME_YES=false
-# --rerun (Plan 00141): list the plays that have run here and run the ones the operator picks.
+# --rerun (Plan 00141): list the checkout's plays as judged here and run the ones the operator picks.
 RERUN_PLAYS=false
 while (( $# > 0 )); do
   _arg="$1"
@@ -1004,19 +1004,19 @@ Options:
   --optional-only      Skip core setup, jump straight to optional playbook menu
   --consumer           Install for someone who does not write code: no GitHub, no
                        dev tools. Later, plain ./run.bash or --optional-only does too.
-  --changed            Run every play that has run here and has to run again: its
-                       inputs (its own file, or anything it deploys) changed since,
-                       its last run failed, or that run was from a checkout with
-                       uncommitted changes. Asks once, then runs them in
-                       playbook-main.yml order, optional plays last, and stops at
-                       the first failure. Names any play it cannot judge, and any
-                       that is gone, rather than skip it.
+  --changed            Run every play that has to run again: its inputs (its own
+                       file, or anything it deploys) changed since it ran here, its
+                       last run failed or was from a checkout with uncommitted
+                       changes, or no run is recorded but files it deploys show one.
+                       Asks once, then runs them in playbook-main.yml order, optional
+                       plays last, and stops at the first failure. Names any play it
+                       cannot judge, any that is gone and any with no record here.
   --yes                With --changed: run the list without asking, and do not
                        offer an issue if a play fails, skip a missing optional
                        secret and fail a required one. For meta-deploy and such.
-  --rerun              List every play that has run here as a numbered menu, the
-                       ones that have to run again marked * (changed since, or
-                       last run failed). Pick one or more ("3", "1 4"), "a" for
+  --rerun              List the checkout's plays as a numbered menu, the ones that
+                       have to run again marked * (as --changed judges them), and
+                       those with no record here unmarked. Pick one or more ("3", "1 4"), "a" for
                        every play marked *, "q" to quit. The pick runs at once, in
                        playbook-main.yml order, and stops at the first failure.
   <playbook>.yml [ansible-playbook args…]
@@ -2131,36 +2131,31 @@ if [[ "$CHANGED_PLAYS" == "true" ]]; then
     fatal "changed plays" "could not work out which plays changed, so none is run (see above)" \
       "fix what the message above names, then run ./run.bash --changed again"
   fi
-  _changed_run=()
-  _changed_blind=()
-  _changed_gone=()
+  _changed_run=() _changed_blind=() _changed_gone=() _changed_never=() _changed_unjudged=()
   while IFS= read -r _changed_line; do
     [[ -n "$_changed_line" ]] || continue
     case "$_changed_line" in
       "RUN "*) _changed_run+=("${_changed_line#RUN }") ;;
       "UNRESOLVED "*) _changed_blind+=("${_changed_line#UNRESOLVED }") ;;
       "GONE "*) _changed_gone+=("${_changed_line#GONE }") ;;
+      "NEVER "*) _changed_never+=("${_changed_line#NEVER }") ;;
+      "UNJUDGED "*) _changed_unjudged+=("${_changed_line#UNJUDGED }") ;;
       *)
         fatal "changed plays" "the changed-plays helper printed a line run.bash does not know: ${_changed_line}" \
           "run.bash and helpers/play_ledger/changed_plays.py disagree; update the checkout"
         ;;
     esac
   done <<<"$_changed_out"
-  if [[ ${#_changed_blind[@]} -gt 0 ]]; then
-    warning "Cannot tell whether these changed: each holds a reference that cannot be followed."
-    printf '     %s\n' "${_changed_blind[@]}"
-    echo -e "   Run one by name if you have changed what it references: ./run.bash <playbook>.yml"
-  fi
-  if [[ ${#_changed_gone[@]} -gt 0 ]]; then
-    warning "These plays ran here and are no longer in the checkout, so they are not run:"
-    printf '     %s\n' "${_changed_gone[@]}"
-  fi
+  [[ ${#_changed_blind[@]} -eq 0 ]] || printf '%s\n' "${YELLOW@E}${WARN} Cannot tell whether these changed: each holds a reference that cannot be followed.${NC@E}" "${_changed_blind[@]/#/     }" "   Run one by name if you have changed what it references: ./run.bash <playbook>.yml"
+  [[ ${#_changed_gone[@]} -eq 0 ]] || printf '%b\n' "${YELLOW}${WARN} These plays ran here and are no longer in the checkout, so they are not run:${NC}" "${_changed_gone[@]/#/     }"
+  # Issue #323: plays with no ledger record that nothing here shows ran; a count, then the names on one line.
+  [[ ${#_changed_never[@]} -eq 0 ]] || printf '%b\n    %s\n' "${YELLOW}${WARN} ${#_changed_never[@]} play(s) have no ledger record here and none of the files they deploy shows they ran here, so they are not run:${NC}" "$(printf ' %s' "${_changed_never[@]##*/}")"
+  [[ ${#_changed_unjudged[@]} -eq 0 ]] || printf '%b\n    %s\n' "${YELLOW}${WARN} ${#_changed_unjudged[@]} play(s) have no ledger record here and deploy no file that can be looked for, so whether they ran here cannot be told and they are not run:${NC}" "$(printf ' %s' "${_changed_unjudged[@]##*/}")"
   if [[ ${#_changed_run[@]} -eq 0 ]]; then
     success "No play has changed since it last ran here"
     exit 0
   fi
-  echo -e "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:"
-  printf '     %s\n' "${_changed_run[@]}"
+  printf '%b\n' "\n${CYAN}${ARROW}${NC} ${#_changed_run[@]} play(s) changed since they last ran here:" "${_changed_run[@]/#/     }"
   play_batch_warn_dirty --changed
   if [[ "$ASSUME_YES" != "true" ]] && ! confirm "Run them now, in this order?" n; then
     exit 0
@@ -2179,9 +2174,7 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
     fatal "rerun plays" "could not read which plays have run here, so none is offered (see above)" \
       "fix what the message above names, then run ./run.bash --rerun again"
   fi
-  _rerun_plays=()
-  _rerun_states=()
-  _rerun_gone=()
+  _rerun_plays=() _rerun_states=() _rerun_gone=()
   while IFS= read -r _rerun_line; do
     [[ -n "$_rerun_line" ]] || continue
     case "$_rerun_line" in
@@ -2198,21 +2191,23 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
     esac
   done <<<"$_rerun_out"
   if [[ ${#_rerun_gone[@]} -gt 0 ]]; then
-    warning "These plays ran here and are no longer in the checkout, so they are not offered:"
-    printf '     %s\n' "${_rerun_gone[@]}"
+    printf '%b\n' "${YELLOW}${WARN} These plays ran here and are no longer in the checkout, so they are not offered:${NC}" "${_rerun_gone[@]/#/     }"
   fi
   if [[ ${#_rerun_plays[@]} -eq 0 ]]; then
     success "No play has run on this machine yet, so there is nothing to re-run"
     exit 0
   fi
   _rerun_stale=()
-  echo -e "\n${CYAN}${ARROW}${NC} Plays that have run on this machine (${YELLOW}*${NC} = has to run again):"
+  echo -e "\n${CYAN}${ARROW}${NC} Plays of this checkout on this machine (${YELLOW}*${NC} = has to run again):"
   for _i in "${!_rerun_plays[@]}"; do
     case "${_rerun_states[$_i]}" in
-      stale)      _rerun_mark="*"; _rerun_word="changed since it last ran here" ;;
-      failed)     _rerun_mark="*"; _rerun_word="its last run failed" ;;
-      unresolved) _rerun_mark=" "; _rerun_word="cannot tell whether it changed" ;;
-      current)    _rerun_mark=" "; _rerun_word="unchanged since it last ran here" ;;
+      stale)      _rerun_mark="*" _rerun_word="changed since it last ran here" ;;
+      failed)     _rerun_mark="*" _rerun_word="its last run failed" ;;
+      unrecorded) _rerun_mark="*" _rerun_word="no run of it is recorded here; files it deploys show it ran" ;;
+      never)      _rerun_mark=" " _rerun_word="no record here; none of its files shows it ran here" ;;
+      unjudged)   _rerun_mark=" " _rerun_word="no record here; whether it ran here cannot be told" ;;
+      unresolved) _rerun_mark=" " _rerun_word="cannot tell whether it changed" ;;
+      current)    _rerun_mark=" " _rerun_word="unchanged since it last ran here" ;;
       *)
         fatal "rerun plays" "the changed-plays helper printed a state run.bash does not know: ${_rerun_states[$_i]}" \
           "run.bash and helpers/play_ledger/changed_plays.py disagree; update the checkout"
@@ -2222,8 +2217,7 @@ if [[ "$RERUN_PLAYS" == "true" ]]; then
     printf '  %s %2d) %s — %s\n' "$_rerun_mark" "$((_i + 1))" "${_rerun_plays[$_i]}" "$_rerun_word"
   done
   echo -e "\n   Pick plays by number, e.g. ${BOLD}3${NC} or ${BOLD}1 4${NC}; ${BOLD}a${NC} = every play marked *; ${BOLD}q${NC} = quit."
-  _rerun_tries=0
-  _rerun_max_tries=3
+  _rerun_tries=0 _rerun_max_tries=3
   while true; do
     if ! read -rp "   Your choice: " _rerun_answer; then
       echo >&2

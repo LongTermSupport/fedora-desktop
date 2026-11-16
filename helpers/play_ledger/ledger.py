@@ -298,6 +298,13 @@ def fold_latest_full(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
     return _fold(lines, full_only=True)
 
 
+def recorded_plays(lines: Iterable[str]) -> frozenset[str]:
+    """Every play any run or forget record names, narrowed or forgotten as it may be: the
+    plays the ledger knows of here, which `changed_plays` never judges as unrecorded
+    (issue #323). Raises as the folds do."""
+    return frozenset(record["play"] for record in _records(lines))
+
+
 def _fold(lines: Iterable[str], *, full_only: bool) -> dict[str, dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
     forgotten: dict[str, str] = {}

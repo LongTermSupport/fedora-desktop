@@ -181,6 +181,10 @@ _DASH = re.compile(r"^(\s*)-(?:\s+(.*))?$")
 _MODULE_KEY = re.compile(r"^\s*(?:-\s+)?(?:ansible\.builtin\.)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*$")
 #: Modules whose `src` is a file on the managed host, never on the controller.
 _HOST_READ_MODULES = frozenset({"slurp", "fetch"})
+#: A task argument naming where a module writes on the host.
+_DEST_LINE = re.compile(r"^\s*dest\s*:\s*(.*)$")
+#: The modules whose `dest` is a file the play puts on the host from the checkout.
+_DEPLOY_MODULES = frozenset({"copy", "template"})
 _REMOTE_SRC_TRUE = re.compile(r"^\s*remote_src\s*:\s*['\"]?(?:true|True|yes)['\"]?\s*(?:#.*)?$")
 #: A value that is an inventory variable falling back to an absolute host path.
 _HOST_DEFAULT = re.compile(r"""^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*default\(\s*(['"])/""")
@@ -286,6 +290,9 @@ class Inputs:
     would publish but a `.gitignore`: the scratch tree `untracked/`, a runtime directory): git never
     reports a change there, so they are no input, and nothing walks them (rule
     play-input-tree-untracked).
+    `dests` are the host paths the play's copy and template tasks write, as the play text
+    spells them (templates unfilled), in walk order: what `changed_plays` looks for on a host
+    where the play has no ledger record (issue #323).
     """
 
     exact: set[str] = field(default_factory=set)
@@ -297,6 +304,7 @@ class Inputs:
     go_builders: dict[str, set[str]] = field(default_factory=dict)
     filled: dict[str, list[str]] = field(default_factory=dict)
     local: set[str] = field(default_factory=set)
+    dests: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -947,8 +955,7 @@ class _Walker:
         never a checkout file; a rooted one is still an input, through the rooted scan."""
         lines = self._texts[rel_file].splitlines()
         own = _indent(lines[line_no - 1])
-        parent = next((j for j in range(line_no - 2, -1, -1)
-                       if not _skip(lines[j]) and _indent(lines[j]) < own), None)
+        parent = self._parent_line(rel_file, line_no)
         if parent is None:
             return False
         module = _MODULE_KEY.match(lines[parent])
@@ -962,6 +969,23 @@ class _Walker:
             if _indent(line) == own and _REMOTE_SRC_TRUE.match(line):
                 return True
         return False
+
+    def _parent_line(self, rel_file: str, line_no: int) -> int | None:
+        """The index of the line opening the block that line `line_no` is an argument of."""
+        lines = self._texts[rel_file].splitlines()
+        own = _indent(lines[line_no - 1])
+        return next((j for j in range(line_no - 2, -1, -1)
+                     if not _skip(lines[j]) and _indent(lines[j]) < own), None)
+
+    def _dest(self, rel_file: str, line_no: int, line: str) -> None:
+        """Keep the `dest:` of a copy or template task (`Inputs.dests`)."""
+        dest = _DEST_LINE.match(line)
+        if not dest:
+            return
+        parent = self._parent_line(rel_file, line_no)
+        module = None if parent is None else _MODULE_KEY.match(self._texts[rel_file].splitlines()[parent])
+        if module and module.group(1) in _DEPLOY_MODULES:
+            self.inputs.dests.append(_unquote(dest.group(1)))
 
     def walk_yaml(self, rel_file: str, *, context: str) -> None:
         if rel_file in self._seen_files:
@@ -980,6 +1004,7 @@ class _Walker:
             self._copying = bool(_SRC_LINE.match(line))
             self._rooted(rel_file, line_no, line)
             self._go_line(rel_file, line_no, line)
+            self._dest(rel_file, line_no, line)
             for dotted in _HELPER_TOKEN.findall(line):
                 self._add_dotted(dotted)
             if list_key is not None:
