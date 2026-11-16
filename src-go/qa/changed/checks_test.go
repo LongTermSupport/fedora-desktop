@@ -3,6 +3,7 @@ package changed
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -40,7 +41,7 @@ func (r *scriptedRunner) Run(ctx context.Context, c proc.Cmd) (proc.Result, erro
 	r.calls = append(r.calls, c)
 	r.masks = append(r.masks, r.mask)
 	if r.semgrepReport && c.Argv[0] == "semgrep" {
-		if err := os.WriteFile(c.Argv[slices.Index(c.Argv, "--json-output")+1], []byte(`{"results":[]}`), 0o600); err != nil {
+		if err := os.WriteFile(c.Argv[slices.Index(c.Argv, "--json-output")+1], []byte(mirrorReport(c.Dir, "", "")), 0o600); err != nil {
 			panic(err)
 		}
 	}
@@ -476,7 +477,7 @@ func TestSemgrepMirrorsFilesWithABashExtensionAndReadsItsJSON(t *testing.T) {
 			}
 		}
 		out := c.Argv[slices.Index(c.Argv, "--json-output")+1]
-		body := `{"results":[{"path":"tool.bash","start":{"line":3},"check_id":"rule.x","extra":{"message":"do not"}}]}`
+		body := mirrorReport(c.Dir, `{"path":"tool.bash","start":{"line":3},"check_id":"rule.x","extra":{"message":"do not"}}`, "")
 		if err := os.WriteFile(out, []byte(body), 0o600); err != nil {
 			t.Error(err)
 		}
@@ -498,6 +499,90 @@ func TestSemgrepMirrorsFilesWithABashExtensionAndReadsItsJSON(t *testing.T) {
 	s.cleanup()
 	if _, err := os.Stat(mirror); !os.IsNotExist(err) {
 		t.Fatalf("the mirror must be removed on cleanup: %v", err)
+	}
+}
+
+// mirrorReport is semgrep's report on the mirror at dir: every file in it scanned (but the ignore
+// file), with the results and errors given as JSON list bodies.
+func mirrorReport(dir, results, errs string) string {
+	var scanned []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || d.Name() == ".semgrepignore" {
+			return walkErr
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		scanned = append(scanned, rel)
+		return relErr
+	})
+	if err != nil {
+		panic(err)
+	}
+	paths, err := json.Marshal(scanned)
+	if err != nil {
+		panic(err)
+	}
+	return `{"results":[` + results + `],"errors":[` + errs + `],"paths":{"scanned":` + string(paths) + `}}`
+}
+
+// semgrepOn runs the semgrep check over a.bash and b.bash with semgrep's report made by report
+// from the mirror's directory.
+func semgrepOn(t *testing.T, report func(mirror string) string) checkResult {
+	t.Helper()
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	defer s.cleanup()
+	writeFile(t, s.root, "a.bash", ":\n")
+	writeFile(t, s.root, "tests/b.bash", ":\n")
+	runner.onRun = func(_ context.Context, cmd proc.Cmd) {
+		if _, err := os.Stat(filepath.Join(cmd.Dir, ".semgrepignore")); err != nil {
+			t.Errorf("the mirror has no .semgrepignore, so semgrep's default ignores (tests/ among them) apply: %v", err)
+		}
+		if err := os.WriteFile(cmd.Argv[slices.Index(cmd.Argv, "--json-output")+1], []byte(report(cmd.Dir)), 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	res, err := lookupCheck("semgrep").run(context.Background(), s, &checkPlan{items: []string{"a.bash", "tests/b.bash"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// semgrep exits 0 on a file it could not parse; its errors say no rule ran there, so the check
+// fails, naming the file.
+func TestSemgrepErrorsFailTheCheck(t *testing.T) {
+	for name, errs := range map[string]string{
+		"syntax error": `{"type":"Syntax error","path":"a.bash","message":"cannot parse","spans":[{"start":{"line":4}}]}`,
+		"timeout":      `{"type":"Timeout","path":"a.bash","message":"rule x timed out"}`,
+	} {
+		res := semgrepOn(t, func(dir string) string { return mirrorReport(dir, "", errs) })
+		if res.code == 0 || !strings.Contains(res.output, "a.bash") {
+			t.Errorf("%s: a file semgrep did not read passed: %+v", name, res)
+		}
+	}
+}
+
+func TestAFileSemgrepDidNotScanFailsTheCheck(t *testing.T) {
+	res := semgrepOn(t, func(string) string { return `{"results":[],"errors":[],"paths":{"scanned":["a.bash"]}}` })
+	if res.code == 0 || !strings.Contains(res.output, "tests/b.bash") || !strings.Contains(res.output, "did not scan") {
+		t.Fatalf("an unscanned file passed: %+v", res)
+	}
+}
+
+func TestAReportWithoutPathsFailsTheCheck(t *testing.T) {
+	res := semgrepOn(t, func(string) string { return `{"results":[]}` })
+	if res.code == 0 || !strings.Contains(res.output, "cannot read semgrep's report") {
+		t.Fatalf("a report that cannot say what was read passed: %+v", res)
+	}
+}
+
+// A partial parse is judged by the full patterns gate against its allowlist, so here it is shown,
+// not failed: failing it would refuse a file the full gate accepts.
+func TestAPartialParseIsShownAndLeftToThePatternsGate(t *testing.T) {
+	partial := `{"type":["PartialParsing",[{"path":"a.bash","start":{"line":2},"end":{"line":3}}]],"path":"a.bash","message":"Syntax error at line a.bash:2","spans":[{"start":{"line":2}}]}`
+	res := semgrepOn(t, func(dir string) string { return mirrorReport(dir, "", partial) })
+	if res.code != 0 || !strings.Contains(res.output, "a.bash:2") || !strings.Contains(res.output, "patterns-partial.allowlist") {
+		t.Fatalf("a partial parse must pass with a note: %+v", res)
 	}
 }
 
@@ -532,7 +617,7 @@ func TestSemgrepFailuresAreFailuresNotPasses(t *testing.T) {
 	s := newTestSession(t, clean)
 	writeFile(t, s.root, "a.bash", ":\n")
 	clean.onRun = func(_ context.Context, cmd proc.Cmd) {
-		if err := os.WriteFile(cmd.Argv[slices.Index(cmd.Argv, "--json-output")+1], []byte(`{"results":[]}`), 0o600); err != nil {
+		if err := os.WriteFile(cmd.Argv[slices.Index(cmd.Argv, "--json-output")+1], []byte(mirrorReport(cmd.Dir, "", "")), 0o600); err != nil {
 			t.Error(err)
 		}
 	}

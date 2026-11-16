@@ -2,7 +2,6 @@ package changed
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -430,17 +429,14 @@ func runAnsibleSyntax(ctx context.Context, s *session, cp *checkPlan) (checkResu
 	return s.exec(ctx, []string{"QA_JSON_OUT=" + report}, slices.Concat([]string{toolBash, filepath.Join(s.scripts, "qa-ansible-syntax.bash")}, cp.items)...)
 }
 
-// semgrepResults is the part of semgrep's JSON report that matters.
-type semgrepResults struct {
-	Results []semgrepreport.Result `json:"results"`
-}
-
 // semgrepAbnormal is the lowest exit status that means semgrep itself broke.
 const semgrepAbnormal = 2
 
 // runSemgrep copies the files into a temporary tree (an extensionless one gets .bash appended
-// so semgrep's language detection sees shell) and runs the project's bash rules over it. The
-// JSON report is decoded here: a report that cannot be read is a failure, never a pass.
+// so semgrep's language detection sees shell) and runs the project's bash rules over it. The tree
+// holds an empty .semgrepignore, as the patterns gate's mirror does, so semgrep's default ignore
+// list (tests/ among it) skips nothing. The JSON report is decoded here: a report that cannot be
+// read, a file semgrep did not scan or an error it gave is a failure, never a pass.
 func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
 	mirror, err := s.tempDir()
 	if err != nil {
@@ -450,11 +446,16 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	if err != nil {
 		return checkResult{}, err
 	}
+	if writeErr := os.WriteFile(filepath.Join(mirror, ".semgrepignore"), nil, 0o600); writeErr != nil {
+		return checkResult{}, fmt.Errorf("cannot write the mirror's .semgrepignore: %w", writeErr)
+	}
+	handed := make([]string, 0, len(cp.items))
 	for _, f := range cp.items {
 		m := f
 		if !strings.HasSuffix(f, ".sh") && !strings.HasSuffix(f, ".bash") {
 			m += ".bash"
 		}
+		handed = append(handed, m)
 		if copyErr := copyFile(filepath.Join(s.root, f), filepath.Join(mirror, m)); copyErr != nil {
 			return checkResult{}, copyErr
 		}
@@ -476,26 +477,42 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	if res.Code >= semgrepAbnormal {
 		return checkResult{output: fmt.Sprintf("%ssemgrep failed (rc=%d)\n", res.Stdout, res.Code), code: res.Code}, nil
 	}
-	return semgrepFindings(report)
+	return semgrepFindings(report, handed)
 }
 
-func semgrepFindings(report string) (checkResult, error) {
+// semgrepFindings judges semgrep's report over the handed mirror files. A file it could not parse
+// at all, any other error, or a handed file it did not scan fails the check. A partial parse is
+// shown and passes: the full patterns gate judges it against scripts/patterns-partial.allowlist,
+// and refusing it here would refuse a file that gate accepts.
+func semgrepFindings(report string, handed []string) (checkResult, error) {
 	raw, err := os.ReadFile(report)
 	if err != nil {
 		return checkResult{output: fmt.Sprintf("cannot read semgrep's report: %v\n", err), code: 1}, nil
 	}
-	var decoded semgrepResults
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	decoded, err := semgrepreport.Decode(string(raw))
+	if err != nil {
 		return checkResult{output: fmt.Sprintf("cannot read semgrep's report: %v\n", err), code: 1}, nil
 	}
 	var out strings.Builder
+	gating := decoded
+	gating.Errors = nil
+	for _, e := range decoded.Errors {
+		if e.Type.Kind() == "PartialParsing" {
+			fmt.Fprintf(&out, "note: semgrep parsed only in part (the patterns gate judges this against scripts/patterns-partial.allowlist): %s\n", e.Describe())
+			continue
+		}
+		gating.Errors = append(gating.Errors, e)
+	}
+	if judgeErr := gating.Judge("shell", handed); judgeErr != nil {
+		return checkResult{output: fmt.Sprintf("%s%v\n", out.String(), judgeErr), code: 1}, nil
+	}
 	for _, r := range decoded.Results {
 		fmt.Fprintf(&out, "%s:%d %s %s\n", r.Path, r.Start.Line, r.CheckID, r.Extra.Message)
 	}
-	if out.Len() > 0 {
+	if len(decoded.Results) > 0 {
 		return checkResult{output: out.String(), code: 1}, nil
 	}
-	return checkResult{}, nil
+	return checkResult{output: out.String()}, nil
 }
 
 // copyMode is the mode of the mirrored files and directories: private, they hold a copy of
