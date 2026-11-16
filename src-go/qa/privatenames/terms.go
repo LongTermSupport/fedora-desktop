@@ -34,8 +34,8 @@ const (
 const MinSpecificLength = 6
 
 // generic are the words that name a kind of thing, not a particular one. A term whose every
-// word is here (dev-infra, test-server) is dropped, and a name's first word is not indexed on its
-// own when it is here. These are public words: the list holds no install's names.
+// word is here (dev-infra, test-server) is dropped. These are public words: the list holds no
+// install's names.
 var generic = map[string]bool{
 	"dev": true, "test": true, "tests": true, "infra": true, "infrastructure": true,
 	"desktop": true, "local": true, "host": true, "podman": true, "docker": true,
@@ -68,7 +68,7 @@ type Inputs struct {
 // Derive turns the sources into the terms that may block a commit. The rule that keeps a short
 // or generic term from blocking everything, in order: a public token is never a term; a term of
 // fewer than MinSpecificLength characters is dropped; a term whose every word is generic is
-// dropped; a name's first word is indexed alone only when it is itself long and not generic.
+// dropped; a part of a name (its first word) is never a term alone.
 // Output is sorted and free of duplicates.
 func Derive(in Inputs) []Term {
 	public := map[string]bool{}
@@ -81,7 +81,7 @@ func Derive(in Inputs) []Term {
 		switch cols[0] {
 		case "TEAM":
 			if len(cols) > 1 {
-				d.name(SourceTeam, cols[1])
+				d.add(SourceTeam, cols[1])
 			}
 			if len(cols) > 2 {
 				d.handle(cols[2])
@@ -142,22 +142,16 @@ func before(s, sep string) string {
 	return head
 }
 
-// name adds a name and, for a compound one that is not public, its first word.
-func (d *deriver) name(source, name string) {
-	d.add(source, name)
-	if first := before(name, "-"); first != name && !generic[strings.ToLower(first)] && !d.public[strings.ToLower(name)] {
-		d.add(source, first)
-	}
-}
-
-// addHandle adds a member handle (project.seat+where) in each form a document might write it:
-// the whole handle, project.seat, and the project name with its first word.
+// handle adds a member handle (project.seat+where) in each form a document might write it: the
+// whole handle, project.seat, and the project name. A part of a name is never a term alone: the
+// first word of a compound project name is often an everyday word, and a gate that refuses
+// ordinary prose is bypassed with --no-verify.
 func (d *deriver) handle(handle string) {
 	handle = strings.TrimSpace(handle)
 	d.add(SourceMember, handle)
 	base := before(handle, "+")
 	d.add(SourceMember, base)
-	d.name(SourceMember, before(base, "."))
+	d.add(SourceMember, before(base, "."))
 }
 
 // Specific is whether a term may block a commit: long enough, and not made only of generic words.
