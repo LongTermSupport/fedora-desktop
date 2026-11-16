@@ -90,6 +90,9 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   `ccy-sessions wind-down` calls; W1-W6), `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
   `ghlogin` (gh's github.com logins, and each one's own token as GH_TOKEN, so a call acts as one
   login without `gh auth switch`),
+  `stdinread` (the one reader of a command's piped stdin: a notice on stderr once nothing has
+  arrived for a second, a bound after which it refuses, a terminal refused on request; issue
+  #260, rule `project_stdin_seam`),
   `duration` (`duration.Times`, a Duration times a number that refuses a product past int64,
   for a number no refusal in its package bounds: `project_duration_overflow`),
   `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
@@ -214,7 +217,7 @@ bash originals are gone (`scripts/gh-account-setup.bash`, `scripts/setup-rclone.
   tmux target forms, no wall clock in tests, no real-time bound a test can shorten, teamchat's
   launch value branched on only in its agent seam, a teamchat send's room decided for each room
   by name (never main's path for every room but one), no Duration built from a number nothing bounds, one home abbreviation, a `WaitDelay` that names
-  its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
+  its error, stdin read only through `internal/stdinread` or a `ui` prompt (an open pipe never ends), no action reachable only by a key (a key reaches fzf only as a `ui.Action`, and a Bubble Tea key only `internal/ui`, through a
   `key.Binding` with help; Tab completing a text input is navigation).
   [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.

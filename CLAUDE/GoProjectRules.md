@@ -84,6 +84,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_submit_unchecked`        | text typed into a TUI pane and submitted with one Enter nothing checks, which a TUI not yet ready loses                                                                                | `ccy-sessions` restore: `/compact` left unsubmitted in two sessions after a reboot (fedora-desktop#264)                                                                             |
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
+| `project_stdin_seam` | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260) |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -3235,6 +3236,55 @@ decides whether it is wanted.
   `sessions.TestSetGoingPressesEnterAgainWhileTheCompactStaysInTheBox` and
   `TestSetGoingFailsASessionWhoseTextNeverLeavesTheBox` reproduce the defect;
   `tmuxccy.TestSubmit*` prove the retry, the bound and the failures.
+
+### project_stdin_seam
+
+**What it is about.** A read of stdin returns at end of input. When stdin is an open pipe that
+nothing writes to and nothing closes, which is what an agent's shell gives a command run with no
+input, the read never returns and the command says nothing (issue #260: `pingbus thread Q<n>
+--close` waited over two minutes). Stdin is read in one place, `internal/stdinread`, which says
+on stderr once nothing has arrived for a second that it is waiting and how to end the input,
+takes a bound after which it refuses (`GiveUpAfter`), and refuses a terminal for input that is
+never typed (`RefuseTerminal`); and a person's answer is read only through `internal/ui`, which
+refuses a non-terminal before it asks.
+
+**What it flags**, in every package of both modules but the stdin seams (`internal/stdinread`,
+`internal/ui`, `internal/execx`, `internal/term`, `internal/ttyecho`) and a test double's (a
+package whose name ends in `test`), `_test.go` files not judged: a read of stdin (`os.Stdin`, or
+a variable, parameter or field named `stdin` or `Stdin` whose type has `Read([]byte) (int,
+error)`) by `io.ReadAll`, `ReadFull`, `ReadAtLeast`, `Copy`, `CopyN`, `CopyBuffer`,
+`LimitReader`, `TeeReader`, `MultiReader`, `bufio.NewReader`, `NewReaderSize`, `NewScanner`,
+`json.NewDecoder`, `csv.NewReader`, `xml.NewDecoder`, or its own `Read`, `ReadString`,
+`ReadByte`, `ReadBytes`, `ReadRune`, `ReadLine` or `WriteTo`; and stdin handed on under another
+name, which would hide its read: an argument to a reader parameter not named `stdin`/`Stdin`
+(outside the seams), a variable or field of another name assigned from it, and a struct
+literal's field of another name (but a seam's own type, such as `ui.Lines`' `In`). Passing stdin
+along as stdin, asking whether it is a terminal, comparing it with nil and taking its descriptor
+are not reads. A `Stdin` that is a string (a request's field) is not stdin.
+
+**Not caught**: stdin returned from a function, or kept in a slice or map and read elsewhere; an
+unkeyed struct literal; a reader built by reflection; Python, which the semgrep rule
+`stdin-read-unbounded` covers. The next wider rule considered was a taint of stdin through every
+value built from it (a `bufio.Reader` held and read later, a reader returned and read by the
+caller); it was not built because the hand-off clauses already make every route out of a
+function under another name a finding, and the sweep found no read the narrower rule missed.
+
+**How to fix a violation.** Piped input: `data, err := stdinread.Read(stdin,
+stdinread.Options{Prog: "tool", Limit: n, GiveUpAfter: time.Minute})`, handing
+`bytes.NewReader(data)` on if a callee wants a reader. A person's answer: a prompt through
+`internal/ui`, which refuses a non-terminal.
+
+- Red, fixture: `testdata/stdinseam/src/fix/internal/badstdin` (`bad.go`: the defect's own
+  form, `io.ReadAll(io.LimitReader(e.Stdin, n))`, then `os.Stdin`, a parameter, a pointer's
+  field, a scanner, a decoder, a copy, a full read, a method read, a tee, a multi-reader, and
+  stdin handed to a reader parameter, a variable and two fields of other names; `bad_test.go`, a
+  test that reads, clean), beside `goodstdin` (stdin passed along as stdin, asked about, given to
+  a child, to the shared reader and to the ui seam, a string named `Stdin`, the descriptor:
+  clean), the seams `stdinread`, `ui`, `execx` and `term` and the test double `teams/teamtest`
+  (reading freely, clean), and `cmd/tool` (a command's main, flagged). The root is its own,
+  because the seams are matched by package path. With the analyzer reporting nothing the test
+  missed all 29 diagnostics (the 14 of `bad.go` twice, its package judged with and without its
+  test file, and the command's one), and it passed once the rule was written.
 
 ## Control
 

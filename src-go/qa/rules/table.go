@@ -424,12 +424,6 @@ var clockAllowances = []clockAllowance{}
 // decision on pull request 124).
 const teamchatClockPkg = "internal/teamchat/clock"
 
-// connReadAllowances are the functions project_test_conn_read does not judge, each with its
-// reason; the owner decided each row (fedora-desktop#307, Q26: this one row and no other).
-var connReadAllowances = []allowance{
-	{pkg: "internal/teamchat/member/fakeinbox", fn: "Inbox.accept", reason: "the fake inbox's accept loop (fakeinbox.go:227) runs in its own goroutine for the inbox's life and ends when Close closes the listener, which every test's cleanup does; it holds no test's wait, and binding it to a test's TB was tried and does not compile (88c43abef, reverted)"},
-}
-
 // realClocks are the real side of a clock seam: each is handed its duration by a caller whose
 // tests replace the seam whole, so no test shortens the real one. fn is "func" or "Type.method".
 var realClocks = []allowance{
@@ -511,7 +505,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, TestConnRead, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner, SelfChildStderr, UnitNoInstall, SecretScrollback, InboxSocketDir, SubmitUnchecked, ClassWithoutDetail, StartDecision}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests, RefusalKind, RealTimeBound, EscJoined, DurationOverflow, CommandFailureDropped, SelfErasingClipboard, LivenessWord, LifecycleTurn, KeeperLogBarrier, FakeClockCount, GoroutineEnd, RawConnProbe, LeakcheckOnce, AgentBranch, TransportHome, HostnameRead, ProblemErrorText, TestChown, ListingOrder, TestSpin, PollPure, FakeRestart, WalkOpen, ZombieExit, ContainerPidsLimit, RowKind, ChildExit, SessionKind, SeatMemberType, RoomDefault, SharedDue, CoordinatorAbsence, IdentityFold, SemgrepTestRunner, SelfChildStderr, UnitNoInstall, SecretScrollback, InboxSocketDir, SubmitUnchecked, ClassWithoutDetail, StartDecision, StdinSeam}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
