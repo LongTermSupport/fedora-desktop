@@ -41,7 +41,8 @@
 
 # Issue #295: the raw-prune fix (it could delete a RAW whose JPG sat in a folder it could not
 # read). changed-plays did not deploy it: play-photography has no play-ledger record on this
-# host, so --changed never judges it (issue #323). This runs only the raw-prune task.
-# Expected: changed for ~/.local/bin/raw-prune only. Afterwards: sha256sum of the deployed
-# ~/.local/bin/raw-prune matches the checkout's files/home/.local/bin/raw-prune.
-playbooks/imports/optional/common/play-photography.yml --tags raw-prune
+# host, so --changed never judges it (issue #323). The deployed clip-scan is stale too. The
+# whole play runs, so the ledger records it and a later changed-plays judges it. Expected:
+# changed for ~/.local/bin/raw-prune and ~/.local/bin/clip-scan; RapidRAW and ART unchanged.
+# Afterwards: sha256sum of each deployed copy matches its files/home/.local/bin/ source.
+playbooks/imports/optional/common/play-photography.yml
