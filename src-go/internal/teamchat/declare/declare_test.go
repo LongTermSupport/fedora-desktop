@@ -490,6 +490,21 @@ func TestInputs(t *testing.T) {
 	}
 }
 
+// The rd- refusal is the declaration's alone (host_vars): the restore drill's own scratch team is
+// an rd- input it hands team apply and the child in process, and its team.json is read back by
+// every member verb and by the restore, so neither decoder refuses one.
+func TestTheDrillsScratchInputAndTeamFileDecode(t *testing.T) {
+	team := teamEntry("rd-0123456789ab", 8470)
+	in, err := DecodeInput(encode(t, map[string]any{"team": team, "address": "192.0.2.10"}))
+	if err != nil {
+		t.Fatalf("DecodeInput of the scratch team: %v", err)
+	}
+	back, err := DecodeTeamFile(in.Team.Canonical())
+	if err != nil || back.ID.String() != "rd-0123456789ab" {
+		t.Fatalf("DecodeTeamFile of the scratch team = %+v, %v", back, err)
+	}
+}
+
 func TestDecodeInputRefuses(t *testing.T) {
 	team := teamEntry("alpha", 8448)
 	cases := []struct {

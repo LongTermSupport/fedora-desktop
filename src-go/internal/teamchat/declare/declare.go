@@ -51,9 +51,10 @@ const (
 	keyColour                                  = "colour"
 )
 
-// DrillPrefix starts every restore drill scratch team's id (issue #324). No declared team may use
-// it, so a real team never collides with a drill's, and the drill's clean-up, which removes only
-// a marked team of this prefix, can never reach a declared one.
+// DrillPrefix starts every restore drill scratch team's id (issue #324). No team in host_vars may
+// use it, so a real team never collides with a drill's, and the drill's clean-up, which removes
+// only a marked team of this prefix, can never reach a declared one. The drill's own input and
+// its team.json carry it, so only the declaration refuses it.
 const DrillPrefix = "rd-"
 
 // HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
@@ -203,6 +204,9 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 		if err != nil {
 			return nil, err
 		}
+		if strings.HasPrefix(t.ID.String(), DrillPrefix) {
+			return nil, item.key(keyTeam).fail("starts with " + DrillPrefix + ", which only the restore drill's scratch teams use")
+		}
 		if ids[t.ID.String()] {
 			return nil, item.key(keyTeam).fail("is declared twice")
 		}
@@ -263,9 +267,6 @@ func teamID(n node) (paths.TeamID, error) {
 	id, err := paths.ParseTeamID(s)
 	if err != nil {
 		return paths.TeamID{}, n.fail("is not a valid team id, or is reserved")
-	}
-	if strings.HasPrefix(s, DrillPrefix) {
-		return paths.TeamID{}, n.fail("starts with " + DrillPrefix + ", which only the restore drill's scratch teams use")
 	}
 	return id, nil
 }
