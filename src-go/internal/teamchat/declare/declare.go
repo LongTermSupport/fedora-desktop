@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strconv"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -49,6 +50,11 @@ const (
 	keyLXCMembers, keyAddress, keyVersion      = "lxc_members", "address", "v"
 	keyColour                                  = "colour"
 )
+
+// DrillPrefix starts every restore drill scratch team's id (issue #324). No declared team may use
+// it, so a real team never collides with a drill's, and the drill's clean-up, which removes only
+// a marked team of this prefix, can never reach a declared one.
+const DrillPrefix = "rd-"
 
 // HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
 // another slice's file; the name moves there with them).
@@ -257,6 +263,9 @@ func teamID(n node) (paths.TeamID, error) {
 	id, err := paths.ParseTeamID(s)
 	if err != nil {
 		return paths.TeamID{}, n.fail("is not a valid team id, or is reserved")
+	}
+	if strings.HasPrefix(s, DrillPrefix) {
+		return paths.TeamID{}, n.fail("starts with " + DrillPrefix + ", which only the restore drill's scratch teams use")
 	}
 	return id, nil
 }

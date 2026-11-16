@@ -187,6 +187,8 @@ func teamRefusals() []refusal {
 		{"null coordinator", "teamchat_teams[0].coordinator", "", func(d map[string]any) { team0(d)["coordinator"] = nil }},
 		{"bad team id", "teamchat_teams[0].team", "Alpha", func(d map[string]any) { team0(d)["team"] = "Alpha" }},
 		{"reserved team id", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "ctl" }},
+		{"restore drill team id", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "rd-0123456789ab" }},
+		{"restore drill prefix", "teamchat_teams[0].team", "", func(d map[string]any) { team0(d)["team"] = "rd-ops" }},
 		{"duplicate team", "teamchat_teams[1].team", "", func(d map[string]any) { team1(d)["team"] = "alpha" }},
 		{"duplicate port", "teamchat_teams[1].port", "", func(d map[string]any) { team1(d)["port"] = 8448 }},
 		{"bad state", "teamchat_teams[0].state", "", func(d map[string]any) { team0(d)["state"] = "gone" }},

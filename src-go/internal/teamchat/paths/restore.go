@@ -5,10 +5,14 @@ import "strconv"
 // The names of the backups and the restore (SPEC-n2g, C 3.2.2, 3.12). A backup number is
 // Tuwunel's, which starts at 1; a number that is not positive panics as a zero id does.
 
-// RestoreProofFile is the restore drill's proof record: the build and Tuwunel version host checks
-// H-C5 and H-C15 passed on, and each clause's result (DC8). A team id holds no dot, so the name
+// RestoreProofFile is the restore drill's proof record: the build, Tuwunel and systemd versions
+// host checks H-C5 and H-C15 ran on, and each clause's result (DC8). A team id holds no dot, so the name
 // never meets a team's AdminState.
 const RestoreProofFile = AdminStateRoot + "/restore-proof.json"
+
+// DrillMarker marks a team as the restore drill's scratch team: only a team that holds it is
+// ever removed by the drill's clean-up (issue #324).
+func DrillMarker(t TeamID) string { return AdminState(t) + "/drill.json" }
 
 // RestoreRecord is the record of a restore under way; while anything of this name exists, every
 // lock-taking verb but the restore's own resume and discard refuses (C 3.12.2).

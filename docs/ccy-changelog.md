@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.17 — container 2.84.23
+
+- **`teamchat`'s path names gain the restore drill's marker** (issue #324),
+  `drill.json` in a scratch team's admin state, which marks the only teams the drill's clean-up
+  removes. As with 3.122.16, the image's `teamchat` is rebuilt once and reads nothing new. The
+  launcher itself is unchanged apart from the versions.
+
 ## 3.122.16 — container 2.84.22
 
 - **`teamchat`'s path names gain the restore proof record** (issue #324),
