@@ -53,7 +53,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TextIO
 
-from helpers.play_ledger import git_history, group_vars, ledger, retired, store
+from helpers.play_ledger import git_history, group_vars, ledger, plugin_support, retired, store
 from helpers.self_update import affected_plays
 
 EXIT_OK = 0
@@ -71,6 +71,13 @@ RUN_STATES = (STATE_STALE, STATE_FAILED)
 
 #: How many changed paths (or Go packages, or commands) a reason names before it counts the rest.
 PATHS_SHOWN = 3
+
+#: The command, short of the play, that clears a failed play on a host where it cannot
+#: apply (issue #278). Spelled with `cd` because `python3 -m` resolves off the cwd.
+FORGET_COMMAND = (
+    f"cd {plugin_support.CHECKOUT_PLACEHOLDER} && "
+    "python3 -m helpers.play_ledger.check_freshness --forget-play"
+)
 
 MAIN_PLAYBOOK ="playbooks/playbook-main.yml"
 _IMPORT_KEY = re.compile(r"^\s*-\s*(?:ansible\.builtin\.)?import_playbook:")
@@ -352,7 +359,9 @@ def run(
         stderr.write(f"changed-plays: the play ledger has a recorded hole, so it cannot say what ran: {broken}\n")
         return EXIT_NO_ANSWER
     try:
-        latest = ledger.fold_latest(store.read_lines(base))
+        lines = store.read_lines(base)
+        latest = ledger.fold_latest_full(lines)
+        ran = ledger.fold_latest(lines)
     except ValueError as error:
         stderr.write(f"changed-plays: the ledger cannot be read: {error}\n")
         return EXIT_NO_ANSWER
@@ -371,13 +380,33 @@ def run(
             stdout.write(f"PLAY {judgement.states[play]} {play}\n")
         elif play in runs:
             stdout.write(f"RUN {play}\n")
-            why = (["its last run here did not succeed"]
+            why = ([f"its last run here did not succeed; if it cannot apply on this host, "
+                    f"clear it with: {FORGET_COMMAND} {play}"]
                    if judgement.states[play] == STATE_FAILED else reasons(judgement, play))
             if why:
                 stderr.write(f"changed-plays: {play}: {'; '.join(why)}\n")
         elif play in judgement.unresolved:
             stdout.writelines(f"UNRESOLVED {play} {where}\n" for where in judgement.unresolved[play])
+    if not list_all:
+        stderr.writelines(
+            f"changed-plays: {play}: its last run here, narrowed by "
+            f"{ledger.describe_narrowing(ran[play]['narrowed'])}, did not succeed; only a full "
+            "run decides the play, so it is not run for that\n"
+            for play in failed_narrowed_runs(ran, latest)
+        )
     return EXIT_OK
+
+
+def failed_narrowed_runs(ran: dict[str, dict], full: dict[str, dict]) -> list[str]:
+    """The host plays whose latest run was narrowed, did not succeed, and came after their
+    latest full run (issue #278). Named, never judged: the run covered part of the play."""
+    prefix = affected_plays.CANDIDATE_DIR + "/"
+    return [
+        play for play, record in sorted(ran.items())
+        if play.startswith(prefix) and not ledger.is_full_run(record)
+        and record["outcome"] != "ok"
+        and record.get("finished", "") > full.get(play, {}).get("finished", "")
+    ]
 
 
 def _retire(

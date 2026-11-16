@@ -101,9 +101,9 @@ def run(
         return _emit(report, stdout, stderr)
 
     try:
-        latest = ledger.fold_latest(store.read_lines(base))
+        latest = ledger.fold_latest_full(store.read_lines(base))
     except ValueError as error:
-        # fold_latest refuses a corrupt line rather than skipping it. Softening that
+        # The fold refuses a corrupt line rather than skipping it. Softening that
         # into a clean report here would undo the only reason it raises.
         stderr.write(f"play-freshness: the ledger cannot be read: {error}\n")
         return EXIT_UNTRUSTWORTHY
@@ -286,6 +286,34 @@ def clear_broken(
     return EXIT_OK
 
 
+def forget_play(*, base: str, play: str, stdout: TextIO, stderr: TextIO = sys.stderr) -> int:
+    """Set aside a failed play's runs on a host where it cannot apply (issue #278).
+
+    Without this a play whose run failed here, and whose full run cannot pass here either,
+    stays due for `run.bash --changed` for ever. Only a play whose latest run did not
+    succeed is forgotten: a good record is the ledger's evidence, and dropping it by a typo
+    would make a deployed play read as never run. The runs stay in the file; a later run
+    of the play counts again.
+    """
+    try:
+        latest = ledger.fold_latest(store.read_lines(base)).get(play)
+    except ValueError as error:
+        stderr.write(f"[FATAL] play-ledger: the ledger cannot be read: {error}\n")
+        return EXIT_UNTRUSTWORTHY
+    if latest is None:
+        stderr.write(f"[FATAL] play-ledger: no run of {play} is recorded here, so there is "
+                     "nothing to forget.\n")
+        return EXIT_UNTRUSTWORTHY
+    if latest["outcome"] == "ok":
+        stderr.write(f"[FATAL] play-ledger: the last run of {play} here succeeded, so it is "
+                     "not failed and is left as it is.\n")
+        return EXIT_UNTRUSTWORTHY
+    store.append_record(base, ledger.forget_record(play=play, at=repo.utc_now()))
+    stdout.write(f"play-ledger: forgot the runs of {play} up to now; it is not judged here "
+                 "until it runs again.\n")
+    return EXIT_OK
+
+
 def _repo_root_default() -> str:
     """This file is `<repo>/helpers/play_ledger/check_freshness.py`."""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -311,10 +339,23 @@ def main(argv: list[str] | None = None) -> int:
             "else leave it and exit 2. For an unattended clear written for one known cause."
         ),
     )
+    parser.add_argument(
+        "--forget-play",
+        metavar="PLAY",
+        help=(
+            "set aside the runs of PLAY (repo-relative) on a host where it cannot apply, and "
+            "exit. Only a play whose last run here did not succeed; a later run counts again."
+        ),
+    )
     arguments = parser.parse_args(argv)
     if arguments.only_if_reason is not None and not arguments.clear_broken:
         parser.error("--only-if-reason needs --clear-broken")
+    if arguments.forget_play is not None and arguments.clear_broken:
+        parser.error("--forget-play and --clear-broken are separate actions; run one at a time")
     base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
+    if arguments.forget_play is not None:
+        return forget_play(base=base, play=arguments.forget_play, stdout=sys.stdout,
+                           stderr=sys.stderr)
     if arguments.clear_broken:
         return clear_broken(
             base=base,

@@ -252,6 +252,63 @@ class TestWhatRuns(_Case):
                               "changes, and the ledger does not name them all\n", err)
 
 
+def _append_run(base: str, play: str, *, outcome: str, finished: str,
+                narrowed: dict | None = None) -> None:
+    store.append_record(base, ledger.build_record(
+        play=play, name=play, commit=COMMIT_A, dirty=False, play_sha256=SHA, outcome=outcome,
+        changed=0, started=finished, finished=finished, narrowed=narrowed,
+    ))
+
+
+class TestNarrowedRuns(_Case):
+    """Issue #278: a tagged run that failed made the whole play due for ever, on a host
+    where the full play cannot pass either. Only a full run decides a play."""
+
+    def test_a_failed_narrowed_run_after_a_good_full_run_runs_nothing_and_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=COMMIT_A, at=STAMP)
+            _append_run(base, BASIC, outcome="ok", finished="2026-09-25T09:00:00Z")
+            _append_run(base, BASIC, outcome="failed", finished="2026-09-26T09:00:00Z",
+                        narrowed={"tags": ["member"]})
+            code, out, err = self._run(base, changed={})
+            self.assertEqual((code, out), (changed_plays.EXIT_OK, ""))
+            self.assertIn(f"changed-plays: {BASIC}: its last run here, narrowed by --tags member, "
+                          "did not succeed; only a full run decides the play, so it is not run "
+                          "for that\n", err)
+
+    def test_a_play_only_ever_run_narrowed_is_not_judged(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=COMMIT_A, at=STAMP)
+            _append_run(base, BASIC, outcome="failed", finished=STAMP, narrowed={"limit": "h"})
+            _, out, _ = self._run(base, changed={COMMIT_A: [BASIC]})
+            self.assertEqual(out, "")
+
+    def test_a_good_narrowed_run_does_not_clear_a_failed_full_run(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.ensure_ledger(base, commit=COMMIT_A, at=STAMP)
+            _append_run(base, BASIC, outcome="failed", finished="2026-09-25T09:00:00Z")
+            _append_run(base, BASIC, outcome="ok", finished="2026-09-26T09:00:00Z",
+                        narrowed={"tags": ["member"]})
+            _, out, _ = self._run(base, changed={})
+            self.assertEqual(out, f"RUN {BASIC}\n")
+
+    def test_a_failed_play_names_how_to_clear_it_where_it_does_not_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "failed")])
+            _, _, err = self._run(base, changed={})
+            self.assertIn(f"changed-plays: {BASIC}: its last run here did not succeed; if it "
+                          "cannot apply on this host, clear it with: cd <your fedora-desktop "
+                          "checkout> && python3 -m helpers.play_ledger.check_freshness "
+                          f"--forget-play {BASIC}\n", err)
+
+    def test_a_forgotten_play_is_not_run(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [(BASIC, COMMIT_A, "failed")])
+            store.append_record(base, ledger.forget_record(play=BASIC, at="2026-09-26T09:00:00Z"))
+            _, out, _ = self._run(base, changed={})
+            self.assertEqual(out, "")
+
+
 class TestReasons(_Case):
     """Plan 00192 Task 3.8: why each play runs, for a person, on stderr; stdout stays markers."""
 
@@ -278,7 +335,9 @@ class TestReasons(_Case):
             code, out, err = self._run(base, changed={COMMIT_A: self.GO_CHANGE})
             self.assertEqual(code, changed_plays.EXIT_OK)
             self.assertEqual(out, f"RUN {BASIC}\nRUN {FREEZE}\n")
-            self.assertEqual(err, f"changed-plays: {BASIC}: its last run here did not succeed\n"
+            self.assertEqual(err, f"changed-plays: {BASIC}: its last run here did not succeed; "
+                                  "if it cannot apply on this host, clear it with: "
+                                  f"{changed_plays.FORGET_COMMAND} {BASIC}\n"
                                   f"changed-plays: {FREEZE}: changed Go packages: src-go/internal/ui"
                                   " (built into podfreeze)\n")
 

@@ -19,7 +19,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterable
+import shlex
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 SCHEMA = 1
@@ -39,6 +40,7 @@ _RUN_FIELDS = (
     "dirty",
     "dirty_paths",
     "dirty_paths_truncated",
+    "narrowed",
     "play_sha256",
     "outcome",
     "changed",
@@ -120,9 +122,56 @@ def cleared_path(base: str) -> str:
     return os.path.join(base, "CLEARED")
 
 
+#: The `ansible-playbook` options that narrow a run to part of a play, each with the flag
+#: that spells it. A run with any of them did not cover the whole play, so it never decides
+#: the play's state (issue #278). List-valued options are the tag lists.
+NARROWING_FLAGS = {
+    "tags": "--tags",
+    "skip_tags": "--skip-tags",
+    "limit": "--limit",
+    "start_at_task": "--start-at-task",
+}
+_NARROWING_LISTS = frozenset({"tags", "skip_tags"})
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
+
+
+def _validated_narrowing(narrowed: Mapping[str, Any]) -> dict[str, Any]:
+    """`narrowed` checked against NARROWING_FLAGS, with each tag list sorted."""
+    checked: dict[str, Any] = {}
+    for option, value in narrowed.items():
+        _require(option in NARROWING_FLAGS,
+                 f"unknown narrowing option {option!r}; expected one of {sorted(NARROWING_FLAGS)}")
+        if option in _NARROWING_LISTS:
+            _require(isinstance(value, list) and bool(value)
+                     and all(isinstance(tag, str) and tag for tag in value),
+                     f"{option} must be a non-empty list of tags, got {value!r}")
+            checked[option] = sorted(value)
+        else:
+            _require(isinstance(value, str) and bool(value),
+                     f"{option} must be a non-empty string, got {value!r}")
+            checked[option] = value
+    return checked
+
+
+def is_full_run(record: Mapping[str, Any]) -> bool:
+    """Whether a run covered its whole play. A record from before narrowing was kept says
+    nothing about it, and reads as full: that is how every such run was judged."""
+    return not record.get("narrowed")
+
+
+def describe_narrowing(narrowed: Mapping[str, Any]) -> str:
+    """The narrowing as the command line spelled it, for a person to read."""
+    words = []
+    for option, flag in NARROWING_FLAGS.items():
+        if option not in narrowed:
+            continue
+        value = narrowed[option]
+        words.append(f"{flag} {','.join(value) if option in _NARROWING_LISTS else shlex.quote(value)}")
+    return " ".join(words)
 
 
 def build_record(
@@ -138,13 +187,16 @@ def build_record(
     finished: str,
     dirty_paths: Iterable[str] = (),
     dirty_paths_truncated: bool = False,
+    narrowed: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One validated run record. Every constraint here is a thing Phase 2 relies on.
 
     `dirty_paths` are the checkout's uncommitted paths (`repo.dirty_state`), and
     `dirty_paths_truncated` says the list was cut. `dirty` stays, so a reader from before
     the paths were kept still reads a dirty run as dirty; it must agree with them.
+    `narrowed` holds the options that narrowed the run (NARROWING_FLAGS), empty for a full run.
     """
+    narrowing = _validated_narrowing(narrowed or {})
     _require(bool(play) and not play.startswith("/"), f"play must be repo-relative, got {play!r}")
     _require(outcome in OUTCOMES, f"unknown outcome {outcome!r}; expected one of {sorted(OUTCOMES)}")
     _require(bool(_COMMIT_RE.match(commit)), f"commit must be a 40-hex sha, got {commit!r}")
@@ -173,6 +225,7 @@ def build_record(
         "dirty": dirty,
         "dirty_paths": paths,
         "dirty_paths_truncated": dirty_paths_truncated,
+        "narrowed": narrowing,
         "play_sha256": play_sha256,
         "outcome": outcome,
         "changed": changed,
@@ -194,22 +247,65 @@ def genesis_record(*, commit: str, at: str) -> dict[str, Any]:
     return {"schema": SCHEMA, "kind": "genesis", "commit": commit, "at": at}
 
 
+def forget_record(*, play: str, at: str) -> dict[str, Any]:
+    """The record that drops a play's runs up to `at` from every fold (issue #278).
+
+    The operator's route out for a play whose last run failed on a host where it cannot
+    apply: without it the play stays due for ever. Appended, never a rewrite of the file,
+    so the history it sets aside is still there to read.
+    """
+    _require(bool(play) and not play.startswith("/"), f"play must be repo-relative, got {play!r}")
+    _require(bool(_TIMESTAMP_RE.match(at)), f"at must be UTC ISO 8601, got {at!r}")
+    return {"schema": SCHEMA, "kind": "forget", "play": play, "at": at}
+
+
 def serialise(record: dict[str, Any]) -> str:
     """One record as one line. Keys sorted so two runs diff cleanly."""
     return json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
 
 
 def fold_latest(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """The most recent run record per play.
+    """The most recent run record per play, full or narrowed: what has run here.
 
     Decided by `finished`, not by position: the file is appended to by concurrent
-    runs, so its order is not run order.
+    runs, so its order is not run order. A play's runs up to a `forget_record` of it
+    are dropped.
 
     A corrupt line or an unknown schema raises. Skipping either would let the
     fold answer from a history it knows is incomplete, which is precisely the
     silently-wrong-check failure this ledger exists to prevent.
     """
+    return _fold(lines, full_only=False)
+
+
+def fold_latest_full(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """The most recent FULL run record per play: what decides whether a play is current.
+
+    A run narrowed by --tags, --limit and the like covered part of the play, so it says
+    nothing about the rest (issue #278). A play only ever run narrowed is absent here.
+    """
+    return _fold(lines, full_only=True)
+
+
+def _fold(lines: Iterable[str], *, full_only: bool) -> dict[str, dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
+    forgotten: dict[str, str] = {}
+    for record in _records(lines):
+        play = record["play"]
+        if record.get("kind") == "forget":
+            forgotten[play] = max(forgotten.get(play, ""), record.get("at", ""))
+            continue
+        if full_only and not is_full_run(record):
+            continue
+        seen = latest.get(play)
+        if seen is None or record.get("finished", "") > seen.get("finished", ""):
+            latest[play] = record
+    return {play: record for play, record in latest.items()
+            if play not in forgotten or record.get("finished", "") > forgotten[play]}
+
+
+def _records(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
+    """Every run and forget record, validated; genesis records and blank lines skipped."""
     for number, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
@@ -234,10 +330,7 @@ def fold_latest(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
         play = record.get("play")
         if not isinstance(play, str) or not play:
             raise ValueError(f"ledger line {number} has no 'play'")
-        seen = latest.get(play)
-        if seen is None or record.get("finished", "") > seen.get("finished", ""):
-            latest[play] = record
-    return latest
+        yield record
 
 
 def recorded_dirty_paths(record: dict[str, Any]) -> tuple[str, ...] | None:
