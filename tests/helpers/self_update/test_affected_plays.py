@@ -505,6 +505,56 @@ class TestUnresolved(FixtureCase):
                     src: "{{ download_dir.path }}/x.tar.gz"
         """), [])
 
+    def test_a_src_the_managed_host_reads_is_not_reported(self) -> None:
+        """slurp and fetch read `src` on the managed host, and so does a copy or unarchive with
+        `remote_src`: it never names a checkout file, whatever variable builds it (#315)."""
+        self.assertEqual(self._unresolved("""
+            - hosts: desktop
+              tasks:
+                - name: Read a CA
+                  become: true
+                  ansible.builtin.slurp:
+                    src: "{{ ca_files[item.key] }}"
+                  loop: "{{ teams }}"
+                - ansible.builtin.fetch:
+                    src: "{{ remote_log }}"
+                    dest: /tmp/x
+                - slurp:
+                    src: "{{ other_file }}"
+                - name: Copy on the host
+                  ansible.builtin.copy:
+                    src: "{{ staged_file }}"
+                    dest: /etc/x
+                    remote_src: true
+                - ansible.builtin.unarchive:
+                    remote_src: yes
+                    src: "{{ downloaded }}"
+                    dest: /opt/x
+        """), [])
+
+    def test_a_src_beside_a_remote_src_false_is_still_reported(self) -> None:
+        found = self._unresolved("""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.copy:
+                    src: "{{ mystery }}"
+                    dest: /etc/x
+                    remote_src: false
+        """)
+        self.assertEqual(len(found), 1)
+
+    def test_a_rooted_slurp_src_is_still_an_input(self) -> None:
+        self.fx.file("files/ca.pem")
+        play = self.fx.play("playbooks/imports/play-a.yml", f"""
+            - hosts: desktop
+              tasks:
+                - ansible.builtin.slurp:
+                    src: "{ROOT}/files/ca.pem"
+        """)
+        inputs = ap.play_inputs(self.fx.root, play)
+        self.assertIn("files/ca.pem", inputs.exact)
+        self.assertEqual(inputs.unresolved, [])
+
     def test_a_relative_src_that_does_not_exist_is_reported(self) -> None:
         self.assertEqual(len(self._unresolved("""
             - hosts: desktop
@@ -563,8 +613,9 @@ class TestHostOnlyPaths(FixtureCase):
         return self.fx.play("playbooks/imports/play-a.yml", f"""
             - hosts: desktop
               tasks:
-                - ansible.builtin.slurp:
+                - ansible.builtin.copy:
                     src: "{{{{ key_path }}}}.pub"
+                    dest: /tmp/key.pub
             - hosts: desktop
               vars_files:
                 - "{ROOT}/vars/signing.yml"

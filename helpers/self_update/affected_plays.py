@@ -54,7 +54,8 @@ with regexes over the play text. The idioms recognised are the ones this repo us
 **A reference it cannot follow is reported, never dropped.** A `src:`, `file:`,
 `include_*` or `vars_files` value that is not rooted, not a host path or URL, not a loop
 `item`, not a variable the file defines as rooted or as a host path, not a host-only
-variable, and not a registered result, is UNRESOLVED. A host-only variable is one every
+variable, not a registered result, and not a `src` the managed host reads (slurp, fetch, or
+beside a true `remote_src`), is UNRESOLVED. A host-only variable is one every
 walked file sets to an inventory variable falling back to an absolute path
 (`{{ git_signing_key | default('/home/' + user_login + '/.ssh/id') }}`) that no walked file
 and not the inventory's group_vars sets: only host_vars, outside the checkout, can, so the
@@ -176,6 +177,11 @@ _PATH_VALUE = re.compile(r"^[A-Za-z0-9_.@+\-/]+$")
 _LIST_VAR = re.compile(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}$")
 _MAPPING_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
 _DASH = re.compile(r"^(\s*)-(?:\s+(.*))?$")
+#: The module a task's argument block belongs to, from the line that opens the block.
+_MODULE_KEY = re.compile(r"^\s*(?:-\s+)?(?:ansible\.builtin\.)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*$")
+#: Modules whose `src` is a file on the managed host, never on the controller.
+_HOST_READ_MODULES = frozenset({"slurp", "fetch"})
+_REMOTE_SRC_TRUE = re.compile(r"^\s*remote_src\s*:\s*['\"]?(?:true|True|yes)['\"]?\s*(?:#.*)?$")
 #: A value that is an inventory variable falling back to an absolute host path.
 _HOST_DEFAULT = re.compile(r"""^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*default\(\s*(['"])/""")
 
@@ -913,6 +919,8 @@ class _Walker:
         value = _unquote(value)
         if not value or _ROOTED_AT_START.match(value) or value.startswith("/") or _URL.match(value):
             return
+        if key == "src" and self._reads_on_host(rel_file, line_no):
+            return
         where = f"{rel_file}:{line_no}"
         head = _TEMPLATE_HEAD.match(value)
         if head:
@@ -932,6 +940,28 @@ class _Walker:
                 self._add_path(rel, as_dir=False)
                 return
         self.inputs.unresolved.append(f"{where}: {value}")
+
+    def _reads_on_host(self, rel_file: str, line_no: int) -> bool:
+        """Whether the `src:` at `line_no` names a file on the managed host: an argument of a
+        module that reads there (slurp, fetch), or beside a true `remote_src`. Such a path is
+        never a checkout file; a rooted one is still an input, through the rooted scan."""
+        lines = self._texts[rel_file].splitlines()
+        own = _indent(lines[line_no - 1])
+        parent = next((j for j in range(line_no - 2, -1, -1)
+                       if not _skip(lines[j]) and _indent(lines[j]) < own), None)
+        if parent is None:
+            return False
+        module = _MODULE_KEY.match(lines[parent])
+        if module and module.group(1) in _HOST_READ_MODULES:
+            return True
+        for line in lines[parent + 1:]:
+            if _skip(line):
+                continue
+            if _indent(line) < own:
+                break
+            if _indent(line) == own and _REMOTE_SRC_TRUE.match(line):
+                return True
+        return False
 
     def walk_yaml(self, rel_file: str, *, context: str) -> None:
         if rel_file in self._seen_files:
