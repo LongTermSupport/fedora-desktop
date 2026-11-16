@@ -109,7 +109,9 @@ if [ "$(id -u)" -eq 0 ]; then
             mac_hits+=("$ip")
             echo -e "  ${GREEN}Found MAC match: ${ip}  (${mac} — ${vendor})${NC}"
         fi
-    done < <(arp-scan --localnet --interface="$iface" --plain 2>/dev/null)
+    done < <(arp-scan --localnet --interface="$iface" --plain)
+    # A scan that could not run is not "no QNAP MACs": stop under arp-scan's own message.
+    wait "$!"
 else
     echo -e "  ${DIM}(skipped — run with sudo for MAC-based detection)${NC}"
 fi
@@ -122,13 +124,12 @@ echo ""
 # ── Phase 2: Port scan for :8080 hosts ────────────────────────────────────────
 echo -e "${BOLD}Phase 2: Scanning for port 8080 (QNAP QTS web UI)...${NC}"
 
-port_hits=()
 nmap_out=$(mktemp)
 nmap -sT -p 8080 --open --min-rate 500 -T4 "$subnet" -oG "$nmap_out" 2>/dev/null
-while read -r line; do
-    ip=$(echo "$line" | awk '{print $2}')
-    [ -n "$ip" ] && port_hits+=("$ip")
-done < <(grep "8080/open" "$nmap_out")
+# awk, not grep: no open host is a clean empty answer here, where grep's status 1 for it
+# would be indistinguishable from an unreadable file.
+mapfile -t port_hits < <(awk '/8080\/open/ {print $2}' "$nmap_out")
+wait "$!"
 rm -f "$nmap_out"
 
 if [ ${#port_hits[@]} -eq 0 ]; then

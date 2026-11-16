@@ -264,11 +264,8 @@ check_host_configured() {
     fi
 
     if [ ${#errors[@]} -gt 0 ]; then
-        echo "" >&2
-        echo "═══════════════════════════════════════════════════════════" >&2
-        echo "  Host Configuration Errors" >&2
-        echo "═══════════════════════════════════════════════════════════" >&2
-        echo "" >&2
+        printf '%s\n' "" "═══════════════════════════════════════════════════════════" \
+            "  Host Configuration Errors" "═══════════════════════════════════════════════════════════" "" >&2
         echo "The host system is not properly configured for Docker-in-LXC." >&2
         echo "" >&2
         echo "Issues found:" >&2
@@ -282,6 +279,7 @@ check_host_configured() {
         while IFS= read -r play; do
             echo "  ansible-playbook ./$play" >&2
         done < <(printf '%s\n' "${remedies[@]}" | sort -u)
+        wait "$!" || error "the list of plays to run could not be built (sort failed, above)"
         echo "" >&2
         exit 1
     fi

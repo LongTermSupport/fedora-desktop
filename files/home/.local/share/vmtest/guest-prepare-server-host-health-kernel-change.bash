@@ -173,6 +173,8 @@ select_second_kernel() {
         wanted="${candidate}"
         break
     done < <(printf '%s\n' "${available}" | sort -Vr)
+    # The list is a few lines, so the early break cannot leave sort writing into a closed pipe.
+    wait "$!" || die "sorting the available kernel-core versions failed"
     [[ -n "${wanted}" ]] ||
         die "every kernel-core the repos offer is ${running_kernel}; this guest cannot be given a second kernel"
     record PREPARED_WANTED_KERNEL "${wanted}"
@@ -201,6 +203,7 @@ select_second_kernel() {
         target_kernel="${candidate}"
         break
     done < <(printf '%s\n' "${installed}" | sort -Vr)
+    wait "$!" || die "sorting the installed kernel-core versions failed"
 
     [[ -n "${target_kernel}" ]] ||
         die "dnf installed ${wanted} but no kernel other than ${running_kernel} has a ${boot_dir}/vmlinuz-*; the guest cannot reboot into a different one"

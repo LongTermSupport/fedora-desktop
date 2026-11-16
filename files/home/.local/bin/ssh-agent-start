@@ -9,25 +9,22 @@ set -euo pipefail
 SSH_DIR="$HOME/.ssh"
 
 # Discover private keys: files that are NOT .pub, config, known_hosts, authorized_keys
+# One per line, and nothing at all when there are none (an empty list printed as one blank
+# line would read as one nameless key).
 discover_private_keys() {
-    local keys=()
+    local f
     for f in "$SSH_DIR"/*; do
         [ -f "$f" ] || continue
-        local name
-        name="$(basename "$f")"
         # Skip non-key files
-        case "$name" in
+        case "${f##*/}" in
             *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak) continue ;;
         esac
-        keys+=("$f")
+        printf '%s\n' "$f"
     done
-    printf '%s\n' "${keys[@]}"
 }
 
 add_key() {
-    local key="$1"
-    local name
-    name="$(basename "$key")"
+    local key="$1" name="${1##*/}"
     if ssh-add "$key" 2>&1; then
         echo "  Added: $name"
     else
@@ -64,6 +61,7 @@ mode_interactive() {
     ensure_agent
     local -a keys
     mapfile -t keys < <(discover_private_keys)
+    wait "$!" || { echo "Cannot list the keys in $SSH_DIR" >&2; exit 1; }
     if [ ${#keys[@]} -eq 0 ]; then
         echo "No private keys found in $SSH_DIR"
         exit 0
@@ -73,8 +71,7 @@ mode_interactive() {
     echo ""
     local i=1
     for key in "${keys[@]}"; do
-        local name
-        name="$(basename "$key")"
+        local name="${key##*/}"
         # Check if already loaded
         if ssh-add -l 2>/dev/null | grep -q "$key"; then
             echo "  $i) $name  [already loaded]"
