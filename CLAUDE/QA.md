@@ -1038,7 +1038,7 @@ neither has a free fix.
 ### github-poll-too-often
 
 **What it is.** A script, recipe or hint that runs gh's run watcher, or its pull-request checks
-watcher (`gh pr checks ... --watch`), without an interval of 60 seconds or more on the same line
+watcher (`pr checks` given `--watch`), without an interval of 60 seconds or more on the same line
 (`--interval`, `-i`, or `--interval=`). The rule in `.semgrep/gh-poll.yml`, proven against
 `.semgrep/gh-poll.fixture`, reads every line of every file git would publish (any language: a
 shell script, a Markdown recipe, a Go string that prints the command), and an interval named only
