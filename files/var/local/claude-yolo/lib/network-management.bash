@@ -1048,14 +1048,9 @@ _do_compose_start() {
         if command -v podman-compose &>/dev/null; then
             compose_cmd="podman-compose"
         else
-            echo "⚠ podman-compose not installed"
-            echo ""
-            echo "Install with:"
-            echo "  pip install podman-compose"
-            echo "  # Or: ansible-playbook playbooks/imports/play-podman.yml"
-            echo ""
-            echo "Then run: podman-compose up -d"
-            echo "────────────────────────────────────────────────────────────────────────────────"
+            printf '%s\n' "⚠ podman-compose not installed" "" "Install with:" "  pip install podman-compose" \
+                "  # Or: ansible-playbook playbooks/imports/play-podman.yml" "" "Then run: podman-compose up -d" \
+                "────────────────────────────────────────────────────────────────────────────────"
             return 1
         fi
     else
@@ -1112,7 +1107,9 @@ _do_compose_start() {
                                     found_networks+=("$net")
                                 fi
                             fi
-                        done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+                        done < <(container_cmd network ls --format "{{.Name}}")
+                        # The listing's own status: one that failed is not "no networks" (#295).
+                        wait "$!" || { echo "$CONTAINER_ENGINE could not list its networks (see above)." >&2; return 1; }
 
                         if [ ${#found_networks[@]} -gt 0 ]; then
                             COMPOSE_NETWORK="${found_networks[0]}"
@@ -1174,7 +1171,9 @@ _compose_already_running() {
     local compose_output
     local container_ids=()
     if compose_output=$($compose_cmd ps -q 2>/dev/null) && [[ -n "$compose_output" ]]; then
-        mapfile -t container_ids < <(echo "$compose_output" | grep -v '^$')
+        # Split on newlines only, which also drops empty lines; `read -d ''` ends at end of
+        # input with status 1, which the `!` keeps from counting as a failure.
+        ! IFS=$'\n' read -r -d '' -a container_ids <<<"$compose_output"
     fi
     [[ ${#container_ids[@]} -eq 0 ]] && return 1
 
