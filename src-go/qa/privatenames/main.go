@@ -204,7 +204,7 @@ func (a app) terms(errOut *emit.Emitter) ([]Term, ExitCode, bool) {
 	if err != nil {
 		return nil, fail(errOut, err), false
 	}
-	terms := withoutPublic(Union(fresh, stored), public)
+	terms := withoutPublic(Union(fresh, withoutFirstWords(stored, fresh)), public)
 	if len(terms) == 0 {
 		return nil, ExitOK, true
 	}
@@ -265,6 +265,30 @@ func (a app) public(root string) ([]string, error) {
 		return nil, fmt.Errorf("the public-token allowlist is not YAML: %w", err)
 	}
 	return append(out, doc["public_tokens"]...), nil
+}
+
+// withoutFirstWords drops a stored term that is only the first word of another stored name (the
+// text before its first hyphen), unless it is freshly learned as a name of its own: a part of a
+// name is never a term alone (#310), and a list kept from an older rule may still hold one.
+func withoutFirstWords(stored, fresh []Term) []Term {
+	learned := map[string]bool{}
+	for _, t := range fresh {
+		learned[strings.ToLower(t.Text)] = true
+	}
+	firstWords := map[string]bool{}
+	for _, t := range stored {
+		if first := before(t.Text, "-"); first != t.Text {
+			firstWords[strings.ToLower(first)] = true
+		}
+	}
+	var out []Term
+	for _, t := range stored {
+		k := strings.ToLower(t.Text)
+		if !firstWords[k] || learned[k] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func withoutPublic(terms []Term, public []string) []Term {

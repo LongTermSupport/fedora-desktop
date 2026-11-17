@@ -371,6 +371,40 @@ func TestAStoredListStillGuardsAfterTheTeamLeavesTheBus(t *testing.T) {
 	}
 }
 
+const firstWordDiff = `diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,0 +2 @@
++an ordinary zebrafish line about zebras and one zebra
+`
+
+// A list written before #310 holds a name's first word as a term of its own. Option 1 says a part
+// of a name is never a term alone, so it no longer blocks; the whole name still does.
+func TestAStoredFirstWordOfAnotherStoredNameNoLongerBlocks(t *testing.T) {
+	stored := "agent-bus member\tzebra\nagent-bus member\tzebra-billing\n"
+	clean := newRig(false, map[string]proc.Result{stagedKey: {Stdout: firstWordDiff}}, files{listFile: stored}, "")
+	clean.env.Hostnames = nil
+	if code := clean.run("staged"); code != ExitOK {
+		t.Fatalf("the first word alone still blocks: exit %d: %s", code, clean.text())
+	}
+	whole := newRig(false, map[string]proc.Result{stagedKey: {Stdout: diff}}, files{listFile: stored}, "")
+	whole.env.Hostnames = nil
+	if code := whole.run("staged"); code != ExitFindings {
+		t.Fatalf("the whole name stopped blocking: exit %d: %s", code, whole.text())
+	}
+}
+
+// A stored term that is still learned as a whole name stays, even when it is also the first word
+// of another stored name: only a part of a name is dropped, never a name.
+func TestAStoredFirstWordThatIsStillAWholeNameKeepsBlocking(t *testing.T) {
+	stored := "agent-bus team\tzebras\nagent-bus member\tzebras-billing\n"
+	r := newRig(false, map[string]proc.Result{stagedKey: {Stdout: firstWordDiff}, "pingbus status": {Stdout: "TEAM\tzebras\tpump.1+local.podman\ttrust=trusted\n"}}, files{listFile: stored}, "")
+	r.env.Hostnames = nil
+	if code := r.run("staged"); code != ExitFindings {
+		t.Fatalf("a live whole name was dropped: exit %d: %s", code, r.text())
+	}
+}
+
 func TestThePublicAllowlistRemovesAStoredTerm(t *testing.T) {
 	fl := files{listFile: "agent-bus member\tzebra-billing\n", "/repo/" + AllowlistPath: "public_tokens:\n  - Zebra-Billing\n"}
 	r := newRig(false, map[string]proc.Result{stagedKey: {Stdout: diff}}, fl, "")
