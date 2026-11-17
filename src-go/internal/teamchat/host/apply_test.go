@@ -175,6 +175,42 @@ func TestStoppedUnitIsStarted(t *testing.T) {
 	}
 }
 
+// SPEC-carry SG6, O6: a first apply of a team declared as carried is refused (70) before any
+// file, unit or firewall rule is made, and before the CA could be; once the team is not first
+// (its server-name exists, as after carry.Import or an earlier apply) the marker has no effect.
+// The apply over a tree carry.Import placed is SA1's test, with the marker.
+func TestApplyRefusesCarriedFirstApply(t *testing.T) {
+	w := newWorld(t)
+	doc := teamDoc()
+	docTeam(doc)["carried_from"] = "the bus guest before the rebuild"
+	marked := approved(w, doc)
+	lines, err := w.apply(marked)
+	e := stepOf(t, err)
+	if e.Step != StepRefusals || !e.Drift || lines != nil ||
+		!strings.Contains(err.Error(), "team ops is declared as carried: run team import first, then team apply") {
+		t.Fatalf("lines %q, err %v", lines, err)
+	}
+	if len(w.log) != 0 {
+		t.Errorf("a refused apply called %q", w.log)
+	}
+	team := ops(t)
+	for _, p := range []string{
+		paths.AdminState(team), paths.CtlState(team), paths.TLSDir(team), filepath.Dir(paths.ServerDropInFile(team)),
+		filepath.Dir(paths.TLSDropInFile(team)), paths.StampFile(team),
+	} {
+		if _, err := os.Lstat(w.at(p)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s after a refused apply: %v", p, err)
+		}
+	}
+	lockIsFree(t, w)
+
+	w = applied(t)
+	marked = approved(w, doc)
+	if _, err := w.apply(marked); err != nil {
+		t.Fatalf("a marked team that is not first: %v", err)
+	}
+}
+
 // HS3: a server_name other than the one fixed at the first apply is refused, even when that
 // first apply failed after fixing it.
 func TestServerNameIsFixedByTheFirstApply(t *testing.T) {

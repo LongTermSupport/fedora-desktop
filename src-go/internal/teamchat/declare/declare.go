@@ -47,7 +47,7 @@ const (
 	keyContainer, keyUser, keyCheckout         = "container", "user", "checkout"
 	keySite, keySeat, keyHumanText, keyService = "site", "seat", "human_text", "service"
 	keyLXCMembers, keyAddress, keyVersion      = "lxc_members", "address", "v"
-	keyColour                                  = "colour"
+	keyColour, keyCarriedFrom                  = "colour", "carried_from"
 )
 
 // HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
@@ -88,6 +88,10 @@ type Team struct {
 	Trust       proto.Forge
 	// Colour is the colour override as stored hex (n3e-D4), empty when the team declares none.
 	Colour string
+	// CarriedFrom is free text naming where the team was carried from, empty when it declares
+	// none. Only its presence has effect: a first `team apply` of a marked team is refused until
+	// `team import` has placed it (SPEC-carry SG6).
+	CarriedFrom string
 }
 
 // LXCMember is one teamchat_lxc_members entry.
@@ -214,7 +218,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 
 var teamOptional = []string{
 	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyNetworks, keyURL,
-	keyHumans, keyCoordinator, keyTrust, keyColour,
+	keyHumans, keyCoordinator, keyTrust, keyColour, keyCarriedFrom,
 }
 
 // readTeam reads one team entry (DR3).
@@ -295,6 +299,10 @@ func readValues(t *Team, f fields, address string) error {
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
 		{keyTrust, func(n node) error { t.Trust, err = n.trust(); return err }},
 		{keyColour, func(n node) error { t.Colour, err = n.colour(); return err }},
+		{keyCarriedFrom, func(n node) error {
+			t.CarriedFrom, err = n.checked(proto.ValidDescription, "is not 1-120 characters, trimmed, free of control characters")
+			return err
+		}},
 	}
 	for _, r := range readers {
 		if f.has(r.key) {

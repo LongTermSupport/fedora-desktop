@@ -319,6 +319,11 @@ func (a *applying) refusals(_ context.Context) error {
 		return a.fail(StepRefusals, err)
 	}
 	a.first = !found
+	if a.first && a.in.Team.CarriedFrom != "" {
+		// SPEC-carry SG6: a first apply would make a fresh CA, after which the import is refused
+		// for ever (SI2).
+		return a.refuse("team %s is declared as carried: run team import first, then team apply", a.team)
+	}
 	if found && string(name) != a.in.Team.ServerName {
 		return a.refuse("server_name %s is not %s, fixed at the team's first apply (C3)", a.in.Team.ServerName, name)
 	}

@@ -515,15 +515,23 @@ import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O
 - **SG5.** `team import` takes a guard that requires the import record absent on a fresh
   import and present on `--resume`/`--discard` (as `restore` passes its own, RG3).
 - **SG6. A carried team is not applied before its import has landed (O6).** A declaration may
-  mark a team as carried (a `carried_from` field of the team's declaration, in the new
-  grammar). `team apply` for such a team, when it is a first apply (no `AdminState(t)`, so no
+  mark a team as carried: `carried_from`, an optional string of the team's declaration, free
+  text naming where the team was carried from, of `description`'s grammar
+  (`proto.ValidDescription`: 1 to 120 characters, trimmed, no control or format characters).
+  Only its presence has effect. Its canonical form omits it when empty, so every existing
+  `team.json`, input and `approved.json` is byte for byte what it was; when set it is written
+  last in `team.json` and the input and read back by `DecodeTeamFile` and `DecodeInput`. It is
+  not a gated field, so `approved.json` never holds it (sc-D15). `team apply` for such a team, when it is a first apply (no `AdminState(t)`, so no
   `server-name`, `host/apply.go:312-316`), is refused with exit 70 and the message "team T is
   declared as carried: run team import first, then team apply", before any file, unit or
   firewall rule is made, and before the CA could be. Once `carried.json` exists the marker has
   no effect on apply. This is a **declare change** (`declare`'s team grammar and its canonical
-  form, and so `team.json`'s round trip), and it is gate A's inventory. Tests: the refusal and
-  its exit code on a fake host with a marked declaration and no import; the same declaration
-  applies after `carry.Import`; an unmarked declaration is untouched.
+  form, and so `team.json`'s round trip), and it is gate A's inventory: the play hands each
+  `teamchat_teams` entry to `team apply` whole, so the key reaches the verb with no play
+  change. Tests: the refusal and its exit code on a fake host with a marked declaration and no
+  import (`host`, `admin`); a marked team that is not first applies (`host`); the same
+  declaration applies over a tree `carry.Import` placed (SA1, item 13); an unmarked declaration
+  is untouched (its encodings pinned, `declare`).
 - **SL1.** Every carry verb holds the team lock for its whole run, released only in the one
   deferred call (SM5). Seal and export wait `host.PlayWait`; import waits 0; carry-check
   waits `host.PlayWait`. No carry verb ever holds two team locks.
@@ -609,6 +617,7 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 | sc-D11 | The coordinator's ruling on SC-C2 against the 64 KiB request cap, option (A): the cap stays for every op; `carry.place`'s request names each lost export by name, size and sha256, and root streams their bytes from `CarryStaging(t)` after it, every check done first; the child checks them again and places nothing unless all verify (SC-C2, SX4). Rejected: (B) raising the cap, which widens it for every op; (C) lowering SX4's cap, which drops a capability.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | sc-D13 | `team carry-check`, where section 6 is silent: the tail it checks is in `carried.json`, which SI9 step 4 writes with the manifest's `seal.tail`, because the manifest copy in `CarryStaging(t)` is removed at step 6 and nothing else on the guest holds it. The start is `host.ServeLoopback` (the recorded drop-in, the pin's memory bound, reload, start, ready, loopback alone); the unit is stopped (RS18, both units, no disable) whatever the start or the check did. What becomes of the recorded drop-in is sc-D14's. The answer is section 6's document, printed beside the failure when not ok.                                                                                                                                                                                                                                                                                                        |
 | sc-D14 | The coordinator's ruling on the drop-in `team carry-check` writes: once RS18 finds both units stopped (after a failed start or check too), the check removes the recorded drop-in, its directory when empty, and reloads systemd, so the tree after the check is as before it and SA's "Server drop-in: made (none exists)" holds for the first `team apply`. A unit not found stopped keeps its drop-in (removing what a running unit was started from would leave systemd's view and the files apart); the next check overwrites and removes it. Because the removal would take an applied team's own drop-in, and the stop would stop a serving team, the check refuses (70) a team whose stamp exists, before anything starts: it runs only between `team import` and `team apply`.                                                                                                                           |
+| sc-D15 | The coordinator's ruling on SG6's marker: `carried_from` is a string of the team's declaration, free text naming where the team was carried from; only a non-empty value has effect. Its grammar is `description`'s, the declare package's free-text field (`proto.ValidDescription`: 1 to 120 characters, trimmed, no control or format characters). It is omitted from the canonical form when empty, so `team.json`, the input and `approved.json` of every unmarked team are unchanged byte for byte (pinned by a test); when set it is the last key of `team.json` and the input, and round-trips. It is not a gated field (AG1), so the approval neither holds nor judges it. The refusal sits beside the first-apply test, before the approval is read, so a refused apply makes no call at all.                                                                                                           |
 
 ## 12. Decisions
 
@@ -682,7 +691,8 @@ No question is left open: every question of the draft is a decision above.
   `WriteRecordedDropIn` from `recordedDropIn` (`host/apply.go:745-767`); `DecodeUnits` from
   `decodeUnits` (`host/records.go:64`); `Deps.RemoveGuard`, used at `host/remove.go:31`; the
   first-apply refusal of SG6 beside the first-apply test at `host/apply.go:312-316`.
-- `declare`: the `carried_from` marker of SG6 in the team grammar and its canonical form.
+- `declare`: the `carried_from` marker of SG6 in the team grammar and its canonical form
+  (sc-D15).
 - `admin`: the verbs `team seal`, `team export`, `team import`, `team carry-check` in
   `rootRuns` (`admin/verbs.go:99-114`), SG1 in the dispatcher (`admin/run.go`), exits through
   `ExitCodeOf` (`admin/exit.go:26`) with `carry.ErrSealed`, `ErrRefused` joining `verbExit`'s
