@@ -42,69 +42,41 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Issue #329: the pre-push hook, qa-all and qa-changed now run CI's gitleaks secret scan
-# (scripts/qa-gitleaks.bash), so this host needs gitleaks at the GITLEAKS pin of .qa-versions.
-# Installs it in /usr/local/bin, checked against the release's own checksums file. First in the
-# list, because until it has run every push from this checkout stops at the hook (exit 2,
-# "gitleaks is not installed"). Expected: changed for the gitleaks download and install only;
-# the play's last task, qa-toolchain, then reports gitleaks among the matching tools.
+# Second pass: the idempotency proof for every play the first run of this list applied
+# (play-python, play-claude-yolo, play-agent-bus, play-vm-test-lab, and the plays changed-plays
+# ran). changed-plays cannot do it: a play that has just run is no longer changed, so each is
+# named here. Expected for every entry: changed=0. Any change is a defect to report, except
+# the two named on their entries. Afterwards: report each recap.
 playbooks/imports/play-python.yml
-
-# Issue #323: changed-plays now also runs a play with no ledger record whose files here show
-# it ran. On this host that is play-claude-devtools, play-ddev and play-qobuz, and
-# play-self-update is due as well; none has converged since its files were deployed. Each is
-# first run in check mode with a diff, which applies nothing and is not ledgered, so the
-# changes can be read before they are made. Expected: changes only inside what each play
-# already manages. Afterwards: report each diff; stop before any real run if one adds a user
-# to the docker group, changes the Docker daemon config or opens a port. The real runs are
-# queued only once the diffs are read.
-playbooks/imports/optional/common/play-claude-devtools.yml --check --diff
-# The ddev check: Docker-backed. Read its diff for the docker group, daemon config and ports.
-playbooks/imports/optional/common/play-ddev.yml --check --diff
-# The qobuz check: the rescrobbled user service and its config.
-playbooks/imports/optional/common/play-qobuz.yml --check --diff
-# The self-update check: its inputs changed since it last ran here.
-playbooks/imports/optional/common/play-self-update.yml --check --diff
-
-# Issue #260 (ccy 3.122.18, container 2.84.26): pingbus, teamchat and the launcher never wait
-# in silence on stdin. Installs the launcher; the image carries helpers/stdin_text and the
-# rebuilt pingbus and teamchat, and is rebuilt once at the next ccy start. pingbus's
-# thread --close reads no stdin unless --note - is given; a text verb (say, reply, report)
-# refuses a terminal, says on stderr after a second that it is waiting, and exits 64 if nothing
-# has come within 60 s. Issue #324 (ccy 3.122.20, container 2.84.28) rides the same run: the
-# image's internal/stdinread gains the bounded first-line read the sealed carry uses. Plan 00211
-# (ccy 3.122.21, container 2.84.29) rides it too: pingbus ask-human --type, and thread --close
-# retitling the question's root. Afterwards: a new ccy session starts, on container 2.84.29;
-# then the coordinator runs `pingbus questions --retitle-closed` once.
+playbooks/imports/play-basic-configs.yml
+playbooks/imports/play-github-cli-multi.yml
+# Expected: changed=0; the image is not built by the play, so a running ccy session is untouched.
 playbooks/imports/play-claude-yolo.yml
-
-# Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the
-# kit's pingbus and its helpers/stdin_text (and, for Plan 00211, the question types).
+playbooks/imports/play-claude-code-consumer.yml
 playbooks/imports/play-agent-bus.yml
-
-# Issue #260: the lab's vmtest modules read stdin through helpers/stdin_text, which says on
-# stderr when it is waiting for input that has not ended; the play now deploys it beside them.
-# Expected: changed for the vmtest modules that read stdin and the new stdin_text directory;
-# skip this entry on a host without the lab.
+playbooks/imports/optional/common/play-agent-bus-element.yml
+# The first real run changed "Detect Whether claude-devtools Image Was Rebuilt"; a second
+# change there means the task reports a rebuild that did not happen.
+playbooks/imports/optional/common/play-claude-devtools.yml
+playbooks/imports/optional/common/play-cli-tools.yml
+playbooks/imports/optional/common/play-ddev.yml
+# The first run changed the recursive upload-directory ACL; a second change there is a defect.
+playbooks/imports/optional/common/play-ftp-camera.yml
+playbooks/imports/optional/common/play-lxcfreeze.yml
+playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+playbooks/imports/optional/common/play-podfreeze.yml
+playbooks/imports/optional/common/play-qobuz.yml
+playbooks/imports/optional/common/play-self-update.yml
+# Check mode by default (no unifi_firmware_apply), so no device is upgraded. Its two changes,
+# starting the controller on demand and stopping it again, are expected on every run.
+playbooks/imports/optional/common/play-unifi-firmware.yml
 playbooks/imports/optional/common/play-vm-test-lab.yml
 
-# Issue #335 (Plan 00254 Task 2.7): prove the thread-root selection patch for upstream
-# Lightning red on the old QML and green on the new. It builds Lightning's QML test in a podman
-# image (about 2 GB, reused from the first fix) from a clone in the run directory. It installs
-# nothing on the host, publishes nothing and needs no sudo, and it can run anywhere in this
-# list. Expected: "RED as expected", then PASS for the new case and for every thread test.
-# Afterwards: send build-test-report.txt from the run directory to the agent.
+# Issue #335 (Plan 00254 Task 2.7), again: on the first run the red leg and the new case on the
+# patched QML passed, but the full build for "every thread test" stopped when the host's ld
+# segfaulted inside libbfd while linking an unrelated test (a crash, not a compile error). It
+# builds in a podman image in the run directory, installs nothing and needs no sudo. Expected:
+# "RED as expected", then PASS for the new case and for every thread test. Afterwards: send
+# build-test-report.txt from the run directory to the agent; a second ld crash is reported as
+# a host fault.
 00254-lightning-default-team-client/build-test.bash
-
-# Issue #260: every other play whose inputs changed (the Go commands built from
-# internal/stdinread and internal/ui: teamchat-admin, ccy-teams and the hooks). Those the
-# entries above ran are not due again. Since #323 this also runs, for real, the four plays
-# checked above (play-claude-devtools, play-ddev, play-qobuz, play-self-update). So run it
-# only once their diffs have been read and cleared; if any diff is not cleared, stop the list
-# here and report. Issue #324: where play-teamchat has run, it is due again: teamchat-admin
-# gains the sealed carry (team seal, export, import, carry-check), and the play now checks
-# teamchat_carry_max_archive_bytes (default 1 GiB) before anything changes and writes
-# /etc/teamchat/carry-max-archive-bytes, without which export and import exit 78. Expected:
-# changed for the admin program and that one file; the teams are re-applied unchanged.
-# Afterwards report what changed.
-changed-plays
