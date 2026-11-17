@@ -101,7 +101,8 @@ func (w *runWorld) discard() ([]byte, error) {
 	return w.run(f)
 }
 
-// stageFiles is StageOS with every call an effect, so each is a kill point (SM5).
+// stageFiles is StageOS with every call an effect, so each is a kill point (SM5) and a
+// failure point (fault).
 type stageFiles struct {
 	StageOS
 
@@ -109,47 +110,65 @@ type stageFiles struct {
 }
 
 func (f stageFiles) MakeHomeserverRoot() error {
-	f.w.effect("stage hsroot")
+	if err := f.w.fault("stage hsroot"); err != nil {
+		return err
+	}
 	return f.StageOS.MakeHomeserverRoot()
 }
 
 func (f stageFiles) Mkdir(path string) error {
-	f.w.effect("stage mkdir " + path)
+	if err := f.w.fault("stage mkdir " + path); err != nil {
+		return err
+	}
 	return f.StageOS.Mkdir(path)
 }
 
 func (f stageFiles) Create(path string, mode fs.FileMode) (Part, error) {
-	f.w.effect("stage create " + path)
+	if err := f.w.fault("stage create " + path); err != nil {
+		return nil, err
+	}
 	return f.StageOS.Create(path, mode)
 }
 
 func (f stageFiles) Rename(from, to string) error {
-	f.w.effect("stage rename " + from)
+	if err := f.w.fault("stage rename " + from); err != nil {
+		return err
+	}
 	return f.StageOS.Rename(from, to)
 }
 
 func (f stageFiles) RemoveTree(path string) error {
-	f.w.effect("stage remove " + path)
+	if err := f.w.fault("stage remove " + path); err != nil {
+		return err
+	}
 	return f.StageOS.RemoveTree(path)
 }
 
 func (f stageFiles) SyncDir(dir string) error {
-	f.w.effect("stage sync " + dir)
+	if err := f.w.fault("stage sync " + dir); err != nil {
+		return err
+	}
 	return f.StageOS.SyncDir(dir)
 }
 
 func (f stageFiles) MkdirCtl(team paths.TeamID) error {
-	f.w.effect("stage mkdir ctl")
+	if err := f.w.fault("stage mkdir ctl"); err != nil {
+		return err
+	}
 	return f.StageOS.MkdirCtl(team)
 }
 
 func (f stageFiles) MkdirStatus(team paths.TeamID) error {
-	f.w.effect("stage mkdir status")
+	if err := f.w.fault("stage mkdir status"); err != nil {
+		return err
+	}
 	return f.StageOS.MkdirStatus(team)
 }
 
 func (f stageFiles) SaveApproved(team paths.TeamID, g declare.Gated) error {
-	f.w.effect("stage approve")
+	if err := f.w.fault("stage approve"); err != nil {
+		return err
+	}
 	return f.StageOS.SaveApproved(team, g)
 }
 
@@ -687,6 +706,37 @@ func TestImportKillAtEveryCall(t *testing.T) {
 				w.kill = k
 				killImport(t, w, w.fresh)
 				w.kill = 0
+				w.wayOn(at, way, before, landed)
+			}
+		}
+	}
+}
+
+// SI10: a failure answered by any file call of the import or its record (not a kill: the code
+// sees it) fails the import with that error, never a refusal; the way on then ends as after a
+// kill: --resume in the landed guest, --discard in the guest before it.
+func TestImportFailureAtEveryCall(t *testing.T) {
+	for _, kind := range []Kind{KindSealed, KindDrill} {
+		src, raw := carriedSource(t, kind, nil)
+		ref := guestFor(t, src, raw, kind)
+		before := ref.contents()
+		if _, err := ref.fresh(); err != nil {
+			t.Fatal(err)
+		}
+		landed := ref.contents()
+		for k, call := range ref.calls {
+			if !strings.HasPrefix(call, "stage ") && !strings.HasPrefix(call, "write ") && !strings.HasPrefix(call, "remove ") {
+				continue
+			}
+			for _, way := range []string{"resume", "discard"} {
+				at := string(kind) + " failure " + strconv.Itoa(k+1) + " (" + call + "), then " + way
+				w := guestFor(t, src, raw, kind)
+				w.fail = k + 1
+				_, err := w.fresh()
+				w.fail = 0
+				if !errors.Is(err, errInjected) || errors.Is(err, ErrRefused) {
+					t.Fatalf("%s: err = %v", at, err)
+				}
 				w.wayOn(at, way, before, landed)
 			}
 		}

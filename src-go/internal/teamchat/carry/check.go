@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
@@ -47,6 +49,9 @@ func (c *checking) run(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = c.notApplied(); err != nil {
+		return nil, err
+	}
 	teamFile, err := c.s.rootFile(paths.TeamDeclaration(c.s.team), fileMax)
 	if err != nil {
 		return nil, err
@@ -80,6 +85,22 @@ func (c *checking) carried() (CarriedRecord, error) {
 	return DecodeCarriedRecord(raw, team)
 }
 
+// notApplied refuses a team `team apply` has stamped (sc-D14): the check would stop a serving
+// team and remove the drop-in apply made.
+func (c *checking) notApplied() error {
+	team := c.s.team
+	stamp := paths.StampFile(team)
+	_, err := os.Lstat(c.s.d.Root + stamp)
+	switch {
+	case err == nil:
+		return refusedf("team %s is applied (%s exists): team carry-check runs only between team import and team apply", team, stamp)
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	default:
+		return err
+	}
+}
+
 // probe starts the homeserver on loopback and asks carry.check for the tail.
 func (c *checking) probe(ctx context.Context, a CheckArgs) (Presence, error) {
 	if err := c.s.d.Loopback(ctx, c.s.team); err != nil {
@@ -96,13 +117,24 @@ func (c *checking) probe(ctx context.Context, a CheckArgs) (Presence, error) {
 }
 
 // stop is the unit stopped after the check, for either kind: the terminator, never started,
-// then the homeserver, neither disabled, and each then stopped by RS18.
+// then the homeserver, neither disabled, and each then stopped by RS18. Only then is the
+// recorded drop-in the start wrote removed, with its directory, and systemd reloaded, so the
+// tree is as it was before the check (sc-D14); a unit not stopped keeps the drop-in it runs on.
 func (c *checking) stop(ctx context.Context) error {
 	team := c.s.team
 	if _, err := host.StopTeamUnits(ctx, c.s.d.Systemd, team, false); err != nil {
 		return fmt.Errorf("the stop of team %s after its check: %w", team, err)
 	}
-	return stoppedUnits(ctx, c.s.d.Systemd, team, "team carry-check --team "+team.String())
+	if err := stoppedUnits(ctx, c.s.d.Systemd, team, "team carry-check --team "+team.String()); err != nil {
+		return err
+	}
+	if _, err := host.RemoveDropIn(c.s.d.Root + paths.ServerDropInFile(team)); err != nil {
+		return fmt.Errorf("the removal of team %s's recorded drop-in after its check: %w", team, err)
+	}
+	if err := c.s.d.Systemd.DaemonReload(ctx); err != nil {
+		return fmt.Errorf("the reload after team %s's check: %w", team, err)
+	}
+	return nil
 }
 
 // verdict is the answer, and the check's failure when the copy is not whole.

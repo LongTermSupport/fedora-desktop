@@ -3,6 +3,7 @@ package carry
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +35,7 @@ func newCheckWorld(t *testing.T, kind Kind) *checkWorld {
 	if _, err := w.fresh(); err != nil {
 		t.Fatal(err)
 	}
+	w.reloads = true
 	return w
 }
 
@@ -45,6 +47,7 @@ func (w *checkWorld) checkDeps() Deps {
 		if team != w.team {
 			w.t.Errorf("the loopback start of team %s", team)
 		}
+		w.put(paths.ServerDropInFile(team), "[Service]\n")
 		w.unit(paths.ServerUnit(team)).active = "active"
 		return w.loopbackErr
 	}
@@ -84,12 +87,13 @@ func (c checkChild) Check(_ context.Context, team paths.TeamID, a CheckArgs) (Pr
 }
 
 // checkCalls are a whole check's calls: the start, carry.check, then the stop of the
-// homeserver (the terminator is already stopped) and RS18's reads of both units.
+// homeserver (the terminator is already stopped), RS18's reads of both units, and the reload
+// after the recorded drop-in is removed (sc-D14).
 func checkCalls(team paths.TeamID) []string {
 	tls, server := paths.TLSUnit(team), paths.ServerUnit(team)
 	return []string{
 		"loopback", "child check", "systemd state " + tls, "systemd state " + server, "stop " + server,
-		"systemd state " + tls, "systemd state " + server,
+		"systemd state " + tls, "systemd state " + server, "daemon-reload",
 	}
 }
 
@@ -134,7 +138,8 @@ func checkAnswerOf(t *testing.T, raw []byte) checkAnswer {
 	return a
 }
 
-// stoppedAfter holds the homeserver stopped after the check, and nothing on disk changed.
+// stoppedAfter holds the homeserver stopped after the check, and the tree as it was before it:
+// the recorded drop-in the start wrote is gone, with its directory (sc-D14).
 func (w *checkWorld) stoppedAfter(at string, before map[string]string) {
 	w.t.Helper()
 	if a := w.unit(paths.ServerUnit(w.team)).active; a != "inactive" {
@@ -224,13 +229,53 @@ func TestCarryCheckStopsAfterAFailure(t *testing.T) {
 	}
 }
 
-// RS18: a homeserver still activating after its stop fails the check.
+// RS18: a homeserver still activating after its stop fails the check, and the drop-in it runs
+// on is left in place with no reload (sc-D14): a later check writes and removes it again.
 func TestCarryCheckNeedsTheUnitStopped(t *testing.T) {
 	w := newCheckWorld(t, KindSealed)
 	w.stuck = true
 	if _, err := w.check(); err == nil || !strings.Contains(err.Error(), "activating") {
 		t.Fatalf("err = %v", err)
 	}
+	if !w.has(paths.ServerDropInFile(w.team)) || slices.Contains(w.calls, "daemon-reload") {
+		t.Errorf("a unit not stopped lost its drop-in: calls %q", w.calls)
+	}
+	w.stuck = false
+	before := w.contents()
+	delete(before, paths.ServerDropInFile(w.team))
+	delete(before, filepath.Dir(paths.ServerDropInFile(w.team)))
+	if _, err := w.check(); err != nil {
+		t.Fatal(err)
+	}
+	w.stoppedAfter("the check again", before)
+}
+
+// sc-D14: the recorded drop-in is removed after the stop; a reload that then fails is the
+// check's failure, the drop-in already gone.
+func TestCarryCheckRemovesTheDropIn(t *testing.T) {
+	w := newCheckWorld(t, KindDrill)
+	failed := errors.New("reload failed")
+	w.reloadErr = failed
+	before := w.contents()
+	if _, err := w.check(); !errors.Is(err, failed) {
+		t.Fatalf("err = %v", err)
+	}
+	w.stoppedAfter("a failed reload", before)
+}
+
+// sc-D14: a team already applied (its stamp present) refuses the check (70) before anything is
+// started, written or stopped: the check would stop a serving team and remove its drop-in.
+func TestCarryCheckRefusesAnAppliedTeam(t *testing.T) {
+	w := newCheckWorld(t, KindSealed)
+	w.put(paths.StampFile(w.team), "{}")
+	before, mark := w.contents(), len(w.calls)
+	if _, err := w.check(); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "team apply") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(w.calls) != mark {
+		t.Errorf("calls %q", w.calls[mark:])
+	}
+	sameContents(t, "an applied team", w.contents(), before)
 }
 
 // Section 6, SG1, SG3: the check runs only on a team whose carried.json exists and decodes, and

@@ -29,6 +29,53 @@ func purgeable(t *testing.T) *world {
 	return w
 }
 
+// SPEC-carry sc-D14: RemoveDropIn deletes the drop-in and its directory when nothing else is in
+// it, answers false for none, keeps a directory another file is in, and fails on an entry it
+// cannot remove.
+func TestRemoveDropIn(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "unit.d")
+	file := filepath.Join(dir, "team.conf")
+	put := func(path string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("[Service]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(file)
+	if gone, err := RemoveDropIn(file); !gone || err != nil {
+		t.Fatalf("gone %v, err %v", gone, err)
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the empty directory is left: %v", err)
+	}
+	if gone, err := RemoveDropIn(file); gone || err != nil {
+		t.Errorf("none: gone %v, err %v", gone, err)
+	}
+	put(file)
+	put(filepath.Join(dir, "owner.conf"))
+	if gone, err := RemoveDropIn(file); !gone || err != nil {
+		t.Errorf("beside another file: gone %v, err %v", gone, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "owner.conf")); err != nil {
+		t.Errorf("the owner's file: %v", err)
+	}
+	put(filepath.Join(file, "inside"))
+	if _, err := RemoveDropIn(file); err == nil {
+		t.Error("a directory with entries at the drop-in's name was removed")
+	}
+}
+
+// LeafError carries its cause and wraps the step's error.
+func TestLeafErrorWraps(t *testing.T) {
+	failed := errors.New("no key")
+	err := leafFailed("the leaf key", failed)
+	if !errors.Is(err, failed) || err.Error() != "the leaf key: no key" || leafFailed("x", nil) != nil {
+		t.Errorf("err = %v", err)
+	}
+}
+
 // HS14: a team that is not installed is a success that reports nothing and calls nothing.
 func TestRemoveNotInstalled(t *testing.T) {
 	for _, purge := range []bool{false, true} {

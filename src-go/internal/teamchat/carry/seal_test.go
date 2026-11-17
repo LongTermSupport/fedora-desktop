@@ -55,10 +55,15 @@ type sealWorld struct {
 	calls []string
 	n     int
 	kill  int
+	// fail is the call that answers errInjected (fault), 0 for none.
+	fail int
 
 	units map[string]*sealUnit
 	// stuck keeps the homeserver activating after its stop, as a unit systemd restarts would.
 	stuck bool
+	// reloads admits daemon-reload, which only the carry check calls, failing it with reloadErr.
+	reloads   bool
+	reloadErr error
 	// silent is a homeserver that does not answer server_version.
 	silent  bool
 	tail    Tail
@@ -207,6 +212,21 @@ func (w *sealWorld) effect(name string) {
 	}
 }
 
+// errInjected is the failure a world's fail-th call answers.
+var errInjected = errors.New("injected failure")
+
+// fault records one call as effect does, and answers errInjected when it is the fail-th: a
+// failure the code sees and must clean up after, where a kill is one it never sees.
+func (w *sealWorld) fault(name string) error {
+	w.effect(name)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.n == w.fail {
+		return errInjected
+	}
+	return nil
+}
+
 // mutations are the calls since mark that change something.
 func (w *sealWorld) mutations(mark int) []string {
 	w.mu.Lock()
@@ -272,7 +292,14 @@ func (s sealSystemd) Disable(_ context.Context, unit string) error {
 	return nil
 }
 
-func (s sealSystemd) DaemonReload(context.Context) error       { return s.unexpected("daemon-reload") }
+func (s sealSystemd) DaemonReload(context.Context) error {
+	if !s.w.reloads {
+		return s.unexpected("daemon-reload")
+	}
+	s.w.effect("daemon-reload")
+	return s.w.reloadErr
+}
+
 func (s sealSystemd) Start(context.Context, string) error      { return s.unexpected("start") }
 func (s sealSystemd) Restart(context.Context, string) error    { return s.unexpected("restart") }
 func (s sealSystemd) Enable(context.Context, string) error     { return s.unexpected("enable") }
@@ -334,12 +361,16 @@ func (f sealFS) WriteFile(path string, data []byte) error {
 		}
 		name += "=" + string(r.Step)
 	}
-	f.w.effect("write " + name)
+	if err := f.w.fault("write " + name); err != nil {
+		return err
+	}
 	return f.OS.WriteFile(path, data)
 }
 
 func (f sealFS) Remove(path string) error {
-	f.w.effect("remove " + filepath.Base(path))
+	if err := f.w.fault("remove " + filepath.Base(path)); err != nil {
+		return err
+	}
 	return f.OS.Remove(path)
 }
 
@@ -696,6 +727,30 @@ func (w *sealWorld) invariants(k int) {
 	}
 	if w.record().Step == StepSealed {
 		w.t.Errorf("kill %d: sealed before the last call", k)
+	}
+}
+
+// SM5: a failure answered by any write or removal of the seal is its failure, never a
+// refusal; the invariants hold as after a kill, and the next seal ends sealed.
+func TestSealFailureAtEveryWrite(t *testing.T) {
+	for k, call := range sealCalls(sampleTeam(t)) {
+		if !strings.HasPrefix(call, "write ") && !strings.HasPrefix(call, "remove ") {
+			continue
+		}
+		at := "failure " + strconv.Itoa(k+1) + " (" + call + ")"
+		w := newSealWorld(t)
+		w.fail = k + 1
+		if _, err := w.seal(); !errors.Is(err, errInjected) || errors.Is(err, ErrRefused) {
+			t.Fatalf("%s: err = %v", at, err)
+		}
+		if w.has(paths.SealRecord(w.team)) {
+			w.invariants(k + 1)
+		}
+		w.fail = 0
+		if _, err := w.seal(); err != nil {
+			t.Fatalf("%s: the next seal: %v", at, err)
+		}
+		w.sealed(at)
 	}
 }
 

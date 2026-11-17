@@ -169,16 +169,25 @@ func (r *removing) removeDropIn(ctx context.Context) error {
 
 // removeOne deletes a drop-in, then its directory when nothing else is in it.
 func (r *removing) removeOne(file, line string) error {
-	dropIn := r.path(file)
+	gone, err := RemoveDropIn(r.path(file))
+	if gone {
+		r.note(line)
+	}
+	return err
+}
+
+// RemoveDropIn deletes the drop-in at dropIn, then its directory when nothing else is in it
+// (another file there is the owner's), and answers whether there was a drop-in. It does not
+// reload systemd: the caller does, once its removals are done.
+func RemoveDropIn(dropIn string) (bool, error) {
 	gone, err := removeFile(dropIn)
 	if err != nil || !gone {
-		return err
+		return gone, err
 	}
-	r.note(line)
 	if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
-		return err
+		return true, err
 	}
-	return nil
+	return true, nil
 }
 
 func (r *removing) status(ctx context.Context) error {

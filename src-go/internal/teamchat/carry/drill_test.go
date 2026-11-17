@@ -380,6 +380,28 @@ func (w *drillWorld) drillInvariants(k int) {
 	}
 }
 
+// SM5, SD4: a failure answered by any write or removal of the drill is its failure, never a
+// refusal; the invariants hold as after a kill, and the next drill ends served.
+func TestDrillFailureAtEveryWrite(t *testing.T) {
+	for k, call := range drillCalls(sampleTeam(t)) {
+		if !strings.HasPrefix(call, "write ") && !strings.HasPrefix(call, "remove ") {
+			continue
+		}
+		at := "failure " + strconv.Itoa(k+1) + " (" + call + ")"
+		w := newDrillWorld(t)
+		w.fail = k + 1
+		if _, err := w.drill(); !errors.Is(err, errInjected) || errors.Is(err, ErrRefused) {
+			t.Fatalf("%s: err = %v", at, err)
+		}
+		w.drillInvariants(k + 1)
+		w.fail = 0
+		if _, err := w.drill(); err != nil {
+			t.Fatalf("%s: the next drill: %v", at, err)
+		}
+		w.served(at)
+	}
+}
+
 // SM5, SD4: a kill at every call of the drill leaves the invariants, and the next drill (its
 // resume when the record is there) ends served with the archive; one more drill succeeds too.
 func TestDrillKillAtEveryCall(t *testing.T) {

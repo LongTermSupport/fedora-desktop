@@ -12,6 +12,34 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 )
 
+// CN1, CN2, SG1: each record has its name and path; a value outside the three has neither.
+func TestRecordNamesAndPaths(t *testing.T) {
+	team := sampleTeam(t)
+	for r, want := range map[Record][2]string{
+		RecordSeal:   {"seal", paths.SealRecord(team)},
+		RecordDrill:  {"drill", paths.DrillRecord(team)},
+		RecordImport: {"import", paths.CarryImportRecord(team)},
+		Record(9):    {"record 9", ""},
+	} {
+		if r.String() != want[0] || r.Path(team) != want[1] {
+			t.Errorf("record %d: %q at %q", int(r), r.String(), r.Path(team))
+		}
+	}
+}
+
+// SX4: a name over 100 bytes splits at a slash into ustar's prefix and name; one with no such
+// slash does not.
+func TestSplitName(t *testing.T) {
+	long := "hs/" + strings.Repeat("d", 60) + "/" + strings.Repeat("f", 60)
+	prefix, base, ok := splitName(long)
+	if !ok || prefix+"/"+base != long || len(base) > 100 || len(prefix) > 155 {
+		t.Errorf("%q: %q %q %v", long, prefix, base, ok)
+	}
+	if _, _, ok := splitName("hs/" + strings.Repeat("f", 120)); ok {
+		t.Error("a last segment over 100 bytes was split")
+	}
+}
+
 // guardRoot is a host prefix with the team's admin state and the carry directory made.
 func guardRoot(t *testing.T) string {
 	t.Helper()
