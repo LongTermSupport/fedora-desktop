@@ -256,11 +256,11 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G401|G505"
 path = ".golangci.yml"
-justification = "gosec G401/G505 guard against a weak hash (SHA-1, MD5) used for security; Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's register endpoint): the admin client computes it, and the fake homeserver and its replay test check it, so the hash is the server's and not a choice made here. Scope: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test).go only. The repository owner's decision 3 on pull request 124 (2026-11-03), Plan 00246 Task 8.2."
+justification = "gosec G401/G505 guard against a weak hash (SHA-1, MD5) used for security; Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's register endpoint): the admin client computes it, and the fake homeserver and its replay test check it, so the hash is the server's and not a choice made here. Scope: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test).go only. The repository owner's decision 3 on pull request 124 (2026-11-03), Plan 00246 Task 8.2. Permanent by the owner's decision of 2026-11-17: the hash is fixed by Synapse's protocol, so no review date could change it."
 decided_by = "repository-owner"
 added_by_model = "claude-sonnet-5-5"
-decided_on = 2026-11-03
-review_by = 2026-11-17
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::govet.disable::fieldalignment"
