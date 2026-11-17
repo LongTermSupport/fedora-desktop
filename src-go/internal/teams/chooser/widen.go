@@ -131,9 +131,19 @@ func (c *Chooser) widenHeld(ctx context.Context, repo string, teams []string) te
 // seats chooses the seat of each team in turn and prints the list. Leaving any seat chooser
 // starts nothing.
 func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) term.ExitCode {
+	if refusal := bothSystems(taken); refusal != "" {
+		c.say(refusal)
+		return term.ExitUsage
+	}
 	refs := make([]string, 0, len(taken))
 	for i, e := range taken {
-		ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(taken), e.Team), e.Team, memberType)
+		seat := c.Seat
+		if e.teamchatSeats > 0 {
+			seat = func(ctx context.Context, h ui.Heading, team, _ string) (string, term.ExitCode) {
+				return c.teamchatSeat(ctx, h, team)
+			}
+		}
+		ref, code := seat(ctx, flow.LaunchTeam(i+1, len(taken), e.Team), e.Team, memberType)
 		if code != term.ExitOK {
 			return code
 		}

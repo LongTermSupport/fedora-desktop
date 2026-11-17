@@ -185,6 +185,9 @@ func describe(c declare.Choice) string {
 
 // standing is the standing column of a row.
 func standing(repo string, e entry) string {
+	if e.teamchatSeats > 0 {
+		return teamchatStanding(e)
+	}
 	var text string
 	switch e.Standing {
 	case declare.StandingCovers:

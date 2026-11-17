@@ -59,6 +59,40 @@ func placeSeat(t *testing.T, home, checkout, team string) {
 	}
 }
 
+// The chooser's side (choose-teams, Plan 00209 Task 4.3): whether a team is live on teamchat
+// here, its seats here as the seat parts a launch names, and the teams with a seat here.
+func TestCmdAnswersTheChooserFromThisCheckoutsPool(t *testing.T) {
+	w := world(t, "old")
+	placeSeat(t, w.home, filepath.Join(w.home, "repo"), "newer")
+	placeSeat(t, w.home, filepath.Join(w.home, "repo"), "fresh")
+	ctx := context.Background()
+	for team, want := range map[string]bool{"fresh": true, "old": false} {
+		if got, err := w.cmd.Live(ctx, team); err != nil || got != want {
+			t.Fatalf("Live(%s): got %v %v, want %v", team, got, err, want)
+		}
+	}
+	if got, err := w.cmd.SeatParts("fresh"); err != nil || strings.Join(got, ",") != "1" {
+		t.Fatalf("SeatParts: got %v %v, want [1]", got, err)
+	}
+	if got, err := w.cmd.SeatParts("old"); err != nil || got != nil {
+		t.Fatalf("SeatParts of a team with no seat here: got %v %v, want none", got, err)
+	}
+	if _, err := w.cmd.SeatParts("not a team"); err == nil {
+		t.Fatal("SeatParts took a name outside the team grammar")
+	}
+	if got, err := w.cmd.PoolTeams(); err != nil || strings.Join(got, ",") != "fresh,newer" {
+		t.Fatalf("PoolTeams: got %v %v, want [fresh newer]", got, err)
+	}
+}
+
+func TestCmdLiveRefusesANameOnBothSystems(t *testing.T) {
+	w := world(t, "fresh")
+	placeSeat(t, w.home, filepath.Join(w.home, "repo"), "fresh")
+	if _, err := w.cmd.Live(context.Background(), "fresh"); err == nil || !strings.Contains(err.Error(), "both a declared v1 team and a teamchat team") {
+		t.Fatalf("got %v, want the refusal of a name on both systems", err)
+	}
+}
+
 func TestCmdPrintsOneLinePerTeam(t *testing.T) {
 	w := world(t, "old")
 	placeSeat(t, w.home, filepath.Join(w.home, "repo"), "fresh")

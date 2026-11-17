@@ -5,7 +5,8 @@
 // when the team chosen does not cover the checkout offers to add the repository to its scope
 // (declare.py add-repo, then one play run) before the seat is chosen. The payload on stdout is
 // the canonical SEAT@TEAM[,...] list and nothing else; every other line goes to stderr, and
-// leaving any screen prints nothing and succeeds, as the launcher expects.
+// leaving any screen prints nothing and succeeds, as the launcher expects. A ccy (podman) launch
+// also sees this checkout's teamchat teams, whose seats are its pool seats (teamchat.go).
 package chooser
 
 import (
@@ -71,6 +72,8 @@ type Chooser struct {
 	Create CreateFunc
 	Apply  ApplyFunc
 	Locked LockFunc
+	// Teamchat is this checkout's teamchat side (teamchat.go); nil is agent-bus only.
+	Teamchat *Teamchat
 	// Now stamps the owner's acceptance.
 	Now func() time.Time
 	// UID is the user the acceptance record must belong to.
@@ -191,26 +194,20 @@ func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.Exi
 		}
 	}
 	for i, item := range items {
-		if !strings.Contains(item, "@") {
-			team, then, code := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, slices.Concat(refs, items[i:]))
-			switch {
-			case code != term.ExitOK:
-				return code
-			case then == leaveOut:
-				continue
-			case then == leaveRun:
-				return term.ExitOK
-			}
-			ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(items), team), team, memberType)
-			if code != term.ExitOK {
-				return code
-			}
-			if ref == "" {
-				return term.ExitOK
-			}
-			item = ref
+		if strings.Contains(item, "@") {
+			refs = append(refs, item)
+			continue
 		}
-		refs = append(refs, item)
+		ref, then, code := c.alone(ctx, memberType, i, items, refs)
+		switch {
+		case code != term.ExitOK:
+			return code
+		case then == leaveOut:
+			continue
+		case then == leaveRun:
+			return term.ExitOK
+		}
+		refs = append(refs, ref)
 	}
 	if len(refs) == 0 {
 		c.say(nothingChosen)
@@ -219,11 +216,38 @@ func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.Exi
 	return c.finish(ctx, memberType, refs)
 }
 
+// alone is the SEAT@TEAM of items[i], a team named alone (refs are the items settled before
+// it): a teamchat team's seat from this checkout's pool, or else, once known has asked about
+// the team, the seat the person chooses. A question left is leaveRun.
+func (c *Chooser) alone(ctx context.Context, memberType string, i int, items, refs []string) (string, then, term.ExitCode) {
+	item := items[i]
+	v2, code := c.teamchatTeam(ctx, memberType, item)
+	if code != term.ExitOK {
+		return "", leaveRun, code
+	}
+	var ref string
+	if v2 {
+		ref, code = c.teamchatSeat(ctx, flow.LaunchTeam(i+1, len(items), item), item)
+	} else {
+		team, next, knownCode := c.known(ctx, flow.LaunchTeam(i+1, len(items), item), item, slices.Concat(refs, items[i:]))
+		if knownCode != term.ExitOK || next != take {
+			return "", next, knownCode
+		}
+		ref, code = c.Seat(ctx, flow.LaunchTeam(i+1, len(items), team), team, memberType)
+	}
+	if code != term.ExitOK || ref == "" {
+		return "", leaveRun, code
+	}
+	return ref, take, term.ExitOK
+}
+
 // entry is a present team as the list shows it.
 type entry struct {
 	declare.Choice
 
-	down bool
+	// teamchatSeats is a teamchat team's count of pool seats in this checkout; 0 is agent-bus.
+	teamchatSeats int
+	down          bool
 }
 
 // bare is no list: show the teams and settle the one chosen.
@@ -237,6 +261,9 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 		return c.failed(err)
 	}
 	entries, err := c.entries(ctx, repo)
+	if err == nil {
+		entries, err = c.withTeamchat(memberType, entries)
+	}
 	if err != nil {
 		return c.failed(err)
 	}
