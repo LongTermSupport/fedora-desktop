@@ -63,6 +63,10 @@ type Env struct {
 	// ReadFile and WriteFile reach the list and the allowlist (fs.ErrNotExist when absent).
 	ReadFile  func(path string) ([]byte, error)
 	WriteFile func(path string, data []byte) error
+	// CreateFile writes a new owner-only file and refuses an existing path with fs.ErrExist.
+	CreateFile func(path string, data []byte) error
+	// EvalSymlinks resolves a path's symbolic links (filepath.EvalSymlinks).
+	EvalSymlinks func(path string) (string, error)
 	// Clock times the wait for the ref lines on Stdin; nil is the real clock.
 	Clock stdinread.Clock
 }
@@ -79,7 +83,14 @@ this public repository. The terms are learned from the agent bus and the machine
   range ARG...       the commits 'git log' selects with ARG..., messages and added lines
   tree REV           every file of a commit
   message FILE       a commit message before it is committed (commit-msg), # lines skipped
+  denylist FILE      write the terms that block a commit to FILE (new, mode 0600, outside the
+                     repository) as go-qa-ci's public-safety denylist: one ERE per line for
+                     grep -E -i, on this tool's word boundaries; print only the count
   -h, --help         this text
+
+go-qa-ci's GQACI_DENYLIST repository secret is set from the denylist mode's output; refresh it
+when the bus's members change. Terms named in <git dir>/private-terms-export-skip (one per
+line, by the owner's decision) are left out of it and still blocked here.
 
 In a ccy container a list that cannot be built is exit 2, never a skip. A session on no team
 (pingbus status exits 78) has no team names to learn and judges against the machine's names; the
@@ -110,6 +121,9 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	a := app{env: env, run: func(c proc.Cmd) (proc.Result, error) { return env.Run.Run(ctx, c) }}
+	if args[0] == "denylist" {
+		return a.denylist(args[1:], errOut)
+	}
 	m, code, ok := a.matcher(errOut)
 	if !ok {
 		return code
@@ -144,9 +158,28 @@ func (a app) git(stdin io.Reader, argv ...string) (string, error) {
 	return res.Stdout, nil
 }
 
-// matcher builds the matcher: the fresh terms from the bus and host names, joined to the list
-// the last run left, less the public tokens. ok is false when the run ends here, with code.
+// matcher builds the matcher over the terms that block a commit. ok is false when the run ends
+// here, with code.
 func (a app) matcher(errOut *emit.Emitter) (*Matcher, ExitCode, bool) {
+	terms, code, ok := a.terms(errOut)
+	if !ok {
+		return nil, code, false
+	}
+	if len(terms) == 0 {
+		errOut.Line("private-names: SKIPPED, not in a ccy container and no agent bus or term list here (" + ListName + " absent)")
+		return nil, ExitOK, false
+	}
+	m, err := NewMatcher(terms)
+	if err != nil {
+		return nil, fail(errOut, err), false
+	}
+	return m, ExitOK, true
+}
+
+// terms are the terms that block a commit: the fresh terms from the bus and host names, joined to
+// the list the last run left, less the public tokens. A non-empty set is written back as the list.
+// ok is false when the run ends here, with code.
+func (a app) terms(errOut *emit.Emitter) ([]Term, ExitCode, bool) {
 	root, err := a.git(nil, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, fail(errOut, err), false
@@ -172,19 +205,14 @@ func (a app) matcher(errOut *emit.Emitter) (*Matcher, ExitCode, bool) {
 	if err != nil {
 		return nil, fail(errOut, err), false
 	}
-	terms := withoutPublic(Union(fresh, stored), public)
+	terms := withoutPublic(Union(fresh, withoutFirstWords(stored, fresh)), public)
 	if len(terms) == 0 {
-		errOut.Line("private-names: SKIPPED, not in a ccy container and no agent bus or term list here (" + ListName + " absent)")
-		return nil, ExitOK, false
+		return nil, ExitOK, true
 	}
 	if werr := a.env.WriteFile(listPath, []byte(Format(terms))); werr != nil {
 		return nil, fail(errOut, fmt.Errorf("the term list cannot be written: %w", werr)), false
 	}
-	m, err := NewMatcher(terms)
-	if err != nil {
-		return nil, fail(errOut, err), false
-	}
-	return m, ExitOK, true
+	return terms, ExitOK, true
 }
 
 // busNoTeamExit is the status `pingbus status` exits with in a session that is on no team: an
@@ -238,6 +266,30 @@ func (a app) public(root string) ([]string, error) {
 		return nil, fmt.Errorf("the public-token allowlist is not YAML: %w", err)
 	}
 	return append(out, doc["public_tokens"]...), nil
+}
+
+// withoutFirstWords drops a stored term that is only the first word of another stored name (the
+// text before its first hyphen), unless it is freshly learned as a name of its own: a part of a
+// name is never a term alone (#310), and a list kept from an older rule may still hold one.
+func withoutFirstWords(stored, fresh []Term) []Term {
+	learned := map[string]bool{}
+	for _, t := range fresh {
+		learned[strings.ToLower(t.Text)] = true
+	}
+	firstWords := map[string]bool{}
+	for _, t := range stored {
+		if first := before(t.Text, "-"); first != t.Text {
+			firstWords[strings.ToLower(first)] = true
+		}
+	}
+	var out []Term
+	for _, t := range stored {
+		k := strings.ToLower(t.Text)
+		if !firstWords[k] || learned[k] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func withoutPublic(terms []Term, public []string) []Term {

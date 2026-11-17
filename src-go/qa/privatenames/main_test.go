@@ -371,6 +371,40 @@ func TestAStoredListStillGuardsAfterTheTeamLeavesTheBus(t *testing.T) {
 	}
 }
 
+const firstWordDiff = `diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,0 +2 @@
++an ordinary zebrafish line about zebras and one zebra
+`
+
+// A list written before #310 holds a name's first word as a term of its own. Option 1 says a part
+// of a name is never a term alone, so it no longer blocks; the whole name still does.
+func TestAStoredFirstWordOfAnotherStoredNameNoLongerBlocks(t *testing.T) {
+	stored := "agent-bus member\tzebra\nagent-bus member\tzebra-billing\n"
+	clean := newRig(false, map[string]proc.Result{stagedKey: {Stdout: firstWordDiff}}, files{listFile: stored}, "")
+	clean.env.Hostnames = nil
+	if code := clean.run("staged"); code != ExitOK {
+		t.Fatalf("the first word alone still blocks: exit %d: %s", code, clean.text())
+	}
+	whole := newRig(false, map[string]proc.Result{stagedKey: {Stdout: diff}}, files{listFile: stored}, "")
+	whole.env.Hostnames = nil
+	if code := whole.run("staged"); code != ExitFindings {
+		t.Fatalf("the whole name stopped blocking: exit %d: %s", code, whole.text())
+	}
+}
+
+// A stored term that is still learned as a whole name stays, even when it is also the first word
+// of another stored name: only a part of a name is dropped, never a name.
+func TestAStoredFirstWordThatIsStillAWholeNameKeepsBlocking(t *testing.T) {
+	stored := "agent-bus team\tzebras\nagent-bus member\tzebras-billing\n"
+	r := newRig(false, map[string]proc.Result{stagedKey: {Stdout: firstWordDiff}, "pingbus status": {Stdout: "TEAM\tzebras\tpump.1+local.podman\ttrust=trusted\n"}}, files{listFile: stored}, "")
+	r.env.Hostnames = nil
+	if code := r.run("staged"); code != ExitFindings {
+		t.Fatalf("a live whole name was dropped: exit %d: %s", code, r.text())
+	}
+}
+
 func TestThePublicAllowlistRemovesAStoredTerm(t *testing.T) {
 	fl := files{listFile: "agent-bus member\tzebra-billing\n", "/repo/" + AllowlistPath: "public_tokens:\n  - Zebra-Billing\n"}
 	r := newRig(false, map[string]proc.Result{stagedKey: {Stdout: diff}}, fl, "")
@@ -479,5 +513,81 @@ func TestMaskHidesEveryTermInAPlace(t *testing.T) {
 	m := mustMatcher(t, "zebra-billing", "shop-front")
 	if got := m.Mask("a/Zebra-Billing/shop-front/x.md"); got != "a/<private>/<private>/x.md" {
 		t.Fatalf("%s", got)
+	}
+}
+
+// A compound name whose first word is an everyday word: harbour and lantern are long enough to
+// pass MinSpecificLength and are not generic, yet they are ordinary English (issue #310).
+const everydayStatus = "TEAM\tlantern-crew\tharbour-tools.1+local.podman\ttrust=trusted\n" +
+	"MEMBER\tlantern-crew\tharbour-tools.2+local.host\tworker\tstale\n"
+
+// everydayForms are every form a document might write a member's or team's name in.
+var everydayForms = []string{
+	"lantern-crew", "harbour-tools", "harbour-tools.1", "harbour-tools.2",
+	"harbour-tools.1+local.podman", "harbour-tools.2+local.host",
+}
+
+// A name's first word is never a term on its own: a dictionary word would block ordinary prose.
+// The whole name, project.seat and the whole handle stay terms (issue #310 option 1).
+func TestDeriveNeverIndexesAFirstWordAlone(t *testing.T) {
+	got := termTexts(Derive(Inputs{Status: everydayStatus}))
+	for _, want := range everydayForms {
+		if !strings.Contains(got, "|"+want+"|") {
+			t.Errorf("%q is missing from %s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"harbour", "lantern", "tools", "crew"} {
+		if strings.Contains(got, "|"+unwanted+"|") {
+			t.Errorf("the bare word %q must not be a term: %s", unwanted, got)
+		}
+	}
+}
+
+// scanContexts runs one line of text through each way the gate judges text, the staged diff
+// (pre-commit), the commit message (commit-msg), a pushed commit (pre-push) and a whole tree
+// (the QA gate), and returns each context's exit code.
+func scanContexts(t *testing.T, line string) map[string]ExitCode {
+	t.Helper()
+	bus := func(extra map[string]proc.Result) map[string]proc.Result {
+		m := map[string]proc.Result{"pingbus status": {Stdout: everydayStatus}}
+		maps.Copy(m, extra)
+		return m
+	}
+	added := "diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1,0 +2 @@\n+" + line + "\n"
+	codes := map[string]ExitCode{}
+	codes["staged"] = newRig(true, bus(map[string]proc.Result{stagedKey: {Stdout: added}}), files{}, "").run("staged")
+	msgFile := "/repo/.git/COMMIT_EDITMSG"
+	codes["message"] = newRig(true, bus(nil), files{msgFile: "subject\n\n" + line + "\n"}, "").run("message", msgFile)
+	logKey := "git log -p -U0 --no-color --no-ext-diff --format=" + LogFormat + " "
+	log := "\x01aaaaaaaaaaaaaaaa\x1fsubject\n\nclean body\n\x02\n" + added
+	codes["push"] = newRig(true, bus(map[string]proc.Result{logKey + "cccc --not --remotes=origin bbbb": {Stdout: log}}),
+		files{}, "refs/heads/a cccc refs/heads/a bbbb\n").run("push", "origin", "url")
+	blob := line + "\n"
+	codes["tree"] = newRig(true, bus(map[string]proc.Result{
+		"git ls-tree -r -z --format=%(objectmode) %(path) HEAD": {Stdout: "100644 a.txt\x00"},
+		"git cat-file --batch": {Stdout: "o1 blob " + strconv.Itoa(len(blob)) + "\n" + blob + "\n"},
+	}), files{}, "").run("tree", "HEAD")
+	return codes
+}
+
+func TestEveryFormOfANameIsCaughtInEveryContext(t *testing.T) {
+	for _, form := range everydayForms {
+		for _, line := range []string{form, "see " + strings.ToUpper(form) + " here", "path/" + form + "/x"} {
+			for ctx, code := range scanContexts(t, line) {
+				if code != ExitFindings {
+					t.Errorf("%s: %q was not caught (exit %d)", ctx, line, code)
+				}
+			}
+		}
+	}
+}
+
+func TestABareFirstWordPassesInEveryContext(t *testing.T) {
+	for _, line := range []string{"the harbour is calm", "a lantern lit the way"} {
+		for ctx, code := range scanContexts(t, line) {
+			if code != ExitOK {
+				t.Errorf("%s: %q was refused (exit %d)", ctx, line, code)
+			}
+		}
 	}
 }

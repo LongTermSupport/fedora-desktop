@@ -47,12 +47,24 @@ terms of teams that left the bus.
 - **Matching** is case-insensitive and on word boundaries (a hyphen, dot or slash is a boundary;
   a letter, digit or underscore is not).
 - **Short or generic terms cannot block everything**: a term under six characters is dropped; a
-  term whose every word is generic (`dev`, `infra`, `desktop`, `test`, ...) is dropped; a name's
-  first word is indexed alone only when it is long and not generic; tokens in
+  term whose every word is generic (`dev`, `infra`, `desktop`, `test`, ...) is dropped; a part
+  of a name (its first word) is never a term alone, since it is often an everyday word; tokens in
   `.claude/public-token-allowlist.yml` and this repository's own name are never terms.
 - Findings name the place and the source, with the term's number in the list (`#N` is the list
   line), never the term; a path that holds a term is printed with it masked. For triage,
   `PRIVATE_NAMES_CONTEXT=1` adds each line, masked.
+- `qa-private-names.bash denylist FILE` writes the terms that block a commit (the same list and
+  rule as the scans, so no word that passes is in it) as go-qa-ci's public-safety denylist: one
+  extended regular expression per line, which that scan reads with `grep -E -i`, on the
+  boundaries above. FILE must be new and outside every work tree of this repository (exit 2
+  otherwise); it is written mode 0600, and only `private-names: N terms written` is printed.
+  go-qa-ci's `GQACI_DENYLIST` repository secret is set from this mode's output; refresh it when
+  the bus's members change.
+- `<git dir>/private-terms-export-skip` (untracked, beside the term list) names, one per line,
+  terms left out of that denylist only: ordinary words a public project may contain, by the
+  owner's decision. Every local scan still blocks them. `#` and blank lines are ignored; an
+  entry that names no term is refused by its line number, so a misspelling cannot publish what
+  it meant to keep. The count left out is printed beside the count written.
 
 ## Installation
 

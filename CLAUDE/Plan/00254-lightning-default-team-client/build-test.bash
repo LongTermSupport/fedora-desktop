@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# build-test.bash — Plan 00254 Task 2.2: build Lightning's thread-panel QML test with and
-# without the thread-root patch, and prove the new case red on the old QML, green on the new.
+# build-test.bash — Plan 00254 Tasks 2.2 and 2.7: build Lightning's thread-panel QML test with
+# and without one of this plan's upstream patches, and prove the patch's new case red on the
+# old QML, green on the new.
+#
+# WHICH PATCH: --patch NAME picks one of the patches pinned below, each to the upstream commit
+# it was written on; the default is the patch awaiting its proof (see --help).
 #
 # WHAT IT DOES, in order (fail-fast: each step needs the one before):
-#   1. clones Lightning (public, GitHub mirror) at the pinned upstream commit the patch was
-#      written on, into this run's directory under untracked/plan-runs/;
+#   1. clones Lightning (public, GitHub) at the patch's pinned upstream commit, into this run's
+#      directory under untracked/plan-runs/;
 #   2. builds a podman image from Containerfile.build-test (Fedora 44 with the Qt 6 devel RPMs;
 #      no Rust, no WebRTC);
 #   3. in that image, applies only the patch's test, builds the test and runs it: it must FAIL;
@@ -18,7 +22,7 @@
 # (about 2 GB) and the clone and build tree in the run directory (a few GB, removed with the
 # run directory). Nothing is installed on the host and nothing is published. No sudo.
 #
-# Usage: ./CLAUDE/Plan/00254-lightning-default-team-client/build-test.bash [-h|--help]
+# Usage: ./CLAUDE/Plan/00254-lightning-default-team-client/build-test.bash [--patch NAME] [-h|--help]
 set -euo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repoRoot="${scriptDir}"
@@ -35,32 +39,65 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
-PLAN_USAGE="usage: build-test.bash [-h|--help]
+PLAN_USAGE="usage: build-test.bash [--patch NAME] [-h|--help]
 
-Builds Lightning's thread-panel QML test in a podman container, before and after the
-thread-root patch (Plan 00254 Task 2.2). Run on the HOST. Writes build-test-report.txt
-under untracked/plan-runs/."
+Builds Lightning's thread-panel QML test in a podman container, before and after one of
+this plan's upstream patches (Plan 00254 Tasks 2.2 and 2.7). Run on the HOST. Writes
+build-test-report.txt under untracked/plan-runs/.
+
+  --patch NAME   the patch file in this plan folder; one of:
+                   lightning-thread-root.patch (Task 2.2, proven and merged upstream)
+                   lightning-thread-root-selectable.patch (default: the one awaiting proof)"
 plan_mode deploy
 plan_parse_common_flags "$@"
-if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
-  printf 'build-test.bash: unknown argument %s (see --help)\n' "${PLAN_REMAINING_ARGS[0]}" >&2
-  exit 2
-fi
+# The default is the patch awaiting its red/green run, because meta-deploy.list passes no
+# words to a plan script.
+patchName="lightning-thread-root-selectable.patch"
+set -- "${PLAN_REMAINING_ARGS[@]}"
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --patch)
+      [[ "$#" -ge 2 ]] || { printf 'build-test.bash: --patch needs a NAME (see --help)\n' >&2; exit 2; }
+      patchName="$2"
+      shift 2
+      ;;
+    *)
+      printf 'build-test.bash: unknown argument %s (see --help)\n' "$1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# Each patch is pinned to the upstream commit it was written on, so red and green are measured
+# on the tree its author saw.
+case "${patchName}" in
+  lightning-thread-root.patch) upstreamCommit="e6ea127a4975ec87f76d21723fecd9fb9b2f27d5" ;;
+  lightning-thread-root-selectable.patch) upstreamCommit="a4e70aba6e32f59039d03c4eeea97a7c5614ad09" ;;
+  *)
+    printf 'build-test.bash: no pinned upstream commit for patch %s (see --help)\n' "${patchName}" >&2
+    exit 2
+    ;;
+esac
+[[ -f "${PLAN_SCRIPT_DIR}/${patchName}" ]] || {
+  printf 'build-test.bash: %s is not in %s\n' "${patchName}" "${PLAN_SCRIPT_DIR}" >&2
+  exit 1
+}
 
 plan_require_host "it builds and runs a podman image"
 plan_start_log auto
 
-readonly UPSTREAM_URL="https://github.com/Mizerd/lightning.git"
-readonly UPSTREAM_COMMIT="e6ea127a4975ec87f76d21723fecd9fb9b2f27d5"
+readonly UPSTREAM_URL="https://github.com/lightning-matrix/lightning.git"
+readonly UPSTREAM_COMMIT="${upstreamCommit}"
 readonly IMAGE="localhost/fedora-desktop-lightning-build:plan00254"
 readonly SRC="${PLAN_RUN_DIR}/src"
 
 # One phase of build-test-inner.bash in the image, on the same source tree; the phase follows.
 readonly RUN_PHASE=(podman run --rm --network=none
   -v "${SRC}:/src:Z" -v "${PLAN_SCRIPT_DIR}:/plan:ro,z" -v "${PLAN_RUN_DIR}:/out:z"
+  -e "LIGHTNING_PATCH=/plan/${patchName}"
   "${IMAGE}" bash /plan/build-test-inner.bash)
 
-plan_deploy_leg "clone Lightning at ${UPSTREAM_COMMIT:0:8}" \
+plan_deploy_leg "clone Lightning at ${UPSTREAM_COMMIT:0:8} for ${patchName}" \
   git clone --quiet --filter=blob:none "${UPSTREAM_URL}" "${SRC}"
 plan_deploy_leg "check out ${UPSTREAM_COMMIT:0:8}" \
   git -C "${SRC}" -c advice.detachedHead=false checkout --quiet "${UPSTREAM_COMMIT}"

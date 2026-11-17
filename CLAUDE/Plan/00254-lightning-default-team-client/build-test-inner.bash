@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # build-test-inner.bash — Plan 00254 Task 2.2, the half that runs INSIDE the build container.
 #
-# build-test.bash mounts Lightning's source at /src (a clone at the pinned upstream commit),
-# this plan folder at /plan (read-only) and the run directory at /out, and calls it twice:
+# build-test.bash mounts Lightning's source at /src (a clone at the patch's pinned upstream
+# commit), this plan folder at /plan (read-only) and the run directory at /out, names the patch
+# in LIGHTNING_PATCH, and calls it twice:
 #
 #   red    apply only the test half of the patch, build, run the thread-panel QML test: it
-#          must FAIL, proving the new case catches the clipped root on the old QML.
+#          must FAIL, proving the new case catches the defect on the old QML.
 #   green  apply the QML half too, rebuild, run it again (it must pass), then build every
 #          target and run every ctest whose name contains "thread" (none may fail).
 #
 # Each run's full output is kept as /out/<phase>-*.log; the last ctest lines go to stdout.
 set -euo pipefail
 
-readonly PATCH=/plan/lightning-thread-root.patch
+readonly PATCH="${LIGHTNING_PATCH:?build-test.bash sets LIGHTNING_PATCH to the patch under /plan}"
 readonly TEST_TARGET=thread-panel-pagination-anchor-qml-test
 readonly TEST_NAME='^thread-panel-pagination-anchor-qml$'
 phase="${1:?usage: build-test-inner.bash red|green}"
