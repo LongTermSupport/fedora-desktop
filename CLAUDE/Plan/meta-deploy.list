@@ -48,6 +48,10 @@
 # list, because until it has run every push from this checkout stops at the hook (exit 2,
 # "gitleaks is not installed"). Expected: changed for the gitleaks download and install only;
 # the play's last task, qa-toolchain, then reports gitleaks among the matching tools.
+# Issue #338 rides the same run: the Hugging Face CLI task names its pipx app huggingface-hub,
+# the name pipx keys the venv by, so the module now finds it. Expected: that task ok, not
+# changed, unless huggingface-hub has a new release (then changed once). Afterwards report the
+# Hugging Face CLI task's status; a second run of the play must report it ok.
 playbooks/imports/play-python.yml
 
 # Issue #323: changed-plays now also runs a play with no ledger record whose files here show
