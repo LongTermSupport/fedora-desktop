@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
@@ -469,6 +470,54 @@ func TestImportPlacesTheTeam(t *testing.T) {
 		w.answered(out, kind)
 		w.askedPlace(kind)
 	}
+}
+
+// SH1's premise, the import's half: the placed homeserver tree is the state owner's (uid 0 on a
+// host) at every level, directories and regular files alone, and HomeserverState, the link, is
+// not made; systemd hands the tree to the dynamic uid and makes the link at the first start,
+// which host check SH1 proves on the scratch guest.
+func TestImportLeavesTheHomeserverTreeToSystemd(t *testing.T) {
+	for _, kind := range []Kind{KindSealed, KindDrill} {
+		w := newRunWorld(t, kind)
+		if _, err := w.fresh(); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if bad := notOwnedBy(t, w.root+paths.HomeserverPrivateState(w.team), w.uid); len(bad) > 0 {
+			t.Errorf("%s: not the state owner's (%d) regular file or directory: %v", kind, w.uid, bad)
+		}
+		if w.has(paths.HomeserverState(w.team)) {
+			t.Errorf("%s: %s was made before the first start", kind, paths.HomeserverState(w.team))
+		}
+	}
+}
+
+// notOwnedBy names each entry under dir, dir included, that is not a directory or regular
+// file owned by uid.
+func notOwnedBy(t *testing.T, dir string, uid uint32) []string {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bad []string
+	err = fs.WalkDir(root.FS(), ".", func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, lerr := root.Lstat(path)
+		if lerr != nil {
+			return lerr
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid != uid || (!info.IsDir() && !info.Mode().IsRegular()) {
+			bad = append(bad, path)
+		}
+		return nil
+	})
+	if err = errors.Join(err, root.Close()); err != nil {
+		t.Fatal(err)
+	}
+	return bad
 }
 
 // answered holds out to SI11's answer for kind.

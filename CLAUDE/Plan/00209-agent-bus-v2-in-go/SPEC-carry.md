@@ -1,7 +1,9 @@
 # SPEC addendum: the sealed carry of a team (issue #324, beside SPEC-n2g)
 
 **Status: specified, with the coordinator's decisions applied (section 12); no question is
-open. Nothing here is built.** It sits beside
+open. Built on branch `sealed-carry`, every item of section 13's order. Pending by hand: the
+`-tags tuwunel` carry test against a real Tuwunel (item 15), and SH1 and the drill on the
+scratch guest (item 16).** It sits beside
 `CLAUDE/Plan/00209-agent-bus-v2-in-go/SPEC-n2g.md`. Sources: the restore decisions note ("The
 finding that settles Q2 and Q7", points 1-5, the residual, Q1, Q5, next actions 3 and 4),
 SPEC-n2g (the trust rule, RM1-RM11, RV2, RV3, RS15-RS18, RG1-RG3), and the code of F44
@@ -573,6 +575,21 @@ import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O
   owned by uid 0 down every level, starts with the tree owned by its dynamic uid at every level
   and the `/var/lib/teamchat/<t>` link made. SI9 step 1 relies on it. It joins the drill's
   record clauses (Q3), proven on the scratch guest before the carry (the driver's Task 2.3).
+  The clause the drill records (sc-D19), on the scratch guest, for the team `<t>` it imports,
+  each command's output kept with the verdict. A failure of step 1 is the import's (pinned in
+  code: `TestImportLeavesTheHomeserverTreeToSystemd`, `carry/importrun_test.go`); a failure of
+  step 3 means SI9 step 1's premise does not hold on the pinned systemd, and no carry runs
+  until this SPEC is changed:
+  1. after `team import --team <t> --sha256 <hex> --drill` and before any start: every entry
+     under `/var/lib/private/teamchat/<t>`, the directory itself included, is a directory or a
+     regular file owned by uid 0, and `/var/lib/teamchat/<t>` does not exist
+     (`find /var/lib/private/teamchat/<t> -printf '%U %y %p\n'`,
+     `stat /var/lib/teamchat/<t>`);
+  2. `team carry-check --team <t>` exits 0 (its loopback start is the unit's first start);
+  3. after it: every entry under `/var/lib/private/teamchat/<t>`, the directory included, is
+     owned by one and the same uid, in systemd's dynamic range 61184-65519, and
+     `/var/lib/teamchat/<t>` is a symlink to `private/teamchat/<t>`
+     (`readlink /var/lib/teamchat/<t>`).
 
 ## 9. Exits (SE)
 
@@ -642,6 +659,7 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 | sc-D16 | The coordinator's ruling that SG2 is built (item 12b), and where SG2 is silent: a drill import refuses every verb that names the team but `team carry-check` and `team remove`, not only the families SG2 lists (section 6: it "accepts no other lock-taking verb but team remove"; a seal, export, import, restore, approve or rotate-ca of a drill import is as wrong as an apply). It is judged in the dispatcher after SG1 and again under the lock (`carry.DrillImportGuard`, joined to the host's, the LXC verbs' and the restore's guards), since an import can land while a verb waits for the lock. `carried.json` is read as root's own file and decoded strictly; one that cannot be read or decoded fails the verb rather than admitting it. The refusal is `ErrRefused` (70), naming the two verbs that run.                                                                                                                                                                                                                  |
 | sc-D17 | SA3 as specified could not be built: it assumed that a guest with other listen addresses changes the restart set, but since X18 the homeserver binds loopback alone, so the rendered config, and with it the restart set (base unit, config, ExecStart), holds no listen address; the listen set is in the reload set's filter and the terminator's drop-in. Seen red: the test with other addresses found no backup taken. SA3 now takes the restart-set change a rebuilt guest can really bring, a play that pins another Tuwunel (the recorded version's binary still installed, SI3), and a second test holds that other addresses alone take no backup. SA's table row for step 6 says so. No code changed.                                                                                                                                                                                                                                                                                                                           |
 | sc-D18 | Item 15's RT-style test is one round run twice: `carryRound` (admin's tests) carries alpha through the four verbs over the carry engine as `wire` builds it (`carry.OS`, `carry.StageOS`, `restore.OS`, `CarryChild` and the ctl-child in process; systemd, readiness and the status record are the world's fakes), and wants the homeserver tree byte for byte on the guest, the seal's tail in `carried.json`, every tail event found by the check, and the tail and the roster epoch read back from the imported server served again. Over fakehs (one in-memory server stands for both, so it proves the plumbing, not the database) it runs in every build; over a real Tuwunel (`-tags tuwunel`) the seal's stop of the homeserver unit stops the source server by SIGTERM and the guest's loopback start is Tuwunel on the imported database. The wiring change it found: `machine.carry` looked the teamchat-ctl account up twice and built the engine before checking the second lookup; it now looks it up once and fails first. |
+| sc-D19 | Item 16 asks for SH1 in "the drill's clause list (Q3)", which is the restore decisions note's, outside this repository; no tracked file or code holds such a list. So SH1's clause is written where SH1 is, in section 8, as three steps the drill on the scratch guest records with their commands and outputs (before the first start: root's tree and no link; `team carry-check`; after it: one dynamic uid at every level and the link), for the driver to copy into Q3's list. Its import half, the only part code decides, is pinned by a test: the placed homeserver tree is the state owner's at every level, directories and regular files alone, and the link is not made. No host check script is added: one would run on a guest outside gate A's scope, and the drill's run is the driver's.                                                                                                                                                                                                                                 |
 
 ## 12. Decisions
 
@@ -773,4 +791,6 @@ plan's journal):
     **Not yet run against a real Tuwunel**: it compiles, vets and lints under the tag and skips
     without `FAKEHS_TUWUNEL_BIN`; the by-hand run (`src-go/CLAUDE.md`, build tags) is pending.
 16. Host check SH1, added to the drill's clause list (Q3), run by the driver on the scratch
-    guest.
+    guest. Built (sc-D19): SH1's clause, three steps the drill records, is written in section 8,
+    and its import half is pinned by `TestImportLeavesTheHomeserverTreeToSystemd`. **Not yet
+    run**: the driver runs it on the scratch guest.
