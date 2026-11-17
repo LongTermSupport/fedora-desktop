@@ -48,7 +48,7 @@ func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lx
 	return &lxc.Deps{
 		Root: root, LockDir: root + paths.AdminRunDir, Clock: clock, LXC: m.containers(), Pin: m.pin(), Bus: guestSystemd,
 		Approvals: declare.FileApprovals{Path: func(t paths.TeamID) string { return root + paths.ApprovedFile(t) }, GID: -1},
-		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: teamlock.All(restore.Guard(root), carry.Guard(root)),
+		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: teamlock.All(restore.Guard(root), carry.Guard(root), carry.DrillImportGuard(root, m.stateOwnerUID)),
 		Kit: kit, HostKit: root + paths.HostKitDir(kit).String(), HostUIDs: uids, OwnerGID: gid, Bridge: Bridge,
 		BridgeNet: hostnet.Network{Proc: m.proc, BridgeName: Bridge}.Bridge,
 	}, nil

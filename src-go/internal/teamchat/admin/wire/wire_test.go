@@ -355,6 +355,38 @@ func TestTheGuardsRefuseTheCarryRecords(t *testing.T) {
 	}
 }
 
+// SG2, SG3: the lock's guard, the host's and the LXC verbs', refuses a drill import (read as
+// root's own file) as a refusal (70); team remove's guard admits it.
+func TestTheGuardsRefuseADrillImport(t *testing.T) {
+	f := lxcHost(t)
+	team := team(t)
+	if err := os.MkdirAll(f.root+paths.AdminState(team), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := carry.EncodeCarriedRecord(carry.CarriedRecord{
+		Team: team, Kind: carry.KindDrill, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2,
+		Tail: []carry.TailEntry{{Room: "main", EventID: "$event-1", TsMS: 1}},
+	})
+	if err := os.WriteFile(f.root+paths.CarriedRecord(team), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.owner = ownerOf(t, f.root)
+	sys := build(t, f)
+	if err := sys.Host.Guard(team); !errors.Is(err, carry.ErrRefused) {
+		t.Errorf("Guard = %v, want carry.ErrRefused", err)
+	}
+	if err := sys.Host.RemoveGuard(team); err != nil {
+		t.Errorf("RemoveGuard = %v", err)
+	}
+	d, err := sys.LXC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Guard(team); !errors.Is(err, carry.ErrRefused) {
+		t.Errorf("lxc Guard = %v, want carry.ErrRefused", err)
+	}
+}
+
 // SG3: the LXC verbs' lock guard refuses a sealed team as the host's does.
 func TestLXCGuardRefusesASealedTeam(t *testing.T) {
 	f := lxcHost(t)

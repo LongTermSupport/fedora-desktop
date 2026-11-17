@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -92,6 +93,41 @@ func TestTheVerbTableOnACarriedTeam(t *testing.T) {
 				if g.admits[form] && strings.Contains(got.stderr, record) {
 					t.Errorf("%s: %s, admitted, still names the record: %q", state, form, got.stderr)
 				}
+			}
+		}
+	}
+}
+
+// drillImported is a bare world where team alpha was imported from an export of kind.
+func drillImported(t *testing.T, kind carry.Kind) *world {
+	t.Helper()
+	w := carriedWorld(t, paths.CarriedRecord)
+	raw := carry.EncodeCarriedRecord(carry.CarriedRecord{
+		Team: alpha(t), Kind: kind, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2,
+		Tail: []carry.TailEntry{{Room: "main", EventID: "$event-1", TsMS: 1}},
+	})
+	if err := os.WriteFile(w.root+paths.CarriedRecord(alpha(t)), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// SG2: on a team a drill export was imported as, the whole verb table is run with --team; every
+// verb refuses (70: "a drill import never joins a real team") but team carry-check and team
+// remove. A sealed import is not judged by SG2.
+func TestTheVerbTableOnADrillImport(t *testing.T) {
+	const never = "a drill import never joins a real team"
+	admitted := map[string]bool{"team carry-check": true, "team remove": true}
+	for _, kind := range []carry.Kind{carry.KindDrill, carry.KindSealed} {
+		w := drillImported(t, kind)
+		for name, class := range specVerbs() {
+			got := w.runAs(class, append(strings.Fields(name), "--team", "alpha")...)
+			refused := got.code == ExitRefused && strings.Contains(got.stderr, never)
+			if want := kind == carry.KindDrill && !admitted[name]; refused != want {
+				t.Errorf("%s: %s = %+v, refusal wanted %v", kind, name, got, want)
+			}
+			if !refused && strings.Contains(got.stderr, never) {
+				t.Errorf("%s: %s names the drill import: %q", kind, name, got.stderr)
 			}
 		}
 	}

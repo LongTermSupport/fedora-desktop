@@ -503,7 +503,13 @@ import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O
     The refusal names the record and the one way on. Test: the whole verb table on each state.
 - **SG2. A drill-kind `carried.json`** refuses `team apply`, member, role, human, lxc and
   backup verbs (70: "a drill import never joins a real team"); allows `team carry-check` and
-  `team remove`.
+  `team remove`. Every other verb naming the team refuses too (sc-D16). It is judged twice, as
+  SG1 is: in the dispatcher after SG1 (`carry.DrillImported`, carried.json read as root's own
+  file and decoded strictly; one that cannot be read or decoded fails the verb), and under the
+  lock by `carry.DrillImportGuard`, which `wire` joins to `host.Deps.Guard`, the LXC verbs'
+  guard and the restore's, so an import that lands while a verb waits for the lock still
+  refuses it. `team remove`'s guard and `team carry-check`'s do not hold it. Test: the whole
+  verb table on a drill-kind and on a sealed-kind `carried.json`.
 - **SG3. The lock's guard** (`teamlock.Guard`, `teamlock/teamlock.go:84`) repeats SG1's
   judgement once the flock is held, so a seal that lands between the dispatcher's read and a
   verb's lock still refuses it. `wire` sets `host.Deps.Guard` to `teamlock.All(restore.Guard(root), carry.Guard(root))` (`admin/wire/wire.go:129`, and `admin/wire/lxc.go:49`); `teamlock.All`
@@ -618,6 +624,7 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 | sc-D13 | `team carry-check`, where section 6 is silent: the tail it checks is in `carried.json`, which SI9 step 4 writes with the manifest's `seal.tail`, because the manifest copy in `CarryStaging(t)` is removed at step 6 and nothing else on the guest holds it. The start is `host.ServeLoopback` (the recorded drop-in, the pin's memory bound, reload, start, ready, loopback alone); the unit is stopped (RS18, both units, no disable) whatever the start or the check did. What becomes of the recorded drop-in is sc-D14's. The answer is section 6's document, printed beside the failure when not ok.                                                                                                                                                                                                                                                                                                        |
 | sc-D14 | The coordinator's ruling on the drop-in `team carry-check` writes: once RS18 finds both units stopped (after a failed start or check too), the check removes the recorded drop-in, its directory when empty, and reloads systemd, so the tree after the check is as before it and SA's "Server drop-in: made (none exists)" holds for the first `team apply`. A unit not found stopped keeps its drop-in (removing what a running unit was started from would leave systemd's view and the files apart); the next check overwrites and removes it. Because the removal would take an applied team's own drop-in, and the stop would stop a serving team, the check refuses (70) a team whose stamp exists, before anything starts: it runs only between `team import` and `team apply`.                                                                                                                           |
 | sc-D15 | The coordinator's ruling on SG6's marker: `carried_from` is a string of the team's declaration, free text naming where the team was carried from; only a non-empty value has effect. Its grammar is `description`'s, the declare package's free-text field (`proto.ValidDescription`: 1 to 120 characters, trimmed, no control or format characters). It is omitted from the canonical form when empty, so `team.json`, the input and `approved.json` of every unmarked team are unchanged byte for byte (pinned by a test); when set it is the last key of `team.json` and the input, and round-trips. It is not a gated field (AG1), so the approval neither holds nor judges it. The refusal sits beside the first-apply test, before the approval is read, so a refused apply makes no call at all.                                                                                                           |
+| sc-D16 | The coordinator's ruling that SG2 is built (item 12b), and where SG2 is silent: a drill import refuses every verb that names the team but `team carry-check` and `team remove`, not only the families SG2 lists (section 6: it "accepts no other lock-taking verb but team remove"; a seal, export, import, restore, approve or rotate-ca of a drill import is as wrong as an apply). It is judged in the dispatcher after SG1 and again under the lock (`carry.DrillImportGuard`, joined to the host's, the LXC verbs' and the restore's guards), since an import can land while a verb waits for the lock. `carried.json` is read as root's own file and decoded strictly; one that cannot be read or decoded fails the verb rather than admitting it. The refusal is `ErrRefused` (70), naming the two verbs that run.                                                                                         |
 
 ## 12. Decisions
 
@@ -733,7 +740,10 @@ plan's journal):
     call.
 11. `carry-check`, for both kinds, stopping the unit after it (section 6).
 12. SG6: the `carried_from` marker in `declare`, and `TestApplyRefusesCarriedFirstApply` (exit
-    70 before any change; applies after the import; an unmarked team untouched).
+    70 before any change; applies after the import; an unmarked team untouched). Then, as its
+    own commit (item 12b), SG2: a drill import refuses every verb but `team carry-check` and `team remove`, in the
+    dispatcher and under the lock (`carry.DrillImportGuard`); the verb-table test on a
+    drill-kind `carried.json` (sc-D16).
 13. SA1-SA3: `host.Apply` over an imported tree (the proof of next action 4 as a test).
 14. Health and backup tests (SH-T1 to SH-T3).
 15. Wiring in `admin/wire`; a `-tags tuwunel` test exporting and importing a real database and

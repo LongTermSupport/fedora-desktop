@@ -143,6 +143,50 @@ func TestGuardFailsWhenItCannotTell(t *testing.T) {
 	}
 }
 
+// placeCarried writes team's carried.json of kind under root.
+func placeCarried(t *testing.T, root string, kind Kind) {
+	t.Helper()
+	team := sampleTeam(t)
+	place(t, root+paths.CarriedRecord(team), EncodeCarriedRecord(CarriedRecord{
+		Team: team, Kind: kind, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2, Tail: sampleSeal(t).Tail,
+	}))
+}
+
+// SG2, SG3: a drill import refuses under the lock (70, "a drill import never joins a real
+// team"); a team with no carried.json, or a sealed import, passes; a carried.json that cannot
+// be read or decoded fails the guard, never passes it.
+func TestDrillImportGuard(t *testing.T) {
+	team := sampleTeam(t)
+	root := guardRoot(t)
+	guard := DrillImportGuard(root, selfUID(t))
+	if err := guard(team); err != nil {
+		t.Errorf("no carried.json: %v", err)
+	}
+	placeCarried(t, root, KindSealed)
+	if err := guard(team); err != nil {
+		t.Errorf("a sealed import: %v", err)
+	}
+	if imported, err := DrillImported(root, selfUID(t), team); imported || err != nil {
+		t.Errorf("a sealed import is a drill import: %v, %v", imported, err)
+	}
+	placeCarried(t, root, KindDrill)
+	err := guard(team)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "a drill import never joins a real team") ||
+		!strings.Contains(err.Error(), "team carry-check --team "+team.String()) {
+		t.Errorf("a drill import: %v", err)
+	}
+	if imported, err := DrillImported(root, selfUID(t), team); !imported || err != nil {
+		t.Errorf("DrillImported = %v, %v", imported, err)
+	}
+	place(t, root+paths.CarriedRecord(team), []byte("{}"))
+	if err := guard(team); err == nil || errors.Is(err, ErrRefused) {
+		t.Errorf("a carried.json that does not decode: %v", err)
+	}
+	if err := DrillImportGuard(root, selfUID(t)+1)(team); err == nil {
+		t.Error("a carried.json of another owner passed")
+	}
+}
+
 // SG4: team remove's guard admits a sealed team, and refuses a drill or an import under way
 // and a restore record (RG2) as every other guard does.
 func TestRemoveGuardAdmitsOnlyTheSeal(t *testing.T) {

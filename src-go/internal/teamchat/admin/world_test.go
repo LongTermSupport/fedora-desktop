@@ -283,7 +283,7 @@ func (w *world) sys() *System {
 			Rand: io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), rand.Reader), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
-			Guard:       teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
+			Guard:       teamlock.All(restore.Guard(w.root), carry.Guard(w.root), carry.DrillImportGuard(w.root, selfUID(w.t))),
 			RemoveGuard: carry.RemoveGuard(w.root),
 			Backup:      func(context.Context, *teamlock.Lock) error { return nil },
 		},

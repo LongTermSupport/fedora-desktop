@@ -103,7 +103,7 @@ func usagef(format string, args ...any) error { return &usageError{fmt.Sprintf(f
 // rootRuns are the verbs this slice builds.
 func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 	runs := map[string]func(context.Context, Env, []string) term.ExitCode{
-		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove, "team rotate-ca": teamRotateCA,
+		"team apply": teamApply, "team approve": teamApprove, verbTeamRemove: teamRemove, "team rotate-ca": teamRotateCA,
 		"team seal": teamSeal, verbTeamExport: teamExport, "team import": teamImport, "team carry-check": teamCarryCheck,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),

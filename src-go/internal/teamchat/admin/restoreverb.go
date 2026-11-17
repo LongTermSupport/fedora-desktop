@@ -83,7 +83,7 @@ func restoreVerb(ctx context.Context, e Env, args []string) term.ExitCode {
 		guard = restore.Recorded(sys.Host.Root)
 	}
 	// SG3: a carry record refuses a restore under its lock too.
-	guard = teamlock.All(guard, carry.Guard(sys.Host.Root))
+	guard = teamlock.All(guard, carry.Guard(sys.Host.Root), carry.DrillImportGuard(sys.Host.Root, sys.Host.StateOwnerUID))
 	lock, err := teamlock.Take(ctx, sys.Host.LockDir, a.req.Team, "restore", host.PlayWait, sys.Host.Clock, guard)
 	if err != nil {
 		return failWith(e, err)

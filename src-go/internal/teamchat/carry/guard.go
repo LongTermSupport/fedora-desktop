@@ -123,6 +123,45 @@ func Guard(root string) teamlock.Guard {
 	return refuseRecords(root, records...)
 }
 
+// DrillImported is whether the team under the host prefix root was imported from a drill
+// export: its carried.json, read by the trust rule as a file of ownerUID's (0 on a host),
+// decodes and is of kind drill. No carried.json is false; one that cannot be read or decoded
+// is an error, never false.
+func DrillImported(root string, ownerUID uint32, team paths.TeamID) (bool, error) {
+	raw, found, err := state.ReadOwnedFile(root+paths.CarriedRecord(team), maxRecord, ownerUID)
+	if err != nil || !found {
+		return false, err
+	}
+	rec, err := DecodeCarriedRecord(raw, team)
+	if err != nil {
+		return false, err
+	}
+	return rec.Kind == KindDrill, nil
+}
+
+// DrillImportRefusal is SG2's refusal (70) of every verb but team carry-check and team remove
+// on a drill import.
+func DrillImportRefusal(team paths.TeamID) error {
+	return refusedf("team %s was imported from a drill export: a drill import never joins a real team; "+
+		"only team carry-check --team %s and team remove --team %s --purge run on it", team, team, team)
+}
+
+// DrillImportGuard is SG2 under the lock (SG3): a drill import refuses. wire joins it to every
+// lock-taking verb's guard but team remove's and team carry-check's, so an import that lands
+// while a verb waits for the lock still refuses it.
+func DrillImportGuard(root string, ownerUID uint32) teamlock.Guard {
+	return func(team paths.TeamID) error {
+		drill, err := DrillImported(root, ownerUID, team)
+		if err != nil {
+			return fmt.Errorf("cannot tell whether team %s is a drill import: %w", team, err)
+		}
+		if drill {
+			return DrillImportRefusal(team)
+		}
+		return nil
+	}
+}
+
 // RemoveGuard is `team remove`'s whole guard (SG4): restore.Guard, the drill record and the
 // import record. Only the seal is admitted, so a sealed team can be removed; a drill or an
 // import under way refuses it, as SG1 does.

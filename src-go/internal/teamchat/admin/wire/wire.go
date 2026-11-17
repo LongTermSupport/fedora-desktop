@@ -127,9 +127,9 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Systemd:   systemd.Host(), Firewall: hostnet.Firewall{Runner: m.runner, Proc: m.proc},
 			Network: hostnet.Network{Proc: m.proc, BridgeName: Bridge}, Ready: hostnet.Readiness{},
 			Status: statusFiles{root: root, tick: tick},
-			// SG3: a restore or a carry record refuses every lock-taking verb under its lock;
-			// SG4: team remove admits the seal alone.
-			Guard:       teamlock.All(restore.Guard(root), carry.Guard(root)),
+			// SG3: a restore, a carry record or a drill import (SG2) refuses every lock-taking
+			// verb under its lock; SG4: team remove admits the seal and a drill import.
+			Guard:       teamlock.All(restore.Guard(root), carry.Guard(root), carry.DrillImportGuard(root, stateOwnerUID)),
 			RemoveGuard: carry.RemoveGuard(root),
 			Backup: func(ctx context.Context, held *teamlock.Lock) error {
 				d, err := backups()
