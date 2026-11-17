@@ -1,0 +1,3 @@
+## 14:11 · decision · — — Task 4.5: dual-bus sessions (owner: BUILD IT)
+
+Owner decision ("BUILD IT", relayed by the coordinator): dual-bus sessions, so one ccy session holds a v1 seat and a v2 seat. This reverses LAUNCH-ccy.md L3's refusal for a mixed list of team names, and keeps it for one name on both systems. Filed as Task 4.5 and ordered after Task 4.4, whose pilot proves the v2 launch half that dual mode reuses. It is designed first (DESIGN-dual-bus.md: launch, start, exit and restart, restore), then built test-first. Nothing is built yet; the host was under a load shed when this was filed.
