@@ -60,6 +60,11 @@ terms of teams that left the bus.
   otherwise); it is written mode 0600, and only `private-names: N terms written` is printed.
   go-qa-ci's `GQACI_DENYLIST` repository secret is set from this mode's output; refresh it when
   the bus's members change.
+- `<git dir>/private-terms-export-skip` (untracked, beside the term list) names, one per line,
+  terms left out of that denylist only: ordinary words a public project may contain, by the
+  owner's decision. Every local scan still blocks them. `#` and blank lines are ignored; an
+  entry that names no term is refused by its line number, so a misspelling cannot publish what
+  it meant to keep. The count left out is printed beside the count written.
 
 ## Installation
 

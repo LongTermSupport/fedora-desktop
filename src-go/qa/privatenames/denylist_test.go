@@ -209,3 +209,54 @@ func TestDenylistPatternMatchesAsTheGateDoes(t *testing.T) {
 		}
 	}
 }
+
+// skipFile is the export-skip list beside the term list: terms the owner keeps out of the
+// published denylist that the local gate still blocks.
+const skipFile = "/repo/.git/" + ExportSkipName
+
+func TestDenylistLeavesOutAnExportSkipTerm(t *testing.T) {
+	fl := files{skipFile: "# kept local: an ordinary word\n\n  Lantern-Crew  \n"}
+	r := denyRig(fl)
+	if code := r.run("denylist", denyOut); code != ExitOK {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+	got := patterns(t, fl[denyOut])
+	want := []string{"abc123def456", "harbour-tools", "harbour-tools.1", "harbour-tools.1+local.podman", "harbour-tools.2", "harbour-tools.2+local.host"}
+	if len(got) != len(want) {
+		t.Fatalf("%d lines, want %d: %q", len(got), len(want), got)
+	}
+	for i, term := range want {
+		if got[i] != DenylistPattern(term) {
+			t.Errorf("line %d is %q, want the pattern of %q", i+1, got[i], term)
+		}
+	}
+	if r.errOut.String() != "private-names: 6 terms written, 1 kept local by "+ExportSkipName+"\n" {
+		t.Fatalf("stderr %q", r.errOut.String())
+	}
+	if !strings.Contains(fl[listFile], "lantern-crew") {
+		t.Fatal("the skipped term was dropped from the local list")
+	}
+}
+
+func TestAnExportSkipTermStillBlocksTheLocalGate(t *testing.T) {
+	msgFile := "/repo/.git/COMMIT_EDITMSG"
+	fl := files{skipFile: "lantern-crew\n", msgFile: "subject\n\nthe lantern-crew work\n"}
+	r := newRig(true, map[string]proc.Result{"pingbus status": {Stdout: everydayStatus}}, fl, "")
+	if code := r.run("message", msgFile); code != ExitFindings {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+}
+
+func TestAnExportSkipEntryThatNamesNoTermIsRefused(t *testing.T) {
+	fl := files{skipFile: "# comment\nnot-a-learned-term\n"}
+	r := denyRig(fl)
+	if code := r.run("denylist", denyOut); code != ExitCannotRun || !strings.Contains(r.text(), ExportSkipName+" line 2") {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+	if strings.Contains(r.text(), "not-a-learned-term") {
+		t.Fatalf("the entry was printed: %s", r.text())
+	}
+	if _, ok := fl[denyOut]; ok {
+		t.Fatal("a denylist was written")
+	}
+}

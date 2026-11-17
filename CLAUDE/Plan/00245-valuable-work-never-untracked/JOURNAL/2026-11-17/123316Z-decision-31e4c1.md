@@ -1,0 +1,3 @@
+## 12:33 · decision · — — Q38: an ordinary-word member name is kept out of the published denylist only
+
+Owner decision (question Q38): a whole agent-bus member name that is also an ordinary word is left out of go-qa-ci's published denylist only, and stays blocked by every local scan. It is not allowlisted, and nothing is published. The denylist mode reads an untracked export-skip list beside the term list (`<git dir>/private-terms-export-skip`). An entry that names no term is refused by its line number. Tests hold that the export skips the term and that the commit-message scan still blocks it. Found when go-qa-ci's tree scan, the first run with the secret set, matched that word in its own analyzer text.

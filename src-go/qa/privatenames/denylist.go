@@ -59,9 +59,16 @@ func (a app) denylist(args []string, errOut *emit.Emitter) ExitCode {
 	if len(terms) == 0 {
 		return fail(errOut, errors.New("no terms to write: no agent bus, no host name and no term list here, and a denylist must not be empty"))
 	}
+	exported, kept, err := a.withoutExportSkips(terms)
+	if err != nil {
+		return fail(errOut, err)
+	}
+	if len(exported) == 0 {
+		return fail(errOut, errors.New("every term is kept local by "+ExportSkipName+", and a denylist must not be empty"))
+	}
 	var b strings.Builder
 	b.WriteString(denylistHeader)
-	for _, t := range terms {
+	for _, t := range exported {
 		b.WriteString(DenylistPattern(t.Text) + "\n")
 	}
 	if err := a.env.CreateFile(target, []byte(b.String())); err != nil {
@@ -70,8 +77,58 @@ func (a app) denylist(args []string, errOut *emit.Emitter) ExitCode {
 		}
 		return fail(errOut, fmt.Errorf("the denylist cannot be written: %w", err))
 	}
-	errOut.Line("private-names: " + strconv.Itoa(len(terms)) + " terms written")
+	summary := "private-names: " + strconv.Itoa(len(exported)) + " terms written"
+	if kept > 0 {
+		summary += ", " + strconv.Itoa(kept) + " kept local by " + ExportSkipName
+	}
+	errOut.Line(summary)
 	return ExitOK
+}
+
+// ExportSkipName is the export-skip list's file name inside the git directory, beside the term
+// list and as untracked: one term per line, `#` lines and blank lines ignored. A term on it is
+// left out of the published denylist only; every local scan still blocks it. It holds the terms
+// the owner decided are ordinary words that public projects may contain, and it is never written
+// by this command.
+const ExportSkipName = "private-terms-export-skip"
+
+// withoutExportSkips is terms less those the export-skip list names, and how many it left out. An
+// entry that names no term is an error by its line number (never its text): a misspelt entry
+// would silently publish the term it meant to keep.
+func (a app) withoutExportSkips(terms []Term) ([]Term, int, error) {
+	common, err := a.git(nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return nil, 0, err
+	}
+	data, err := a.env.ReadFile(filepath.Join(strings.TrimSpace(common), ExportSkipName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return terms, 0, nil
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("the export-skip list %s is unreadable: %w", ExportSkipName, err)
+	}
+	known := map[string]bool{}
+	for _, t := range terms {
+		known[strings.ToLower(t.Text)] = true
+	}
+	skip := map[string]bool{}
+	for i, line := range strings.Split(string(data), "\n") {
+		entry := strings.ToLower(strings.TrimSpace(line))
+		if entry == "" || strings.HasPrefix(entry, "#") {
+			continue
+		}
+		if !known[entry] {
+			return nil, 0, fmt.Errorf("%s line %d names no term in the list", ExportSkipName, i+1)
+		}
+		skip[entry] = true
+	}
+	var out []Term
+	for _, t := range terms {
+		if !skip[strings.ToLower(t.Text)] {
+			out = append(out, t)
+		}
+	}
+	return out, len(terms) - len(out), nil
 }
 
 // denylistTarget is FILE made absolute, its directory's links resolved, refused when it lies in

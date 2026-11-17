@@ -89,7 +89,8 @@ this public repository. The terms are learned from the agent bus and the machine
   -h, --help         this text
 
 go-qa-ci's GQACI_DENYLIST repository secret is set from the denylist mode's output; refresh it
-when the bus's members change.
+when the bus's members change. Terms named in <git dir>/private-terms-export-skip (one per
+line, by the owner's decision) are left out of it and still blocked here.
 
 In a ccy container a list that cannot be built is exit 2, never a skip. A session on no team
 (pingbus status exits 78) has no team names to learn and judges against the machine's names; the
