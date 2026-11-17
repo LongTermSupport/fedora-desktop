@@ -77,9 +77,11 @@ func lxcDecl(t *testing.T, entries ...map[string]any) string {
 	for _, e := range entries {
 		members = append(members, e)
 	}
+	team := docTeam(alphaDoc())
+	team["url"] = "https://198.51.100.1:8448" // on the world's bridge (X5)
 	return encodeDoc(t, map[string]any{
 		"teamchat_address":       "192.0.2.10",
-		"teamchat_teams":         []any{docTeam(alphaDoc())},
+		"teamchat_teams":         []any{team},
 		"teamchat_lxc_members":   members,
 		"teamchat_element_teams": []any{},
 	})
@@ -124,6 +126,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 			Origin:    func(context.Context, paths.TeamID) (string, error) { return "v2", nil },
 			Guard:     teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
 			Kit:       kit, HostKit: t.TempDir(), HostUIDs: map[int]bool{0: true}, OwnerGID: os.Getgid(), Bridge: "lxcbr0",
+			BridgeNet: w.Bridge,
 		}, nil
 	}
 	return sys

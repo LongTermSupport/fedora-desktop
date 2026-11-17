@@ -99,7 +99,7 @@ So stage A's play makes these changes to the design, and says so:
 3. **`declare check` is not built, so this play does not run it.** The verb is a row of the
    admin table with no code (`teamchat-admin declare check` answers "not built yet"; only the
    library `declare.Check` exists), and nothing yet turns a host's declaration into the input
-   `team apply` reads. The play hands each team's entry to `team apply` as `{"team": <entry>, "lxc_members": []}`, which the Go reader judges strictly and fills the defaults of, and
+   `team apply` reads. The play hands each team's entry to `team apply` as `{"team": <entry>, "lxc_members": <that team's `teamchat_lxc_members` entries>}` (Plan 00209 Task 3.3), which the Go reader judges strictly and fills the defaults of, and
    `team apply` itself refuses a security field that has no matching approval (AG4, exit 70), so
    the gate still holds. What is missing is the cross-team checks `declare check` makes (a port
    another team declares, the v1-name rule) and the `SECURITY` listing before a run. It is built
@@ -131,8 +131,10 @@ So stage A's play makes these changes to the design, and says so:
    a firewall can cut off the ssh that runs the play (the LXC play guards the same hazard), and
    a host's firewall is its owner's configuration.
 6. **Not in this play yet, and refused by name when set:** the `teamchat0` bus address
-   (`teamchat_address`), the LXC members (`teamchat_lxc_members`), and `installed.json` (no
-   program reads it yet; the board that does is later). The Element team list has its own play.
+   (`teamchat_address`); and `installed.json` is not written (no program reads it yet; the
+   board that does is later). The Element team list has its own play. The LXC members
+   (`teamchat_lxc_members`) are in the play since Plan 00209 Task 3.3: both `lxc apply` phases,
+   with the approval moved before the absent phase (Plan 00209 PLAN.md Task 3.3).
 
 This conflicts with design step 01 ("built as the login user") and with `build-go-command.yml`.
 The conflict is the design's, and it is resolved here: the existing task keeps serving the

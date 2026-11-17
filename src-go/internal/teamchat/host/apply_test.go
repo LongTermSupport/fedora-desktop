@@ -2,6 +2,7 @@ package host
 
 import (
 	"errors"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -629,6 +630,7 @@ func TestFirewallRemoveFailureKeepsTheUnion(t *testing.T) {
 func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	doc := teamDoc()
 	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
+	docTeam(doc)["url"] = "https://198.51.100.1:8448"
 	w := newWorld(t)
 	lines, err := w.apply(approved(w, doc))
 	if err != nil {
@@ -648,6 +650,22 @@ func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	w.faults["bridge"] = errFault
 	if _, err := w.apply(approved(w, doc)); stepOf(t, err).Step != StepRefusals {
 		t.Errorf("got %v", err)
+	}
+}
+
+// X5: a team with a present LXC member names the bridge's address in its url. A url the host
+// answers on elsewhere (here the bus address) would apply green and leave every guest check
+// offline, so it is refused at step 2, naming the subnet, before anything is written.
+func TestLXCMemberNeedsTheURLOnTheBridge(t *testing.T) {
+	doc := teamDoc()
+	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
+	w := newWorld(t)
+	_, err := w.apply(approved(w, doc))
+	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), "192.0.2.10 is not inside the LXC bridge's subnet 198.51.100.0/24") {
+		t.Fatalf("got %v", err)
+	}
+	if _, statErr := os.Stat(w.at(paths.StampFile(ops(t)))); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("a refused apply stamped the team: %v", statErr)
 	}
 }
 
