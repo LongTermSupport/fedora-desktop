@@ -108,6 +108,54 @@ func TestEffectiveNetworksOfAnIPv6BusAddress(t *testing.T) {
 	}
 }
 
+// X5: a team with a present LXC member is reached by its guests on the LXC bridge, so its url's
+// host is an address inside the bridge's subnet. A url elsewhere, or a name, would pass every run
+// with no member joined (each guest check offline), so it is refused, naming the subnet.
+func TestBridgeURLProblem(t *testing.T) {
+	cases := []struct {
+		name, url, bridge, want string
+		absent, none            bool
+	}{
+		{name: "on the bridge", url: "https://203.0.113.1:8448", bridge: "203.0.113.1/24"},
+		{name: "an IPv6 bridge", url: "https://[2001:db8::1]:8448", bridge: "2001:db8::/64"},
+		{name: "off the bridge", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", want: "192.0.2.10 is not inside the LXC bridge's subnet 203.0.113.0/24"},
+		{name: "a name", url: "https://chat.example.com:8448", bridge: "203.0.113.1/24", want: "chat.example.com is a name, not an address inside the LXC bridge's subnet 203.0.113.0/24"},
+		{name: "only an absent member", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", absent: true},
+		{name: "no member", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", none: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			asked := 0
+			in := inputWith(t, func(d map[string]any) {
+				docTeam(d)["url"] = c.url
+				member := lxcEntry("alpha")
+				if c.absent {
+					member["state"] = "absent"
+				}
+				d["lxc_members"] = []any{member}
+				if c.none {
+					delete(d, "lxc_members")
+				}
+			})
+			got, err := in.BridgeURLProblem(bridgeAt(c.bridge, &asked))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Fatalf("problem %q, want %q", got, c.want)
+			}
+			if wantAsked := map[bool]int{true: 0, false: 1}[c.absent || c.none]; asked != wantAsked {
+				t.Fatalf("the bridge was asked %d times, want %d", asked, wantAsked)
+			}
+		})
+	}
+	boom := errors.New("the bridge is gone")
+	in := inputWith(t, func(d map[string]any) { d["lxc_members"] = []any{lxcEntry("alpha")} })
+	if _, err := in.BridgeURLProblem(func() (netip.Prefix, error) { return netip.Prefix{}, boom }); !errors.Is(err, boom) {
+		t.Fatalf("a bridge failure: %v", err)
+	}
+}
+
 func TestEffectiveNetworksNameABridgeFailure(t *testing.T) {
 	boom := errors.New("the bridge is gone")
 	in := inputWith(t, func(d map[string]any) { d["lxc_members"] = []any{lxcEntry("alpha")} })

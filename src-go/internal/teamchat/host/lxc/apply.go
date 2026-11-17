@@ -48,6 +48,11 @@ const (
 	whyMoved         = "the seat moved off its old user; it returns at the next apply"
 )
 
+// WhyReach is the why of a seat whose guest check could not reach its team. The url is held on
+// the LXC bridge (X5), so a running guest that cannot reach it is a fault the play fails on
+// (play-teamchat.yml's tc_reach_re), not a stopped container (n3b-D1).
+const WhyReach = whyCheck + "reach"
+
 // The steps an error names: step 01, step 03's reads, and the membership change a join or a
 // leave makes.
 const (
@@ -251,11 +256,9 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 		records: map[paths.TeamID]lxcstate.Record{},
 		changed: map[paths.TeamID]bool{}, reach: map[paths.TeamID][]byte{}, checked: map[checkKey]error{},
 	}
-	inputs := req.Decl.Inputs()
-	for _, id := range req.OnlyTeams {
-		if !slices.ContainsFunc(inputs, func(in declare.Input) bool { return in.ID() == id }) {
-			return nil, invalid(fmt.Errorf("--only-teams names %s, which is not a present team", id))
-		}
+	inputs, leaving := req.Decl.Inputs(), r.leavingTeams()
+	if err := r.scope(inputs, leaving); err != nil {
+		return nil, err
 	}
 	targets := map[Target]bool{}
 	for _, in := range inputs {
@@ -263,6 +266,14 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 			continue
 		}
 		if err := r.act(ctx, in, targets); err != nil {
+			return nil, err
+		}
+	}
+	for _, t := range leaving {
+		if req.OnlyTeams != nil && !slices.Contains(req.OnlyTeams, t.ID) {
+			continue
+		}
+		if err := r.leavingTeam(ctx, t); err != nil {
 			return nil, err
 		}
 	}
@@ -277,12 +288,34 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 	return r, nil
 }
 
-// act is one team in scope: passed by when never applied, else held against its approval and
-// added.
+// scope refuses an --only-teams name the phase cannot act on: a present team, or in the absent
+// phase also a team declared absent.
+func (r *run) scope(inputs []declare.Input, leaving []declare.Team) error {
+	for _, id := range r.req.OnlyTeams {
+		if slices.ContainsFunc(inputs, func(in declare.Input) bool { return in.ID() == id }) ||
+			slices.ContainsFunc(leaving, func(t declare.Team) bool { return t.ID == id }) {
+			continue
+		}
+		what := "a present team"
+		if r.req.Phase == PhaseAbsent {
+			what = "a team declared present or absent"
+		}
+		return invalid(fmt.Errorf("--only-teams names %s, which is not %s", id, what))
+	}
+	return nil
+}
+
+// act is one present team in scope: in the absent phase, one not installed is passed by (its
+// leaving seats DEFERRED); else held against its approval and added.
 func (r *run) act(ctx context.Context, in declare.Input, targets map[Target]bool) error {
-	skip, err := r.neverApplied(ctx, in.ID())
-	if err != nil || skip {
-		return err
+	if r.req.Phase == PhaseAbsent {
+		installed, err := r.installed(ctx, in.ID())
+		if err != nil || !installed {
+			if err == nil {
+				err = r.deferUninstalled(in.Team)
+			}
+			return err
+		}
 	}
 	approved, err := r.d.Approvals.Load(in.ID())
 	if err != nil {
@@ -294,22 +327,18 @@ func (r *run) act(ctx context.Context, in declare.Input, targets map[Target]bool
 	return r.team(ctx, in, targets)
 }
 
-// neverApplied is a team the absent phase passes by: unstamped, so no `team apply` of it has
-// completed, and with no record entry, so no seat of it has joined. The play runs this phase
-// before `team apply`, so a team's first play meets it (C 3.5.1 step 10). The present phase,
-// and an unstamped team with a record, still need the stamp (team's error).
-func (r *run) neverApplied(ctx context.Context, team paths.TeamID) (bool, error) {
-	if r.req.Phase != PhaseAbsent {
+// installed is whether the team has an install stamp. The play runs the absent phase before
+// `team apply` (C 3.5.1 step 10), so it meets a team's first play, and a team redeclared after
+// its removal, unstamped. The present phase still needs the stamp (team's error).
+func (r *run) installed(ctx context.Context, team paths.TeamID) (bool, error) {
+	_, err := r.d.Origin(ctx, team)
+	switch {
+	case errors.Is(err, health.ErrNotStamped):
 		return false, nil
+	case err != nil:
+		return false, &host.Error{Verb: verb, Step: stepValidate, Err: fmt.Errorf("team %s's install stamp: %w", team, err)}
 	}
-	if _, err := r.d.Origin(ctx, team); !errors.Is(err, health.ErrNotStamped) {
-		return false, nil
-	}
-	rec, err := r.record(team)
-	if err != nil {
-		return false, err
-	}
-	return len(rec.Members) == 0, nil
+	return true, nil
 }
 
 func invalid(err error) error {
@@ -336,6 +365,9 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 	origin, err := r.d.Origin(ctx, id)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: stepValidate, Err: fmt.Errorf("team %s has no install stamp: %w", id, err)}
+	}
+	if err = r.bridgeURL(in); err != nil {
+		return err
 	}
 	rec, err := r.record(id)
 	if err != nil {
@@ -366,6 +398,22 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 			mem.prior, mem.handle, mem.recorded = prior, prior.Handle, true
 		}
 		r.members = append(r.members, mem)
+	}
+	return nil
+}
+
+// bridgeURL is the present phase's refusal of a team whose url is off the LXC bridge (X5): its
+// guests could never reach it, and each guest check would be offline with the run green.
+func (r *run) bridgeURL(in declare.Input) error {
+	if r.req.Phase != PhasePresent {
+		return nil
+	}
+	problem, err := in.BridgeURLProblem(r.d.BridgeNet)
+	if err != nil {
+		return &host.Error{Verb: verb, Step: stepValidate, Err: err}
+	}
+	if problem != "" {
+		return invalid(fmt.Errorf("team %s's url %s: %s; name the bridge's address in the url", in.ID(), in.Team.URL, problem))
 	}
 	return nil
 }

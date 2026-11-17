@@ -720,8 +720,13 @@ and maybe no login user).
 
 **As built (Plan 00209 Task 3.3):** step 12's `team approve` runs before step 10, since `lxc apply` holds every team it acts on against its approval in both phases; `team approve` and `team apply` get each team's own `teamchat_lxc_members` entries, not `[]`. Both LXC phases get the
 whole declaration (`teamchat_teams`, `teamchat_lxc_members`, `teamchat_site`) and an explicit
-`--only-teams` of the present teams they act on. The absent phase passes by a team with no stamp
-and no LXC record, which a team's first play is (it runs before that team's `team apply`).
+`--only-teams` of the teams they act on: the present ones, and for the absent phase also the
+absent ones in scope, every seat of whose LXC record leaves before `team remove` (which refuses
+a team whose record holds a seat not `left`). The absent phase passes by a present team with no
+stamp (a team's first play, or one redeclared after its removal), its leaving seats `DEFERRED`.
+A team with a present LXC member names an address inside the bridge's subnet in its `url`
+(X5): `team apply` and `lxc apply --phase present` refuse any other, and the play fails the
+present phase on a `reach` line.
 
 Every `teamchat-admin` step reports changed only on a `^CHANGED\t` line. `teamchat_only_teams`
 scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`

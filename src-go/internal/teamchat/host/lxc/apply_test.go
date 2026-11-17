@@ -340,12 +340,33 @@ func TestGuestOnTheBridgeIsInsideTheEffectiveNetworks(t *testing.T) {
 	hasLine(t, r, lineOf(t, "CHANGED", "c1", "joined as ")+firstHandle)
 }
 
+// X5: a guest reaches its team on the bridge, so a team whose url is off the bridge's subnet is
+// a declaration error, refused before any change: without the refusal every guest check would
+// be offline (`reach`), the run green and no member joined.
+func TestURLOffTheBridgeIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.decl.Teams[0].URL = "http://198.51.100.1:8448"
+	w.approveAll()
+	_, err := w.apply(PhasePresent)
+	herr, ok := errors.AsType[*host.Error](err)
+	if !ok || !herr.Drift || !strings.Contains(err.Error(), "198.51.100.1 is not inside the LXC bridge's subnet "+allowNet) {
+		t.Fatalf("err %v", err)
+	}
+	if len(w.roster.joins) != 0 || slices.Contains(w.lxc.verbs(), "c1 guest check") {
+		t.Fatalf("a refused team was acted on: joins %v, calls %v", w.roster.joins, w.lxc.verbs())
+	}
+}
+
 func TestGuestOutsideTheEffectiveNetworksIsRefused(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
 	w.networks = []string{"203.0.113.0/24"}
 	w.bridge = netip.MustParsePrefix("198.51.100.0/24")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.decl.Teams[0].URL = "http://198.51.100.1:8448" // on this bridge, so the guest's address is what is judged
+	w.approveAll()
 	_, err := w.apply(PhasePresent)
 	herr, ok := errors.AsType[*host.Error](err)
 	if !ok || !herr.Drift || !strings.Contains(err.Error(), "inside the team's effective networks") {

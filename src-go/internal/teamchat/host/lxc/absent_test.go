@@ -80,10 +80,98 @@ func TestAbsentParksThenRemovesInOrder(t *testing.T) {
 	}
 }
 
+// removing is a placed world whose team t1 is now declared absent, with no LXC entry (an entry
+// of an absent team is refused by declare.Decode and by the play).
+func removing(t *testing.T) *world {
+	t.Helper()
+	w := placed(t)
+	w.declare(nil)
+	gone := w.team("t1")
+	gone.State = declare.StateAbsent
+	w.decl.Teams = []declare.Team{gone}
+	return w
+}
+
+// D 5.7 step 5 removes a team and its LXC entries in one run, so the absent phase acts on a team
+// declared absent: every seat its record holds is parked and removed while its homeserver still
+// runs, before `team remove`, and the record is left empty. --only-teams may name it.
+func TestAbsentTeamsSeatsLeaveBeforeItsRemoval(t *testing.T) {
+	w := removing(t)
+	r, err := w.apply(PhaseAbsent, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"park " + firstHandle, "guest membership", "systemd Stop " + unitOf(t, "t1"), "systemd Reload", "guest remove"}
+	if !slices.Equal(w.log, want) {
+		t.Fatalf("order %v, want %v", w.log, want)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked and removed"))
+	if rec := w.record(); len(rec.Members) != 0 {
+		t.Fatalf("the absent team's record still holds %+v", rec.Members)
+	}
+	if _, err := w.apply(PhasePresent, "t1"); err == nil || !strings.Contains(err.Error(), "not a present team") {
+		t.Fatalf("the present phase scoped to an absent team: %v", err)
+	}
+}
+
+// A seat of an absent team in a stopped container is parked from the host and kept left; the
+// next run, with the container running, removes its guest files without parking it again.
+func TestAbsentTeamsStoppedSeatIsParkedThenCleaned(t *testing.T) {
+	w := removing(t)
+	b := w.lxc.boxes["c1"]
+	b.state = lxccmd.Stopped
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
+		t.Fatalf("entry %+v", e)
+	}
+	b.state = lxccmd.Running
+	w.roster.parks, w.log = nil, nil
+	r, err := w.apply(PhaseAbsent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.roster.parks) != 0 || !slices.Contains(w.log, "guest remove") {
+		t.Fatalf("parks %v, log %v", w.roster.parks, w.log)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "removed"))
+	if rec := w.record(); len(rec.Members) != 0 {
+		t.Fatalf("record %+v", rec.Members)
+	}
+}
+
+// An absent team that is no longer installed has no roster to park on: a seat its record holds
+// that is not left is refused by name before any change, never passed by; one only left (parked
+// already) is cleaned from the guest as for an installed team.
+func TestAbsentTeamNotInstalled(t *testing.T) {
+	w := removing(t)
+	w.unstamped = map[string]bool{"t1": true}
+	_, err := w.apply(PhaseAbsent)
+	if err == nil || !strings.Contains(err.Error(), "team t1 is declared absent and not installed, but its LXC record holds seats that were never parked") {
+		t.Fatalf("err %v", err)
+	}
+	if len(w.log) != 0 || len(w.lxc.calls) != 0 {
+		t.Fatalf("log %v, calls %v", w.log, w.lxc.calls)
+	}
+	e := w.entry("c1")
+	e.Status, e.Why = lxcstate.StatusLeft, whyPending
+	if _, err := lxcstate.WriteRecord(w.host, w.record().Set(e, 1), w.deps().OwnerGID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.roster.parks) != 0 || !slices.Contains(w.log, "guest remove") || len(w.record().Members) != 0 {
+		t.Fatalf("parks %v, log %v, record %+v", w.roster.parks, w.log, w.record().Members)
+	}
+}
+
 // The play runs the absent phase before `team apply`, so on a team's first play the team is
 // declared, approved and has LXC entries, but no stamp: nothing of it has joined, so nothing
-// leaves, and the phase passes it by. The present phase, which runs after `team apply`, and an
-// unstamped team with a record still fail.
+// leaves, and the phase passes it by. A team redeclared after its removal has no stamp either,
+// and its record may still hold seats; each that would leave is DEFERRED, visible, until the
+// next run, which follows `team apply`, takes its steps. The present phase still needs the stamp.
 func TestAbsentPassesByATeamNeverApplied(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
@@ -96,16 +184,25 @@ func TestAbsentPassesByATeamNeverApplied(t *testing.T) {
 	if len(r.Lines) != 0 || len(w.log) != 0 || len(w.lxc.calls) != 0 {
 		t.Fatalf("lines %v, log %v, calls %v", r.Lines, w.log, w.lxc.calls)
 	}
-	if _, err := w.apply(PhaseAbsent, "t1"); err != nil {
+	if _, err = w.apply(PhaseAbsent, "t1"); err != nil {
 		t.Fatalf("scoped to the unstamped team: %v", err)
 	}
-	if _, err := w.apply(PhasePresent); err == nil || !strings.Contains(err.Error(), "no install stamp") {
+	if _, err = w.apply(PhasePresent); err == nil || !strings.Contains(err.Error(), "no install stamp") {
 		t.Fatalf("present phase of an unstamped team: %v", err)
 	}
 	p := placed(t)
 	p.unstamped = map[string]bool{"t1": true}
-	if _, err := p.apply(PhaseAbsent); err == nil || !strings.Contains(err.Error(), "no install stamp") {
-		t.Fatalf("an unstamped team with a record: %v", err)
+	if r, err = p.apply(PhaseAbsent); err != nil || len(r.Lines) != 0 {
+		t.Fatalf("an unstamped team whose recorded seat stays declared: %v, %v", r.Lines, err)
+	}
+	p.declare([]string{"t1"})
+	r, err = p.apply(PhaseAbsent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", whyNotInstalled))
+	if len(p.log) != 0 || len(p.lxc.calls) != 0 || p.entry("c1").Status != lxcstate.StatusJoined {
+		t.Fatalf("an unstamped team's seat took a step: log %v, calls %v, entry %+v", p.log, p.lxc.calls, p.entry("c1"))
 	}
 }
 

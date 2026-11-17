@@ -402,8 +402,10 @@ teamchat_lxc_members:
   for the run that adds or changes the entry.
 - **The team's `url` names the LXC bridge's address**, `https://<bridge address>:<port>`. A team
   with a present LXC member is served on the bridge as well as its declared networks, and the
-  homeserver's certificate names the bridge's address. `teamchat_address` (the `teamchat0` bus
-  address a url would otherwise default to) is not built in the play, which refuses it.
+  homeserver's certificate names the bridge's address. `team apply` and `lxc apply` refuse a url
+  whose host is not an address inside the bridge's subnet (a name included), naming the subnet,
+  since no guest could reach it. `teamchat_address` (the `teamchat0` bus address a url would
+  otherwise default to) is not built in the play, which refuses it.
 - **The container**: privileged (an `lxc.idmap` is refused), on the host bridge, its address
   inside the bridge's subnet. The checkout's `.git/config` gives the handle (an `insteadOf`
   rewrite is refused); `.claude/ccy/ccy.env.local`, if present, must be the agent user's. A
@@ -411,11 +413,15 @@ teamchat_lxc_members:
   on the guest's `PATH`. The container's own configuration stays with the play that makes it.
 - **A stopped or missing container fails nothing.** Its seats print `SKIPPED` or `DEFERRED` lines
   and are placed by the next run that finds the container running; so is a seat whose guest check
-  finds `gh` not logged in or the team unreachable. A running container's wrong fact fails the
-  play, naming the entry.
+  finds `gh` not logged in. The play shows these held-back lines in a task of their own. A running
+  guest that cannot reach its team fails the play, as does a running container's wrong fact,
+  naming the entry.
 - **Removing a seat**: delete its entry or set `state: absent`, and run the play. The seat is
   parked (its token revoked) before its files are removed, while the team still runs.
-- **Removing a team that has LXC members** takes two runs: first remove or mark absent its
-  entries, then set the team `state: absent`. The play refuses an entry whose team is not
-  declared present, and `team remove` does not touch the guests.
+- **Removing a team that has LXC members** is one run: set the team `state: absent` and delete
+  its entries (the play refuses an entry of a team not declared present). The LXC absent phase
+  parks and removes every seat the team's LXC record holds before `team remove` stops the team.
+  A seat in a stopped container is parked and kept `left`; its guest files are removed by a later
+  run while the team stays declared absent. `team remove` itself refuses a team whose record
+  still holds a seat that has not left, naming it.
 - `teamchat_only_teams` scopes both LXC phases to the teams it names, as it scopes the teams.

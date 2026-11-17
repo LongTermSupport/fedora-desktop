@@ -376,6 +376,7 @@ func TestOwnNetworkOnTheDefaultRouteIsAccepted(t *testing.T) {
 	}
 	doc := teamDoc()
 	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
+	docTeam(doc)["url"] = "https://198.51.100.1:8448"
 	if _, err := w.apply(approved(w, doc)); err != nil {
 		t.Fatalf("the bridge on the default route: %v", err)
 	}

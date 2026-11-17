@@ -103,10 +103,22 @@
     tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"
     tc_scoped_absent: "{{ tc_absent if teamchat_only_teams is not defined else tc_absent | selectattr('team', 'in', teamchat_only_teams) | list }}"
     tc_lxc: "{{ teamchat_lxc_members | default([]) }}"
-    # The present teams each LXC phase acts on, passed as --only-teams. The absent phase keeps the
-    # run's scope; the present phase follows tc_scoped_present, which a base unit change widens.
-    tc_lxc_absent_teams: "{{ (tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams)) | map(attribute='team') | list }}"
+    # The teams each LXC phase acts on, passed as --only-teams. The absent phase takes the present
+    # teams and the absent ones in the run's scope: every seat an absent team's LXC record holds
+    # is parked and removed before `team remove` stops its homeserver.
+    # It is spelled from tc_present, never from tc_scoped_present: the units step's
+    # set_fact replaces that name with every present team after a base unit change, a fact
+    # outranks this play variable when it is templated, and the absent phase would then park and
+    # remove the leaving seats of teams this run was not scoped to. A base unit change re-applies
+    # a team for its unit text; it changes no declaration, so it widens no removal.
+    # The present phase follows tc_scoped_present, widened like `team apply`.
+    tc_lxc_absent_teams: "{{ ((tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list) + tc_scoped_absent) | map(attribute='team') | list }}"
     tc_lxc_present_teams: "{{ tc_scoped_present | map(attribute='team') | list }}"
+    # A present-phase line whose guest check could not reach its team (lxc.WhyReach). The url is
+    # held on the LXC bridge, so a running guest that cannot reach it is a fault, never offline.
+    tc_reach_re: "\toffline: guest check reach$"
+    # A held-back line (SKIPPED or DEFERRED), shown in a task of its own (C 3.9.3).
+    tc_held_re: "^(SKIPPED|DEFERRED)\t"
     # `lxc apply`'s stdin: the declaration in host_vars' own keys (declare.Decode).
     tc_lxc_declaration: "{{ ({'teamchat_teams': tc_teams, 'teamchat_lxc_members': tc_lxc} | combine({'teamchat_site': teamchat_site} if teamchat_site is defined else {})) | to_json }}"
     # Matches the CHANGED<TAB><what> marker lines teamchat-admin prints.
@@ -666,10 +678,12 @@
       changed_when: tc_approved.stdout_lines | select('match', tc_changed_re) | list | length > 0
       tags: [teams]
 
-    # The LXC absent phase (DESIGN-v2-C-host.md 3.9.2): a member whose entry says absent, or that
-    # the team's LXC record holds and no entry declares, is parked and its guest files removed,
-    # while every team's homeserver still runs. A team not yet applied is passed by. A stopped or
-    # missing container is not a failure: its member is parked from the host.
+    # The LXC absent phase (DESIGN-v2-C-host.md 3.9.2): a member whose entry says absent, that
+    # the team's LXC record holds and no entry declares, or that a team declared absent holds, is
+    # parked and its guest files removed, while every team's homeserver still runs; `team remove`
+    # refuses a team whose record still holds a seat that has not left. A present team not yet
+    # installed is passed by, its leaving seats DEFERRED. A stopped or missing container is not a
+    # failure: its member is parked from the host.
     - name: Park and Remove the LXC Members That Leave
       ansible.builtin.command:
         argv: "{{ [tc_admin_link, 'lxc', 'apply', '--phase', 'absent', '--only-teams', tc_lxc_absent_teams | join(',')] }}"
@@ -703,8 +717,10 @@
     # The LXC present phase (DESIGN-v2-C-host.md 3.9.2): for each running container, the kit,
     # the guest check, the joins, the bundles, the desired memberships and each service seat's
     # session unit, written from the host side. A stopped or missing container, or a member whose
-    # guest check finds gh or the team unreachable, is offline: a SKIPPED or DEFERRED line, never
-    # a failure. A running container's wrong facts fail the play, naming the entry.
+    # guest check finds gh signed out, is offline: a SKIPPED or DEFERRED line, never a failure
+    # (n3b-D1). A running guest that cannot reach its team fails the play: the url is held on the
+    # LXC bridge (team apply refuses one elsewhere), so that is a fault, not a stopped container.
+    # A running container's wrong facts fail the play, naming the entry.
     - name: Place and Join the Declared LXC Members
       ansible.builtin.command:
         argv: "{{ [tc_admin_link, 'lxc', 'apply', '--phase', 'present', '--only-teams', tc_lxc_present_teams | join(',')] }}"
@@ -712,6 +728,15 @@
       when: tc_lxc_present_teams | length > 0
       register: tc_lxc_present
       changed_when: tc_lxc_present.stdout_lines | select('match', tc_changed_re) | list | length > 0
+      failed_when: tc_lxc_present.rc != 0 or tc_lxc_present.stdout_lines | select('search', tc_reach_re) | list | length > 0
+      tags: [teams]
+
+    # The held-back lines of both phases, shown without -v (C 3.9.3): each names the seat and why
+    # it waits for a later run (a stopped container, a seat still held, a team not yet installed).
+    - name: Show the LXC Members Held Back
+      ansible.builtin.debug:
+        msg: "{{ (tc_lxc_absent.stdout_lines | default([]) + tc_lxc_present.stdout_lines | default([])) | select('match', tc_held_re) | list }}"
+      when: (tc_lxc_absent.stdout_lines | default([]) + tc_lxc_present.stdout_lines | default([])) | select('match', tc_held_re) | list | length > 0
       tags: [teams]
 
     # The timers run exactly while a team is declared present (C40).

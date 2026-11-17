@@ -76,6 +76,40 @@ func TestLeafErrorWraps(t *testing.T) {
 	}
 }
 
+// lxcRecord writes the team's LXC record with one seat of the given status.
+func lxcRecord(w *world, status string) {
+	if err := os.MkdirAll(w.at(paths.LXCRecordDir), 0o750); err != nil {
+		w.t.Fatal(err)
+	}
+	w.write(paths.LXCRecord(ops(w.t)), `{"v":1,"team":"ops","members":[{"container":"box-1","checkout":"/srv/checkouts/thing","seat":1,`+
+		`"user":"agent","handle":"thing.1+desk.lxc","status":"`+status+`","since_ms":1,"why":""}]}`)
+}
+
+// C 3.9.2: a seat the team's LXC record holds that has not left is live in its guest, with a
+// kit, a bundle and maybe a session unit only `lxc apply --phase absent` removes, and a token
+// only its park revokes. remove (with or without --purge) refuses such a team before any change,
+// naming the seat and the way out; seats only left (parked, guest files pending) do not stop it.
+func TestRemoveRefusesATeamWithLiveLXCSeats(t *testing.T) {
+	for _, purge := range []bool{false, true} {
+		w := applied(t)
+		lxcRecord(w, "joined")
+		lines, err := remove(t, w, purge)
+		var herr *Error
+		if !errors.As(err, &herr) || herr.Step != StepLXCSeats || !herr.Drift ||
+			!strings.Contains(err.Error(), "box-1/thing-1") || !strings.Contains(err.Error(), "lxc apply --phase absent") {
+			t.Fatalf("purge %v: err %v", purge, err)
+		}
+		if lines != nil || w.called("stop") || !w.exists(paths.StampFile(ops(t))) {
+			t.Fatalf("purge %v: a refused remove changed something: lines %q, log %q", purge, lines, w.log)
+		}
+		lockIsFree(t, w)
+		lxcRecord(w, "left")
+		if _, err := remove(t, w, purge); err != nil {
+			t.Fatalf("purge %v: seats only left: %v", purge, err)
+		}
+	}
+}
+
 // HS14: a team that is not installed is a success that reports nothing and calls nothing.
 func TestRemoveNotInstalled(t *testing.T) {
 	for _, purge := range []bool{false, true} {

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 )
 
@@ -48,6 +49,39 @@ func (in Input) EffectiveNetworks(bridge func() (netip.Prefix, error)) (Effectiv
 	}
 	out.All, out.Own = sortedPrefixes(out.All), sortedPrefixes(out.Own)
 	return out, nil
+}
+
+// BridgeURLProblem is why the team's url cannot serve its present LXC members, "" when it can
+// (X5). Their guests reach the homeserver on the LXC bridge, so the url's host must be an address
+// inside the bridge's subnet: a url elsewhere, or a name, passes every apply with each guest check
+// offline and no member joined. bridge is asked only while a present LXC member needs it.
+func (in Input) BridgeURLProblem(bridge func() (netip.Prefix, error)) (string, error) {
+	if !in.hasPresentLXC() {
+		return "", nil
+	}
+	subnet, err := bridge()
+	if err != nil {
+		return "", fmt.Errorf("the LXC bridge's subnet: %w", err)
+	}
+	subnet = subnet.Masked()
+	u, err := url.Parse(in.Team.URL)
+	if err != nil {
+		return "", fmt.Errorf("url %q: %w", in.Team.URL, err)
+	}
+	addr, isAddr := parseAddr(u.Hostname())
+	switch {
+	case !isAddr:
+		return fmt.Sprintf("%s is a name, not an address inside the LXC bridge's subnet %s", u.Hostname(), subnet), nil
+	case !subnet.Contains(addr.Unmap()):
+		return fmt.Sprintf("%s is not inside the LXC bridge's subnet %s", addr, subnet), nil
+	}
+	return "", nil
+}
+
+// parseAddr is host as an IP address, and whether it is one rather than a name.
+func parseAddr(host string) (netip.Addr, bool) {
+	addr, err := netip.ParseAddr(host)
+	return addr, err == nil
 }
 
 func (in Input) hasPresentLXC() bool {

@@ -589,7 +589,8 @@ func (w *world) addBox(name string) *box {
 func (w *world) team(id string) declare.Team {
 	return declare.Team{
 		ID: mustTeam(w.t, id), State: declare.StatePresent, Name: id, Port: 8448,
-		URL: "http://198.51.100.1:8448", Networks: w.networks,
+		URL: "http://192.0.2.1:8448", Networks: w.networks, // on the bridge (allowNet), X5
+
 	}
 }
 
@@ -611,6 +612,11 @@ func (w *world) declare(teams []string, members ...declare.LXCMember) {
 	for _, id := range teams {
 		w.decl.Teams = append(w.decl.Teams, w.team(id))
 	}
+	w.approveAll()
+}
+
+// approveAll approves every present team exactly as declared.
+func (w *world) approveAll() {
 	w.approvals = fakeApprovals{}
 	for _, in := range w.decl.Inputs() {
 		g := in.Gated()

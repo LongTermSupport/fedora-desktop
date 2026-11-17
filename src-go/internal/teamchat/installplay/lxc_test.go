@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -18,6 +20,7 @@ const (
 	removeTask     = "Remove the Absent Teams"
 	applyTask      = "Apply the Present Teams"
 	lxcPresentTask = "Place and Join the Declared LXC Members"
+	heldTask       = "Show the LXC Members Held Back"
 	inputCheckTask = "Check the Play's Inputs"
 )
 
@@ -160,7 +163,7 @@ func TestThePlayOrdersTheLXCPhasesAroundTheTeams(t *testing.T) {
 			names = append(names, n)
 		}
 	}
-	order := []string{approveTask, lxcAbsentTask, removeTask, applyTask, lxcPresentTask}
+	order := []string{approveTask, lxcAbsentTask, removeTask, applyTask, lxcPresentTask, heldTask}
 	last := -1
 	for _, name := range order {
 		at := slices.Index(names, name)
@@ -171,6 +174,73 @@ func TestThePlayOrdersTheLXCPhasesAroundTheTeams(t *testing.T) {
 			t.Errorf("task %q runs before the task it must follow (want the order %q)", name, order)
 		}
 		last = at
+	}
+}
+
+// lxcLine is a line `lxc apply` prints for one seat of a fixture team.
+func lxcLine(t *testing.T, kind lxc.LineKind, why string) string {
+	t.Helper()
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := paths.ParseGuestUser("agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := paths.ParseContainerName("box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := lxcstate.SeatID{Team: team, Checkout: "/srv/checkouts/thing", Seat: 1}.Key()
+	return lxc.Line{Kind: kind, Team: team, User: user, Container: box, Checkout: "/srv/checkouts/thing", Seat: 1, Key: key, Why: why}.String()
+}
+
+// stringVar is the play variable name, which must be a string.
+func stringVar(t *testing.T, p play, name string) string {
+	t.Helper()
+	s, ok := p.Vars[name].(string)
+	if !ok {
+		t.Fatalf("play variable %s is not a string: %v", name, p.Vars[name])
+	}
+	return s
+}
+
+// X5: the team's url is held on the LXC bridge, so a running guest that cannot reach it is a
+// fault: the present phase fails on its line (lxc.WhyReach), and on no other offline line (a
+// stopped container never fails a run, n3b-D1). Both phases' held-back lines, and only those,
+// are shown in a task of their own after the present phase (C 3.9.3).
+func TestThePlayFailsOnAnUnreachableTeamAndShowsTheHeldBackLines(t *testing.T) {
+	p := loadPlay(t)
+	reach := regexp.MustCompile(stringVar(t, p, "tc_reach_re"))
+	if !reach.MatchString(lxcLine(t, lxc.Deferred, lxc.WhyReach)) {
+		t.Errorf("tc_reach_re %q misses the reach line %q", reach, lxcLine(t, lxc.Deferred, lxc.WhyReach))
+	}
+	for _, why := range []string{"offline: container stopped", "offline: guest check gh", "offline: guest check reachable"} {
+		if line := lxcLine(t, lxc.Skipped, why); reach.MatchString(line) {
+			t.Errorf("tc_reach_re %q matches the offline line %q", reach, line)
+		}
+	}
+	var failedWhen any
+	for _, task := range p.Tasks {
+		if task["name"] == lxcPresentTask {
+			failedWhen = task["failed_when"]
+		}
+	}
+	if want := "tc_lxc_present.rc != 0 or tc_lxc_present.stdout_lines | select('search', tc_reach_re) | list | length > 0"; failedWhen != want {
+		t.Errorf("task %q failed_when = %v, want %q", lxcPresentTask, failedWhen, want)
+	}
+	held := regexp.MustCompile(stringVar(t, p, "tc_held_re"))
+	for kind, want := range map[lxc.LineKind]bool{lxc.Skipped: true, lxc.Deferred: true, lxc.Changed: false} {
+		if got := held.MatchString(lxcLine(t, kind, "why")); got != want {
+			t.Errorf("tc_held_re %q on a %s line: %v, want %v", held, kind, got, want)
+		}
+	}
+	msg := taskModule(t, p, heldTask, "ansible.builtin.debug")["msg"]
+	for _, register := range []string{"tc_lxc_absent", "tc_lxc_present"} {
+		if s, ok := msg.(string); !ok || !strings.Contains(s, register+".stdout_lines | default([])") || !strings.Contains(s, "select('match', tc_held_re)") {
+			t.Errorf("task %q msg %v does not show %s's held-back lines", heldTask, msg, register)
+		}
 	}
 }
 
