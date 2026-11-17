@@ -5,8 +5,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
@@ -31,16 +33,18 @@ func run(args []string) int {
 		return int(privatenames.ExitCannotRun)
 	}
 	env := privatenames.Env{
-		Stdout:    os.Stdout,
-		Stderr:    os.Stderr,
-		Stdin:     os.Stdin,
-		Cwd:       cwd,
-		Run:       proc.OS{},
-		Container: inContainer(cwd),
-		Hostnames: hostnames(),
-		Context:   os.Getenv("PRIVATE_NAMES_CONTEXT") != "",
-		ReadFile:  os.ReadFile,
-		WriteFile: writePrivate,
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
+		Stdin:        os.Stdin,
+		Cwd:          cwd,
+		Run:          proc.OS{},
+		Container:    inContainer(cwd),
+		Hostnames:    hostnames(),
+		Context:      os.Getenv("PRIVATE_NAMES_CONTEXT") != "",
+		ReadFile:     os.ReadFile,
+		WriteFile:    writePrivate,
+		CreateFile:   createPrivate,
+		EvalSymlinks: filepath.EvalSymlinks,
 	}
 	return int(privatenames.Main(args, env))
 }
@@ -67,6 +71,22 @@ func hostnames() []string {
 func writePrivate(path string, data []byte) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// createPrivate writes a new file for its owner alone and refuses an existing path (fs.ErrExist),
+// a link included: the denylist holds the terms and never replaces a file.
+func createPrivate(path string, data []byte) error {
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", path, err), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", path, err)
 	}
 	return nil
 }

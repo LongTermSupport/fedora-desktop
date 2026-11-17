@@ -53,6 +53,13 @@ terms of teams that left the bus.
 - Findings name the place and the source, with the term's number in the list (`#N` is the list
   line), never the term; a path that holds a term is printed with it masked. For triage,
   `PRIVATE_NAMES_CONTEXT=1` adds each line, masked.
+- `qa-private-names.bash denylist FILE` writes the terms that block a commit (the same list and
+  rule as the scans, so no word that passes is in it) as go-qa-ci's public-safety denylist: one
+  extended regular expression per line, which that scan reads with `grep -E -i`, on the
+  boundaries above. FILE must be new and outside every work tree of this repository (exit 2
+  otherwise); it is written mode 0600, and only `private-names: N terms written` is printed.
+  go-qa-ci's `GQACI_DENYLIST` repository secret is set from this mode's output; refresh it when
+  the bus's members change.
 
 ## Installation
 
