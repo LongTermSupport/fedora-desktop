@@ -144,6 +144,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		TeamCA:     teamCA,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
+		Place:      ctl.Config{Root: root}.Placer(),
 		Pin:        m.readPin,
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },

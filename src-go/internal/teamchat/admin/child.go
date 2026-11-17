@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -121,7 +122,12 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if sys == nil || sys.Open == nil {
 		return childFailed(e, "op "+req.Op+" is not served by this build")
 	}
-	a := Serve(ctx, sys.Open, req)
+	var a Answer
+	if req.Op == OpCarryPlace {
+		a = ServePlace(sys.Place, req)
+	} else {
+		a = Serve(ctx, sys.Open, req)
+	}
 	raw, err = EncodeAnswer(a)
 	if err != nil {
 		return childFailed(e, "cannot encode the answer: "+err.Error())
@@ -282,7 +288,8 @@ var classExit = map[ErrorClass]term.ExitCode{
 // Answer is the child's one answer (CC5, CV2, CO1-CO3, BU1): what changed, and for a member
 // verb its handle, the credential the caller asked for with the team's main room, and notes for
 // the status record; for team.view the view, for member.disconnected the notice, for
-// restore.export the export and for restore.check the epoch (RC6); or the failure, with the
+// restore.export the export, for restore.check the epoch (RC6), for carry.tail the tail and for
+// carry.check the found list, each beside the epoch (SC-C1, SC-C3); or the failure, with the
 // lines that changed before it.
 type Answer struct {
 	OK         bool
@@ -295,6 +302,8 @@ type Answer struct {
 	Notice     *health.Notice
 	Export     *restore.Export
 	Epoch      *restore.Epoch
+	Tail       []carry.TailEntry
+	Found      []bool
 	Human      *HumanAnswer
 	Error      *AnswerError
 }
@@ -438,7 +447,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyHuman)
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyTail, keyFound, keyHuman)
 	if err != nil {
 		return Answer{}, err
 	}

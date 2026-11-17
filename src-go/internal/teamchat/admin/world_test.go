@@ -107,6 +107,9 @@ type world struct {
 	stagedPorts []int
 	stagedErr   error
 
+	placed   []PlacedFile // what carry.place handed the placer
+	placeErr error
+
 	// base is a real homeserver's URL, set instead of srv (the tagged tests); the staged
 	// server is then reached on its own loopback port.
 	base string
@@ -186,7 +189,7 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	var stdout, stderr bytes.Buffer
 	Run(ctx, Env{
 		Args: []string{"ctl-child"}, Stdin: bytes.NewReader(raw), Stdout: &stdout, Stderr: &stderr,
-		Proc: childProc(), Sys: &System{Open: c.w.open},
+		Proc: childProc(), Sys: &System{Open: c.w.open, Place: c.w.place},
 	})
 	if stderr.Len() > 0 {
 		return Answer{}, errors.New(stderr.String())
@@ -331,6 +334,20 @@ func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin
 		w.t.Cleanup(a.Close)
 	}
 	return a, err
+}
+
+// place is the child's placer as a test reads it: the files it was handed, its failure, and
+// each name written.
+func (w *world) place(_ paths.TeamID, files []PlacedFile) ([]string, error) {
+	if w.placeErr != nil {
+		return nil, w.placeErr
+	}
+	w.placed = files
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.Name)
+	}
+	return names, nil
 }
 
 // memFiles is the child's restore files as a test reads them: what each op was given, the

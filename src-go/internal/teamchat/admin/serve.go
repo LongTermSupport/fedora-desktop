@@ -83,10 +83,7 @@ const (
 
 // Serve runs one request in the child and answers it (CV1, CV2).
 func Serve(ctx context.Context, open Opener, req Request) Answer {
-	want, served := argKeys[req.Op]
-	if !served {
-		want, served = restoreArgKeys[req.Op]
-	}
+	want, served := servedArgs(req.Op)
 	if !served {
 		return failure(ClassFailed, "op "+req.Op+" is not served by this build")
 	}
@@ -108,6 +105,8 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 		return serveDisconnected(ctx, open, team, args)
 	case OpRestoreSecure, OpRestoreCheck, OpRestoreSwap, OpRestoreExport, OpRestoreFinish, OpRestoreRevert:
 		return serveRestore(ctx, open, req.Op, team, args)
+	case OpCarryTail, OpCarryCheck:
+		return serveCarry(ctx, open, req.Op, team, args)
 	case apply.OpHumanPassword, apply.OpHumanLogout, apply.OpHumanDevices:
 		return serveHuman(ctx, open, req.Op, req.Team, team, args)
 	}
@@ -125,6 +124,16 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 		return answerOf(apply.RoleApply(ctx, o.Deps, team))
 	}
 	return answerOf(apply.RunMember(ctx, o.Deps, team, mr))
+}
+
+// servedArgs are the exact args of an op Serve serves, from the first table that has it.
+func servedArgs(op string) ([]string, bool) {
+	for _, table := range []map[string][]string{argKeys, restoreArgKeys, carryArgKeys} {
+		if want, served := table[op]; served {
+			return want, true
+		}
+	}
+	return nil, false
 }
 
 // openFailure is the Opener's failure by its class (n2f-C1): its own refusal 70, a homeserver

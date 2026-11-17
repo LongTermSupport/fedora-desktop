@@ -393,9 +393,7 @@ func (s *securing) lockAll(ctx context.Context, a restoreArgs) error {
 // serveCheck is RC8: the main room's roster event read by a direct state request, from the
 // staged server or the live one, decoded by A's rules.
 func serveCheck(ctx context.Context, o Opened, team declare.Team, a restoreArgs) Answer {
-	var c interface {
-		GetStateEvent(ctx context.Context, roomID, eventType, stateKey string) (json.RawMessage, error)
-	}
+	var c stateEventReader
 	if a.staged {
 		staged, err := o.Staged(ctx, a.port, a.token)
 		if err != nil {
@@ -411,15 +409,11 @@ func serveCheck(ctx context.Context, o Opened, team declare.Team, a restoreArgs)
 	if err != nil {
 		return failure(ClassConfig, "the team's files: "+err.Error())
 	}
-	raw, err := c.GetStateEvent(ctx, ids.Main, proto.RosterType, "")
-	if err != nil {
-		return failure(homeserverClass(err), "reading the roster event: "+err.Error())
+	epoch, failed := rosterEpoch(ctx, c, team, ids.Main)
+	if failed != nil {
+		return *failed
 	}
-	r, err := decodeRosterEvent(raw, team, ids.Main)
-	if err != nil {
-		return failure(ClassFailed, "the roster event: "+err.Error())
-	}
-	return Answer{OK: true, Epoch: &restore.Epoch{RestoreEpoch: r.RestoreEpoch, Rev: r.Rev}}
+	return Answer{OK: true, Epoch: &epoch}
 }
 
 // decodeRosterEvent is a whole roster event the admin sent, its content by A's decoder.

@@ -38,12 +38,15 @@ type System struct {
 	TeamCA     TeamCA
 	OwnerGroup func() (int, error)
 	Open       Opener
-	Pin        func() (host.Pin, error)
-	CtlIDs     func() (User, error)
-	Health     func() (HealthTick, error)
-	Home       func(uid int) (string, error)
-	LXC        func() (*lxc.Deps, error)
-	Backup     func() (backup.Deps, error)
+	// Place is the child's writer of a carried team's files (SC-C2), which the Opener cannot
+	// serve: it needs the admin token the place writes.
+	Place  Placer
+	Pin    func() (host.Pin, error)
+	CtlIDs func() (User, error)
+	Health func() (HealthTick, error)
+	Home   func(uid int) (string, error)
+	LXC    func() (*lxc.Deps, error)
+	Backup func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
 	Restore func() (Restorer, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.

@@ -117,10 +117,6 @@ func timeKey(k Kind) string {
 
 // EncodeSealFields are the seal's members from its time on, as SC7 and SX5 give them, for kind.
 func encodeSealFields(k Kind, s Seal) []proto.Member {
-	tail := make([]proto.Value, 0, len(s.Tail))
-	for _, e := range s.Tail {
-		tail = append(tail, proto.Obj(proto.M("room", proto.Str(e.Room)), proto.M("event_id", proto.Str(e.EventID)), proto.M("ts_ms", proto.Int(e.TsMS))))
-	}
 	return []proto.Member{
 		proto.M(timeKey(k), proto.Int(s.TimeMS)), proto.M("server_name", proto.Str(s.ServerName)),
 		proto.M("port", proto.Int(int64(s.Port.Int()))), proto.M("tuwunel", proto.Str(s.Tuwunel.String())),
@@ -128,7 +124,7 @@ func encodeSealFields(k Kind, s Seal) []proto.Member {
 		proto.M("roster", proto.Obj(proto.M("seq", proto.Int(s.Roster.Seq)), proto.M("rev", proto.Int(s.Roster.Rev)),
 			proto.M("restore_epoch", proto.Int(s.Roster.RestoreEpoch)))),
 		proto.M("epoch_floor", proto.Obj(proto.M("epoch", proto.Int(s.EpochFloor.Epoch)), proto.M("min_backup", proto.Int(s.EpochFloor.MinBackup)))),
-		proto.M(keyTail, proto.Arr(tail...)),
+		proto.M(keyTail, tailValue(s.Tail)),
 	}
 }
 
@@ -258,10 +254,14 @@ func decodeTail(rd *reader, v proto.Value, at string) []TailEntry {
 	var out []TailEntry
 	for _, item := range v.Items() {
 		f := rd.object(item, at+"[]", []string{"room", "event_id", "ts_ms"})
-		out = append(out, TailEntry{
+		e := TailEntry{
 			Room: rd.str(f["room"], at+"[].room", textGrammar.MatchString), EventID: rd.str(f["event_id"], at+"[].event_id", textGrammar.MatchString),
 			TsMS: rd.integer(f["ts_ms"], at+"[].ts_ms", 0, maxNumber),
-		})
+		}
+		if slices.ContainsFunc(out, func(o TailEntry) bool { return o.Room == e.Room }) {
+			rd.fail(at+"[].room", "names a room twice")
+		}
+		out = append(out, e)
 	}
 	return out
 }
