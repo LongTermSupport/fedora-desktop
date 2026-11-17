@@ -25,8 +25,8 @@ const (
 )
 
 // AdminTokenName is the team's admin token's name in ctl/<team>/ (OP2), which carry.place
-// writes and the child's own files read.
-const AdminTokenName = "admin.token"
+// writes, the child's own files read and the export carries; carry holds the one spelling.
+const AdminTokenName = carry.AdminTokenName
 
 // The carry ops' own args and answer keys.
 const (

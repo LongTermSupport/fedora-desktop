@@ -47,6 +47,9 @@ func namedTeam(args []string) (paths.TeamID, bool) {
 	return team, err == nil
 }
 
+// verbTeamExport is the export verb's name, which a seal and a drill record each admit.
+const verbTeamExport = "team export"
+
 // admits is whether the record lets the verb run: a seal admits team remove, team export
 // without --drill and team seal; a drill record only team export --drill; an import record
 // only team import --resume or --discard.
@@ -54,9 +57,9 @@ func admits(r carry.Record, name string, args []string) bool {
 	has := func(flag string) bool { return slices.Contains(args, "--"+flag) }
 	switch r {
 	case carry.RecordSeal:
-		return name == "team remove" || name == "team seal" || (name == "team export" && !has(flagDrill))
+		return name == "team remove" || name == "team seal" || (name == verbTeamExport && !has(flagDrill))
 	case carry.RecordDrill:
-		return name == "team export" && has(flagDrill)
+		return name == verbTeamExport && has(flagDrill)
 	case carry.RecordImport:
 		return name == "team import" && (has(flagResume) || has(flagDiscard))
 	}

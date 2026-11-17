@@ -173,6 +173,7 @@ func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths
 		Root: root, LockDir: sys.Host.LockDir, CtlUID: uid, StateOwnerUID: m.stateOwnerUID, Clock: sys.Host.Clock, Software: software,
 		Units: restoreUnits{systemd}, Systemd: sys.Host.Systemd, Ready: hostnet.Readiness{},
 		Child: admin.CarryChild{Live: sys.Child}, FS: restore.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, Status: sys.Host.Status,
+		Files: carry.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, MaxArchive: admin.CarryMaxArchive(root),
 	}}, err
 }
 

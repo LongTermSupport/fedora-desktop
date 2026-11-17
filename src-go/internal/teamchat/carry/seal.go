@@ -29,7 +29,8 @@ const (
 // StateOwnerUID root's own files. Units are the unit states RV2 reads, Systemd stops and disables
 // (SC4), Ready probes server_version (SC1) and Status takes a team off the host's books (SC6).
 // Every file root writes or removes goes through FS, so each one is a kill point of SM5, as is
-// every call of the other seams.
+// every call of the other seams. Files are the export's sources and archive (SX1-SX7), and
+// MaxArchive reads the archive cap's setting (CN5), whose failure is the verb's 78.
 type Deps struct {
 	Root, LockDir         string
 	CtlUID, StateOwnerUID uint32
@@ -41,6 +42,8 @@ type Deps struct {
 	Child                 Child
 	FS                    restore.FS
 	Status                host.Status
+	Files                 Files
+	MaxArchive            func() (int64, error)
 }
 
 // Seal is `team seal --team T` (SC1-SC7) under the team lock, waited for host.PlayWait (SL1),

@@ -13,6 +13,7 @@ import (
 // itself and answers its JSON document when it has one, beside its failure.
 type Carrier interface {
 	Seal(ctx context.Context, team paths.TeamID) ([]byte, error)
+	Export(ctx context.Context, team paths.TeamID) ([]byte, error)
 }
 
 // CarryEngine is the Carrier over the host's carry.Deps.
@@ -23,15 +24,30 @@ func (c CarryEngine) Seal(ctx context.Context, team paths.TeamID) ([]byte, error
 	return carry.Seal(ctx, c.Deps, team)
 }
 
-// teamSeal is `team seal --team T` (SC1-SC7): --team only (--drill is the drill export's, 64),
-// the engine asked of the wiring (78 when it has none or it fails), its answer on stdout.
+// Export is carry.Export.
+func (c CarryEngine) Export(ctx context.Context, team paths.TeamID) ([]byte, error) {
+	return carry.Export(ctx, c.Deps, team)
+}
+
+// teamSeal is `team seal --team T` (SC1-SC7); --drill is the drill export's (64).
 func teamSeal(ctx context.Context, e Env, args []string) term.ExitCode {
+	if slices.Contains(args, "--"+flagDrill) {
+		return failWith(e, usagef("team seal takes no --drill: a drill is team export --team %s --drill", teamArg(args)))
+	}
+	return carryVerb(ctx, e, args, Carrier.Seal)
+}
+
+// teamExport is `team export --team T` (SX1-SX7), the sealed export.
+func teamExport(ctx context.Context, e Env, args []string) term.ExitCode {
+	return carryVerb(ctx, e, args, Carrier.Export)
+}
+
+// carryVerb runs a carry verb that takes --team only: the engine asked of the wiring (78 when it
+// has none or it fails), and its answer on stdout, printed even beside a failure.
+func carryVerb(ctx context.Context, e Env, args []string, run func(Carrier, context.Context, paths.TeamID) ([]byte, error)) term.ExitCode {
 	sys, code := e.system()
 	if code != term.ExitOK {
 		return code
-	}
-	if slices.Contains(args, "--"+flagDrill) {
-		return failWith(e, usagef("team seal takes no --drill: a drill is team export --team %s --drill", teamArg(args)))
 	}
 	flags, err := parseFlags(args, []string{flagTeam})
 	if err != nil {
@@ -48,7 +64,7 @@ func teamSeal(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return fail(e.Stderr, ExitConfig, "the carry engine: "+err.Error())
 	}
-	out, err := engine.Seal(ctx, team)
+	out, err := run(engine, ctx, team)
 	if out != nil {
 		if code = answer(e, string(out)+"\n"); code != term.ExitOK {
 			return code

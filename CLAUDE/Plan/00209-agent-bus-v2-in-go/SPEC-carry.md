@@ -143,8 +143,9 @@ SG3. Root's class only (77 otherwise, BV4's seam `admin.Process`/`classOf`, `adm
   - roster `seq`, `rev`, `RestoreEpoch` (from `roster.json`);
   - `restore-epoch.json`'s `{epoch, min_backup}` (`restore.DecodeEpochFloor`,
     `restore/epoch.go:31`; absent reads `{0, 0}`, as RM10);
-  - `server_name`, the port and the Tuwunel version from `units.json`
-    (`host.ReadUnitsVersion`, `host/serve.go:51`);
+  - `server_name` from `AdminState(t)`'s `server-name` file (`paths.ServerNameFile`, root's
+    own file by the trust rule; `units.json` holds no server name), and the port and the
+    Tuwunel version from `units.json` (`host.DecodeUnits`, `host/records.go`);
   - the software digest (`host.Deps.Software`, `host/apply.go:183`) and the clock.
 - **SC6. Off the host's books.** The stamp is removed, then the status record
   (`host.Deps.Status.Remove`, as `host/remove.go:177-183`). With no stamp, `health.Stamps`

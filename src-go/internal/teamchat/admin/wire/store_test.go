@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -246,6 +247,19 @@ func TestCarryEngineIsTheHostsAdapters(t *testing.T) {
 	if !ok || reflect.TypeOf(child.Live) != reflect.TypeOf(sys.Child) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) ||
 		reflect.TypeOf(d.Systemd) != reflect.TypeOf(sys.Host.Systemd) {
 		t.Fatalf("Child %T, Status %T, Systemd %T: not the host's", d.Child, d.Status, d.Systemd)
+	}
+}
+
+// SX1: the export's files are carry.OS under the root; CN5: its cap is the host's setting, read
+// only when asked, and absent here, so 78.
+func TestCarryExportIsTheHostsFilesAndSetting(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	d := carryEngineOf(t, build(t, f)).Deps
+	if d.Files != (carry.OS{Root: f.root}) {
+		t.Fatalf("Files %#v", d.Files)
+	}
+	if _, err := d.MaxArchive(); admin.ExitCodeOf(err) != admin.ExitConfig {
+		t.Fatalf("MaxArchive with no setting: %v", err)
 	}
 }
 

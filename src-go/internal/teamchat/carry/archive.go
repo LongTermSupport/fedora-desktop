@@ -56,15 +56,9 @@ func archiveSize(m Manifest, manifestLen int64) int64 {
 // made in a first pass over the same sources (SX5); a source that differs fails the write, since
 // it was not cold. An archive over maxArchive bytes is refused before anything is written.
 func WriteArchive(w io.Writer, m Manifest, open func(Member) (io.ReadCloser, error), maxArchive int64) (Written, error) {
-	if err := m.check(); err != nil {
+	manifest, err := fits(m, maxArchive)
+	if err != nil {
 		return Written{}, err
-	}
-	manifest := EncodeManifest(m)
-	if len(manifest) > maxManifest {
-		return Written{}, refusedf("%s is %d bytes, over its cap of %d bytes", manifestName, len(manifest), maxManifest)
-	}
-	if size := archiveSize(m, int64(len(manifest))); size > maxArchive {
-		return Written{}, refusedf("the archive would be %d bytes, over the cap of %d bytes", size, maxArchive)
 	}
 	sum := sha256.New()
 	cw := &countWriter{w: io.MultiWriter(w, sum)}
@@ -81,6 +75,22 @@ func WriteArchive(w io.Writer, m Manifest, open func(Member) (io.ReadCloser, err
 		return Written{}, fmt.Errorf("cannot write the archive's end: %w", err)
 	}
 	return Written{Size: cw.n, SHA256: hex.EncodeToString(sum.Sum(nil))}, nil
+}
+
+// fits is m's manifest encoded, refusing a manifest the writer may not write and an archive
+// over maxArchive bytes, so a caller can refuse before it makes anything to write into.
+func fits(m Manifest, maxArchive int64) ([]byte, error) {
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	manifest := EncodeManifest(m)
+	if len(manifest) > maxManifest {
+		return nil, refusedf("%s is %d bytes, over its cap of %d bytes", manifestName, len(manifest), maxManifest)
+	}
+	if size := archiveSize(m, int64(len(manifest))); size > maxArchive {
+		return nil, refusedf("the archive would be %d bytes, over the cap of %d bytes (%s)", size, maxArchive, paths.CarryMaxArchiveVar)
+	}
+	return manifest, nil
 }
 
 // writeSource writes one member, a file's bytes checked against the manifest's size and digest.
