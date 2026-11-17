@@ -533,7 +533,7 @@ func (p *placing) admin(ctx context.Context, again bool) error {
 		if err != nil {
 			return err
 		}
-		c := CarriedRecord{Team: p.team, Kind: m.Kind, SHA256: p.rec.SHA256, SealedMS: m.Seal.TimeMS, ImportedMS: p.d.Clock.Now().UnixMilli(), Roster: m.Seal.Roster}
+		c := CarriedRecord{Team: p.team, Kind: m.Kind, SHA256: p.rec.SHA256, SealedMS: m.Seal.TimeMS, ImportedMS: p.d.Clock.Now().UnixMilli(), Roster: m.Seal.Roster, Tail: m.Seal.Tail}
 		if err = p.d.FS.WriteFile(from+"/"+carriedName, EncodeCarriedRecord(c)); err != nil {
 			return err
 		}

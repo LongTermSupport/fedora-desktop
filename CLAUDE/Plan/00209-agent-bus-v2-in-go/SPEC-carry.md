@@ -365,7 +365,8 @@ busy is 75) with SG5's guard. Nothing is written before SI1 to SI7 and SI13 pass
      with the owner group's gid (`System.OwnerGroup`), as `team approve` writes it, after
      `MkdirStatus` (`host/dirs.go:33`);
   4. `CarriedRecord(t)` written into the staged admin directory:
-     `{"v": 1, "team": T, "kind": "...", "sha256": "...", "sealed_ms": n, "imported_ms": n, "roster": {...}}`;
+     `{"v": 1, "team": T, "kind": "...", "sha256": "...", "sealed_ms": n, "imported_ms": n, "roster": {...}, "tail": [...]}`,
+     the tail being the manifest's `seal.tail`, which section 6 checks (sc-D13);
   5. the staged admin directory renamed to `AdminState(t)`, then `AdminStateRoot` fsynced. This
      rename is the commit point: `AdminState(t)` holds `server-name` and the CA, so from here
      `team apply` would see a team that is not first (`host/apply.go:312-316`);
@@ -462,20 +463,27 @@ The proof from source, for an imported team (every file of SX2 present, none of 
 The proof that the copy is whole, keeping the instance on loopback. It is wanted for a drill
 import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O5).
 
-- Valid only on a team whose `carried.json` exists (either kind); a drill-kind team accepts no
-  other lock-taking verb but `team remove` (SG2).
-- Under the team lock: writes the server drop-in made from `units.json` alone (the
+- Valid only on a team whose `carried.json` exists and decodes (either kind; absent is 70,
+  naming `team import`); a drill-kind team accepts no other lock-taking verb but `team remove`
+  (SG2). Its lock guard refuses a restore and every carry record (SG1, SG3).
+- Under the team lock (`host.ServeLoopback`, with the pin's memory bound): writes the server drop-in made from `units.json` alone (the
   `recordedDropIn` text, `host/apply.go:745-755`, exported as `host.WriteRecordedDropIn`),
   reloads, starts the server unit, waits ready on the recorded port (`host/apply.go:846-848`)
   and holds its bind to loopback alone (`host/apply.go:891-909`). It writes no firewall rule,
   no TLS drop-in, no leaf, no stamp; the terminator is never started. So the instance is
   reachable only on loopback, and the tick never sees it (no stamp).
 - The child's `carry.check` (SC-C3) answers each tail room's newest event and the roster
-  event. Every `tail` event of `carried.json`'s manifest copy must be present, and the roster
+  event. Every event of `carried.json`'s `tail` (the manifest's `seal.tail`, copied at SI9 step 4,
+  sc-D13) must be present, and the roster
   event's `restore_epoch` and `rev` must equal the seal's; otherwise 1, naming the room.
-- The unit is then stopped (RS18), for either kind: `team apply` starts it on its own terms,
-  through the drop-in it makes (SA's table). There is no flag to leave it running. The answer
-  lists each room and `"ok": true|false`.
+- The unit is then stopped (RS18: the terminator and the homeserver each `inactive` or
+  `failed`, neither disabled), for either kind, and also after a start or a `carry.check`
+  that failed: `team apply` starts it on its own terms, through the drop-in it makes (SA's
+  table). There is no flag to leave it running. The answer is
+  `{"v": 1, "team": T, "kind": "...", "rooms": [{"room": "<purpose>", "event_id": "...", "found": b}...], "roster_event": {"rev": n, "restore_epoch": n}, "ok": b}`,
+  printed beside the failure (1) when `ok` is false. A start or a `carry.check` that fails
+  answers nothing and is its own failure (a server lost is 69). The recorded drop-in stays after
+  the stop (sc-D13).
 
 ## 7. Guards and locks (SG, SL)
 
@@ -594,6 +602,7 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 | sc-D10 | `approved.json` is carried, and `team apply` of a team declared as carried is refused until its import has landed (SG6), so the order cannot be got wrong.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | sc-D12 | The import's staging and resume, where SI8-SI11 are silent: `CarryStaging(t)` holds `carry.json` (the manifest, the copy SI10's resume reads) and the archive's `admin/`, `ctl/` and `status/` as they are named, so `StagedLost` reads `CarryStaging(t)/ctl/`. Staging makes `HomeserverPrivateStateRoot` and its parent as systemd would (0755 and 0700, root's) only where absent, and leaves them on a discard. Each placed root is appended to `placed` before its step; a resume takes the homeserver and admin roots by SI10's rename rule, and redoes `ctl/<team>/` or the status directory only when it is the last root in `placed` (removed, then made again: the same bytes). `--resume` and `--discard` refuse a `--sha256` or a kind that is not the record's (70). The drill's answer names its time `drilled_ms`, as SD3's does. `--discard` answers `{"v": 1, "team": T, "discarded": [paths]}`. |
 | sc-D11 | The coordinator's ruling on SC-C2 against the 64 KiB request cap, option (A): the cap stays for every op; `carry.place`'s request names each lost export by name, size and sha256, and root streams their bytes from `CarryStaging(t)` after it, every check done first; the child checks them again and places nothing unless all verify (SC-C2, SX4). Rejected: (B) raising the cap, which widens it for every op; (C) lowering SX4's cap, which drops a capability.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| sc-D13 | `team carry-check`, where section 6 is silent: the tail it checks is in `carried.json`, which SI9 step 4 writes with the manifest's `seal.tail`, because the manifest copy in `CarryStaging(t)` is removed at step 6 and nothing else on the guest holds it. The start is `host.ServeLoopback` (the recorded drop-in, the pin's memory bound, reload, start, ready, loopback alone); the unit is stopped (RS18, both units, no disable) whatever the start or the check did. The recorded drop-in is left in place: the first `team apply` then finds a drop-in, so step 3 answers by the digests rather than "first start", and starts the stopped unit either way. The answer is section 6's document, printed beside the failure when not ok. |
 
 ## 12. Decisions
 

@@ -47,13 +47,15 @@ type DrillRecord struct {
 	Tail      []TailEntry
 }
 
-// CarriedRecord is carried.json, which an import leaves in the team's admin state (SI9 step 4).
+// CarriedRecord is carried.json, which an import leaves in the team's admin state (SI9 step 4),
+// with the seal's tail, which team carry-check finds again (section 6, sc-D13).
 type CarriedRecord struct {
 	Team                 paths.TeamID
 	Kind                 Kind
 	SHA256               string
 	SealedMS, ImportedMS int64
 	Roster               RosterFacts
+	Tail                 []TailEntry
 }
 
 // ImportStep is where an import stands (SI8, SI9).
@@ -167,7 +169,8 @@ func DecodeDrillRecord(raw []byte, team paths.TeamID) (DrillRecord, error) {
 // EncodeCarriedRecord is carried.json's canonical JSON.
 func EncodeCarriedRecord(r CarriedRecord) []byte {
 	return proto.Obj(append(head(r.Team), proto.M(keyKind, proto.Str(string(r.Kind))), proto.M("sha256", proto.Str(r.SHA256)),
-		proto.M("sealed_ms", proto.Int(r.SealedMS)), proto.M("imported_ms", proto.Int(r.ImportedMS)), proto.M("roster", rosterValue(r.Roster)))...).Compact()
+		proto.M("sealed_ms", proto.Int(r.SealedMS)), proto.M("imported_ms", proto.Int(r.ImportedMS)), proto.M("roster", rosterValue(r.Roster)),
+		proto.M(keyTail, tailValue(r.Tail)))...).Compact()
 }
 
 // DecodeCarriedRecord reads team's carried.json strictly.
@@ -176,13 +179,14 @@ func DecodeCarriedRecord(raw []byte, team paths.TeamID) (CarriedRecord, error) {
 	if err != nil {
 		return CarriedRecord{}, err
 	}
-	f := rd.object(v, "record", []string{"v", keyTeam, keyKind, "sha256", "sealed_ms", "imported_ms", "roster"})
+	f := rd.object(v, "record", []string{"v", keyTeam, keyKind, "sha256", "sealed_ms", "imported_ms", "roster", keyTail})
 	checkHead(rd, f["v"], f[keyTeam], team)
 	ro := rd.object(f["roster"], "roster", []string{"seq", "rev", "restore_epoch"})
 	r := CarriedRecord{
 		Team: team, Kind: decodeKind(rd, f[keyKind]), SHA256: rd.str(f["sha256"], "sha256", isDigest),
 		SealedMS: rd.integer(f["sealed_ms"], "sealed_ms", 1, maxNumber), ImportedMS: rd.integer(f["imported_ms"], "imported_ms", 1, maxNumber),
 		Roster: RosterFacts{rd.integer(ro["seq"], "roster.seq", 0, maxNumber), rd.integer(ro["rev"], "roster.rev", 0, maxNumber), rd.integer(ro["restore_epoch"], "roster.restore_epoch", 0, maxNumber)},
+		Tail:   decodeTail(rd, f[keyTail], keyTail),
 	}
 	if rd.err != nil {
 		return CarriedRecord{}, rd.err

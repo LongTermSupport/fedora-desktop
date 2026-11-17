@@ -17,6 +17,7 @@ type Carrier interface {
 	Export(ctx context.Context, team paths.TeamID) ([]byte, error)
 	Drill(ctx context.Context, team paths.TeamID) ([]byte, error)
 	Import(ctx context.Context, team paths.TeamID, flags carry.ImportFlags) ([]byte, error)
+	Check(ctx context.Context, team paths.TeamID) ([]byte, error)
 }
 
 // CarryEngine is the Carrier over the host's carry.Deps.
@@ -40,6 +41,17 @@ func (c CarryEngine) Drill(ctx context.Context, team paths.TeamID) ([]byte, erro
 // Import is carry.Import.
 func (c CarryEngine) Import(ctx context.Context, team paths.TeamID, flags carry.ImportFlags) ([]byte, error) {
 	return carry.Import(ctx, c.Deps, team, flags)
+}
+
+// Check is carry.Check.
+func (c CarryEngine) Check(ctx context.Context, team paths.TeamID) ([]byte, error) {
+	return carry.Check(ctx, c.Deps, team)
+}
+
+// teamCarryCheck is `team carry-check --team T` (SPEC-carry section 6): the carried team started
+// on loopback, its seal's tail looked for, the unit stopped again. It takes no other flag.
+func teamCarryCheck(ctx context.Context, e Env, args []string) term.ExitCode {
+	return carryVerb(ctx, e, args, Carrier.Check)
 }
 
 // flagSHA256 is the import's --sha256, the whole-archive digest the export answered (SI1).

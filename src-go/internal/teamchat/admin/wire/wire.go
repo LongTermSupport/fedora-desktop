@@ -180,6 +180,15 @@ func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths
 		Child: admin.CarryChild{Live: sys.Child}, FS: restore.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, Status: sys.Host.Status,
 		Files: carry.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, MaxArchive: admin.CarryMaxArchive(root),
 		Serve: func(ctx context.Context, team paths.TeamID) error { return host.Serve(ctx, sys.Host, team) },
+		Loopback: func(ctx context.Context, team paths.TeamID) error {
+			pin, perr := sys.Pin()
+			if perr != nil {
+				return perr
+			}
+			h := sys.Host
+			h.Pin = pin
+			return host.ServeLoopback(ctx, h, team)
+		},
 	}}, err
 }
 

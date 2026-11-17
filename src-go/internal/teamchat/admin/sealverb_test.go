@@ -19,10 +19,10 @@ import (
 
 // fakeCarrier is the carry engine: it records each seal, export and drill and answers out and err.
 type fakeCarrier struct {
-	seals, exports, drills []string
-	imports                []importCall
-	out                    []byte
-	err                    error
+	seals, exports, drills, checks []string
+	imports                        []importCall
+	out                            []byte
+	err                            error
 }
 
 func (f *fakeCarrier) Seal(_ context.Context, team paths.TeamID) ([]byte, error) {

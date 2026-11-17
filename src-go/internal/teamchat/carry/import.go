@@ -226,7 +226,7 @@ func (im *importing) empty(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !st.NotLoaded() && st.Active != "inactive" {
+		if !st.NotLoaded() && st.Active != unitInactive {
 			present = append(present, unit+" ("+st.Active+")")
 		}
 	}

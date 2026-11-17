@@ -72,6 +72,8 @@ const (
 	verbApply  = "team apply"
 	verbRemove = "team remove"
 	verbServe  = "serve"
+	// verbCarryCheck is ServeLoopback's: team carry-check's start of a carried team.
+	verbCarryCheck = "carry-check"
 )
 
 // The readiness wait (C 3.5.2 step 8).

@@ -263,6 +263,22 @@ func TestCarryExportIsTheHostsFilesAndSetting(t *testing.T) {
 	}
 }
 
+// SPEC-carry section 6: the check's loopback start is host.ServeLoopback with the host's pin,
+// which it reads first: no pin is that error, and a team never applied the start's own.
+func TestCarryCheckStartIsTheHostsWithThePin(t *testing.T) {
+	team := alphaID(t)
+	noPin := errors.New("no pin file")
+	d := carryEngineOf(t, build(t, &fakeMachine{root: t.TempDir(), pinErr: noPin})).Deps
+	if err := d.Loopback(t.Context(), team); !errors.Is(err, noPin) {
+		t.Fatalf("Loopback with no pin = %v", err)
+	}
+	d = carryEngineOf(t, build(t, &fakeMachine{root: t.TempDir()})).Deps
+	var he *host.Error
+	if err := d.Loopback(t.Context(), team); !errors.As(err, &he) || he.Verb != "carry-check" || !strings.Contains(err.Error(), "no units.json") {
+		t.Fatalf("Loopback of an unapplied team = %v", err)
+	}
+}
+
 // RW1 (A4's glue): the restore's child is the teamchat-ctl child for the live server, and the
 // secure unit's systemd-run for the staged one; the sandbox is the base unit's for the team.
 func TestRestoreEngineAsksTheChild(t *testing.T) {

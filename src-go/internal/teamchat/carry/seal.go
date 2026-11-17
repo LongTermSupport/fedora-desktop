@@ -48,6 +48,9 @@ type Deps struct {
 	Stage                 Stage
 	MaxArchive            func() (int64, error)
 	Serve                 func(ctx context.Context, team paths.TeamID) error
+	// Loopback is team carry-check's start: the homeserver alone on the drop-in units.json
+	// records, ready and bound to loopback (host.ServeLoopback on a host).
+	Loopback func(ctx context.Context, team paths.TeamID) error
 }
 
 // Seal is `team seal --team T` (SC1-SC7) under the team lock, waited for host.PlayWait (SL1),
@@ -251,14 +254,8 @@ func (s *sealing) stop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the stop of team %s: %w", s.team, err)
 	}
-	for _, unit := range []string{paths.TLSUnit(s.team), paths.ServerUnit(s.team)} {
-		st, stateErr := s.d.Systemd.State(ctx, unit)
-		if stateErr != nil {
-			return stateErr
-		}
-		if st.Active != "inactive" && st.Active != "failed" {
-			return fmt.Errorf("%s is %s after its stop, not stopped: run %s again once it is", unit, st.Active, s.again())
-		}
+	if err = stoppedUnits(ctx, s.d.Systemd, s.team, s.again()); err != nil {
+		return err
 	}
 	if s.drill {
 		return nil
@@ -272,6 +269,24 @@ func (s *sealing) stop(ctx context.Context) error {
 		return fmt.Errorf("cannot write %s: %w", block, err)
 	}
 	s.note("restore.block written: no start")
+	return nil
+}
+
+// unitInactive is a unit systemd reports stopped and not failed.
+const unitInactive = "inactive"
+
+// stoppedUnits is RS18 after a stop: the team's terminator and homeserver each inactive or
+// failed, else an error naming the unit and again, the verb that finishes the run once it is.
+func stoppedUnits(ctx context.Context, sd host.Systemd, team paths.TeamID, again string) error {
+	for _, unit := range []string{paths.TLSUnit(team), paths.ServerUnit(team)} {
+		st, err := sd.State(ctx, unit)
+		if err != nil {
+			return err
+		}
+		if st.Active != unitInactive && st.Active != "failed" {
+			return fmt.Errorf("%s is %s after its stop, not stopped: run %s again once it is", unit, st.Active, again)
+		}
+	}
 	return nil
 }
 

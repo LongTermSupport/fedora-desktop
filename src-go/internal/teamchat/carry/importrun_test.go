@@ -399,11 +399,14 @@ func (w *runWorld) placedAsCarried(kind Kind) {
 	if err != nil {
 		t.Fatalf("carried.json: %v", err)
 	}
-	want := CarriedRecord{Team: team, Kind: kind, SHA256: w.flags.SHA256, SealedMS: sealMS, ImportedMS: w.clock.Now().UnixMilli(), Roster: RosterFacts{Seq: 20, Rev: 5, RestoreEpoch: 2}}
+	want := CarriedRecord{
+		Team: team, Kind: kind, SHA256: w.flags.SHA256, SealedMS: sealMS, ImportedMS: w.clock.Now().UnixMilli(),
+		Roster: RosterFacts{Seq: 20, Rev: 5, RestoreEpoch: 2}, Tail: w.src.tail.Rooms,
+	}
 	if kind == KindDrill {
 		want.SealedMS = rec.SealedMS
 	}
-	if rec != want {
+	if !bytes.Equal(EncodeCarriedRecord(rec), EncodeCarriedRecord(want)) {
 		t.Errorf("carried.json is %+v, not %+v", rec, want)
 	}
 	for _, path := range []string{paths.CarryStaging(team), paths.HomeserverCarryStaging(team), paths.CarryImportRecord(team), paths.HomeserverState(team), paths.StampFile(team)} {

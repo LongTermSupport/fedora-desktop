@@ -257,7 +257,7 @@ func kindRefusals(t *testing.T) map[string]importRefusal {
 		}, says: paths.AdminState(dev)},
 		"SI4 a drill onto a guest with a sealed import": {kind: KindDrill, guest: func(w *importWorld) {
 			w.put(paths.CarriedRecord(dev), string(EncodeCarriedRecord(CarriedRecord{
-				Team: dev, Kind: KindSealed, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2,
+				Team: dev, Kind: KindSealed, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2, Tail: sampleSeal(t).Tail,
 			})))
 		}, says: paths.AdminState(dev)},
 	}
@@ -410,7 +410,7 @@ func TestImportValidationEdges(t *testing.T) {
 	w = newImportWorld(t, KindDrill, nil)
 	dev := otherTeam(t)
 	w.put(paths.CarriedRecord(dev), string(EncodeCarriedRecord(CarriedRecord{
-		Team: dev, Kind: KindDrill, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2,
+		Team: dev, Kind: KindDrill, SHA256: strings.Repeat("a", 64), SealedMS: 1, ImportedMS: 2, Tail: sampleSeal(t).Tail,
 	})))
 	if err := w.validate(); err != nil {
 		t.Fatalf("a drill beside a drill import: %v", err)

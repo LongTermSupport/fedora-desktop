@@ -2,6 +2,7 @@ package host
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"testing"
 
@@ -94,5 +95,84 @@ func TestWriteRecordedDropInIsApplysText(t *testing.T) {
 	want := dropInSpec{team: ops(t), version: u.Version, memoryHigh: "256M", port: u.Port}.text()
 	if got := w.read(paths.ServerDropInFile(ops(t))); got != string(want) {
 		t.Errorf("drop-in\n%s\nwant\n%s", got, want)
+	}
+}
+
+// carried is an applied world as an import leaves it before team carry-check: both units
+// stopped, no server drop-in, and the log cleared.
+func carried(t *testing.T) *world {
+	t.Helper()
+	w := stopped(t)
+	w.sd.unit(paths.TLSUnit(ops(t))).Active = "inactive"
+	if err := os.Remove(w.at(paths.ServerDropInFile(ops(t)))); err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// SPEC-carry section 6: ServeLoopback writes the drop-in made from units.json alone, reloads,
+// starts the homeserver on it, waits it ready on the recorded port and holds it to loopback; the
+// terminator is never started.
+func TestServeLoopbackStartsTheServerAloneOnTheRecordedDropIn(t *testing.T) {
+	w := carried(t)
+	d := w.deps()
+	startedBefore := len(w.sd.started)
+	if err := ServeLoopback(t.Context(), d, ops(t)); err != nil {
+		t.Fatal(err)
+	}
+	u, err := DecodeUnits([]byte(w.read(paths.UnitsRecord(ops(t)))), ops(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := string(recordedSpec(ops(t), u, d.Pin.MemoryHigh).text())
+	if got := w.read(paths.ServerDropInFile(ops(t))); got != want {
+		t.Errorf("drop-in\n%s\nwant\n%s", got, want)
+	}
+	if w.sd.running != want {
+		t.Errorf("the homeserver runs the drop-in\n%s\nwant\n%s", w.sd.running, want)
+	}
+	if got := w.sd.started[startedBefore:]; !slices.Equal(got, []string{paths.ServerUnit(ops(t))}) {
+		t.Errorf("started %q, want the homeserver alone", got)
+	}
+	if a := w.sd.unit(paths.TLSUnit(ops(t))).Active; a != "inactive" {
+		t.Errorf("the terminator is %s", a)
+	}
+	before(t, w.log, "daemon-reload", "start")
+	before(t, w.log, "start", "ready")
+	before(t, w.log, "ready", "listeners")
+}
+
+// SPEC-carry section 6: no units.json writes no drop-in and starts nothing.
+func TestServeLoopbackNeedsUnitsJSON(t *testing.T) {
+	w := carried(t)
+	if err := os.Remove(w.at(paths.UnitsRecord(ops(t)))); err != nil {
+		t.Fatal(err)
+	}
+	err := ServeLoopback(t.Context(), w.deps(), ops(t))
+	if err == nil || stepOf(t, err).Verb != verbCarryCheck || stepOf(t, err).Step != StepUnit {
+		t.Fatalf("ServeLoopback = %v", err)
+	}
+	if w.called("start") || w.exists(paths.ServerDropInFile(ops(t))) {
+		t.Errorf("started or wrote with no units.json: %q", w.log)
+	}
+}
+
+// SPEC-carry section 6: a homeserver bound past loopback, or one that fails, is the step's error.
+func TestServeLoopbackFailures(t *testing.T) {
+	w := carried(t)
+	w.net.extra = append(w.net.extra, listener("192.0.2.10", 8448, paths.ServerUnit(ops(t))))
+	if err := ServeLoopback(t.Context(), w.deps(), ops(t)); err == nil || stepOf(t, err).Step != StepAddresses {
+		t.Errorf("a wider bind = %v", err)
+	}
+	w = carried(t)
+	w.sd.startTo = "failed"
+	w.sd.journal = "it fell over"
+	if err := ServeLoopback(t.Context(), w.deps(), ops(t)); err == nil || stepOf(t, err).Step != StepReady {
+		t.Errorf("a unit that fails = %v", err)
+	}
+	w = carried(t)
+	w.faults["daemon-reload"] = errFault
+	if err := ServeLoopback(t.Context(), w.deps(), ops(t)); !errors.Is(err, errFault) || stepOf(t, err).Step != StepUnit {
+		t.Errorf("a failing reload = %v", err)
 	}
 }
