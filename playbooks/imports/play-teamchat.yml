@@ -55,7 +55,7 @@
 #   teamchat_lxc_members     optional list, DESIGN-v2-C-host.md 3.8 and 3.9: one seat each, of a
 #                            team declared present; the play checks the shape, teamchat-admin the
 #                            rest. A team with a present member is served on the LXC bridge, and
-#                            its url names the bridge's address (docs/agent-bus-lxc-members.md).
+#                            its url names the bridge's address.
 #   teamchat_site            optional: the machine's handle site, handed to `lxc apply` with the
 #                            members; an entry's own site wins.
 #   teamchat_carry_max_archive_bytes
