@@ -774,6 +774,16 @@ func (w *runWorld) wayOn(at, way string, before, landed map[string]string) {
 // SI10: a resume at staged re-checks the staged tree against the manifest copy, and refuses a
 // staged file that changed.
 func TestImportResumeAtStagedChecksTheStagedTree(t *testing.T) {
+	w := stagedRunWorld(t)
+	w.put(paths.CarryStaging(w.team)+"/admin/units.json", unitsJSON(9000))
+	if _, err := w.resume(); err == nil || !strings.Contains(err.Error(), "admin/units.json") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// stagedRunWorld is a sealed import killed with its record at step staged.
+func stagedRunWorld(t *testing.T) *runWorld {
+	t.Helper()
 	w := newRunWorld(t, KindSealed)
 	// The record is written at staging, at staged, then at placing once per root; a kill at the
 	// third write leaves it at staged.
@@ -794,10 +804,7 @@ func TestImportResumeAtStagedChecksTheStagedTree(t *testing.T) {
 	if !found || rec.Step != ImportStaged {
 		t.Fatalf("the record is %+v (%v)", rec, found)
 	}
-	w.put(paths.CarryStaging(w.team)+"/admin/units.json", unitsJSON(9000))
-	if _, err := w.resume(); err == nil || !strings.Contains(err.Error(), "admin/units.json") {
-		t.Fatalf("err = %v", err)
-	}
+	return w
 }
 
 // SL1, CN5: the import reads the archive cap first, and waits 0 for the lock: any holder is busy.
