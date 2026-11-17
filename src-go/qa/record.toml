@@ -5,7 +5,7 @@
 # The [ratchet] table is the repository owner's signature (Plan 00191 Task 3.8).
 
 [ratchet]
-high_water = 30
+high_water = 24
 decided_by = "repository-owner"
 decided_on = 2026-11-03
 reason = "raising the ceiling by one, to 30, for the gosec G401/G505 exclusion of Synapse's HMAC-SHA1 registration MAC in internal/teamchat/matrix (the repository owner's decision 3 on pull request 124, Plan 00246 Task 8.2); the test-file G301/G302/G306 exclusions of teamchat join entries already recorded and raise nothing. The ceiling was raised by two on 2026-10-29 for the tagliatelle exclusions of internal/netpolicy/podman.go (podman inspect's own field names, Plan 00232) and internal/containerimages/oldrange_records.go (c/storage's own mapped-layers key, Plan 00235)."
@@ -22,16 +22,16 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G204"
 path = ".golangci.yml"
-justification = "gosec G204 guards against command injection through a program launched from a variable. Each module has exactly one process seam that exists to do that: internal/execx/ (src-go) and qa/internal/proc/proc.go (the qa module, which cannot import execx); every other package reaches a program through its seam, so a G204 anywhere else is still reported."
+justification = "gosec G204 guards against command injection through a program launched from a variable. Each module has exactly one process seam that exists to do that: internal/execx/ (src-go) and qa/internal/proc/proc.go (the qa module, which cannot import execx); every other package reaches a program through its seam, so a G204 anywhere else is still reported. Permanent by the owner's decision of 2026-11-17: starting a program from an argument vector is what each seam is defined to do, so G204 will always flag it; go-qa-ci records its own launcher file, internal/launch/launch.go, as permanent for the same reason (go-qa-ci docs/record.md, Configuration exceptions)."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle"
 path = ".golangci.yml"
-justification = "tagliatelle enforces one JSON key case so a struct tag cannot drift from the house style; these structs decode or write another program's wire format, whose key case is not ours to choose. Scope: internal/transcript/transcript.go (Claude's transcript), internal/wsitoken/usage.go (ccy --token-usage --json), internal/teams/membership/(membership|desired|report).go and internal/conversation/conversation.go (pingbus files), internal/pingbus/statusline/golden/golden_test.go (the pingbus oracle's scenarios.json), and qa/changed/checks.go, qa/ansible/report.go, qa/patterns/semgrep.go (semgrep's report and qa-ansible's machine report)."
+justification = "tagliatelle enforces one JSON key case so a struct tag cannot drift from the house style; these structs decode or write another program's wire format, whose key case is not ours to choose. Scope: internal/transcript/transcript.go (Claude's transcript), internal/wsitoken/usage.go (ccy --token-usage --json), internal/teams/membership/(membership|desired).go and internal/conversation/conversation.go (pingbus files), and internal/pingbus/statusline/golden/golden_test.go (the pingbus oracle's scenarios.json)."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
@@ -67,11 +67,11 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G302"
 path = ".golangci.yml"
-justification = "gosec G302 guards against a chmod that lets other users at a file; the play lock's tests give the runtime directory a mode others can write, because that is the state the lock must refuse to use, and teamchat's tests do the same for the states its code refuses: a consent file others can read and a profile directory others can enter (SPEC-n2e.md EL3, EL4, the Element profiles). Scope: internal/playlock/playlock_test.go, and teamchat's element/ test files only. The teamchat scope is the repository owner's decision 3 on pull request 124 (2026-11-03), Plan 00246 Task 8.2; a Sonnet model widened the scope that day, and the provenance below is the original entry's (pull request 124 asks the owner whether to re-sign it)."
+justification = "gosec G302 guards against a chmod that lets other users at a file; the play lock's tests give the runtime directory a mode others can write, because that is the state the lock must refuse to use, and teamchat's tests do the same for the states its code refuses: a consent file others can read and a profile directory others can enter (SPEC-n2e.md EL3, EL4, the Element profiles). Scope: internal/playlock/playlock_test.go, and teamchat's element/ test files only. The teamchat scope is the repository owner's decision 3 on pull request 124 (2026-11-03), Plan 00246 Task 8.2; a Sonnet model widened the scope that day, and the provenance below is the original entry's (pull request 124 asks the owner whether to re-sign it). Permanent by the owner's decision of 2026-11-17: each mode is the state the code under test must refuse, set by its specification (the play lock's refusal of a runtime directory others can write; SPEC-n2e.md EL3, EL4), so a test that proves the refusal has to build it."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G703"
@@ -94,7 +94,7 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G302|G306"
 path = ".golangci.yml"
-justification = "gosec G304 guards against reading a path an attacker chose and G302/G306 against permissive file modes; qa-ansible itself reads through an fs.FS, but its tests build trees, set the execute bit the hygiene check looks for, and read the report back by computed path under a temporary directory. Scope: qa/ansible/ test files only."
+justification = "gosec G304 guards against reading a path an attacker chose and G302/G306 against permissive file modes; qa-ansible itself reads through an fs.FS, but its tests build trees, set the execute bit the hygiene check looks for, and read the report back by computed path under a temporary directory; the qa-python and qa-bash tests likewise build files under a temporary directory with the modes their checks look for and read back what they wrote. Scope: qa/ansible/ test files, qa/python/ and qa/cmd/qa-python/main test files, and qa/bash/ and qa/cmd/qa-bash/main test files only."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
@@ -103,7 +103,7 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304"
 path = ".golangci.yml"
-justification = "gosec G304 guards against reading a path an attacker chose; each file reads only a path its own job defines: two tests read back a file they wrote under a temporary directory (qa/patterns/helpers_test.go, qa/cmd/qa-patterns/main_test.go), internal/rclonerc/rclonerc.go reads the RC credential play-rclone.yml writes or RCLONE_RC_AUTH_FILE names, internal/watermark/image.go reads the signature the command line names, internal/open/desktop.go reads the desktop entries the XDG search found, internal/wsi/(app|log).go read fixed names in /dev/shm and the user's home, and internal/ghaccount/config.go reads the LOCALHOST_YML the person names. Scope: those files only."
+justification = "gosec G304 guards against reading a path an attacker chose; each file reads only a path its own job defines: two tests read back a file they wrote under a temporary directory (qa/patterns/helpers_test.go, qa/cmd/qa-patterns/main_test.go), internal/rclonerc/rclonerc.go reads the RC credential play-rclone.yml writes or RCLONE_RC_AUTH_FILE names, internal/watermark/image.go reads the signature the command line names, internal/open/desktop.go reads the desktop entries the XDG search found, internal/wsi/(app|log).go read fixed names in /dev/shm and the user's home, internal/ghaccount/config.go reads the LOCALHOST_YML the person names, qa/python/(ruff|report).go reads the pin and the first line of each file git lists, and the gh-account-setup tests (internal/ghaccount/ test files, cmd/gh-account-setup/main_test.go) read back what they built under a temporary directory and the key the real ssh-keygen made. Scope: those files only."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
@@ -119,58 +119,13 @@ decided_on = 2026-10-27
 review_by = 2026-11-26
 
 [[exception]]
-rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|ruff_diagnostics"
-path = ".golangci.yml"
-justification = "gosec G304 guards against reading a path an attacker chose and tagliatelle against JSON key case drift; qa-python reads the pin and the first line of each file git lists by computed path, and its report carries ruff's findings under the snake_case key qa-all reads. Scope: qa/python/(ruff|report).go only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|G302|G306|ruff_diagnostics"
-path = ".golangci.yml"
-justification = "gosec G304/G302/G306 guard against reading a path an attacker chose and permissive file modes, tagliatelle against JSON key case drift; the qa-python tests build files under a temporary directory with the modes the checks look for, read back what they wrote, and assert the snake_case ruff_diagnostics key the report carries. Scope: qa/python/ and qa/cmd/qa-python/main test files only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::tagliatelle/shellcheck_diagnostics"
-path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; qa-bash's report carries shellcheck's findings under the snake_case key shellcheck_diagnostics that qa-all reads. Scope: that key in qa/bash/report.go only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/check_id"
 path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; the one shared type for a semgrep result decodes semgrep's own snake_case keys. Scope: the check_id key in qa/internal/semgrepreport/report.go only."
+justification = "tagliatelle guards against JSON key case drift; the one shared type for a semgrep result decodes semgrep's own snake_case keys. Scope: the check_id key in qa/internal/semgrepreport/report.go only. Permanent by the owner's decision of 2026-11-17: check_id is the key semgrep's --json report gives a result's rule id; semgrep defines it."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::gosec/G306|G302"
-path = ".golangci.yml"
-justification = "gosec G306/G302 guard against files made readable by other users; the report qa-bash writes is meant to be readable by other accounts (mode 0644, SPEC-qa-bash.md S2). Scope: qa/cmd/qa-bash/main.go only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|G302|G306|shellcheck_diagnostics"
-path = ".golangci.yml"
-justification = "gosec G304/G302/G306 guard against reading a path an attacker chose and permissive file modes, tagliatelle against JSON key case drift; the qa-bash tests build files under a temporary directory with the modes the checks look for, read back what they wrote, and assert the snake_case shellcheck_diagnostics key. Scope: qa/bash/ and qa/cmd/qa-bash/main test files only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G703|G301|G302|G306"
@@ -184,38 +139,38 @@ review_by = 2026-11-26
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/CacheMax"
 path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; rclone-cache-status decodes rclone's vfs/stats answer, whose opt keys are rclone's own Go field names (CacheMaxSize, CacheMaxAge). Scope: keys matching CacheMax in internal/rclonecache/stats.go only."
+justification = "tagliatelle guards against JSON key case drift; rclone-cache-status decodes rclone's vfs/stats answer, whose opt keys are rclone's own Go field names (CacheMaxSize, CacheMaxAge). Scope: keys matching CacheMax in internal/rclonecache/stats.go only. Permanent by the owner's decision of 2026-11-17: CacheMaxSize and CacheMaxAge are the option names rclone's vfs/stats remote-control answer carries; rclone defines them."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = 'golangci.yml::exclusions.rules::tagliatelle/channel_map|application\.(process\.id|process\.binary|name)'
 path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own (channel_map) and the sound server's property names (application.process.id, application.process.binary, application.name). Scope: those keys in internal/wsimedia/app.go only."
+justification = "tagliatelle guards against JSON key case drift; wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own (channel_map) and the sound server's property names (application.process.id, application.process.binary, application.name). Scope: those keys in internal/wsimedia/app.go only. Permanent by the owner's decision of 2026-11-17: pactl's --format=json output defines channel_map, and the sound server (PulseAudio, or PipeWire's pulse server) defines the application.* property names."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'"
 path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; ccy-network-policy decodes podman inspect, whose keys are podman's own Go field names (State, Pid, Running, ResolvConfPath, HostConfig, Privileged, EffectiveCaps, NetworkSettings, Networks). Scope: those keys in internal/netpolicy/podman.go only."
+justification = "tagliatelle guards against JSON key case drift; ccy-network-policy decodes podman inspect, whose keys are podman's own Go field names (State, Pid, Running, ResolvConfPath, HostConfig, Privileged, EffectiveCaps, NetworkSettings, Networks). Scope: those keys in internal/netpolicy/podman.go only. Permanent by the owner's decision of 2026-11-17: the keys are the field names podman inspect prints; podman defines them."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-28
-review_by = 2026-11-27
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/mapped-layers"
 path = ".golangci.yml"
-justification = "tagliatelle guards against JSON key case drift; container-images old-range decodes c/storage's own image records (overlay-images/images.json), whose key for an image's mapped layer copies is c/storage's mapped-layers. Scope: that key in internal/containerimages/oldrange_records.go only."
+justification = "tagliatelle guards against JSON key case drift; container-images old-range decodes c/storage's own image records (overlay-images/images.json), whose key for an image's mapped layer copies is c/storage's mapped-layers. Scope: that key in internal/containerimages/oldrange_records.go only. Permanent by the owner's decision of 2026-11-17: mapped-layers is the key containers/storage writes in overlay-images/images.json; containers/storage defines it."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-29
-review_by = 2026-11-28
+decided_on = 2026-11-17
+permanent = true
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G301|G302|G306"
@@ -239,15 +194,6 @@ review_by = 2026-11-26
 rule = "golangci.yml::exclusions.rules::gosec/G304|G302"
 path = ".golangci.yml"
 justification = "gosec G304 guards against reading a path an attacker chose and G302 against permissive modes; gh-account-setup reads the key's .pub by computed path and makes ~/.ssh mode 0700, the mode ssh requires. Scope: internal/ghaccount/app.go only."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::gosec/G304|G302|G301|G306"
-path = ".golangci.yml"
-justification = "gosec G304 guards against reading a path an attacker chose and G301/G302/G306 against permissive modes; the gh-account-setup tests build a home and a checkout under a temporary directory with the modes the real files have, and the command's test reads back the key its real ssh-keygen made. Scope: internal/ghaccount/ test files and cmd/gh-account-setup/main_test.go only."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27

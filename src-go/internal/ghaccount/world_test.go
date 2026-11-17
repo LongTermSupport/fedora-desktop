@@ -75,7 +75,7 @@ func newWorld(t *testing.T) *world {
 		ghVersion: "gh version 2.103.0 (2026-10-21)\n",
 	}
 	for _, d := range []string{w.root, w.home} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,7 +89,7 @@ func newWorld(t *testing.T) *world {
 
 func (w *world) write(path, text string) {
 	w.t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		w.t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
@@ -232,10 +232,11 @@ func (w *world) scriptTools() {
 	})
 	f.OnFunc([]string{"ssh-keygen"}, func(c execx.Cmd) (execx.Result, error) {
 		path, comment := argAfter(c, "-f"), argAfter(c, "-C")
-		if err := os.WriteFile(path, []byte("PRIVATE\n"), 0o644); err != nil {
+		// Not 0600, so the key-mode assertion proves the command's own chmod.
+		if err := os.WriteFile(path, []byte("PRIVATE\n"), 0o400); err != nil {
 			return execx.Result{}, err
 		}
-		if err := os.WriteFile(path+".pub", []byte("ssh-ed25519 KEYNEW"+filepath.Base(path)+" "+comment+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(path+".pub", []byte("ssh-ed25519 KEYNEW"+filepath.Base(path)+" "+comment+"\n"), 0o600); err != nil {
 			return execx.Result{}, err
 		}
 		w.sshAs[path] = strings.TrimSuffix(comment, "@github")

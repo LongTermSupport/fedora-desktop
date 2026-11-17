@@ -37,7 +37,7 @@ type machineReport struct {
 	Summary     summary                      `json:"summary"`
 	Results     []entry                      `json:"results"`
 	Failures    []entry                      `json:"failures"`
-	Diagnostics []map[string]json.RawMessage `json:"shellcheck_diagnostics"`
+	Diagnostics []map[string]json.RawMessage `json:"shellcheckDiagnostics"`
 }
 
 // writeReport encodes the report and writes it where the caller said.
@@ -117,7 +117,7 @@ func (g *gate) finish(files []string, syntax map[string]string, diagnostics []di
 // sayShellcheck prints the advisory line for any finding and the gating lines.
 func (g *gate) sayShellcheck(total int, gating []diagnostic) {
 	if total > 0 {
-		fmt.Fprintf(&g.stdout, "⚠ shellcheck: %d issues (see %s .checks.bash.shellcheck_diagnostics)\n", total, g.merged)
+		fmt.Fprintf(&g.stdout, "⚠ shellcheck: %d issues (see %s .checks.bash.shellcheckDiagnostics)\n", total, g.merged)
 	}
 	if len(gating) == 0 {
 		return

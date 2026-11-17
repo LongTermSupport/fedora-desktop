@@ -115,7 +115,7 @@ func TestRealToolsFailASyntaxErrorAndAFinding(t *testing.T) {
 	if strings.Contains(got.stdout, got.root) || strings.Contains(got.report, got.root) {
 		t.Fatalf("the checkout path is in the output or the report:\n%s\n%s", got.stdout, got.report)
 	}
-	if !strings.Contains(got.report, `"file": "bad.bash"`) || !strings.Contains(got.report, `"shellcheck_diagnostics"`) {
+	if !strings.Contains(got.report, `"file": "bad.bash"`) || !strings.Contains(got.report, `"shellcheckDiagnostics"`) {
 		t.Fatalf("report:\n%s", got.report)
 	}
 }

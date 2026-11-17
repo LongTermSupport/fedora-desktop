@@ -77,16 +77,16 @@ type jsonFailure struct {
 }
 
 type jsonChecks struct {
-	FailFast     []string `json:"fail_fast"`
+	FailFast     []string `json:"failFast"`
 	Hygiene      []string `json:"hygiene"`
-	SelfRef      []string `json:"self_ref"`
+	SelfRef      []string `json:"selfRef"`
 	Scope        []string `json:"scope"`
-	FactVars     []string `json:"fact_vars"`
-	RegexBackref []string `json:"regex_backref"`
-	RegexEscape  []string `json:"regex_escape"`
-	RootUmask    []string `json:"root_umask"`
-	PlayUX       []string `json:"play_ux"`
-	Sudoers      []string `json:"sudoers_rule"`
+	FactVars     []string `json:"factVars"`
+	RegexBackref []string `json:"regexBackref"`
+	RegexEscape  []string `json:"regexEscape"`
+	RootUmask    []string `json:"rootUmask"`
+	PlayUX       []string `json:"playUx"`
+	Sudoers      []string `json:"sudoersRule"`
 }
 
 type jsonReport struct {

@@ -327,7 +327,7 @@ func TestOnlyErrorsAndWarningsGate(t *testing.T) {
 	}
 	got := w.main()
 	expect(t, got, ExitOK)
-	want := "⚠ shellcheck: 2 issues (see /tmp/qa-results.json .checks.bash.shellcheck_diagnostics)\n✓ bash: 1 files OK\n"
+	want := "⚠ shellcheck: 2 issues (see /tmp/qa-results.json .checks.bash.shellcheckDiagnostics)\n✓ bash: 1 files OK\n"
 	if got.stdout != want {
 		t.Fatalf("stdout %q, want %q", got.stdout, want)
 	}
@@ -341,7 +341,7 @@ func TestTheAdvisoryNamesTheMergedReport(t *testing.T) {
 	w := newWorld(t, nil)
 	w.env["QA_RESULTS_JSON"] = "/var/merged.json"
 	w.run.lint = func([]string) proc.Result { return lintAnswer(finding("tool.bash", 2, "info", 2016, "q")) }
-	mustContain(t, "stdout", w.main().stdout, "(see /var/merged.json .checks.bash.shellcheck_diagnostics)")
+	mustContain(t, "stdout", w.main().stdout, "(see /var/merged.json .checks.bash.shellcheckDiagnostics)")
 }
 
 // S12, S13, S14, S15: a gating finding fails its file, with the code in the error and the file in
@@ -359,7 +359,7 @@ func TestGatingFindingsFailTheirFilesAndTheReportSaysWhich(t *testing.T) {
 	got := w.main()
 	expect(t, got, ExitFailed)
 	wantOut := "✗ bash: a.bash: a.bash: line 2: syntax error near unexpected token `fi'\n" +
-		"⚠ shellcheck: 4 issues (see /tmp/qa-results.json .checks.bash.shellcheck_diagnostics)\n" +
+		"⚠ shellcheck: 4 issues (see /tmp/qa-results.json .checks.bash.shellcheckDiagnostics)\n" +
 		"✗ shellcheck: 3 error/warning-level finding(s) — gating\n" +
 		"    a.bash:3 SC2086 (warning) Double quote\n" +
 		"    a.bash:7 SC1072 (error) Unexpected\n" +
@@ -398,5 +398,5 @@ func TestACleanRunPassesAndReportsEveryFile(t *testing.T) {
 		t.Fatalf("report %+v", rep)
 	}
 	data := w.reportText()
-	mustContain(t, "report", data, "\n  \"results\": [", "\"failures\": []", "\"shellcheck_diagnostics\": []")
+	mustContain(t, "report", data, "\n  \"results\": [", "\"failures\": []", "\"shellcheckDiagnostics\": []")
 }

@@ -16,7 +16,7 @@
 #   jq '.status'                # "pass" or "fail"
 #   jq '.summary'               # {total, passed, failed}
 #   jq '.failures[]'            # files with a compile error or a ruff finding
-#   jq '.ruff_diagnostics[]'    # ruff issues with filename/location/code/message
+#   jq '.ruffDiagnostics[]'     # ruff issues with filename/location/code/message
 #
 # Exit codes: 0 pass, 1 findings (or a ruff version other than the pin), 2 the run could not
 # complete.
