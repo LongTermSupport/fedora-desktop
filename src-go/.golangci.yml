@@ -65,6 +65,13 @@ linters:
     - protogetter
   exclusions:
     rules:
+      # fieldalignment's pointer-ordering diagnostic (a struct no smaller in any order, whose
+      # pointers could come first so the garbage collector scans fewer bytes) saves no memory, and
+      # its own documentation says the analyzer very rarely finds a significant problem. Its size
+      # diagnostic, a struct that padding makes bigger than it need be, is still reported.
+      # qa/lintconfig holds both halves of this.
+      - linters: [govet]
+        text: '^fieldalignment: \S+ has \d+ leading bytes of pointer data but optimal value is \d+$'
       # A test spells out the argv it expects; naming each repeated literal ("gum", "fzf")
       # as a constant, or flagging a list like "A A B", hides what is asserted.
       - path: _test\.go
@@ -400,9 +407,6 @@ linters:
       check-blank: true
     govet:
       enable-all: true
-      disable:
-        # Reordering struct fields for padding costs readability for bytes nobody needs.
-        - fieldalignment
     exhaustive:
       # A switch over an enum lists every member: a default would let a new member fall
       # through unhandled.

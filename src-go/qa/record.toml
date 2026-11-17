@@ -263,9 +263,9 @@ decided_on = 2026-11-17
 permanent = true
 
 [[exception]]
-rule = "golangci.yml::govet.disable::fieldalignment"
+rule = 'golangci.yml::exclusions.rules::govet/^fieldalignment: \S+ has \d+ leading bytes of pointer data but optimal value is \d+$'
 path = ".golangci.yml"
-justification = "govet fieldalignment guards against padding bytes wasted in memory-heavy structs; reordering struct fields for padding costs readability for bytes nobody needs, and the module holds no memory-heavy struct. Scope: the fieldalignment analyzer, module-wide."
+justification = "govet fieldalignment's pointer-ordering diagnostic guards against a garbage collector scanning more of a struct for pointers than its field order needs; it fires only on a struct already at its smallest size, so following it saves no memory, and the analyzer's own Doc says its diagnostics very rarely indicate a significant problem, which is why it is in neither vet's nor gopls's default suite. Scope: only that message text (the leading bytes of pointer data diagnostic), module-wide; the size diagnostic of the same analyzer, padding that makes a struct bigger than it need be, is reported and fails the gate (qa/lintconfig proves both). Narrowed from the whole analyzer once every size finding was fixed by hand (Plan 00245); whether this half is excluded for good is the owner's decision at review."
 decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
