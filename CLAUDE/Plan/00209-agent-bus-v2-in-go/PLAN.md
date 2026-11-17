@@ -82,7 +82,7 @@ status-line work.
 - Each team moves with an acceptance and a rollback, and nothing is lost silently (D 5, 6).
 - Every v1 requirement and hard-won lesson carried where it still applies (DESIGN-v2.md section 8).
 - v1 retired (directions 4 and 5): the plays move every desktop team to v2 in one step, then remove
-  v1's Python and bash and `bus/pycompat`. The cut-over and removal tasks are still to be written.
+  v1's Python and bash and `bus/pycompat`. The cut-over and removal are Tasks 6.4 and 6.5.
 
 ## Non-Goals
 
@@ -385,12 +385,21 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   `teamchat-seats.{service,timer}` user units, installed by `play-claude-yolo.yml` (C 3.7.5,
   DC21). A real launch on a v2 team is Task 4.4's. Decisions L1-L6: [LAUNCH-ccy.md](LAUNCH-ccy.md).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
-  the flows (C45), creating a team and renaming it (00201 Task 2.16).
+  the flows (C45), creating a team and renaming it (00201 Task 2.16). Built so far:
+  `choose-teams` for a ccy (podman) launch lists this checkout's teamchat teams (those with a
+  pool seat here) first, and a teamchat team, listed or named alone, gets its one pool seat or
+  the one chosen of several; no seat here is refused (78) and teams on both systems are refused
+  (64) until (a) of Task 4.5. A host (`cc`) launch stays agent-bus only (Task 5.1).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy
   session and one LXC member, its cost measured (P3); `teamchat-coexist` run whole, with the ccy
   seat (D 4.3). **Gate B** (Task 0.5): the pilot's ccy seat and H-C8's are pool seats, so
   neither is added on the host until the owner has confirmed INT6 or chosen
   [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
+  Seen outside this repository (2026-11-17, an estate the owner runs, recorded in its own plan):
+  a v2 team on a bus guest at one site, TLS with the team's CA, with ccy sessions holding pool
+  seats on two machines at two other sites (the coordinator and a worker), passed a round trip in
+  both directions. That is the first real ccy launch on a v2 team, cross-network; this task's
+  own acceptance (the pilot, `teamchat-coexist`, H-C7, H-C8) is still to run here.
 - [ ] ⬜ **Task 4.5** (owner, 2026-11-17: "BUILD IT"): one ccy session that holds a v1 seat and a v2
   seat at once, so the coordinator of a v1 team can dispatch to v2 workers without moving the whole
   team. This reverses L3's refusal of a session on both systems for a mixed list, never for one
@@ -398,7 +407,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   - **(a) Launch:** `ccy-teams system` judges each name on its own. A mixed list is a dual
     launch, not exit 64; one name on both systems stays exit 64. The seat check and take run
     per system: the v1 seats through `agent-bus`, the v2 seats through `teamchatlaunch`. A list
-    with no v1 team no longer needs `agent-bus`.
+    with no v1 team no longer needs `agent-bus` (built ahead of the rest, for the v2 cutover:
+    CCY 3.122.22; an agent-bus list on a host without it is refused with 78, naming the play).
   - **(b) Start:** `ccy-start-claude` runs the v1 kit step AND starts the session under
     `teamchat run`, one owner of the claude start. The pingbus watcher stays a separate child
     feeding the same inbox socket. L1 changes: `TEAMCHAT_MEMBERSHIP` beside a live
@@ -437,6 +447,29 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   request 124, Plan 00246 Task 8.1): `lxccmd` beside the v1 owner of `lxc-ls`, `lxc-info` and
   `lxc-attach`, `teamchat/units` beside the v1 owner of `systemctl`, and the `dynamicNames` row
   for a run-time program inside a wrapper, so each program has one owner again.
+- [ ] ⬜ **Task 6.4** (owner, 2026-11-17: "close the door on v1"): the cut-over without
+  migration, a team at a time, while Tasks 6.1 and 6.2 are unbuilt. A v1 team moves to a fresh
+  v2 team (no history carried, OD-D4), in this order, each step with its check:
+  1. The v2 team exists and is approved, with a roster entry for each seat that moves.
+  2. Each moving machine has the member program (`play-teamchat.yml --tags member`), reaches the
+     bus by name over TLS with the team CA, and has the bus in each checkout's network policy.
+  3. Each seat is issued and placed in its checkout's pool; `ccy-teams system <team>` there says
+     `teamchat`.
+  4. A pilot session per machine: a round trip with every other seat of the team, both
+     directions, read in `teamchat history` on each side; a human posts from Element or
+     Lightning and a seat sees it.
+  5. The v1 team's open questions and threads are answered or closed (v2 has no questions
+     verbs yet), then every session on it is relaunched on the v2 team only.
+  6. Only then the v1 team is `state: absent`, purged or not as the owner decides.
+     A v1 team with no v2 destination (LXC members, which v2 cannot deploy until Phase 5) stays on
+     v1. No v1 team is retired before its replacement passes step 4.
+- [ ] ⬜ **Task 6.5**: removing v1, D 7.2 steps 4 to 7, once every `agent_bus_teams` entry is
+  absent: the v1 software and host objects (`agent-bus*`, its sudoers file, network, user and
+  state roots), its Element profiles and launchers, the v1 kit out of the ccy image (CCY bump)
+  and the v1 code out of the repository, then the declaration check refusing `agent_bus_*` keys.
+  Built test first as plays that refuse to run while any v1 team is present. Needs: a teamchat
+  launch on a host without `agent-bus` (Task 4.5(a), built: CCY 3.122.22), and issue #299 (an
+  Element profile left behind by a dropped item) fixed first.
 
 ### Phase 7: v1 while it runs
 

@@ -120,7 +120,7 @@ type testReport struct {
 	Summary         summary          `json:"summary"`
 	Results         []entry          `json:"results"`
 	Failures        []entry          `json:"failures"`
-	RuffDiagnostics []map[string]any `json:"ruff_diagnostics"`
+	RuffDiagnostics []map[string]any `json:"ruffDiagnostics"`
 }
 
 // report is the machine report the run wrote.

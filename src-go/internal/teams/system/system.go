@@ -172,6 +172,34 @@ func PoolSeats(store paths.Store, checkout paths.CheckoutKey, team paths.TeamID)
 	return seats, nil
 }
 
+// PoolTeams is the teams with a seat in checkout's pool in store, sorted: what this checkout can
+// launch on teamchat with no status record.
+func PoolTeams(store paths.Store, checkout paths.CheckoutKey) ([]string, error) {
+	entries, err := os.ReadDir(store.PoolCheckout(checkout))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the pool: %w", err)
+	}
+	var teams []string
+	for _, e := range entries {
+		team, parseErr := paths.ParseTeamID(e.Name())
+		if parseErr != nil || !e.IsDir() {
+			continue
+		}
+		seats, seatsErr := PoolSeats(store, checkout, team)
+		if seatsErr != nil {
+			return nil, seatsErr
+		}
+		if len(seats) > 0 {
+			teams = append(teams, team.String())
+		}
+	}
+	slices.Sort(teams)
+	return teams, nil
+}
+
 // StatusRecord is the production Status: the team's record under the status root.
 func StatusRecord(team paths.TeamID) (status.Record, bool, error) {
 	return status.Read(paths.StatusFile(team), team)

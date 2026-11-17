@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -60,6 +61,48 @@ func (c *Cmd) Lines(ctx context.Context, teams []string) ([]Line, error) {
 		return nil, err
 	}
 	return Resolve(ctx, teams, Sources{Status: c.Status, PoolHolds: PoolHolds(store, key), Declared: c.Declared})
+}
+
+// Live is whether team is live on teamchat for the working directory's checkout (choose-teams).
+func (c *Cmd) Live(ctx context.Context, team string) (bool, error) {
+	lines, err := c.Lines(ctx, []string{team})
+	if err != nil {
+		return false, err
+	}
+	return len(lines) == 1 && lines[0].System == Teamchat, nil
+}
+
+// SeatParts are the seat parts of the handles of the working directory's pool seats of team,
+// in pool order: the `<seat>` a launch names as `<seat>@<team>`.
+func (c *Cmd) SeatParts(team string) ([]string, error) {
+	id, err := paths.ParseTeamID(team)
+	if err != nil {
+		return nil, fmt.Errorf("team %s: %w", team, err)
+	}
+	store, key, _, err := Here(c.Getenv, c.Getwd)
+	if err != nil {
+		return nil, err
+	}
+	seats, err := PoolSeats(store, key, id)
+	if err != nil {
+		return nil, err
+	}
+	var parts []string
+	for _, s := range seats {
+		if h, ok := proto.ParseHandle(s.String()); ok {
+			parts = append(parts, h.Seat)
+		}
+	}
+	return parts, nil
+}
+
+// PoolTeams are the teams with a seat in the working directory's pool, sorted.
+func (c *Cmd) PoolTeams() ([]string, error) {
+	store, key, _, err := Here(c.Getenv, c.Getwd)
+	if err != nil {
+		return nil, err
+	}
+	return PoolTeams(store, key)
 }
 
 // Run prints the lines, or refuses.

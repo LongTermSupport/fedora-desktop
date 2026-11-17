@@ -172,13 +172,8 @@ func Wire(h *host.Host) *App {
 	chosen.Probe = pick.Probe
 	membershipInit := membership.New(h)
 	sys := newSystem(h)
-	pick.Teamchat = func(ctx context.Context, team string) (bool, error) {
-		lines, err := sys.Lines(ctx, []string{team})
-		if err != nil {
-			return false, err
-		}
-		return len(lines) == 1 && lines[0].System == system.Teamchat, nil
-	}
+	chosen.Teamchat = &chooser.Teamchat{Live: sys.Live, Seats: sys.SeatParts, Teams: sys.PoolTeams}
+	pick.Teamchat = sys.Live
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chosen,

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.22 — container 2.84.30
+## 3.122.23 — container 2.84.30
 
 - **Go structs reordered so padding wastes no memory** (Plan 00245). govet's fieldalignment
   found 103 structs that padding made bigger than they needed to be. Their fields are reordered,
@@ -25,6 +25,18 @@ Two version numbers move independently — see
   into the image's `teamchat` and `pingbus-status-line`, so the image is rebuilt once. Nothing a
   session does changes. The JSON keys of status.json, the questions index and lxc-online.json
   come out in a new order; every reader decodes them by key.
+
+## 3.122.22 — container 2.84.29
+
+- **A teamchat launch runs on a host without agent-bus** (Plan 00209 Task 4.5(a), the v2
+  cutover). The launcher refused every `--teams` launch when `agent-bus` (v1) was not
+  installed, a teamchat-only list included. `ccy-teams internal seat-check` and `seat-take`
+  already decide each list's system, so the launcher's own check is removed: an agent-bus list
+  with agent-bus missing is refused there (78), naming `play-agent-bus.yml`, and a teamchat list
+  never calls agent-bus. The launcher and `ccy-teams` change; the image does not.
+- **`ccy --teams` chooses teamchat seats** (Plan 00209 Task 4.3). The team list shows this
+  checkout's teamchat teams first, and a teamchat team, chosen or named alone, gets its one
+  pool seat here, or the seat chosen of several; with no seat here it is refused (78).
 
 ## 3.122.21 — container 2.84.29
 

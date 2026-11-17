@@ -130,6 +130,19 @@ cat >"$bus_bin/ccy-teams" <<'FAKE'
 # <status> <pingbus> ...` is that pingbus call. Each is forwarded with no line of its own, so the
 # log holds the calls the launcher's own verbs make, as before. Its status goes to
 # $FAKE_BUS_LOG.status.
+# A list of v2- teams is a teamchat list: check prints it and take does nothing, with no
+# agent-bus call. An agent-bus list with agent-bus missing is refused 78, naming the play.
+case "$1 $2 $3" in
+"internal seat-check "*@v2-*) printf '%s\n' "$3" && exit 0 ;;
+"internal seat-take "*@v2-*) exit 0 ;;
+esac
+case "$1 $2" in
+"internal seat-check" | "internal seat-take")
+    command -v agent-bus >/dev/null || {
+        echo "ccy-teams: internal $2: agent-bus is not installed; an agent-bus (v1) team needs it: install it with play-agent-bus.yml, or launch on teamchat teams only." >&2
+        exit 78
+    } ;;
+esac
 case "$1 $2" in
 "internal seat-check") shift 2 && exec agent-bus seat check "$@" ;;
 "internal seat-take") shift 2 && exec agent-bus seat take "$@" ;;
@@ -172,6 +185,10 @@ fi
 exit "${FAKE_PINGBUS_RC:-0}"
 FAKE
 chmod 755 "$bus_bin/pingbus"
+# A host with ccy-teams but no agent-bus (a teamchat-only host).
+teams_only_bin="$work/teams-only-bin"
+mkdir -p "$teams_only_bin"
+cp "$bus_bin/ccy-teams" "$bus_bin/pingbus" "$teams_only_bin/"
 
 # The fake clock: `date +%s%3N` prints FAKE_NOW_MS when a test sets it, so the test owns the time
 # the launcher records; every other `date`, and that one with FAKE_NOW_MS unset, is the real one.
@@ -293,9 +310,11 @@ check "a seat check with nothing on stdout: refused, 78" "rc=78" \
     "$(FAKE_CHECK_OUT='' lib_run ccy_seats_check dev1@team-a true)"
 check "a seat check printing two lines: refused, 78" "rc=78" \
     "$(FAKE_CHECK_OUT=$'a@b\nc@d' lib_run ccy_seats_check dev1@team-a true)"
-check "agent-bus not installed: refused, 78" "rc=78" \
-    "$(LIB_DIR="$LIB_DIR" PATH="/usr/bin:/bin" bash "$work/lib-run.bash" ccy_seats_check dev1@team-a true 2>"$work/lib.err")"
+check "agent-bus not installed, an agent-bus list: ccy-teams' 78 is passed on" "rc=78" \
+    "$(LIB_DIR="$LIB_DIR" PATH="$teams_only_bin:/usr/bin:/bin" bash "$work/lib-run.bash" ccy_seats_check dev1@team-a true 2>"$work/lib.err")"
 check "that refusal names the play that installs it" "yes" "$(has play-agent-bus.yml "$work/lib.err")"
+check "agent-bus not installed, a teamchat list: checked without it" "1@v2-team
+rc=0" "$(LIB_DIR="$LIB_DIR" PATH="$teams_only_bin:/usr/bin:/bin" bash "$work/lib-run.bash" ccy_seats_check 1@v2-team true 2>"$work/lib.err")"
 check "attended, a team alone is kept for the chooser" "team-a,qa@team-b
 rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
 check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
@@ -594,11 +613,12 @@ for tool in podman ssh ssh-add; do
 done
 
 RC=0
-# run_ccy <with-bus|no-bus> <args...>: the launcher in the throwaway repository, stderr in
-# ccy.err, its exit code in RC.
+# run_ccy <with-bus|teams-only|no-bus> <args...>: the launcher in the throwaway repository,
+# stderr in ccy.err, its exit code in RC. teams-only has ccy-teams but no agent-bus.
 run_ccy() {
     local path="$stub_bin:/usr/bin:/bin"
     [ "$1" = with-bus ] && path="$bus_bin:$path"
+    [ "$1" = teams-only ] && path="$teams_only_bin:$path"
     shift
     : >"$FAKE_BUS_LOG"
     : >"$work/tools.log"
@@ -645,9 +665,12 @@ check "the unquoted-space form: refused, 64" "64" "$RC"
 check "  its trailing comma is named" "yes" "$(has "empty item" "$work/ccy.err")"
 check "  nothing reached claude or the engine" "yes" "$(no_session_tools)"
 
-run_ccy no-bus --teams dev1@team-a --headless
-check "agent-bus not installed: 78" "78" "$RC"
+run_ccy teams-only --teams dev1@team-a --headless
+check "agent-bus not installed, an agent-bus team: 78" "78" "$RC"
 check "  it names play-agent-bus.yml" "yes" "$(has play-agent-bus.yml "$work/ccy.err")"
+run_ccy teams-only --headless --teams 1@v2-team
+check "agent-bus not installed, a teamchat team: the launch goes on to its next check" "1" "$RC"
+check "  which is the one after the parsing" "yes" "$(has "--headless flag requires --prompt" "$work/ccy.err")"
 
 # --headless with no --prompt is refused just after the parsing, so a launch that gets past
 # the seat check stops there: proof it went on, with nothing else run.

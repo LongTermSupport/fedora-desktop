@@ -117,7 +117,7 @@ type testReport struct {
 	Summary     summary          `json:"summary"`
 	Results     []entry          `json:"results"`
 	Failures    []entry          `json:"failures"`
-	Diagnostics []map[string]any `json:"shellcheck_diagnostics"`
+	Diagnostics []map[string]any `json:"shellcheckDiagnostics"`
 }
 
 // report is the machine report the run wrote.

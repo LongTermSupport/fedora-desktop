@@ -33,7 +33,7 @@
 #   jq '.status'                          # "pass" or "fail"
 #   jq '.summary'                         # {total, passed, failed}
 #   jq '.failures[]'                      # all violations
-#   jq '.checks.fail_fast[]'              # one check's list (hygiene, self_ref, scope, fact_vars, regex_backref, regex_escape, root_umask)
+#   jq '.checks.failFast[]'               # one check's list (hygiene, selfRef, scope, factVars, regexBackref, regexEscape, rootUmask, playUx, sudoersRule)
 #
 # Exit codes: 0 no violation, 1 a violation, 2 bad usage or the run could not complete (no
 # Ansible directory, a missing playbooks/, an unreadable file, a build failure of the tool).

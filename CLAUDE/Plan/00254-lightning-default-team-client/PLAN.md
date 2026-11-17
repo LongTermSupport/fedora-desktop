@@ -103,8 +103,11 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
     cannot be selected (fedora-desktop #335). The patch,
     [lightning-thread-root-selectable.patch](lightning-thread-root-selectable.patch) on
     `a4e70aba`, makes the root a read-only `TextEdit`. Its test drags across the first line of
-    a short root and of a long root that scrolls. It is not built yet: `build-test.bash` (its
-    default patch) gives the red and green totals, and the pull request follows them.
+    a short root and of a long root that scrolls. `build-test.bash` proved it (2026-11-17): red
+    on the unpatched QML (both rows, `readOnly` false), green with the patch, and every CTest
+    named `thread` 10/10. No pull request: the maintainer fixed #88 on upstream `main` first
+    (selectable root, a drag in a long root selects, the wheel and scroll bar still scroll), so
+    ours would duplicate it. It waits for a release like the others (Task 2.5).
   - [#89](https://github.com/lightning-matrix/lightning/issues/89): scrolling up through the
     replies jumps back to the newest reply (#336). The cause is a hypothesis: moving with the
     scroll bar never clears `followLatest`. It waits on which input the owner used.
