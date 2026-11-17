@@ -15,9 +15,10 @@ departs from what is written in two ways, and the rule reports each:
   where the condition is applied to each finding.
 
 The schema below is gitleaks 8.30.1's (`config/config.go`: `ViperConfig`, `Extend`,
-`viperRuleAllowlist`, `viperGlobalAllowlist`, `viperRequired`). The version is the one the CI
-workflow installs; when the workflow moves to another, the version test fails until both
-clauses are checked against that release and the pin here moved with it.
+`viperRuleAllowlist`, `viperGlobalAllowlist`, `viperRequired`). The version is the one
+`.qa-versions` pins (`GITLEAKS=`), which CI, the ccy image and the host play all install; when
+that pin moves, the version test fails until both clauses are checked against that release and
+the pin here moved with it.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import unittest
 RULE_ID = "gitleaks-config-not-as-written"
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 CONFIG = ".gitleaks.toml"
-WORKFLOW = ".github/workflows/qa.yml"
+PINS = ".qa-versions"
 SCHEMA_VERSION = "8.30.1"
 
 TOP_KEYS = frozenset({"title", "description", "extend", "rules", "allowlist", "allowlists", "minversion"})
@@ -147,9 +148,9 @@ class RuleProof(unittest.TestCase):
 
 class Sweep(unittest.TestCase):
     def test_the_schema_is_the_version_ci_installs(self) -> None:
-        workflow = (REPO_ROOT / WORKFLOW).read_text(encoding="utf-8")
-        pins = re.findall(r"^\s*VER=(\S+)\s*$", workflow, re.M)
-        self.assertEqual(pins, [SCHEMA_VERSION], f"{WORKFLOW} gitleaks VER= lines; check the rule for a new release")
+        pinned = (REPO_ROOT / PINS).read_text(encoding="utf-8")
+        pins = re.findall(r"^GITLEAKS=(\S+)\s*$", pinned, re.M)
+        self.assertEqual(pins, [SCHEMA_VERSION], f"{PINS} GITLEAKS= lines; check the rule for a new release")
 
     def test_no_finding(self) -> None:
         found = [f"{CONFIG}: {place} ({RULE_ID})"
