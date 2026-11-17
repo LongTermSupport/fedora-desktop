@@ -90,6 +90,28 @@ func Unguarded(paths.TeamID) error { return nil }
 // ErrNoGuard is a take given no guard: each taker must name its own, so none is left out.
 var ErrNoGuard = errors.New("teamlock: a take must be given a guard")
 
+// All is the guard of every one of guards, judged in order: it refuses on the first that
+// refuses and runs none after it. No guard, or a nil one among them, is refused with
+// ErrNoGuard, as Take refuses a nil guard (SPEC-carry SG3).
+func All(guards ...Guard) Guard {
+	return func(team paths.TeamID) error {
+		if len(guards) == 0 {
+			return ErrNoGuard
+		}
+		for _, g := range guards {
+			if g == nil {
+				return ErrNoGuard
+			}
+		}
+		for _, g := range guards {
+			if err := g(team); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
 // Take takes the team's lock in dir (paths.AdminRunDir on a host), waiting up to wait by clock
 // (0 is one try), writes the holder line `<verb> <team> pid=<n> since=<ms>` into it, and then
 // runs guard; a guard's refusal is returned once the lock is released again.

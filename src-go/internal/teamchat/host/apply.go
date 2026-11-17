@@ -72,6 +72,8 @@ const (
 	verbApply  = "team apply"
 	verbRemove = "team remove"
 	verbServe  = "serve"
+	// verbCarryCheck is ServeLoopback's: team carry-check's start of a carried team.
+	verbCarryCheck = "carry-check"
 )
 
 // The readiness wait (C 3.5.2 step 8).
@@ -191,8 +193,11 @@ type Deps struct {
 	Ready         Readiness
 	Status        Status
 	Guard         teamlock.Guard
-	Backup        func(ctx context.Context, held *teamlock.Lock) error
-	Bootstrap     func(ctx context.Context, b Bootstrap) ([]string, error)
+	// RemoveGuard is team remove's, judged under its lock instead of Guard: it admits a sealed
+	// team, which Guard refuses (SPEC-carry SG4: carry.RemoveGuard on a host).
+	RemoveGuard teamlock.Guard
+	Backup      func(ctx context.Context, held *teamlock.Lock) error
+	Bootstrap   func(ctx context.Context, b Bootstrap) ([]string, error)
 }
 
 // Error is a failed verb: the step, and whether it is drift a rule refused (exit 70); anything
@@ -314,6 +319,11 @@ func (a *applying) refusals(_ context.Context) error {
 		return a.fail(StepRefusals, err)
 	}
 	a.first = !found
+	if a.first && a.in.Team.CarriedFrom != "" {
+		// SPEC-carry SG6: a first apply would make a fresh CA, after which the import is refused
+		// for ever (SI2).
+		return a.refuse("team %s is declared as carried: run team import first, then team apply", a.team)
+	}
 	if found && string(name) != a.in.Team.ServerName {
 		return a.refuse("server_name %s is not %s, fixed at the team's first apply (C3)", a.in.Team.ServerName, name)
 	}
@@ -425,7 +435,7 @@ func (a *applying) urlHost() error {
 // team's homeserver.
 func (a *applying) port() error {
 	port := a.in.Team.Port
-	other, taken, err := a.portRecordedBy(port)
+	other, taken, err := PortRecordedBy(a.d.Root, a.team, port)
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
@@ -448,19 +458,21 @@ func (a *applying) port() error {
 	return nil
 }
 
-// portRecordedBy is the other v2 team whose units.json records port, and whether there is one.
-func (a *applying) portRecordedBy(port int) (paths.TeamID, bool, error) {
+// PortRecordedBy is the v2 team other than team whose units.json under root records port, and
+// whether there is one: apply's refusal of a port another team holds, which an import runs
+// before it places anything (SPEC-carry SI3).
+func PortRecordedBy(root string, team paths.TeamID, port int) (paths.TeamID, bool, error) {
 	var none paths.TeamID
-	entries, err := os.ReadDir(a.path(paths.AdminStateRoot))
+	entries, err := os.ReadDir(root + paths.AdminStateRoot)
 	if err != nil {
 		return none, false, err
 	}
 	for _, e := range entries {
 		other, perr := paths.ParseTeamID(e.Name())
-		if perr != nil || other == a.team || !e.IsDir() {
+		if perr != nil || other == team || !e.IsDir() {
 			continue
 		}
-		raw, found, rerr := state.ReadFile(a.path(paths.UnitsRecord(other)), fileMax)
+		raw, found, rerr := state.ReadFile(root+paths.UnitsRecord(other), fileMax)
 		if rerr != nil {
 			return none, false, rerr
 		}
@@ -743,7 +755,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 // recordedDropIn writes the drop-in of the version and listen set units.json records, unless the
 // one on disk already runs that version.
 func (a *applying) recordedDropIn() error {
-	old := dropInSpec{team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port}
+	old := recordedSpec(a.team, a.units.public(), a.d.Pin.MemoryHigh)
 	if a.haveDropIn && strings.Contains(string(a.dropIn), old.execStart()) {
 		return nil
 	}
@@ -752,6 +764,23 @@ func (a *applying) recordedDropIn() error {
 	}
 	a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
 	return nil
+}
+
+// recordedSpec is the server drop-in of the version and port units.json records, with the pin's
+// memory bound.
+func recordedSpec(team paths.TeamID, u Units, memoryHigh string) dropInSpec {
+	return dropInSpec{team: team, version: u.Version, memoryHigh: memoryHigh, port: u.Port}
+}
+
+// WriteRecordedDropIn writes under root the team's server drop-in made from units.json alone,
+// the text apply's backup start writes: `team carry-check` starts the carried database on the
+// version that last wrote it (SPEC-carry section 6).
+func WriteRecordedDropIn(root string, team paths.TeamID, u Units, memoryHigh string) error {
+	file := root + paths.ServerDropInFile(team)
+	if err := MkdirShared(filepath.Dir(file)); err != nil {
+		return err
+	}
+	return state.WriteFile(file, recordedSpec(team, u, memoryHigh).text(), 0o644, -1)
 }
 
 func (a *applying) writeDropIn(text []byte) error {

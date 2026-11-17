@@ -115,7 +115,7 @@ func Resume(ctx context.Context, d Deps, held *teamlock.Lock, team paths.TeamID)
 	if err != nil {
 		return Answer{}, err
 	}
-	v, err := readApplied(d, team)
+	v, err := ReadApplied(d, team)
 	if err != nil {
 		return Answer{}, err
 	}

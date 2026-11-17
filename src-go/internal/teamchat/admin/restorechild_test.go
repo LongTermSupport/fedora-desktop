@@ -232,7 +232,7 @@ func unitAnswering(stdout string, code int, stdin *[]byte) (UnitChild, *execx.Fa
 }
 
 // TestUnitChildRunsTheUnitsArgvAsRoot is RU2 and RU3: the argv as given, as root (no
-// credential), in /, with PATH and LANG=C alone, the request on stdin.
+// credential), in /, with PATH and LANG=C alone, the request on stdin as one line.
 func TestUnitChildRunsTheUnitsArgvAsRoot(t *testing.T) {
 	var stdin []byte
 	c, f := unitAnswering(`{"v":1,"ok":true,"changed":["member x parked"]}`+"\n", 0, &stdin)
@@ -241,7 +241,7 @@ func TestUnitChildRunsTheUnitsArgvAsRoot(t *testing.T) {
 		t.Fatalf("answer %+v %v", a, err)
 	}
 	want, err := EncodeRequest(parkRequest(t))
-	if err != nil || string(stdin) != string(want) {
+	if err != nil || string(stdin) != string(want)+"\n" {
 		t.Fatalf("stdin %s %v", stdin, err)
 	}
 	got := f.Calls()[0]

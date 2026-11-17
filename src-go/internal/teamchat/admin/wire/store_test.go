@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -209,6 +210,115 @@ func TestRestoreEngineIsTheHostsAdapters(t *testing.T) {
 	}
 	if reflect.TypeOf(d.Approvals) != reflect.TypeOf(sys.Host.Approvals) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) {
 		t.Fatalf("Approvals %T, Status %T: not the host's", d.Approvals, d.Status)
+	}
+}
+
+// carryEngineOf is the carry engine the wiring builds.
+func carryEngineOf(t *testing.T, sys *admin.System) admin.CarryEngine {
+	t.Helper()
+	c, err := sys.Carry()
+	if err != nil {
+		t.Fatalf("Carry: %v", err)
+	}
+	e, ok := c.(admin.CarryEngine)
+	if !ok {
+		t.Fatalf("Carry = %T", c)
+	}
+	return e
+}
+
+// SPEC-carry section 13: System.Carry is the carry engine over the host's own adapters: the
+// lock directory, the state owner and the ctl uid, the units manager, the child for the live
+// server, restore's FS and the host's status record.
+func TestCarryEngineIsTheHostsAdapters(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	d := carryEngineOf(t, sys).Deps
+	if d.Root != f.root || d.LockDir != sys.Host.LockDir || d.CtlUID != 990 || d.StateOwnerUID != 0 || d.FS != (restore.OS{Root: f.root}) {
+		t.Fatalf("Deps %+v", d)
+	}
+	if d.Ready != (hostnet.Readiness{}) || d.Clock != (systemClock{}) || d.Software.String() != sys.Host.Software {
+		t.Fatalf("Deps %+v", d)
+	}
+	if missing := nilFields(reflect.ValueOf(d)); len(missing) > 0 {
+		t.Fatalf("carry.Deps seams left nil: %v", missing)
+	}
+	child, ok := d.Child.(admin.CarryChild)
+	if !ok || reflect.TypeOf(child.Live) != reflect.TypeOf(sys.Child) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) ||
+		reflect.TypeOf(d.Systemd) != reflect.TypeOf(sys.Host.Systemd) {
+		t.Fatalf("Child %T, Status %T, Systemd %T: not the host's", d.Child, d.Status, d.Systemd)
+	}
+}
+
+// SX1: the export's files are carry.OS under the root; CN5: its cap is the host's setting, read
+// only when asked, and absent here, so 78.
+func TestCarryExportIsTheHostsFilesAndSetting(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	d := carryEngineOf(t, build(t, f)).Deps
+	if d.Files != (carry.OS{Root: f.root}) {
+		t.Fatalf("Files %#v", d.Files)
+	}
+	if _, err := d.MaxArchive(); admin.ExitCodeOf(err) != admin.ExitConfig {
+		t.Fatalf("MaxArchive with no setting: %v", err)
+	}
+}
+
+// SPEC-carry section 6: the check's loopback start is host.ServeLoopback with the host's pin,
+// which it reads first: no pin is that error, and a team never applied the start's own.
+func TestCarryCheckStartIsTheHostsWithThePin(t *testing.T) {
+	team := alphaID(t)
+	noPin := errors.New("no pin file")
+	d := carryEngineOf(t, build(t, &fakeMachine{root: t.TempDir(), pinErr: noPin})).Deps
+	if err := d.Loopback(t.Context(), team); !errors.Is(err, noPin) {
+		t.Fatalf("Loopback with no pin = %v", err)
+	}
+	d = carryEngineOf(t, build(t, &fakeMachine{root: t.TempDir()})).Deps
+	var he *host.Error
+	if err := d.Loopback(t.Context(), team); !errors.As(err, &he) || he.Verb != "carry-check" || !strings.Contains(err.Error(), "no units.json") {
+		t.Fatalf("Loopback of an unapplied team = %v", err)
+	}
+}
+
+// SI9: the import stages and places as the host: its stage is carry.StageOS under the root with
+// the teamchat-ctl account's uid and gid and the System's owner group, the account looked up
+// once; SD5: the drill's restart is host.Serve, which a team never applied cannot start.
+func TestCarryEngineStagesAsTheHost(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	d := carryEngineOf(t, sys).Deps
+	if f.n.users != 1 {
+		t.Fatalf("building the carry engine looked the account up %d times, want 1", f.n.users)
+	}
+	stage, ok := d.Stage.(carry.StageOS)
+	if !ok || stage.Root != f.root || stage.StateOwnerUID != 0 || stage.CtlUID != 990 || stage.CtlGID != 985 || stage.OwnerGroup == nil {
+		t.Fatalf("Stage = %#v", d.Stage)
+	}
+	if gid, err := stage.OwnerGroup(); err != nil || gid != 1000 || f.n.groups != 1 {
+		t.Fatalf("Stage.OwnerGroup = %d, %v after %d reads", gid, err, f.n.groups)
+	}
+	if _, err := sys.OwnerGroup(); err != nil || f.n.groups != 1 {
+		t.Fatalf("the stage and the System do not share one owner-group read: %v, %d reads", err, f.n.groups)
+	}
+	var he *host.Error
+	if err := d.Serve(t.Context(), alphaID(t)); !errors.As(err, &he) || !strings.Contains(err.Error(), "no units.json") {
+		t.Fatalf("Serve of an unapplied team = %v", err)
+	}
+}
+
+// SPEC-carry section 13: with no teamchat-ctl account, or its lookup failing, no carry engine
+// is built, and the error names the cause.
+func TestCarryNeedsTheCtlAccount(t *testing.T) {
+	for name, f := range map[string]*fakeMachine{
+		"no account": {root: t.TempDir(), noCtl: true},
+		"lookup":     {root: t.TempDir(), userErr: errors.New("nss down")},
+	} {
+		c, err := build(t, f).Carry()
+		if c != nil || err == nil {
+			t.Errorf("%s: Carry = %v, %v", name, c, err)
+		}
+		if f.n.users != 1 {
+			t.Errorf("%s: %d lookups, want 1", name, f.n.users)
+		}
 	}
 }
 

@@ -179,21 +179,8 @@ func read(path string, limit int64, flags int, want trust) ([]byte, bool, error)
 }
 
 func readOpen(f *os.File, path string, limit int64, want trust) ([]byte, error) {
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("cannot stat %s: %w", path, err)
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	owner := want.owner
-	switch {
-	case !info.Mode().IsRegular() || !ok:
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	case owner != nil && st.Uid != *owner:
-		return nil, &OwnerError{Path: path, UID: st.Uid, Want: *owner}
-	case want.private && info.Mode()&modeBits != privateMode:
-		return nil, &ModeError{Path: path, Mode: info.Mode() & modeBits}
-	case owner != nil && info.Mode().Perm()&0o022 != 0:
-		return nil, fmt.Errorf("%s is writable by its group or by others", path)
+	if err := checkOpen(f, path, want); err != nil {
+		return nil, err
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
@@ -203,4 +190,39 @@ func readOpen(f *os.File, path string, limit int64, want trust) ([]byte, error) 
 		return nil, fmt.Errorf("%s is over %d bytes", path, limit)
 	}
 	return data, nil
+}
+
+// checkOpen judges the file opened, never a name checked first: regular, and what want requires.
+func checkOpen(f *os.File, path string, want trust) error {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("cannot stat %s: %w", path, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	owner := want.owner
+	switch {
+	case !info.Mode().IsRegular() || !ok:
+		return fmt.Errorf("%s is not a regular file", path)
+	case owner != nil && st.Uid != *owner:
+		return &OwnerError{Path: path, UID: st.Uid, Want: *owner}
+	case want.private && info.Mode()&modeBits != privateMode:
+		return &ModeError{Path: path, Mode: info.Mode() & modeBits}
+	case owner != nil && info.Mode().Perm()&0o022 != 0:
+		return fmt.Errorf("%s is writable by its group or by others", path)
+	}
+	return nil
+}
+
+// OpenOwnedFile is ReadOwnedFile for a file streamed rather than read whole: the same open and
+// the same checks of the file opened, which is returned at its start for the caller to read and
+// close. A missing file is an error that is fs.ErrNotExist.
+func OpenOwnedFile(path string, uid uint32) (*os.File, error) {
+	f, err := openIn(path, readFlags)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open %s: %w", path, err)
+	}
+	if err := checkOpen(f, path, trust{owner: &uid}); err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	return f, nil
 }

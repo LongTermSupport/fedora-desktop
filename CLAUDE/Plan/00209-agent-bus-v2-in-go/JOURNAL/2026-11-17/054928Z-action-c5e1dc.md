@@ -1,0 +1,3 @@
+## 05:49 · action · —
+
+Item 16 (SPEC-carry section 13), host check SH1. The drill's clause list (Q3) is the restore decisions note's and is not in the repository, so SH1's clause is written in SPEC-carry section 8 as three steps the drill records on the scratch guest (sc-D19). Its import half is pinned by carry TestImportLeavesTheHomeserverTreeToSystemd: green on the existing code (no defect), proven able to fail by a symlink planted in the placed tree (both kinds red), then reverted. The carry's build status is marked complete in PLAN.md and the SPEC status line; pending by hand: the -tags tuwunel carry test against a real Tuwunel, and the drill with SH1 on the scratch guest (the driver's).

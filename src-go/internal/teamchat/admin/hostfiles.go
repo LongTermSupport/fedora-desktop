@@ -64,6 +64,29 @@ func ownerGroupFile(root string, lookupGroup func(string) (int, error), owner ui
 	}
 }
 
+// CarryMaxArchive is the carry archive's cap (CN5): paths.CarryMaxArchiveFile under root,
+// root-owned, a positive decimal number of bytes and at most one newline. There is no built-in
+// fallback: every failure, a missing file included, is 78 naming the setting.
+func CarryMaxArchive(root string) func() (int64, error) { return carryMaxArchive(root, 0) }
+
+var byteCountRE = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
+
+func carryMaxArchive(root string, owner uint32) func() (int64, error) {
+	return func() (int64, error) {
+		path := root + paths.CarryMaxArchiveFile
+		raw, err := readConfigFile(path, owner, state.ReadOwnedFile)
+		if err != nil {
+			return 0, &configError{fmt.Sprintf("%s: %v", paths.CarryMaxArchiveVar, err)}
+		}
+		text := strings.TrimSuffix(string(raw), "\n")
+		n, err := strconv.ParseInt(text, 10, 64)
+		if !byteCountRE.MatchString(text) || err != nil {
+			return 0, &configError{fmt.Sprintf("%s: %s does not hold a positive number of bytes", paths.CarryMaxArchiveVar, path)}
+		}
+		return n, nil
+	}
+}
+
 // LookupGroup is a local group's gid by name.
 func LookupGroup(name string) (int, error) {
 	g, err := user.LookupGroup(name)

@@ -33,6 +33,33 @@ func Serve(ctx context.Context, d Deps, team paths.TeamID) error {
 	return serveTerminator(ctx, d, team, units)
 }
 
+// ServeLoopback is `team carry-check`'s start of a carried team (SPEC-carry section 6), under a
+// lock the caller holds: the server drop-in made from units.json alone (WriteRecordedDropIn,
+// with the pin's memory bound), a daemon-reload, a start unless the unit is active, the wait
+// for it ready on the recorded port and its bound addresses held to loopback alone. The
+// terminator is never started, and nothing but the drop-in is written.
+func ServeLoopback(ctx context.Context, d Deps, team paths.TeamID) error {
+	unit := paths.ServerUnit(team)
+	fail := func(step string, err error) error { return &Error{Verb: verbCarryCheck, Step: step, Err: err} }
+	units, err := readUnits(d.Root, team)
+	if err != nil {
+		return fail(StepUnit, err)
+	}
+	if err := WriteRecordedDropIn(d.Root, team, units.public(), d.Pin.MemoryHigh); err != nil {
+		return fail(StepUnit, err)
+	}
+	if err := startUnit(ctx, d, unit); err != nil {
+		return fail(StepUnit, err)
+	}
+	if err := ready(ctx, d, unit, units.port); err != nil {
+		return fail(StepReady, err)
+	}
+	if err := boundAs(d, unit, units.port, []string{loopbackListen}); err != nil {
+		return fail(StepAddresses, err)
+	}
+	return nil
+}
+
 // serveTerminator starts the team's TLS terminator, after its homeserver, and holds its bound
 // addresses to the listen set units.json records (X18).
 func serveTerminator(ctx context.Context, d Deps, team paths.TeamID, units unitsRecord) error {

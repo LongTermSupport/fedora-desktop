@@ -24,7 +24,7 @@ func TestDirectoryModesIgnoreTheUmask(t *testing.T) {
 	if err := MkdirShared(shared); err != nil {
 		t.Fatal(err)
 	}
-	if err := mkdirOwned(owned, -1, -1); err != nil {
+	if err := MkdirOwned(owned, -1, -1); err != nil {
 		t.Fatal(err)
 	}
 	if got := mode(t, shared); got != 0o755 {

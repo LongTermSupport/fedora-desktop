@@ -218,7 +218,35 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15). The verbs no slice
   specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
   The sealed carry of a team to an empty guest (`team seal`, `export`, `import`, `carry-check`,
-  issue #324; outside DC8, `restore` unchanged): [SPEC-carry.md](SPEC-carry.md), not built; no open question.
+  issue #324; outside DC8, `restore` unchanged): [SPEC-carry.md](SPEC-carry.md). Its build is
+  complete in code on branch `sealed-carry`, in its section 13's order, with no open question:
+
+  - items 01-09: names, archive, records, guards, host exports, the child's carry ops, the seal
+    and `team seal`, the sealed export and `team export`, the drill export and
+    `team export --drill`; SC1 refuses an entry the export would refuse (sc-D20);
+  - item 10: `Import` and `team import` (validation, staging, placement, `--resume`,
+    `--discard`, a kill at every call; sc-D11, sc-D12);
+  - item 11: `Check` and `team carry-check` (sc-D13), its drop-in removed after the stop (sc-D14);
+  - item 12: SG6's `carried_from` marker (sc-D15); item 12b: SG2, a drill import never joins a
+    real team (sc-D16);
+  - item 13: SA1-SA3, `host.Apply` over an imported tree (sc-D17);
+  - item 14: SH-T1 to SH-T3, the tick and `backup --all` (tests only);
+  - item 15: the wiring, and a carry through the four verbs over fakehs and, under
+    `-tags tuwunel`, over a real Tuwunel (sc-D18); the dispatcher's carry gate judges root's
+    verbs only (sc-D21);
+  - item 16: host check SH1's clause for the drill, its import half pinned by a test (sc-D19).
+
+  Pending:
+
+  - the play must write the archive cap file before export or import can run (they exit 78
+    until then; a deploy step, outside gate A);
+  - the `-tags tuwunel` carry test has not been run against a real Tuwunel (its harness now
+    sets umask 077 as the host's unit does, so SX3 sees the host's modes; unproven until run);
+  - the drill, with SH1, has not been run on the scratch guest (the driver's);
+  - the lab scenario of Q5 (`TeamStateRoots` absent after a purge) is not built: it needs a
+    manifest entry and a guest script that applies and purges a team, and its checker must not
+    copy the Go list.
+
   Its slice S5 is built in part, for issue #296 (a declared human could not sign in): `human password`, `logout` and `devices` (HU1-HU5, HU13) on the defaults of section 8. `human lock`
   and `unlock` wait on n2h-D12 (a roster state `locked`, the owner's) and the real-Tuwunel
   probe n2h-D20. HU15's fault rows are built for the account lookup, both roster writes and the

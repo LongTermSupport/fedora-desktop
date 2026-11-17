@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -36,7 +37,7 @@ func (c RestoreChild) Secure(ctx context.Context, team paths.TeamID, unit []stri
 		proto.M(keyRetire, lineArray(a.Retire)), proto.M(keyRevoke, lineArray(a.Revoke)),
 		proto.M(keyRevokeHumans, lineArray(a.RevokeHumans)), proto.M(keyLock, lineArray(a.Lock)),
 	)
-	ans, err := askRestore(ctx, child, OpRestoreSecure, team, a.TeamFile, members...)
+	ans, err := askOp(ctx, child, OpRestoreSecure, team, a.TeamFile, members...)
 	return ans.Changed, err
 }
 
@@ -54,7 +55,7 @@ func (c RestoreChild) Check(ctx context.Context, team paths.TeamID, unit []strin
 		}
 		port, token = proto.Int(int64(a.Port)), proto.Str(a.Token)
 	}
-	ans, err := askRestore(ctx, child, OpRestoreCheck, team, a.TeamFile, proto.M(keyPort, port), proto.M(keyToken, token))
+	ans, err := askOp(ctx, child, OpRestoreCheck, team, a.TeamFile, proto.M(keyPort, port), proto.M(keyToken, token))
 	if err != nil {
 		return restore.Epoch{}, err
 	}
@@ -67,13 +68,13 @@ func (c RestoreChild) Swap(ctx context.Context, team paths.TeamID, a restore.Swa
 	if err != nil {
 		return nil, err
 	}
-	ans, err := askRestore(ctx, c.Live, OpRestoreSwap, team, a.TeamFile, append([]proto.Member{proto.M(keyToken, proto.Str(a.Token))}, files...)...)
+	ans, err := askOp(ctx, c.Live, OpRestoreSwap, team, a.TeamFile, append([]proto.Member{proto.M(keyToken, proto.Str(a.Token))}, files...)...)
 	return ans.Changed, err
 }
 
 // Export implements restore.Child: restore.export (RC3).
 func (c RestoreChild) Export(ctx context.Context, team paths.TeamID, a restore.ExportArgs) (restore.Export, error) {
-	ans, err := askRestore(ctx, c.Live, OpRestoreExport, team, a.TeamFile,
+	ans, err := askOp(ctx, c.Live, OpRestoreExport, team, a.TeamFile,
 		proto.M(keyBackup, proto.Int(a.Backup)), proto.M(keySinceMS, proto.Int(a.SinceMS)))
 	if err != nil {
 		return restore.Export{}, err
@@ -83,13 +84,13 @@ func (c RestoreChild) Export(ctx context.Context, team paths.TeamID, a restore.E
 
 // Finish implements restore.Child: restore.finish (RC4).
 func (c RestoreChild) Finish(ctx context.Context, team paths.TeamID, teamFile []byte) ([]string, error) {
-	ans, err := askRestore(ctx, c.Live, OpRestoreFinish, team, teamFile)
+	ans, err := askOp(ctx, c.Live, OpRestoreFinish, team, teamFile)
 	return ans.Changed, err
 }
 
 // Revert implements restore.Child: restore.revert (RC5).
 func (c RestoreChild) Revert(ctx context.Context, team paths.TeamID, teamFile []byte) ([]string, error) {
-	ans, err := askRestore(ctx, c.Live, OpRestoreRevert, team, teamFile)
+	ans, err := askOp(ctx, c.Live, OpRestoreRevert, team, teamFile)
 	return ans.Changed, err
 }
 
@@ -117,9 +118,14 @@ func fileArgs(team paths.TeamID, rooms proto.RoomIDs, roster apply.RosterFile) (
 	return []proto.Member{proto.M(keyRooms, r), proto.M(keyRoster, f)}, nil
 }
 
-// askRestore asks child op with the team file and members as its args. The answer must fit the
+// askOp asks child op with the team file and members as its args. The answer must fit the
 // op; a failed one is a ChildError, returned beside the lines changed before it.
-func askRestore(ctx context.Context, child Child, op string, team paths.TeamID, teamFile []byte, members ...proto.Member) (Answer, error) {
+func askOp(ctx context.Context, child Child, op string, team paths.TeamID, teamFile []byte, members ...proto.Member) (Answer, error) {
+	return askOpWith(ctx, child, op, team, teamFile, nil, members...)
+}
+
+// askOpWith is askOp with body, carry.place's stream, after the request (sc-D11).
+func askOpWith(ctx context.Context, child Child, op string, team paths.TeamID, teamFile []byte, body io.Reader, members ...proto.Member) (Answer, error) {
 	tf, err := proto.Parse(teamFile)
 	if err == nil && tf.Kind() != proto.KindObject {
 		err = errors.New("not an object")
@@ -127,7 +133,7 @@ func askRestore(ctx context.Context, child Child, op string, team paths.TeamID, 
 	if err != nil {
 		return Answer{}, fmt.Errorf("the team file: %w", err)
 	}
-	a, err := child.Ask(ctx, Request{Op: op, Team: team, Args: proto.Obj(append([]proto.Member{proto.M(keyTeamFile, tf)}, members...)...)})
+	a, err := child.Ask(ctx, Request{Op: op, Team: team, Args: proto.Obj(append([]proto.Member{proto.M(keyTeamFile, tf)}, members...)...), Body: body})
 	if err == nil {
 		err = answerFits(op, a)
 	}

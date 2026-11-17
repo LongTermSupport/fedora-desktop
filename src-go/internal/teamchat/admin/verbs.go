@@ -38,14 +38,19 @@ type System struct {
 	TeamCA     TeamCA
 	OwnerGroup func() (int, error)
 	Open       Opener
-	Pin        func() (host.Pin, error)
-	CtlIDs     func() (User, error)
-	Health     func() (HealthTick, error)
-	Home       func(uid int) (string, error)
-	LXC        func() (*lxc.Deps, error)
-	Backup     func() (backup.Deps, error)
+	// Place is the child's writer of a carried team's files (SC-C2), which the Opener cannot
+	// serve: it needs the admin token the place writes.
+	Place  Placer
+	Pin    func() (host.Pin, error)
+	CtlIDs func() (User, error)
+	Health func() (HealthTick, error)
+	Home   func(uid int) (string, error)
+	LXC    func() (*lxc.Deps, error)
+	Backup func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
 	Restore func() (Restorer, error)
+	// Carry is the carry verbs' engine (SPEC-carry), built when a carry verb runs.
+	Carry func() (Carrier, error)
 	// RotateWrite replaces each file `team rotate-ca` replaces: state.WriteFile on a host.
 	RotateWrite host.FileWriter
 }
@@ -98,7 +103,8 @@ func usagef(format string, args ...any) error { return &usageError{fmt.Sprintf(f
 // rootRuns are the verbs this slice builds.
 func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 	runs := map[string]func(context.Context, Env, []string) term.ExitCode{
-		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove, "team rotate-ca": teamRotateCA,
+		"team apply": teamApply, "team approve": teamApprove, verbTeamRemove: teamRemove, "team rotate-ca": teamRotateCA,
+		"team seal": teamSeal, verbTeamExport: teamExport, "team import": teamImport, "team carry-check": teamCarryCheck,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 		"lxc apply": lxcApply, "lxc restart": lxcRestart,

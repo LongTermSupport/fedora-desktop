@@ -28,7 +28,7 @@ type removing struct {
 // before a failure included.
 func Remove(ctx context.Context, d Deps, team paths.TeamID, purge bool) ([]string, error) {
 	r := &removing{d: d, team: team, unit: paths.ServerUnit(team), purge: purge}
-	lock, err := teamlock.Take(ctx, d.LockDir, team, "team.remove", d.LockWait, d.Clock, d.Guard)
+	lock, err := teamlock.Take(ctx, d.LockDir, team, "team.remove", d.LockWait, d.Clock, d.RemoveGuard)
 	if err != nil {
 		return nil, r.fail(StepLock, err)
 	}
@@ -86,33 +86,40 @@ func (r *removing) installed() (bool, error) {
 	return false, nil
 }
 
-// stopUnit stops and disables the team's terminator, then its homeserver: nobody is let in to a
-// homeserver that is going away.
+// stopUnit stops and disables the team's terminator, then its homeserver.
 func (r *removing) stopUnit(ctx context.Context) error {
-	if err := r.stop(ctx, paths.TLSUnit(r.team), "tls unit"); err != nil {
-		return err
-	}
-	return r.stop(ctx, r.unit, "unit")
+	lines, err := StopTeamUnits(ctx, r.d.Systemd, r.team, true)
+	r.changed = append(r.changed, lines...)
+	return err
 }
 
-func (r *removing) stop(ctx context.Context, unit, what string) error {
-	st, err := r.d.Systemd.State(ctx, unit)
-	if err != nil {
-		return err
-	}
-	if st.Active != "inactive" && st.Active != "failed" {
-		if err := r.d.Systemd.Stop(ctx, unit); err != nil {
-			return err
+// StopTeamUnits stops the team's TLS terminator, then its homeserver, so nobody is let in to a
+// homeserver that is going down, disabling each after its stop when disable is set (team remove,
+// and the seal, SPEC-carry SC4; a drill export only stops, SD3). A unit inactive or failed is
+// not stopped again. It answers the CHANGED lines, those before a failure included.
+func StopTeamUnits(ctx context.Context, sd Systemd, team paths.TeamID, disable bool) ([]string, error) {
+	var lines []string
+	for _, u := range []struct{ unit, what string }{
+		{paths.TLSUnit(team), "tls unit"}, {paths.ServerUnit(team), "unit"},
+	} {
+		st, err := sd.State(ctx, u.unit)
+		if err != nil {
+			return lines, err
 		}
-		r.note(what + " stopped")
-	}
-	if st.Enabled {
-		if err := r.d.Systemd.Disable(ctx, unit); err != nil {
-			return err
+		if st.Active != "inactive" && st.Active != "failed" {
+			if err := sd.Stop(ctx, u.unit); err != nil {
+				return lines, err
+			}
+			lines = append(lines, u.what+" stopped")
 		}
-		r.note(what + " disabled")
+		if disable && st.Enabled {
+			if err := sd.Disable(ctx, u.unit); err != nil {
+				return lines, err
+			}
+			lines = append(lines, u.what+" disabled")
+		}
 	}
-	return nil
+	return lines, nil
 }
 
 // firewall removes the rules firewall.json records, each in both configurations, then the
@@ -162,16 +169,25 @@ func (r *removing) removeDropIn(ctx context.Context) error {
 
 // removeOne deletes a drop-in, then its directory when nothing else is in it.
 func (r *removing) removeOne(file, line string) error {
-	dropIn := r.path(file)
+	gone, err := RemoveDropIn(r.path(file))
+	if gone {
+		r.note(line)
+	}
+	return err
+}
+
+// RemoveDropIn deletes the drop-in at dropIn, then its directory when nothing else is in it
+// (another file there is the owner's), and answers whether there was a drop-in. It does not
+// reload systemd: the caller does, once its removals are done.
+func RemoveDropIn(dropIn string) (bool, error) {
 	gone, err := removeFile(dropIn)
 	if err != nil || !gone {
-		return err
+		return gone, err
 	}
-	r.note(line)
 	if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
-		return err
+		return true, err
 	}
-	return nil
+	return true, nil
 }
 
 func (r *removing) status(ctx context.Context) error {

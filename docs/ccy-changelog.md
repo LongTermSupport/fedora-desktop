@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.20 — container 2.84.28
+
+- **stdin can be read as one request line followed by a stream** (issue #324, Plan 00209
+  SPEC-carry SC-C2, sc-D11). `internal/stdinread` gains `ReadLine`: the first line, with the same
+  notice, bound and terminal refusal as `Read`, and the rest of the input left unread.
+  teamchat-admin's `ctl-child` reads its request through it, so `carry.place` can take a team's
+  lost exports after its request. The package is built into the image's `teamchat` and
+  `pingbus-status-line`, so the image is rebuilt once. Nothing a session does changes.
+
+## 3.122.19 — container 2.84.27
+
+- **teamchat's paths and state name the sealed carry of a team** (issue #324, Plan 00209
+  SPEC-carry CN1-CN5). `internal/teamchat/paths` gains the seal, drill and import records, the
+  root-only carry inbox and staging names, the archive cap's setting, and `TeamStateRoots`, the
+  closed list of every path that holds a team's state; `internal/teamchat/state` gains
+  `OpenOwnedFile`, the streamed twin of `ReadOwnedFile`. Both packages are built into the
+  image's `teamchat`, so it is rebuilt once; nothing a session does changes.
+
 ## 3.122.18 — container 2.84.26
 
 - **pingbus never waits in silence on stdin** (issue #260). A command run with no input in

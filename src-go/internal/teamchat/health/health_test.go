@@ -268,6 +268,8 @@ type world struct {
 	timers  *tcclock.Fake
 	// bounds, when set, are the timers the tick is given in place of timers.
 	bounds matrix.Timers
+	// stamps, when set, are the teams the tick is given in place of teams (production's Stamps).
+	stamps Teams
 }
 
 func newWorld(t *testing.T, names ...string) *world {
@@ -323,8 +325,12 @@ func (w *world) tick(t *testing.T) *Tick {
 	if w.bounds != nil {
 		timers = w.bounds
 	}
+	var teams Teams = w.teams
+	if w.stamps != nil {
+		teams = w.stamps
+	}
 	tick, err := New(Config{
-		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
+		Clock: w.clock, Teams: teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
 		Backups: w.backups, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks, Leaves: w.leaves,
 		Reach: w.reaches.get, Timers: timers,
 		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },

@@ -50,20 +50,24 @@ const (
 	maxDeviceID = 255
 )
 
-// answerFits refuses an ok answer the op cannot give (CO3, RC6): a view answers team.view, a
-// notice member.disconnected, an export restore.export and an epoch restore.check, each always
-// and only there; a restore op answers no handle, credential, main room or notes. A failure fits
-// any op.
+// answerFits refuses an ok answer the op cannot give (CO3, RC6, SC-C1 to SC-C3): a view answers
+// team.view, a notice member.disconnected, an export restore.export, an epoch restore.check,
+// carry.tail and carry.check, a tail carry.tail and a found list carry.check, each always and
+// only there; a restore, human or carry op answers no handle, credential, main room or notes. A
+// failure fits any op.
 func answerFits(op string, a Answer) error {
 	if !a.OK {
 		return nil
 	}
-	if (a.View != nil) != (op == OpTeamView) || (a.Notice != nil) != (op == OpMemberDisconnected) ||
-		(a.Export != nil) != (op == OpRestoreExport) || (a.Epoch != nil) != (op == OpRestoreCheck) {
-		return fmt.Errorf("its answer to %s does not fit the op (a view: %v, a notice: %v, an export: %v, an epoch: %v)",
-			op, a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil)
+	got := []bool{a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil, a.Tail != nil, a.Found != nil}
+	want := []bool{
+		op == OpTeamView, op == OpMemberDisconnected, op == OpRestoreExport,
+		slices.Contains([]string{OpRestoreCheck, OpCarryTail, OpCarryCheck}, op), op == OpCarryTail, op == OpCarryCheck,
 	}
-	if (strings.HasPrefix(op, "restore.") || strings.HasPrefix(op, "human.")) &&
+	if !slices.Equal(got, want) {
+		return fmt.Errorf("its answer to %s does not fit the op (a view, a notice, an export, an epoch, a tail, a found list: %v)", op, got)
+	}
+	if slices.ContainsFunc([]string{"restore.", "human.", "carry."}, func(p string) bool { return strings.HasPrefix(op, p) }) &&
 		(a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0) {
 		return fmt.Errorf("its answer to %s carries a handle, a credential, a main room or notes", op)
 	}
@@ -94,8 +98,8 @@ func (a Answer) validateOps() error {
 	if a.Human != nil {
 		return a.validateHuman()
 	}
-	if a.Export != nil || a.Epoch != nil {
-		return a.validateRestore()
+	if a.restoreOrCarry() {
+		return a.validateRestoreOrCarry()
 	}
 	if a.View == nil && a.Notice == nil {
 		return nil
@@ -113,7 +117,8 @@ func (a Answer) validateOps() error {
 // space, or at most maxDevices distinct device IDs of 1 to maxDeviceID such bytes. No error
 // quotes the password.
 func (a Answer) validateHuman() error {
-	if a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 || a.View != nil || a.Notice != nil || a.Export != nil || a.Epoch != nil {
+	if a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 || a.View != nil || a.Notice != nil || a.Export != nil || a.Epoch != nil ||
+		a.Tail != nil || a.Found != nil {
 		return errors.New("a human answer is an answer of its own")
 	}
 	h := a.Human
@@ -260,6 +265,7 @@ func (a Answer) encodeOps() []proto.Member {
 	if e := a.Epoch; e != nil {
 		out = append(out, proto.M(keyEpoch, proto.Obj(proto.M("restore_epoch", proto.Int(e.RestoreEpoch)), proto.M("rev", proto.Int(e.Rev)))))
 	}
+	out = append(out, a.encodeCarry()...)
 	if h := a.Human; h != nil {
 		if h.Password != "" {
 			out = append(out, proto.M(keyHuman, proto.Obj(proto.M("password", proto.Str(h.Password)))))
@@ -336,6 +342,9 @@ func decodeOps(a *Answer, obj map[string]proto.Value) error {
 			return err
 		}
 		a.Human = h
+	}
+	if err := decodeCarry(a, obj); err != nil {
+		return err
 	}
 	return decodeRestore(a, obj)
 }

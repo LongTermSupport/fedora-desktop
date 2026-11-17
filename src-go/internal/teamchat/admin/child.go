@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
 	"regexp"
@@ -13,7 +14,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/stdinread"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -106,13 +109,21 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err := checkStarted(e.Proc); err != nil {
 		return fail(e.Stderr, ExitConfig, "ctl-child was not started by root's child spec: "+err.Error())
 	}
-	raw, err := e.readStdin("ctl-child", maxRequest)
+	raw, rest, err := stdinread.ReadLine(e.Stdin, stdinread.Options{
+		Prog: "teamchat-admin ctl-child", Err: e.Stderr, Limit: maxRequest + 1, GiveUpAfter: stdinread.PipedGiveUp,
+		Clock: e.Clock, IsTerminal: e.IsTerminal,
+	})
 	if err != nil {
 		return childFailed(e, "cannot read the request: "+err.Error())
 	}
 	req, err := DecodeRequest(raw)
 	if err != nil {
 		return childFailed(e, "bad request: "+err.Error())
+	}
+	if req.Op != OpCarryPlace {
+		if err = ended(rest); err != nil {
+			return childFailed(e, "bad request: "+err.Error())
+		}
 	}
 	sys, err := e.wired()
 	if err != nil && !errors.Is(err, errUnwired) {
@@ -121,7 +132,12 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if sys == nil || sys.Open == nil {
 		return childFailed(e, "op "+req.Op+" is not served by this build")
 	}
-	a := Serve(ctx, sys.Open, req)
+	var a Answer
+	if req.Op == OpCarryPlace {
+		a = ServePlace(sys.Place, req, rest)
+	} else {
+		a = Serve(ctx, sys.Open, req)
+	}
 	raw, err = EncodeAnswer(a)
 	if err != nil {
 		return childFailed(e, "cannot encode the answer: "+err.Error())
@@ -133,6 +149,27 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	return term.ExitOK
+}
+
+// ended refuses input after a request whose op takes no stream: only carry.place does (sc-D11).
+func ended(rest io.Reader) error {
+	end, err := atEnd(rest)
+	switch {
+	case err != nil:
+		return fmt.Errorf("after the request: %w", err)
+	case !end:
+		return errors.New("only " + OpCarryPlace + " takes bytes after its request")
+	}
+	return nil
+}
+
+// atEnd reads one byte of r: true when there is none.
+func atEnd(r io.Reader) (bool, error) {
+	_, err := io.ReadAtLeast(r, make([]byte, 1), 1)
+	if errors.Is(err, io.EOF) {
+		return true, nil
+	}
+	return false, err
 }
 
 // childFailed answers a `failed` error and exits 1 (CC5).
@@ -176,11 +213,14 @@ func breaksLine(r rune) bool {
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029
 }
 
-// Request is one operation asked of the child (CC3).
+// Request is one operation asked of the child (CC3): one line on its stdin. Body is not
+// encoded: it is carry.place's stream of lost exports, the bytes after the line (sc-D11), and
+// no other op has one.
 type Request struct {
 	Op   string
 	Team paths.TeamID
 	Args proto.Value
+	Body io.Reader
 }
 
 // EncodeRequest is the request on the wire.
@@ -282,7 +322,8 @@ var classExit = map[ErrorClass]term.ExitCode{
 // Answer is the child's one answer (CC5, CV2, CO1-CO3, BU1): what changed, and for a member
 // verb its handle, the credential the caller asked for with the team's main room, and notes for
 // the status record; for team.view the view, for member.disconnected the notice, for
-// restore.export the export and for restore.check the epoch (RC6); or the failure, with the
+// restore.export the export, for restore.check the epoch (RC6), for carry.tail the tail and for
+// carry.check the found list, each beside the epoch (SC-C1, SC-C3); or the failure, with the
 // lines that changed before it.
 type Answer struct {
 	OK         bool
@@ -295,6 +336,8 @@ type Answer struct {
 	Notice     *health.Notice
 	Export     *restore.Export
 	Epoch      *restore.Epoch
+	Tail       []carry.TailEntry
+	Found      []bool
 	Human      *HumanAnswer
 	Error      *AnswerError
 }
@@ -438,7 +481,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyHuman)
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch, keyTail, keyFound, keyHuman)
 	if err != nil {
 		return Answer{}, err
 	}

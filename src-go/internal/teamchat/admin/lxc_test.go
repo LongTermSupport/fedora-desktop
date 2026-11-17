@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
@@ -25,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/testfiles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -120,7 +122,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 			},
 			Approvals: approvals,
 			Origin:    func(context.Context, paths.TeamID) (string, error) { return "v2", nil },
-			Guard:     restore.Guard(w.root),
+			Guard:     teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
 			Kit:       kit, HostKit: t.TempDir(), HostUIDs: map[int]bool{0: true}, OwnerGID: os.Getgid(), Bridge: "lxcbr0",
 		}, nil
 	}

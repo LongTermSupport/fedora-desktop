@@ -24,6 +24,10 @@ const (
 // mkdirOwned makes or converges a 0700 directory owned by uid and gid (-1 keeps the owner).
 func mkdirOwned(dir string, uid, gid int) error { return mkdirMode(dir, ownedDirMode, uid, gid) }
 
+// MkdirOwned is mkdirOwned for the carry import, which makes `ctl/<team>/` as a first apply does
+// (SI9 step 2).
+func MkdirOwned(dir string, uid, gid int) error { return mkdirOwned(dir, uid, gid) }
+
 // MkdirShared makes or converges a 0755 directory, whatever the umask; `team approve` makes the
 // status directories with it.
 func MkdirShared(dir string) error { return mkdirMode(dir, sharedDirMode, -1, -1) }

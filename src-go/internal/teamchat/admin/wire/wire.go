@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/ctl"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -126,7 +127,10 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Systemd:   systemd.Host(), Firewall: hostnet.Firewall{Runner: m.runner, Proc: m.proc},
 			Network: hostnet.Network{Proc: m.proc, BridgeName: Bridge}, Ready: hostnet.Readiness{},
 			Status: statusFiles{root: root, tick: tick},
-			Guard:  restore.Guard(root),
+			// SG3: a restore, a carry record or a drill import (SG2) refuses every lock-taking
+			// verb under its lock; SG4: team remove admits the seal and a drill import.
+			Guard:       teamlock.All(restore.Guard(root), carry.Guard(root), carry.DrillImportGuard(root, stateOwnerUID)),
+			RemoveGuard: carry.RemoveGuard(root),
 			Backup: func(ctx context.Context, held *teamlock.Lock) error {
 				d, err := backups()
 				if err == nil {
@@ -140,6 +144,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		TeamCA:     teamCA,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
+		Place:      ctl.Config{Root: root}.Placer(),
 		Pin:        m.readPin,
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
@@ -155,7 +160,39 @@ func (m machine) system(digest string) (*admin.System, error) {
 		}
 		return m.engine(sys, self, systemd, backups)
 	}
+	sys.Carry = func() (admin.Carrier, error) { return m.carry(sys, systemd, d) }
 	return sys, nil
+}
+
+// carry is the carry engine over the host's adapters (SPEC-carry section 13); each carry verb
+// takes the team lock itself.
+func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths.Digest) (admin.Carrier, error) {
+	ids, err := m.ctlIDs()
+	if err != nil {
+		return nil, err
+	}
+	uid, err := ctlUID(ids)
+	if err != nil {
+		return nil, err
+	}
+	root := m.root
+	return admin.CarryEngine{Deps: carry.Deps{
+		Stage: carry.StageOS{Root: root, StateOwnerUID: m.stateOwnerUID, CtlUID: int(uid), CtlGID: ids.GID, OwnerGroup: sys.OwnerGroup},
+		Root:  root, LockDir: sys.Host.LockDir, CtlUID: uid, StateOwnerUID: m.stateOwnerUID, Clock: sys.Host.Clock, Software: software,
+		Units: restoreUnits{systemd}, Systemd: sys.Host.Systemd, Ready: hostnet.Readiness{},
+		Child: admin.CarryChild{Live: sys.Child}, FS: restore.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, Status: sys.Host.Status,
+		Files: carry.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, MaxArchive: admin.CarryMaxArchive(root),
+		Serve: func(ctx context.Context, team paths.TeamID) error { return host.Serve(ctx, sys.Host, team) },
+		Loopback: func(ctx context.Context, team paths.TeamID) error {
+			pin, perr := sys.Pin()
+			if perr != nil {
+				return perr
+			}
+			h := sys.Host
+			h.Pin = pin
+			return host.ServeLoopback(ctx, h, team)
+		},
+	}}, nil
 }
 
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the

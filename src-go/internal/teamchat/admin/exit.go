@@ -2,9 +2,11 @@ package admin
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
@@ -52,7 +54,7 @@ func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
 	}
-	if errors.Is(err, restore.ErrPending) || errors.Is(err, restore.ErrRefused) || errors.Is(err, backup.ErrNotRunning) {
+	if slices.ContainsFunc(refusedSentinels, func(s error) bool { return errors.Is(err, s) }) {
 		return ExitRefused, true
 	}
 	if errors.Is(err, backup.ErrLost) || errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, matrix.ErrRateLimited) {
@@ -72,6 +74,11 @@ func verbExit(err error) (term.ExitCode, bool) {
 	}
 	return 0, false
 }
+
+// refusedSentinels are the other layers' refusals that are 70: a restore under way (RG2) or
+// refused (RS15), a backup of a server not running, a carry record present (SG1, SG3) and a
+// carry verb's refusal.
+var refusedSentinels = []error{restore.ErrPending, restore.ErrRefused, backup.ErrNotRunning, carry.ErrSealed, carry.ErrRefused}
 
 func offline(err error) bool {
 	e, ok := errors.AsType[*lxc.OfflineError](err)

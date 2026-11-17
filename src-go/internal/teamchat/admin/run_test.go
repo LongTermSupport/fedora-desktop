@@ -92,6 +92,8 @@ func specVerbs() map[string]Class {
 		}
 	}
 	add(ClassRoot, "team", "apply", "approve", "remove", "rotate-ca")
+	// The sealed carry's verbs (SPEC-carry sections 1-6).
+	add(ClassRoot, "team", "seal", "export", "import", "carry-check")
 	add(ClassRoot, "member", "add", "return", "park", "retire", "reissue", "set")
 	add(ClassRoot, "role", "apply")
 	add(ClassRoot, "human", "password", "devices", "logout", "lock", "unlock")

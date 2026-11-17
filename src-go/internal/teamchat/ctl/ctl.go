@@ -39,7 +39,7 @@ const (
 	StepAdmin = "admin"
 
 	adminLocalpart = "admin"
-	tokenName      = "admin.token"
+	tokenName      = admin.AdminTokenName
 	passwordName   = "admin.password"
 	// maxTokenBytes is the most a token file may hold (OP2).
 	maxTokenBytes = 4096
@@ -288,8 +288,11 @@ type dir struct {
 }
 
 // openDir opens path, which must be a directory the child's euid owns, mode 0700, not a link.
-func openDir(path string) (*dir, error) {
-	fd, err := unix.Open(path, unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_RDONLY|unix.O_CLOEXEC, 0)
+func openDir(path string) (*dir, error) { return openDirAt(unix.AT_FDCWD, path, path) }
+
+// openDirAt is openDir of name relative to the directory fd at, path naming it in errors.
+func openDirAt(at int, name, path string) (*dir, error) {
+	fd, err := unix.Openat(at, name, unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("the team's control directory %s: %w", path, err)
 	}

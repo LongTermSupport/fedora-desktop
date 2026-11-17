@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
@@ -106,6 +107,12 @@ type world struct {
 	stagedPorts []int
 	stagedErr   error
 
+	placed   []PlacedFile // what carry.place handed the placer
+	lostRead []string     // each lost export the placer read from the stream, verified
+	placeErr error
+	// placeOnDisk makes the placer write each file under ctl/<team>/, as the child's does.
+	placeOnDisk bool
+
 	// base is a real homeserver's URL, set instead of srv (the tagged tests); the staged
 	// server is then reached on its own loopback port.
 	base string
@@ -182,10 +189,14 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	if err != nil {
 		return Answer{}, err
 	}
+	body := req.Body
+	if body == nil {
+		body = bytes.NewReader(nil)
+	}
 	var stdout, stderr bytes.Buffer
 	Run(ctx, Env{
-		Args: []string{"ctl-child"}, Stdin: bytes.NewReader(raw), Stdout: &stdout, Stderr: &stderr,
-		Proc: childProc(), Sys: &System{Open: c.w.open},
+		Args: []string{"ctl-child"}, Stdin: io.MultiReader(bytes.NewReader(append(raw, '\n')), body), Stdout: &stdout, Stderr: &stderr,
+		Proc: childProc(), Sys: &System{Open: c.w.open, Place: c.w.place},
 	})
 	if stderr.Len() > 0 {
 		return Answer{}, errors.New(stderr.String())
@@ -274,8 +285,9 @@ func (w *world) sys() *System {
 			Rand: io.MultiReader(bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), rand.Reader), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
-			Guard:  restore.Guard(w.root),
-			Backup: func(context.Context, *teamlock.Lock) error { return nil },
+			Guard:       teamlock.All(restore.Guard(w.root), carry.Guard(w.root), carry.DrillImportGuard(w.root, selfUID(w.t))),
+			RemoveGuard: carry.RemoveGuard(w.root),
+			Backup:      func(context.Context, *teamlock.Lock) error { return nil },
 		},
 		Child:      inProcessChild{w: w},
 		Bundles:    w,
@@ -329,6 +341,39 @@ func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin
 		w.t.Cleanup(a.Close)
 	}
 	return a, err
+}
+
+// place is the child's placer as a test reads it: the files it was handed, each lost export
+// read from the stream and verified, its failure, and each name written.
+func (w *world) place(team paths.TeamID, files []PlacedFile, lost *LostStream) ([]string, error) {
+	if w.placeErr != nil {
+		return nil, w.placeErr
+	}
+	if w.placeOnDisk {
+		if err := w.writePlaced(team, files); err != nil {
+			return nil, err
+		}
+	}
+	var read []string
+	for i := range lost.Files {
+		var b bytes.Buffer
+		if err := lost.Copy(&b, i); err != nil {
+			return nil, err
+		}
+		read = append(read, b.String())
+	}
+	if err := lost.End(); err != nil {
+		return nil, err
+	}
+	w.placed, w.lostRead = files, read
+	names := make([]string, 0, len(files)+len(lost.Files))
+	for _, f := range files {
+		names = append(names, f.Name)
+	}
+	for _, l := range lost.Files {
+		names = append(names, l.Name)
+	}
+	return names, nil
 }
 
 // memFiles is the child's restore files as a test reads them: what each op was given, the

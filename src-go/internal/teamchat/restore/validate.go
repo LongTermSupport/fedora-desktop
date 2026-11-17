@@ -58,10 +58,10 @@ func Validate(ctx context.Context, d Deps, req Request) (*Validated, error) {
 	if k != KindAbsent {
 		return nil, refusedf("a restore of team %s is recorded: run restore --team %s --resume, or --discard", team, team)
 	}
-	if err = leftovers(ctx, d, team); err != nil {
+	if err = Leftovers(ctx, d, team); err != nil {
 		return nil, err
 	}
-	v, err := readApplied(d, team)
+	v, err := ReadApplied(d, team)
 	if err != nil {
 		return nil, err
 	}
@@ -105,9 +105,9 @@ func (v *Validated) decide(d Deps, req Request) error {
 	return err
 }
 
-// leftovers is RV2: anything an earlier restore leaves is named, and nothing is started over
-// it.
-func leftovers(ctx context.Context, d Deps, team paths.TeamID) error {
+// Leftovers is RV2: anything an earlier restore leaves is named, and nothing is started over
+// it. It reads d's Root, FS and Units only; the seal refuses on it too (SPEC-carry SC1).
+func Leftovers(ctx context.Context, d Deps, team paths.TeamID) error {
 	var found []string
 	entries, err := d.FS.ReadDir(team, ".")
 	if err != nil {
@@ -151,9 +151,10 @@ func leftovers(ctx context.Context, d Deps, team paths.TeamID) error {
 	return nil
 }
 
-// readApplied is RV3's files: the stamp, team.json (whose id is the team) and server-name, and
-// the live config.
-func readApplied(d Deps, team paths.TeamID) (*Validated, error) {
+// ReadApplied is RV3's files: the stamp, team.json (whose id is the team) and server-name, and
+// the live config. It reads d's Root and StateOwnerUID only; the seal reads them too
+// (SPEC-carry SC1).
+func ReadApplied(d Deps, team paths.TeamID) (*Validated, error) {
 	_, stamped, err := host.ReadStamp(d.Root, team)
 	if err != nil {
 		return nil, err

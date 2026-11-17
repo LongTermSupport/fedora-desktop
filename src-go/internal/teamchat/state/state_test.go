@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -353,5 +354,56 @@ func TestReadFileOpenFailure(t *testing.T) {
 	}
 	if _, found, err := ReadFile(filepath.Join(file, "below"), 8); found || err == nil {
 		t.Fatalf("a path below a file: found %v, err %v", found, err)
+	}
+}
+
+// TestOpenOwnedFile is ST3 for a file streamed rather than read whole (SPEC-carry's trust rule):
+// the file opened is returned, positioned at its start, after the same checks; a missing file is
+// an error that is fs.ErrNotExist, never a nil file.
+func TestOpenOwnedFile(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o600)
+	uid := ownerOf(t, good)
+	f, err := OpenOwnedFile(good, uid)
+	if err != nil {
+		t.Fatalf("an owned file: %v", err)
+	}
+	data, err := io.ReadAll(f)
+	if closeErr := f.Close(); err != nil || closeErr != nil || string(data) != "x" {
+		t.Fatalf("read %q: %v %v", data, err, closeErr)
+	}
+	if f, err := OpenOwnedFile(filepath.Join(dir, "none"), uid); f != nil || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a missing file: %v %v, want fs.ErrNotExist", f, err)
+	}
+}
+
+// TestOpenOwnedFileRefusals is ReadOwnedFile's refusals, each with no file returned.
+func TestOpenOwnedFileRefusals(t *testing.T) {
+	dir := t.TempDir()
+	good := ownedFile(t, dir, "good", 0o600)
+	uid := ownerOf(t, good)
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(good, link); err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(dir, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, path, want string
+		uid              uint32
+	}{
+		{"another owner", good, "owned by uid", uid + 1},
+		{"group writable", ownedFile(t, dir, "group", 0o620), "writable by its group or by others", uid},
+		{"other writable", ownedFile(t, dir, "other", 0o602), "writable by its group or by others", uid},
+		{"a link", link, "too many levels of symbolic links", uid},
+		{"a FIFO", fifo, "not a regular file", uid},
+		{"a directory", dir, "not a regular file", uid},
+	} {
+		f, err := OpenOwnedFile(c.path, c.uid)
+		if f != nil || err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v %v, want an error naming %q", c.name, f, err, c.want)
+		}
 	}
 }
