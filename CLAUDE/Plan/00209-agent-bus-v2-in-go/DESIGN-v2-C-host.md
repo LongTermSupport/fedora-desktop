@@ -718,6 +718,11 @@ and maybe no login user).
     the team is its approval (DC18), listed by name.
 13. `teamchat-admin lxc apply --phase present` with the LXC member declaration on stdin.
 
+**As built (Plan 00209 Task 3.3):** step 12's `team approve` runs before step 10, since `lxc apply` holds every team it acts on against its approval in both phases; `team approve` and `team apply` get each team's own `teamchat_lxc_members` entries, not `[]`. Both LXC phases get the
+whole declaration (`teamchat_teams`, `teamchat_lxc_members`, `teamchat_site`) and an explicit
+`--only-teams` of the present teams they act on. The absent phase passes by a team with no stamp
+and no LXC record, which a team's first play is (it runs before that team's `team apply`).
+
 Every `teamchat-admin` step reports changed only on a `^CHANGED\t` line. `teamchat_only_teams`
 scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`
 does. A team outside the scope keeps its drop-in, and so its Tuwunel version, until a play

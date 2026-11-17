@@ -82,11 +82,12 @@ func TestStampsListsTheStampedTeams(t *testing.T) {
 }
 
 // Origin is one stamped team's origin, as Stamped gives it; a team with no stamp, or a stamp
-// that does not decode, is an error.
+// that does not decode, is an error. Only the first is ErrNotStamped, which the LXC absent phase
+// reads as a team never applied.
 func TestStampsOriginOfOneTeam(t *testing.T) {
 	root := t.TempDir()
 	s := Stamps{Root: root}
-	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil || !strings.Contains(err.Error(), "alpha is not stamped") {
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); !errors.Is(err, ErrNotStamped) || !strings.Contains(err.Error(), "alpha is not stamped") {
 		t.Fatalf("unstamped: %v", err)
 	}
 	installTeam(t, root, "alpha", "Alpha")
@@ -98,8 +99,8 @@ func TestStampsOriginOfOneTeam(t *testing.T) {
 		}
 	}
 	writeAt(t, filepath.Join(root, paths.StampFile(id(t, "alpha"))), `{`)
-	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil {
-		t.Fatal("a stamp that does not decode")
+	if _, err := s.Origin(t.Context(), id(t, "alpha")); err == nil || errors.Is(err, ErrNotStamped) {
+		t.Fatalf("a stamp that does not decode: %v", err)
 	}
 }
 

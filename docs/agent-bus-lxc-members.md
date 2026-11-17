@@ -53,7 +53,7 @@ failure ([Containers that are not running](#containers-that-are-not-running)).
 | `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both          |
 | `systemd-detect-virt`, reporting an `lxc` container                                                                                               | `pingbus suggest-handle`                                                | `suggest-handle says --type=<type>, not lxc: the agent does not run in an LXC container` (or "needs systemd-detect-virt") |
 | Claude Code (`claude`) on the agent user's `PATH`                                                                                                 | `agent-bus-claude`, at session start; the play does not check           | `agent-bus-claude: claude is not on PATH`                                                                                 |
-| No Matrix client profile (Element, Nheko or Lightning) in the agent user's home | `agent-bus-claude` and `pingbus config check` | `this user has a Matrix client profile (...); an agent must never run as a user that holds a human's Matrix session` |
+| No Matrix client profile (Element, Nheko or Lightning) in the agent user's home                                                                   | `agent-bus-claude` and `pingbus config check`                           | `this user has a Matrix client profile (...); an agent must never run as a user that holds a human's Matrix session`      |
 | The kit directory `/usr/local/share/agent-bus` is root-owned and not group- or world-writable, if it already exists                               | The kit sync                                                            | `<path> is not owned by uid 0 or is writable by others` (a kit copied by hand must go before the play installs it)        |
 | `/usr/local/bin/pingbus` and `/usr/local/bin/agent-bus-claude` are absent, or already links to the kit                                            | The kit sync                                                            | `<link> exists and is not a link to <kit>/<name>; README.lxc step 1 links it`                                             |
 
@@ -372,3 +372,50 @@ pingbus status
 
 If the play, not the member, is the problem, run it again: it is safe to repeat, and it
 reports what it changed with `CHANGED` lines.
+
+## A v2 team's LXC members
+
+Everything above is v1's. A v2 team (`teamchat_teams`, applied by
+`playbooks/imports/play-teamchat.yml`) takes its LXC members from `teamchat_lxc_members` in
+the same host vars, and the same play places them. Nothing in the container runs as root and
+no container needs Python: the desktop writes the kit (`/usr/local/lib/teamchat/kit/<digest>/`,
+the `teamchat` link) and each service seat's session unit into the guest from the host side,
+and runs `teamchat guest <op>` as the agent user for the bundle and the desired membership.
+
+```yaml
+teamchat_lxc_members:
+  - team: <team>                      # a team declared present in teamchat_teams
+    container: <container>
+    user: <agent-user>                # who runs the seat; uid not 0 and not a desktop user's
+    checkout: /home/<agent-user>/<repo>
+    seat: 1                           # required, 1-9999; (team, container, checkout, seat) is the member
+    human_text: true                  # optional, default true
+    service: false                    # optional: a supervised session unit in the guest
+    state: present                    # optional: present (default) or absent
+```
+
+- **One entry is one seat.** A container may hold any number of entries, for any users and
+  checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
+  no `role`: the team's `coordinator` names the coordinator's handle.
+- **The entries are approved with their team.** They are security fields: a new or changed entry
+  is refused (exit 70) until the team is approved: name the team in `teamchat_approve_teams`
+  for the run that adds or changes the entry.
+- **The team's `url` names the LXC bridge's address**, `https://<bridge address>:<port>`. A team
+  with a present LXC member is served on the bridge as well as its declared networks, and the
+  homeserver's certificate names the bridge's address. `teamchat_address` (the `teamchat0` bus
+  address a url would otherwise default to) is not built in the play, which refuses it.
+- **The container**: privileged (an `lxc.idmap` is refused), on the host bridge, its address
+  inside the bridge's subnet. The checkout's `.git/config` gives the handle (an `insteadOf`
+  rewrite is refused); `.claude/ccy/ccy.env.local`, if present, must be the agent user's. A
+  `service: true` seat also needs `lxc.start.auto = 1`, systemd as the guest's init and `tmux`
+  on the guest's `PATH`. The container's own configuration stays with the play that makes it.
+- **A stopped or missing container fails nothing.** Its seats print `SKIPPED` or `DEFERRED` lines
+  and are placed by the next run that finds the container running; so is a seat whose guest check
+  finds `gh` not logged in or the team unreachable. A running container's wrong fact fails the
+  play, naming the entry.
+- **Removing a seat**: delete its entry or set `state: absent`, and run the play. The seat is
+  parked (its token revoked) before its files are removed, while the team still runs.
+- **Removing a team that has LXC members** takes two runs: first remove or mark absent its
+  entries, then set the team `state: absent`. The play refuses an entry whose team is not
+  declared present, and `team remove` does not touch the guests.
+- `teamchat_only_teams` scopes both LXC phases to the teams it names, as it scopes the teams.

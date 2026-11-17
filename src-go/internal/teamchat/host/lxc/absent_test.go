@@ -80,6 +80,35 @@ func TestAbsentParksThenRemovesInOrder(t *testing.T) {
 	}
 }
 
+// The play runs the absent phase before `team apply`, so on a team's first play the team is
+// declared, approved and has LXC entries, but no stamp: nothing of it has joined, so nothing
+// leaves, and the phase passes it by. The present phase, which runs after `team apply`, and an
+// unstamped team with a record still fail.
+func TestAbsentPassesByATeamNeverApplied(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.unstamped = map[string]bool{"t1": true}
+	r, err := w.apply(PhaseAbsent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Lines) != 0 || len(w.log) != 0 || len(w.lxc.calls) != 0 {
+		t.Fatalf("lines %v, log %v, calls %v", r.Lines, w.log, w.lxc.calls)
+	}
+	if _, err := w.apply(PhaseAbsent, "t1"); err != nil {
+		t.Fatalf("scoped to the unstamped team: %v", err)
+	}
+	if _, err := w.apply(PhasePresent); err == nil || !strings.Contains(err.Error(), "no install stamp") {
+		t.Fatalf("present phase of an unstamped team: %v", err)
+	}
+	p := placed(t)
+	p.unstamped = map[string]bool{"t1": true}
+	if _, err := p.apply(PhaseAbsent); err == nil || !strings.Contains(err.Error(), "no install stamp") {
+		t.Fatalf("an unstamped team with a record: %v", err)
+	}
+}
+
 func TestAbsentUndeclaredEntryLeaves(t *testing.T) {
 	w := placed(t)
 	w.declare([]string{"t1"})

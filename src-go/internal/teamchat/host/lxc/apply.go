@@ -13,6 +13,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
@@ -261,14 +262,7 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 		if req.OnlyTeams != nil && !slices.Contains(req.OnlyTeams, in.ID()) {
 			continue
 		}
-		approved, err := d.Approvals.Load(in.ID())
-		if err != nil {
-			return nil, &host.Error{Verb: verb, Step: stepValidate, Err: err}
-		}
-		if err := declare.Hold(approved, in); err != nil {
-			return nil, err
-		}
-		if err := r.team(ctx, in, targets); err != nil {
+		if err := r.act(ctx, in, targets); err != nil {
 			return nil, err
 		}
 	}
@@ -281,6 +275,41 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// act is one team in scope: passed by when never applied, else held against its approval and
+// added.
+func (r *run) act(ctx context.Context, in declare.Input, targets map[Target]bool) error {
+	skip, err := r.neverApplied(ctx, in.ID())
+	if err != nil || skip {
+		return err
+	}
+	approved, err := r.d.Approvals.Load(in.ID())
+	if err != nil {
+		return &host.Error{Verb: verb, Step: stepValidate, Err: err}
+	}
+	if err := declare.Hold(approved, in); err != nil {
+		return err
+	}
+	return r.team(ctx, in, targets)
+}
+
+// neverApplied is a team the absent phase passes by: unstamped, so no `team apply` of it has
+// completed, and with no record entry, so no seat of it has joined. The play runs this phase
+// before `team apply`, so a team's first play meets it (C 3.5.1 step 10). The present phase,
+// and an unstamped team with a record, still need the stamp (team's error).
+func (r *run) neverApplied(ctx context.Context, team paths.TeamID) (bool, error) {
+	if r.req.Phase != PhaseAbsent {
+		return false, nil
+	}
+	if _, err := r.d.Origin(ctx, team); !errors.Is(err, health.ErrNotStamped) {
+		return false, nil
+	}
+	rec, err := r.record(team)
+	if err != nil {
+		return false, err
+	}
+	return len(rec.Members) == 0, nil
 }
 
 func invalid(err error) error {

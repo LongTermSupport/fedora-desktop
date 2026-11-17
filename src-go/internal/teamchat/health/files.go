@@ -54,15 +54,18 @@ func (s Stamps) Stamped(_ context.Context) ([]Team, error) {
 	return teams, nil
 }
 
+// ErrNotStamped is Origin's error for a team with no stamp: one `team apply` has never completed.
+var ErrNotStamped = errors.New("is not stamped")
+
 // Origin is one stamped team's origin, as Stamped gives it (lxc.Deps.Origin); a team with no
-// stamp is an error.
+// stamp is ErrNotStamped.
 func (s Stamps) Origin(_ context.Context, team paths.TeamID) (string, error) {
 	_, found, err := host.ReadStamp(s.Root, team)
 	if err != nil {
 		return "", err
 	}
 	if !found {
-		return "", fmt.Errorf("health: %s is not stamped", team)
+		return "", fmt.Errorf("health: %s %w", team, ErrNotStamped)
 	}
 	return s.origin(team)
 }
