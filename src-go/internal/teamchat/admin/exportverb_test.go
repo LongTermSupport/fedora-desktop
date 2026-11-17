@@ -20,6 +20,11 @@ func (f *fakeCarrier) Export(_ context.Context, team paths.TeamID) ([]byte, erro
 	return f.out, f.err
 }
 
+func (f *fakeCarrier) Drill(_ context.Context, team paths.TeamID) ([]byte, error) {
+	f.drills = append(f.drills, team.String())
+	return f.out, f.err
+}
+
 func (w *sealVerbWorld) export(args ...string) outcome {
 	w.t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -43,21 +48,57 @@ func TestTeamExportPrintsTheAnswer(t *testing.T) {
 	}
 }
 
+// SD3: team export --drill runs the engine's drill, not the sealed export, and prints its answer.
+func TestTeamExportDrillRunsTheDrill(t *testing.T) {
+	w := newSealVerbWorld(t)
+	w.engine.out = []byte(`{"v":1,"team":"alpha","kind":"drill"}`)
+	got := w.export("--team", "alpha", "--drill")
+	if got.code != term.ExitOK || got.stdout != string(w.engine.out)+"\n" || got.stderr != "" {
+		t.Fatalf("%+v", got)
+	}
+	if !slices.Equal(w.engine.drills, []string{"alpha"}) || len(w.engine.exports) != 0 || len(w.engine.seals) != 0 {
+		t.Errorf("drills %v, exports %v, seals %v", w.engine.drills, w.engine.exports, w.engine.seals)
+	}
+}
+
+// SE, SD4, SD5: the drill's failures by their class: a sealed team or another refusal 70, the
+// team left down by a failed Serve 1, a busy lock 75.
+func TestTeamExportDrillExitCodes(t *testing.T) {
+	for name, c := range map[string]struct {
+		err  error
+		want term.ExitCode
+	}{
+		"sealed":  {&carry.RecordedError{Team: mustTeam(t, "alpha"), Record: carry.RecordSeal}, ExitRefused},
+		"refused": {&carry.RefusedError{Problem: "team alpha is of migration origin"}, ExitRefused},
+		"down":    {errors.New("the team is down: team export --team alpha --drill again after fixing x"), term.ExitFailure},
+		"busy":    {&teamlock.BusyError{Path: "/run/x.lock", Holder: "apply alpha pid=1 since=1"}, ExitBusy},
+	} {
+		w := newSealVerbWorld(t)
+		w.engine.err = c.err
+		got := w.export("--team", "alpha", "--drill")
+		if got.code != c.want || got.stderr == "" || len(w.engine.drills) != 1 {
+			t.Errorf("%s: %+v, want %d", name, got, c.want)
+		}
+	}
+}
+
 // SE: --team missing or bad, and any other flag or argument, are 64 with nothing asked of the
-// engine; --drill is the drill export's, which is not built yet, so it is one of those.
+// engine; --drill takes no value.
 func TestTeamExportUsage(t *testing.T) {
 	for name, args := range map[string][]string{
-		"nothing":         nil,
-		"a bad team":      {"--team", "Alpha!"},
-		"drill":           {"--team", "alpha", "--drill"},
-		"an unknown flag": {"--team", "alpha", "--force"},
-		"an argument":     {"--team", "alpha", "now"},
-		"team twice":      {"--team", "alpha", "--team", "alpha"},
+		"nothing":            nil,
+		"a bad team":         {"--team", "Alpha!"},
+		"drill with a value": {"--team", "alpha", "--drill", "yes"},
+		"drill twice":        {"--team", "alpha", "--drill", "--drill"},
+		"drill alone":        {"--drill"},
+		"an unknown flag":    {"--team", "alpha", "--force"},
+		"an argument":        {"--team", "alpha", "now"},
+		"team twice":         {"--team", "alpha", "--team", "alpha"},
 	} {
 		w := newSealVerbWorld(t)
 		got := w.export(args...)
-		if got.code != term.ExitUsage || got.stdout != "" || len(w.engine.exports) != 0 {
-			t.Errorf("%s: %+v, exports %v", name, got, w.engine.exports)
+		if got.code != term.ExitUsage || got.stdout != "" || len(w.engine.exports) != 0 || len(w.engine.drills) != 0 {
+			t.Errorf("%s: %+v, exports %v, drills %v", name, got, w.engine.exports, w.engine.drills)
 		}
 	}
 }

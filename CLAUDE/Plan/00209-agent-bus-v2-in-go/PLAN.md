@@ -218,7 +218,7 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   refused (`restore.ErrUnproven`, n2g-D8, until H-C5 and H-C15). The verbs no slice
   specified (`status`, `declare check`, `check`, `human *`, `redact`): [SPEC-n2h.md](SPEC-n2h.md), a draft.
   The sealed carry of a team to an empty guest (`team seal`, `export`, `import`, `carry-check`,
-  issue #324; outside DC8, `restore` unchanged): [SPEC-carry.md](SPEC-carry.md), being built on branch `sealed-carry` in its section 13's order: items 01-08 (names, archive, records, guards, host exports, the child's carry ops, the seal and `team seal`, the sealed export and `team export`) are built; no open question.
+  issue #324; outside DC8, `restore` unchanged): [SPEC-carry.md](SPEC-carry.md), being built on branch `sealed-carry` in its section 13's order: items 01-09 (names, archive, records, guards, host exports, the child's carry ops, the seal and `team seal`, the sealed export and `team export`, the drill export and `team export --drill`) are built; no open question.
   Its slice S5 is built in part, for issue #296 (a declared human could not sign in): `human password`, `logout` and `devices` (HU1-HU5, HU13) on the defaults of section 8. `human lock`
   and `unlock` wait on n2h-D12 (a roster state `locked`, the owner's) and the real-Tuwunel
   probe n2h-D20. HU15's fault rows are built for the account lookup, both roster writes and the

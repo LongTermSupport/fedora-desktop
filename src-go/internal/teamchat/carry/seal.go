@@ -30,7 +30,8 @@ const (
 // (SC4), Ready probes server_version (SC1) and Status takes a team off the host's books (SC6).
 // Every file root writes or removes goes through FS, so each one is a kill point of SM5, as is
 // every call of the other seams. Files are the export's sources and archive (SX1-SX7), and
-// MaxArchive reads the archive cap's setting (CN5), whose failure is the verb's 78.
+// MaxArchive reads the archive cap's setting (CN5), whose failure is the verb's 78. Serve is
+// host.Serve over the host's deps, which serves a team again after its drill (SD3).
 type Deps struct {
 	Root, LockDir         string
 	CtlUID, StateOwnerUID uint32
@@ -44,6 +45,7 @@ type Deps struct {
 	Status                host.Status
 	Files                 Files
 	MaxArchive            func() (int64, error)
+	Serve                 func(ctx context.Context, team paths.TeamID) error
 }
 
 // Seal is `team seal --team T` (SC1-SC7) under the team lock, waited for host.PlayWait (SL1),
@@ -66,10 +68,21 @@ func Seal(ctx context.Context, d Deps, team paths.TeamID) ([]byte, error) {
 	return out, err
 }
 
+// sealing is a seal's run, or a drill's (SD1, SD3), which shares its validation, its stop
+// without the disable and the block, and its facts.
 type sealing struct {
 	d       Deps
 	team    paths.TeamID
+	drill   bool
 	changed []string
+}
+
+// again is the verb that finishes this run once its cause is fixed.
+func (s *sealing) again() string {
+	if s.drill {
+		return "team export --team " + s.team.String() + " --drill"
+	}
+	return "team seal --team " + s.team.String()
 }
 
 func (s *sealing) note(line string) { s.changed = append(s.changed, line) }
@@ -145,32 +158,14 @@ func (s *sealing) restoreDeps() restore.Deps {
 // leftover, the roster with nothing pending, the homeserver live, and its tail read and agreeing
 // with roster.json.
 func (s *sealing) validate(ctx context.Context) ([]TailEntry, error) {
-	rd := s.restoreDeps()
-	applied, err := restore.ReadApplied(rd, s.team)
+	teamFile, roster, err := s.settled(ctx)
 	if err != nil {
 		return nil, err
-	}
-	origin, err := health.Stamps{Root: s.d.Root}.Origin(ctx, s.team)
-	if err != nil {
-		return nil, err
-	}
-	if origin == status.OriginMigration {
-		return nil, refusedf("team %s is of migration origin (%s): its carry needs the migrate verbs, which are not built", s.team, paths.MigrationDir(s.team)+"/state.json")
-	}
-	if err = restore.Leftovers(ctx, rd, s.team); err != nil {
-		return nil, err
-	}
-	roster, err := s.roster()
-	if err != nil {
-		return nil, err
-	}
-	if p := roster.Pending; p != nil {
-		return nil, pendingRefusal(s.team, p)
 	}
 	if err = s.live(ctx); err != nil {
 		return nil, err
 	}
-	tail, err := s.d.Child.Tail(ctx, s.team, applied.TeamFile)
+	tail, err := s.d.Child.Tail(ctx, s.team, teamFile)
 	if err != nil {
 		return nil, fmt.Errorf("the tail of team %s: %w", s.team, err)
 	}
@@ -178,6 +173,35 @@ func (s *sealing) validate(ctx context.Context) ([]TailEntry, error) {
 		return nil, err
 	}
 	return tail.Rooms, nil
+}
+
+// settled is SC1 without its serving clause, which a drill's resume runs alone (SD4): the team
+// applied and of v2 origin, no restore leftover, the roster with nothing pending. It answers
+// team.json's bytes and the roster.
+func (s *sealing) settled(ctx context.Context) ([]byte, apply.RosterFile, error) {
+	rd := s.restoreDeps()
+	applied, err := restore.ReadApplied(rd, s.team)
+	if err != nil {
+		return nil, apply.RosterFile{}, err
+	}
+	origin, err := health.Stamps{Root: s.d.Root}.Origin(ctx, s.team)
+	if err != nil {
+		return nil, apply.RosterFile{}, err
+	}
+	if origin == status.OriginMigration {
+		return nil, apply.RosterFile{}, refusedf("team %s is of migration origin (%s): its carry needs the migrate verbs, which are not built", s.team, paths.MigrationDir(s.team)+"/state.json")
+	}
+	if err = restore.Leftovers(ctx, rd, s.team); err != nil {
+		return nil, apply.RosterFile{}, err
+	}
+	roster, err := s.roster()
+	if err != nil {
+		return nil, apply.RosterFile{}, err
+	}
+	if p := roster.Pending; p != nil {
+		return nil, apply.RosterFile{}, pendingRefusal(s.team, p)
+	}
+	return applied.TeamFile, roster, nil
 }
 
 // pendingRefusal is RV5's wording: the pending operation and the verb that completes it.
@@ -189,8 +213,9 @@ func pendingRefusal(team paths.TeamID, p *apply.Pending) error {
 	return refusedf("team %s's roster holds a pending %s: run %s first", team, p.Op, verb)
 }
 
-// live is SC1's last rule: the homeserver active and answering server_version, since the tail
-// is read on it; otherwise the only way out is team remove.
+// live is SC1's last rule (SD1's serving clause): the homeserver active and answering
+// server_version, since the tail is read on it. A seal's only other way out is team remove; a
+// drill's is to make the team serve with team apply.
 func (s *sealing) live(ctx context.Context) error {
 	unit := paths.ServerUnit(s.team)
 	st, err := s.d.Units.State(ctx, unit)
@@ -198,6 +223,9 @@ func (s *sealing) live(ctx context.Context) error {
 		return err
 	}
 	if st.Active != systemd.ActiveStateActive {
+		if s.drill {
+			return refusedf("the homeserver of team %s is %s, so its tail cannot be read: a drill copies a serving team, so start it with team apply --team %s first", s.team, st.Active, s.team)
+		}
 		return refusedf("the homeserver of team %s is %s, so its tail cannot be read: start it with team apply, or take the team down with team remove --team %s", s.team, st.Active, s.team)
 	}
 	u, err := s.units()
@@ -205,15 +233,18 @@ func (s *sealing) live(ctx context.Context) error {
 		return err
 	}
 	if err = s.d.Ready.ServerVersion(ctx, u.Port); err != nil {
+		if s.drill {
+			return refusedf("the homeserver of team %s does not answer (%v), so its tail cannot be read: a drill copies a serving team, so make it serve with team apply --team %s first", s.team, err, s.team)
+		}
 		return refusedf("the homeserver of team %s does not answer (%v), so its tail cannot be read: the only other way out is team remove --team %s", s.team, err, s.team)
 	}
 	return nil
 }
 
 // stop is SC4: the terminator then the homeserver stopped and disabled, each then stopped by
-// RS18, and the start block written.
+// RS18, and the start block written. A drill's stop (SD3) neither disables nor blocks.
 func (s *sealing) stop(ctx context.Context) error {
-	lines, err := host.StopTeamUnits(ctx, s.d.Systemd, s.team, true)
+	lines, err := host.StopTeamUnits(ctx, s.d.Systemd, s.team, !s.drill)
 	s.changed = append(s.changed, lines...)
 	if err != nil {
 		return fmt.Errorf("the stop of team %s: %w", s.team, err)
@@ -224,8 +255,11 @@ func (s *sealing) stop(ctx context.Context) error {
 			return stateErr
 		}
 		if st.Active != "inactive" && st.Active != "failed" {
-			return fmt.Errorf("%s is %s after its stop, not stopped: run team seal --team %s again once it is", unit, st.Active, s.team)
+			return fmt.Errorf("%s is %s after its stop, not stopped: run %s again once it is", unit, st.Active, s.again())
 		}
+	}
+	if s.drill {
+		return nil
 	}
 	block := paths.RestoreBlock(s.team)
 	k, err := s.d.FS.RootKind(block)

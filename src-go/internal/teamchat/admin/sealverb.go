@@ -14,6 +14,7 @@ import (
 type Carrier interface {
 	Seal(ctx context.Context, team paths.TeamID) ([]byte, error)
 	Export(ctx context.Context, team paths.TeamID) ([]byte, error)
+	Drill(ctx context.Context, team paths.TeamID) ([]byte, error)
 }
 
 // CarryEngine is the Carrier over the host's carry.Deps.
@@ -29,6 +30,11 @@ func (c CarryEngine) Export(ctx context.Context, team paths.TeamID) ([]byte, err
 	return carry.Export(ctx, c.Deps, team)
 }
 
+// Drill is carry.Drill.
+func (c CarryEngine) Drill(ctx context.Context, team paths.TeamID) ([]byte, error) {
+	return carry.Drill(ctx, c.Deps, team)
+}
+
 // teamSeal is `team seal --team T` (SC1-SC7); --drill is the drill export's (64).
 func teamSeal(ctx context.Context, e Env, args []string) term.ExitCode {
 	if slices.Contains(args, "--"+flagDrill) {
@@ -37,19 +43,24 @@ func teamSeal(ctx context.Context, e Env, args []string) term.ExitCode {
 	return carryVerb(ctx, e, args, Carrier.Seal)
 }
 
-// teamExport is `team export --team T` (SX1-SX7), the sealed export.
+// teamExport is `team export --team T` (SX1-SX7), the sealed export, and with --drill the drill
+// export (SD1-SD5).
 func teamExport(ctx context.Context, e Env, args []string) term.ExitCode {
+	if slices.Contains(args, "--"+flagDrill) {
+		return carryVerb(ctx, e, args, Carrier.Drill, flagDrill)
+	}
 	return carryVerb(ctx, e, args, Carrier.Export)
 }
 
-// carryVerb runs a carry verb that takes --team only: the engine asked of the wiring (78 when it
-// has none or it fails), and its answer on stdout, printed even beside a failure.
-func carryVerb(ctx context.Context, e Env, args []string, run func(Carrier, context.Context, paths.TeamID) ([]byte, error)) term.ExitCode {
+// carryVerb runs a carry verb that takes --team and the bool flags given: the engine asked of
+// the wiring (78 when it has none or it fails), and its answer on stdout, printed even beside a
+// failure.
+func carryVerb(ctx context.Context, e Env, args []string, run func(Carrier, context.Context, paths.TeamID) ([]byte, error), bools ...string) term.ExitCode {
 	sys, code := e.system()
 	if code != term.ExitOK {
 		return code
 	}
-	flags, err := parseFlags(args, []string{flagTeam})
+	flags, err := parseFlags(args, []string{flagTeam}, bools...)
 	if err != nil {
 		return failWith(e, err)
 	}

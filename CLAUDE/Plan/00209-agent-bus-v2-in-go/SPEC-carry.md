@@ -259,7 +259,11 @@ restart.
 - **SD3. Stop, copy, restart.** SC4's stop (no disable, no block), SC5's facts, then SX1 to SX5
   with `kind: "drill"` and `drilled_ms` in place of `sealed_ms`, into `CarryDrillExport(t)`.
   Then `host.Serve` (`host/serve.go:17-34`: start, ready, loopback bound, terminator) and the
-  record removed. The answer is SX6's with `kind: "drill"`.
+  record removed. The answer is SX6's with `kind: "drill"` and `drilled_ms` in place of
+  `sealed_ms`. A copy that fails after the stop (a source SX3 or SX4 refuses, found only once
+  the team is cold) still serves the team and removes the record, then fails with the copy's
+  error and class. SX7's equal-digest rule is the sealed export's only: the team is live
+  between drills, so a drill export replaces the last one.
 - **SD4. Interruption.** A kill leaves `drill.json` and, perhaps, the team stopped. The health
   tick then reports the unit not active and does not restart it: it restarts only an active
   unit whose probe missed (`health/probe.go:50-84`). Recovery is `team export --team T --drill`

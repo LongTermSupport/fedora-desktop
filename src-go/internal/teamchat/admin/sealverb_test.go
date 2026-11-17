@@ -17,11 +17,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// fakeCarrier is the carry engine: it records each seal and export and answers out and err.
+// fakeCarrier is the carry engine: it records each seal, export and drill and answers out and err.
 type fakeCarrier struct {
-	seals, exports []string
-	out            []byte
-	err            error
+	seals, exports, drills []string
+	out                    []byte
+	err                    error
 }
 
 func (f *fakeCarrier) Seal(_ context.Context, team paths.TeamID) ([]byte, error) {

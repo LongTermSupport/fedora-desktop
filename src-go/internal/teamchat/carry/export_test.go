@@ -40,10 +40,17 @@ type exportWorld struct {
 
 func newExportWorld(t *testing.T) *exportWorld {
 	t.Helper()
-	w := &exportWorld{sealWorld: newSealWorld(t), max: exportMax, changeAt: map[string]change{}, opens: map[string]int{}}
+	w := newSourcesWorld(t)
 	if _, err := w.seal(); err != nil {
 		t.Fatal(err)
 	}
+	return w
+}
+
+// newSourcesWorld is a live team, not sealed, with every source SX2 names.
+func newSourcesWorld(t *testing.T) *exportWorld {
+	t.Helper()
+	w := &exportWorld{sealWorld: newSealWorld(t), max: exportMax, changeAt: map[string]change{}, opens: map[string]int{}}
 	team := w.team
 	ca, err := pki.Maker{Clock: clock.NewFake(0, sealMS)}.NewCA("teamchat ops CA")
 	if err != nil {
@@ -100,6 +107,33 @@ func (f exportFiles) Open(path string) (io.ReadCloser, Info, error) {
 	return f.OS.Open(path)
 }
 
+// The calls that change the carry directory are effects, so each is a kill point (SM5).
+
+func (f exportFiles) MakeCarryDir() error {
+	f.w.effect("files mkdir")
+	return f.OS.MakeCarryDir()
+}
+
+func (f exportFiles) Create(path string) (Part, error) {
+	f.w.effect("files create " + filepath.Base(path))
+	return f.OS.Create(path)
+}
+
+func (f exportFiles) Rename(from, to string) error {
+	f.w.effect("files rename " + filepath.Base(from))
+	return f.OS.Rename(from, to)
+}
+
+func (f exportFiles) Remove(path string) error {
+	f.w.effect("files remove " + filepath.Base(path))
+	return f.OS.Remove(path)
+}
+
+func (f exportFiles) SyncDir(dir string) error {
+	f.w.effect("files syncdir")
+	return f.OS.SyncDir(dir)
+}
+
 // change is a source changed on disk at its open number at.
 type change struct {
 	at int
@@ -123,12 +157,15 @@ func (w *exportWorld) export() ([]byte, error) {
 }
 
 // archive is the export on disk; nil when there is none.
-func (w *exportWorld) archive() []byte {
+func (w *exportWorld) archive() []byte { return w.archiveAt(paths.CarryExport(w.team)) }
+
+// archiveAt is the archive at path; nil when there is none.
+func (w *exportWorld) archiveAt(path string) []byte {
 	w.t.Helper()
-	if !w.has(paths.CarryExport(w.team)) {
+	if !w.has(path) {
 		return nil
 	}
-	raw, err := os.ReadFile(filepath.Clean(w.root + paths.CarryExport(w.team)))
+	raw, err := os.ReadFile(filepath.Clean(w.root + path))
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -192,7 +229,7 @@ type exportAnswer struct {
 	v, size, sealedMS     int64
 }
 
-func exportAnswerOf(t *testing.T, raw []byte) exportAnswer {
+func exportAnswerOf(t *testing.T, raw []byte, kind Kind) exportAnswer {
 	t.Helper()
 	v, err := proto.Parse(raw)
 	if err != nil {
@@ -202,7 +239,7 @@ func exportAnswerOf(t *testing.T, raw []byte) exportAnswer {
 	for _, m := range v.Members() {
 		keys = append(keys, m.Key)
 	}
-	if want := []string{"v", "team", "kind", "path", "size", "sha256", "sealed_ms"}; !slices.Equal(keys, want) {
+	if want := []string{"v", "team", "kind", "path", "size", "sha256", timeKey(kind)}; !slices.Equal(keys, want) {
 		t.Fatalf("the answer's keys are %v, want %v", keys, want)
 	}
 	get := func(k string) proto.Value {
@@ -214,7 +251,7 @@ func exportAnswerOf(t *testing.T, raw []byte) exportAnswer {
 	}
 	return exportAnswer{
 		team: get("team").Str(), kind: get("kind").Str(), path: get("path").Str(), sum: get("sha256").Str(),
-		v: get("v").Int(), size: get("size").Int(), sealedMS: get("sealed_ms").Int(),
+		v: get("v").Int(), size: get("size").Int(), sealedMS: get(timeKey(kind)).Int(),
 	}
 }
 
@@ -232,7 +269,7 @@ func TestExportWritesTheSealedArchive(t *testing.T) {
 	if raw == nil {
 		t.Fatal("there is no export")
 	}
-	got := w.answered(out, raw)
+	got := w.answered(out, raw, KindSealed)
 	m, names, data, rd := readExport(t, raw, w.team)
 	if rd.SHA256 != got.sum || rd.Size != got.size {
 		t.Errorf("read %+v, answered %+v", rd, got)
@@ -255,20 +292,24 @@ func TestExportWritesTheSealedArchive(t *testing.T) {
 
 // answered checks SX6's answer against the archive raw on disk, and SX1's files: the export
 // 0600 in a 0700 carry directory, and no part left. It is the answer read.
-func (w *exportWorld) answered(out, raw []byte) exportAnswer {
+func (w *exportWorld) answered(out, raw []byte, kind Kind) exportAnswer {
 	w.t.Helper()
 	sum := sha256.Sum256(raw)
-	got := exportAnswerOf(w.t, out)
-	want := exportAnswer{team: "ops", kind: "sealed", path: paths.CarryExport(w.team), sum: hex.EncodeToString(sum[:]), v: 1, size: int64(len(raw)), sealedMS: sealMS}
+	got := exportAnswerOf(w.t, out, kind)
+	export := paths.CarryExport(w.team)
+	if kind == KindDrill {
+		export = paths.CarryDrillExport(w.team)
+	}
+	want := exportAnswer{team: "ops", kind: string(kind), path: export, sum: hex.EncodeToString(sum[:]), v: 1, size: int64(len(raw)), sealedMS: sealMS}
 	if got != want {
 		w.t.Errorf("answer %+v, want %+v", got, want)
 	}
-	for path, mode := range map[string]fs.FileMode{paths.CarryExport(w.team): 0o600, paths.CarryDir: fs.ModeDir | 0o700} {
+	for path, mode := range map[string]fs.FileMode{export: 0o600, paths.CarryDir: fs.ModeDir | 0o700} {
 		if info, err := os.Lstat(w.root + path); err != nil || info.Mode() != mode {
 			w.t.Errorf("%s: %v %v, want mode %v", path, info, err, mode)
 		}
 	}
-	if w.has(paths.CarryPart(w.team, false)) {
+	if w.has(paths.CarryPart(w.team, kind == KindDrill)) {
 		w.t.Error("the part is left")
 	}
 	return got

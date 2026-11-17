@@ -92,21 +92,15 @@ type Files interface {
 // kill left is removed first; an existing export is replaced only by one of the same digest
 // (SX7). The answer is SX6's. Nothing is cleaned up in a defer but the lock's release (SM5).
 func Export(ctx context.Context, d Deps, team paths.TeamID) ([]byte, error) {
-	if d.MaxArchive == nil {
-		return nil, fmt.Errorf("this wiring has no %s", paths.CarryMaxArchiveVar)
-	}
-	maxArchive, err := d.MaxArchive()
+	maxArchive, err := archiveCap(d)
 	if err != nil {
 		return nil, err
-	}
-	if maxArchive <= 0 {
-		return nil, fmt.Errorf("%s is %d: the archive cap must be a positive number of bytes", paths.CarryMaxArchiveVar, maxArchive)
 	}
 	lock, err := teamlock.Take(ctx, d.LockDir, team, "team.export", host.PlayWait, d.Clock, SealedGuard(d.Root, d.StateOwnerUID))
 	if err != nil {
 		return nil, err
 	}
-	x := &exporting{d: d, team: team, max: maxArchive, sources: map[string]string{}}
+	x := newExporting(d, team, maxArchive, KindSealed)
 	var out []byte
 	func() {
 		defer func() { err = errors.Join(err, lock.Release()) }()
@@ -115,13 +109,34 @@ func Export(ctx context.Context, d Deps, team paths.TeamID) ([]byte, error) {
 	return out, err
 }
 
+// archiveCap is carry.MaxArchive, read from its setting (CN5): a positive number of bytes.
+func archiveCap(d Deps) (int64, error) {
+	if d.MaxArchive == nil {
+		return 0, fmt.Errorf("this wiring has no %s", paths.CarryMaxArchiveVar)
+	}
+	maxArchive, err := d.MaxArchive()
+	if err != nil {
+		return 0, err
+	}
+	if maxArchive <= 0 {
+		return 0, fmt.Errorf("%s is %d: the archive cap must be a positive number of bytes", paths.CarryMaxArchiveVar, maxArchive)
+	}
+	return maxArchive, nil
+}
+
+// exporting is one archive of kind written: a sealed export, or a drill's (SD3).
 type exporting struct {
 	d       Deps
 	team    paths.TeamID
 	max     int64
+	kind    Kind
 	members []Member
 	// sources is each file member's source path.
 	sources map[string]string
+}
+
+func newExporting(d Deps, team paths.TeamID, maxArchive int64, kind Kind) *exporting {
+	return &exporting{d: d, team: team, max: maxArchive, kind: kind, sources: map[string]string{}}
 }
 
 func (x *exporting) run() ([]byte, error) {
@@ -129,29 +144,53 @@ func (x *exporting) run() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = x.survey(); err != nil {
-		return nil, err
-	}
-	m := Manifest{Format: ExportFormat, Kind: KindSealed, Team: x.team, ServerName: rec.Seal.ServerName, Seal: rec.Seal, Members: x.members}
-	if _, err = fits(m, x.max); err != nil {
-		return nil, err
-	}
-	written, err := x.write(m)
+	written, err := x.archive(rec.Seal)
 	if err != nil {
 		return nil, err
 	}
+	return x.answer(written, rec.Seal.TimeMS), nil
+}
+
+// drill is whether the archive is a drill's.
+func (x *exporting) drill() bool { return x.kind == KindDrill }
+
+// target is the archive's path: CarryExport, or CarryDrillExport for a drill.
+func (x *exporting) target() string {
+	if x.drill() {
+		return paths.CarryDrillExport(x.team)
+	}
+	return paths.CarryExport(x.team)
+}
+
+// archive is SX2 to SX5 over facts: the survey, the manifest checked against the cap, and the
+// write.
+func (x *exporting) archive(facts SealFacts) (Written, error) {
+	if err := x.survey(); err != nil {
+		return Written{}, err
+	}
+	m := Manifest{Format: ExportFormat, Kind: x.kind, Team: x.team, ServerName: facts.ServerName, Seal: facts, Members: x.members}
+	if _, err := fits(m, x.max); err != nil {
+		return Written{}, err
+	}
+	return x.write(m)
+}
+
+// answer is SX6's: the path, size and digest of the archive written, and the seal's or the
+// drill's time under its key.
+func (x *exporting) answer(written Written, timeMS int64) []byte {
 	return proto.Obj(append(head(x.team),
-		proto.M("kind", proto.Str(string(KindSealed))), proto.M("path", proto.Str(paths.CarryExport(x.team))),
+		proto.M("kind", proto.Str(string(x.kind))), proto.M("path", proto.Str(x.target())),
 		proto.M("size", proto.Int(written.Size)), proto.M("sha256", proto.Str(written.SHA256)),
-		proto.M("sealed_ms", proto.Int(rec.Seal.TimeMS)))...).Compact(), nil
+		proto.M(timeKey(x.kind), proto.Int(timeMS)))...).Compact()
 }
 
 // write is SX1 and SX7: the carry directory made, a left part removed, the archive written to a
 // new part and fsynced, then renamed over an export of the same digest, or to a new one, and the
-// directory fsynced. A failed write removes its part.
+// directory fsynced. A drill's archive replaces the last drill's whatever its digest: the team
+// was live between them. A failed write removes its part.
 func (x *exporting) write(m Manifest) (Written, error) {
 	f := x.d.Files
-	part, export := paths.CarryPart(x.team, false), paths.CarryExport(x.team)
+	part, export := paths.CarryPart(x.team, x.drill()), x.target()
 	if err := f.MakeCarryDir(); err != nil {
 		return Written{}, err
 	}
@@ -170,7 +209,7 @@ func (x *exporting) write(m Manifest) (Written, error) {
 	if err == nil {
 		err = out.Sync()
 	}
-	if err = errors.Join(err, out.Close()); err == nil {
+	if err = errors.Join(err, out.Close()); err == nil && !x.drill() {
 		err = x.same(export, written)
 	}
 	if err != nil {
