@@ -1,11 +1,15 @@
 package ctl
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
 )
 
 const (
@@ -13,25 +17,38 @@ const (
 	lostFile  = "restore-2-lost.jsonl"
 )
 
-// carried are the files carry.place hands the placer, in its order.
+// carried are the files carry.place hands the placer in its request, in its order.
 func carried() []admin.PlacedFile {
 	return []admin.PlacedFile{
 		{Name: rosterName, Data: []byte("roster")},
 		{Name: roomsName, Data: []byte("rooms")},
 		{Name: tokenName, Data: []byte("carried-token")},
 		{Name: guestFile, Data: []byte("guest-token")},
-		{Name: lostFile, Data: []byte("{}\n")},
 	}
 }
 
+// lostData is the lost export's content place streams.
+const lostData = "{}\n"
+
+func lostOf(name, data string) carry.LostExport {
+	sum := sha256.Sum256([]byte(data))
+	return carry.LostExport{Name: name, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+}
+
+// place is carry.place with one lost export, streamed.
 func (w *world) place(files []admin.PlacedFile) ([]string, error) {
 	w.t.Helper()
+	return w.placeStream(files, []carry.LostExport{lostOf(lostFile, lostData)}, lostData)
+}
+
+func (w *world) placeStream(files []admin.PlacedFile, lost []carry.LostExport, stream string) ([]string, error) {
+	w.t.Helper()
 	w.hidden = append(w.hidden, "carried-token", "guest-token")
-	return w.cfg.Placer()(w.team, files)
+	return w.cfg.Placer()(w.team, files, admin.NewLostStream(lost, strings.NewReader(stream)))
 }
 
 // TestPlaceWritesEachCarriedFile is SC-C2: each file with the atomic writer, 0600, the guest
-// directory 0700, and the names written answered in order.
+// directory 0700, the lost export from the stream, and the names written answered in order.
 func TestPlaceWritesEachCarriedFile(t *testing.T) {
 	w := newWorld(t)
 	names, err := w.place(carried())
@@ -41,7 +58,7 @@ func TestPlaceWritesEachCarriedFile(t *testing.T) {
 	if !slices.Equal(names, []string{rosterName, roomsName, tokenName, guestFile, lostFile}) {
 		t.Fatalf("names %v", names)
 	}
-	for _, f := range carried() {
+	for _, f := range append(carried(), admin.PlacedFile{Name: lostFile, Data: []byte(lostData)}) {
 		if got := w.text(f.Name); got != string(f.Data) {
 			t.Errorf("%s = %q", f.Name, got)
 		}
@@ -83,11 +100,48 @@ func TestPlaceRefusesWhenAnyTargetIsThere(t *testing.T) {
 	}
 }
 
+// TestPlaceVerifiesEveryLostExportBeforeAnything is condition 2 of the ruling (sc-D11): the
+// child checks each lost export's size and sha256 again as it streams it into a temporary in
+// ctl/<team>/, and places nothing, leaving no temporary, unless every one verifies and the
+// stream ends where the sizes say.
+func TestPlaceVerifiesEveryLostExportBeforeAnything(t *testing.T) {
+	two := []carry.LostExport{lostOf(lostFile, lostData), lostOf("restore-3-lost.jsonl", "[]\n")}
+	for name, c := range map[string]struct {
+		lost   []carry.LostExport
+		stream string
+	}{
+		"the second's digest": {two, lostData + "{}\n"},
+		"the first's digest":  {two, "[]\n[]\n"},
+		"short":               {two, lostData + "[]"},
+		"long":                {two, lostData + "[]\nx"},
+		"none named":          {nil, "x"},
+		"oversize":            {[]carry.LostExport{{Name: lostFile, Size: carry.LostCap + 1, SHA256: strings.Repeat("0", 64)}}, ""},
+		"a traversal":         {[]carry.LostExport{lostOf("../"+lostFile, lostData)}, lostData},
+		"not a lost name":     {[]carry.LostExport{lostOf("other.jsonl", lostData)}, lostData},
+		"a carried file's":    {[]carry.LostExport{lostOf(rosterName, lostData)}, lostData},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			if _, err := w.placeStream(carried(), c.lost, c.stream); err == nil {
+				t.Fatal("placed")
+			}
+			if got := w.entries(); len(got) != 0 {
+				t.Errorf("ctl/<team>/ = %v", got)
+			}
+		})
+	}
+	w := newWorld(t)
+	names, err := w.placeStream(carried(), two, lostData+"[]\n")
+	if err != nil || !slices.Equal(names[4:], []string{lostFile, "restore-3-lost.jsonl"}) || w.text("restore-3-lost.jsonl") != "[]\n" {
+		t.Fatalf("two lost exports: %v %v", names, err)
+	}
+}
+
 // TestPlaceWithoutGuestsMakesNoGuestDirectory: no guest token, no guest directory.
 func TestPlaceWithoutGuestsMakesNoGuestDirectory(t *testing.T) {
 	w := newWorld(t)
-	files := slices.DeleteFunc(carried(), func(f admin.PlacedFile) bool { return f.Name == guestFile || f.Name == lostFile })
-	if _, err := w.place(files); err != nil {
+	files := slices.DeleteFunc(carried(), func(f admin.PlacedFile) bool { return f.Name == guestFile })
+	if _, err := w.placeStream(files, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := w.entries(); !slices.Equal(got, []string{tokenName, roomsName, rosterName}) {

@@ -334,6 +334,31 @@ func TestCtlChildAnswersEveryRequest(t *testing.T) {
 	}
 }
 
+// TestCtlChildTakesAStreamForCarryPlaceAlone is condition 3 of the ruling (sc-D11): the
+// request is one line of at most 64 KiB for every op, a line end ending it; only carry.place
+// reads bytes after it, and any other op with bytes after its request is refused unserved.
+func TestCtlChildTakesAStreamForCarryPlaceAlone(t *testing.T) {
+	got := run(t, childProc(), goodRequest+"\n", "ctl-child")
+	if got.code != term.ExitFailure || !strings.Contains(got.stdout, "is not served by this build") {
+		t.Fatalf("a request ended by its line end = %+v", got)
+	}
+	for name, after := range map[string]string{"bytes": "x", "a second line": goodRequest + "\n", "a line end": "\n"} {
+		got = run(t, childProc(), goodRequest+"\n"+after, "ctl-child")
+		if got.code != term.ExitFailure || !strings.Contains(got.stdout, "only "+OpCarryPlace+" takes bytes after its request") {
+			t.Errorf("%s after a member.add request = %+v", name, got)
+		}
+	}
+	got = run(t, childProc(), strings.Repeat(" ", maxRequest+1)+"\n", "ctl-child")
+	if got.code != term.ExitFailure || !strings.Contains(got.stdout, "the request is over 65536 bytes") {
+		t.Fatalf("an oversized request line = %+v", got)
+	}
+	place := `{"v":1,"op":"carry.place","team":"myteam","args":{}}`
+	got = run(t, childProc(), strings.Repeat(" ", maxRequest-len(place)+1)+place+"\nx", "ctl-child")
+	if got.code != term.ExitFailure || !strings.Contains(got.stdout, "the request is over 65536 bytes") {
+		t.Fatalf("an oversized carry.place request = %+v", got)
+	}
+}
+
 // errReader fails the read.
 type errReader struct{}
 

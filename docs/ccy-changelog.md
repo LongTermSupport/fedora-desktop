@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.20 — container 2.84.28
+
+- **stdin can be read as one request line followed by a stream** (issue #324, Plan 00209
+  SPEC-carry SC-C2, sc-D11). `internal/stdinread` gains `ReadLine`: the first line, with the same
+  notice, bound and terminal refusal as `Read`, and the rest of the input left unread.
+  teamchat-admin's `ctl-child` reads its request through it, so `carry.place` can take a team's
+  lost exports after its request. The package is built into the image's `teamchat` and
+  `pingbus-status-line`, so the image is rebuilt once. Nothing a session does changes.
+
 ## 3.122.19 — container 2.84.27
 
 - **teamchat's paths and state name the sealed carry of a team** (issue #324, Plan 00209

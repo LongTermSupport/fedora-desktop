@@ -108,6 +108,7 @@ type world struct {
 	stagedErr   error
 
 	placed   []PlacedFile // what carry.place handed the placer
+	lostRead []string     // each lost export the placer read from the stream, verified
 	placeErr error
 
 	// base is a real homeserver's URL, set instead of srv (the tagged tests); the staged
@@ -186,9 +187,13 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	if err != nil {
 		return Answer{}, err
 	}
+	body := req.Body
+	if body == nil {
+		body = bytes.NewReader(nil)
+	}
 	var stdout, stderr bytes.Buffer
 	Run(ctx, Env{
-		Args: []string{"ctl-child"}, Stdin: bytes.NewReader(raw), Stdout: &stdout, Stderr: &stderr,
+		Args: []string{"ctl-child"}, Stdin: io.MultiReader(bytes.NewReader(append(raw, '\n')), body), Stdout: &stdout, Stderr: &stderr,
 		Proc: childProc(), Sys: &System{Open: c.w.open, Place: c.w.place},
 	})
 	if stderr.Len() > 0 {
@@ -336,16 +341,30 @@ func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin
 	return a, err
 }
 
-// place is the child's placer as a test reads it: the files it was handed, its failure, and
-// each name written.
-func (w *world) place(_ paths.TeamID, files []PlacedFile) ([]string, error) {
+// place is the child's placer as a test reads it: the files it was handed, each lost export
+// read from the stream and verified, its failure, and each name written.
+func (w *world) place(_ paths.TeamID, files []PlacedFile, lost *LostStream) ([]string, error) {
 	if w.placeErr != nil {
 		return nil, w.placeErr
 	}
-	w.placed = files
-	names := make([]string, 0, len(files))
+	var read []string
+	for i := range lost.Files {
+		var b bytes.Buffer
+		if err := lost.Copy(&b, i); err != nil {
+			return nil, err
+		}
+		read = append(read, b.String())
+	}
+	if err := lost.End(); err != nil {
+		return nil, err
+	}
+	w.placed, w.lostRead = files, read
+	names := make([]string, 0, len(files)+len(lost.Files))
 	for _, f := range files {
 		names = append(names, f.Name)
+	}
+	for _, l := range lost.Files {
+		names = append(names, l.Name)
 	}
 	return names, nil
 }

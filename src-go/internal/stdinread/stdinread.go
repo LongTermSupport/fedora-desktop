@@ -12,6 +12,7 @@
 package stdinread
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -104,6 +105,46 @@ func Copy(dst io.Writer, r io.Reader, o Options) (int64, error) {
 		return res.n, fmt.Errorf("read stdin: %w", res.err)
 	}
 	return res.n, nil
+}
+
+// ReadLine is Read of the input's first line, for a request a stream follows: at most o.Limit
+// bytes of it (0: no limit), its line end dropped, by the same refusal, notice and bound. rest is
+// the input after the line end, unread; input that ends without one is all line, with an empty
+// rest.
+func ReadLine(r io.Reader, o Options) ([]byte, io.Reader, error) {
+	o = o.withDefaults()
+	if o.RefuseTerminal && o.IsTerminal(r) {
+		return nil, nil, ErrTerminal
+	}
+	w := &watched{r: r, started: make(chan struct{}), onStart: o.onStart}
+	br := bufio.NewReader(w)
+	done := make(chan result, 1)
+	go func() {
+		line, readErr := readLine(br, o.Limit)
+		done <- result{line, readErr}
+	}()
+	data, err := o.wait(w, done)
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, br, nil
+}
+
+// readLine is br's bytes up to a line end, which it consumes and drops, or the end, or limit
+// bytes (limit 0: none).
+func readLine(br *bufio.Reader, limit int64) ([]byte, error) {
+	var line []byte
+	for limit <= 0 || int64(len(line)) < limit {
+		b, err := br.ReadByte()
+		if errors.Is(err, io.EOF) || err == nil && b == '\n' {
+			return line, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		line = append(line, b)
+	}
+	return line, nil
 }
 
 // copyResult is the background copy's answer.

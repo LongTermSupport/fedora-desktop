@@ -45,8 +45,13 @@ func (c CarryChild) Check(ctx context.Context, team paths.TeamID, a carry.CheckA
 }
 
 // Place implements carry.Child: carry.place (SC-C2), the roster and rooms in their files'
-// own JSON, each guest token and lost export; the answer is the names written.
+// own JSON, each guest token, and each lost export by name, size and sha256 with a.Stream, their
+// bytes, after the request (sc-D11); the answer is the names written. A stream goes with lost
+// exports alone, and they with one.
 func (c CarryChild) Place(ctx context.Context, team paths.TeamID, a carry.PlaceArgs) ([]string, error) {
+	if (len(a.Lost) > 0) != (a.Stream != nil) {
+		return nil, fmt.Errorf("carry.place carries %d lost exports, which a stream goes with exactly when there are any", len(a.Lost))
+	}
 	roster, rerr := objectOf(a.Roster)
 	rooms, oerr := objectOf(a.Rooms)
 	if err := errors.Join(rerr, oerr); err != nil {
@@ -58,9 +63,9 @@ func (c CarryChild) Place(ctx context.Context, team paths.TeamID, a carry.PlaceA
 	}
 	lost := make([]proto.Value, 0, len(a.Lost))
 	for _, l := range a.Lost {
-		lost = append(lost, proto.Obj(proto.M("n", proto.Int(l.N)), proto.M("data", proto.Str(string(l.Data)))))
+		lost = append(lost, proto.Obj(proto.M("name", proto.Str(l.Name)), proto.M("size", proto.Int(l.Size)), proto.M("sha256", proto.Str(l.SHA256))))
 	}
-	ans, err := askOp(ctx, c.Live, OpCarryPlace, team, a.TeamFile,
+	ans, err := askOpWith(ctx, c.Live, OpCarryPlace, team, a.TeamFile, a.Stream,
 		proto.M(keyRoster, roster), proto.M(keyRooms, rooms), proto.M(keyToken, proto.Str(a.Token)),
 		proto.M(keyGuest, proto.Arr(guests...)), proto.M(keyLost, proto.Arr(lost...)))
 	return ans.Changed, err

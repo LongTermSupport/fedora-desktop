@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,9 +55,13 @@ func (c ExecChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	}, req)
 }
 
-// askRun runs cmd under bound (nil is ChildWait) with req on its stdin and its output capped,
-// and judges the answer (CS4, CS5): ExecChild's and UnitChild's one way to ask a child.
+// askRun runs cmd under bound (nil is ChildWait) with req on its stdin, one line, then
+// carry.place's body, and its output capped, and judges the answer (CS4, CS5): ExecChild's and
+// UnitChild's one way to ask a child. Any other op with a body is not asked (sc-D11).
 func askRun(ctx context.Context, bound func(context.Context) (context.Context, context.CancelFunc), r execx.Runner, cmd execx.Cmd, req Request) (Answer, error) {
+	if req.Body != nil && req.Op != OpCarryPlace {
+		return Answer{}, fmt.Errorf("op %s takes no stream after its request; only %s does", req.Op, OpCarryPlace)
+	}
 	if bound == nil {
 		bound = func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return context.WithTimeout(ctx, ChildWait)
@@ -69,7 +74,11 @@ func askRun(ctx context.Context, bound func(context.Context) (context.Context, c
 		return Answer{}, err
 	}
 	out, errOut := &capped{limit: maxAnswer}, &capped{limit: maxChildStderr}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(raw), out, errOut
+	toChild := io.Reader(bytes.NewReader(append(raw, '\n')))
+	if req.Body != nil {
+		toChild = io.MultiReader(toChild, req.Body)
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = toChild, out, errOut
 	_, runErr := r.Run(ctx, cmd)
 	if ctx.Err() != nil {
 		return Answer{}, fmt.Errorf("the %s child: %w", paths.CtlUser, ctx.Err())

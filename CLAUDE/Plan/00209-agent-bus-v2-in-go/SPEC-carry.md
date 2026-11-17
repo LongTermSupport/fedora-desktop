@@ -219,9 +219,11 @@ SG3. Root's class only (77 otherwise, BV4's seam `admin.Process`/`classOf`, `adm
   `^[A-Za-z0-9_][A-Za-z0-9._+-]{0,127}(/[A-Za-z0-9_][A-Za-z0-9._+-]{0,127})*$`, never `.` or
   `..`, and fits ustar's 100 + 155 split. Caps: the manifest 1 MiB; each `admin/` and `ctl/`
   file the cap its own reader uses (`fileMax`, `host/apply.go:84`; BK2's for the roster, rooms
-  and token); a `*-lost.jsonl` 64 MiB (RS14); `hs/` members none singly; the archive
-  `carry.MaxArchive` (O4, CN5). A source over a cap fails the export, naming the file, its
-  measured size and the cap.
+  and token); a `*-lost.jsonl` 64 MiB (RS14, `carry.LostCap`); `hs/` members none singly; the
+  archive `carry.MaxArchive` (O4, CN5). A source over a cap fails the export, naming the file,
+  its measured size and the cap. On import, a lost export travels to `ctl/<team>/` as the bytes
+  after `carry.place`'s request, never inside it: the child's request cap (64 KiB, CC3) is
+  smaller than this cap and is not raised for it (SC-C2, sc-D11).
 
 - **SX5. Integrity: the manifest.**
   `{"format": 1, "kind": "sealed"|"drill", "team": T, "server_name": "...", "seal": <SC7's fields from sealed_ms on>, "members": [{"name": "...", "type": "file"|"dir", "mode": "0600", "size": n, "sha256": "<hex>"}...]}`.
@@ -286,7 +288,9 @@ busy is 75) with SG5's guard. Nothing is written before SI1 to SI7 and SI13 pass
 
 - **SI2. An empty guest for T.** Every root of `TeamStateRoots(t)` (CN4) is absent (`Lstat`:
   a link counts), except the three carry names, which must be absent too on a fresh import. The
-  team's server, TLS and restore units are not loaded and not active. Each present root is
+  team's server, TLS and restore units are not active: inactive, or not loaded; `failed` and
+  `activating` refuse. Their load state is not judged, because an instance of an installed
+  template (SI3 requires the templates) reports `loaded` though it was never started. Each present root is
   named in the refusal (70): "team T has state on this guest; the import runs only onto a guest
   where T was never applied".
 
@@ -356,7 +360,7 @@ busy is 75) with SG5's guard. Nothing is written before SI1 to SI7 and SI13 pass
   2. `CtlState(t)` made 0700, owned by the ctl uid and gid (`mkdirOwned`,
      `host/dirs.go:25`, as `host/apply.go:562`), then the child's `carry.place` (SC-C2) writes
      `roster.json`, `rooms.json`, `admin.token`, `guest/*` and any lost export with its
-     atomic writer;
+     atomic writer, the lost exports streamed from `CarryStaging(t)` (SC-C2, sc-D11);
   3. `status/approved.json` saved by `declare.FileApprovals.Save` (`declare/gate.go:579-581`)
      with the owner group's gid (`System.OwnerGroup`), as `team approve` writes it, after
      `MkdirStatus` (`host/dirs.go:33`);
@@ -547,28 +551,47 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 - **SC-C1. `carry.tail`.** Args `{team_file}`; the live server, the current token. Answers
   `tail: [{room, event_id, ts_ms}...]` for each room of `rooms.json` and
   `epoch: {restore_epoch, rev}` (RC8's reading, `admin/serverestore.go:395`).
-- **SC-C2. `carry.place`.** Args `{team_file, roster, rooms, token, guest: [{name, data}], lost: [{n, data}]}`;
+- **SC-C2. `carry.place`.** Args `{team_file, roster, rooms, token, guest: [{name, data}], lost: [{name, size, sha256}]}`;
   refused when any target already exists in `ctl/<team>/`; writes each with the atomic writer
   and answers the names written. Decoded strictly by root (RC6's rule: no credential in the
-  answer).
+  answer). The request carries the small files; the lost exports' bytes are not in it
+  (sc-D11):
+  - **Which carries what.** The request is one line of at most 64 KiB (CC3), for this op as for
+    every other. The lost exports' bytes follow it on the child's stdin, in `lost`'s order, and
+    the stream is exactly the sum of their sizes. Only `carry.place` takes bytes after its
+    request: any other op with bytes after its line is refused unserved, and root asks no other
+    op with a stream.
+  - **Root, before streaming.** Root reads each lost export from `CarryStaging(t)`'s `ctl/`, and
+    refuses before sending anything: a name that is not a plain basename of the grammar
+    `restore-<N>-lost.jsonl` (so no `/` and no `..`), a name given twice, a staged lost export
+    the request does not name, a file opened through a link (`O_NOFOLLOW`, no link anywhere in
+    the path), one that is not regular, over SX4's 64 MiB, or not of its size and sha256. The
+    stream digests each file again and fails, never ends early, if one changed since.
+  - **The child.** It reads no more of the stream than the sizes, and one byte to see its end;
+    it streams each lost export into a fresh temporary in `ctl/<team>/`, checking its size and
+    sha256, and syncs it. A short, long or wrong stream fails the op with nothing placed and no
+    temporary left. Only when every lost export has verified and the stream has ended does it
+    write the small files and link each lost export into place (OP4: never over a file).
+  - Root never writes `ctl/<team>/` itself: the trust rule's bullet on `ctl/` above stands.
 - **SC-C3. `carry.check`.** Args `{team_file, port, tail}`: a client on `127.0.0.1:<port>` with
   the token in `ctl/<team>/`; answers, per tail entry, found or not, and the roster event's
   epoch.
 
 ## 11. Decisions where the inputs are silent
 
-| ID     | Decision                                                                                                                                                                                                         |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| sc-D1  | The export is one deterministic uncompressed ustar with a digest manifest first and a whole-archive digest in the answer. Not a directory: it must cross machines as one object whose digest the driver records. |
-| sc-D2  | The seal removes the stamp and the status record, so the tick and the backup timer stop by construction (`health/files.go:45-47`), not by a new branch in each.                                                  |
-| sc-D3  | The seal writes `restore.block` as its start block (one meaning, "no start", already honoured by RS17); the carry adds no second block file and no `systemctl mask` (O3).                                        |
-| sc-D4  | `hs/` travels whole, with Tuwunel's `backups/` and root's `backups/` (SX2), for `min_backup`'s sake; there is no `db/`-only form (O4).                                                                           |
-| sc-D5  | `units.json` travels; `firewall.json`, the leaf, the drop-ins, the stamp and the status record do not (SA's table).                                                                                              |
-| sc-D6  | The import's input is one fixed root-owned inbox path, not an argument, so root never opens a path a caller named.                                                                                               |
-| sc-D7  | `AdminState(t)` is placed last; its rename is the commit point; the import record's guard covers the window before it.                                                                                           |
-| sc-D8  | A drill import never becomes a real team (SG2); its proof is `carry-check` on loopback with no terminator and no firewall.                                                                                       |
-| sc-D9  | The age limits and the export format are constants of this repository (CN5), never driver settings: the driver cannot widen the window or skip the format check.                                                 |
-| sc-D10 | `approved.json` is carried, and `team apply` of a team declared as carried is refused until its import has landed (SG6), so the order cannot be got wrong.                                                       |
+| ID     | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sc-D1  | The export is one deterministic uncompressed ustar with a digest manifest first and a whole-archive digest in the answer. Not a directory: it must cross machines as one object whose digest the driver records.                                                                                                                                                                                                                                                       |
+| sc-D2  | The seal removes the stamp and the status record, so the tick and the backup timer stop by construction (`health/files.go:45-47`), not by a new branch in each.                                                                                                                                                                                                                                                                                                        |
+| sc-D3  | The seal writes `restore.block` as its start block (one meaning, "no start", already honoured by RS17); the carry adds no second block file and no `systemctl mask` (O3).                                                                                                                                                                                                                                                                                              |
+| sc-D4  | `hs/` travels whole, with Tuwunel's `backups/` and root's `backups/` (SX2), for `min_backup`'s sake; there is no `db/`-only form (O4).                                                                                                                                                                                                                                                                                                                                 |
+| sc-D5  | `units.json` travels; `firewall.json`, the leaf, the drop-ins, the stamp and the status record do not (SA's table).                                                                                                                                                                                                                                                                                                                                                    |
+| sc-D6  | The import's input is one fixed root-owned inbox path, not an argument, so root never opens a path a caller named.                                                                                                                                                                                                                                                                                                                                                     |
+| sc-D7  | `AdminState(t)` is placed last; its rename is the commit point; the import record's guard covers the window before it.                                                                                                                                                                                                                                                                                                                                                 |
+| sc-D8  | A drill import never becomes a real team (SG2); its proof is `carry-check` on loopback with no terminator and no firewall.                                                                                                                                                                                                                                                                                                                                             |
+| sc-D9  | The age limits and the export format are constants of this repository (CN5), never driver settings: the driver cannot widen the window or skip the format check.                                                                                                                                                                                                                                                                                                       |
+| sc-D10 | `approved.json` is carried, and `team apply` of a team declared as carried is refused until its import has landed (SG6), so the order cannot be got wrong.                                                                                                                                                                                                                                                                                                             |
+| sc-D11 | The coordinator's ruling on SC-C2 against the 64 KiB request cap, option (A): the cap stays for every op; `carry.place`'s request names each lost export by name, size and sha256, and root streams their bytes from `CarryStaging(t)` after it, every check done first; the child checks them again and places nothing unless all verify (SC-C2, SX4). Rejected: (B) raising the cap, which widens it for every op; (C) lowering SX4's cap, which drops a capability. |
 
 ## 12. Decisions
 

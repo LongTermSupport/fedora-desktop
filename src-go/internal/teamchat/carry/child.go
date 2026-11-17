@@ -2,6 +2,8 @@ package carry
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
@@ -36,21 +38,40 @@ func (t Tail) Agrees(r RosterFacts) error {
 }
 
 // PlaceArgs are carry.place's args (SC-C2): the team file, the roster and rooms files and the
-// admin token as carried, each guest seat's token and each lost export.
+// admin token as carried, each guest seat's token, each lost export by name, size and sha256,
+// and Stream, their bytes in that order (StagedLost), which follows the request (sc-D11).
 type PlaceArgs struct {
 	TeamFile, Roster, Rooms []byte
 	Token                   string
 	Guest                   []GuestToken
 	Lost                    []LostExport
+	Stream                  io.Reader
 }
 
 // GuestToken is a guest seat's token copy, `guest/<handle>.token`.
 type GuestToken struct{ Handle, Token string }
 
-// LostExport is `restore-<n>-lost.jsonl` (RS14).
+// LostExport is `restore-<n>-lost.jsonl` (RS14) as carry.place names it: its plain name, its
+// size and its sha256 in lower-case hex. Its bytes are never in the request (sc-D11).
 type LostExport struct {
-	N    int64
-	Data []byte
+	Name   string
+	Size   int64
+	SHA256 string
+}
+
+// Check is the export's own grammar: a lost export's plain name, a size from 0 to LostCap, and
+// a sha256 of 64 lower-case hex digits.
+func (l LostExport) Check() error {
+	if !lostName.MatchString(l.Name) {
+		return fmt.Errorf("%q is not a lost export's name, restore-<n>-lost.jsonl", l.Name)
+	}
+	if l.Size < 0 || l.Size > LostCap {
+		return fmt.Errorf("%s: a size of %d is not 0 to %d bytes", l.Name, l.Size, LostCap)
+	}
+	if !isDigest(l.SHA256) {
+		return fmt.Errorf("%s: the sha256 is not 64 lower-case hex digits", l.Name)
+	}
+	return nil
 }
 
 // CheckArgs are carry.check's args (SC-C3): the team file, the loopback port of the instance

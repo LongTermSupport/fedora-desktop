@@ -35,7 +35,7 @@ const (
 	backupCap   = 4 << 20   // backup's maxArchive, which reads a <n>.tar back
 	ctlCap      = 1 << 20   // BK2's for the roster and the rooms
 	tokenCap    = 4 << 10   // BK2's for the admin token, and a guest token's
-	lostCap     = 64 << 20  // RS14's for a restore's lost events
+	LostCap     = 64 << 20  // RS14's for a restore's lost events; carry.place streams them (sc-D11)
 	approvedCap = 256 << 10 // declare's maxApproved (AG2)
 	noCap       = -1
 )
@@ -367,7 +367,7 @@ func (x *exporting) ctl() error {
 			guest = true
 			return 0, 0, true
 		case lostName.MatchString(e.Name):
-			return 0o600, lostCap, true
+			return 0o600, LostCap, true
 		}
 		return 0, 0, false
 	})

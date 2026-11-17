@@ -1,8 +1,11 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
@@ -37,10 +40,38 @@ func TestCarryChildAsksEachOpAndReadsItsAnswer(t *testing.T) {
 	}
 	names, err := c.Place(t.Context(), team, carry.PlaceArgs{
 		TeamFile: w.teamFile(t), Roster: w.roster(t).Encode(), Rooms: apply.EncodeRooms(team, w.rooms(t)), Token: "carried-token",
-		Guest: []carry.GuestToken{{Handle: sampleHandle, Token: "guest-token"}}, Lost: []carry.LostExport{{N: 2, Data: []byte("x\n")}},
+		Guest: []carry.GuestToken{{Handle: sampleHandle, Token: "guest-token"}}, Lost: []carry.LostExport{lostExport("restore-2-lost.jsonl", "x\n")},
+		Stream: strings.NewReader("x\n"),
 	})
-	if err != nil || len(names) != 5 || len(w.placed) != 5 || string(w.placed[3].Data) != "guest-token" {
-		t.Fatalf("Place = %q, %v; placed %q", names, err, w.placed)
+	if err != nil || len(names) != 5 || len(w.placed) != 4 || string(w.placed[3].Data) != "guest-token" || !slices.Equal(w.lostRead, []string{"x\n"}) {
+		t.Fatalf("Place = %q, %v; placed %q, lost %q", names, err, w.placed, w.lostRead)
+	}
+}
+
+func lostExport(name, data string) carry.LostExport {
+	sum := sha256.Sum256([]byte(data))
+	return carry.LostExport{Name: name, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+}
+
+// TestCarryChildPlaceStreamsOnlyWithLostExports is condition 1 of the ruling (sc-D11) on root's
+// side: a stream goes with carry.place alone, and only with the lost exports it carries.
+func TestCarryChildPlaceStreamsOnlyWithLostExports(t *testing.T) {
+	w := withMember(t)
+	c := CarryChild{Live: inProcessChild{w: w}}
+	team := alpha(t)
+	args := carry.PlaceArgs{TeamFile: w.teamFile(t), Roster: w.roster(t).Encode(), Rooms: apply.EncodeRooms(team, w.rooms(t)), Token: "t"}
+	withLost := args
+	withLost.Lost = []carry.LostExport{lostExport("restore-2-lost.jsonl", "x\n")}
+	if _, err := c.Place(t.Context(), team, withLost); err == nil || w.placed != nil {
+		t.Fatalf("lost exports with no stream were asked: %v", err)
+	}
+	withStream := args
+	withStream.Stream = strings.NewReader("x\n")
+	if _, err := c.Place(t.Context(), team, withStream); err == nil || w.placed != nil {
+		t.Fatalf("a stream with no lost export was asked: %v", err)
+	}
+	if _, err := c.Place(t.Context(), team, args); err != nil || len(w.placed) != 3 {
+		t.Fatalf("no lost export, no stream: %v, placed %q", err, w.placed)
 	}
 }
 

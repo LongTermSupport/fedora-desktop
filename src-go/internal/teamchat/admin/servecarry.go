@@ -2,9 +2,12 @@ package admin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -47,10 +50,64 @@ var (
 )
 
 // Placer writes a carried team's files into ctl/<team>/ (SC-C2): it refuses when any of them
-// is already there, then writes each with the atomic writer, answering the names written. It
-// is the child's second seam beside the Opener, because the Opener needs the admin token the
-// place writes.
-type Placer func(team paths.TeamID, files []PlacedFile) ([]string, error)
+// is already there, reads each lost export from lost into a temporary and verifies them all and
+// the stream's end, then writes each file with the atomic writer and puts each lost export in
+// place, answering the names written, the files' then the lost exports'. It places nothing when
+// a lost export fails to verify (sc-D11). It is the child's second seam beside the Opener,
+// because the Opener needs the admin token the place writes.
+type Placer func(team paths.TeamID, files []PlacedFile, lost *LostStream) ([]string, error)
+
+// LostStream is carry.place's lost exports (sc-D11): each named in the request with its size
+// and sha256, their bytes the stream after the request, in the request's order, exactly the sum
+// of the sizes. Copy reads each in turn and End sees the stream end; a short, long or wrong
+// stream fails.
+type LostStream struct {
+	Files []carry.LostExport
+	body  io.Reader
+	next  int
+}
+
+// NewLostStream is files' stream over body.
+func NewLostStream(files []carry.LostExport, body io.Reader) *LostStream {
+	return &LostStream{Files: files, body: body}
+}
+
+// Copy writes lost export i's bytes to dst: exactly its size, which must be its sha256. The
+// exports are copied in order, each once.
+func (s *LostStream) Copy(dst io.Writer, i int) error {
+	if i != s.next || i >= len(s.Files) {
+		return fmt.Errorf("lost export %d is not the next of the stream's %d", i, len(s.Files))
+	}
+	s.next++
+	l := s.Files[i]
+	sum := sha256.New()
+	n, err := io.Copy(io.MultiWriter(dst, sum), io.LimitReader(s.body, l.Size))
+	if err != nil {
+		return fmt.Errorf("%s: %w", l.Name, err)
+	}
+	if n != l.Size {
+		return fmt.Errorf("the stream ended %d bytes into %s, not %d", n, l.Name, l.Size)
+	}
+	if hex.EncodeToString(sum.Sum(nil)) != l.SHA256 {
+		return fmt.Errorf("%s is not the sha256 the request names", l.Name)
+	}
+	return nil
+}
+
+// End fails unless every lost export was copied and the stream ends there.
+func (s *LostStream) End() error {
+	if s.next != len(s.Files) {
+		return fmt.Errorf("%d of the stream's %d lost exports were read", s.next, len(s.Files))
+	}
+	end, err := atEnd(s.body)
+	switch {
+	case err != nil:
+		return fmt.Errorf("the stream's end: %w", err)
+	case !end:
+		return errors.New("the stream is longer than the lost exports' sizes")
+	}
+	return nil
+}
 
 // PlacedFile is one file carry.place writes: its name under ctl/<team>/ (a plain name, or
 // `guest/<handle>.token`) and its content.
@@ -206,9 +263,10 @@ func rosterEpoch(ctx context.Context, c stateEventReader, team declare.Team, mai
 	return restore.Epoch{RestoreEpoch: r.RestoreEpoch, Rev: r.Rev}, nil
 }
 
-// ServePlace runs carry.place in the child (SC-C2): its args read strictly, then the files
-// handed to place, and the names written answered with no credential.
-func ServePlace(place Placer, req Request) Answer {
+// ServePlace runs carry.place in the child (SC-C2): its args read strictly, then the files and
+// the lost exports' stream, body, the bytes after the request (sc-D11), handed to place, and
+// the names written answered with no credential.
+func ServePlace(place Placer, req Request, body io.Reader) Answer {
 	if req.Op != OpCarryPlace {
 		return failure(ClassFailed, "op "+req.Op+" is not "+OpCarryPlace)
 	}
@@ -220,14 +278,14 @@ func ServePlace(place Placer, req Request) Answer {
 	if err != nil {
 		return failure(ClassFailed, err.Error())
 	}
-	files, err := placedFiles(team.ID, args)
+	files, lost, err := placedFiles(team.ID, args)
 	if err != nil {
 		return failure(ClassFailed, "op "+req.Op+" args: "+err.Error())
 	}
 	if place == nil {
 		return failure(ClassConfig, "the child cannot place a carried team's files")
 	}
-	names, err := place(team.ID, files)
+	names, err := place(team.ID, files, NewLostStream(lost, body))
 	if err != nil {
 		return failure(ClassFailed, "placing the carried files: "+err.Error())
 	}
@@ -238,9 +296,10 @@ func ServePlace(place Placer, req Request) Answer {
 	return Answer{OK: true, Changed: changed}
 }
 
-// placedFiles are carry.place's files in SI9's order: roster.json, rooms.json and the admin
-// token, each guest token, each lost export; the roster and rooms in their own encodings.
-func placedFiles(team paths.TeamID, args map[string]proto.Value) ([]PlacedFile, error) {
+// placedFiles are carry.place's files in SI9's order, roster.json, rooms.json and the admin
+// token, then each guest token, the roster and rooms in their own encodings; and the lost
+// exports the stream carries.
+func placedFiles(team paths.TeamID, args map[string]proto.Value) ([]PlacedFile, []carry.LostExport, error) {
 	r := &argReader{}
 	rel := func(p string) string { return strings.TrimPrefix(p, paths.CtlState(team)+"/") }
 	roster, err := decodeArgFile(args[keyRoster], func(raw []byte) (apply.RosterFile, error) { return apply.DecodeRosterFile(raw, team) })
@@ -259,17 +318,14 @@ func placedFiles(team paths.TeamID, args map[string]proto.Value) ([]PlacedFile, 
 		r.failf("token is not 1 to %d printable ASCII bytes without a space", maxSecret)
 	}
 	guests, lost := readGuests(r, args[keyGuest]), readLost(r, args[keyLost])
-	out := make([]PlacedFile, 0, 3+len(guests)+len(lost))
+	out := make([]PlacedFile, 0, 3+len(guests))
 	out = append(out,
 		PlacedFile{rel(paths.RosterFile(team)), roster.Encode()}, PlacedFile{rel(paths.RoomsFile(team)), apply.EncodeRooms(team, ids)},
 		PlacedFile{AdminTokenName, []byte(token.Str())})
 	for _, g := range guests {
 		out = append(out, PlacedFile{rel(paths.GuestTokenDir(team)) + "/" + g.Handle + ".token", []byte(g.Token)})
 	}
-	for _, l := range lost {
-		out = append(out, PlacedFile{rel(paths.RestoreLostFile(team, l.N)), l.Data})
-	}
-	return out, errors.Join(r.errs...)
+	return out, lost, errors.Join(r.errs...)
 }
 
 // readGuests is the guest list: each a handle once, with a token of the credential grammar.
@@ -294,23 +350,28 @@ func readGuests(r *argReader, v proto.Value) []carry.GuestToken {
 	return out
 }
 
-// readLost is the lost exports: each a backup number of 1 or more, once, with its text.
+// readLost is the lost exports (sc-D11): each a lost export's plain name, once, with a size of
+// at most carry.LostCap and a sha256; their bytes are the stream, never the request.
 func readLost(r *argReader, v proto.Value) []carry.LostExport {
 	var out []carry.LostExport
 	for _, item := range listOf(r, v, keyLost) {
-		f, err := exactKeys(item, "n", "data")
-		n, data := f["n"], f["data"]
+		f, err := exactKeys(item, "name", "size", "sha256")
+		name, size, sum := f["name"], f["size"], f["sha256"]
+		if err == nil && (name.Kind() != proto.KindString || size.Kind() != proto.KindInt || sum.Kind() != proto.KindString) {
+			err = errors.New("name, size and sha256 are not a string, an integer and a string")
+		}
+		var l carry.LostExport
+		if err == nil {
+			l = carry.LostExport{Name: name.Str(), Size: size.Int(), SHA256: sum.Str()}
+			err = l.Check()
+		}
 		switch {
 		case err != nil:
 			r.failf("lost: %w", err)
-		case n.Kind() != proto.KindInt || n.Int() < 1:
-			r.failf("lost: n is not a backup number of 1 or more")
-		case data.Kind() != proto.KindString:
-			r.failf("lost: data is not a string")
-		case slices.ContainsFunc(out, func(l carry.LostExport) bool { return l.N == n.Int() }):
-			r.failf("lost: a backup number is named twice")
+		case slices.ContainsFunc(out, func(o carry.LostExport) bool { return o.Name == l.Name }):
+			r.failf("lost: %s is named twice", l.Name)
 		default:
-			out = append(out, carry.LostExport{N: n.Int(), Data: []byte(data.Str())})
+			out = append(out, l)
 		}
 	}
 	return out

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -120,6 +121,11 @@ func fileArgs(team paths.TeamID, rooms proto.RoomIDs, roster apply.RosterFile) (
 // askOp asks child op with the team file and members as its args. The answer must fit the
 // op; a failed one is a ChildError, returned beside the lines changed before it.
 func askOp(ctx context.Context, child Child, op string, team paths.TeamID, teamFile []byte, members ...proto.Member) (Answer, error) {
+	return askOpWith(ctx, child, op, team, teamFile, nil, members...)
+}
+
+// askOpWith is askOp with body, carry.place's stream, after the request (sc-D11).
+func askOpWith(ctx context.Context, child Child, op string, team paths.TeamID, teamFile []byte, body io.Reader, members ...proto.Member) (Answer, error) {
 	tf, err := proto.Parse(teamFile)
 	if err == nil && tf.Kind() != proto.KindObject {
 		err = errors.New("not an object")
@@ -127,7 +133,7 @@ func askOp(ctx context.Context, child Child, op string, team paths.TeamID, teamF
 	if err != nil {
 		return Answer{}, fmt.Errorf("the team file: %w", err)
 	}
-	a, err := child.Ask(ctx, Request{Op: op, Team: team, Args: proto.Obj(append([]proto.Member{proto.M(keyTeamFile, tf)}, members...)...)})
+	a, err := child.Ask(ctx, Request{Op: op, Team: team, Args: proto.Obj(append([]proto.Member{proto.M(keyTeamFile, tf)}, members...)...), Body: body})
 	if err == nil {
 		err = answerFits(op, a)
 	}

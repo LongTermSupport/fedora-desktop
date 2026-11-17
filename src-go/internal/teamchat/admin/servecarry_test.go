@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"slices"
 	"strings"
@@ -213,19 +215,63 @@ func TestServeCarryCheckFailures(t *testing.T) {
 	}
 }
 
+// lostData is the lost export placeArgs names; its bytes follow the request.
+const lostData = "{\"a\":1}\n"
+
+// lostEntry is a lost export as carry.place's request names it: its name, size and sha256.
+func lostEntry(name, data string) proto.Value {
+	sum := sha256.Sum256([]byte(data))
+	return proto.Obj(proto.M("name", proto.Str(name)), proto.M("size", proto.Int(int64(len(data)))), proto.M("sha256", proto.Str(hex.EncodeToString(sum[:]))))
+}
+
 // placeArgs are carry.place's args: the team's files, one guest token and one lost export.
 func (w *world) placeArgs(t *testing.T) []proto.Member {
 	t.Helper()
 	return []proto.Member{
 		w.teamFileArg(t), rosterArg(t, w.roster(t)), w.roomsArg(t, w.rooms(t)), proto.M(keyToken, proto.Str("carried-token")),
 		proto.M(keyGuest, proto.Arr(proto.Obj(proto.M("name", proto.Str(sampleHandle)), proto.M("data", proto.Str("guest-token"))))),
-		proto.M(keyLost, proto.Arr(proto.Obj(proto.M("n", proto.Int(3)), proto.M("data", proto.Str("{\"a\":1}\n"))))),
+		proto.M(keyLost, proto.Arr(lostEntry("restore-3-lost.jsonl", lostData))),
 	}
 }
 
+// servePlace is carry.place with placeArgs' lost export's bytes as the stream.
 func (w *world) servePlace(t *testing.T, args ...proto.Member) Answer {
 	t.Helper()
-	return ServePlace(w.place, Request{Op: OpCarryPlace, Team: alpha(t), Args: proto.Obj(args...)})
+	return w.servePlaceStream(t, lostData, args...)
+}
+
+func (w *world) servePlaceStream(t *testing.T, stream string, args ...proto.Member) Answer {
+	t.Helper()
+	return ServePlace(w.place, Request{Op: OpCarryPlace, Team: alpha(t), Args: proto.Obj(args...)}, strings.NewReader(stream))
+}
+
+// TestServeCarryPlaceStreamIsExactlyTheSizes is condition 1 of the ruling (sc-D11): the
+// stream after the request is exactly the sum of the lost exports' sizes, each its sha256; a
+// short, a long or a wrong stream fails the op.
+func TestServeCarryPlaceStreamIsExactlyTheSizes(t *testing.T) {
+	for name, stream := range map[string]string{
+		"short":           lostData[:len(lostData)-1],
+		"empty":           "",
+		"long":            lostData + "x",
+		"digest mismatch": "{\"a\":2}\n",
+	} {
+		w := withMember(t)
+		if a := w.servePlaceStream(t, stream, w.placeArgs(t)...); a.OK || a.Error.Class != ClassFailed {
+			t.Errorf("%s: %+v", name, a)
+		}
+		if w.placed != nil {
+			t.Errorf("%s: placed %q", name, w.placed)
+		}
+	}
+	w := withMember(t)
+	args := w.placeArgs(t)
+	args[len(args)-1] = proto.M(keyLost, proto.Arr())
+	if a := w.servePlaceStream(t, "x", args...); a.OK {
+		t.Errorf("a stream with no lost export named was taken: %+v", a)
+	}
+	if a := w.servePlaceStream(t, "", args...); !a.OK || len(a.Changed) != 4 {
+		t.Errorf("no lost export and no stream: %+v", a)
+	}
 }
 
 // TestServeCarryPlaceWritesEachFile is SC-C2: the files under ctl/<team>/, each in its own
@@ -242,10 +288,12 @@ func TestServeCarryPlaceWritesEachFile(t *testing.T) {
 		{Name: "rooms.json", Data: apply.EncodeRooms(team, w.rooms(t))},
 		{Name: "admin.token", Data: []byte("carried-token")},
 		{Name: "guest/" + sampleHandle + ".token", Data: []byte("guest-token")},
-		{Name: "restore-3-lost.jsonl", Data: []byte("{\"a\":1}\n")},
 	}
 	if !slices.EqualFunc(w.placed, want, func(a, b PlacedFile) bool { return a.Name == b.Name && string(a.Data) == string(b.Data) }) {
 		t.Fatalf("placed %q", w.placed)
+	}
+	if !slices.Equal(w.lostRead, []string{lostData}) {
+		t.Fatalf("the lost export read from the stream %q", w.lostRead)
 	}
 	for _, line := range a.Changed {
 		if strings.Contains(line, "token\"") || strings.Contains(line, "carried-token") || strings.Contains(line, "guest-token") {
@@ -265,7 +313,7 @@ func TestServeCarryPlaceFailures(t *testing.T) {
 	if a := w.servePlace(t, w.placeArgs(t)...); a.OK || a.Error.Class != ClassFailed {
 		t.Fatalf("a failing placer %+v", a)
 	}
-	a := ServePlace(nil, Request{Op: OpCarryPlace, Team: alpha(t), Args: proto.Obj(w.placeArgs(t)...)})
+	a := ServePlace(nil, Request{Op: OpCarryPlace, Team: alpha(t), Args: proto.Obj(w.placeArgs(t)...)}, strings.NewReader(lostData))
 	if a.OK || a.Error.Class != ClassConfig {
 		t.Fatalf("no placer %+v", a)
 	}
@@ -291,25 +339,36 @@ func TestServeCarryArgsAreStrict(t *testing.T) {
 	guest := func(name, data proto.Value) proto.Value {
 		return proto.Arr(proto.Obj(proto.M("name", name), proto.M("data", data)))
 	}
-	lost := func(n, data proto.Value) proto.Value {
-		return proto.Arr(proto.Obj(proto.M("n", n), proto.M("data", data)))
+	lost := func(name, size, sum proto.Value) proto.Value {
+		return proto.Arr(proto.Obj(proto.M("name", name), proto.M("size", size), proto.M("sha256", sum)))
 	}
+	good := lostEntry("restore-3-lost.jsonl", lostData)
+	name, size, sum := good.Members()[0].Val, good.Members()[1].Val, good.Members()[2].Val
 	for name, args := range map[string][]proto.Member{
-		"missing lost":  base[:len(base)-1],
-		"extra key":     append(slices.Clone(base), proto.M("x", proto.Int(1))),
-		"token":         with(keyToken, proto.Str("a b")),
-		"rooms":         with(keyRooms, proto.Obj()),
-		"roster":        with(keyRoster, proto.Arr()),
-		"guest object":  with(keyGuest, proto.Obj()),
-		"guest name":    with(keyGuest, guest(proto.Str("../x"), proto.Str("t"))),
-		"guest token":   with(keyGuest, guest(proto.Str(sampleHandle), proto.Str(""))),
-		"guest extra":   with(keyGuest, proto.Arr(proto.Obj(proto.M("name", proto.Str(sampleHandle)), proto.M("data", proto.Str("t")), proto.M("x", proto.Int(1))))),
-		"guest twice":   with(keyGuest, proto.Arr(guest(proto.Str(sampleHandle), proto.Str("t")).Items()[0], guest(proto.Str(sampleHandle), proto.Str("u")).Items()[0])),
-		"lost zero":     with(keyLost, lost(proto.Int(0), proto.Str("x"))),
-		"lost string n": with(keyLost, lost(proto.Str("1"), proto.Str("x"))),
-		"lost data":     with(keyLost, lost(proto.Int(1), proto.Int(1))),
-		"lost twice":    with(keyLost, proto.Arr(lost(proto.Int(1), proto.Str("x")).Items()[0], lost(proto.Int(1), proto.Str("y")).Items()[0])),
-		"team file":     with(keyTeamFile, proto.Obj()),
+		"missing lost":     base[:len(base)-1],
+		"extra key":        append(slices.Clone(base), proto.M("x", proto.Int(1))),
+		"token":            with(keyToken, proto.Str("a b")),
+		"rooms":            with(keyRooms, proto.Obj()),
+		"roster":           with(keyRoster, proto.Arr()),
+		"guest object":     with(keyGuest, proto.Obj()),
+		"guest name":       with(keyGuest, guest(proto.Str("../x"), proto.Str("t"))),
+		"guest token":      with(keyGuest, guest(proto.Str(sampleHandle), proto.Str(""))),
+		"guest extra":      with(keyGuest, proto.Arr(proto.Obj(proto.M("name", proto.Str(sampleHandle)), proto.M("data", proto.Str("t")), proto.M("x", proto.Int(1))))),
+		"guest twice":      with(keyGuest, proto.Arr(guest(proto.Str(sampleHandle), proto.Str("t")).Items()[0], guest(proto.Str(sampleHandle), proto.Str("u")).Items()[0])),
+		"lost traversal":   with(keyLost, lost(proto.Str("../restore-3-lost.jsonl"), size, sum)),
+		"lost path":        with(keyLost, lost(proto.Str("guest/restore-3-lost.jsonl"), size, sum)),
+		"lost other name":  with(keyLost, lost(proto.Str("roster.json"), size, sum)),
+		"lost number zero": with(keyLost, lost(proto.Str("restore-0-lost.jsonl"), size, sum)),
+		"lost name number": with(keyLost, lost(proto.Int(3), size, sum)),
+		"lost size string": with(keyLost, lost(name, proto.Str("8"), sum)),
+		"lost size below":  with(keyLost, lost(name, proto.Int(-1), sum)),
+		"lost oversize":    with(keyLost, lost(name, proto.Int(carry.LostCap+1), sum)),
+		"lost digest":      with(keyLost, lost(name, size, proto.Str(strings.ToUpper(sum.Str())))),
+		"lost digest len":  with(keyLost, lost(name, size, proto.Str("abc"))),
+		"lost extra":       with(keyLost, proto.Arr(proto.Obj(append(good.Members(), proto.M("data", proto.Str(lostData)))...))),
+		"lost data form":   with(keyLost, proto.Arr(proto.Obj(proto.M("n", proto.Int(3)), proto.M("data", proto.Str(lostData))))),
+		"lost twice":       with(keyLost, proto.Arr(good, good)),
+		"team file":        with(keyTeamFile, proto.Obj()),
 	} {
 		if a := w.servePlace(t, args...); a.OK || a.Error.Class != ClassFailed {
 			t.Errorf("%s: %+v", name, a)

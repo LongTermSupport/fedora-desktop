@@ -69,7 +69,7 @@ func TestExecChildStartsTheChildBySpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(stdin, want) {
+	if !bytes.Equal(stdin, append(want, '\n')) {
 		t.Fatalf("stdin %s", stdin)
 	}
 	f, isFake := c.Runner.(*execx.Fake)
@@ -77,6 +77,30 @@ func TestExecChildStartsTheChildBySpec(t *testing.T) {
 		t.Fatal("not the fake")
 	}
 	checkChildCmd(t, f.Calls()[0])
+}
+
+// TestExecChildStreamsABodyAfterCarryPlaceAlone is condition 1 of the ruling (sc-D11): the
+// request line, then the body's bytes, for carry.place; any other op with a body is not asked.
+func TestExecChildStreamsABodyAfterCarryPlaceAlone(t *testing.T) {
+	var stdin []byte
+	c := childAnswering(`{"v":1,"ok":true,"changed":["restore-1-lost.jsonl written"]}`+"\n", "", 0, &stdin)
+	req := Request{Op: OpCarryPlace, Team: alpha(t), Args: proto.Obj(), Body: strings.NewReader("lost\nbytes")}
+	if _, err := c.Ask(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	want, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stdin) != string(want)+"\nlost\nbytes" {
+		t.Fatalf("stdin %q", stdin)
+	}
+	park := parkRequest(t)
+	park.Body = strings.NewReader("x")
+	stdin = nil
+	if _, err := c.Ask(t.Context(), park); err == nil || stdin != nil {
+		t.Fatalf("a member.park with a body was asked: %v, stdin %q", err, stdin)
+	}
 }
 
 // checkChildCmd is CS1's start: the binary as ctl-child in /, PATH alone, the account's ids
