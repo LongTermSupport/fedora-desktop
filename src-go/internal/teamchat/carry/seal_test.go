@@ -100,13 +100,7 @@ func newSealWorld(t *testing.T) *sealWorld {
 			Epoch: restore.Epoch{RestoreEpoch: 2, Rev: 5},
 		},
 	}
-	in, err := declare.DecodeInput([]byte(`{"team":{"team":"ops","state":"present","port":8448,"description":"d",` +
-		`"networks":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
-		`"org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},"lxc_members":[],"address":"192.0.2.10"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.decl = in.Team
+	w.decl = sampleInput(t).Team
 	for _, dir := range []string{paths.HomeserverPrivateState(team), paths.AdminState(team), paths.CtlState(team), paths.StatusTeamDir(team), paths.CarryDir, paths.AdminRunDir} {
 		if err := os.MkdirAll(w.root+dir, 0o700); err != nil {
 			t.Fatal(err)
@@ -121,6 +115,18 @@ func newSealWorld(t *testing.T) *sealWorld {
 	w.put(paths.RestoreEpochFile(team), string(restore.EncodeEpochFloor(restore.EpochFloor{Epoch: 3, MinBackup: 8})))
 	w.putRoster(func(*apply.RosterFile) {})
 	return w
+}
+
+// sampleInput is the seal world's declaration of team ops.
+func sampleInput(t *testing.T) declare.Input {
+	t.Helper()
+	in, err := declare.DecodeInput([]byte(`{"team":{"team":"ops","state":"present","port":8448,"description":"d",` +
+		`"networks":["192.0.2.0/24"],"humans":["alice"],"trust":{"kind":"github",` +
+		`"org":"example-org","repos":[{"repo":"example-org/thing","branches":["main"]}]}},"lxc_members":[],"address":"192.0.2.10"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return in
 }
 
 func ownUID(t *testing.T) uint32 {

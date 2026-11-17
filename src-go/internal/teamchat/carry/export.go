@@ -47,11 +47,12 @@ var (
 	guestName     = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._+-]{0,121}\.token$`)
 )
 
-// Info is what a source is: its kind, its permission bits and its size.
+// Info is what a file is: its kind, its permission bits, its size and its owner.
 type Info struct {
 	Kind restore.Kind
 	Mode fs.FileMode
 	Size int64
+	UID  uint32
 }
 
 // Part is the archive being written.
@@ -83,6 +84,8 @@ type Files interface {
 	SyncDir(dir string) error
 	// Digest is an archive root wrote, read by the trust rule: its size and digest.
 	Digest(path string) (Written, error)
+	// OpenOwned opens an archive by the trust rule (state.OpenOwnedFile as root) to stream it.
+	OpenOwned(path string) (io.ReadCloser, error)
 }
 
 // Export is `team export --team T` (SX1-SX7): the sealed team's archive, written to its part,
@@ -530,7 +533,7 @@ func infoOf(f *os.File) (Info, error) {
 	case unix.S_IFREG:
 		k = restore.KindFile
 	}
-	return Info{Kind: k, Mode: fs.FileMode(st.Mode & 0o7777), Size: st.Size}, nil
+	return Info{Kind: k, Mode: fs.FileMode(st.Mode & 0o7777), Size: st.Size, UID: st.Uid}, nil
 }
 
 // Stat implements Files.
@@ -642,7 +645,7 @@ func (o OS) SyncDir(dir string) error {
 
 // Digest implements Files.
 func (o OS) Digest(path string) (Written, error) {
-	f, err := state.OpenOwnedFile(o.Root+path, o.StateOwnerUID)
+	f, err := o.OpenOwned(path)
 	if err != nil {
 		return Written{}, err
 	}
@@ -652,6 +655,11 @@ func (o OS) Digest(path string) (Written, error) {
 		return Written{}, fmt.Errorf("cannot read %s: %w", o.Root+path, err)
 	}
 	return Written{Size: n, SHA256: hex.EncodeToString(sum.Sum(nil))}, nil
+}
+
+// OpenOwned implements Files.
+func (o OS) OpenOwned(path string) (io.ReadCloser, error) {
+	return state.OpenOwnedFile(o.Root+path, o.StateOwnerUID)
 }
 
 // openNoLinks opens path under Root with no link followed anywhere in it.

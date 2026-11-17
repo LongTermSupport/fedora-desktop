@@ -428,7 +428,7 @@ func (a *applying) urlHost() error {
 // team's homeserver.
 func (a *applying) port() error {
 	port := a.in.Team.Port
-	other, taken, err := a.portRecordedBy(port)
+	other, taken, err := PortRecordedBy(a.d.Root, a.team, port)
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
@@ -451,19 +451,21 @@ func (a *applying) port() error {
 	return nil
 }
 
-// portRecordedBy is the other v2 team whose units.json records port, and whether there is one.
-func (a *applying) portRecordedBy(port int) (paths.TeamID, bool, error) {
+// PortRecordedBy is the v2 team other than team whose units.json under root records port, and
+// whether there is one: apply's refusal of a port another team holds, which an import runs
+// before it places anything (SPEC-carry SI3).
+func PortRecordedBy(root string, team paths.TeamID, port int) (paths.TeamID, bool, error) {
 	var none paths.TeamID
-	entries, err := os.ReadDir(a.path(paths.AdminStateRoot))
+	entries, err := os.ReadDir(root + paths.AdminStateRoot)
 	if err != nil {
 		return none, false, err
 	}
 	for _, e := range entries {
 		other, perr := paths.ParseTeamID(e.Name())
-		if perr != nil || other == a.team || !e.IsDir() {
+		if perr != nil || other == team || !e.IsDir() {
 			continue
 		}
-		raw, found, rerr := state.ReadFile(a.path(paths.UnitsRecord(other)), fileMax)
+		raw, found, rerr := state.ReadFile(root+paths.UnitsRecord(other), fileMax)
 		if rerr != nil {
 			return none, false, rerr
 		}
