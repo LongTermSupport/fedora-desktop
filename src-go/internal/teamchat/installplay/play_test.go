@@ -103,6 +103,7 @@ func TestThePlaysDerivedPathsAreThePathsPackagesDerivedPaths(t *testing.T) {
 		"the server binary":          paths.ServerBinary(v),
 		"the server pin":             paths.ServerPinFile,
 		"the owner group file":       paths.OwnerGroupFile,
+		"the carry archive cap file": paths.CarryMaxArchiveFile,
 		"the health timer":           paths.HealthTimer,
 		"the backup timer":           paths.BackupTimer,
 		"the admin program's link":   "{{ tc_admin_link }}",
@@ -115,6 +116,61 @@ func TestThePlaysDerivedPathsAreThePathsPackagesDerivedPaths(t *testing.T) {
 			t.Errorf("the play does not name %s (%q)", what, want)
 		}
 	}
+}
+
+// The play's carry archive cap (SPEC-carry CN5): the inventory variable paths.CarryMaxArchiveVar,
+// 1 GiB when unset, judged by the input check with the grammar teamchat-admin reads it with (a
+// positive decimal count of bytes within int64), and written root's 0644 at
+// paths.CarryMaxArchiveFile. A bad value fails the play before anything changes, never a later
+// export or import with 78.
+func TestThePlayWritesTheCarryArchiveCap(t *testing.T) {
+	p := loadPlay(t)
+	const capVar = "tc_carry_max_archive_bytes"
+	if want := "{{ " + paths.CarryMaxArchiveVar + " | default(1073741824) }}"; p.Vars[capVar] != want {
+		t.Errorf("play variable %s = %v, want %q", capVar, p.Vars[capVar], want)
+	}
+	checks := taskModule(t, p, "Check the Play's Inputs", "ansible.builtin.assert")
+	that, ok := checks["that"].([]any)
+	if !ok {
+		t.Fatalf("the input check's that = %v, want a list", checks["that"])
+	}
+	for _, want := range []string{
+		capVar + " | string is match('^[1-9][0-9]{0,18}$')",
+		capVar + " | int <= 9223372036854775807",
+	} {
+		if !slices.Contains(that, any(want)) {
+			t.Errorf("the input check lacks %q", want)
+		}
+	}
+	written := taskModule(t, p, "Write the Carry Archive Cap", "ansible.builtin.copy")
+	for key, want := range map[string]string{
+		"content": "{{ " + capVar + " }}\n",
+		"dest":    "{{ tc_etc_dir }}/" + filepath.Base(paths.CarryMaxArchiveFile),
+		"owner":   "root",
+		"group":   "root",
+		"mode":    "0644",
+	} {
+		if written[key] != want {
+			t.Errorf("the cap's copy %s = %v, want %q", key, written[key], want)
+		}
+	}
+}
+
+// taskModule is the arguments of the play's task of that name, which must call that module.
+func taskModule(t *testing.T, p play, name, module string) map[string]any {
+	t.Helper()
+	for _, task := range p.Tasks {
+		if task["name"] != name {
+			continue
+		}
+		args, ok := task[module].(map[string]any)
+		if !ok {
+			t.Fatalf("task %q does not call %s", name, module)
+		}
+		return args
+	}
+	t.Fatalf("the play has no task %q", name)
+	return nil
 }
 
 // loadArchTable is the architecture table: each architecture's row, keyed by the row's field.

@@ -238,8 +238,9 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
   Pending:
 
-  - the play must write the archive cap file before export or import can run (they exit 78
-    until then; a deploy step, outside gate A);
+  - the play's run on each host that serves teams: it now writes the archive cap file
+    (`teamchat_carry_max_archive_bytes`, default 1 GiB, checked at play time), and export
+    and import exit 78 on a host until it has run there;
   - the `-tags tuwunel` carry test has not been run against a real Tuwunel (its harness now
     sets umask 077 as the host's unit does, so SX3 sees the host's modes; unproven until run);
   - the drill, with SH1, has not been run on the scratch guest (the driver's);

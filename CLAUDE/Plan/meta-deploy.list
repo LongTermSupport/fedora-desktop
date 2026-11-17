@@ -71,7 +71,9 @@ playbooks/imports/optional/common/play-self-update.yml --check --diff
 # rebuilt pingbus and teamchat, and is rebuilt once at the next ccy start. pingbus's
 # thread --close reads no stdin unless --note - is given; a text verb (say, reply, report)
 # refuses a terminal, says on stderr after a second that it is waiting, and exits 64 if nothing
-# has come within 60 s. Afterwards: a new ccy session starts, on container 2.84.26.
+# has come within 60 s. Issue #324 (ccy 3.122.20, container 2.84.28) rides the same run: the
+# image's internal/stdinread gains the bounded first-line read the sealed carry uses. Afterwards:
+# a new ccy session starts, on container 2.84.28.
 playbooks/imports/play-claude-yolo.yml
 
 # Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the
@@ -89,5 +91,10 @@ playbooks/imports/optional/common/play-vm-test-lab.yml
 # entries above ran are not due again. Since #323 this also runs, for real, the four plays
 # checked above (play-claude-devtools, play-ddev, play-qobuz, play-self-update). So run it
 # only once their diffs have been read and cleared; if any diff is not cleared, stop the list
-# here and report. Afterwards report what changed.
+# here and report. Issue #324: where play-teamchat has run, it is due again: teamchat-admin
+# gains the sealed carry (team seal, export, import, carry-check), and the play now checks
+# teamchat_carry_max_archive_bytes (default 1 GiB) before anything changes and writes
+# /etc/teamchat/carry-max-archive-bytes, without which export and import exit 78. Expected:
+# changed for the admin program and that one file; the teams are re-applied unchanged.
+# Afterwards report what changed.
 changed-plays

@@ -47,6 +47,9 @@
 #                            inventory change is the approval. Unlisted new or changed teams are
 #                            refused by `team apply`. Each listed team must be present and, in a
 #                            scoped run, in teamchat_only_teams; the play refuses any other.
+#   teamchat_carry_max_archive_bytes
+#                            optional: the carry archive's cap in bytes, which team export and
+#                            team import read (SPEC-carry CN5). Default 1073741824 (1 GiB).
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
@@ -76,6 +79,7 @@
     tc_member_link: /usr/local/bin/teamchat
     tc_tmpfiles_file: /etc/tmpfiles.d/teamchat.conf
     tc_ctl_user: teamchat-ctl
+    tc_carry_max_archive_bytes: "{{ teamchat_carry_max_archive_bytes | default(1073741824) }}"
     # The pinned Tuwunel: a pin file in `var: value` lines, which is YAML (a mapping with comments).
     tc_pin: "{{ lookup('ansible.builtin.file', root_dir ~ '/files/usr/local/share/teamchat/tuwunel.pin') | from_yaml }}"
     # The SELinux module for an enforcing host, read on the controller like the pin.
@@ -100,6 +104,8 @@
           - tc_arch in teamchat_arch
           - teamchat_owner_group is defined
           - teamchat_owner_group is match('^[a-z_][a-z0-9_-]{0,31}$')
+          - tc_carry_max_archive_bytes | string is match('^[1-9][0-9]{0,18}$')
+          - tc_carry_max_archive_bytes | int <= 9223372036854775807
           - tc_pin.tuwunel_version is match('^v[0-9]+[.][0-9]+[.][0-9]+$')
           - tc_pin['tuwunel_sha256_' ~ tc_arch] is match('^[0-9a-f]{64}$')
           - tc_teams is sequence and tc_teams is not string
@@ -113,7 +119,8 @@
         fail_msg: >-
           play-teamchat.yml refused its inputs. The target's architecture ({{ tc_arch }}) needs a row
           in vars/teamchat-arch.yml and a tuwunel_sha256_{{ tc_arch }} line in the Tuwunel pin;
-          teamchat_owner_group must be a group name; teamchat_teams must be a list of mappings with
+          teamchat_owner_group must be a group name; teamchat_carry_max_archive_bytes must be a
+          positive whole number of bytes that fits a signed 64-bit integer; teamchat_teams must be a list of mappings with
           a unique team each; teamchat_only_teams and teamchat_approve_teams must be lists;
           teamchat_address and teamchat_lxc_members are not built in this play yet and must be
           unset or empty.
@@ -245,6 +252,16 @@
       ansible.builtin.copy:
         content: "{{ teamchat_owner_group }}\n"
         dest: "{{ tc_etc_dir }}/owner-group"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [always]
+
+    # team export and team import refuse to run (78) without this file; there is no built-in cap.
+    - name: Write the Carry Archive Cap
+      ansible.builtin.copy:
+        content: "{{ tc_carry_max_archive_bytes }}\n"
+        dest: "{{ tc_etc_dir }}/carry-max-archive-bytes"
         owner: root
         group: root
         mode: "0644"

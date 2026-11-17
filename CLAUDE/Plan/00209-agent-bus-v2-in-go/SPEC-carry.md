@@ -1,9 +1,9 @@
 # SPEC addendum: the sealed carry of a team (issue #324, beside SPEC-n2g)
 
 **Status: specified, with the coordinator's decisions applied (section 12); no question is
-open. Built in code on branch `sealed-carry`, every item of section 13's order. Pending: the
-play must write the archive cap file before export or import can run (they exit 78 until then;
-a deploy step, outside gate A; CN5); the `-tags tuwunel` carry test against a real Tuwunel
+open. Built in code, every item of section 13's order, and on F44. The play writes the archive
+cap file (CN5), checked at play time; pending: its run on each host that serves teams (until
+then export and import exit 78 there); the `-tags tuwunel` carry test against a real Tuwunel
 (item 15); SH1 and the drill on the scratch guest (item 16); the lab scenario of Q5 (not
 built, section 13).** It sits beside
 `CLAUDE/Plan/00209-agent-bus-v2-in-go/SPEC-n2g.md`. Sources: the restore decisions note ("The
@@ -27,8 +27,9 @@ continues, `restore_epoch` is unchanged, and no credential is revoked or reissue
 - Not `--onto-fresh`: the import accepts only an archive whose source was sealed (or a drill
   archive, on a scratch guest, with `--drill`).
 - **Gate A.** No play, task, unit file or meta-deploy entry. Where the carry needs the base
-  unit to honour a file (SC4), F44's template already does; the archive cap's file (CN5) is a
-  play's to write, pending.
+  unit to honour a file (SC4), F44's template already does. The archive cap's file (CN5) is the
+  one exception, made after the carry landed: a deploy step outside gate A, so a play task
+  and the meta-deploy run that takes it to a host.
 
 **Trust rule (additions to n2g's).**
 
@@ -97,8 +98,11 @@ that adds them carries the CCY version bump.
   `carry.MaxArchive`, the archive cap (O4), is the one declared setting: the inventory variable
   `teamchat_carry_max_archive_bytes`, default 1 GiB (1073741824), which the play writes into
   the host's teamchat-admin configuration (`paths.CarryMaxArchiveFile`) and both export and
-  import read. **Pending, outside gate A:** no play writes it yet, so until the deploy step
-  that does, export and import exit 78 on a host. A value that is
+  import read. The play's input check refuses, before anything changes, a value that is not
+  a positive decimal count of bytes within int64 (the grammar teamchat-admin reads it with), and
+  its task "Write the Carry Archive Cap" writes it root's, 0644; `installplay`'s
+  `TestThePlayWritesTheCarryArchiveCap` holds the play to both. On a host the play has not yet
+  run on since, export and import exit 78. A value that is
   absent, unreadable, zero or negative refuses the verb (exit 78) and names the setting; there
   is no built-in fallback. A source or archive over the cap is refused loudly (exit 70), naming
   the measured size and the cap, both in bytes (SX4, SI).
@@ -674,7 +678,7 @@ Following RS15 and C 3.3's table (`admin/run.go:23-27`, `admin/exit.go:26-74`):
 | sc-D18 | Item 15's RT-style test is one round run twice: `carryRound` (admin's tests) carries alpha through the four verbs over a `carry.Deps` built by hand of the same adapter types as `wire`'s (`carry.OS`, `carry.StageOS`, `restore.OS`, `CarryChild` and the ctl-child in process; systemd, readiness and the status record are the world's fakes, the archive cap is fixed at 1 GiB, and there is no drill `Serve`), since admin's tests cannot import `wire`; `wire`'s own assembly is pinned separately by `admin/wire/store_test.go`, so the round is not an end-to-end test of the wiring, and wants the homeserver tree byte for byte on the guest, the seal's tail in `carried.json`, every tail event found by the check, and the tail and the roster epoch read back from the imported server served again. Over fakehs (one in-memory server stands for both, so it proves the plumbing, not the database) it runs in every build; over a real Tuwunel (`-tags tuwunel`) the seal's stop of the homeserver unit stops the source server by SIGTERM and the guest's loopback start is Tuwunel on the imported database. The wiring change it found: `machine.carry` looked the teamchat-ctl account up twice and built the engine before checking the second lookup; it now looks it up once and fails first. |
 | sc-D19 | Item 16 asks for SH1 in "the drill's clause list (Q3)", which is the restore decisions note's, outside this repository; no tracked file or code holds such a list. So SH1's clause is written where SH1 is, in section 8, as three steps the drill on the scratch guest records with their commands and outputs (before the first start: root's tree and no link; `team carry-check`; after it: one dynamic uid at every level and the link), for the driver to copy into Q3's list. Its import half, the only part code decides, is pinned by a test: the placed homeserver tree is the state owner's at every level, directories and regular files alone, and the link is not made. No host check script is added: one would run on a guest outside gate A's scope, and the drill's run is the driver's.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | sc-D20 | A stray entry in a directory the export lists (`ctl/`, `ctl/guest/`, `admin/backups/`), a dot-led temporary file an atomic writer left included, made a sealed team's export refuse (70), and the seal is terminal: no verb could repair it. SC1 now runs the export's admission over those directories before anything is sealed (`carry.Admissible`, sharing `admit` and the per-directory admissions with the export's `listed`), so the refusal comes while the team is live. It judges admission only (name, membership, kind), not SX3's modes or SX4's caps, which the export still finds after the seal. A name outside the member grammar is not quoted, as in the export. After the seal nothing in this code writes those directories: the units are stopped, every ctl write is a root verb SG1 and SG3 refuse, and the backup and the tick leave the team alone; only a hand write or a future writer could. The drill shares SC1's check through `settled`.                                                                                                                                                                                                                                                                                                                                            |
-| sc-D21 | The dispatcher's carry gate (SG1, SG2) judges root's verbs only. A caller of another class cannot read root's 0700 state root, so the gate failed every such verb named with `--team` (`Lstat` EACCES) before its usage check or its not-built answer; and none of those verbs changes a team's state (`element check` and `units print` take no `--team` at all).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| sc-D21 | The dispatcher's carry gate (SG1, SG2) judges root's verbs only. A caller of another class cannot read root's 0700 state root, so the gate failed every such verb named with `--team` (`Lstat` EACCES) before its usage check or its not-built answer; and none of those verbs changes a team's state (`element check` and `units print` take no `--team` at all). Checked verb by verb: `ctl-child` refuses unless root's child spec started it, and its ops are reached only through root's verbs, which the gate judges first; `element apply` writes only in the caller's own home; `element check`, `units list`, `units print` and `version` write nothing; `status` and `declare check` are not built. **A future non-root verb that writes a team's state, `status` or `declare check` included, must be judged by the carry gate too.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## 12. Decisions
 
