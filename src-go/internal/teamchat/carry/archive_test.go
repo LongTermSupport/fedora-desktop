@@ -32,7 +32,7 @@ func mustParseTeam(t *testing.T, s string) paths.TeamID {
 }
 
 // sampleSeal is a seal of sampleTeam at 1700000000123 ms.
-func sampleSeal(t *testing.T) Seal {
+func sampleSeal(t *testing.T) SealFacts {
 	t.Helper()
 	version, err := paths.ParseServerVersion("1.4.0")
 	if err != nil {
@@ -46,7 +46,7 @@ func sampleSeal(t *testing.T) Seal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Seal{
+	return SealFacts{
 		TimeMS: 1700000000123, ServerName: "ops.teamchat.internal", Port: port, Tuwunel: version, Software: software,
 		Roster:     RosterFacts{Seq: 12, Rev: 7, RestoreEpoch: 1},
 		EpochFloor: EpochFloor{Epoch: 1, MinBackup: 3},

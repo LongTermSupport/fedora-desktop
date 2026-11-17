@@ -42,9 +42,9 @@ type TailEntry struct {
 	TsMS          int64
 }
 
-// Seal is what a seal or a drill read of the team after its stop (SC7, SD3): TimeMS is
+// SealFacts are what a seal or a drill read of the team after its stop (SC7, SD3): TimeMS is
 // `sealed_ms` for a sealed export and `drilled_ms` for a drill.
-type Seal struct {
+type SealFacts struct {
 	TimeMS     int64
 	ServerName string
 	Port       paths.Port
@@ -71,7 +71,7 @@ type Manifest struct {
 	Kind       Kind
 	Team       paths.TeamID
 	ServerName string
-	Seal       Seal
+	Seal       SealFacts
 	Members    []Member
 }
 
@@ -116,7 +116,7 @@ func timeKey(k Kind) string {
 }
 
 // EncodeSealFields are the seal's members from its time on, as SC7 and SX5 give them, for kind.
-func encodeSealFields(k Kind, s Seal) []proto.Member {
+func encodeSealFields(k Kind, s SealFacts) []proto.Member {
 	return []proto.Member{
 		proto.M(timeKey(k), proto.Int(s.TimeMS)), proto.M("server_name", proto.Str(s.ServerName)),
 		proto.M("port", proto.Int(int64(s.Port.Int()))), proto.M("tuwunel", proto.Str(s.Tuwunel.String())),
@@ -223,7 +223,7 @@ func DecodeManifest(raw []byte, team paths.TeamID) (Manifest, error) {
 var sealKeys = []string{"server_name", "port", "tuwunel", "software", "roster", "epoch_floor", keyTail}
 
 // decodeSeal reads a seal's fields from its time on, with any extra keys a record adds.
-func decodeSeal(rd *reader, v proto.Value, k Kind, at string, extra map[string]*proto.Value, optional ...string) Seal {
+func decodeSeal(rd *reader, v proto.Value, k Kind, at string, extra map[string]*proto.Value, optional ...string) SealFacts {
 	keys := append([]string{timeKey(k)}, sealKeys...)
 	for key := range extra {
 		keys = append(keys, key)
@@ -232,7 +232,7 @@ func decodeSeal(rd *reader, v proto.Value, k Kind, at string, extra map[string]*
 	for key, p := range extra {
 		*p = f[key]
 	}
-	s := Seal{TimeMS: rd.integer(f[timeKey(k)], at+"."+timeKey(k), 1, maxNumber), ServerName: rd.str(f["server_name"], at+".server_name", textGrammar.MatchString)}
+	s := SealFacts{TimeMS: rd.integer(f[timeKey(k)], at+"."+timeKey(k), 1, maxNumber), ServerName: rd.str(f["server_name"], at+".server_name", textGrammar.MatchString)}
 	if port, err := paths.ParsePort(int(rd.integer(f["port"], at+".port", 1, 65535))); err == nil {
 		s.Port = port
 	}

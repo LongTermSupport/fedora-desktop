@@ -212,6 +212,43 @@ func TestRestoreEngineIsTheHostsAdapters(t *testing.T) {
 	}
 }
 
+// carryEngineOf is the carry engine the wiring builds.
+func carryEngineOf(t *testing.T, sys *admin.System) admin.CarryEngine {
+	t.Helper()
+	c, err := sys.Carry()
+	if err != nil {
+		t.Fatalf("Carry: %v", err)
+	}
+	e, ok := c.(admin.CarryEngine)
+	if !ok {
+		t.Fatalf("Carry = %T", c)
+	}
+	return e
+}
+
+// SPEC-carry section 13: System.Carry is the carry engine over the host's own adapters: the
+// lock directory, the state owner and the ctl uid, the units manager, the child for the live
+// server, restore's FS and the host's status record.
+func TestCarryEngineIsTheHostsAdapters(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	d := carryEngineOf(t, sys).Deps
+	if d.Root != f.root || d.LockDir != sys.Host.LockDir || d.CtlUID != 990 || d.StateOwnerUID != 0 || d.FS != (restore.OS{Root: f.root}) {
+		t.Fatalf("Deps %+v", d)
+	}
+	if d.Ready != (hostnet.Readiness{}) || d.Clock != (systemClock{}) || d.Software.String() != sys.Host.Software {
+		t.Fatalf("Deps %+v", d)
+	}
+	if missing := nilFields(reflect.ValueOf(d)); len(missing) > 0 {
+		t.Fatalf("carry.Deps seams left nil: %v", missing)
+	}
+	child, ok := d.Child.(admin.CarryChild)
+	if !ok || reflect.TypeOf(child.Live) != reflect.TypeOf(sys.Child) || reflect.TypeOf(d.Status) != reflect.TypeOf(sys.Host.Status) ||
+		reflect.TypeOf(d.Systemd) != reflect.TypeOf(sys.Host.Systemd) {
+		t.Fatalf("Child %T, Status %T, Systemd %T: not the host's", d.Child, d.Status, d.Systemd)
+	}
+}
+
 // RW1 (A4's glue): the restore's child is the teamchat-ctl child for the live server, and the
 // secure unit's systemd-run for the staged one; the sandbox is the base unit's for the team.
 func TestRestoreEngineAsksTheChild(t *testing.T) {

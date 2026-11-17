@@ -81,6 +81,30 @@ func TestValidateRefusesARecordAndEveryLeftover(t *testing.T) {
 	}
 }
 
+// SPEC-carry SC1: the seal reads RV2's leftovers and RV3's files through Leftovers and
+// ReadApplied, each changing nothing.
+func TestLeftoversAndReadAppliedServeTheSeal(t *testing.T) {
+	w := newWorld(t)
+	if err := Leftovers(context.Background(), w.deps(), w.team); err != nil {
+		t.Fatalf("Leftovers of a clean team: %v", err)
+	}
+	v, err := ReadApplied(w.deps(), w.team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Team.ID != w.team || string(v.TeamFile) != string(w.decl.Canonical()) || !strings.Contains(string(v.Config), "database_path") {
+		t.Errorf("ReadApplied = %+v", v)
+	}
+	w.put(paths.RestoreBlock(w.team), "")
+	refusedWith(t, Leftovers(context.Background(), w.deps(), w.team), "restore.block")
+	removeFile(w, paths.StampFile(w.team))
+	_, err = ReadApplied(w.deps(), w.team)
+	refusedWith(t, err, "team apply")
+	if len(w.callsSince(0)) != 0 {
+		t.Errorf("the reads took effects: %v", w.calls)
+	}
+}
+
 // RV3: the team is applied and not of migration origin.
 func TestValidateRefusesATeamNotApplied(t *testing.T) {
 	for name, c := range map[string]struct {

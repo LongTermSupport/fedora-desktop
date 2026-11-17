@@ -160,7 +160,20 @@ func (m machine) system(digest string) (*admin.System, error) {
 		}
 		return m.engine(sys, self, systemd, backups)
 	}
+	sys.Carry = func() (admin.Carrier, error) { return m.carry(sys, systemd, d) }
 	return sys, nil
+}
+
+// carry is the carry engine over the host's adapters (SPEC-carry section 13); each carry verb
+// takes the team lock itself.
+func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths.Digest) (admin.Carrier, error) {
+	uid, err := m.ctlUID()
+	root := m.root
+	return admin.CarryEngine{Deps: carry.Deps{
+		Root: root, LockDir: sys.Host.LockDir, CtlUID: uid, StateOwnerUID: m.stateOwnerUID, Clock: sys.Host.Clock, Software: software,
+		Units: restoreUnits{systemd}, Systemd: sys.Host.Systemd, Ready: hostnet.Readiness{},
+		Child: admin.CarryChild{Live: sys.Child}, FS: restore.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, Status: sys.Host.Status,
+	}}, err
 }
 
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the

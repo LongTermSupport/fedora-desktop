@@ -30,7 +30,7 @@ type SealRecord struct {
 	Step      SealStep
 	StartedMS int64
 	Tail      []TailEntry
-	Seal      Seal
+	Seal      SealFacts
 }
 
 // DrillStep is where a drill export stands (SD2).
@@ -99,12 +99,15 @@ func head(t paths.TeamID) []proto.Member {
 }
 
 // EncodeSealRecord is sealed.json's canonical JSON at its step.
-func EncodeSealRecord(r SealRecord) []byte {
+func EncodeSealRecord(r SealRecord) []byte { return proto.Obj(sealMembers(r)...).Compact() }
+
+// sealMembers are sealed.json's members at its step, in their canonical order.
+func sealMembers(r SealRecord) []proto.Member {
 	members := append(head(r.Team), proto.M(keyStep, proto.Str(string(r.Step))))
 	if r.Step == StepSealed {
-		return proto.Obj(append(members, encodeSealFields(KindSealed, r.Seal)...)...).Compact()
+		return append(members, encodeSealFields(KindSealed, r.Seal)...)
 	}
-	return proto.Obj(append(members, proto.M(keyTail, tailValue(r.Tail)), proto.M("started_ms", proto.Int(r.StartedMS)))...).Compact()
+	return append(members, proto.M(keyTail, tailValue(r.Tail)), proto.M("started_ms", proto.Int(r.StartedMS)))
 }
 
 // DecodeSealRecord reads team's sealed.json strictly.
