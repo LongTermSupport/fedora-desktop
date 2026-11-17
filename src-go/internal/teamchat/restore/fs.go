@@ -155,6 +155,15 @@ func (o OS) RemoveTree(team paths.TeamID, name string) error {
 	return o.inTeam(team, func(dir *os.File) error { return removeAt(dir, name) })
 }
 
+// RemoveAt is removeAt for another owner of an fd-relative tree (the carry import's staging,
+// SI10): name in dir removed level by level, never following a link; an absent one is done.
+func RemoveAt(dir *os.File, name string) error {
+	if err := oneName(name); err != nil {
+		return err
+	}
+	return removeAt(dir, name)
+}
+
 // removeAt removes name in dir: a directory by its entries first, opened no-follow beneath dir;
 // anything else, a link included, by unlinkat.
 func removeAt(dir *os.File, name string) error {

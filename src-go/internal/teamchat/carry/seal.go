@@ -29,7 +29,8 @@ const (
 // StateOwnerUID root's own files. Units are the unit states RV2 reads, Systemd stops and disables
 // (SC4), Ready probes server_version (SC1) and Status takes a team off the host's books (SC6).
 // Every file root writes or removes goes through FS, so each one is a kill point of SM5, as is
-// every call of the other seams. Files are the export's sources and archive (SX1-SX7), and
+// every call of the other seams. Files are the export's sources and archive (SX1-SX7), Stage
+// the import's staging and placement (SI8-SI10), and
 // MaxArchive reads the archive cap's setting (CN5), whose failure is the verb's 78. Serve is
 // host.Serve over the host's deps, which serves a team again after its drill (SD3).
 type Deps struct {
@@ -44,6 +45,7 @@ type Deps struct {
 	FS                    restore.FS
 	Status                host.Status
 	Files                 Files
+	Stage                 Stage
 	MaxArchive            func() (int64, error)
 	Serve                 func(ctx context.Context, team paths.TeamID) error
 }

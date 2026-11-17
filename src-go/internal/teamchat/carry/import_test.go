@@ -41,6 +41,13 @@ type importWorld struct {
 // alters a source after the seal took its facts (or before a drill's), so the archive disagrees.
 func carriedArchive(t *testing.T, kind Kind, change func(*exportWorld)) []byte {
 	t.Helper()
+	_, raw := carriedSource(t, kind, change)
+	return raw
+}
+
+// carriedSource is carriedArchive with the source world it was exported from.
+func carriedSource(t *testing.T, kind Kind, change func(*exportWorld)) (*exportWorld, []byte) {
+	t.Helper()
 	src := newSourcesWorld(t)
 	src.put(paths.CtlState(src.team)+"/"+AdminTokenName, importToken)
 	src.putMode(paths.ApprovedFile(src.team), string(declare.EncodeApproved(src.team, sampleInput(t).Gated())), 0o640)
@@ -52,7 +59,7 @@ func carriedArchive(t *testing.T, kind Kind, change func(*exportWorld)) []byte {
 		if _, err := dw.drill(); err != nil {
 			t.Fatal(err)
 		}
-		return src.archiveAt(paths.CarryDrillExport(src.team))
+		return src, src.archiveAt(paths.CarryDrillExport(src.team))
 	}
 	if _, err := src.seal(); err != nil {
 		t.Fatal(err)
@@ -63,7 +70,7 @@ func carriedArchive(t *testing.T, kind Kind, change func(*exportWorld)) []byte {
 	if _, err := src.export(); err != nil {
 		t.Fatal(err)
 	}
-	return src.archive()
+	return src, src.archive()
 }
 
 // newGuest is an empty guest for team ops at an hour past the seal.

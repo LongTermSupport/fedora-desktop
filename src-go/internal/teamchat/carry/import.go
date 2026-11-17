@@ -66,6 +66,10 @@ type importing struct {
 	max   int64
 	m     Manifest
 	held  map[string][]byte
+	// read is whether m is read: by validation, or from the staged copy on a resume.
+	read bool
+	// dirs are the directories staged, in the order made (SI8).
+	dirs []string
 }
 
 func newImporting(d Deps, team paths.TeamID, flags ImportFlags, maxArchive int64) *importing {
@@ -90,7 +94,7 @@ func (im *importing) validate(ctx context.Context) error {
 		return fmt.Errorf("the archive to import: %w", err)
 	}
 	_, err = ReadArchive(f, im.team, im.max, func(m Manifest) error {
-		im.m = m
+		im.m, im.read = m, true
 		return im.judge(ctx)
 	}, im.hold)
 	if errors.Is(err, errJudged) {

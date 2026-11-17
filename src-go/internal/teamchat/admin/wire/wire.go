@@ -168,9 +168,14 @@ func (m machine) system(digest string) (*admin.System, error) {
 // takes the team lock itself.
 func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths.Digest) (admin.Carrier, error) {
 	uid, err := m.ctlUID()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := m.ctlIDs()
 	root := m.root
 	return admin.CarryEngine{Deps: carry.Deps{
-		Root: root, LockDir: sys.Host.LockDir, CtlUID: uid, StateOwnerUID: m.stateOwnerUID, Clock: sys.Host.Clock, Software: software,
+		Stage: carry.StageOS{Root: root, StateOwnerUID: m.stateOwnerUID, CtlUID: int(uid), CtlGID: ids.GID, OwnerGroup: sys.OwnerGroup},
+		Root:  root, LockDir: sys.Host.LockDir, CtlUID: uid, StateOwnerUID: m.stateOwnerUID, Clock: sys.Host.Clock, Software: software,
 		Units: restoreUnits{systemd}, Systemd: sys.Host.Systemd, Ready: hostnet.Readiness{},
 		Child: admin.CarryChild{Live: sys.Child}, FS: restore.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, Status: sys.Host.Status,
 		Files: carry.OS{Root: root, StateOwnerUID: m.stateOwnerUID}, MaxArchive: admin.CarryMaxArchive(root),

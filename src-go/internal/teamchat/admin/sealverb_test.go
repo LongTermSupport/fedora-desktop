@@ -20,6 +20,7 @@ import (
 // fakeCarrier is the carry engine: it records each seal, export and drill and answers out and err.
 type fakeCarrier struct {
 	seals, exports, drills []string
+	imports                []importCall
 	out                    []byte
 	err                    error
 }
