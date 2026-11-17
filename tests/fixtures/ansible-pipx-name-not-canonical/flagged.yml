@@ -1,0 +1,80 @@
+---
+# Fixture for the pipx-name-not-canonical rule of src-go/qa/ansible: every line marked
+# EXPECT-FINDING must be reported, and nothing else. Each task names a pipx app in a form that
+# is not its canonical package name (lower case, each run of -, _ and . one -). pipx keys its
+# venvs by the canonical name and community.general.pipx looks the app up by the name exactly
+# as written, so the task never sees the app installed and reinstalls it, reporting changed, on
+# every run (issue 338: play-python's Hugging Face CLI task). The plays are valid for
+# ansible-playbook --syntax-check.
+
+- hosts: localhost
+  tasks:
+    - name: An underscore, state latest (the originating instance)
+      community.general.pipx: # EXPECT-FINDING
+        name: huggingface_hub
+        state: latest
+
+    - name: Upper case, the default state
+      community.general.pipx: # EXPECT-FINDING
+        name: PyYAML
+
+    - name: A dot, with a version specifier
+      community.general.pipx: # EXPECT-FINDING
+        name: zope.interface>=6
+        state: install
+
+    - name: Extras on a non-canonical name
+      community.general.pipx: # EXPECT-FINDING
+        name: "jupyter_core[test]"
+        state: present
+
+    - name: Absent removes nothing it cannot see
+      community.general.pipx: # EXPECT-FINDING
+        name: Black
+        state: absent
+
+    - name: A suffix that is not canonical
+      community.general.pipx: # EXPECT-FINDING
+        name: pdm
+        suffix: _next
+        state: latest
+
+    - name: The arguments under args
+      community.general.pipx: # EXPECT-FINDING
+      args:
+        name: python_dotenv
+        state: latest
+
+    - name: The info module filters the same way
+      community.general.pipx_info: # EXPECT-FINDING
+        name: huggingface_hub
+      register: hf_info
+
+    - name: A loop item that is not canonical
+      community.general.pipx: # EXPECT-FINDING
+        name: "{{ item }}"
+        state: latest
+      loop:
+        - ruff
+        - pre_commit
+
+    - name: A field of a loop item that is not canonical
+      community.general.pipx: # EXPECT-FINDING
+        name: "{{ item.pkg }}"
+        state: install
+      loop:
+        - {pkg: semgrep}
+        - {pkg: Poetry}
+
+    - name: A with_items item that is not canonical
+      community.general.pipx: # EXPECT-FINDING
+        name: "{{ item }}"
+        state: pin
+      with_items:
+        - typing_extensions
+
+    - block:
+        - name: Inside a block
+          community.general.pipx: # EXPECT-FINDING
+            name: hf_transfer
+            state: latest

@@ -1,0 +1,71 @@
+---
+# Fixture for the pipx-name-not-canonical rule of src-go/qa/ansible: none of these may be
+# reported. Each pipx task names its app in the canonical form pipx keys its venv by, or by a
+# template the rule cannot resolve. The plays are valid for ansible-playbook --syntax-check.
+
+- hosts: localhost
+  vars:
+    tool_name: some-tool
+  tasks:
+    - name: The fixed form of the originating instance, state latest kept
+      community.general.pipx:
+        name: huggingface-hub
+        state: latest
+
+    - name: Already canonical
+      community.general.pipx:
+        name: pdm
+        state: latest
+
+    - name: A version specifier on a canonical name
+      community.general.pipx:
+        name: zope-interface>=6
+        state: install
+
+    - name: Extras on a canonical name
+      community.general.pipx:
+        name: "jupyter-core[test]"
+
+    - name: A canonical suffix
+      community.general.pipx:
+        name: pdm
+        suffix: -next
+        state: latest
+
+    - name: Canonical loop items
+      community.general.pipx:
+        name: "{{ item }}"
+        state: pin
+      loop: [ruff, semgrep]
+
+    - name: Canonical loop item fields
+      community.general.pipx:
+        name: "{{ item.pkg }}"
+        state: install
+      loop:
+        - {pkg: ruff}
+        - {pkg: pre-commit}
+
+    - name: A name from a variable the rule does not resolve
+      community.general.pipx:
+        name: "{{ tool_name }}"
+        state: latest
+
+    - name: A loop over a registered result the rule does not resolve
+      community.general.pipx:
+        name: "{{ item.item.pkg }}"
+        state: absent
+      loop: "{{ hf_info.results | default([]) }}"
+
+    - name: Every app, no name
+      community.general.pipx:
+        state: upgrade_all
+
+    - name: The info module with a canonical name
+      community.general.pipx_info:
+        name: huggingface-hub
+
+    - name: Another module's name is not judged
+      ansible.builtin.pip:
+        name: huggingface_hub
+        state: latest
