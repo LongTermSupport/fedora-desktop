@@ -391,6 +391,28 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
   seat (D 4.3). **Gate B** (Task 0.5): the pilot's ccy seat and H-C8's are pool seats, so
   neither is added on the host until the owner has confirmed INT6 or chosen
   [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
+- [ ] ⬜ **Task 4.5** (owner, 2026-11-17: "BUILD IT"): one ccy session that holds a v1 seat and a v2
+  seat at once, so the coordinator of a v1 team can dispatch to v2 workers without moving the whole
+  team. This reverses L3's refusal of a session on both systems for a mixed list, never for one
+  name on both. Design first (DESIGN-dual-bus.md), then build, test first:
+  - **(a) Launch:** `ccy-teams system` judges each name on its own. A mixed list is a dual
+    launch, not exit 64; one name on both systems stays exit 64. The seat check and take run
+    per system: the v1 seats through `agent-bus`, the v2 seats through `teamchatlaunch`. A list
+    with no v1 team no longer needs `agent-bus`.
+  - **(b) Start:** `ccy-start-claude` runs the v1 kit step AND starts the session under
+    `teamchat run`, one owner of the claude start. The pingbus watcher stays a separate child
+    feeding the same inbox socket. L1 changes: `TEAMCHAT_MEMBERSHIP` beside a live
+    `PINGBUS_MEMBERSHIP`, not `off`. The stop hooks of both systems run, each judging its own
+    pending messages.
+  - **(c) Exit and restart:** RS3 and seam 54 release or keep the v2 seats, and v1's exit
+    handling releases its own, without either judging the other's seats.
+  - **(d) Restore:** whether the session's conversation survives a relaunch into dual mode
+    (ccy's session restore with the seats kept, L5). Proven on a scratch session before the
+    coordinator moves.
+  - **Tests:** the mixed-list decision; the take of all seats or none across both systems; both
+    deliveries reaching one fake session; and each system's exit.
+    Built after Task 4.4 (the first real v2 launch), whose pilot proves the v2 half this reuses,
+    unless the design finds a shared change that has to land with it.
 
 ### Phase 5: N5, other member kinds
 
