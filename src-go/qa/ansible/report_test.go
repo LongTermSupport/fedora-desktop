@@ -95,7 +95,7 @@ func TestJSONOfAPassIsEmptyArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"type\": \"ansible\",\n  \"status\": \"pass\",\n  \"summary\": {\n    \"total\": 3,\n    \"passed\": 3,\n    \"failed\": 0\n  },\n  \"failures\": [],\n  \"results\": [],\n  \"checks\": {\n    \"fail_fast\": [],\n    \"hygiene\": [],\n    \"self_ref\": [],\n    \"scope\": [],\n    \"fact_vars\": [],\n    \"regex_backref\": [],\n    \"regex_escape\": [],\n    \"root_umask\": [],\n    \"play_ux\": [],\n    \"sudoers_rule\": []\n  }\n}\n"
+	want := "{\n  \"type\": \"ansible\",\n  \"status\": \"pass\",\n  \"summary\": {\n    \"total\": 3,\n    \"passed\": 3,\n    \"failed\": 0\n  },\n  \"failures\": [],\n  \"results\": [],\n  \"checks\": {\n    \"failFast\": [],\n    \"hygiene\": [],\n    \"selfRef\": [],\n    \"scope\": [],\n    \"factVars\": [],\n    \"regexBackref\": [],\n    \"regexEscape\": [],\n    \"rootUmask\": [],\n    \"playUx\": [],\n    \"sudoersRule\": []\n  }\n}\n"
 	if string(body) != want {
 		t.Fatalf("got\n%s", body)
 	}

@@ -127,11 +127,11 @@ func TestAddAccountTextRefusesWhatItCannotProve(t *testing.T) {
 func TestAddToConfigWritesThroughASymlinkAndKeepsTheMode(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "real.yml")
-	if err := os.WriteFile(target, []byte("github_accounts:\n  work: x\n"), 0o640); err != nil {
+	if err := os.WriteFile(target, []byte("github_accounts:\n  work: x\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	// Past the umask, which may narrow what WriteFile made.
-	if err := os.Chmod(target, 0o640); err != nil {
+	if err := os.Chmod(target, 0o400); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(dir, "localhost.yml")
@@ -155,7 +155,7 @@ func TestAddToConfigWritesThroughASymlinkAndKeepsTheMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o640 {
+	if fi.Mode().Perm() != 0o400 {
 		t.Fatalf("mode %v", fi.Mode().Perm())
 	}
 }

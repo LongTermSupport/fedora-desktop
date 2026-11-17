@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,6 +126,53 @@ func TestOneSystemIsTheSharedSystem(t *testing.T) {
 	if s, err := One(nil); err != nil || s != AgentBus {
 		t.Fatalf("no team: got %q %v, want agent-bus", s, err)
 	}
+}
+
+// PoolTeams is this checkout's teams with a seat in its pool, sorted: a team with only a
+// placement's claim, or none, is not one, nor is another checkout's.
+func TestPoolTeamsAreThisCheckoutsTeamsWithASeat(t *testing.T) {
+	store, err := paths.SeatStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	here, err := paths.CheckoutKeyOf("/work/here")
+	if err != nil {
+		t.Fatal(err)
+	}
+	there, err := paths.CheckoutKeyOf("/work/there")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none, noneErr := PoolTeams(store, here); noneErr != nil || none != nil {
+		t.Fatalf("no pool: got %v %v, want none", none, noneErr)
+	}
+	for _, dir := range []string{
+		store.PoolTeam(here, mustTeam(t, "zeta")) + "/repo.1+site.podman",
+		store.PoolTeam(here, mustTeam(t, "alpha")) + "/repo.2+site.podman",
+		store.PoolTeam(here, mustTeam(t, "claimed")) + "/repo.1+site.podman.new-0123456789abcdef",
+		store.PoolTeam(here, mustTeam(t, "empty")),
+		store.PoolTeam(there, mustTeam(t, "elsewhere")) + "/repo.1+site.podman",
+	} {
+		if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+	}
+	got, err := PoolTeams(store, here)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"alpha", "zeta"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func mustTeam(t *testing.T, s string) paths.TeamID {
+	t.Helper()
+	id, err := paths.ParseTeamID(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 // The pool is read under the session's own checkout key only (L3): a pool seat of the same team

@@ -248,6 +248,29 @@ func TestSeatCheckAndTakeHandAgentBusItsOwnCall(t *testing.T) {
 	}
 }
 
+// Only a list agent-bus has to answer needs agent-bus installed, and that refusal says how to
+// install it; a teamchat list is checked and taken without it.
+func TestOnlyAnAgentBusListNeedsAgentBusInstalled(t *testing.T) {
+	w := newVerbs(t)
+	w.exec.ExecError(&execx.NotInstalledError{Name: AgentBusCommand})
+	for _, verb := range []string{"seat-check", "seat-take"} {
+		w.err.Reset()
+		if code := w.run(verb, "1@v1team"); code != term.ExitConfig {
+			t.Fatalf("%s on agent-bus with it missing: exit %d", verb, code)
+		}
+		if msg := w.err.String(); !strings.Contains(msg, "agent-bus is not installed") || !strings.Contains(msg, "play-agent-bus.yml") {
+			t.Fatalf("%s: the refusal does not say how to install it: %s", verb, msg)
+		}
+	}
+	w.out.Reset()
+	if code := w.run("seat-check", "1@alpha"); code != term.ExitOK || w.out.String() != "1@alpha\n" {
+		t.Fatalf("a teamchat list with agent-bus missing: exit %d, %q: %s", code, w.out, w.err)
+	}
+	if code := w.run("seat-take", "1@alpha"); code != term.ExitOK {
+		t.Fatalf("a teamchat take with agent-bus missing: exit %d: %s", code, w.err)
+	}
+}
+
 func TestSeatCheckOnTeamchatPrintsTheCanonicalList(t *testing.T) {
 	w := newVerbs(t)
 	if code := w.run("seat-check", " 1@alpha ", "--resolved"); code != term.ExitOK || w.out.String() != "1@alpha\n" {

@@ -14,7 +14,7 @@
 #   jq '.status'                   # "pass" or "fail"
 #   jq '.summary'                  # {total, passed, failed}
 #   jq '.failures[]'               # files that do not parse or have an error/warning finding
-#   jq '.shellcheck_diagnostics[]' # every shellcheck finding, advisory levels included
+#   jq '.shellcheckDiagnostics[]'  # every shellcheck finding, advisory levels included
 #
 # Exit codes: 0 pass, 1 findings, 2 the run could not complete.
 

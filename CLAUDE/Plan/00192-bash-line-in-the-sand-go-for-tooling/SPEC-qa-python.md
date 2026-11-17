@@ -52,7 +52,7 @@ wrapper change (section 4).
 - Y6. A ruff whose version differs from the pin **fails the gate, it does not abort the run**: ruff
   is not asked to lint (its findings would come from a gate this repository has not agreed to), a
   report is written with `status: "fail"`, `summary {total:0, passed:0, failed:1}`, `results: []`,
-  `ruff_diagnostics: []` and exactly one failure `{file: ".qa-versions", type: "python", status: "fail", error: "ruff version mismatch: expected <pin>, found <actual> — ruff was not run, so no python file was linted this run"}`, stdout is `✗ python: ruff version mismatch: expected <pin> (.qa-versions), found <actual> → <report> (no files linted)`, stderr says how to match the pin or
+  `ruffDiagnostics: []` and exactly one failure `{file: ".qa-versions", type: "python", status: "fail", error: "ruff version mismatch: expected <pin>, found <actual> — ruff was not run, so no python file was linted this run"}`, stdout is `✗ python: ruff version mismatch: expected <pin> (.qa-versions), found <actual> → <report> (no files linted)`, stderr says how to match the pin or
   bump it deliberately, exit 1. (A report with no document, or an exit 2, would shift the
   positional merge in qa-all and take every later gate offline.)
 
@@ -101,6 +101,7 @@ wrapper change (section 4).
   hierarchical discovery is off: a `pyproject.toml [tool.ruff]`, `ruff.toml` or `.ruff.toml`
   nested under the root cannot replace the repository's ruleset for its subtree. qa-changed's
   per-file ruff is given the same flag and `--no-cache`.
+
 - Y23. The lint is given `--ignore-noqa`: `# noqa` and `# ruff: noqa` cannot hide a finding
   (CLAUDE/QA.md bans suppression directives; the gate enforces it).
 
@@ -108,8 +109,9 @@ wrapper change (section 4).
   keeps the check read-only (no `.ruff_cache` written). Status 0 or 1 is data; 2 or more, or no
   status, or a timeout, is `ERROR: ruff invocation failed (status N):` with its stderr, exit 2. Its
   stdout must be a JSON array, else exit 2; an empty stdout is not an array.
+
 - Y17. Each diagnostic keeps every field ruff gave it, with `filename` made relative to the root,
-  and the whole list is the report's `ruff_diagnostics`. A diagnostic on a file that was not
+  and the whole list is the report's `ruffDiagnostics`. A diagnostic on a file that was not
   given to ruff is exit 2 (ruff and the gate disagree on what was checked).
 
 ### Output and report
@@ -120,35 +122,35 @@ wrapper change (section 4).
   `invalid-syntax`, so this fallback is reached only by an older ruff).
 - Y19. Order is files sorted by path, then templates sorted by path, in `results` and in stdout.
   The coverage and failure lines are, in order: each compile failure line (Y14); when ruff found
-  anything, `✗ python: ruff: <N> issues in <F> file(s) (see <report> .ruff_diagnostics)`.
+  anything, `✗ python: ruff: <N> issues in <F> file(s) (see <report> .ruffDiagnostics)`.
 - Y20. No failure: `✓ python: <N> files OK; <T> rendered template(s) compile (syntax only, not linted)`, exit 0. The template count is stated always, including 0: a template discovery that
   silently finds nothing is the hole this line exists to make visible. Otherwise
   `✗ python: failed → <report>`, exit 1.
-- Y21. The report is `{type:"python", status:"pass"|"fail", summary:{total, passed, failed}, results:[{file, type:"python"|"python-template", status, error?}], failures:[the failed results], ruff_diagnostics:[...]}`, two-space JSON; `total` is the number of results (files and templates),
+- Y21. The report is `{type:"python", status:"pass"|"fail", summary:{total, passed, failed}, results:[{file, type:"python"|"python-template", status, error?}], failures:[the failed results], ruffDiagnostics:[...]}`, two-space JSON; `total` is the number of results (files and templates),
   `failed` the failed ones. It is written on exit 0 and 1, never on exit 2.
 
 ## 3. Where the Go departs from the bash
 
-| #   | bash behaviour                                                               | Go                                                                    | expectation |
-| --- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------- |
-| B1  | arguments ignored                                                            | usage / exit 2                                                        | Y1          |
-| B2  | scope by `find`: ignored files and build output checked                      | what git would publish                                                | Y7          |
-| B3  | coverage guard compared the `find` result with the tracked list              | git is the scope; the independent proof is that ruff listed each file | Y7, Y15     |
-| B4  | no `python3` made every file a "syntax error" with a shell message           | exit 2 `python3 not installed`                                        | Y4          |
-| B5  | `py_compile` once per file, writing `__pycache__` into the tree              | one `python3 -I` process, nothing written                             | Y14         |
-| B6  | a `.qa-versions` with no `RUFF=` line gave an empty pin and a "mismatch"     | exit 2 naming the file                                                | Y5          |
-| B7  | a ruff that skipped a file by its own exclude rules was unnoticed            | exit 2 listing the files                                              | Y15         |
-| B8  | ruff run with its cache, writing `.ruff_cache`                               | `--no-cache`                                                          | Y16         |
-| B9  | ruff output not JSON: a `jq` error under `set -e`                            | exit 2 with a message                                                 | Y16         |
-| B10 | ruff findings failed the stage with `failures: []`                           | the files with findings are failures with their codes                 | Y18, Y21    |
-| B11 | `ruff_diagnostics` carried the checkout's absolute paths                     | paths relative to the root                                            | Y17         |
-| B12 | unwritable report: shell error, exit 1                                       | message, exit 2                                                       | Y2          |
-| B13 | failed stdout write unchecked                                                | exit 2                                                                | Y3          |
-| B14 | a dangling `*.py` symlink invisible to `find -type f`                        | exit 2 naming it                                                      | Y9          |
-| B15 | the error text of a failed compile carried a temporary file's path           | the template's own path                                               | Y14         |
-| B17 | a nested ruff config could swap the ruleset; `# noqa` hid findings          | `--config` to the root file, `--ignore-noqa`                          | Y22, Y23    |
-| B16 | exclusion list read by `lib/qa-trees.bash`; an empty list checked everything | no `python` row is exit 2                                             | Y8          |
-| B18 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage | Y1 |
+| #   | bash behaviour                                                                                                                                                                             | Go                                                                    | expectation |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------- |
+| B1  | arguments ignored                                                                                                                                                                          | usage / exit 2                                                        | Y1          |
+| B2  | scope by `find`: ignored files and build output checked                                                                                                                                    | what git would publish                                                | Y7          |
+| B3  | coverage guard compared the `find` result with the tracked list                                                                                                                            | git is the scope; the independent proof is that ruff listed each file | Y7, Y15     |
+| B4  | no `python3` made every file a "syntax error" with a shell message                                                                                                                         | exit 2 `python3 not installed`                                        | Y4          |
+| B5  | `py_compile` once per file, writing `__pycache__` into the tree                                                                                                                            | one `python3 -I` process, nothing written                             | Y14         |
+| B6  | a `.qa-versions` with no `RUFF=` line gave an empty pin and a "mismatch"                                                                                                                   | exit 2 naming the file                                                | Y5          |
+| B7  | a ruff that skipped a file by its own exclude rules was unnoticed                                                                                                                          | exit 2 listing the files                                              | Y15         |
+| B8  | ruff run with its cache, writing `.ruff_cache`                                                                                                                                             | `--no-cache`                                                          | Y16         |
+| B9  | ruff output not JSON: a `jq` error under `set -e`                                                                                                                                          | exit 2 with a message                                                 | Y16         |
+| B10 | ruff findings failed the stage with `failures: []`                                                                                                                                         | the files with findings are failures with their codes                 | Y18, Y21    |
+| B11 | `ruff_diagnostics` carried the checkout's absolute paths                                                                                                                                   | paths relative to the root                                            | Y17         |
+| B12 | unwritable report: shell error, exit 1                                                                                                                                                     | message, exit 2                                                       | Y2          |
+| B13 | failed stdout write unchecked                                                                                                                                                              | exit 2                                                                | Y3          |
+| B14 | a dangling `*.py` symlink invisible to `find -type f`                                                                                                                                      | exit 2 naming it                                                      | Y9          |
+| B15 | the error text of a failed compile carried a temporary file's path                                                                                                                         | the template's own path                                               | Y14         |
+| B17 | a nested ruff config could swap the ruleset; `# noqa` hid findings                                                                                                                         | `--config` to the root file, `--ignore-noqa`                          | Y22, Y23    |
+| B16 | exclusion list read by `lib/qa-trees.bash`; an empty list checked everything                                                                                                               | no `python` row is exit 2                                             | Y8          |
+| B18 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage                    | Y1          |
 
 ## 4. Go design and cut-over
 
