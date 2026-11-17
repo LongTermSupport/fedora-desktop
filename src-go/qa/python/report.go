@@ -38,7 +38,7 @@ type machineReport struct {
 	Summary         summary                      `json:"summary"`
 	Results         []entry                      `json:"results"`
 	Failures        []entry                      `json:"failures"`
-	RuffDiagnostics []map[string]json.RawMessage `json:"ruff_diagnostics"`
+	RuffDiagnostics []map[string]json.RawMessage `json:"ruffDiagnostics"`
 }
 
 // writeReport encodes the report and writes it where the caller said.
@@ -78,7 +78,7 @@ func (g *gate) finish(f sources, rendered []renderedTemplate, compiled map[strin
 		rep.RuffDiagnostics = append(rep.RuffDiagnostics, d.raw)
 	}
 	if len(diagnostics) > 0 {
-		fmt.Fprintf(&g.stdout, "✗ python: ruff: %d issues in %d file(s) (see %s .ruff_diagnostics)\n", len(diagnostics), len(byFile), g.report)
+		fmt.Fprintf(&g.stdout, "✗ python: ruff: %d issues in %d file(s) (see %s .ruffDiagnostics)\n", len(diagnostics), len(byFile), g.report)
 	}
 	for _, r := range rep.Results {
 		if r.Status == statusFail {

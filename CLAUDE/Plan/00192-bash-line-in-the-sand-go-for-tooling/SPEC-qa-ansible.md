@@ -125,7 +125,7 @@ Numbers are cited by the tests.
   `grep`/`find` directory order, which differs between file systems.)*
 - E18. No violation: `✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; regex backreferences escaped right; scope+guard declarations OK; <P> playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)`, exit 0. Otherwise `✗ ansible: <E> violation(s) — <ff> fail-fast, <hy> hygiene, <sr> self-ref var, <sc> scope/guard, <fv> deprecated fact var, <rb> regex backref` (`fv` counts E15 and
   E16, `rb` E16a), `  Hygiene fixer: ./scripts/make-playbooks-executable.bash`, `  Details: jq '.failures[]' <report path>`, exit 1.
-- E19. The report is `{type:"ansible", status, summary:{total,passed,failed}, failures:[…], results:[], checks:{fail_fast,hygiene,self_ref,scope,fact_vars,regex_backref}}`, two-space JSON. `total` is
+- E19. The report is `{type:"ansible", status, summary:{total,passed,failed}, failures:[…], results:[], checks:{failFast,hygiene,selfRef,scope,factVars,regexBackref}}`, two-space JSON. `total` is
   playbooks + 1, `failed` the violation count, `passed` is `total - failed` but never below 0.
   *(Bash let it go negative.)* A failure is `{file, type:"ansible", status:"fail", error}`; for
   hygiene and scope `file` is the path and `error` is `hygiene: <why>` / `scope: <why>`; for the
