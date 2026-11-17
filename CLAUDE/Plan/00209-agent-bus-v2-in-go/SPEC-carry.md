@@ -560,6 +560,14 @@ import and, as the pre-apply proof, for the import onto the rebuilt bus guest (O
 - **SH-T2.** A drill under way: the tick sees the stopped unit as a problem and restarts
   nothing (`health/probe.go:50-84`); the backup timer's take is busy (75 inside `--all`).
 - **SH-T3.** An imported team before `team apply`: no stamp, so neither runs.
+- Built as tests only, no code change: `health/carry_test.go` (Stamps, as `wire` gives the
+  tick, lists neither a sealed nor an imported team and the tick writes no record of them; a
+  drill's lock drops the team as busy, and its stopped units are problems, neither restarted
+  nor probed) and `admin/carrybackup_test.go` (`backup --all` skips both and takes the stamped
+  team; `backup --team` of a sealed team is 70 with no signal; under a drill's lock the team's
+  line names the holder and the run ends 1). A `backup --all` that listed an unstamped team
+  would still be refused by the lock's guard (SG3) or the drill-import check (SG2), team by
+  team: seen when the tests were proven red by making `Stamps` list unstamped teams.
 - **SH1. Host check (H-C-style, not verified).** On the pinned systemd, a `DynamicUser=yes`,
   `StateDirectory=teamchat/<t>` unit whose `/var/lib/private/teamchat/<t>` already exists,
   owned by uid 0 down every level, starts with the tree owned by its dynamic uid at every level
