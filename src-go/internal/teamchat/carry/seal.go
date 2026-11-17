@@ -181,7 +181,8 @@ func (s *sealing) validate(ctx context.Context) ([]TailEntry, error) {
 }
 
 // settled is SC1 without its serving clause, which a drill's resume runs alone (SD4): the team
-// applied and of v2 origin, no restore leftover, the roster with nothing pending. It answers
+// applied and of v2 origin, no restore leftover, the roster with nothing pending, and every
+// entry of the directories the export lists one it admits (sc-D20). It answers
 // team.json's bytes and the roster.
 func (s *sealing) settled(ctx context.Context) ([]byte, apply.RosterFile, error) {
 	rd := s.restoreDeps()
@@ -205,6 +206,9 @@ func (s *sealing) settled(ctx context.Context) ([]byte, apply.RosterFile, error)
 	}
 	if p := roster.Pending; p != nil {
 		return nil, apply.RosterFile{}, pendingRefusal(s.team, p)
+	}
+	if err = Admissible(s.d.Files, s.team); err != nil {
+		return nil, apply.RosterFile{}, err
 	}
 	return applied.TeamFile, roster, nil
 }

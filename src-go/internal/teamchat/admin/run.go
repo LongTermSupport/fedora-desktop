@@ -77,8 +77,12 @@ func Run(ctx context.Context, e Env) term.ExitCode {
 	if v.class != ClassAny && v.class != class {
 		return fail(e.Stderr, ExitClass, v.name+" must be run by "+v.class.String())
 	}
-	if err := carryGate(e, v.name, rest); err != nil {
-		return failWith(e, err)
+	// SG1 and SG2 judge root's verbs only: no other class can read root's records, and none of
+	// its verbs changes a team's state.
+	if v.class == ClassRoot {
+		if err := carryGate(e, v.name, rest); err != nil {
+			return failWith(e, err)
+		}
 	}
 	if v.run == nil {
 		return fail(e.Stderr, term.ExitFailure, v.name+" is not built yet")

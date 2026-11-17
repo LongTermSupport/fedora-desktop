@@ -70,9 +70,10 @@ func carryGates() map[string]gateRow {
 }
 
 // SC8, SG1: on a team with each carry record, the whole verb table is run with --team; every
-// verb refuses (70), naming the record and the one way on, but those the record admits: a
+// root verb refuses (70), naming the record and the one way on, but those the record admits: a
 // sealed team runs only team remove, team export (no --drill) and team seal; a drill only
-// team export --drill; an import only team import --resume or --discard.
+// team export --drill; an import only team import --resume or --discard. A verb of another
+// class is never judged: it cannot read root's records, and none of them changes a team's state.
 func TestTheVerbTableOnACarriedTeam(t *testing.T) {
 	for state, g := range carryGates() {
 		w := carriedWorld(t, g.record)
@@ -87,10 +88,11 @@ func TestTheVerbTableOnACarriedTeam(t *testing.T) {
 				form := strings.Join(append([]string{name}, extra...), " ")
 				got := w.runAs(class, args...)
 				refused := got.code == ExitRefused && strings.Contains(got.stderr, record) && strings.Contains(got.stderr, g.way)
-				if g.admits[form] == refused {
-					t.Errorf("%s: %s = %+v, admitted %v", state, form, got, g.admits[form])
+				admitted := g.admits[form] || class != ClassRoot
+				if admitted == refused {
+					t.Errorf("%s: %s = %+v, admitted %v", state, form, got, admitted)
 				}
-				if g.admits[form] && strings.Contains(got.stderr, record) {
+				if admitted && strings.Contains(got.stderr, record) {
 					t.Errorf("%s: %s, admitted, still names the record: %q", state, form, got.stderr)
 				}
 			}
@@ -113,8 +115,8 @@ func drillImported(t *testing.T, kind carry.Kind) *world {
 }
 
 // SG2: on a team a drill export was imported as, the whole verb table is run with --team; every
-// verb refuses (70: "a drill import never joins a real team") but team carry-check and team
-// remove. A sealed import is not judged by SG2.
+// root verb refuses (70: "a drill import never joins a real team") but team carry-check and
+// team remove; a verb of another class is not judged. A sealed import is not judged by SG2.
 func TestTheVerbTableOnADrillImport(t *testing.T) {
 	const never = "a drill import never joins a real team"
 	admitted := map[string]bool{"team carry-check": true, "team remove": true}
@@ -123,7 +125,7 @@ func TestTheVerbTableOnADrillImport(t *testing.T) {
 		for name, class := range specVerbs() {
 			got := w.runAs(class, append(strings.Fields(name), "--team", "alpha")...)
 			refused := got.code == ExitRefused && strings.Contains(got.stderr, never)
-			if want := kind == carry.KindDrill && !admitted[name]; refused != want {
+			if want := kind == carry.KindDrill && !admitted[name] && class == ClassRoot; refused != want {
 				t.Errorf("%s: %s = %+v, refusal wanted %v", kind, name, got, want)
 			}
 			if !refused && strings.Contains(got.stderr, never) {

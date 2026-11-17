@@ -397,6 +397,7 @@ func (w *sealWorld) deps() Deps {
 		Root: w.root, LockDir: w.root + paths.AdminRunDir, CtlUID: w.uid, StateOwnerUID: w.uid, Clock: w.clock,
 		Software: mustDigest(w.t, sealSoftware), Units: sealUnits{w}, Systemd: sealSystemd{w}, Ready: sealReady{w},
 		Child: sealChild{w}, FS: sealFS{OS: restore.OS{Root: w.root, StateOwnerUID: w.uid}, w: w}, Status: sealStatus{w},
+		Files: OS{Root: w.root, StateOwnerUID: w.uid},
 	}
 }
 
@@ -597,6 +598,14 @@ func TestSealRefusals(t *testing.T) {
 				r.Pending = &apply.Pending{Op: apply.OpMemberRetire, Step: "rooms", SinceMS: 1, Handle: "web.1+desk.podman"}
 			})
 		}, ErrRefused, "member retire --team ops --handle web.1+desk.podman"},
+		// SC1's admission (sc-D20): an entry of a directory the export lists that it would refuse.
+		"a ctl stray": {func(w *sealWorld) { w.put(paths.CtlState(team)+"/notes.txt", "x") }, ErrRefused, "ctl/notes.txt"},
+		"a ctl temp file": {
+			func(w *sealWorld) { w.put(paths.CtlState(team)+"/.roster.json.0a1b.tmp", "x") }, ErrRefused, "an entry of ctl has a name outside",
+		},
+		"a guest stray":          {func(w *sealWorld) { w.put(paths.GuestTokenDir(team)+"/sub/x.token", "x") }, ErrRefused, "ctl/guest/sub"},
+		"a backup stray":         {func(w *sealWorld) { w.put(paths.BackupDir(team)+"/8.tar.tmp", "x") }, ErrRefused, "admin/backups/8.tar.tmp"},
+		"a backups file":         {func(w *sealWorld) { w.put(paths.BackupDir(team), "x") }, ErrRefused, "admin/backups"},
 		"a stopped server":       {func(w *sealWorld) { w.unit(paths.ServerUnit(team)).active = "inactive" }, ErrRefused, "team remove"},
 		"a server not answering": {func(w *sealWorld) { w.silent = true }, ErrRefused, "team remove"},
 		"a tail that disagrees":  {func(w *sealWorld) { w.tail.Epoch.Rev = 4 }, ErrRefused, "run team apply first"},

@@ -334,15 +334,102 @@ func (x *exporting) backups() error {
 	if err = x.dir("admin/backups", dir); err != nil {
 		return err
 	}
-	return x.listed("admin/backups", dir, func(e restore.Entry) (fs.FileMode, int64, bool) {
+	return x.listed("admin/backups", dir, backupEntry)
+}
+
+// carried is SX2's admission of an entry of a directory the export lists: the mode and cap of a
+// file it carries, mode 0 for one the caller adds itself, and false for one it refuses.
+type carried func(restore.Entry) (fs.FileMode, int64, bool)
+
+// backupEntry admits admin/backups/'s last-run.json and each <n>.tar.
+func backupEntry(e restore.Entry) (fs.FileMode, int64, bool) {
+	switch {
+	case e.Name == "last-run.json":
+		return 0o600, adminCap, true
+	case backupTarName.MatchString(e.Name):
+		return 0o600, backupCap, true
+	}
+	return 0, 0, false
+}
+
+// ctlEntry admits ctl/'s roster, rooms and admin token (added by name), the guest directory
+// (listed by guestEntry) and a past restore's lost events.
+func ctlEntry(e restore.Entry) (fs.FileMode, int64, bool) {
+	switch {
+	case e.Name == "roster.json" || e.Name == "rooms.json" || e.Name == AdminTokenName:
+		return 0, 0, true
+	case e.Name == "guest" && e.Kind == restore.KindDirectory:
+		return 0, 0, true
+	case lostName.MatchString(e.Name):
+		return 0o600, LostCap, true
+	}
+	return 0, 0, false
+}
+
+// guestEntry admits ctl/guest/'s guest tokens.
+func guestEntry(e restore.Entry) (fs.FileMode, int64, bool) {
+	return 0o600, tokenCap, guestName.MatchString(e.Name)
+}
+
+// admit is SX2's judgement of one entry of a listed directory: a name in the member grammar,
+// admitted by carried, and a regular file if it is one the export adds from the listing.
+func admit(member, dir string, e restore.Entry, carried carried) (fs.FileMode, int64, error) {
+	name := member + "/" + e.Name
+	if !validName(name) {
+		return 0, 0, refusedf("an entry of %s has a name outside the member grammar", member)
+	}
+	mode, limit, ok := carried(e)
+	switch {
+	case !ok:
+		return 0, 0, refusedf("%s is not a member SX2 carries: remove it, or move it out of %s", name, dir)
+	case mode != 0 && e.Kind != restore.KindFile:
+		return 0, 0, refusedf("%s is not a regular file", name)
+	}
+	return mode, limit, nil
+}
+
+// Admissible is SC1's admission (sc-D20): every entry of the directories the export lists
+// (ctl/, ctl/guest/, admin/backups/) one admit admits, so a team is never sealed with an entry
+// its export would refuse. It reads only.
+func Admissible(f Files, team paths.TeamID) error {
+	if f == nil {
+		return errors.New("this wiring has no carry files")
+	}
+	if err := admitAll(f, "ctl", paths.CtlState(team), ctlEntry); err != nil {
+		return err
+	}
+	for _, l := range []struct {
+		member, dir string
+		carried     carried
+	}{{"ctl/guest", paths.GuestTokenDir(team), guestEntry}, {"admin/backups", paths.BackupDir(team), backupEntry}} {
+		info, err := f.Stat(l.dir)
 		switch {
-		case e.Name == "last-run.json":
-			return 0o600, adminCap, true
-		case backupTarName.MatchString(e.Name):
-			return 0o600, backupCap, true
+		case err != nil:
+			return err
+		case info.Kind == restore.KindAbsent:
+			continue
+		case info.Kind != restore.KindDirectory:
+			return refusedf("%s is not a directory", l.member)
 		}
-		return 0, 0, false
-	})
+		if err = admitAll(f, l.member, l.dir, l.carried); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// admitAll is admit over every entry of dir.
+func admitAll(f Files, member, dir string, carried carried) error {
+	entries, err := f.List(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if _, _, err = admit(member, dir, e, carried); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ctl is SX2's ctl/: the roster, the rooms and the admin token, the guest tokens and a past
@@ -360,16 +447,9 @@ func (x *exporting) ctl() error {
 	}
 	guest := false
 	err := x.listed("ctl", paths.CtlState(t), func(e restore.Entry) (fs.FileMode, int64, bool) {
-		switch {
-		case e.Name == "roster.json" || e.Name == "rooms.json" || e.Name == AdminTokenName:
-			return 0, 0, true
-		case e.Name == "guest" && e.Kind == restore.KindDirectory:
-			guest = true
-			return 0, 0, true
-		case lostName.MatchString(e.Name):
-			return 0o600, LostCap, true
-		}
-		return 0, 0, false
+		mode, limit, ok := ctlEntry(e)
+		guest = guest || (ok && e.Name == "guest")
+		return mode, limit, ok
 	})
 	if err != nil || !guest {
 		return err
@@ -377,9 +457,7 @@ func (x *exporting) ctl() error {
 	if err = x.dir("ctl/guest", paths.GuestTokenDir(t)); err != nil {
 		return err
 	}
-	return x.listed("ctl/guest", paths.GuestTokenDir(t), func(e restore.Entry) (fs.FileMode, int64, bool) {
-		return 0o600, tokenCap, guestName.MatchString(e.Name)
-	})
+	return x.listed("ctl/guest", paths.GuestTokenDir(t), guestEntry)
 }
 
 // status is SX2's status/: the approval alone (O2).
@@ -429,28 +507,22 @@ func (x *exporting) walk(member, dir string) error {
 	return nil
 }
 
-// listed adds each entry of dir that carried admits as a file of its mode and cap, refusing
-// any other; an entry carried admits with mode 0 is one the caller adds itself.
-func (x *exporting) listed(member, dir string, carried func(restore.Entry) (fs.FileMode, int64, bool)) error {
+// listed adds each entry of dir that admit admits as a file of its mode and cap, refusing any
+// other; an entry carried admits with mode 0 is one the caller adds itself.
+func (x *exporting) listed(member, dir string, carried carried) error {
 	entries, err := x.d.Files.List(dir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		name := member + "/" + e.Name
-		if !validName(name) {
-			return refusedf("an entry of %s has a name outside the member grammar", member)
-		}
-		mode, limit, ok := carried(e)
+		mode, limit, aerr := admit(member, dir, e, carried)
 		switch {
-		case !ok:
-			return refusedf("%s is not a member SX2 carries: remove it, or move it out of %s", name, dir)
+		case aerr != nil:
+			return aerr
 		case mode == 0:
 			continue
-		case e.Kind != restore.KindFile:
-			return refusedf("%s is not a regular file", name)
 		}
-		if err = x.file(name, dir+"/"+e.Name, mode, limit, true); err != nil {
+		if err = x.file(member+"/"+e.Name, dir+"/"+e.Name, mode, limit, true); err != nil {
 			return err
 		}
 	}

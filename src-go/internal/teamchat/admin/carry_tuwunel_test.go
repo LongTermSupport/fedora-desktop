@@ -57,6 +57,9 @@ func (s *realCarryServer) stopImported() error {
 // arrives byte for byte, carry-check finds the seal's tail on it, and served again it gives each
 // room's newest event and the roster event as the seal read them.
 func TestTuwunelCarryRoundRT(t *testing.T) {
+	// The host runs Tuwunel under UMask=0077 (host/sandbox.go), so its files are the modes SX3 wants.
+	old := syscall.Umask(0o077)
+	t.Cleanup(func() { syscall.Umask(old) })
 	w := newRealWorld(t.Context(), t)
 	in := encodeDoc(t, alphaDoc())
 	w.ok(t.Context(), t, in, "team", "approve", "--team", "alpha")

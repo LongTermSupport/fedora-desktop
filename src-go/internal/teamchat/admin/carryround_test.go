@@ -23,8 +23,8 @@ import (
 )
 
 // SPEC-carry section 13, item 15: a carry run end to end through the verbs, `team seal`,
-// `team export`, `team import` and `team carry-check`, over the carry engine as `wire` builds it
-// (the real file adapters, the CarryChild and the ctl-child served in process), with a test
+// `team export`, `team import` and `team carry-check`, over a hand-built carry engine of the same
+// file adapters as `wire`'s (the CarryChild and the ctl-child served in process), with a test
 // homeserver. The round is run here over fakehs, and with `-tags tuwunel` over a real Tuwunel
 // (carry_tuwunel_test.go), whose database is the one carried.
 
@@ -95,8 +95,10 @@ func (u carryUnits) State(_ context.Context, unit string) (restore.UnitState, er
 
 func (u carryUnits) Stop(ctx context.Context, unit string) error { return u.s.Stop(ctx, unit) }
 
-// deps is the carry engine over the host as `wire` builds it, the world's fakes for systemd,
-// readiness and the status record, and the loopback start the round's server.
+// deps is a carry engine built by hand (admin's tests cannot import `wire`): the same file
+// adapters as `wire`'s (carry.OS, carry.StageOS, restore.OS, CarryChild), the world's fakes for
+// systemd, readiness and the status record, a fixed archive cap, no drill Serve, and the round's
+// server as the loopback start. `wire`'s own assembly is pinned by its store_test.
 func (h *carryHost) deps(t *testing.T) carry.Deps {
 	t.Helper()
 	w, uid := h.w, selfUID(t)

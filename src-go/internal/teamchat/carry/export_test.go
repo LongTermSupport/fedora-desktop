@@ -526,6 +526,13 @@ func (w *exportWorld) relink(path string) {
 	}
 }
 
+// sc-D20: SC1's admission needs the export's files; a wiring without them fails, never passes.
+func TestAdmissibleNeedsTheFiles(t *testing.T) {
+	if err := Admissible(nil, sampleTeam(t)); err == nil || errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v, want a failure that is not a refusal", err)
+	}
+}
+
 // CN5: the archive cap's setting is read first; its failure is the export's, unchanged (the
 // verb's 78), and a cap that is not positive is refused naming the setting; nothing is written.
 func TestExportNeedsTheArchiveCap(t *testing.T) {

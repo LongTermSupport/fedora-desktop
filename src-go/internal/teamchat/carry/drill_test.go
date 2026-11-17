@@ -209,6 +209,7 @@ func TestDrillRefusals(t *testing.T) {
 				r.Pending = &apply.Pending{Op: apply.OpMemberRetire, Step: "rooms", SinceMS: 1, Handle: "web.1+desk.podman"}
 			})
 		}, ErrRefused, "member retire --team ops --handle web.1+desk.podman"},
+		"a backup stray":         {func(w *drillWorld) { w.put(paths.BackupDir(team)+"/8.tar.tmp", "x") }, ErrRefused, "admin/backups/8.tar.tmp"},
 		"a stopped server":       {func(w *drillWorld) { w.unit(paths.ServerUnit(team)).active = "inactive" }, ErrRefused, "team apply"},
 		"a server not answering": {func(w *drillWorld) { w.silent = true }, ErrRefused, "team apply"},
 		"a tail that disagrees":  {func(w *drillWorld) { w.tail.Epoch.Rev = 4 }, ErrRefused, "run team apply first"},
@@ -281,14 +282,16 @@ func TestDrillServeFailureLeavesTheRecord(t *testing.T) {
 	w.served("the next drill")
 }
 
-// SD3: a copy that fails after the stop (a source SX2 refuses, found only once the team is cold)
+// SD3: a copy that fails after the stop (a source of a mode SX3 refuses, found only by the copy)
 // still serves the team again and removes the record; the failure is the copy's, and no archive
 // or part is left.
 func TestDrillCopyFailureServesAgain(t *testing.T) {
 	w := newDrillWorld(t)
-	w.put(paths.CtlState(w.team)+"/notes.txt", "x")
+	if err := os.Chmod(w.root+paths.RosterFile(w.team), 0o400); err != nil {
+		t.Fatal(err)
+	}
 	_, err := w.drill()
-	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "ctl/notes.txt") {
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "ctl/roster.json") {
 		t.Fatalf("err = %v", err)
 	}
 	if !slices.Contains(w.calls, "serve") {
