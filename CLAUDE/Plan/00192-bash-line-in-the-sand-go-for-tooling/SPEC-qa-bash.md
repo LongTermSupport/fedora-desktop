@@ -97,7 +97,7 @@ change.
 
 - S10. Status 0 or 1 is data; 2 or more, no status, or a timeout is `ERROR: shellcheck invocation failed (status N):` with its stderr, exit 2. Its stdout must be a JSON array, else exit 2; empty
   stdout is not an array. Each diagnostic keeps every field shellcheck gave it, with `file` made
-  relative to the root, and the list is the report's `shellcheck_diagnostics`. A diagnostic on a
+  relative to the root, and the list is the report's `shellcheckDiagnostics`. A diagnostic on a
   file that was not given is exit 2: shellcheck and the gate disagree about what was checked.
   **Not reachable with shellcheck 0.11.0**, which reports only on the files it was given even
   when it follows a source (S9). The check is kept, not removed: a shellcheck that did report
@@ -126,11 +126,11 @@ change.
   the syntax message, then each gating finding as `SC<code>:<line> (<level>) <message>`, joined by
   `; ` in line order, then code. Results are in file order (sorted by path).
 - S13. Stdout, in order: each syntax failure (S7); when there is any diagnostic of any level,
-  `⚠ shellcheck: <N> issues (see <merged> .checks.bash.shellcheck_diagnostics)`; when any gates,
+  `⚠ shellcheck: <N> issues (see <merged> .checks.bash.shellcheckDiagnostics)`; when any gates,
   `✗ shellcheck: <G> error/warning-level finding(s) — gating` and one line each, sorted by file,
   line, column, code: `    <file>:<line> SC<code> (<level>) <message>`.
 - S14. No failed file: `✓ bash: <N> files OK`, exit 0. Otherwise `✗ bash: <F>/<N> files failed → <report>`, exit 1, F being the number of failed files.
-- S15. The report is `{type:"bash", status:"pass"|"fail", summary:{total, passed, failed}, results:[{file, type:"bash", status, error?}], failures:[the failed results], shellcheck_diagnostics:[...]}`, two-space JSON. It is written on exit 0 and 1, never on exit 2.
+- S15. The report is `{type:"bash", status:"pass"|"fail", summary:{total, passed, failed}, results:[{file, type:"bash", status, error?}], failures:[the failed results], shellcheckDiagnostics:[...]}`, two-space JSON. It is written on exit 0 and 1, never on exit 2.
 
 ### Suppression directives
 

@@ -245,7 +245,7 @@ func TestDiagnosticsKeepTheirFieldsAndLoseTheCheckoutPath(t *testing.T) {
 	)
 	got := w.main()
 	wantExit(t, got, ExitFailed)
-	wantOut := "✗ python: ruff: 3 issues in 2 file(s) (see " + w.out + " .ruff_diagnostics)\n✗ python: failed → " + w.out + "\n"
+	wantOut := "✗ python: ruff: 3 issues in 2 file(s) (see " + w.out + " .ruffDiagnostics)\n✗ python: failed → " + w.out + "\n"
 	if got.stdout != wantOut {
 		t.Fatalf("stdout %q\nwant   %q", got.stdout, wantOut)
 	}
