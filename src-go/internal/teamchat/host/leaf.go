@@ -214,10 +214,10 @@ func (t Terminator) servesOldLeaf(madeAt time.Time) bool {
 // LeafRenewal is what a renewal found and did: the leaf made again and why, the terminator
 // restarted, and when the leaf in force ends (zero when no leaf could be read).
 type LeafRenewal struct {
-	Made      bool
 	Why       string
-	Restarted bool
 	NotAfter  time.Time
+	Made      bool
+	Restarted bool
 }
 
 // Restarter restarts a unit and returns once its restart job has finished.

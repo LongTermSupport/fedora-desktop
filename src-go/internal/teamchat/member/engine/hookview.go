@@ -33,8 +33,8 @@ type HookTeam struct {
 	Counts                                 hooktext.Counts
 	NotPushed                              []string
 	Missing                                int64
-	Down                                   bool
 	Failed                                 *string
+	Down                                   bool
 	Current                                bool
 }
 

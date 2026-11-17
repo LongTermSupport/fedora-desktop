@@ -53,9 +53,6 @@ type world struct {
 	nextInv int
 	// unloadAfter is how many State reads a stopped staging unit stays loaded for.
 	unloadAfter int
-	// crashLoop makes the live unit alternate activating and failed until it is stopped, and
-	// fail every start of the old database; stopped is whether it was stopped since.
-	crashLoop, stopped bool
 	// answers is how many ServerVersion probes fail before one answers; -1 is never.
 	answers int
 	probes  int
@@ -70,8 +67,6 @@ type world struct {
 	// fail names the effect that fails, each time it is called; hooks run after an effect.
 	fail  map[string]error
 	hooks map[string]func()
-	// stopFails makes a stopped live unit failed, as systemd keeps a crash-looping one.
-	stopFails bool
 	// stagedEpoch is what a staged check answers; secured is the epoch the secure op wrote.
 	stagedEpoch *Epoch
 	secured     Epoch
@@ -80,6 +75,12 @@ type world struct {
 	events   [][]string
 	sleeps   int
 	exported int
+
+	// crashLoop makes the live unit alternate activating and failed until it is stopped, and
+	// fail every start of the old database; stopped is whether it was stopped since.
+	crashLoop, stopped bool
+	// stopFails makes a stopped live unit failed, as systemd keeps a crash-looping one.
+	stopFails bool
 }
 
 type fakeUnit struct {

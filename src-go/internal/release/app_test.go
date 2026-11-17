@@ -32,11 +32,11 @@ func (g *appGit) FileAtRef(_ context.Context, _, ref, path string) (string, bool
 // memFiles is the working tree's changelog in memory.
 type memFiles struct {
 	text     string
-	present  bool
 	written  string
-	wrote    bool
 	readErr  error
 	writeErr error
+	present  bool
+	wrote    bool
 }
 
 func (m *memFiles) Read(string) (string, bool, error) { return m.text, m.present, m.readErr }

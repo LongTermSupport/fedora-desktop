@@ -398,13 +398,13 @@ type walkScan struct {
 	taint map[types.Object]bool
 	// listings are the tainted variables that hold a whole listing, not one entry of it.
 	listings map[types.Object]bool
-	report   bool
 	// checkable are the parameters whose check a summary counts (entryParams).
 	checkable map[types.Object]bool
 	// pending are the files opened O_NONBLOCK from a walked name: a read of one is the open.
 	pending map[types.Object]bool
 	// opened is where each unguarded open was found.
 	opened  map[token.Pos]bool
+	report  bool
 	returns bool
 }
 

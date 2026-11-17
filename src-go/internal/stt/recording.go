@@ -41,14 +41,14 @@ type recording struct {
 	path    string
 	sidecar string
 	// parts are the audio files in order; for a folder, filled by state.
-	parts    []string
-	manifest bool
+	parts []string
 	// audio is the fingerprint the sidecar records (S19), filled by state for a pending one.
 	audio []audioPart
-	// stale is set by state when the sidecar's fingerprint does not match the audio (S19).
-	stale bool
 	// recordingState is the manifest's final state, filled by state; empty for a loose file.
 	recordingState string
+	manifest       bool
+	// stale is set by state when the sidecar's fingerprint does not match the audio (S19).
+	stale bool
 }
 
 // audioPart is one part of a recording as its sidecar records it (S19): from the manifest for

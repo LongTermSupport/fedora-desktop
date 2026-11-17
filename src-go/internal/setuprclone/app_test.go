@@ -72,8 +72,8 @@ type world struct {
 	answers     string
 	env         map[string]string
 	missing     map[string]bool
-	inContainer bool
 	release     string
+	inContainer bool
 	terminal    bool
 	errOut      io.Writer
 	stdout      bytes.Buffer

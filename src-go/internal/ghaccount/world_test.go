@@ -44,20 +44,20 @@ type world struct {
 	accounts     map[string]*ghAccount
 	order        []string
 	active       string
-	loginAs      string // the account a browser login authorises
+	loginAs      string              // the account a browser login authorises
+	keys         map[string][]string // login -> registered public key lines
+	sshAs        map[string]string   // key path -> the login GitHub greets it as
+	vaultOut     string
+	ghVersion    string
+	statusCalls  int // gh auth status runs so far
+	statusFailAt int // the one gh auth status run (1-based) that fails; 0 for none
 	loginFails   bool
 	refreshFail  bool
 	switchFails  bool
 	keysFail     bool
 	addFails     bool
-	keys         map[string][]string // login -> registered public key lines
-	sshAs        map[string]string   // key path -> the login GitHub greets it as
-	vaultOut     string
 	vaultFails   bool
-	ghVersion    string
 	statusFails  bool
-	statusCalls  int // gh auth status runs so far
-	statusFailAt int // the one gh auth status run (1-based) that fails; 0 for none
 }
 
 func newWorld(t *testing.T) *world {

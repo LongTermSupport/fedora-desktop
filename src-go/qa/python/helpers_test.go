@@ -152,10 +152,10 @@ type fakeRun struct {
 	gitFails int
 
 	ruffVersion    string
-	ruffMissing    bool
 	ruffVersionRC  int
-	pythonMissing  bool
 	pythonVersionC int
+	ruffMissing    bool
+	pythonMissing  bool
 
 	// showFiles is what `ruff check --show-files` lists, given the files it was given.
 	showFiles func(files []string) []string

@@ -14,11 +14,11 @@ import (
 // blockingTTY is a terminal on which nothing is ever typed: its first read calls onRead (the
 // Ctrl-C), then every read waits until it is closed, as a terminal's does, or the test ends.
 type blockingTTY struct {
-	onRead  func()
-	done    chan struct{}
-	closing sync.Once
+	onRead func()
+	done   chan struct{}
 	// returned is closed when a read has returned.
 	returned  chan struct{}
+	closing   sync.Once
 	returning sync.Once
 }
 

@@ -100,13 +100,13 @@ const (
 type run struct {
 	env        Env
 	p          term.Printer
-	colour     bool
 	lines      *ui.Lines
 	root, home string
 	conf, vars string
 	remotes    []string
-	wizardRan  bool
 	vault      string
+	colour     bool
+	wizardRan  bool
 }
 
 // Run is the whole command; it returns the exit code.

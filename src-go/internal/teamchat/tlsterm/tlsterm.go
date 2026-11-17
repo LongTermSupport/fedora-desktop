@@ -84,11 +84,12 @@ type Server struct {
 	done   <-chan struct{}
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	once   sync.Once
 
-	mu    sync.Mutex
+	// live and fatal are under mu.
 	live  map[net.Conn]struct{}
 	fatal error
+	once  sync.Once
+	mu    sync.Mutex
 
 	logMu     sync.Mutex
 	logFailed bool

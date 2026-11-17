@@ -61,19 +61,19 @@ type qroom struct {
 // request's filter held the room and its fold was written (QS7).
 type qstate struct {
 	room     string
+	check    string
+	idx      *proto.QuestionIndex
+	last     string
+	since    time.Duration
+	triedAt  time.Duration
+	floor    int64
 	joined   bool
 	verified bool
 	refused  bool
 	left     bool
-	check    string
 	head     bool
 	chain    bool
-	idx      *proto.QuestionIndex
-	last     string
-	since    time.Duration
 	tried    bool
-	triedAt  time.Duration
-	floor    int64
 	begun    bool
 	noneSaid bool
 }

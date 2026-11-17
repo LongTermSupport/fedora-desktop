@@ -70,9 +70,9 @@ func (n *fakeNotices) presences() []string {
 // fakeTeam runs until cancelled; its re-fetch delivers each item when deliver is set.
 type fakeTeam struct {
 	notices *fakeNotices
-	deliver bool
 	madeFor paths.RunID
 	mu      sync.Mutex
+	deliver bool
 	ran     bool
 }
 

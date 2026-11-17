@@ -48,10 +48,10 @@ type Scan struct {
 // scanEntry is one path the walk met, relative to the store.
 type scanEntry struct {
 	rel      string
-	regular  bool
 	uid, gid int64
 	size     int64
 	mode     fs.FileMode
+	regular  bool
 }
 
 // dirKey is the store directory a path belongs to (O2).

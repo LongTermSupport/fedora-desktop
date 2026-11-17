@@ -36,11 +36,9 @@ type kit struct {
 	upload   string
 	config   string
 	stdin    string
-	stdinTTY bool
 	// pipe, when set, is the run's stdin in place of stdin's text; clock times a wait on it.
 	pipe       io.Reader
 	stdinClock stdinread.Clock
-	colour     bool
 	proc       fstest.MapFS
 	// random is the source of the hotspot password's words.
 	random io.Reader
@@ -57,6 +55,9 @@ type kit struct {
 	// has had every line it printed read by its consumer.
 	held int
 	live chan struct{}
+
+	stdinTTY bool
+	colour   bool
 }
 
 // feed is a long-running program's script.

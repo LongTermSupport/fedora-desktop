@@ -26,13 +26,16 @@ const (
 type capped struct {
 	rw io.ReadWriteCloser
 
-	begun atomic.Bool
-
 	// The read side, used by one reader at a time.
 	saslLine  int
-	header    [fixedHeader]byte
 	held      int
 	remaining int64
+	header    [fixedHeader]byte
+
+	begun atomic.Bool
+
+	closeOnce sync.Once
+	closeErr  error
 
 	refusedMu sync.Mutex
 	refused   error
@@ -40,9 +43,6 @@ type capped struct {
 	// The write side: the SASL line being written.
 	outMu sync.Mutex
 	out   []byte
-
-	closeOnce sync.Once
-	closeErr  error
 }
 
 func newCapped(rw io.ReadWriteCloser) *capped { return &capped{rw: rw} }

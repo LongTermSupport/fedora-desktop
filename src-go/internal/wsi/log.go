@@ -17,8 +17,8 @@ type logger struct {
 	stderr    io.Writer
 	file      string
 	now       func() time.Time
-	immediate bool // -d or -v: each file line written at once, debug lines shown
 	held      []string
+	immediate bool // -d or -v: each file line written at once, debug lines shown
 	warned    bool
 }
 

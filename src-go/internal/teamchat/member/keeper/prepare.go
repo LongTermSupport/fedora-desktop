@@ -50,7 +50,6 @@ type keeper struct {
 	runRoot   *homefs.Root
 	runID     paths.RunID
 	run       paths.Run
-	madeRun   bool
 	klock     *lock.KeeperLock
 	kit       paths.Kit
 	digest    paths.Digest
@@ -80,23 +79,25 @@ type keeper struct {
 
 	cmd        execx.Started
 	cmdProc    state.Process
-	cmdDone    bool
 	cmdStatus  execx.ExitStatus
 	cmdSent    map[syscall.Signal]bool
 	claude     Pidfd
 	claudeProc *state.Process
-	claudeDone bool
-	started    bool
 	token      *wire.Token
-	stopped    bool
 	stopSig    syscall.Signal
 	afterTerm  *timer
 	afterKill  *timer
-	failedCmd  bool
 
-	status   term.ExitCode
-	exitErr  error
-	finished bool
+	status  term.ExitCode
+	exitErr error
+
+	madeRun    bool
+	cmdDone    bool
+	claudeDone bool
+	started    bool
+	stopped    bool
+	failedCmd  bool
+	finished   bool
 }
 
 // phase is where the session is: the link coming up, CMD running, or the end.

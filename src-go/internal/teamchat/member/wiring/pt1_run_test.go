@@ -219,19 +219,17 @@ type pt1Runner struct {
 	posted []string
 	recv   map[string]int
 	sends  []pt1Sent
-	held   bool
-	// removed is whether the seat was removed, atRemoval how many item copies the transcript held
-	// then, limbo the ids an awaiting entry held (the store is deleted with the seat), and
-	// afterRemoval the ids posted to main after it (pt1_end_test.go).
-	removed      bool
+	// removed (at the end, with the other flags) is whether the seat was removed, atRemoval how
+	// many item copies the transcript held then, limbo the ids an awaiting entry held (the store
+	// is deleted with the seat), and afterRemoval the ids posted to main after it
+	// (pt1_end_test.go).
 	atRemoval    int
 	limbo        []string
 	afterRemoval []string
-	storeBack    bool
-	// ended is whether the run ended (the keeper's SIGTERM, CMD's SIGKILL); links are the pids of
-	// the links the keeper started, read before the end because the runtime directory goes with it;
-	// want is the one notice the ending or the removal posts.
-	ended bool
+	// ended (at the end, with the other flags) is whether the run ended (the keeper's SIGTERM,
+	// CMD's SIGKILL); links are the pids of the links the keeper started, read before the end
+	// because the runtime directory goes with it; want is the one notice the ending or the
+	// removal posts.
 	links []int
 	want  string
 	// marked is each id a recv whose output failed handed out, and the link got back unacknowledged
@@ -245,6 +243,11 @@ type pt1Runner struct {
 	// startMS is the boot clock, the link's clock for its store's entries (CLOCK_BOOTTIME, one
 	// per kernel), read before the run's world started (pt1Seen.startMS).
 	startMS int64
+
+	held      bool
+	removed   bool
+	storeBack bool
+	ended     bool
 }
 
 // pt1PeerShort is the peer's short name, which a send names it by (P69).

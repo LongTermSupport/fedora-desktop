@@ -44,17 +44,17 @@ type session struct {
 	hotspot hotspotInfo
 	// wifiPass is the active hotspot's Wi-Fi password, shown for the camera to join (E68) on
 	// the secret screen before the server starts (showWifi); wifiShown says it was.
-	wifiPass  string
-	wifiShown bool
+	wifiPass string
 
-	profile  string
-	ownsAP   bool
-	ip       string
-	countsOn bool
-	tally    asyncTally
-	stopBg   context.CancelFunc
-	bg       sync.WaitGroup
-	ended    chan stopped
+	profile   string
+	ip        string
+	tally     asyncTally
+	stopBg    context.CancelFunc
+	bg        sync.WaitGroup
+	ended     chan stopped
+	ownsAP    bool
+	countsOn  bool
+	wifiShown bool
 }
 
 // stopped is a background part of the session that ended by itself.

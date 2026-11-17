@@ -58,21 +58,23 @@ type job struct {
 	action                  action
 
 	// id is the conversation a start resumes (none when fresh), args the launcher's arguments.
-	id    string
-	fresh bool
-	args  []string
+	id   string
+	args []string
 	// memDir is a running ccy session's membership directory, generation its desired one's.
 	memDir     string
 	generation int
 	// container is the running session's container before the request; wrote is whether this
 	// restart wrote the request (a first join's already pending is not ours, joinPending).
-	container   string
-	wrote       bool
-	joinPending bool
+	container string
 
 	started time.Time
 	result  result
 	note    string
+
+	wrote       bool
+	joinPending bool
+	// fresh is a start with no conversation to resume (see id).
+	fresh bool
 }
 
 func (j *job) done(r result, note string) { j.result, j.note = r, note }

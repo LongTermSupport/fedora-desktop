@@ -23,15 +23,15 @@ import (
 // virt-install fails, and what a booted guest writes to its serial console file.
 // Every virsh and virt-install call goes through it.
 type libvirt struct {
-	domains   []string
-	state     string
-	virtFails bool
-	console   string
+	domains []string
+	state   string
+	console string
 	// mem is a domain's memory in MiB for dominfo, 4096 when it has no entry; infoText, when set,
 	// is what dominfo prints instead, and infoFails makes it fail.
 	mem       map[string]int
 	infoText  string
 	infoFails bool
+	virtFails bool
 }
 
 func (k *kit) withLibvirt() *libvirt {

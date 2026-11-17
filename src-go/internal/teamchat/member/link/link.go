@@ -118,18 +118,20 @@ type link struct {
 	first     chan struct{}
 	firstOnce sync.Once
 
-	mu    sync.Mutex
-	token string
+	mu sync.Mutex
+	// renderDirty belongs with the render fields below; it sits here to fill the padding after
+	// firstOnce and mu.
+	renderDirty bool
+	token       string
 
 	stateMu   sync.Mutex
 	states    map[paths.TeamID]wire.State
 	stateWake chan struct{}
 
 	// render is the latest unusable.render count the engine told, not yet written when dirty.
-	renderMu    sync.Mutex
-	render      int64
-	renderDirty bool
-	renderWake  chan struct{}
+	renderMu   sync.Mutex
+	render     int64
+	renderWake chan struct{}
 
 	hooks hookMemory
 	mem   membership

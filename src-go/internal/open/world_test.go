@@ -32,12 +32,12 @@ type world struct {
 	picker     *fakePicker
 	stdout     bytes.Buffer
 	stderr     bytes.Buffer
-	terminal   bool   // stderr is a terminal
 	tty        string // what the controlling terminal answers; "" with noTTY means none
-	noTTY      bool
 	signals    chan os.Signal
 	// echo is the hold on the terminal's echo, nil for none.
-	echo *ttyecho.Hold
+	echo     *ttyecho.Hold
+	terminal bool // stderr is a terminal
+	noTTY    bool
 }
 
 func newWorld(t *testing.T) *world {

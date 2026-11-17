@@ -195,8 +195,8 @@ func TestRetryWait(t *testing.T) {
 		name              string
 		retryAfter, reset string
 		bodyMs            int64
-		hasBody           bool
 		wantMs            int64
+		hasBody           bool
 		wantReport        bool
 	}{
 		{name: "retry-after", retryAfter: " 7 ", reset: "999", wantMs: 7000},

@@ -465,13 +465,13 @@ type run struct {
 	App
 
 	eng     engine.Engine
-	yes     bool
 	log     *os.File
 	p       term.Printer
 	failed  []string
 	freed   int64
 	removed int
 	seen    map[keep]bool
+	yes     bool
 	// toldBuilding is a run that has said on stderr that a ccy image build is running.
 	toldBuilding bool
 	// storeDenied is a run stopped by P6a.

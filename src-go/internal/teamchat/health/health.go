@@ -183,29 +183,29 @@ func (t *Tick) RunAll(ctx context.Context) ([]Outcome, error) {
 
 // facts is what steps 1 to 4 found, before the lock.
 type facts struct {
-	prev   *status.Record
-	seq    int64
-	unit   UnitState
-	probe  string
-	events []status.Event
-	view   View
-	// viewFailed leaves step 6 alone: with no view there is no member to move on, and
-	// lxc-online.json is kept as it was for the next tick.
-	viewFailed bool
-	guests     map[string]guestSeen
-	problems   []status.Problem
-	backup     status.Backup
+	prev     *status.Record
+	seq      int64
+	unit     UnitState
+	probe    string
+	events   []status.Event
+	view     View
+	guests   map[string]guestSeen
+	problems []status.Problem
+	backup   status.Backup
 	// restore is the recorded restore, nil for none; while one is recorded the unit is never
 	// restarted (HB3).
-	restore   *status.Restore
-	disk      status.Disk
-	restarted bool
-	// held is a caller holding the team lock (Refresh): no re-probe and no restart.
-	held bool
+	restore *status.Restore
+	disk    status.Disk
 	// reach is the probes through the terminator under way, nil for none (X32); tlsRestarted is a
 	// terminator the renewal restarted this tick, which is not probed.
 	reach        *reaching
 	tlsRestarted bool
+	// viewFailed leaves step 6 alone: with no view there is no member to move on, and
+	// lxc-online.json is kept as it was for the next tick.
+	viewFailed bool
+	restarted  bool
+	// held is a caller holding the team lock (Refresh): no re-probe and no restart.
+	held bool
 }
 
 // Team ticks one team (C 3.11.2).

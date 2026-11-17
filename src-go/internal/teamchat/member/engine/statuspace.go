@@ -17,16 +17,16 @@ const (
 // statusPacer is when status.json was last written and what with; the state goroutine's alone.
 // One timer is armed at a time: for the owed write, else for the heartbeat.
 type statusPacer struct {
-	wrote bool
 	// last is the status last written, its written_ms left zero; at is that write's boot time.
 	last state.Status
 	at   time.Duration
+	// stop disarms the armed timer, due at due; gen tells a stale fire from the armed one.
+	stop  func() bool
+	due   time.Duration
+	gen   uint64
+	wrote bool
 	// dirty is a change not yet written, owed a second after the last write.
 	dirty bool
-	// stop disarms the armed timer, due at due; gen tells a stale fire from the armed one.
-	stop func() bool
-	due  time.Duration
-	gen  uint64
 }
 
 // offerStatus takes the newest status: written at once when the last write is a second old or

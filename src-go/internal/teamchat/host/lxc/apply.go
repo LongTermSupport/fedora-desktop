@@ -83,17 +83,20 @@ type member struct {
 	id   lxcstate.SeatID
 	key  paths.SeatKey
 	// prior is the seat's record entry, when recorded.
-	prior    lxcstate.Entry
-	recorded bool
-	handle   string
+	prior  lxcstate.Entry
+	handle string
 	// want is the handle step 03 derived from the guest's facts.
 	want   string
 	acct   guestfacts.Account
 	group  string
 	prefix proto.Prefix
-	target bool
 	// moveTo is a user move's declared user; the leaver is the record's (the absent phase).
-	moveTo paths.GuestUser
+	moveTo      paths.GuestUser
+	joinOp      string
+	bundle      []byte // never logged, never in an error
+	status, why string
+	recorded    bool
+	target      bool
 	// done is set once the member takes no further step this phase.
 	done bool
 	// failed is a member whose phase failed: its record entry is left unless status is set.
@@ -103,10 +106,7 @@ type member struct {
 	// complete is a seat that took every step of the present phase.
 	complete bool
 	// heldSeat is a place-bundle 75: the seat is left out of its desired membership.
-	heldSeat    bool
-	joinOp      string
-	bundle      []byte // never logged, never in an error
-	status, why string
+	heldSeat bool
 }
 
 // needsReissue is a recorded handle whose bundle was never placed (n3-D23), or holds a CA a

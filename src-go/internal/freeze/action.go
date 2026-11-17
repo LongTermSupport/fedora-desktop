@@ -18,13 +18,14 @@ type Session[R any] struct {
 	Chooser Chooser
 	// Action is the explicit verb from the command line; VerbDerived lets the state decide.
 	Action Verb
-	// DryRun previews every act on stdout instead of performing it.
-	DryRun bool
 
 	inv    Inventory[R]
-	fresh  bool // the inventory was just loaded and not yet used by the menu
 	stdout *term.Term
 	stderr *term.Term
+
+	// DryRun previews every act on stdout instead of performing it.
+	DryRun bool
+	fresh  bool // the inventory was just loaded and not yet used by the menu
 }
 
 // NewSession wires a session. Out is the payload stream (list, dry run); Err takes everything

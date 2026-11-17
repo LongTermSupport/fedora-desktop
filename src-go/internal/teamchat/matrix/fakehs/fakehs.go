@@ -92,12 +92,12 @@ type Options struct {
 type Quirks struct {
 	// MaxRequestBytes answers a body over it 413 M_TOO_LARGE; 0 is no limit.
 	MaxRequestBytes int
-	// AdminFalseIs500 answers a PUT v2/users carrying "admin": false for an account that is not
-	// an admin with a 500, as H4 fixture 008 recorded.
-	AdminFalseIs500 bool
 	// LoginFailuresAllowed is how many wrong passwords an account may give before its password
 	// logins are answered 429; 0 is no limit. Restart empties the count.
 	LoginFailuresAllowed int
+	// AdminFalseIs500 answers a PUT v2/users carrying "admin": false for an account that is not
+	// an admin with a 500, as H4 fixture 008 recorded.
+	AdminFalseIs500 bool
 	// AdminRoom joins an account registered (or seeded) as an admin to the server's own admin
 	// room, which the server user created, as Tuwunel does for a shared-secret registration
 	// with admin true (the rooms engine's tagged run). The room is made with the first admin;
@@ -154,10 +154,10 @@ type Fault struct {
 type user struct {
 	id          string
 	password    string
-	hasPassword bool
-	admin       bool
 	displayName string
 	lastSeen    *int64
+	hasPassword bool
+	admin       bool
 	deactivated bool
 	locked      bool
 }

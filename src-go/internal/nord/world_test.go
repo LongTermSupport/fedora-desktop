@@ -47,26 +47,21 @@ type world struct {
 	t         *testing.T
 	home      string
 	installed map[string]bool
-	nmRunning bool
-	// systemctlFails makes systemctl unable to run.
-	systemctlFails bool
-	profiles       []*profile
-	nextUUID       int
+	profiles  []*profile
+	nextUUID  int
 	// fail answers an nmcli verb (import, modify, up, down, delete, show) with a failure.
 	fail map[string]failure
 	// importOut replaces what a successful import prints.
 	importOut *string
 	// editOut replaces what a successful edit session prints.
-	editOut  *string
-	curl     failure
-	curlOut  string
-	fake     *execx.Fake
-	stdout   bytes.Buffer
-	stderr   bytes.Buffer
-	tty      string
-	ttyIn    io.Reader
-	noTTY    bool
-	stdinTTY bool
+	editOut *string
+	curl    failure
+	curlOut string
+	fake    *execx.Fake
+	stdout  bytes.Buffer
+	stderr  bytes.Buffer
+	tty     string
+	ttyIn   io.Reader
 	// fed is the standard input each `nmcli connection edit` was given, as text.
 	fed []string
 	// during runs while the command whose line it is keyed by runs: a Ctrl-C mid-command.
@@ -77,6 +72,11 @@ type world struct {
 	runCtx         func() context.Context
 	cancel         context.CancelCauseFunc
 	now            time.Time
+	nmRunning      bool
+	// systemctlFails makes systemctl unable to run.
+	systemctlFails bool
+	noTTY          bool
+	stdinTTY       bool
 }
 
 func newWorld(t *testing.T) *world {

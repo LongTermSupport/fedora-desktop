@@ -187,13 +187,11 @@ type fakeTeam struct {
 	notices *fakeNotices
 	running chan struct{}
 	ignore  chan struct{}
-	ran     bool
 
 	verdicts   map[string]proto.Verdict
 	refetchErr error
 	// refetchErrs answers one id's re-fetch with its error, over refetchErr.
 	refetchErrs map[string]error
-	block       bool
 	refetched   []string
 	verified    records.Verified
 	verifyErr   error
@@ -203,8 +201,7 @@ type fakeTeam struct {
 	flushErr    error
 	// raised are the floors FloorRaised was told, in order.
 	raised []int64
-	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
-	ended       bool
+	// ended (below) is set once Run returns; flushedLive counts the flushes made while it ran.
 	flushedLive int
 	// reportsAnswers are VerifyReports's answers in order (the last one repeats; none is nil),
 	// reportsVerifies counts its calls, reports is the room's state for status.
@@ -214,6 +211,10 @@ type fakeTeam struct {
 	// reportsHold, when set, is called for each verification before its answer, off the lock:
 	// it may wait for the caller's context.
 	reportsHold func(context.Context) error
+
+	ran   bool
+	block bool
+	ended bool
 }
 
 // VerifyReports answers from reportsAnswers.

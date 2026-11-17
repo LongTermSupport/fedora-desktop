@@ -30,11 +30,11 @@ type shelf struct {
 	// tags is the `images` listing, "<name> sha256:<id>" a line.
 	tags string
 	// users is each container's image id; inspect fails once when inspectRace is set.
-	users       []string
-	inspectRace bool
+	users []string
 	// refuse is the ids whose removal the engine refuses, with its message.
-	refuse   map[string]string
-	scripted bool
+	refuse      map[string]string
+	inspectRace bool
+	scripted    bool
 }
 
 func newShelf(t *testing.T) *shelf {

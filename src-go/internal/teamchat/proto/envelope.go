@@ -50,14 +50,14 @@ type Entry struct {
 	Kind, Team, Handle, From, Role, EventID string
 	SentMs                                  int64
 	Re, Revises                             string
-	Questions                               bool
 	Question                                *EntryQuestion
 	Verb, Ref, Trust, Branch, Silent        string
 	Event, Subject, Reason                  string
 	Carried                                 *EntryCarried
 	Copy                                    []string
-	Repeat, Restored                        bool
 	Body                                    string
+	Questions                               bool
+	Repeat, Restored                        bool
 }
 
 // The fixed sentences of A 13.3.

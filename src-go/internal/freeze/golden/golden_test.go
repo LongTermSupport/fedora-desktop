@@ -144,10 +144,10 @@ func resolve(f scenarioFile, s scenario) world {
 // machine is the world as the tool sees it through execx: the fake programs of capture.py.
 type machine struct {
 	w          world
-	terminal   bool
 	seen       map[string]int
-	sudoCached bool
 	calls      []string
+	terminal   bool
+	sudoCached bool
 }
 
 func (m *machine) hasTool(name string) bool { return slices.Contains(m.w.Tools, name) }

@@ -48,8 +48,8 @@ type Delivery struct {
 	Answered     []Answered
 	HeldBack     []HeldBack
 	NotShown     []string
-	Gap, Stopped bool
 	Pending      int
+	Gap, Stopped bool
 	// Summarised gives each kind of answered, held back and not shown as its summary line
 	// alone. Fit sets it when the facts crowd out the first entry; it is part of the delivery,
 	// so a delivery stored by its fields renders the same text again.

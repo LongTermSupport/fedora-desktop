@@ -50,11 +50,11 @@ type stall struct {
 type deliveryState struct {
 	answered     []proto.Answered
 	heldBack     map[string]int64
-	gap          bool
 	stopTold     string
 	trailingAt   time.Duration
-	trailingSent bool
 	fetchAfter   time.Duration
+	gap          bool
+	trailingSent bool
 }
 
 // hold keeps a persisted batch's trailing facts, with its answered lines (answeredLines).

@@ -22,8 +22,8 @@ import (
 // player is one MPRIS connection on the fake bus.
 type player struct {
 	status   string
-	canPause bool
 	pid      int
+	canPause bool
 	gone     bool // the connection has left the bus
 }
 
@@ -146,11 +146,11 @@ type fakeStream struct {
 	index          int
 	pid            string
 	binary, name   string
-	corked         bool
 	channels       []string
 	volume         []int
-	gone           bool
 	readBackOffset int // what the server's rounding adds to a volume it is set to
+	corked         bool
+	gone           bool
 }
 
 // audio is a fake pactl: the sink inputs as `pactl --format=json list sink-inputs` prints

@@ -501,9 +501,9 @@ func (t *Team) answeredAt() {
 type answer struct {
 	resp     matrix.SyncResponse
 	events   []json.RawMessage
+	restored func(int64) bool
 	first    bool
 	gap      bool
-	restored func(int64) bool
 	// qheld is the request's filter holding the questions room (QS4), whose events only then
 	// are this answer's to judge.
 	qheld bool

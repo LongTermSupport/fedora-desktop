@@ -20,10 +20,10 @@ import (
 
 // fakeRecording is a recorder the test stops or that stops by itself.
 type fakeRecording struct {
-	once    sync.Once
 	done    chan struct{}
-	stopped bool
+	once    sync.Once
 	mu      sync.Mutex
+	stopped bool
 }
 
 func (f *fakeRecording) Stop() {

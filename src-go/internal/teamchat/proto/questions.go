@@ -49,10 +49,10 @@ type IndexedQuestion struct {
 	Re             []string `json:"re"`
 	AskedMs        int64    `json:"asked_ms"`
 	RemindAfterS   int64    `json:"remind_after_s"`
-	Closed         bool     `json:"closed"`
 	Attached       int64    `json:"attached"`
 	Unanswered     []string `json:"unanswered"`
 	UnansweredMore int64    `json:"unanswered_more"`
+	Closed         bool     `json:"closed"`
 	Provisional    bool     `json:"-"`
 }
 

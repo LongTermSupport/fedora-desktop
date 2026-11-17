@@ -32,12 +32,12 @@ type fakeMachine struct {
 	root                       string
 	selfErr, userErr, groupErr error
 	pinErr                     error
-	noCtl                      bool
 	kitOwner                   int
-	owner                      uint32 // the uid the state's root-owned files are given
-	proven                     bool
 	conn                       units.Conn
 	n                          counts
+	owner                      uint32 // the uid the state's root-owned files are given
+	noCtl                      bool
+	proven                     bool
 }
 
 func (f *fakeMachine) machine() machine {

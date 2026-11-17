@@ -49,19 +49,19 @@ type item struct {
 	paths     int
 	size      int64
 	samples   []string
-	data      bool
-	// unshiftable is an owner outside the old range, or one that does not fit the current one.
-	unshiftable bool
-	allowed     []string
+	allowed   []string
 	// children are the images built on an image; used is a container of any state on it or
 	// mounting a volume; live is a running container doing so.
 	children []string
-	used     bool
-	live     bool
 	// depth is an image's number of layers, so podman removes a child before its parent;
 	// external is a container another tool made (buildah's).
-	depth    int
-	external bool
+	depth int
+	data  bool
+	// unshiftable is an owner outside the old range, or one that does not fit the current one.
+	unshiftable bool
+	used        bool
+	live        bool
+	external    bool
 }
 
 // deadStates are the container states with nothing mounted; any other, and a container podman

@@ -28,20 +28,20 @@ func said(out string) reply { return reply{out: out} }
 // a test breaks the part it is about.
 type world struct {
 	sb, testKey, listEnrolled  reply
-	keyFile                    bool
 	rpm                        map[string]reply
 	modinfo                    reply
 	modules                    string
-	noModules                  bool   // /proc/modules unreadable
 	nvrm                       string // /proc/driver/nvidia/version; empty is absent
 	missing                    map[string]bool
 	smi, glx, vk, va, vaNvidia reply
 	journal                    reply
 	env                        map[string]string
-	tty                        bool
 	stdout                     *bytes.Buffer
 	stderr                     *bytes.Buffer
 	fake                       *execx.Fake
+	keyFile                    bool
+	noModules                  bool // /proc/modules unreadable
+	tty                        bool
 }
 
 const healthyModules = "nvidia_uvm 4956160 0 - Live 0x0000000000000000\n" +

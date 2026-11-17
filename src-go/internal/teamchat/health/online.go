@@ -84,9 +84,9 @@ type onlineFile struct {
 }
 
 type onlineEntry struct {
-	Held    bool   `json:"held"`
 	Run     string `json:"run"`
 	SinceMS int64  `json:"since_ms"`
+	Held    bool   `json:"held"`
 	Posted  bool   `json:"posted"`
 }
 

@@ -23,9 +23,7 @@ type Batch struct {
 	Team         paths.TeamID
 	NextBatch    string
 	RestoreEpoch int64
-	// Fresh is false once SY1's step 01 has persisted.
-	Fresh bool
-	Items []Item
+	Items        []Item
 	// Floors are the floor_ms this batch moved, keyed by room purpose (proto.PurposeMain,
 	// PurposeQuestions), as the store's floor_ms and Pending.Room are; never a room id.
 	Floors map[string]int64
@@ -35,9 +33,7 @@ type Batch struct {
 	Echoes []Echo
 	// Redacts are admin redactions of pending or handed items.
 	Redacts []string
-	// Gap is SY3's bound hit.
-	Gap    bool
-	Counts Counts
+	Counts  Counts
 	// HeldBack is B 2.7.3's delivery budget: agent sender user id -> the items over its
 	// budget in this batch, which never entered pending (n3e-D1).
 	HeldBack map[string]int64
@@ -45,6 +41,10 @@ type Batch struct {
 	// answer's SY5 write whose filter held the room and whose questions timeline was folded, or a
 	// QX1 page's write. Nil leaves the key as it was, which is every other write's.
 	Questions *proto.QuestionsState
+	// Fresh is false once SY1's step 01 has persisted.
+	Fresh bool
+	// Gap is SY3's bound hit.
+	Gap bool
 	// DropQuestions is QS9's demotion: the questions room's pending and handed items, the index
 	// key, `reminded_ms`, `remind_late` and the three questions keys of the outbox dropped in
 	// this one write, and a `sending` questions post with them. It excludes Questions.
@@ -132,7 +132,6 @@ func (v View) OwnPing(id string) (proto.OwnPing, bool) {
 
 // Health is a team goroutine's state, for status, status.json and report.json.
 type Health struct {
-	Down bool
 	// Stopped is "" while the team runs, else the exits code that stopped it (token,
 	// untrusted, store, ...; SY8).
 	Stopped string
@@ -152,6 +151,7 @@ type Health struct {
 	// stop until the next verification (issue 192). A reader states the role or the
 	// coordinator only while it holds; a server that cannot be reached does not clear it.
 	Verified bool
+	Down     bool
 	// Questions is the questions room as this member stands to it (QS2, QS8), the zero value
 	// for a member that is not the coordinator.
 	Questions QuestionsHealth

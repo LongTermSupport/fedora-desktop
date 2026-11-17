@@ -33,13 +33,13 @@ var errInterrupted = errors.New("an earlier run of it was interrupted")
 type Answer struct {
 	Team      paths.TeamID
 	Backup    int64
-	Offline   bool
 	Pre       int64
 	Lost      *Lost
 	SinceMS   int64
 	Lists     Lists
 	Notes     []string
 	Changed   []string
+	Offline   bool
 	Discarded bool
 	Printed   bool
 }

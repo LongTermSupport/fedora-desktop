@@ -62,37 +62,37 @@ type vkDevice struct{ name, api string }
 type facts struct {
 	sb                          sbState
 	sbProbe                     outcome
-	keyFile                     bool
 	testKey, listEnrolled       outcome
 	enrolled                    int // SHA1 fingerprints listed
 	mok                         mokState
 	found                       mokState // mok as section 1 found it, before E13
-	mokProven                   bool     // E13 turned an uncertain key into an enrolled one
 	pkgs                        []pkg
 	built                       tri
 	builtVersion                string
 	modinfo                     outcome
 	loaded                      []string
 	modulesErr                  error
-	nvidiaLoaded                bool
 	loadedVersion               string // /proc/driver/nvidia/version: the driver the kernel runs
 	nvrmErr                     error  // that file unread while nvidia is loaded
-	smiPresent                  bool
 	smi                         outcome
 	gpus                        [][3]string
-	glxPresent                  bool
 	glx                         outcome
 	vendor, renderer, glVersion string
-	vkPresent                   bool
 	vk                          outcome
 	devices                     []vkDevice
-	vaPresent                   bool
 	va                          outcome
-	vaNvidiaAsked               bool // libva-nvidia-driver not known missing (E22a)
 	vaNvidia                    outcome
 	journal                     outcome
 	journalLines                []string
 	i2cNoise                    int // nvidia-gpu i2c timeout lines left out (E23a)
+	keyFile                     bool
+	mokProven                   bool // E13 turned an uncertain key into an enrolled one
+	nvidiaLoaded                bool
+	smiPresent                  bool
+	glxPresent                  bool
+	vkPresent                   bool
+	vaPresent                   bool
+	vaNvidiaAsked               bool // libva-nvidia-driver not known missing (E22a)
 }
 
 func (f *facts) pkg(name string) pkg {

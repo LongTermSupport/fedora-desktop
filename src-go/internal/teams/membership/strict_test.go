@@ -72,8 +72,8 @@ func launcherCase(t *testing.T) fileCase {
 // by pingbus's Python reader, which must agree with it.
 type fileCase struct {
 	name   string
-	report bool
 	body   string
+	report bool
 	ok     bool
 }
 

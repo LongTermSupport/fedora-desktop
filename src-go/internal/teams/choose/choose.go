@@ -435,8 +435,8 @@ type describer struct {
 	rosters    map[string]rosterResult
 	handles    map[string]string // "<seat>@<team>" -> handle
 	about      map[string]string // team -> what it is for
-	loaded     bool
 	loadErr    error
+	loaded     bool
 	unreadable bool // agent-bus could not read every seat (or refused the list): said on its stderr
 }
 

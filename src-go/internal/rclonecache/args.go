@@ -10,8 +10,8 @@ import (
 // options is the command line read whole (E1).
 type options struct {
 	label     string
-	noDir     bool
 	target    string
+	noDir     bool
 	hasTarget bool
 	help      bool
 }

@@ -46,20 +46,13 @@ type session struct {
 	busyLooks int
 	// dropEnters is how many Enter presses are ignored, leaving the text in the box.
 	dropEnters int
-	// slowClear shows each entered line once more before it leaves the box; lagging is a line
-	// so shown on the next look.
-	slowClear, lagging bool
-	// endAfterGoal ends the session once /goal clear is entered, endAfterText once the
-	// wind-down is.
-	endAfterGoal, endAfterText bool
 	// busyAfterGoal is how many captures show the session busy after /goal clear.
 	busyAfterGoal int
 	// paneAfterText is what the pane shows once the wind-down is entered, when set.
 	paneAfterText string
 	// entered is every line submitted; enters, escapes count those keys.
-	entered          []string
-	enters, escapes  int
-	busyAfterEntered bool
+	entered         []string
+	enters, escapes int
 	// answerLooks is how many captures show the session busy answering the wind-down.
 	answerLooks int
 	// transcript is the conversation's file on the host, empty for an LXC member; compactLooks
@@ -67,13 +60,23 @@ type session struct {
 	// end unless compactFails.
 	transcript   string
 	compactLooks int
-	compactFails bool
-	boundaryDue  bool
 	// boundaryLag is how many idle looks after the compaction's busy end show no boundary yet
 	// (the transcript is written after the pane redraws); boundaryAt, when set, writes the
 	// boundary at the first look at or after it instead, the pane still busy.
 	boundaryLag int
 	boundaryAt  time.Time
+
+	// The flags sit together so the struct carries no padding. busyAfterEntered goes with
+	// entered; compactFails and boundaryDue with transcript.
+	busyAfterEntered bool
+	compactFails     bool
+	boundaryDue      bool
+	// slowClear shows each entered line once more before it leaves the box; lagging is a line
+	// so shown on the next look.
+	slowClear, lagging bool
+	// endAfterGoal ends the session once /goal clear is entered, endAfterText once the
+	// wind-down is.
+	endAfterGoal, endAfterText bool
 	// busyAgain makes the session busy for good from the look after it has answered the
 	// wind-down (a cron tick or the supervisor putting it back to work).
 	busyAgain bool

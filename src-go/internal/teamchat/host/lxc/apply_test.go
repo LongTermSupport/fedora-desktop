@@ -434,17 +434,17 @@ func TestGuestCheckExits(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		err     error
-		stopped bool
 		line    string
+		stopped bool
 		fails   bool
 	}{
-		{"gh is offline", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "gh"}, false, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: guest check gh"), false},
-		{"reach is offline", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "reach"}, false, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: guest check reach"), false},
-		{"attach into a stopped container", &lxccmd.AttachError{Op: "guest check", Exit: -1}, true, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: container stopped during the apply"), false},
-		{"home fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "home"}, false, "", true},
-		{"64 fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 64, Code: "usage"}, false, "", true},
-		{"undecodable fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 3, Undecodable: true}, false, "", true},
-		{"attach failing in a running container", &lxccmd.AttachError{Op: "guest check", Exit: -1}, false, "", true},
+		{"gh is offline", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "gh"}, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: guest check gh"), false, false},
+		{"reach is offline", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "reach"}, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: guest check reach"), false, false},
+		{"attach into a stopped container", &lxccmd.AttachError{Op: "guest check", Exit: -1}, lineAt(t, "DEFERRED", "t1", "agent1", "c2", 2, "offline: container stopped during the apply"), true, false},
+		{"home fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 78, Code: "home"}, "", false, true},
+		{"64 fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 64, Code: "usage"}, "", false, true},
+		{"undecodable fails the member", &lxccmd.GuestError{Op: "guest check", Exit: 3, Undecodable: true}, "", false, true},
+		{"attach failing in a running container", &lxccmd.AttachError{Op: "guest check", Exit: -1}, "", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWorld(t)

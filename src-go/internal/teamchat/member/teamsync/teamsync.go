@@ -89,30 +89,23 @@ type Team struct {
 	res  *resolver
 	wake chan struct{}
 
-	mu       sync.Mutex
-	pair     bundle.Pair
-	client   *matrix.Client
-	roster   proto.Roster
-	verified bool
+	mu     sync.Mutex
+	pair   bundle.Pair
+	client *matrix.Client
+	roster proto.Roster
 	// floor is main's marker, qfloor the questions room's (SY10, per room: QS5).
 	floor  floorMarker
 	qfloor floorMarker
 	// savedRev is the roster rev last given to the engine's roster cache (n3d-D3).
 	savedRev int64
-	// loginSaid is forge-login said, until a forge check next answers (n3d-D10).
-	loginSaid bool
 
-	// The team goroutine's own state.
+	// The team goroutine's own state; its flags are at the end of the struct.
 	health    team.Health
-	failing   bool
 	failStart time.Duration
 	delay     time.Duration
 	// saidCause is the down cause link.log last named, at saidAt on the boot clock.
-	saidCause   string
-	saidAt      time.Duration
-	authRetried bool
-	persistSaid bool
-	backStarted bool
+	saidCause string
+	saidAt    time.Duration
 	// markerSaid are the rooms whose undecodable marker was said.
 	markerSaid map[string]bool
 	// recoveredPair is the pair the sends were last recovered under, nil before the first: a
@@ -160,6 +153,16 @@ type Team struct {
 	readPair  func(*homefs.Root, paths.Seat) (bundle.Pair, error)
 	judge     func(proto.Judge, proto.Value) proto.Verdict
 	pages     pageBound
+
+	// The flags sit together so the struct carries no padding. verified and loginSaid are under
+	// mu; loginSaid is forge-login said, until a forge check next answers (n3d-D10).
+	verified  bool
+	loginSaid bool
+	// failing, authRetried, persistSaid and backStarted are the team goroutine's own state.
+	failing     bool
+	authRetried bool
+	persistSaid bool
+	backStarted bool
 }
 
 // pageBound is a backwards read's page size and page count.
@@ -169,14 +172,14 @@ type pageBound struct{ size, max int }
 // (urgent, a move down), when a put was last tried, and what the last put that succeeded held.
 type floorMarker struct {
 	ms, epoch int64
+	putAt     time.Duration
+	sentMS    int64
+	sentEpoch int64
 	known     bool
 	dirty     bool
 	urgent    bool
 	put       bool
-	putAt     time.Duration
 	sent      bool
-	sentMS    int64
-	sentEpoch int64
 }
 
 // New is the team goroutine for cfg; it makes no request until Run or a notice.

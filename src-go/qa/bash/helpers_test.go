@@ -148,20 +148,21 @@ type fakeRun struct {
 	files, tracked []string
 	gitFails       int
 
-	shellcheckMissing bool
 	shellcheckVersion string
-	bashMissing       bool
 	// lint is shellcheck's answer to a lint run, given the files it was given.
 	lint func(files []string) proc.Result
 
 	// baseList is the suppression allowlist as committed at the merge-base (nil: the base has
 	// none); noOriginHead makes origin's default branch unknown.
-	baseList     *string
-	noOriginHead bool
-	// syntaxTimesOut makes every bash -n run out of time.
-	syntaxTimesOut bool
+	baseList *string
 
 	calls []proc.Cmd
+
+	shellcheckMissing bool
+	bashMissing       bool
+	noOriginHead      bool
+	// syntaxTimesOut makes every bash -n run out of time.
+	syntaxTimesOut bool
 }
 
 func (f *fakeRun) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {

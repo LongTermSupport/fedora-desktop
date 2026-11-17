@@ -17,8 +17,8 @@ const (
 // options is the command line read whole (E1).
 type options struct {
 	interval time.Duration
-	once     bool
 	filter   string
+	once     bool
 	help     bool
 }
 

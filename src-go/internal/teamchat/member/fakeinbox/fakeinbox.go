@@ -34,10 +34,10 @@ type Options struct {
 
 // Frame is one line the fake read. Reason is "", "duplicate", "rate", "auth" or "framing".
 type Frame struct {
-	Auth     bool
 	Content  string
-	Accepted bool
 	Reason   string
+	Auth     bool
+	Accepted bool
 }
 
 const (

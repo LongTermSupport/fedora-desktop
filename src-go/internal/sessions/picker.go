@@ -31,8 +31,8 @@ const (
 // step is how an action ended: the picker is done (with an exit code), or goes round again,
 // having used a try or not.
 type step struct {
-	done   bool
 	code   term.ExitCode
+	done   bool
 	counts bool
 }
 

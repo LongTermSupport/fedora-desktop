@@ -254,8 +254,8 @@ func skipRaw(text string, from int) int {
 // argument of regex_search, the constant as written between its quotes, and its quote.
 type regexArg struct {
 	filter string
-	group  bool
 	body   string
+	group  bool
 	quote  byte
 }
 

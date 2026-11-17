@@ -40,8 +40,8 @@ type machine struct {
 	alive     bool              // a seat keeper process runs in the container
 	tells     bool              // the session is told its roles (the watcher's sync)
 	inbound   bool
+	relaunch  bool // a relaunch request makes a new container
 	container string
-	relaunch  bool              // a relaunch request makes a new container
 	pane      int               // a cc session's tmux pane pid (0: not running); a ccy session has none
 	roles     map[string]string // team\thandle -> role, for the checkout's seats and others
 	others    map[string]int    // team -> members of other checkouts, beside roles

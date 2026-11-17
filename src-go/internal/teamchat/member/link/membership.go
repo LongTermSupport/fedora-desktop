@@ -25,13 +25,13 @@ import (
 type membership struct {
 	mu         sync.Mutex
 	teams      []engine.TeamRole
-	known      bool
 	farewells  map[paths.TeamID]string
 	generation int64
 	wake       chan struct{}
 
 	sending sync.Mutex
 	owed    atomic.Bool
+	known   bool
 }
 
 // onTeams is the engine's held teams, on its state goroutine: kept for announceTeams, so the

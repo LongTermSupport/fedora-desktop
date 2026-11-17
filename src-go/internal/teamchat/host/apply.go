@@ -248,7 +248,6 @@ type applying struct {
 	lock    *teamlock.Lock
 	changed []string
 
-	first, stamped bool
 	// networks, listen and ifaces are what deriveNetworks made (X3): the effective networks, the
 	// listen addresses and the interface carrying each.
 	networks       []netip.Prefix
@@ -261,15 +260,17 @@ type applying struct {
 	config, dropIn []byte
 	// tlsDropIn is the terminator's installed drop-in, and leafMade whether this apply made the
 	// leaf, which the running terminator has not read.
-	tlsDropIn  []byte
-	leafMade   bool
-	haveDropIn bool
+	tlsDropIn []byte
+	teamFile  []byte
+
+	first, stamped bool
+	leafMade       bool
+	haveDropIn     bool
 	// loaded is whether systemd has the units on disk loaded. It starts true only when units.json
 	// records this render's digests, since units.json is written after a reload succeeded; how
 	// the drop-in's bytes compare says nothing of it, as a reload can fail or a crash come after
 	// the write.
-	loaded   bool
-	teamFile []byte
+	loaded bool
 }
 
 // Apply is `team apply`'s steps 1 to 11 for one decoded input (C 3.5.2); step 10 is

@@ -28,15 +28,15 @@ type world struct {
 	proc     fstest.MapFS
 	mounts   []map[string]string
 	env      map[string]string
-	tty      bool
-	noRC     bool
 	now      time.Time
 	waits    []time.Duration
 	stopAt   int // the wait (1-based) at which the test stops the run; 0 never
 	stop     func()
-	released bool
 	out      bytes.Buffer
 	errOut   bytes.Buffer
+	tty      bool
+	noRC     bool
+	released bool
 }
 
 func newWorld(t *testing.T) *world {

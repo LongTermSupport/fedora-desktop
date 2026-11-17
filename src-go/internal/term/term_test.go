@@ -24,14 +24,14 @@ func newTerm(tty bool, noColor string) (*Term, *bytes.Buffer) {
 
 func TestColourOnNeedsTerminalAndNoNoColor(t *testing.T) {
 	cases := []struct {
-		tty     bool
 		noColor string
+		tty     bool
 		want    bool
 	}{
-		{true, "", true},
-		{false, "", false},
-		{true, "1", false},
-		{false, "1", false},
+		{"", true, true},
+		{"", false, false},
+		{"1", true, false},
+		{"1", false, false},
 	}
 	for _, c := range cases {
 		tm, buf := newTerm(c.tty, c.noColor)

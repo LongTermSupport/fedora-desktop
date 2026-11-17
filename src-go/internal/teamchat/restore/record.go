@@ -40,15 +40,15 @@ const maxBackup = 1<<53 - 1
 type Record struct {
 	Team       paths.TeamID
 	Backup     int64
-	Offline    bool
-	FromBackup bool
 	Pre        int64
 	Step       Step
 	Roster     apply.RosterFile
 	Lists      Lists
 	Lost       *Lost
-	Served     bool
 	Stuck      string
+	Offline    bool
+	FromBackup bool
+	Served     bool
 }
 
 // Lost is the export's result (RC3): its count, the oldest event kept, where it ended, and

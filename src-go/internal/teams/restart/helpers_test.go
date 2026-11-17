@@ -23,17 +23,17 @@ import (
 // container (ccy), and what it does when asked to restart or started.
 type session struct {
 	name, prefix, seat string
-	live               bool
 	container          string
+	// pane is what its tmux pane shows; paneGone makes reading it fail.
+	pane string
+	live bool
 	// supervised sessions restart in place when relaunch.json appears; others never do.
 	supervised bool
 	// holdsOnStart is whether a started session takes its seat.
 	holdsOnStart bool
 	// containerGone is a live tmux session whose container is not running.
 	containerGone bool
-	// pane is what its tmux pane shows; paneGone makes reading it fail.
-	pane     string
-	paneGone bool
+	paneGone      bool
 }
 
 // machine is teamtest's populated world, with ccy-proj on seat 1 of alpha running in a

@@ -505,8 +505,8 @@ func compare(root string, env Env, repo *repoTree, deployedBin string) (outcome,
 
 // hostState is what the host has at a deployed path.
 type hostState struct {
-	absent  bool   // nothing there (E11)
 	problem string // there, but not a regular file (E17)
+	absent  bool   // nothing there (E11)
 	exec    bool   // a regular file with the owner execute bit
 }
 

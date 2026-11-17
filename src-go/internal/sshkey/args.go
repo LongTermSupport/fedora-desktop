@@ -39,15 +39,15 @@ type invocation struct {
 	key string
 	// passed are the arguments after the key flag, given to the program as they are.
 	passed []string
-	// forward is agent forwarding asked (E13).
-	forward bool
-	// command is an ssh remote command given; noCommand a mode that runs none (E18).
-	command, noCommand bool
 	// dests are what the identity probe asks ssh about (E11).
 	dests []destination
 	// install is ssh-copy-id's -i, the key to install; force its -f (E20).
 	install string
 	force   bool
+	// forward is agent forwarding asked (E13).
+	forward bool
+	// command is an ssh remote command given; noCommand a mode that runs none (E18).
+	command, noCommand bool
 }
 
 // destination is one host the probe asks `ssh -G` about: its name in messages, and the
@@ -83,8 +83,8 @@ func (t Tool) parse(args []string) (invocation, error) {
 // agentAsk collects what asks for forwarding: the last -A or -a flag, else the first
 // ForwardAgent option (E13).
 type agentAsk struct {
-	flag     byte
 	value    string
+	flag     byte
 	optioned bool
 }
 

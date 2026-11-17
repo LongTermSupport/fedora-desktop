@@ -99,10 +99,10 @@ type Wizard struct {
 	// forChooser is a run for `choose-teams`; created is the team that run made; declined is a
 	// run the person said No to at the review; named is the name the person gave on
 	// `ccy --teams`, offered as the Team name.
-	forChooser bool
 	created    string
-	declined   bool
 	named      string
+	forChooser bool
+	declined   bool
 }
 
 // New is the Wizard over a host and the flows it hands the work after the entry is written to:

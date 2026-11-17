@@ -47,18 +47,18 @@ type session struct {
 	// afterExit is what /exit and Enter do: "" ends the session, anything else becomes the pane
 	// and the session stays; either way its seats are freed.
 	afterExit string
-	// ignoreExit leaves the pane as it is after /exit, as a session that does not end.
-	ignoreExit bool
 	// backgroundWork is the pane /exit brings up instead of ending, as claude asks with a
 	// background task running: paneBackgroundWork, whose Enter goes on with the exit, or
 	// paneBackgroundStay, whose cursor is on Stay.
 	backgroundWork string
-	// keepSeat leaves the seats held when the session ends.
-	keepSeat bool
 	// seats are the seat names in the team that the session's process holds.
 	seats []string
 	// enters counts Enter presses, escapes Escape presses.
 	enters, escapes int
+	// ignoreExit leaves the pane as it is after /exit, as a session that does not end.
+	ignoreExit bool
+	// keepSeat leaves the seats held when the session ends.
+	keepSeat bool
 }
 
 // machine is teamtest's populated world with a stateful tmux, seat list and clock.

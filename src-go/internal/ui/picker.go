@@ -89,10 +89,9 @@ var errNotInList = errors.New("fzf: a row that is not in the list")
 // context) above the rows, and the actions it offers. There is no bare key: a key exists only
 // as the Key of an Action, listed in words on this screen or in the menu of the row it acts on.
 type PickSpec struct {
-	Title      string
-	Header     string
-	Rows       []string
-	CursorLast bool // start on the Exit row: the safe default for a yes/no
+	Title  string
+	Header string
+	Rows   []string
 	// Tags, when set, is one hidden tag per row: fzf shows only the row, and hands the tag back
 	// with the choice, so rows that read the same are still told apart.
 	Tags []string
@@ -113,7 +112,8 @@ type PickSpec struct {
 	// StartRow, when set, is the line the cursor starts on, counted from 1 (the rows, then the
 	// action rows, then the Exit row): the list coming back from a row's menu left with Esc
 	// then an arrow starts on the row the arrow moves to.
-	StartRow int
+	StartRow   int
+	CursorLast bool // start on the Exit row: the safe default for a yes/no
 	// escMoves is the menu's keys for Esc then an arrow, handed back rather than left on.
 	escMoves bool
 	// RankMatches lists the rows a typed filter matches best first (fzf's score), not in the

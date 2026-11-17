@@ -28,8 +28,8 @@ type VerbRule struct {
 	Ref           Need
 	Forms         []string
 	Relation      Need
-	ExpectsAnswer bool
 	Senders       []SenderClass
+	ExpectsAnswer bool
 	External      bool
 }
 
@@ -49,16 +49,16 @@ var (
 // Verbs is A 8.1's closed verb table. "Any role" is a coordinator or a worker: the probe sends
 // `check` and nothing else (A 6.7).
 var Verbs = map[string]VerbRule{
-	"fetch":     {Required, []string{RefPath, RefCommit}, Forbidden, true, coordinatorOnly, true},
-	"sync":      {Required, []string{RefPath, RefCommit}, Forbidden, true, coordinatorOnly, false},
-	"review":    {Required, []string{RefPath, RefCommit, RefPR}, Forbidden, true, coordinatorWorker, true},
-	"run-qa":    {Required, []string{RefCommit, RefPR}, Forbidden, true, coordinatorWorker, false},
-	VerbHalt:    {Forbidden, nil, Forbidden, true, coordinatorOnly, false},
-	VerbCheck:   {Forbidden, nil, Forbidden, true, []SenderClass{SenderProbe}, false},
-	VerbAck:     {Forbidden, nil, Required, false, coordinatorWorker, false},
-	VerbNack:    {Optional, nil, Required, false, coordinatorWorker, true},
-	VerbDone:    {Required, nil, Optional, false, coordinatorWorker, true},
-	VerbBlocked: {Required, nil, Optional, false, coordinatorWorker, true},
+	"fetch":     {Required, []string{RefPath, RefCommit}, Forbidden, coordinatorOnly, true, true},
+	"sync":      {Required, []string{RefPath, RefCommit}, Forbidden, coordinatorOnly, true, false},
+	"review":    {Required, []string{RefPath, RefCommit, RefPR}, Forbidden, coordinatorWorker, true, true},
+	"run-qa":    {Required, []string{RefCommit, RefPR}, Forbidden, coordinatorWorker, true, false},
+	VerbHalt:    {Forbidden, nil, Forbidden, coordinatorOnly, true, false},
+	VerbCheck:   {Forbidden, nil, Forbidden, []SenderClass{SenderProbe}, true, false},
+	VerbAck:     {Forbidden, nil, Required, coordinatorWorker, false, false},
+	VerbNack:    {Optional, nil, Required, coordinatorWorker, false, true},
+	VerbDone:    {Required, nil, Optional, coordinatorWorker, false, true},
+	VerbBlocked: {Required, nil, Optional, coordinatorWorker, false, true},
 }
 
 // IsAnswerVerb is whether a verb can answer a ping (A 8.2).

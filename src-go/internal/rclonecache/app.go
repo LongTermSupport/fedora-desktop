@@ -63,8 +63,8 @@ type mount struct {
 type run struct {
 	env    Env
 	rc     *rclonerc.Client
-	colour bool
 	p      term.Printer
+	colour bool
 	failed bool
 }
 

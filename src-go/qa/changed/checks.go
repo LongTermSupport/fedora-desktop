@@ -23,17 +23,17 @@ type checkResult struct {
 // and how it runs. Adding a tool is a row here, not a call site.
 type checkDef struct {
 	id string
-	// listed is whether the plan names the items (files, modules, playbooks) after the id.
-	listed bool
 	// noun makes the summary "<n> <noun>"; fixed is the summary when there is no noun.
 	noun, fixed string
+	tools       []string
+	run         func(ctx context.Context, s *session, cp *checkPlan) (checkResult, error)
+	// listed is whether the plan names the items (files, modules, playbooks) after the id.
+	listed bool
 	// gate marks a script whose exit status 2 means it could not run, as against failed.
 	gate bool
 	// whole is a check that runs over the whole repository whatever file changed, so a deleted
 	// file (which has nothing left to check) may still ask for it.
 	whole bool
-	tools []string
-	run   func(ctx context.Context, s *session, cp *checkPlan) (checkResult, error)
 }
 
 func (d checkDef) summaryFor(cp *checkPlan) string {

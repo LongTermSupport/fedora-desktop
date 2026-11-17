@@ -82,12 +82,12 @@ stdout is the findings and the verdict; failure to run goes to stderr.
 
 // options is the parsed command line.
 type options struct {
-	help    bool
 	root    string
 	scripts string
+	files   []string
+	help    bool
 	// directives is --directives: only the suppression scan, over files (SPEC-qa-bash.md S20).
 	directives bool
-	files      []string
 }
 
 // parseArgs reads the command line; anything unknown is a usage error.

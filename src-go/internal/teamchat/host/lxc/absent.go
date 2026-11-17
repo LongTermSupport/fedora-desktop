@@ -446,8 +446,8 @@ func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (seatWait, e
 // seatWait is the L3 wait's answer: the seat still held (with the lock's run id, when it passes
 // its grammar), or its container stopped; neither is a free seat.
 type seatWait struct {
-	held    bool
 	run     string
+	held    bool
 	stopped bool
 }
 

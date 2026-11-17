@@ -50,8 +50,8 @@ var (
 // Info is what a file is: its kind, its permission bits, its size and its owner.
 type Info struct {
 	Kind restore.Kind
-	Mode fs.FileMode
 	Size int64
+	Mode fs.FileMode
 	UID  uint32
 }
 

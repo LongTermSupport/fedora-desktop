@@ -314,14 +314,11 @@ type pt1Seen struct {
 	sends []pt1Sent
 	// inMain is how many times each send's text is in main.
 	inMain map[string]int
-	// removed is whether the seat was removed; atRemoval is how many item copies the transcript
-	// held then, and afterRemoval the ids of the items posted to main after it.
-	removed      bool
+	// removed (at the end, with storeBack) is whether the seat was removed; atRemoval is how many
+	// item copies the transcript held then, and afterRemoval the ids of the items posted to main
+	// after it.
 	atRemoval    int
 	afterRemoval []string
-	// storeBack is whether the removed team's store file was there again right after the keeper
-	// deleted it: the team was still writing.
-	storeBack bool
 	// marked is, for each item a recv handed out and then got back unacknowledged (a recv whose
 	// output failed, so the link returned the item to pending marked repeat), how many copies the
 	// transcript held of it then; every later copy must carry the mark. What such a recv printed
@@ -336,6 +333,10 @@ type pt1Seen struct {
 	// when the run started, before any delivery of it was written: no missed entry of the run is
 	// due before startMS plus pt1QuietMS.
 	startMS int64
+	removed bool
+	// storeBack is whether the removed team's store file was there again right after the keeper
+	// deleted it: the team was still writing.
+	storeBack bool
 }
 
 // pt1Snap is the store as the harness read it at one moment, for one item: the harness's sequence

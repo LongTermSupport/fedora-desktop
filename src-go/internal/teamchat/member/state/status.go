@@ -42,13 +42,13 @@ type Status struct {
 type StatusTeam struct {
 	Team     paths.TeamID `json:"team"`
 	Role     *string      `json:"role"`
-	Down     bool         `json:"down"`
 	Failed   *string      `json:"failed"`
 	Delivery string       `json:"delivery"`
 	Pending  int64        `json:"pending"`
 	Missing  int64        `json:"missing"`
 	Member   *string      `json:"member"`
 	Colour   string       `json:"colour"`
+	Down     bool         `json:"down"`
 	Stalled  bool         `json:"stalled"`
 }
 

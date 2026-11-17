@@ -15,9 +15,9 @@ import (
 // can find the program that actually runs.
 type wrapper struct {
 	valued     map[string]bool // options that take the next argument as their value
-	assigns    bool            // NAME=value words may precede the program
 	positional int             // positional arguments before the program (timeout's duration)
 	until      string          // the argument that ends the options, when there is one
+	assigns    bool            // NAME=value words may precede the program
 	inner      bool            // the program inside is judged even where the wrapper itself is the owner's
 }
 

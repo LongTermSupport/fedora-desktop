@@ -10,22 +10,22 @@ func TestVerbTableIsA81(t *testing.T) {
 		ref      Need
 		forms    []string
 		relation Need
-		answer   bool
 		senders  []SenderClass
+		answer   bool
 		external bool
 	}
 	cw := []SenderClass{SenderCoordinator, SenderWorker}
 	want := map[string]row{
-		"fetch":   {Required, []string{RefPath, RefCommit}, Forbidden, true, []SenderClass{SenderCoordinator}, true},
-		"sync":    {Required, []string{RefPath, RefCommit}, Forbidden, true, []SenderClass{SenderCoordinator}, false},
-		"review":  {Required, []string{RefPath, RefCommit, RefPR}, Forbidden, true, cw, true},
-		"run-qa":  {Required, []string{RefCommit, RefPR}, Forbidden, true, cw, false},
-		"halt":    {Forbidden, nil, Forbidden, true, []SenderClass{SenderCoordinator}, false},
-		"check":   {Forbidden, nil, Forbidden, true, []SenderClass{SenderProbe}, false},
-		"ack":     {Forbidden, nil, Required, false, cw, false},
-		"nack":    {Optional, nil, Required, false, cw, true},
-		"done":    {Required, nil, Optional, false, cw, true},
-		"blocked": {Required, nil, Optional, false, cw, true},
+		"fetch":   {Required, []string{RefPath, RefCommit}, Forbidden, []SenderClass{SenderCoordinator}, true, true},
+		"sync":    {Required, []string{RefPath, RefCommit}, Forbidden, []SenderClass{SenderCoordinator}, true, false},
+		"review":  {Required, []string{RefPath, RefCommit, RefPR}, Forbidden, cw, true, true},
+		"run-qa":  {Required, []string{RefCommit, RefPR}, Forbidden, cw, true, false},
+		"halt":    {Forbidden, nil, Forbidden, []SenderClass{SenderCoordinator}, true, false},
+		"check":   {Forbidden, nil, Forbidden, []SenderClass{SenderProbe}, true, false},
+		"ack":     {Forbidden, nil, Required, cw, false, false},
+		"nack":    {Optional, nil, Required, cw, false, true},
+		"done":    {Required, nil, Optional, cw, false, true},
+		"blocked": {Required, nil, Optional, cw, false, true},
 	}
 	if len(Verbs) != len(want) {
 		t.Fatalf("%d verbs", len(Verbs))
@@ -35,7 +35,7 @@ func TestVerbTableIsA81(t *testing.T) {
 		if !ok {
 			t.Fatalf("verb %s missing", name)
 		}
-		got := row{v.Ref, v.Forms, v.Relation, v.ExpectsAnswer, v.Senders, v.External}
+		got := row{v.Ref, v.Forms, v.Relation, v.Senders, v.ExpectsAnswer, v.External}
 		if got.ref != w.ref || !slices.Equal(got.forms, w.forms) || got.relation != w.relation ||
 			got.answer != w.answer || !slices.Equal(got.senders, w.senders) || got.external != w.external {
 			t.Errorf("%s = %+v, want %+v", name, got, w)

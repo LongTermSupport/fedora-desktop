@@ -194,11 +194,11 @@ type conn struct {
 	s      stream
 	socket string
 
-	used      bool
-	closeOnce sync.Once
 	closeErr  error
-	closed    bool
+	closeOnce sync.Once
 	mu        sync.Mutex
+	used      bool
+	closed    bool
 }
 
 func (c *conn) WriteUser(envelope string) error {

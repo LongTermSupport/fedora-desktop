@@ -77,12 +77,12 @@ type buildRun struct {
 	token    string
 	last     string
 	rec      *proto.BuildRecord
-	handover bool
 	phase    int
-	resume   bool
 	from     string
 	oldest   []json.RawMessage
 	start    string
+	handover bool
+	resume   bool
 	fresh    bool
 	done     bool
 }

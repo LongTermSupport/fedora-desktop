@@ -75,14 +75,14 @@ type server struct {
 	kit   paths.Digest
 	log   io.Writer
 
-	wg     sync.WaitGroup
-	mu     sync.Mutex
-	conns  map[*net.UnixConn]bool
-	closed bool
+	wg    sync.WaitGroup
+	mu    sync.Mutex
+	conns map[*net.UnixConn]bool
 	// open is how many connections are open, for status's runtime.
 	open    atomic.Int64
 	logMu   sync.Mutex
 	closeMu sync.Once
+	closed  bool
 	closeEr error
 	// serving cancels each request being served; close calls them once the connections are
 	// closed, so none outlives it (a wait would otherwise hold the link to its deadline).

@@ -42,14 +42,9 @@ type world struct {
 	stdout    bytes.Buffer
 	stderr    bytes.Buffer
 	tty       string
-	noTTY     bool
-	stdinTTY  bool
-	colour    bool // stderr is a terminal
 	host      string
 	sudoAsked int // how many times sudo -v asked for a password
-	// sudoRefuses makes "sudo -n -v" and "sudo -n true" fail and "sudo -v" refuse.
-	sudoRefuses bool
-	devNull     string
+	devNull   string
 	// varDirs are the system directories the report sizes (/var/log and /var/cache on a host).
 	varDirs []string
 	// unscripted are the commands run that nothing scripted; any fails the test at its end.
@@ -74,6 +69,11 @@ type world struct {
 	subuidErr error
 	// accountErr makes this account's name and uid unreadable.
 	accountErr error
+	// sudoRefuses makes "sudo -n -v" and "sudo -n true" fail and "sudo -v" refuse.
+	sudoRefuses bool
+	noTTY       bool
+	stdinTTY    bool
+	colour      bool // stderr is a terminal
 }
 
 // The account a test runs as.

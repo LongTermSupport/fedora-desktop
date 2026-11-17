@@ -48,7 +48,6 @@ type sealWorld struct {
 	t    *testing.T
 	team paths.TeamID
 	root string
-	uid  uint32
 	decl declare.Team
 
 	mu    sync.Mutex
@@ -58,17 +57,18 @@ type sealWorld struct {
 	// fail is the call that answers errInjected (fault), 0 for none.
 	fail int
 
-	units map[string]*sealUnit
+	units     map[string]*sealUnit
+	reloadErr error
+	tail      Tail
+	tailErr   error
+	clock     *sealClock
+	uid       uint32
 	// stuck keeps the homeserver activating after its stop, as a unit systemd restarts would.
 	stuck bool
 	// reloads admits daemon-reload, which only the carry check calls, failing it with reloadErr.
-	reloads   bool
-	reloadErr error
+	reloads bool
 	// silent is a homeserver that does not answer server_version.
-	silent  bool
-	tail    Tail
-	tailErr error
-	clock   *sealClock
+	silent bool
 }
 
 type sealClock struct {

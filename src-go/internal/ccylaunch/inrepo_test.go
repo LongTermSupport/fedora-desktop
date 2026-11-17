@@ -250,10 +250,10 @@ func TestPreludeDist(t *testing.T) {
 // D10: the prelude's warnings are yellow only on a terminal, and never with NO_COLOR.
 func TestPreludeColourOnlyOnATerminal(t *testing.T) {
 	for name, c := range map[string]struct {
-		terminal bool
 		env      string
+		terminal bool
 		yellow   bool
-	}{"a terminal": {true, "", true}, "NO_COLOR": {true, "NO_COLOR=1", false}, "a pipe": {false, "", false}} {
+	}{"a terminal": {"", true, true}, "NO_COLOR": {"NO_COLOR=1", true, false}, "a pipe": {"", false, false}} {
 		t.Run(name, func(t *testing.T) {
 			r := repoRun(t, nil, "--prevent")
 			r.current(t)

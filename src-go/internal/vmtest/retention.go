@@ -42,8 +42,8 @@ var runIDRE = regexp.MustCompile(`^([0-9]{8}T[0-9]{6}Z)-(.+)$`)
 type runFacts struct {
 	name     string
 	started  time.Time
-	isRun    bool // the name is a run id with a real date and time
 	scenario string
+	isRun    bool // the name is a run id with a real date and time
 	passed   bool
 }
 

@@ -60,10 +60,10 @@ type ccRun struct {
 
 // ccFrame is one line the fake inbox read, as fakeinbox.Frame is.
 type ccFrame struct {
-	Auth     bool   `json:"auth"`
 	Content  string `json:"content"`
-	Accepted bool   `json:"accepted"`
 	Reason   string `json:"reason"`
+	Auth     bool   `json:"auth"`
+	Accepted bool   `json:"accepted"`
 }
 
 // ccHooksFile, ccHookGroup and ccHookCommand are the plugin's hooks.json, the part Claude Code

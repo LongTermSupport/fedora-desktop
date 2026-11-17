@@ -74,8 +74,10 @@ playbooks/imports/optional/common/play-self-update.yml --check --diff
 # has come within 60 s. Issue #324 (ccy 3.122.20, container 2.84.28) rides the same run: the
 # image's internal/stdinread gains the bounded first-line read the sealed carry uses. Plan 00211
 # (ccy 3.122.21, container 2.84.29) rides it too: pingbus ask-human --type, and thread --close
-# retitling the question's root. Afterwards: a new ccy session starts, on container 2.84.29;
-# then the coordinator runs `pingbus questions --retitle-closed` once.
+# retitling the question's root. Plan 00245 (ccy 3.122.22, container 2.84.30) rides it too:
+# Go structs reordered for padding, no change in behaviour. Afterwards: a new ccy session
+# starts, on container 2.84.30; then the coordinator runs `pingbus questions --retitle-closed`
+# once.
 playbooks/imports/play-claude-yolo.yml
 
 # Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the

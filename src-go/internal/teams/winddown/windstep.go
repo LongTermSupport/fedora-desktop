@@ -52,7 +52,6 @@ const (
 // job is one session being wound down: what it is, and how far it has gone.
 type job struct {
 	name, dir, seat, handle, team string
-	coordinator                   bool
 	others                        []seatRef
 	// tmux is the server the session's pane is on, pane its tmux session, prefix the launcher
 	// restore.Judge reads it as; where, for an LXC member, says where it runs, and missing is
@@ -62,9 +61,6 @@ type job struct {
 	where, missing string
 
 	phase phase
-	// graced is the one poll a line still in the box is given before Enter is pressed again,
-	// reentered whether it has been.
-	graced, reentered bool
 	// idleBy bounds the wait for an idle session, settleBy the wait for a typed line to go, and
 	// windowBy the answer and the compaction (WC4a).
 	idleBy, settleBy, windowBy time.Time
@@ -74,16 +70,13 @@ type job struct {
 	// The compaction (Task 3.20). lxc is a member whose transcript is in its container, so its
 	// end is read from its pane; file is a host session's transcript and floor the compact floor,
 	// or noCompact why it cannot be compacted. tokens is its context when it answered, and
-	// compactAt when /compact was typed.
-	lxc         bool
+	// compactAt when /compact was typed. lxc, wound and compacted are with the flags below.
 	file        string
 	floor       compactfloor.Floor
 	floorTokens int64
 	noCompact   string
 	tokens      int64
 	compactAt   time.Time
-	wound       bool
-	compacted   bool
 	compactNote string
 	// quiet is whether the box is idle again since the phase began (sessclose's pane wait).
 	quiet sessclose.Quiet
@@ -92,6 +85,15 @@ type job struct {
 	// for a host session's compact_boundary once its pane is idle again (WC3).
 	turnBy, boundaryBy time.Time
 	passes             int
+
+	// The flags sit together so the struct carries no padding.
+	coordinator bool
+	// graced is the one poll a line still in the box is given before Enter is pressed again,
+	// reentered whether it has been.
+	graced, reentered bool
+	lxc               bool
+	wound             bool
+	compacted         bool
 }
 
 func (j *job) fail(note string) { j.result, j.note = resultFailed, note }

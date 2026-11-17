@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.22 — container 2.84.30
+
+- **Go structs reordered so padding wastes no memory** (Plan 00245). govet's fieldalignment
+  found 103 structs that padding made bigger than they needed to be. Their fields are reordered,
+  and the analyzer now fails the Go gate on a new one. Some of the reordered packages are built
+  into the image's `teamchat` and `pingbus-status-line`, so the image is rebuilt once. Nothing a
+  session does changes. The JSON keys of status.json, the questions index and lxc-online.json
+  come out in a new order; every reader decodes them by key.
+
 ## 3.122.21 — container 2.84.29
 
 - **A question's type and a closed question's title** (Plan 00211 SPEC §8.2, §8.4; owner,

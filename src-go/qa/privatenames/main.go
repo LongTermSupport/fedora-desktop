@@ -54,12 +54,8 @@ type Env struct {
 	Cwd string
 	// Run runs git and the agent bus client.
 	Run proc.Runner
-	// Container is whether this is a ccy container, where a list that cannot be built is fatal.
-	Container bool
 	// Hostnames are this machine's names (its own and the host's).
 	Hostnames []string
-	// Context prints each finding's line too, with every term masked: for triage.
-	Context bool
 	// ReadFile and WriteFile reach the list and the allowlist (fs.ErrNotExist when absent).
 	ReadFile  func(path string) ([]byte, error)
 	WriteFile func(path string, data []byte) error
@@ -69,6 +65,10 @@ type Env struct {
 	EvalSymlinks func(path string) (string, error)
 	// Clock times the wait for the ref lines on Stdin; nil is the real clock.
 	Clock stdinread.Clock
+	// Container is whether this is a ccy container, where a list that cannot be built is fatal.
+	Container bool
+	// Context prints each finding's line too, with every term masked: for triage.
+	Context bool
 }
 
 const usageText = `usage: qa-private-names COMMAND

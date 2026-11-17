@@ -33,8 +33,7 @@ type held struct {
 	writer *state.StoreWriter
 	// store is nil until the team's first Load creates it (no store.json yet), and while
 	// refused.
-	store   *state.Store
-	refused bool
+	store *state.Store
 	// userID and anchors are seat.json's, "" while it could not be read.
 	userID  string
 	anchors proto.Anchors
@@ -44,7 +43,6 @@ type held struct {
 	stopped chan struct{}
 	health  team.Health
 	counts  team.Counts
-	removed bool
 	// delivery is what the delivery loop holds of the team: its trailing facts and backoff.
 	delivery deliveryState
 	// receipts is closed at the next change of the store's receipts; nil while none waits.
@@ -58,16 +56,16 @@ type held struct {
 	// answers are the answers to own pings this link read, by ping (n3d-D8).
 	answers map[string][]answerNote
 	// timeoutRetryMS is when a TIMEOUT write the store refused is tried again, 0 for none;
-	// timeoutRefused is whether that refusal was logged.
+	// timeoutRefused (at the end, with the other flags) is whether that refusal was logged.
 	timeoutRetryMS int64
-	timeoutRefused bool
 	// roster is the roster cache (n3d-D3), nil for none; rosterRev is its rev.
 	roster    *proto.Roster
 	rosterRev int64
-	// recovered is whether this run's recovery of tried sends is done (n3d-D4): until it is
-	// the sender posts nothing. poke wakes the sender (capacity 1); waiting are the ops waiting
-	// on their send's answer, by txn; unsent counts the sends dropped unposted this run.
-	recovered bool
+	// recovered (at the end, with the other flags) is whether this run's recovery of tried
+	// sends is done (n3d-D4): until it is the sender posts nothing. poke wakes the sender
+	// (capacity 1); waiting are the ops waiting on their send's answer, by txn; unsent counts
+	// the sends dropped unposted this run.
+	//
 	// contact is closed at the team's first contact in the run (noteContact), nil after; the
 	// sends made before it wait on it (awaitContact).
 	contact chan struct{}
@@ -86,6 +84,12 @@ type held struct {
 	// written holding it.
 	postMu         sync.Mutex
 	recoveredUnder [sha256.Size]byte
+
+	// The flags sit together so the struct carries no padding; each is described above.
+	refused        bool
+	removed        bool
+	timeoutRefused bool
+	recovered      bool
 }
 
 // shown is the team's health as the sends and status read it: a send-side stop is a stop.

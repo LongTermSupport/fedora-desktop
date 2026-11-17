@@ -66,10 +66,10 @@ type Record struct {
 	Dir                   string
 	Launcher              string
 	Prefix                string
-	Restore               bool
 	Compose               string
-	FreshIfNoConversation bool
 	Args                  []string
+	Restore               bool
+	FreshIfNoConversation bool
 }
 
 // Listing is every record in the registry: the readable ones in name order, and the names of

@@ -50,11 +50,10 @@ type Choice struct {
 type Lines struct {
 	In  io.Reader
 	Out io.Writer
-	// Colour draws the heading's crumbs in colour; Width is the width it wraps to (no limit
-	// when zero).
-	Colour bool
-	Width  int
-	Tries  int
+	// Width is the width the heading wraps to (no limit when zero); Colour (at the end) draws
+	// its crumbs in colour.
+	Width int
+	Tries int
 	// EchoOff turns the terminal's echo off for a Secret's line and returns what puts it back
 	// (ttyecho.Off); with none, Secret refuses to ask.
 	EchoOff func() (restore func() error, err error)
@@ -70,8 +69,10 @@ type Lines struct {
 	replies chan lineRead
 	// read is closed when the reader of In has ended, which Close waits for.
 	read    chan struct{}
-	pending bool
 	ended   *lineRead
+	pending bool
+
+	Colour bool
 }
 
 // lineRead is one read of In: a line, or the error that ended the input.

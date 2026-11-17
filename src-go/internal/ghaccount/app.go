@@ -86,11 +86,11 @@ type run struct {
 	p                 term.Printer
 	root, home        string
 	yml, scopes       string
-	headless          bool
 	pass              execx.Secret
-	hasPass           bool
 	startActive       string
 	executable        string
+	headless          bool
+	hasPass           bool
 	executableChecked bool
 }
 

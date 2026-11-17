@@ -42,6 +42,9 @@ type Cmd struct {
 	// ExtraFiles are open files the child inherits from descriptor 3 on (a held lock
 	// delegated to a child).
 	ExtraFiles []*os.File
+	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
+	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
+	Credential *syscall.Credential
 	// NewSession runs the child in a session of its own, for a command whose children must
 	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
 	NewSession bool
@@ -53,9 +56,6 @@ type Cmd struct {
 	// hold, what is waiting in the terminal's input is discarded before it runs (internal/ui
 	// says which screens).
 	DrainInput bool
-	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
-	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
-	Credential *syscall.Credential
 	// UserNamespace runs the child as root of a new user namespace, mapped to this process's
 	// uid and gid, with a mount namespace of its own: mounts a test makes without privilege
 	// on the host. Only tests set it. A credential beside it, or Exec, is refused.
