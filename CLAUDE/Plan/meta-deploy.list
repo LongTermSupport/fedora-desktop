@@ -41,3 +41,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00209 (ccy 3.122.22): a teamchat-only --teams launch no longer needs agent-bus installed,
+# and ccy --teams lists this checkout's teamchat teams and takes a teamchat team's pool seat.
+# Installs the launcher and its lib, and rebuilds ccy-teams; the image is unchanged (container
+# 2.84.29). Running sessions are untouched; the change applies at the next launch. Expected:
+# changed for the launcher, its agent-bus-seats lib and ccy-teams only; a second pass
+# changed=0.
+playbooks/imports/play-claude-yolo.yml
