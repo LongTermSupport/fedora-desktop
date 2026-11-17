@@ -1,0 +1,127 @@
+diff --git a/qml/ThreadPanel.qml b/qml/ThreadPanel.qml
+index 0b5e41bb..bad7bfd7 100644
+--- a/qml/ThreadPanel.qml
++++ b/qml/ThreadPanel.qml
+@@ -854,21 +854,25 @@ Rectangle {
+                     clip: true
+                     readonly property string shownRootId: panel.rootData.eventId || ""
+                     onShownRootIdChanged: contentY = 0
+-                    Label {
++                    TextEdit {
+                         id: rootBody
+                         objectName: "threadRootBody"
+                         textFormat: Text.PlainText
+                         width: rootBodyFlick.width
+                         text: panel.rootBodyText
++                        readOnly: true
++                        selectByMouse: true
++                        selectionColor: AppTheme.textSelection
++                        selectedTextColor: AppTheme.text
+                         font.italic: panel.rootData.redacted === true
+                                      || panel.rootData.undecryptable === true
+                         color: (panel.rootData.redacted === true
+                                 || panel.rootData.undecryptable === true)
+                                ? AppTheme.textMuted : AppTheme.text
++                        font.family: AppTheme.uiFont
+                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+-                        lineHeight: AppTheme.lineHeightBody
+-                        lineHeightMode: Text.ProportionalHeight
+                         wrapMode: Text.Wrap
++                        Accessible.name: panel.rootBodyText
+                     }
+                     ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                 }
+diff --git a/tests/ThreadPanelPaginationAnchorQmlTest.cpp b/tests/ThreadPanelPaginationAnchorQmlTest.cpp
+index 5c8d1ec8..dc0bad7e 100644
+--- a/tests/ThreadPanelPaginationAnchorQmlTest.cpp
++++ b/tests/ThreadPanelPaginationAnchorQmlTest.cpp
+@@ -586,6 +586,89 @@ private Q_SLOTS:
+         QCOMPARE(scroll->property("contentY").toReal(), lastY);
+     }
+ 
++    void theThreadRootTextCanBeSelectedAndCopied_data()
++    {
++        QTest::addColumn<int>("lineCount");
++        QTest::newRow("short root") << 2;
++        QTest::newRow("long root that scrolls") << 60;
++    }
++
++    void theThreadRootTextCanBeSelectedAndCopied()
++    {
++        QFETCH(int, lineCount);
++        QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));
++        AppController controller(AppController::MockBackend);
++        QVERIFY(login(controller));
++        auto *mock = controller.findChild<MockMatrixClient *>();
++        QVERIFY(mock != nullptr);
++
++        const QString rootId = firstThreadRootId(*mock, kGeneral);
++        QVERIFY(!rootId.isEmpty());
++        const auto events = mock->timeline(kGeneral);
++        int rootIndex = -1;
++        for (int i = 0; i < events.size(); ++i) {
++            if (events.at(i).eventId == rootId) {
++                rootIndex = i;
++                break;
++            }
++        }
++        QVERIFY(rootIndex >= 0);
++        TimelineEvent rootEvent = events.at(rootIndex);
++        QStringList lines;
++        for (int i = 1; i <= lineCount; ++i)
++            lines << QStringLiteral("%1. run this command to continue").arg(i);
++        rootEvent.body = lines.join(QLatin1Char('\n'));
++        mock->changeEventAtForTest(kGeneral, rootIndex, rootEvent);
++
++        controller.thread()->openThread(kGeneral, rootId);
++        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
++                                  ThreadController::Ready, kSignalTimeoutMs);
++
++        QQmlApplicationEngine engine;
++        engine.rootContext()->setContextProperty("app", &controller);
++        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
++        engine.loadFromModule(QStringLiteral("MatrixClient"),
++                              QStringLiteral("ThreadPanel"));
++        if (createdSpy.isEmpty())
++            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
++        auto *root = qobject_cast<QQuickItem *>(
++            createdSpy.at(0).at(0).value<QObject *>());
++        QVERIFY(root != nullptr);
++
++        QQuickWindow window;
++        window.resize(340, 700);
++        root->setParentItem(window.contentItem());
++        root->setSize(QSizeF(window.width(), window.height()));
++        window.show();
++        QVERIFY(QTest::qWaitForWindowExposed(&window, kSignalTimeoutMs));
++
++        auto *scroll = root->findChild<QQuickItem *>(
++            QStringLiteral("threadRootBodyScroll"));
++        auto *body = root->findChild<QQuickItem *>(
++            QStringLiteral("threadRootBody"));
++        QVERIFY(scroll && body);
++        QTRY_VERIFY(body->isVisible());
++        QTRY_COMPARE(body->property("text").toString(), rootEvent.body);
++        QVERIFY2(body->property("readOnly").toBool(),
++                 "the thread root must not be editable");
++
++        const qreal lineHeight = body->implicitHeight() / lineCount;
++        const QPoint from = body->mapToScene(QPointF(2, lineHeight / 2)).toPoint();
++        const QPoint to = body->mapToScene(
++            QPointF(body->width() - 2, lineHeight * 1.5)).toPoint();
++        const qreal contentYBefore = scroll->property("contentY").toReal();
++        QTest::mousePress(&window, Qt::LeftButton, {}, from);
++        for (int step = 1; step <= 8; ++step)
++            QTest::mouseMove(&window, from + (to - from) * step / 8);
++        QTest::mouseRelease(&window, Qt::LeftButton, {}, to);
++
++        const QString selected = body->property("selectedText").toString();
++        QVERIFY2(selected.startsWith(lines.at(0)),
++                 qPrintable(QStringLiteral("a drag over the thread root selected \"%1\"")
++                                .arg(selected)));
++        QCOMPARE(scroll->property("contentY").toReal(), contentYBefore);
++    }
++
+     void theThreadRootCollapsesToOneLineAndRemembersIt()
+     {
+         QSettings().remove(QStringLiteral("timeline/threadRootCollapsed"));

@@ -84,6 +84,14 @@ playbooks/imports/play-agent-bus.yml
 # skip this entry on a host without the lab.
 playbooks/imports/optional/common/play-vm-test-lab.yml
 
+# Issue #335 (Plan 00254 Task 2.7): prove the thread-root selection patch for upstream
+# Lightning red on the old QML and green on the new. It builds Lightning's QML test in a podman
+# image (about 2 GB, reused from the first fix) from a clone in the run directory. It installs
+# nothing on the host, publishes nothing and needs no sudo, and it can run anywhere in this
+# list. Expected: "RED as expected", then PASS for the new case and for every thread test.
+# Afterwards: send build-test-report.txt from the run directory to the agent.
+00254-lightning-default-team-client/build-test.bash
+
 # Issue #260: every other play whose inputs changed (the Go commands built from
 # internal/stdinread and internal/ui: teamchat-admin, ccy-teams and the hooks). Those the
 # entries above ran are not due again. Since #323 this also runs, for real, the four plays

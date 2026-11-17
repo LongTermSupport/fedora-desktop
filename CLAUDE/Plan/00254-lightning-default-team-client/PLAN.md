@@ -97,7 +97,19 @@ The source research behind every mechanism is [RESEARCH-integration.md](RESEARCH
   updates Lightning each run), confirm them live, a long root message first, and delete the
   patch file (keep the upstream link).
 - [ ] 🔄 **Task 2.7** (standing): Keep reporting what we find in Lightning upstream, one issue
-  per defect with a reproduction, and list each here.
+  per defect with a reproduction, and list each here. Upstream is now
+  `lightning-matrix/lightning`. Open:
+  - [#88](https://github.com/lightning-matrix/lightning/issues/88): the thread root's text
+    cannot be selected (fedora-desktop #335). The patch,
+    [lightning-thread-root-selectable.patch](lightning-thread-root-selectable.patch) on
+    `a4e70aba`, makes the root a read-only `TextEdit`. Its test drags across the first line of
+    a short root and of a long root that scrolls. It is not built yet: `build-test.bash` (its
+    default patch) gives the red and green totals, and the pull request follows them.
+  - [#89](https://github.com/lightning-matrix/lightning/issues/89): scrolling up through the
+    replies jumps back to the newest reply (#336). The cause is a hypothesis: moving with the
+    scroll bar never clears `followLatest`. It waits on which input the owner used.
+  - [#90](https://github.com/lightning-matrix/lightning/issues/90): a feature request (#336)
+    for a draggable separator that sizes the root area.
 - [ ] ⬜ **Task 2.6** (fallback, only if upstream refuses the fix or two releases pass without it,
   and the owner asks): a play that builds Lightning at a pinned upstream commit plus the patch with
   `flatpak-builder` (`org.kde.Sdk//6.11`, rust-stable extension) under a separate app id, installs
