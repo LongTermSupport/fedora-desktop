@@ -288,6 +288,14 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   skill, STYLE.md v2 and the docs. Tests first (`test_cli_human_routing`,
   `TestHumanAnswerUnderAnAgentsMessage`). CCY 3.104.18, container 2.79.22 (merged above F44).
   Reports `subagent-reports/261102-human-routing.md`, `261103-human-routing-finish.md`.
+- [ ] 🔄 **Task 2.15** (owner, 2026-11-17; done in code, left: the host run queued in
+  meta-deploy, then one `questions --retitle-closed`): a question's type and a closed
+  question's title, so the room shows what is asked and what is settled (SPEC §8.2, §8.4).
+  `ask-human --type` (`decision` ❓ default, `action` 📨, `approval` 🔐, `suggestion` 💡,
+  `confirm` ℹ️) shows the icon after `Q<n>`, in the body only; `thread --close` posts
+  `✅ CLOSED — Q<n>` and edits a root this seat posted to `Q<n> ✅ CLOSED — ...`;
+  `questions --retitle-closed` is the backfill. Tests first in `test_cli_rooms`. CCY 3.122.21,
+  container 2.84.29.
 
 ### Phase 3: the owner's view (Go)
 

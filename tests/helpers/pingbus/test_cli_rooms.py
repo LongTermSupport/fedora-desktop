@@ -178,7 +178,7 @@ class AskHumanTest(RoomsCase):
         content = self.side_contents(self.questions)[-1]
         self.assertEqual(content["msgtype"], "m.text")
         self.assertEqual(content["m.mentions"], {"user_ids": [self.a.alice]})
-        self.assertTrue(content["body"].startswith("Q3 Pick a name"))
+        self.assertTrue(content["body"].startswith("Q3 ❓ Pick a name"))
 
     def test_asked_by_and_re_are_recorded(self):
         worker_event = self.a.send(self.a.peer, protocol.build_text([self.a.me], "what is the cap?"))
@@ -205,6 +205,46 @@ class AskHumanTest(RoomsCase):
         self.assertEqual(code, cli.EXIT_RATE)
         line = f"{cli.PROG}: {cli.QUESTION_DUPLICATE.format(team=self.a.name, question='Q1')}\n"
         self.assertIn(line, err.splitlines(keepends=True))
+
+
+class QuestionTypeTest(RoomsCase):
+    """A question's type is its root's icon, after `Q<n>`; a decision by default."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.rooms()
+        self.joined()
+
+    def test_the_default_type_is_a_decision(self):
+        code, _, err = self.run_cli("ask-human", stdin=QUESTION)
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertTrue(self.side_contents(self.questions)[-1]["body"].startswith("Q1 ❓ Pick the cost limit\n"))
+
+    def test_each_type_has_its_icon(self):
+        icons = {"decision": "❓", "action": "📨", "approval": "🔐", "suggestion": "💡", "confirm": "ℹ️"}
+        for n, (kind, icon) in enumerate(icons.items(), start=1):
+            text = f"Pick {kind}\nContext: c.\nQuestion: which {kind}?"
+            code, _, err = self.run_cli("ask-human", "--type", kind, stdin=text)
+            self.assertEqual(code, cli.EXIT_OK, err)
+            self.assertTrue(self.side_contents(self.questions)[-1]["body"].startswith(f"Q{n} {icon} Pick {kind}\n"))
+
+    def test_an_unknown_type_is_a_usage_error(self):
+        self.assertEqual(self.run_cli("ask-human", "--type", "urgent", stdin=QUESTION)[0], cli.EXIT_USAGE)
+        self.assertEqual(self.side_contents(self.questions), [])
+
+    def test_a_headline_that_already_carries_an_icon_is_refused(self):
+        for icon in ("❓", "📨", "🔐", "💡", "ℹ️", "✅"):
+            code, _, err = self.run_cli("ask-human", stdin=f"{icon} {QUESTION}")
+            self.assertEqual(code, cli.EXIT_REFUSED)
+            self.assertIn("--type", err)
+        self.assertEqual(self.side_contents(self.questions), [])
+
+    def test_a_typed_question_is_read_with_its_plain_headline(self):
+        self.assertEqual(self.run_cli("ask-human", "--type", "approval", stdin=QUESTION)[0], cli.EXIT_OK)
+        event = self.a.fake.rooms[self.questions].events[-1]
+        found = protocol.parse_question({"type": event.type, "event_id": bus.UNKNOWN_EVENT, "sender": self.a.me,
+                                         "content": event.content}, bus.SN_A)
+        self.assertEqual((found.n, found.headline), (1, "Pick the cost limit"))
 
 
 class WorkerAskTest(RoomsCase):
@@ -237,22 +277,60 @@ class ThreadTest(RoomsCase):
         self.assertEqual(self.run_cli("thread", "Q1", "--ask", stdin="A number please")[0], cli.EXIT_OK)
         self.assertEqual(self.side_contents(self.questions)[-1]["m.mentions"], {"user_ids": [self.a.alice]})
         self.assertEqual(self.run_cli("thread", "Q1", "--close")[0], cli.EXIT_OK)
-        self.assertEqual(self.side_contents(self.questions)[-1][protocol.QUESTION_STATE_KEY]["state"], "closed")
+        self.assertEqual(self.side_contents(self.questions)[-2][protocol.QUESTION_STATE_KEY]["state"], "closed")
         code, out, _ = self.run_cli("questions")
         self.assertEqual((code, self.lines(out, "QUESTION")), (cli.EXIT_OK, []))
         self.assertEqual(self.lines(self.run_cli("questions", "--all")[1], "QUESTION")[0][4], "closed")
+
+    def test_close_says_closed_and_retitles_the_root_it_asked(self):
+        code, _, err = self.run_cli("thread", "Q1", "--close")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        post, edit = self.side_contents(self.questions)[-2:]
+        self.assertEqual(post["body"], "✅ CLOSED — Q1")
+        self.assertEqual(post[protocol.QUESTION_STATE_KEY]["state"], "closed")
+        self.assertEqual(edit["m.relates_to"], {"rel_type": "m.replace", "event_id": self.root})
+        new = edit["m.new_content"]
+        self.assertTrue(new["body"].startswith("Q1 ✅ CLOSED — Pick the cost limit\nContext: "))
+        self.assertEqual(new[protocol.QUESTION_KEY]["n"], 1)
+        self.assertEqual(edit["body"], "* " + new["body"])
+        self.assertNotIn("m.mentions", new)
+        self.assertEqual(edit["m.mentions"], {})
+
+    def test_a_retitled_root_still_reads_as_its_question(self):
+        self.assertEqual(self.run_cli("thread", "Q1", "--close")[0], cli.EXIT_OK)
+        new = self.side_contents(self.questions)[-1]["m.new_content"]
+        found = protocol.parse_question({"type": "m.room.message", "event_id": self.root, "sender": self.a.me,
+                                         "content": new}, bus.SN_A)
+        self.assertEqual((found.n, found.headline, found.question), (1, "Pick the cost limit", "what is the cap?"))
+        self.assertEqual(self.lines(self.run_cli("questions", "--all")[1], "QUESTION")[0][4], "closed")
+
+    def test_a_typed_root_keeps_no_type_icon_once_closed(self):
+        self.assertEqual(self.run_cli("ask-human", "--type", "action", stdin=OTHER)[0], cli.EXIT_OK)
+        self.assertEqual(self.run_cli("thread", "Q2", "--close")[0], cli.EXIT_OK)
+        new = self.side_contents(self.questions)[-1]["m.new_content"]
+        self.assertTrue(new["body"].startswith("Q2 ✅ CLOSED — Pick a branch\n"))
+
+    def test_a_root_another_seat_asked_is_left_as_it_is_and_said(self):
+        a = self.a
+        a.call(a.admin, "POST", f"/_matrix/client/v3/rooms/{bus.q(self.questions)}/invite", {"user_id": a.peer})
+        a.call(a.peer, "POST", f"/_matrix/client/v3/rooms/{bus.q(self.questions)}/join", {})
+        self.side_send(self.questions, a.peer, protocol.build_question(2, OTHER, [a.alice], [], []))
+        code, _, err = self.run_cli("thread", "Q2", "--close")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertNotIn("m.new_content", self.side_contents(self.questions)[-1])
+        self.assertIn("Q2's root was posted by another seat", err)
 
     def test_close_reads_no_stdin(self):
         """Issue #260: run with no input in an agent's shell, stdin is an open pipe that never
         ends, so a close that read it waited for ever. A close with no note never touches it."""
         code, _, err = self.run_cli("thread", "Q1", "--close", stdin=_Unreadable())
         self.assertEqual(code, cli.EXIT_OK, err)
-        self.assertEqual(self.side_contents(self.questions)[-1][protocol.QUESTION_STATE_KEY]["state"], "closed")
+        self.assertEqual(self.side_contents(self.questions)[-2][protocol.QUESTION_STATE_KEY]["state"], "closed")
 
     def test_close_with_note_reads_the_note_from_stdin(self):
         code, _, err = self.run_cli("thread", "Q1", "--close", "--note", "-", stdin="Settled: 40")
         self.assertEqual(code, cli.EXIT_OK, err)
-        content = self.side_contents(self.questions)[-1]
+        content = self.side_contents(self.questions)[-2]
         self.assertEqual(content[protocol.QUESTION_STATE_KEY]["state"], "closed")
         self.assertIn("Settled: 40", content["body"])
 
@@ -287,6 +365,32 @@ class ThreadTest(RoomsCase):
 
 
 class QuestionsTest(RoomsCase):
+    def close(self, n: int, root: str) -> str:
+        return self.side_send(self.questions, self.a.me,
+                              protocol.build_thread_post(root, "", [self.a.alice], ask=False, close=n))
+
+    def test_retitle_closed_edits_each_closed_root_of_this_seat_once(self):
+        a = self.a
+        self.rooms()
+        self.joined()
+        a.call(a.admin, "POST", f"/_matrix/client/v3/rooms/{bus.q(self.questions)}/invite", {"user_id": a.peer})
+        a.call(a.peer, "POST", f"/_matrix/client/v3/rooms/{bus.q(self.questions)}/join", {})
+        q1 = self.ask(1)
+        q2 = self.side_send(self.questions, a.peer, protocol.build_question(2, OTHER, [a.alice], [], []))
+        self.ask(3, "Pick a day\nContext: c.\nQuestion: which day?")
+        self.close(1, q1)
+        self.close(2, q2)
+        code, out, err = self.run_cli("questions", "--retitle-closed")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual([r[:4] for r in self.lines(out, "RETITLED")], [["RETITLED", "1", bus.TEAM_A, "Q1"]])
+        self.assertIn("Q2's root was posted by another seat", err)
+        edits = [c for c in self.side_contents(self.questions) if "m.new_content" in c]
+        self.assertEqual([e["m.relates_to"]["event_id"] for e in edits], [q1])
+        self.assertTrue(edits[0]["m.new_content"]["body"].startswith("Q1 ✅ CLOSED — Pick the cost limit\n"))
+        code, out, _ = self.run_cli("questions", "--retitle-closed")
+        self.assertEqual((code, self.lines(out, "RETITLED")), (cli.EXIT_OK, []))
+        self.assertEqual(len([c for c in self.side_contents(self.questions) if "m.new_content" in c]), 1)
+
     def test_states_unanswered_and_reply_to(self):
         self.rooms()
         self.joined()

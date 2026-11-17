@@ -204,6 +204,14 @@ STATE_OPEN = "open"
 STATE_ANSWERED = "answered"
 STATE_CLOSED = "closed"
 QUESTION_STATES = (STATE_OPEN, STATE_ANSWERED, STATE_CLOSED)
+#: A question's type (SPEC §8.2) and the icon its root shows after `Q<n>`. The type lives in
+#: the body only, so a reader that does not know it still parses the question.
+QUESTION_TYPES = {"decision": "❓", "action": "📨", "approval": "🔐", "suggestion": "💡", "confirm": "ℹ️"}
+QUESTION_TYPE_DEFAULT = "decision"
+#: What a closed question's root shows after `Q<n>` once its asker has retitled it (§8.4).
+CLOSED_TITLE = "✅ CLOSED — "
+#: The marks a headline may not start with: pingbus adds them.
+_TITLE_MARKS = (*(icon.rstrip("️") for icon in QUESTION_TYPES.values()), "✅")
 
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
@@ -1482,6 +1490,8 @@ def check_question_text(text: str) -> tuple[str, str]:
     headline = _check_headline(text)
     if any(headline.startswith(s) for s in QUESTION_SECTIONS):
         raise Refusal("body", "the first line is the headline, before the Context: section")
+    if headline.startswith(_TITLE_MARKS):
+        raise Refusal("body", "the headline starts with an icon; pingbus adds it from --type")
     sections = _sections(text)
     for name in QUESTION_REQUIRED:
         if not sections.get(name):
@@ -1494,13 +1504,34 @@ def check_question_text(text: str) -> tuple[str, str]:
 
 
 def build_question(n: int, text: str, humans: Iterable[str], asked_by: Sequence[str],
-                   re: Sequence[str]) -> dict:
+                   re: Sequence[str], kind: str = QUESTION_TYPE_DEFAULT) -> dict:
     """A question as a thread root: `m.text` mentioning every human, so Element notifies,
-    its headline numbered `Q<n>`, and whom to answer (SPEC §8.2)."""
-    return markdown.formatted({"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}",
+    its headline numbered `Q<n>` and marked with its type's icon, and whom to answer (SPEC §8.2)."""
+    return markdown.formatted({"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {QUESTION_TYPES[kind]} {text}",
                                "m.mentions": {"user_ids": sorted(humans)},
                                QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by),
                                               "re": list(re)}})
+
+
+def build_closed_title(question: Question) -> dict:
+    """The edit (`m.replace`) of a closed question's root: `Q<n> ✅ CLOSED — ` before its text,
+    the type icon dropped, its sections and question key kept so every reader still parses it.
+    It mentions no one, so it notifies no one (SPEC §8.4). Only the root's sender may send it."""
+    new = markdown.formatted({"msgtype": MSGTYPE_HUMAN, "body": f"Q{question.n} {CLOSED_TITLE}{question.text}",
+                              QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": question.n,
+                                             "asked_by": list(question.asked_by), "re": list(question.re)}})
+    return {"msgtype": MSGTYPE_HUMAN, "body": "* " + new["body"], "m.mentions": {}, "m.new_content": new,
+            "m.relates_to": {"rel_type": "m.replace", "event_id": question.event_id}}
+
+
+def _untitled(text: str) -> str:
+    """A root's text after `Q<n> `, less the closed title or one type icon pingbus put there."""
+    if text.startswith(CLOSED_TITLE):
+        return text[len(CLOSED_TITLE):]
+    for icon in QUESTION_TYPES.values():
+        if text.startswith(icon + " "):
+            return text[len(icon) + 1:]
+    return text
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1512,6 +1543,8 @@ class Question:
     question: str
     asked_by: tuple[str, ...]
     re: tuple[str, ...]
+    #: The question as asked, without `Q<n>` or the title marks: what a retitle keeps.
+    text: str = ""
 
 
 def _message_parts(event: object) -> tuple[str, str, dict] | None:
@@ -1537,12 +1570,13 @@ def parse_question(event: object, server_name: str) -> Question | None:
             or not isinstance(obj["asked_by"], list) or not all(isinstance(u, str) for u in obj["asked_by"])
             or not isinstance(obj["re"], list) or not all(is_event_id(e) for e in obj["re"])):
         return None
-    text = body[len(f"Q{obj['n']} "):]
+    text = _untitled(body[len(f"Q{obj['n']} "):])
     try:
         headline, question = check_question_text(text)
     except Refusal:
         return None
-    return Question(obj["n"], event_id, sender, headline, question, tuple(obj["asked_by"]), tuple(obj["re"]))
+    return Question(obj["n"], event_id, sender, headline, question, tuple(obj["asked_by"]), tuple(obj["re"]),
+                    text)
 
 
 def build_thread_post(root: str | None, text: str, humans: Iterable[str], *, ask: bool,
@@ -1552,7 +1586,7 @@ def build_thread_post(root: str | None, text: str, humans: Iterable[str], *, ask
     `close` in the same message, whose text may then be empty."""
     if root is None and re is None:
         raise ValueError("a thread post names its question or the event it answers")
-    body = text if text != "" or close is None else f"Q{close} closed."
+    body = text if text != "" or close is None else f"{CLOSED_TITLE}Q{close}"
     content: dict = {"msgtype": MSGTYPE_HUMAN if ask else MSGTYPE_TEXT, "body": body,
                      "m.mentions": {"user_ids": sorted(humans)} if ask else {}}
     if root is None:
@@ -1596,6 +1630,8 @@ class QuestionIndex:
         #: A human message -> the question's event ID it is attached to, or None.
         self.attached: dict[str, str | None] = {}
         self._closed: set[int] = set()
+        #: Roots their sender has retitled as closed (`build_closed_title`).
+        self.retitled: set[str] = set()
         self._agent_pos: dict[str, int] = {}
         self._replies: dict[str, list[tuple[int, str]]] = {}
 
@@ -1662,6 +1698,15 @@ def _by_prefix(body: object, index: QuestionIndex) -> Question | None:
     return index.by_n.get(int(m[1])) if m else None
 
 
+def _retitles(content: Mapping[str, object], sender: str, index: QuestionIndex) -> bool:
+    """Whether a message is its root's sender retitling a known question as closed."""
+    relates = _relates(content)
+    question = index.by_event.get(relates.get("event_id")) if relates.get("rel_type") == "m.replace" else None
+    new = content.get("m.new_content")
+    return (question is not None and sender == question.sender and isinstance(new, dict)
+            and isinstance(new.get("body"), str) and new["body"].startswith(f"Q{question.n} {CLOSED_TITLE}"))
+
+
 def build_question_index(events: Iterable[object], ctx: Context) -> QuestionIndex:
     """The question index of a questions room's messages, oldest first."""
     index = QuestionIndex()
@@ -1677,6 +1722,9 @@ def build_question_index(events: Iterable[object], ctx: Context) -> QuestionInde
             index._agent_pos[event_id] = pos
             continue
         relates = _relates(content)
+        if _retitles(content, sender, index):
+            index.retitled.add(relates["event_id"])
+            continue
         root = relates.get("event_id") if relates.get("rel_type") == "m.thread" else None
         if root not in index.by_event:
             root = None

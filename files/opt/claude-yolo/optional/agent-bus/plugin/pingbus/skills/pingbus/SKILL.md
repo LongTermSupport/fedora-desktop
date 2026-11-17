@@ -211,8 +211,10 @@ or at your next prompt: from then on act in the new role.
   and as HTML. Supported: `#` to `######` headings, `-` and `1.` lists, `**bold**`,
   `*italics*`, `` `code` ``, fenced code, `>` quotes and links. No tables.
 
-  - **Headline first:** `#### <emoji> <Kind> · <under ten words>`. A question's headline
-    has no `####`, because pingbus puts `Q<n>` in front of it: `❓ Pick the nightly cost cap`.
+  - **Headline first:** `#### <emoji> <Kind> · <under ten words>`. A question's headline has
+    no `####` and no icon, because pingbus puts `Q<n>` and the type's icon in front of it:
+    `Pick the nightly cost cap` becomes `Q4 ❓ Pick the nightly cost cap` (a headline starting
+    with an icon is refused).
   - **The kinds:** ℹ️ Info, 🔄 Update, ✅ Confirm, 📨 Request, ❓ Question, 💬 Answer,
     ⚠️ Warning, ❌ Error, 🚨 Critical. Use the lowest severity that is true.
   - **The body:** one fact per bullet, its subject in bold first (`- **00228:** passed`), with
@@ -228,8 +230,11 @@ or at your next prompt: from then on act in the new role.
   `Question:` (one question) and, where there are choices, `Options:` numbered `1.` to `9.`
   with your recommendation first and its trade-off. Name who asked with `--asked-by` and `--re`.
   Never paste a worker's question unedited, never bundle several, and never ask what you can
-  find out. pingbus numbers it `Q<n>` and prints a `QUESTION` line; the same open question
-  twice is refused (exit 9).
+  find out. Say what you need with `--type`: `decision` ❓ (the default: pick or decide),
+  `action` 📨 (do something only a human can), `approval` 🔐 (permission for something
+  consequential), `suggestion` 💡 (an idea to accept or reject) or `confirm` ℹ️ (check a fact or
+  an assumption). pingbus numbers it `Q<n>`, shows the type's icon after the number and prints
+  a `QUESTION` line; the same open question twice is refused (exit 9).
 
   ```bash
   printf '%s\n' "Pick the nightly cost cap" \
@@ -244,7 +249,10 @@ or at your next prompt: from then on act in the new role.
   question). Answer it, then pass the answer to each agent that asked
   (`pingbus say --to ASKER --re 'THEIR_EVENT_ID'`), then close the question
   (`pingbus thread Q1 --close`, which reads no stdin; to close with a note, pipe it to
-  `pingbus thread Q1 --close --note -`). The `REPLY` command of such a line is
+  `pingbus thread Q1 --close --note -`). Closing also retitles the question's root to
+  `Q1 ✅ CLOSED — ...`, so the room shows at a glance what is settled; only the seat that asked
+  can edit its root, so a predecessor's question keeps its title and pingbus says so. Once, for
+  questions closed before this, `pingbus questions --retitle-closed` retitles them. The `REPLY` command of such a line is
   `pingbus --team TEAM thread Q<n>`: it posts into the question's thread, quietly, or with
   `--ask` so the humans are notified; for an unattached message it is
   `pingbus thread --re 'EVENT_ID'`. A `revises:` line means the human corrected an earlier

@@ -253,7 +253,7 @@ class QuestionContentTest(unittest.TestCase):
     def test_the_wire_form_notifies_the_humans(self):
         content = p.build_question(3, QUESTION_TEXT, [BOB, ALICE], [WORKER], [eid(9)])
         self.assertEqual(content["msgtype"], "m.text")
-        self.assertTrue(content["body"].startswith("Q3 Pick the cost limit\n"))
+        self.assertTrue(content["body"].startswith("Q3 ❓ Pick the cost limit\n"))
         self.assertEqual(content["m.mentions"], {"user_ids": [ALICE, BOB]})
         self.assertEqual(content[p.QUESTION_KEY], {"v": 1, "n": 3, "asked_by": [WORKER], "re": [eid(9)]})
 

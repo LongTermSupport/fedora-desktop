@@ -72,12 +72,14 @@ playbooks/imports/optional/common/play-self-update.yml --check --diff
 # thread --close reads no stdin unless --note - is given; a text verb (say, reply, report)
 # refuses a terminal, says on stderr after a second that it is waiting, and exits 64 if nothing
 # has come within 60 s. Issue #324 (ccy 3.122.20, container 2.84.28) rides the same run: the
-# image's internal/stdinread gains the bounded first-line read the sealed carry uses. Afterwards:
-# a new ccy session starts, on container 2.84.28.
+# image's internal/stdinread gains the bounded first-line read the sealed carry uses. Plan 00211
+# (ccy 3.122.21, container 2.84.29) rides it too: pingbus ask-human --type, and thread --close
+# retitling the question's root. Afterwards: a new ccy session starts, on container 2.84.29;
+# then the coordinator runs `pingbus questions --retitle-closed` once.
 playbooks/imports/play-claude-yolo.yml
 
 # Issue #260: the agent-bus member kit carries the same pingbus. Expected: changed for the
-# kit's pingbus and its helpers/stdin_text.
+# kit's pingbus and its helpers/stdin_text (and, for Plan 00211, the question types).
 playbooks/imports/play-agent-bus.yml
 
 # Issue #260: the lab's vmtest modules read stdin through helpers/stdin_text, which says on

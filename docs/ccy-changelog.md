@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.21 — container 2.84.29
+
+- **A question's type and a closed question's title** (Plan 00211 SPEC §8.2, §8.4; owner,
+  2026-11-17). `pingbus ask-human --type T` shows the question's type as an icon after `Q<n>`:
+  `decision` ❓ (the default), `action` 📨, `approval` 🔐, `suggestion` 💡, `confirm` ℹ️.
+  `thread Q<n> --close` posts `✅ CLOSED — Q<n>` and edits the root it posted to
+  `Q<n> ✅ CLOSED — ...`; `questions --retitle-closed` does the same once for questions closed
+  earlier. The pingbus zipapp and its skill change, so the image is rebuilt once.
+
 ## 3.122.20 — container 2.84.28
 
 - **stdin can be read as one request line followed by a stream** (issue #324, Plan 00209

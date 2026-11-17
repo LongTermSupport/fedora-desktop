@@ -505,6 +505,11 @@ stdin.
   - at most 8000 bytes in all (D10).
     A missing section is refused (exit 4, `body`), naming it. This makes "self-contained" a
     format, not a hope: the reader needs no other room.
+- **Type (owner, 2026-11-17):** `--type` names what the humans are asked for. The root then
+  reads `Q<n> <icon> <headline>`: `decision` ❓ (the default), `action` 📨, `approval` 🔐,
+  `suggestion` 💡 or `confirm` ℹ️. The type is in the body only, not in `agent_bus.question`,
+  so a reader that predates it still parses the question. A headline that starts with one of
+  these icons or ✅ is refused (exit 4, `body`), because pingbus adds it.
 - **Numbering:** pingbus prefixes the headline with `Q<n>`. `n` is one more than the highest
   `Q<n>` among the coordinators' `ask-human` posts in the room's history. This is Plan 00207
   §11.2's rule: with no session state, a relaunched or replacement coordinator numbers the same
@@ -558,7 +563,18 @@ it (Task 4.2).
   - `--ask` mentions the humans, so Element notifies; without it a note does not notify.
   - `--close` marks the question closed with the content `agent_bus.question_state`
     `{"v": 1, "n": <int>, "state": "closed"}` in the same message. The text may be empty with
-    `--close`.
+    `--close`, and the post then reads `✅ CLOSED — Q<n>`.
+  - **Retitle (owner, 2026-11-17):** after a close, the root is edited (`m.replace`) to
+    `Q<n> ✅ CLOSED — ` and the question's text: the type icon goes, the sections and the
+    `agent_bus.question` key stay, so a reader that applies the edit still parses it, and the
+    edit mentions no one. It prints `RETITLED 1 TEAM Q<n> EVENT_ID`. Matrix lets only a
+    message's sender edit it, so this happens only when this seat posted the root; a root a
+    previous coordinator seat posted keeps its title, the closing post in its thread is the
+    record, and stderr says so.
+- `pingbus questions --retitle-closed` (coordinators) is the one-off backfill: it retitles
+  each closed question whose root this seat posted and has not retitled yet (the index knows
+  from the room's edits), and names on stderr the roots another seat posted. Re-running it
+  does nothing new; the send gate applies to each edit.
   - At most 4000 bytes; the send gate applies.
 - `pingbus questions [--all]` (coordinators; read-only) prints one line per question from the
   room's history: `QUESTION 1 TEAM Q<n> STATE EVENT_ID ASKED_BY UNANSWERED`.

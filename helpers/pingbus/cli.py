@@ -131,6 +131,7 @@ LINES = {
     "HISTORY": (STDOUT, ("direction", "origin_server_ts", "line", "its fields after 1")),
     "QUESTION": (STDOUT, ("team", "question", "state", "event ID", "asked by", "unanswered")),
     "REPLY_TO": (STDOUT, ("team", "question", "event ID")),
+    "RETITLED": (STDOUT, ("team", "question", "event ID of the edit")),
 }
 #: A `HISTORY` line's directions: received by this member, or sent by it.
 HISTORY_DIRECTIONS = (syncer.HISTORY_IN, syncer.HISTORY_OUT)
@@ -1335,7 +1336,7 @@ def cmd_ask_human(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
         err.write(f"{PROG}: {QUESTION_DUPLICATE.format(team=member.team, question=f'Q{same.n}')}\n")
         raise limits.RateLimited("duplicate")
     n = index.next_number()
-    content = protocol.build_question(n, text, record.humans, asked_by, re_)
+    content = protocol.build_question(n, text, record.humans, asked_by, re_, args.type)
     seat.state.admit_send(member.limits, "question", _digest(asked), None, (), rt.clock_ms())
     event_id = seat.client.send_message(room_id, content)
     emit(sent_line(member.team, event_id), out, err)
@@ -1394,7 +1395,24 @@ def cmd_thread(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
                                          close=n if args.close else None, re=args.re)
     seat.state.admit_send(member.limits, "thread", _digest(f"{root}\n{text}"), None, (), rt.clock_ms())
     emit(sent_line(member.team, seat.client.send_message(room_id, content)), out, err)
+    if n is not None and args.close:
+        _retitle_closed(seat, member, index, index.by_n[n], room_id, out, err)
     return EXIT_OK
+
+
+def _retitle_closed(seat: _Seat, member: config.Member, index: protocol.QuestionIndex,
+                    question: protocol.Question, room_id: str, out: TextIO, err: TextIO) -> None:
+    """SPEC §8.4: edit a closed question's root to `Q<n> ✅ CLOSED — ...`, once. Matrix lets only
+    a message's sender edit it, so a root another seat posted keeps its title, and says so."""
+    if question.event_id in index.retitled:
+        return
+    if question.sender != member.user_id:
+        err.write(f"{PROG}: Q{question.n}'s root was posted by another seat; only its sender can edit it, "
+                  "so it keeps its title (the closing post in its thread stands)\n")
+        return
+    event_id = seat.client.send_message(room_id, protocol.build_closed_title(question))
+    index.retitled.add(question.event_id)
+    emit(format_line("RETITLED", _team(member.team), f"Q{question.n}", _event_id(event_id)), out, err)
 
 
 def cmd_questions(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -1404,8 +1422,19 @@ def cmd_questions(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     _coordinator(member, record, "questions")
-    _side_room(seat, protocol.PURPOSE_QUESTIONS)
-    for view in seat.syncer.question_index().views():
+    room_id = _side_room(seat, protocol.PURPOSE_QUESTIONS)
+    index = seat.syncer.question_index()
+    if args.retitle_closed:
+        for view in index.views():
+            question = view.question
+            if view.state != protocol.STATE_CLOSED or question.event_id in index.retitled:
+                continue
+            if question.sender == member.user_id:
+                seat.state.admit_send(member.limits, "thread", _digest(f"retitle {question.event_id}"), None,
+                                      (), rt.clock_ms())
+            _retitle_closed(seat, member, index, question, room_id, out, err)
+        return EXIT_OK
+    for view in index.views():
         if view.state == protocol.STATE_CLOSED and not args.all:
             continue
         emit(question_line(member.team, member.server_name, view), out, err)
@@ -3329,6 +3358,10 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                      help="the agents who asked, resolved as say --to resolves them")
     ask.add_argument("--re", metavar="EVENT_ID[,EVENT_ID...]",
                      help="the main-room messages the question came from")
+    ask.add_argument("--type", choices=tuple(protocol.QUESTION_TYPES), default=protocol.QUESTION_TYPE_DEFAULT,
+                     help="what the humans are asked for, shown as the root's icon: "
+                          + ", ".join(f"{kind} {icon}" for kind, icon in protocol.QUESTION_TYPES.items())
+                          + f" (default {protocol.QUESTION_TYPE_DEFAULT})")
     thread = command("thread", cmd_thread,
                      "a coordinator's post from stdin in a question's thread of the questions room")
     thread.add_argument("question", nargs="?", metavar="Q<n>")
@@ -3341,6 +3374,9 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     questions = command("questions", cmd_questions,
                         "the questions room's questions, their state and the replies not yet answered")
     questions.add_argument("--all", action="store_true", help="closed questions too")
+    questions.add_argument("--retitle-closed", action="store_true",
+                           help="edit each closed question's root this seat posted to Q<n> ✅ CLOSED (once; "
+                                "for questions closed before thread --close did it)")
     command("inbox", cmd_inbox, "list pending items without consuming them (offline)")
     command("status", cmd_status, "per team: trust, wake path, counts and members (offline)")
     hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")
