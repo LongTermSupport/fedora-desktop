@@ -356,8 +356,25 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
 
   - The guest side of B 2.13 (GU1-GU5, SA1) is built in n3a; the host side (C 3.9) is n3b's.
   - **n3b built** and merged as inert code: `teamchat-admin lxc apply` and `lxc restart`, the
-    session unit as code, the L3 probe. No play task or unit is installed (gate A). Coverage,
-    reviews, the install build's CL2 gate and the tagged analyzer stages: [BUILT-n3.md](BUILT-n3.md).
+    session unit as code, the L3 probe. Coverage, reviews, the install build's CL2 gate and the
+    tagged analyzer stages: [BUILT-n3.md](BUILT-n3.md).
+  - **The play side** (gate A met): `play-teamchat.yml` reads and shape-checks
+    `teamchat_lxc_members`, hands each team its own entries in `team approve` and `team apply`,
+    and runs `lxc apply --phase absent` before the removals and `--phase present` after the
+    applies, the approval first (DESIGN-v2-C-host.md 3.5.1, as-built note). Go gap closed
+    with it: the absent phase passes by a team never applied (no stamp, no record), which a
+    team's first play meets (`health.ErrNotStamped`). `teamchat_address` (the `teamchat0`
+    address) stays refused: an LXC team's `url` names the bridge's address, which it is served
+    on. Held by `installplay/lxc_test.go`; not yet run on a host or in the VM lab. Report:
+    `subagent-reports/261117-lxc-play-report.md`.
+  - **Review fixes**: a team declared absent has every seat its LXC record holds parked and
+    removed by the absent phase before `team remove`, which refuses a team whose record holds
+    a seat not `left` (one run, as D 5.7 step 5 needs); a present team redeclared unstamped is
+    passed by with its leaving seats `DEFERRED`. A team with a present LXC member must name an
+    address inside the bridge's subnet in its `url` (`team apply` and `lxc apply` refuse
+    otherwise); the present phase fails on a `reach` line, and the held-back lines show in a task
+    of their own. The play's LXC Jinja is rendered by ansible in the gate
+    `test-teamchat-play-jinja.bash`. Report: `subagent-reports/261117-lxc-play-fix-report.md`.
 
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;

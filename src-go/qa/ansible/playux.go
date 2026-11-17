@@ -806,8 +806,8 @@ func repositoryVars(fsys fs.FS) (map[string]bool, error) {
 }
 
 // scanPlayUX runs the six rules, command-always-changed, changed-when-on-success,
-// install-guard-trusts-record and
-// filter-list-unchecked over each YAML file under dirs
+// install-guard-trusts-record,
+// filter-list-unchecked and pipx-name-not-canonical over each YAML file under dirs
 // (roles/vendor skipped), then duplicate-managed-block, scratch-always-changed and
 // image-build-arg-volatile over all of them together.
 func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
@@ -833,6 +833,7 @@ func scanPlayUX(fsys fs.FS, dirs []string, f *Findings) error {
 				found = append(found, changedWhenOnSuccess(rel, data)...)
 				found = append(found, installGuardTrustsRecord(rel, data)...)
 				found = append(found, filterListUnchecked(rel, data, repoVars)...)
+				found = append(found, pipxNameNotCanonical(rel, data)...)
 			}
 			reportPlayUX(found, f)
 		}

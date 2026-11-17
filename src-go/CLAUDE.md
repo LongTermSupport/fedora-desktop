@@ -414,7 +414,8 @@ publish) is injected and run by the command through the seam. Its spec is the in
 (`SPEC-qa-ansible.md`, expectations E1-E19 and E16a), proven by unit tests and end-to-end scenario trees
 (the backreference rule also against `tests/fixtures/ansible-regex-backref/`, the letter
 escape rule against `tests/fixtures/ansible-regex-class-escape/`, the root umask
-rule against `tests/fixtures/ansible-root-umask/`, the play-UX rules against
+rule against `tests/fixtures/ansible-root-umask/`, the pipx name rule against
+`tests/fixtures/ansible-pipx-name-not-canonical/`, the play-UX rules against
 `tests/fixtures/ansible-play-ux/`),
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 

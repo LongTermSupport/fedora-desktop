@@ -315,7 +315,7 @@
 
     - name: Hugging Face CLI
       community.general.pipx:
-        name: huggingface_hub
+        name: huggingface-hub
         state: latest
 
     - name: Pyenv Python Version Management

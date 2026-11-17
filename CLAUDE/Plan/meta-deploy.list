@@ -48,3 +48,9 @@
 # sessions are untouched. Expected: changed for the launcher's version and the image build
 # inputs; a second pass changed=0.
 playbooks/imports/play-claude-yolo.yml
+
+# Issue #338: the Hugging Face CLI task names its pipx app huggingface-hub, the canonical name
+# pipx keys the venv by, so the module now finds it installed instead of reinstalling it on
+# every run. Expected: that task changed at most once (only if huggingface-hub has a new
+# release), then ok; a second run of the play reports it ok. Afterwards report its status.
+playbooks/imports/play-python.yml

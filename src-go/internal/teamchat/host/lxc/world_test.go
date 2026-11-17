@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
@@ -523,15 +524,17 @@ func (v *fakeV1) Holds(_ context.Context, _ Root, _ paths.GuestUser, team paths.
 
 // world is one host, its containers and the child, from which Deps is built.
 type world struct {
-	t         *testing.T
-	host      string
-	lxc       *fakeLXC
-	roster    *fakeRoster
-	bus       *fakeBus
-	clock     *fakeClock
-	boot      *clock.Fake // the L3 probe's bound
-	v1        *fakeV1
-	origin    string
+	t      *testing.T
+	host   string
+	lxc    *fakeLXC
+	roster *fakeRoster
+	bus    *fakeBus
+	clock  *fakeClock
+	boot   *clock.Fake // the L3 probe's bound
+	v1     *fakeV1
+	origin string
+	// unstamped are the teams Origin answers health.ErrNotStamped for: never applied.
+	unstamped map[string]bool
 	decl      declare.Declaration
 	approvals fakeApprovals
 	refresh   []string
@@ -586,7 +589,8 @@ func (w *world) addBox(name string) *box {
 func (w *world) team(id string) declare.Team {
 	return declare.Team{
 		ID: mustTeam(w.t, id), State: declare.StatePresent, Name: id, Port: 8448,
-		URL: "http://198.51.100.1:8448", Networks: w.networks,
+		URL: "http://192.0.2.1:8448", Networks: w.networks, // on the bridge (allowNet), X5
+
 	}
 }
 
@@ -608,6 +612,11 @@ func (w *world) declare(teams []string, members ...declare.LXCMember) {
 	for _, id := range teams {
 		w.decl.Teams = append(w.decl.Teams, w.team(id))
 	}
+	w.approveAll()
+}
+
+// approveAll approves every present team exactly as declared.
+func (w *world) approveAll() {
 	w.approvals = fakeApprovals{}
 	for _, in := range w.decl.Inputs() {
 		g := in.Gated()
@@ -625,7 +634,12 @@ func (w *world) deps() Deps {
 		Bus:       func(context.Context, Root) (guestbus.Systemd, error) { return w.bus, w.busErr },
 		Roster:    w.roster,
 		Approvals: w.approvals,
-		Origin:    func(context.Context, paths.TeamID) (string, error) { return w.origin, nil },
+		Origin: func(_ context.Context, team paths.TeamID) (string, error) {
+			if w.unstamped[team.String()] {
+				return "", fmt.Errorf("health: %s %w", team, health.ErrNotStamped)
+			}
+			return w.origin, nil
+		},
 		V1:        w.v1,
 		Kit:       mustDigest(kitDigest),
 		HostKit:   filepath.Join(w.host, "kit"),

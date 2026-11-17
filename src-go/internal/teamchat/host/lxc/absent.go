@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -31,6 +32,9 @@ const (
 	lineNoHandle = "entry removed; it never joined"
 	lineNoUser   = "; its user is not in the guest"
 	lineMovedTo  = "; the seat moves to "
+	// whyNotInstalled is a leaving seat of a present team with no stamp (a team redeclared after
+	// its removal): it leaves at the next run, which follows `team apply`.
+	whyNotInstalled = "the team is not installed yet; the seat leaves at the next apply"
 )
 
 // only keeps the entries the declaration gives state.
@@ -98,6 +102,72 @@ func (r *run) undeclared() {
 			r.members = append(r.members, m)
 		}
 	}
+}
+
+// leavingTeams is the teams the declaration says are absent, which the absent phase alone acts
+// on: every seat their LXC records hold leaves before `team remove` (D 5.7 step 5 removes a team
+// and its entries in one run).
+func (r *run) leavingTeams() []declare.Team {
+	if r.req.Phase != PhaseAbsent {
+		return nil
+	}
+	var out []declare.Team
+	for _, t := range r.req.Decl.Teams {
+		if t.State == declare.StateAbsent {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// leavingTeam adds a team declared absent whose record holds seats; no entry declares them, so
+// each leaves (undeclared). One that is not installed has no roster to park on: a seat not yet
+// left (parked) is refused by name, never passed by; seats only left are cleaned from the guest.
+func (r *run) leavingTeam(ctx context.Context, t declare.Team) error {
+	rec, err := r.record(t.ID)
+	if err != nil || len(rec.Members) == 0 {
+		return err
+	}
+	installed, err := r.installed(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		var unparked []string
+		for _, e := range rec.Members {
+			if e.Status != lxcstate.StatusLeft {
+				unparked = append(unparked, seatText(e.Container, e.Checkout, e.Seat))
+			}
+		}
+		if len(unparked) > 0 {
+			return invalid(fmt.Errorf("team %s is declared absent and not installed, but its LXC record holds seats that were never parked (%s): "+
+				"declare the team present again with no LXC entry and run the play twice, which reinstalls it and parks and removes them, then declare it absent",
+				t.ID, strings.Join(unparked, ", ")))
+		}
+	}
+	r.teams = append(r.teams, t)
+	return nil
+}
+
+// deferUninstalled is a present team with no stamp in the absent phase: each record seat that
+// would leave is DEFERRED, to leave at the next run, which follows `team apply`.
+func (r *run) deferUninstalled(t declare.Team) error {
+	rec, err := r.record(t.ID)
+	if err != nil {
+		return err
+	}
+	for _, e := range rec.Members {
+		if decl, declared := r.declared(t.ID, e); declared && decl.State == declare.StatePresent && decl.User == e.User {
+			continue
+		}
+		id := rec.SeatOf(e)
+		m := &member{
+			decl: declare.LXCMember{Team: t.ID, Container: e.Container.String(), User: e.User, Checkout: e.Checkout, Seat: e.Seat},
+			team: t, box: e.Container, id: id, key: id.Key(),
+		}
+		r.line(m, Deferred, whyNotInstalled)
+	}
+	return nil
 }
 
 // declared is the team's entry of the record entry e's seat, in any state.

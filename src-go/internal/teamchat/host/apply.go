@@ -65,6 +65,8 @@ const (
 	StepRecords    = "records"
 	StepStatus     = "status"
 	StepPurge      = "purge"
+	// StepLXCSeats is `team remove` refusing a team whose LXC record holds a seat not yet left.
+	StepLXCSeats = "lxc seats"
 )
 
 // The verbs an Error names.
@@ -428,6 +430,13 @@ func (a *applying) urlHost() error {
 	host, parseErr := netip.ParseAddr(u.Hostname())
 	if parseErr == nil && !slices.Contains(a.listen, host) {
 		return a.refuse("url host %s is not a listen address of this host (%v)", host, a.listen)
+	}
+	problem, err := a.in.BridgeURLProblem(a.d.Network.Bridge)
+	if err != nil {
+		return a.fail(StepRefusals, err)
+	}
+	if problem != "" {
+		return a.refuse("url %s: the team has a present LXC member, whose guest reaches it on the LXC bridge: %s; name the bridge's address in the url", a.in.Team.URL, problem)
 	}
 	return nil
 }

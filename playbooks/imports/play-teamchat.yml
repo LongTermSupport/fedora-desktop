@@ -23,7 +23,11 @@
 #      prints them (`units list`, `units print`): the text is Go's, the play holds none. The
 #      tmpfiles entry's directories are made, then one daemon-reload.
 #   5. Per team, from teamchat_teams: `team approve` for the teams teamchat_approve_teams names,
-#      `team remove` for each absent entry, then `team apply` for each present one.
+#      then `lxc apply --phase absent` (the LXC members that leave are parked while every team
+#      still runs), `team remove` for each absent entry, `team apply` for each present one, and
+#      `lxc apply --phase present` (the declared LXC members placed and joined). approve and
+#      apply get each team's own teamchat_lxc_members entries; both LXC phases get the whole
+#      declaration (DESIGN-v2-C-host.md 3.5.1 steps 10 to 13, 3.9.2).
 #   6. The health and backup timers are enabled exactly while a team is declared present, so a
 #      host with no team starts nothing.
 #
@@ -33,8 +37,8 @@
 #   member   build and install the member program, its kit and its link (steps 1 and 2)
 #   tuwunel  the pinned Tuwunel and the server pin (step 3)
 #   units    the units, the resolver files and the tmpfiles entry (step 4)
-#   teams    approve, remove and apply the teams, and the timers (steps 5 and 6); with
-#            teamchat_only_teams it applies one team. A run without units does not re-apply
+#   teams    approve, remove and apply the teams, both LXC phases, and the timers (steps 5 and
+#            6); with teamchat_only_teams it applies one team. A run without units does not re-apply
 #            every team for a base unit change; run units with it after a units change.
 #
 # Inputs (inventory variables of the target; the names are paths.HostVar*):
@@ -44,17 +48,24 @@
 #   teamchat_approve_teams   optional list of team ids whose declared security fields the OPERATOR
 #                            approves in this run. This is the owner's gate (DC18) done by IaC: a
 #                            listed team is approved exactly as declared, so the review of the
-#                            inventory change is the approval. Unlisted new or changed teams are
-#                            refused by `team apply`. Each listed team must be present and, in a
-#                            scoped run, in teamchat_only_teams; the play refuses any other.
+#                            inventory change is the approval, its LXC members included. Unlisted
+#                            new or changed teams are refused by `team apply` and `lxc apply`.
+#                            Each listed team must be present and, in a scoped run, in
+#                            teamchat_only_teams; the play refuses any other.
+#   teamchat_lxc_members     optional list, DESIGN-v2-C-host.md 3.8 and 3.9: one seat each, of a
+#                            team declared present; the play checks the shape, teamchat-admin the
+#                            rest. A team with a present member is served on the LXC bridge, and
+#                            its url names the bridge's address.
+#   teamchat_site            optional: the machine's handle site, handed to `lxc apply` with the
+#                            members; an entry's own site wins.
 #   teamchat_carry_max_archive_bytes
 #                            optional: the carry archive's cap in bytes, which team export and
 #                            team import read (SPEC-carry CN5). Default 1073741824 (1 GiB).
 #   teamchat_memory_high, teamchat_cache_capacity_modifier
 #                            the server pin's values (defaults 512M and 0.5, NOT yet measured on
 #                            a real host: DESIGN-v2-C-host.md H-C1).
-# Not built, refused by name when set: teamchat_address (the teamchat0 bus address),
-# teamchat_lxc_members, and the Element team list (its own play).
+# Not built, refused by name when set: teamchat_address (the teamchat0 bus address; the LXC
+# path does not need it). The Element team list is its own play's.
 #
 # Firewalld must already be running on the target: this play does not start a firewall on a
 # remote host, because the first start of one can cut off the ssh that runs the play.
@@ -91,6 +102,25 @@
     tc_absent: "{{ tc_teams | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list }}"
     tc_scoped_present: "{{ tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list }}"
     tc_scoped_absent: "{{ tc_absent if teamchat_only_teams is not defined else tc_absent | selectattr('team', 'in', teamchat_only_teams) | list }}"
+    tc_lxc: "{{ teamchat_lxc_members | default([]) }}"
+    # The teams each LXC phase acts on, passed as --only-teams. The absent phase takes the present
+    # teams and the absent ones in the run's scope: every seat an absent team's LXC record holds
+    # is parked and removed before `team remove` stops its homeserver.
+    # It is spelled from tc_present, never from tc_scoped_present: the units step's
+    # set_fact replaces that name with every present team after a base unit change, a fact
+    # outranks this play variable when it is templated, and the absent phase would then park and
+    # remove the leaving seats of teams this run was not scoped to. A base unit change re-applies
+    # a team for its unit text; it changes no declaration, so it widens no removal.
+    # The present phase follows tc_scoped_present, widened like `team apply`.
+    tc_lxc_absent_teams: "{{ ((tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list) + tc_scoped_absent) | map(attribute='team') | list }}"
+    tc_lxc_present_teams: "{{ tc_scoped_present | map(attribute='team') | list }}"
+    # A present-phase line whose guest check could not reach its team (lxc.WhyReach). The url is
+    # held on the LXC bridge, so a running guest that cannot reach it is a fault, never offline.
+    tc_reach_re: "\toffline: guest check reach$"
+    # A held-back line (SKIPPED or DEFERRED), shown in a task of its own (C 3.9.3).
+    tc_held_re: "^(SKIPPED|DEFERRED)\t"
+    # `lxc apply`'s stdin: the declaration in host_vars' own keys (declare.Decode).
+    tc_lxc_declaration: "{{ ({'teamchat_teams': tc_teams, 'teamchat_lxc_members': tc_lxc} | combine({'teamchat_site': teamchat_site} if teamchat_site is defined else {})) | to_json }}"
     # Matches the CHANGED<TAB><what> marker lines teamchat-admin prints.
     tc_changed_re: "^CHANGED\t"
   vars_files:
@@ -115,15 +145,30 @@
           - teamchat_only_teams is not defined or (teamchat_only_teams is sequence and teamchat_only_teams is not string)
           - teamchat_approve_teams is not defined or (teamchat_approve_teams is sequence and teamchat_approve_teams is not string)
           - teamchat_address | default('') == ''
-          - teamchat_lxc_members | default([]) | length == 0
+          # The LXC members: their shape and their team here, every other rule by the Go reader.
+          # The conditions run in order, so the later ones see only mappings with every key.
+          - tc_lxc is sequence and tc_lxc is not string
+          - tc_lxc | reject('mapping') | list | length == 0
+          - tc_lxc | rejectattr('team', 'defined') | list | length == 0
+          - tc_lxc | rejectattr('container', 'defined') | list | length == 0
+          - tc_lxc | rejectattr('user', 'defined') | list | length == 0
+          - tc_lxc | rejectattr('checkout', 'defined') | list | length == 0
+          - tc_lxc | rejectattr('seat', 'defined') | list | length == 0
+          - tc_lxc | map(attribute='seat') | reject('integer') | list | length == 0
+          - tc_lxc | selectattr('state', 'defined') | map(attribute='state') | difference(['present', 'absent']) | length == 0
+          - tc_lxc | map(attribute='team') | difference(tc_present | map(attribute='team') | list) | length == 0
+          - tc_lxc | map(attribute='team') | zip(tc_lxc | map(attribute='container'), tc_lxc | map(attribute='checkout'), tc_lxc | map(attribute='seat')) | map('join', '|') | unique | list | length == tc_lxc | length
         fail_msg: >-
           play-teamchat.yml refused its inputs. The target's architecture ({{ tc_arch }}) needs a row
           in vars/teamchat-arch.yml and a tuwunel_sha256_{{ tc_arch }} line in the Tuwunel pin;
           teamchat_owner_group must be a group name; teamchat_carry_max_archive_bytes must be a
           positive whole number of bytes that fits a signed 64-bit integer; teamchat_teams must be a list of mappings with
           a unique team each; teamchat_only_teams and teamchat_approve_teams must be lists;
-          teamchat_address and teamchat_lxc_members are not built in this play yet and must be
-          unset or empty.
+          teamchat_lxc_members must be a list of mappings, each with a team declared present, a
+          container, a user, a checkout and a whole-number seat, a state of present or absent if it
+          has one, and no two with the same team, container, checkout and seat;
+          teamchat_address (the teamchat0 bus address) is not built in this play yet and must be
+          unset or empty: a team with an LXC member names the LXC bridge's address in its url.
         quiet: true
       tags: [always]
 
@@ -619,15 +664,33 @@
           loop_control:
             label: "{{ item.team }}:{{ item.port }}"
 
+    # A team's LXC members are among its security fields (DC18), so each team is handed its own
+    # entries. The approval comes before both LXC phases, which hold every team they act on
+    # against it.
     - name: Approve the Teams the Operator Names
       ansible.builtin.command:
         argv: ["{{ tc_admin_link }}", team, approve, --team, "{{ item.team }}"]
-        stdin: "{{ {'team': item, 'lxc_members': []} | to_json }}"
+        stdin: "{{ {'team': item, 'lxc_members': tc_lxc | selectattr('team', 'eq', item.team) | list} | to_json }}"
       loop: "{{ tc_scoped_present | selectattr('team', 'in', teamchat_approve_teams | default([])) | list }}"
       loop_control:
         label: "{{ item.team }}"
       register: tc_approved
       changed_when: tc_approved.stdout_lines | select('match', tc_changed_re) | list | length > 0
+      tags: [teams]
+
+    # The LXC absent phase (DESIGN-v2-C-host.md 3.9.2): a member whose entry says absent, that
+    # the team's LXC record holds and no entry declares, or that a team declared absent holds, is
+    # parked and its guest files removed, while every team's homeserver still runs; `team remove`
+    # refuses a team whose record still holds a seat that has not left. A present team not yet
+    # installed is passed by, its leaving seats DEFERRED. A stopped or missing container is not a
+    # failure: its member is parked from the host.
+    - name: Park and Remove the LXC Members That Leave
+      ansible.builtin.command:
+        argv: "{{ [tc_admin_link, 'lxc', 'apply', '--phase', 'absent', '--only-teams', tc_lxc_absent_teams | join(',')] }}"
+        stdin: "{{ tc_lxc_declaration }}"
+      when: tc_lxc_absent_teams | length > 0
+      register: tc_lxc_absent
+      changed_when: tc_lxc_absent.stdout_lines | select('match', tc_changed_re) | list | length > 0
       tags: [teams]
 
     - name: Remove the Absent Teams
@@ -643,12 +706,37 @@
     - name: Apply the Present Teams
       ansible.builtin.command:
         argv: ["{{ tc_admin_link }}", team, apply]
-        stdin: "{{ {'team': item, 'lxc_members': []} | to_json }}"
+        stdin: "{{ {'team': item, 'lxc_members': tc_lxc | selectattr('team', 'eq', item.team) | list} | to_json }}"
       loop: "{{ tc_scoped_present }}"
       loop_control:
         label: "{{ item.team }}"
       register: tc_applied
       changed_when: tc_applied.stdout_lines | select('match', tc_changed_re) | list | length > 0
+      tags: [teams]
+
+    # The LXC present phase (DESIGN-v2-C-host.md 3.9.2): for each running container, the kit,
+    # the guest check, the joins, the bundles, the desired memberships and each service seat's
+    # session unit, written from the host side. A stopped or missing container, or a member whose
+    # guest check finds gh signed out, is offline: a SKIPPED or DEFERRED line, never a failure
+    # (n3b-D1). A running guest that cannot reach its team fails the play: the url is held on the
+    # LXC bridge (team apply refuses one elsewhere), so that is a fault, not a stopped container.
+    # A running container's wrong facts fail the play, naming the entry.
+    - name: Place and Join the Declared LXC Members
+      ansible.builtin.command:
+        argv: "{{ [tc_admin_link, 'lxc', 'apply', '--phase', 'present', '--only-teams', tc_lxc_present_teams | join(',')] }}"
+        stdin: "{{ tc_lxc_declaration }}"
+      when: tc_lxc_present_teams | length > 0
+      register: tc_lxc_present
+      changed_when: tc_lxc_present.stdout_lines | select('match', tc_changed_re) | list | length > 0
+      failed_when: tc_lxc_present.rc != 0 or tc_lxc_present.stdout_lines | select('search', tc_reach_re) | list | length > 0
+      tags: [teams]
+
+    # The held-back lines of both phases, shown without -v (C 3.9.3): each names the seat and why
+    # it waits for a later run (a stopped container, a seat still held, a team not yet installed).
+    - name: Show the LXC Members Held Back
+      ansible.builtin.debug:
+        msg: "{{ (tc_lxc_absent.stdout_lines | default([]) + tc_lxc_present.stdout_lines | default([])) | select('match', tc_held_re) | list }}"
+      when: (tc_lxc_absent.stdout_lines | default([]) + tc_lxc_present.stdout_lines | default([])) | select('match', tc_held_re) | list | length > 0
       tags: [teams]
 
     # The timers run exactly while a team is declared present (C40).

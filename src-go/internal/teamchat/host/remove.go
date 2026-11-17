@@ -3,11 +3,15 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
@@ -52,6 +56,9 @@ func (r *removing) run(ctx context.Context) error {
 	if err != nil || !installed {
 		return err
 	}
+	if err := r.lxcSeats(); err != nil {
+		return err
+	}
 	steps := []struct {
 		name string
 		do   func(context.Context) error
@@ -84,6 +91,29 @@ func (r *removing) installed() (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// lxcSeats refuses, before any change, a team whose LXC record holds a seat that has not left
+// (C 3.9.2): its guest kit, bundle and session unit are removed, and its token revoked, only by
+// `lxc apply --phase absent` while the homeserver runs, which a remove would make impossible.
+// Seats only left are parked already, their guest files cleaned by a later absent phase.
+func (r *removing) lxcSeats() error {
+	rec, _, err := lxcstate.ReadRecord(r.d.Root, r.team)
+	if err != nil {
+		return r.fail(StepLXCSeats, err)
+	}
+	var live []string
+	for _, e := range rec.Members {
+		if e.Status != lxcstate.StatusLeft {
+			live = append(live, e.Container.String()+"/"+paths.LXCRepoLabel(e.Checkout)+"-"+strconv.Itoa(e.Seat))
+		}
+	}
+	if len(live) == 0 {
+		return nil
+	}
+	return &Error{Verb: verbRemove, Step: StepLXCSeats, Drift: true, Err: fmt.Errorf(
+		"team %s's LXC record holds seats that have not left (%s): declare the team absent in teamchat_teams and run the play, "+
+			"whose `lxc apply --phase absent` parks and removes them before it removes the team", r.team, strings.Join(live, ", "))}
 }
 
 // stopUnit stops and disables the team's terminator, then its homeserver.
