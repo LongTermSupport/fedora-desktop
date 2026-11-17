@@ -99,7 +99,8 @@ command word each and stay within the limits.
   container version bump, as the switch is in the image's `teamchat`; an image before that
   posts `left exit` for a relaunch (RS1) and the host now posts nothing for it.
 - `describe-seats --block` names a teamchat seat as on teamchat rather than asking agent-bus's
-  roster. `choose-teams` still knows v1 teams only, so a v2 launch names its seat.
+  roster. `choose-teams` lists the checkout's teamchat teams and takes a teamchat team's pool
+  seat (Task 4.3), so a v2 launch need not name its seat.
 
 ## Built: the owner's seat sweep (item 6)
 
@@ -156,8 +157,8 @@ the host and a placed pool seat (Task 4.4, gate B).
    the command word with `ccy-teams internal seat-check` and `seat-take`, which exec agent-bus
    with the same arguments for agent-bus and, for teamchat, print the canonical list (check) or
    do nothing (take: `launch-args` took the seats). `describe-seats --block` needs a teamchat
-   branch. `ccy --teams <team>` alone goes to `choose-teams`, which knows v1 teams only: until it
-   learns teamchat, a v2 launch names its seat (`<seat>@<team>`).
+   branch. `ccy --teams <team>` alone goes to `choose-teams`, which then knew v1 teams only (it
+   learned teamchat in Task 4.3).
 
 3. Exit (seams 54, 27): replace the pingbus command word in `ccy_bus_disconnected` with
    `ccy-teams internal bus-disconnected <pingbus>`, which execs pingbus as before unless the root

@@ -230,7 +230,11 @@ func (v *Verbs) seat(ctx context.Context, verb string, args []string) error {
 		return err
 	}
 	if sys == system.AgentBus {
-		return v.Exec.Exec(execx.Cmd{Name: AgentBusCommand, Args: append([]string{"seat", strings.TrimPrefix(verb, "seat-")}, args...)})
+		ran := v.Exec.Exec(execx.Cmd{Name: AgentBusCommand, Args: append([]string{"seat", strings.TrimPrefix(verb, "seat-")}, args...)})
+		if execx.IsNotInstalled(ran) {
+			return fmt.Errorf("%w; an agent-bus (v1) team needs it: install it with play-agent-bus.yml, or launch on teamchat teams only", ran)
+		}
+		return ran
 	}
 	if verb == "seat-take" {
 		return nil

@@ -23,27 +23,18 @@
 # restart) checks with `--resolved`, which refuses a team alone.
 #
 # Requires print_error (common-pure.bash, always loaded first) and ccy_membership_args
-# (agent-bus-membership.bash).
-
-# The agent-bus wrapper, which play-agent-bus.yml installs on every desktop.
-CCY_AGENT_BUS_COMMAND="agent-bus"
-
-# _ccy_seats_need_agent_bus — refuse (78) when agent-bus is not installed.
-_ccy_seats_need_agent_bus() {
-    if ! command -v "$CCY_AGENT_BUS_COMMAND" >/dev/null; then
-        print_error "--teams needs $CCY_AGENT_BUS_COMMAND on this host, and it is not installed."
-        echo "  Install it with play-agent-bus.yml (it runs agent-bus-install software), or launch without --teams." >&2
-        return 78
-    fi
-}
+# (agent-bus-membership.bash). agent-bus itself is needed only for a list on agent-bus: ccy-teams
+# decides each list's system and refuses (78) an agent-bus list when agent-bus is missing, so a
+# teamchat launch runs on a host without it.
 
 # ccy_seats_check <list> <attended> — the canonical form of a --teams list, printed on stdout,
 # as `agent-bus seat check` gives it. Attended (true: a person at a terminal), a team named
 # alone is kept for the chooser; otherwise it is refused (64). Changes nothing and runs
 # no sudo.
 #   status 0   the list is usable here; its canonical form printed
-#   otherwise  agent-bus's own code (64 usage, 78 a team not running here), or 78 when
-#              agent-bus is missing or printed no single list; the reason on stderr
+#   otherwise  ccy-teams' or agent-bus's own code (64 usage, 78 a team not running here or
+#              agent-bus missing for an agent-bus list), or 78 when no single list was printed;
+#              the reason on stderr
 ccy_seats_check() {
     local list="${1?ccy_seats_check requires a list}" canonical rc=0
     local attended="${2:?ccy_seats_check requires true or false}"
@@ -51,7 +42,6 @@ ccy_seats_check() {
     if [ "$attended" != true ]; then
         check+=(--resolved)
     fi
-    _ccy_seats_need_agent_bus || return
     canonical=$("${check[@]}") || rc=$?
     if [ "$rc" -ne 0 ]; then
         print_error "--teams '$list' refused by agent-bus seat check (exit $rc; the reason is above)."
@@ -75,7 +65,7 @@ ccy_seats_check() {
 # stops the launch).
 #   status 0   the seats are ready
 #   otherwise  ccy_membership_args's code, agent-bus seat take's (75 a held seat, 78 a seat
-#              that cannot be made), 78 when agent-bus is missing, or ccy-teams describe-seats
+#              that cannot be made, or agent-bus missing for an agent-bus list), or ccy-teams describe-seats
 #              --block's own code (the seats are then already taken); the reason on stderr
 ccy_seats_take() {
     local canonical="${1?ccy_seats_take requires the canonical list, or an empty one}"
@@ -83,7 +73,6 @@ ccy_seats_take() {
     ccy_membership_args "$canonical" "${3:?ccy_seats_take requires --no-bus true or false}" \
         "${4:?ccy_seats_take requires the container name}" || return
     [ -n "$canonical" ] || return 0
-    _ccy_seats_need_agent_bus || return
     local take=(ccy-teams internal seat-take "$canonical")
     [ "$unattended" != true ] || take+=(--no-prompt)
     "${take[@]}" >&2 || { rc=$?; print_error "Not starting: agent-bus seat take could not seat this session in $canonical (exit $rc; the reason is above).
