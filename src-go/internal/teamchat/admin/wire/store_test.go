@@ -279,6 +279,49 @@ func TestCarryCheckStartIsTheHostsWithThePin(t *testing.T) {
 	}
 }
 
+// SI9: the import stages and places as the host: its stage is carry.StageOS under the root with
+// the teamchat-ctl account's uid and gid and the System's owner group, the account looked up
+// once; SD5: the drill's restart is host.Serve, which a team never applied cannot start.
+func TestCarryEngineStagesAsTheHost(t *testing.T) {
+	f := &fakeMachine{root: t.TempDir()}
+	sys := build(t, f)
+	d := carryEngineOf(t, sys).Deps
+	if f.n.users != 1 {
+		t.Fatalf("building the carry engine looked the account up %d times, want 1", f.n.users)
+	}
+	stage, ok := d.Stage.(carry.StageOS)
+	if !ok || stage.Root != f.root || stage.StateOwnerUID != 0 || stage.CtlUID != 990 || stage.CtlGID != 985 || stage.OwnerGroup == nil {
+		t.Fatalf("Stage = %#v", d.Stage)
+	}
+	if gid, err := stage.OwnerGroup(); err != nil || gid != 1000 || f.n.groups != 1 {
+		t.Fatalf("Stage.OwnerGroup = %d, %v after %d reads", gid, err, f.n.groups)
+	}
+	if _, err := sys.OwnerGroup(); err != nil || f.n.groups != 1 {
+		t.Fatalf("the stage and the System do not share one owner-group read: %v, %d reads", err, f.n.groups)
+	}
+	var he *host.Error
+	if err := d.Serve(t.Context(), alphaID(t)); !errors.As(err, &he) || !strings.Contains(err.Error(), "no units.json") {
+		t.Fatalf("Serve of an unapplied team = %v", err)
+	}
+}
+
+// SPEC-carry section 13: with no teamchat-ctl account, or its lookup failing, no carry engine
+// is built, and the error names the cause.
+func TestCarryNeedsTheCtlAccount(t *testing.T) {
+	for name, f := range map[string]*fakeMachine{
+		"no account": {root: t.TempDir(), noCtl: true},
+		"lookup":     {root: t.TempDir(), userErr: errors.New("nss down")},
+	} {
+		c, err := build(t, f).Carry()
+		if c != nil || err == nil {
+			t.Errorf("%s: Carry = %v, %v", name, c, err)
+		}
+		if f.n.users != 1 {
+			t.Errorf("%s: %d lookups, want 1", name, f.n.users)
+		}
+	}
+}
+
 // RW1 (A4's glue): the restore's child is the teamchat-ctl child for the live server, and the
 // secure unit's systemd-run for the staged one; the sandbox is the base unit's for the team.
 func TestRestoreEngineAsksTheChild(t *testing.T) {

@@ -110,6 +110,8 @@ type world struct {
 	placed   []PlacedFile // what carry.place handed the placer
 	lostRead []string     // each lost export the placer read from the stream, verified
 	placeErr error
+	// placeOnDisk makes the placer write each file under ctl/<team>/, as the child's does.
+	placeOnDisk bool
 
 	// base is a real homeserver's URL, set instead of srv (the tagged tests); the staged
 	// server is then reached on its own loopback port.
@@ -343,9 +345,14 @@ func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin
 
 // place is the child's placer as a test reads it: the files it was handed, each lost export
 // read from the stream and verified, its failure, and each name written.
-func (w *world) place(_ paths.TeamID, files []PlacedFile, lost *LostStream) ([]string, error) {
+func (w *world) place(team paths.TeamID, files []PlacedFile, lost *LostStream) ([]string, error) {
 	if w.placeErr != nil {
 		return nil, w.placeErr
+	}
+	if w.placeOnDisk {
+		if err := w.writePlaced(team, files); err != nil {
+			return nil, err
+		}
 	}
 	var read []string
 	for i := range lost.Files {

@@ -167,11 +167,14 @@ func (m machine) system(digest string) (*admin.System, error) {
 // carry is the carry engine over the host's adapters (SPEC-carry section 13); each carry verb
 // takes the team lock itself.
 func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths.Digest) (admin.Carrier, error) {
-	uid, err := m.ctlUID()
+	ids, err := m.ctlIDs()
 	if err != nil {
 		return nil, err
 	}
-	ids, err := m.ctlIDs()
+	uid, err := ctlUID(ids)
+	if err != nil {
+		return nil, err
+	}
 	root := m.root
 	return admin.CarryEngine{Deps: carry.Deps{
 		Stage: carry.StageOS{Root: root, StateOwnerUID: m.stateOwnerUID, CtlUID: int(uid), CtlGID: ids.GID, OwnerGroup: sys.OwnerGroup},
@@ -189,7 +192,7 @@ func (m machine) carry(sys *admin.System, systemd *units.Manager, software paths
 			h.Pin = pin
 			return host.ServeLoopback(ctx, h, team)
 		},
-	}}, err
+	}}, nil
 }
 
 // engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
