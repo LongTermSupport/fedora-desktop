@@ -2,6 +2,13 @@ user_login: "yourname"
 user_name: "Firstname Lastname"
 user_email: "yourname@example.com"
 
+# Required on a developer desktop (play-basic-configs and play-ZZZ-passwordless-sudo assert it;
+# a server or consumer install never has passwordless sudo and ignores it). true keeps
+# `NOPASSWD: ALL` for user_login: a host whose deploys an agent runs unattended needs it, since
+# meta-deploy.bash cannot answer a password prompt. false removes it, and sudo asks for your
+# password. It is applied by the last play of a main run, so a run never loses it part way.
+passwordless_sudo_for_unattended_deploys: false
+
 # Required for LXC/GitHub SSH flow (play-lxc-install-config, play-github-cli-multi).
 # Set this even if not using LXC — play-github-cli-multi asserts it is defined.
 # Encrypt with: ansible-vault encrypt_string 'yourpassphrase' --name 'github_ssh_passphrase'

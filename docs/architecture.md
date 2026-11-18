@@ -136,6 +136,8 @@ The bootstrap script:
     - Calls `agent-bus-install`; after the VPN play because a team may listen on a WireGuard address.
 31. **play-gsettings.yml**: GNOME settings
 32. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+33. **play-ZZZ-passwordless-sudo.yml**: Passwordless sudo as host_vars declares it, last so
+    revoking it strands no later play
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 

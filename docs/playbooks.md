@@ -167,10 +167,9 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 
 - Installs basic packages (vim, wget, bash-completion, htop, btop, etc.), and removes packages
   the repo does not want (Thunar, whose D-Bus file-manager name clashes with Nautilus)
-- Configures passwordless sudo for the user on the **desktop** profile; on the **server**
-  profile it removes that grant, because a permanent `NOPASSWD:ALL` on a box reached by
-  automation is a ladder to root (headless runs get their credential from the preflight
-  contract instead — see [headless-provisioning.md](headless-provisioning.md))
+- Asserts that a developer desktop declares `passwordless_sudo_for_unattended_deploys`
+  (true or false) in its host_vars, so an undeclared host fails before the run changes much;
+  [play-ZZZ-passwordless-sudo.yml](#play-zzz-passwordless-sudoyml) applies the choice
 - Sets up Vim with Deus colorscheme
 - Configures bash environment and custom PS1 prompt, with its stale-fetch mark
   (`git-fetch-age`, a Go binary built from `src-go/`, so this play imports `play-golang.yml`)
@@ -849,7 +848,26 @@ nmcli connection down vpn-name
 **Actions**:
 
 - Removes stale or orphaned DNF repository files added by earlier playbooks
-- Runs last (ZZ prefix) to clean up after all other plays
+- Runs after all the other plays that add repositories (ZZ prefix)
+
+### play-ZZZ-passwordless-sudo.yml
+
+**Purpose**: Passwordless sudo, set by the host's declared choice, last in a main run\
+**Actions**:
+
+- On a developer desktop, keeps `NOPASSWD: ALL` for the user when host_vars says
+  `passwordless_sudo_for_unattended_deploys: true` (a host whose deploys an agent runs
+  unattended), and removes it when it says false; there is no default, and the play fails on a
+  developer desktop that does not declare it
+- On the **server** profile and a consumer install it removes that grant, because a permanent
+  `NOPASSWD:ALL` on a box reached by automation is a ladder to root (headless runs get their
+  credential from the preflight contract instead — see
+  [headless-provisioning.md](headless-provisioning.md))
+- Removes the kickstart's first-boot rule (`/etc/sudoers.d/99-fedora-desktop-setup`); the
+  kickstart's first-boot wrapper removes it too, for a run that fails before this play
+- Runs last: run.bash decides once, before a run, whether Ansible needs the sudo password, so a
+  grant revoked earlier would fail every later play; no other play touches the grant, so a play
+  run on its own leaves it as it was
 
 ## Optional Playbooks
 

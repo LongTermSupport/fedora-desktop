@@ -41,3 +41,12 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Q15: passwordless sudo is now the host's declared choice, applied by this new last play.
+# DO NOT RUN until this host's environment/localhost/host_vars/localhost.yml has the line
+# `passwordless_sudo_for_unattended_deploys: true` (the owner adds it; this host's unattended
+# deploys need passwordless sudo). With it, the play keeps the /etc/sudoers grant as it is and
+# removes /etc/sudoers.d/99-fedora-desktop-setup if a kickstart left one. Without it, the play
+# stops at its first task, an assertion naming the line, and changes nothing. With `false`, it
+# would REMOVE passwordless sudo, and meta-deploy.bash could no longer run unattended here.
+playbooks/imports/play-ZZZ-passwordless-sudo.yml

@@ -74,11 +74,11 @@ ISOs downloaded to a local partition.
 
 ## Files
 
-| File | Purpose |
-|------|---------|
+| File                         | Purpose                                                      |
+| ---------------------------- | ------------------------------------------------------------ |
 | `setup-netinstall-boot.bash` | Prepares existing system for install (partition, ISOs, GRUB) |
-| `ks.cfg` | Kickstart config — drives the Anaconda installer |
-| `build-iso.bash` | Alternative: embed kickstart into an ISO for USB install |
+| `ks.cfg`                     | Kickstart config — drives the Anaconda installer             |
+| `build-iso.bash`             | Alternative: embed kickstart into an ISO for USB install     |
 
 ---
 
@@ -100,6 +100,7 @@ sudo bash ./fedora-install/setup-netinstall-boot.bash
 ```
 
 This will:
+
 1. Create a 4 GiB `FDINST` ext4 partition by shrinking your LUKS container
    (you will be prompted for your LUKS passphrase)
 2. Download the Fedora netinstall ISO to FDINST
@@ -152,6 +153,7 @@ sudo bash ./fedora-install/setup-netinstall-boot.bash --remove
 On first GNOME login, a terminal opens automatically running `run.bash`.
 
 The wizard:
+
 1. Installs Ansible via pipx
 2. Generates an SSH key (`~/.ssh/id`)
 3. Authenticates with GitHub (`gh auth login` — choose SSH method when prompted)
@@ -165,6 +167,14 @@ The wizard:
 
 > The setup wizard only runs once. After completion, a sentinel file is written
 > at `~/.local/state/fedora-desktop-setup-complete` which prevents re-runs.
+
+The kickstart's passwordless sudo lasts for this first login only: the terminal removes
+`/etc/sudoers.d/99-fedora-desktop-setup` once `run.bash` ends, whether it passed or failed.
+After that, `passwordless_sudo_for_unattended_deploys` in `localhost.yml` decides. The
+kickstart writes it `false`, so sudo asks for your password. Set it `true` only on a host whose
+deploys an agent runs unattended. A `localhost.yml` pulled from your config repo must declare
+it too, or the main playbook stops and names the line to add (see
+[docs/playbooks.md](../docs/playbooks.md#play-zzz-passwordless-sudoyml)).
 
 ---
 
@@ -187,6 +197,7 @@ cd ~/Projects/fedora-desktop
 ```
 
 This will:
+
 - Select your GitHub account interactively (if multiple)
 - Create the `fedora-desktop-config` private repo if it doesn't exist
 - Validate that all sensitive values are Ansible Vault-encrypted
@@ -255,7 +266,9 @@ than one of your GitHub accounts.
 ### Scenario A — Moving to a new machine
 
 1. Push config and projects (above)
+
 2. Set up the new machine using the normal install process (Steps 1–3 above)
+
 3. When `run.bash` finishes the main Ansible setup, it will offer to restore
    your projects:
 
@@ -333,6 +346,7 @@ Run: `sudo grub2-editenv - unset menu_auto_hide && sudo grub2-mkconfig -o /boot/
 ### Installer hangs at boot
 
 Check that `vmlinuz` and `initrd.img` are present in `/boot/fedora-netinstall/`:
+
 ```bash
 ls -lh /boot/fedora-netinstall/
 ```
@@ -340,6 +354,7 @@ ls -lh /boot/fedora-netinstall/
 ### WiFi not connecting in installer
 
 The `%pre` TUI will show an error and let you retry. Common causes:
+
 - Passphrase containing backslashes (not supported by NetworkManager config)
 - Wrong SSID (check capitalisation)
 - 5 GHz networks not supported on some older adapters
