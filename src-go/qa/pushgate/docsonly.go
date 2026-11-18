@@ -55,19 +55,22 @@ func (g *gate) note(line string) {
 	g.errOut.Line("qa-push-gate: " + line)
 }
 
-// docsOnlyRange is the files the push changes, and whether qa.yml at the pushed commit leaves
-// out every one of them. An error wrapping errFailClosed is a reason it cannot be known.
+// docsOnlyRange is the files the push changes, and whether qa.yml leaves out every one of them,
+// both at the protected line's tip and at the pushed commit. The tip's filter is the one already
+// judged; the pushed commit's is the one GitHub applies. Requiring both means a push cannot widen
+// the filter to approve its own change. An error wrapping errFailClosed is a reason it cannot be
+// known.
 func (g *gate) docsOnlyRange(ctx context.Context, ref prepush.Ref) ([]string, bool, error) {
 	if ref.RemoteID == prepush.ZeroID {
 		return nil, false, failClosed("a new branch has no tip on the remote to take its changed files from")
 	}
-	workflow, err := g.git(ctx, "cat-file", "blob", ref.LocalID+":"+QAWorkflow)
-	if err != nil {
-		return nil, false, failClosed("cannot read %s at %s: %v", QAWorkflow, ref.LocalID[:short], err)
-	}
-	filter, err := parsePushFilter([]byte(workflow))
-	if err != nil {
-		return nil, false, failClosed("cannot read the push filter of %s at %s: %v", QAWorkflow, ref.LocalID[:short], err)
+	filters := make([]pathFilter, 0, 2)
+	for _, sha := range []string{ref.RemoteID, ref.LocalID} {
+		filter, err := g.filterAt(ctx, sha)
+		if err != nil {
+			return nil, false, err
+		}
+		filters = append(filters, filter)
 	}
 	listed, err := g.git(ctx, "diff", "--name-only", "-z", "--no-renames", ref.RemoteID, ref.LocalID, "--")
 	if err != nil {
@@ -75,11 +78,26 @@ func (g *gate) docsOnlyRange(ctx context.Context, ref prepush.Ref) ([]string, bo
 	}
 	files := strings.FieldsFunc(listed, func(r rune) bool { return r == 0 })
 	for _, f := range files {
-		if filter.runsFor(f) {
-			return files, false, nil
+		for _, filter := range filters {
+			if filter.runsFor(f) {
+				return files, false, nil
+			}
 		}
 	}
 	return files, true, nil
+}
+
+// filterAt is the push filter of qa.yml at sha; an error wraps errFailClosed.
+func (g *gate) filterAt(ctx context.Context, sha string) (pathFilter, error) {
+	workflow, err := g.git(ctx, "cat-file", "blob", sha+":"+QAWorkflow)
+	if err != nil {
+		return pathFilter{}, failClosed("cannot read %s at %s: %v", QAWorkflow, sha[:short], err)
+	}
+	filter, err := parsePushFilter([]byte(workflow))
+	if err != nil {
+		return pathFilter{}, failClosed("cannot read the push filter of %s at %s: %v", QAWorkflow, sha[:short], err)
+	}
+	return filter, nil
 }
 
 // checkoutIs holds that the checkout the local docs check judges is the pushed commit: HEAD is

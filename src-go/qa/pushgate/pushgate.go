@@ -16,8 +16,9 @@
 // A docs-only range gets no CI run, because qa.yml's push trigger filters documentation out, so
 // it is judged locally instead. The range is the files changed between the protected branch's
 // tip on the remote (the ref line's old id) and the pushed commit, a rename counting both paths
-// and a deletion its path; it is docs-only when the push filter of qa.yml AT THE PUSHED COMMIT,
-// read the way GitHub reads it (filter.go), leaves out every one of them. Then, when the checkout
+// and a deletion its path; it is docs-only when the push filter of qa.yml, read the way GitHub
+// reads it (filter.go), leaves out every one of them both at the branch's tip on the remote and
+// at the pushed commit, so a push cannot widen the filter to approve itself. Then, when the checkout
 // is that commit with nothing changed or untracked, ./scripts/qa-changed.bash --base <old tip>
 // runs over the range: a pass lets the push go, a failure refuses it. Whatever stops the gate
 // knowing (a new branch, qa.yml or its filter unreadable, a pattern outside the matcher, the
@@ -82,8 +83,8 @@ other work branch runs no CI), wait for CI, then push that same commit to the pr
   git push origin <sha>:F44
   git push origin --delete ci/<topic>
 
-A docs-only range (every file it changes left out by the push filter of ` + QAWorkflow + `
-at the pushed commit, so CI never runs it) is judged locally instead, from a clean checkout of
+A docs-only range (every file it changes left out by the push filter of ` + QAWorkflow + `,
+both at the branch's tip and at the pushed commit, so CI never runs it) is judged locally instead, from a clean checkout of
 the commit: ./` + docsCheckScript + ` --base <the branch's tip on the remote>. Its pass
 lets the push go; its failure refuses it. When the gate cannot know (a new branch, an unreadable
 filter, a dirty checkout or one elsewhere), CI's run is required and stderr says why.

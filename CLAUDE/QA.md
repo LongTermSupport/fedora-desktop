@@ -2959,13 +2959,14 @@ none. Only push runs count: a pull request's run judges a merge of the commit, n
 leaves documentation out (`actionsqaci.docsOnlyPush`), so the gate judges it locally. The range
 is the files changed between the protected branch's tip on the remote (the ref line's old id) and
 the pushed commit (a rename counts both paths, a deletion its path). It is docs-only when the push
-filter of qa.yml at the pushed commit, read as GitHub reads it (`src-go/qa/pushgate/filter.go`:
-patterns in order, a `!` pattern takes back earlier matches, the last match decides), leaves out
-every file. Then, from a checkout whose HEAD is that commit with nothing changed or untracked, the
+filter of qa.yml, read as GitHub reads it (`src-go/qa/pushgate/filter.go`: patterns in order, a
+`!` pattern takes back earlier matches, the last match decides), leaves out every file both at the
+branch's tip on the remote and at the pushed commit, so a push cannot widen the filter to approve
+its own change. Then, from a checkout whose HEAD is that commit with nothing changed or untracked, the
 gate runs `./scripts/qa-changed.bash --base <old tip>` over the range: a pass lets the push go
 (the verdict line says the local docs check stood in for CI), a failure refuses it with this rule
 id. The gate fails closed to requiring CI's run, saying why on stderr, when it cannot know: a new
-branch (no old tip), qa.yml or its filter unreadable at the commit, a pattern outside the
+branch (no old tip), qa.yml or its filter unreadable at either commit, a pattern outside the
 matcher's syntax, the range not computable, or the checkout elsewhere or dirty.
 gh failing or not logged in, a remote that names no GitHub repository, or an unreadable policy
 is exit 2. A push to any other ref, a deletion, and a push that leaves a branch's tip where it

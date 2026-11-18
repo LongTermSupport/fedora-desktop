@@ -34,9 +34,10 @@ const (
 	docsCheck = cwd + "/scripts/qa-changed.bash --base " + old
 )
 
-// rangeOf makes git answer the push of sha over old: qa.yml at sha is filteredWorkflow, and the
-// files changed between them are these.
+// rangeOf makes git answer the push of sha over old: qa.yml at both old and sha is
+// filteredWorkflow, and the files changed between them are these.
 func (r *rig) rangeOf(sha string, files ...string) {
+	r.runner.answers[catFile(old)] = proc.Result{Stdout: filteredWorkflow}
 	r.runner.answers[catFile(sha)] = proc.Result{Stdout: filteredWorkflow}
 	listed := ""
 	for _, f := range files {
@@ -135,6 +136,25 @@ func TestAMixedRangeStillNeedsCI(t *testing.T) {
 			r.says("no QA run")
 		})
 	}
+}
+
+// A push cannot widen the filter that judges it: a commit that rewrites qa.yml's push filter so
+// that its own change to qa.yml counts as documentation is judged by the filter the protected
+// line already has, which runs CI for it.
+func TestAPushThatWidensTheFilterCannotApproveItself(t *testing.T) {
+	r := newRig(t)
+	r.rangeOf(tip, "README.md", QAWorkflow)
+	r.runner.answers[catFile(tip)] = proc.Result{Stdout: strings.Replace(filteredWorkflow, `      - "!docs/**"`, "      - \"!docs/**\"\n      - \"!.github/**\"", 1)}
+	r.checkout(tip, "")
+	r.runner.answers[docsCheck] = proc.Result{Code: 0}
+	r.ci()
+	if code := r.run(pushF44); code != ExitRefused {
+		t.Fatalf("exit %d: %s", code, r.text())
+	}
+	if r.asked(docsCheck) {
+		t.Fatalf("judged a filter-widening push by its own filter: %v", r.runner.ran)
+	}
+	r.says("no QA run")
 }
 
 // Whatever stops the gate knowing a range is docs-only, it asks CI as before, saying why.
