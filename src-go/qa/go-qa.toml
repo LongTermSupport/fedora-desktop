@@ -10,16 +10,18 @@ modules = ["qa"]
 [tools]
 # The project record (qa/record.toml) is the owner's to sign: its [ratchet] table is the owner's
 # signature, which accepts each entry and the trust tier given to the model that wrote it. Until
-# it is signed the record fails, and without it every exclusion in .golangci.yml would fail the
-# suppression detector. Both are on, together, since the owner's signature (Plan 00191 Task 3.8).
+# it is signed the record fails. The suppression detector fails any in-code directive the record
+# does not cover, and every path or text exclusion rule in .golangci.yml outright: a check runs on
+# all code or is off for all code (the owner's ruling of 2026-11-18). Both are on, together, since
+# the owner's signature (Plan 00191 Task 3.8).
 record = true
 suppression = true
 
 # The record's policy (go-qa-ci docs/record.md). A role, not a person: whoever owns this repository
 # signs as repository-owner, the name the ratchet and any human entry must carry. qa/record.toml
-# holds one entry per configuration exception of .golangci.yml and one for the generated header of
-# widthtable.go, so max_total is that count, and an entry a Claude Opus model wrote is medium trust
-# (30-day review); the one a Sonnet model wrote is low trust (below).
+# holds one entry, for the generated header of widthtable.go; max_total is a ceiling, and the
+# ratchet's high_water is the count. An entry a Claude Opus model writes is medium trust (30-day
+# review); one a Sonnet model writes is low trust (below).
 # history_base is the default branch, which this repository names after the Fedora release.
 [record]
 deciders = ["repository-owner"]
