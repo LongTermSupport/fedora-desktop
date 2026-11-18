@@ -41,16 +41,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00245 (ccy 3.122.23, container 2.84.30): Go structs reordered so padding wastes no
-# memory; some of the packages are built into the image's teamchat and pingbus-status-line, so
-# the image is rebuilt once, at the next ccy start. Nothing a session does changes. Running
-# sessions are untouched. Expected: changed for the launcher's version and the image build
-# inputs; a second pass changed=0.
-playbooks/imports/play-claude-yolo.yml
-
-# Issue #338: the Hugging Face CLI task names its pipx app huggingface-hub, the canonical name
-# pipx keys the venv by, so the module now finds it installed instead of reinstalling it on
-# every run. Expected: that task changed at most once (only if huggingface-hub has a new
-# release), then ok; a second run of the play reports it ok. Afterwards report its status.
-playbooks/imports/play-python.yml
