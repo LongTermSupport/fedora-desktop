@@ -157,7 +157,8 @@ jobs:
             "semgrep==${SEMGREP}" \
             ansible
           # The runner's architecture picks each asset, in each upstream's own spelling. The
-          # shellcheck digests belong to the SHELLCHECK pin in .qa-versions: bump them with it.
+          # digests of the ShellCheck archives belong to the SHELLCHECK pin in .qa-versions:
+          # bump them with it.
           case "$(uname -m)" in
             x86_64) sc_arch=x86_64; sc_sha=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198; go_arch=amd64 ;;
             aarch64) sc_arch=aarch64; sc_sha=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588; go_arch=arm64 ;;

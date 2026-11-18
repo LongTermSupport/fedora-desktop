@@ -28,6 +28,18 @@ name: Release
 on:
   push:
     branches: ["F[0-9]*"]
+    # A docs-only push releases nothing (actionsqaci.docsOnlyPush); the next push decides from the
+    # whole branch. CHANGELOG.md is re-included: merging the release pull request changes only it,
+    # and that push is the one that signs the tag.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "CHANGELOG.md"
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+      - ".claude/**"
+      - ".github/**"
 
 permissions:
   contents: read

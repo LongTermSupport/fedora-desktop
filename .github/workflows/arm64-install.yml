@@ -17,6 +17,19 @@ on:
     branches: ["F44"]
   push:
     branches: ["F44-arm"]
+    # A push that changes only documentation installs nothing new (actionsqaci.docsOnlyPush).
+    # Markdown the install deploys (files/), the extensions, and the instruction Markdown agents
+    # and tools read are code, so they still run it.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "files/**"
+      - "extensions/**"
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+      - ".claude/**"
+      - ".github/**"
   workflow_dispatch:
 
 permissions:

@@ -10,6 +10,11 @@ on:
     - cron: "17 6 * * *"
   push:
     branches: [F44]
+    # A docs-only merge changes no branch's state that a push run would see first: the daily run
+    # above still judges whatever it leaves (actionsqaci.docsOnlyPush).
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
