@@ -189,11 +189,6 @@ func (s saSystemd) State(_ context.Context, unit string) (host.UnitState, error)
 
 func (s saSystemd) JournalTail(context.Context, string) (string, error) { return "", nil }
 
-func (s saSystemd) CleanState(_ context.Context, unit string) error {
-	s.h.t.Errorf("the state of %s was cleaned", unit)
-	return errors.New("no clean")
-}
-
 type saFirewall struct{ h *saHost }
 
 func (f saFirewall) Zone(context.Context, netip.Prefix) (string, error) { return "public", nil }

@@ -106,8 +106,6 @@ type Systemd interface {
 	Disable(ctx context.Context, unit string) error
 	State(ctx context.Context, unit string) (UnitState, error)
 	JournalTail(ctx context.Context, unit string) (string, error)
-	// CleanState is `systemctl clean --what=state` of the unit.
-	CleanState(ctx context.Context, unit string) error
 }
 
 // Firewall is firewalld. Query answers by `--query-rich-rule`'s exit status, 0 present and 1

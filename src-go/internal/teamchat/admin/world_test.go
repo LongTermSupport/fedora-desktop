@@ -443,8 +443,6 @@ func (s *fakeSystemd) State(_ context.Context, unit string) (host.UnitState, err
 
 func (s *fakeSystemd) JournalTail(context.Context, string) (string, error) { return "", nil }
 
-func (s *fakeSystemd) CleanState(context.Context, string) error { return nil }
-
 func (s *fakeSystemd) unit(name string) *host.UnitState {
 	if s.w.units[name] == nil {
 		s.w.units[name] = &host.UnitState{Active: "inactive"}

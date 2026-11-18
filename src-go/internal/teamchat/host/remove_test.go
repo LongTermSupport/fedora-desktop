@@ -132,6 +132,8 @@ func TestRemove(t *testing.T) {
 	w := applied(t)
 	w.status.removeLine = "status record removed"
 	team := ops(t)
+	makeDatabase(t, w)
+	linkState(t, w)
 	lines, err := remove(t, w, false)
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +157,7 @@ func TestRemove(t *testing.T) {
 	for _, p := range []string{
 		paths.AdminState(team), paths.TLSDir(team), paths.CtlState(team), paths.ServerConfig(team),
 		paths.ServerNameFile(team), paths.UnitsRecord(team), paths.TeamDeclaration(team),
+		paths.HomeserverState(team), paths.HomeserverPrivateDatabase(team),
 	} {
 		if !w.exists(p) {
 			t.Errorf("%s was removed without --purge", p)
@@ -165,9 +168,6 @@ func TestRemove(t *testing.T) {
 	}
 	for _, pair := range [][2]string{{"stop", "remove"}, {"remove", "daemon-reload"}, {"daemon-reload", "status.remove"}} {
 		before(t, w.log, pair[0], pair[1])
-	}
-	if w.called("clean") {
-		t.Error("the homeserver's state was cleaned without --purge")
 	}
 	lockIsFree(t, w)
 	if lines, err := remove(t, w, false); err != nil || lines != nil {
@@ -227,10 +227,37 @@ func TestRemoveKeepsAnotherDropIn(t *testing.T) {
 	}
 }
 
-// HS14: --purge also cleans the homeserver's state and removes ctl/<team>/, the approval and
-// root/<team>/, the last of them last; the status directory stays for the status record's writer.
+// linkState makes the homeserver's state as systemd keeps it for a DynamicUser: the state
+// directory a link to the private one.
+func linkState(t *testing.T, w *world) {
+	t.Helper()
+	mkdirAllOrFail(t, w.at(paths.HomeserverStateRoot))
+	if err := os.Symlink(w.at(paths.HomeserverPrivateState(ops(t))), w.at(paths.HomeserverState(ops(t)))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// noSystemdAfterTheDropIns holds that nothing asked systemd about the team once its drop-ins
+// were gone: the template unit has no ExecStart= without the drop-in, so systemd refuses any
+// act on the team's unit ("bad unit file setting"), and a purge must not depend on one.
+func noSystemdAfterTheDropIns(t *testing.T, log []string) {
+	t.Helper()
+	at := slices.Index(log, "status.remove")
+	if at < 0 {
+		t.Fatalf("no status.remove in %q", log)
+	}
+	if after := log[at+1:]; len(after) != 0 {
+		t.Errorf("seam calls after the drop-ins were removed: %q", after)
+	}
+}
+
+// HS14: --purge also removes the homeserver's state (the private directory and systemd's link to
+// it, with no systemd act: the unit is undefined once its drop-in is gone), then ctl/<team>/, the
+// approval and root/<team>/, the last of them last; the status directory stays for the status
+// record's writer.
 func TestRemovePurge(t *testing.T) {
 	w := purgeable(t)
+	linkState(t, w)
 	team := ops(t)
 	lines, err := remove(t, w, true)
 	if err != nil {
@@ -240,34 +267,85 @@ func TestRemovePurge(t *testing.T) {
 	if len(lines) < len(want) || !slices.Equal(lines[len(lines)-len(want):], want) {
 		t.Errorf("lines %q, want them to end %q", lines, want)
 	}
-	for _, p := range []string{paths.AdminState(team), paths.TLSDir(team), paths.CtlState(team), paths.ApprovedFile(team)} {
+	for _, p := range []string{
+		paths.AdminState(team), paths.TLSDir(team), paths.CtlState(team), paths.ApprovedFile(team),
+		paths.HomeserverState(team), paths.HomeserverPrivateState(team),
+	} {
 		if w.exists(p) {
 			t.Errorf("%s is still there", p)
 		}
 	}
-	if !w.exists(paths.StatusTeamDir(team)) {
-		t.Error("the status directory was removed")
+	if !w.exists(paths.StatusTeamDir(team)) || !w.exists(paths.HomeserverPrivateStateRoot) || !w.exists(paths.HomeserverStateRoot) {
+		t.Error("a directory every team shares was removed")
 	}
-	before(t, w.log, "status.remove", "clean")
+	noSystemdAfterTheDropIns(t, w.log)
 	if lines, err := remove(t, w, true); err != nil || lines != nil {
 		t.Errorf("a second purge: lines %q, err %v", lines, err)
 	}
 }
 
-// HS14: a purge after a plain remove still purges, and one with nothing to clean reports only
-// what it removed.
+// HS14, n2d-H16: a purge after a plain remove still purges, the homeserver's state included,
+// though the drop-in went with the plain remove; one with no state reports only what it removed.
 func TestPurgeAfterRemove(t *testing.T) {
-	w := applied(t)
-	if _, err := remove(t, w, false); err != nil {
-		t.Fatal(err)
+	for name, c := range map[string]struct {
+		state bool
+		want  []string
+	}{
+		"with state":    {true, []string{"homeserver state cleaned", "ctl state removed", "leaf removed", "root state removed"}},
+		"with no state": {false, []string{"ctl state removed", "leaf removed", "root state removed"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := applied(t)
+			if c.state {
+				makeDatabase(t, w)
+				linkState(t, w)
+			}
+			if _, err := remove(t, w, false); err != nil {
+				t.Fatal(err)
+			}
+			w.log = nil
+			lines, err := remove(t, w, true)
+			if err != nil || !slices.Equal(lines, c.want) {
+				t.Errorf("lines %q, err %v", lines, err)
+			}
+			if w.exists(paths.HomeserverPrivateState(ops(t))) || w.exists(paths.HomeserverState(ops(t))) {
+				t.Error("the homeserver's state is still there")
+			}
+		})
 	}
-	lines, err := remove(t, w, true)
-	if err != nil || !slices.Equal(lines, []string{"ctl state removed", "leaf removed", "root state removed"}) {
-		t.Errorf("lines %q, err %v", lines, err)
-	}
-	if w.called("clean") {
-		t.Error("a team with no homeserver state was cleaned")
-	}
+}
+
+// HS14: the state directory is removed as what it is: a link is removed and never followed, so
+// what it points to outside the private directory stays; a real directory is removed whole.
+func TestPurgeRemovesTheStateDirectoryAsItIs(t *testing.T) {
+	t.Run("a link elsewhere", func(t *testing.T) {
+		w := purgeable(t)
+		outside := filepath.Join(t.TempDir(), "keep")
+		if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mkdirAllOrFail(t, w.at(paths.HomeserverStateRoot))
+		if err := os.Symlink(filepath.Dir(outside), w.at(paths.HomeserverState(ops(t)))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := remove(t, w, true); err != nil {
+			t.Fatal(err)
+		}
+		if w.exists(paths.HomeserverState(ops(t))) {
+			t.Error("the link is still there")
+		}
+		if _, err := os.Stat(outside); err != nil {
+			t.Errorf("the link was followed: %v", err)
+		}
+	})
+	t.Run("a real directory", func(t *testing.T) {
+		w := applied(t)
+		mkdirAllOrFail(t, w.at(paths.HomeserverState(ops(t))+"/db"))
+		lines, err := remove(t, w, true)
+		if err != nil || !slices.Contains(lines, "homeserver state cleaned") || w.exists(paths.HomeserverState(ops(t))) {
+			t.Errorf("lines %q, err %v", lines, err)
+		}
+	})
 }
 
 // HS13, HS14: each step's failure fails the verb with the step named, is not drift, keeps the
@@ -275,7 +353,7 @@ func TestPurgeAfterRemove(t *testing.T) {
 func TestRemoveEachFailureStopsWhatFollows(t *testing.T) {
 	for fault, step := range map[string]string{
 		"state": StepUnit, "stop": StepUnit, "disable": StepUnit, "query": StepFirewall, "remove": StepFirewall,
-		"daemon-reload": StepFiles, "status.remove": StepStatus, "clean": StepPurge,
+		"daemon-reload": StepFiles, "status.remove": StepStatus,
 	} {
 		t.Run(fault, func(t *testing.T) {
 			w := purgeable(t)
@@ -290,8 +368,7 @@ func TestRemoveEachFailureStopsWhatFollows(t *testing.T) {
 			}
 			stopped := map[string]bool{
 				StepUnit: !w.called("query"), StepFirewall: w.exists(paths.ServerDropInFile(ops(t))),
-				StepFiles: !w.called("status.remove"), StepStatus: !w.called("clean"),
-				StepPurge: w.exists(paths.AdminState(ops(t))),
+				StepFiles: !w.called("status.remove"), StepStatus: w.exists(paths.HomeserverPrivateState(ops(t))),
 			}
 			if !stopped[step] {
 				t.Errorf("a failure at %s did not stop what follows: %q", step, w.log)
@@ -325,11 +402,12 @@ func TestRemoveFileFailures(t *testing.T) {
 			}
 			w.write(paths.AdminStateRoot, "")
 		}},
+		"homeserver state": {StepPurge, func(w *world) { w.write(paths.HomeserverStateRoot, "") }},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := applied(t)
 			c.spoil(w)
-			if _, err := remove(t, w, false); stepOf(t, err).Step != c.step {
+			if _, err := remove(t, w, c.step == StepPurge); stepOf(t, err).Step != c.step {
 				t.Errorf("got %v, want step %s", err, c.step)
 			}
 			lockIsFree(t, w)

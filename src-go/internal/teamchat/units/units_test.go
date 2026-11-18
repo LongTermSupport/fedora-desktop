@@ -678,7 +678,7 @@ func TestUnitNamesAreCheckedBeforeAnyCall(t *testing.T) {
 		_, tailErr := h.JournalTail(ctx, unit)
 		for i, err := range []error{
 			h.Start(ctx, unit), h.Restart(ctx, unit), h.Stop(ctx, unit), h.Enable(ctx, unit),
-			h.Disable(ctx, unit), h.CleanState(ctx, unit), stateErr, healthErr, tailErr, hl.Restart(ctx, unit),
+			h.Disable(ctx, unit), stateErr, healthErr, tailErr, hl.Restart(ctx, unit),
 		} {
 			if !errors.Is(err, ErrUnitName) {
 				t.Errorf("%q call %d: err = %v", unit, i, err)
@@ -1005,14 +1005,10 @@ func TestHealthStateWrongTypesAreErrors(t *testing.T) {
 	}
 }
 
-func TestCleanStateAndJournalTailRunThroughExecx(t *testing.T) {
+func TestJournalTailRunsThroughExecx(t *testing.T) {
 	r := newRig(t)
 	unit := testUnit(t)
-	r.run.On([]string{"/usr/bin/systemctl", "clean", "--what=state", unit}, execx.Result{})
 	r.run.On([]string{"/usr/bin/journalctl", "-u", unit, "-n", "20", "--no-pager", "-o", "cat"}, execx.Result{Stdout: []byte("line 1\nline 2\n")})
-	if err := r.m.Host().CleanState(t.Context(), unit); err != nil {
-		t.Fatal(err)
-	}
 	tail, err := r.m.Host().JournalTail(t.Context(), unit)
 	if err != nil || tail != "line 1\nline 2\n" {
 		t.Fatalf("tail = %q, %v", tail, err)
@@ -1025,11 +1021,7 @@ func TestCleanStateAndJournalTailRunThroughExecx(t *testing.T) {
 			t.Errorf("%s ran with CleanEnv %v and Env %q", c.Name, c.CleanEnv, c.Env)
 		}
 	}
-	r.run.On([]string{"/usr/bin/systemctl"}, execx.Result{ExitCode: 1, Stderr: []byte("busy")})
 	r.run.On([]string{"/usr/bin/journalctl"}, execx.Result{ExitCode: 1})
-	if err := r.m.Host().CleanState(t.Context(), unit); err == nil || !strings.Contains(err.Error(), "clean "+unit) {
-		t.Errorf("clean err = %v", err)
-	}
 	if _, err := r.m.Host().JournalTail(t.Context(), unit); err == nil || !strings.Contains(err.Error(), "journal of "+unit) {
 		t.Errorf("tail err = %v", err)
 	}

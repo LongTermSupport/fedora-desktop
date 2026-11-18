@@ -19,7 +19,6 @@ import (
 type removing struct {
 	d       Deps
 	team    paths.TeamID
-	unit    string
 	purge   bool
 	changed []string
 }
@@ -31,7 +30,7 @@ type removing struct {
 // team that is not installed is a success with no lines. It answers the CHANGED lines, those
 // before a failure included.
 func Remove(ctx context.Context, d Deps, team paths.TeamID, purge bool) ([]string, error) {
-	r := &removing{d: d, team: team, unit: paths.ServerUnit(team), purge: purge}
+	r := &removing{d: d, team: team, purge: purge}
 	lock, err := teamlock.Take(ctx, d.LockDir, team, "team.remove", d.LockWait, d.Clock, d.RemoveGuard)
 	if err != nil {
 		return nil, r.fail(StepLock, err)
@@ -230,19 +229,12 @@ func (r *removing) status(ctx context.Context) error {
 
 // purgeState removes the team's state, root/<team>/ last: while it is there the team is still
 // installed, so a purge that failed is finished by the next.
-func (r *removing) purgeState(ctx context.Context) error {
+func (r *removing) purgeState(context.Context) error {
 	if !r.purge {
 		return nil
 	}
-	db, err := exists(r.path(paths.HomeserverPrivateState(r.team)))
-	if err != nil {
+	if err := r.homeserverState(); err != nil {
 		return err
-	}
-	if db {
-		if err := r.d.Systemd.CleanState(ctx, r.unit); err != nil {
-			return err
-		}
-		r.note("homeserver state cleaned")
 	}
 	for _, step := range []struct{ path, line string }{
 		{paths.CtlState(r.team), "ctl state removed"},
@@ -261,6 +253,32 @@ func (r *removing) purgeState(ctx context.Context) error {
 			return err
 		}
 		r.note(step.line)
+	}
+	return nil
+}
+
+// homeserverState removes the homeserver's StateDirectory= itself: systemd's link to the
+// private directory (removed as a link, never followed, or whole if it is a directory), then the
+// private directory. It asks systemd nothing: the template unit has no ExecStart= without the
+// team's drop-in, which an earlier step or an earlier plain remove deleted, so systemd refuses
+// `systemctl clean` on it.
+func (r *removing) homeserverState() error {
+	removed := false
+	for _, p := range []string{paths.HomeserverState(r.team), paths.HomeserverPrivateState(r.team)} {
+		there, err := exists(r.path(p))
+		if err != nil {
+			return err
+		}
+		if !there {
+			continue
+		}
+		if err := os.RemoveAll(r.path(p)); err != nil {
+			return err
+		}
+		removed = true
+	}
+	if removed {
+		r.note("homeserver state cleaned")
 	}
 	return nil
 }

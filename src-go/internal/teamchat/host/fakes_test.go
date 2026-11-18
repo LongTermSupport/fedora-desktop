@@ -334,8 +334,6 @@ func (s *fakeSystemd) JournalTail(context.Context, string) (string, error) {
 	return s.journal, s.w.call("journal")
 }
 
-func (s *fakeSystemd) CleanState(context.Context, string) error { return s.w.call("clean") }
-
 func (s *fakeSystemd) unit(name string) *UnitState {
 	if s.units[name] == nil {
 		s.units[name] = &UnitState{Active: "inactive"}

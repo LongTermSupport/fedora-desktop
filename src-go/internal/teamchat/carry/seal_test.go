@@ -300,10 +300,9 @@ func (s sealSystemd) DaemonReload(context.Context) error {
 	return s.w.reloadErr
 }
 
-func (s sealSystemd) Start(context.Context, string) error      { return s.unexpected("start") }
-func (s sealSystemd) Restart(context.Context, string) error    { return s.unexpected("restart") }
-func (s sealSystemd) Enable(context.Context, string) error     { return s.unexpected("enable") }
-func (s sealSystemd) CleanState(context.Context, string) error { return s.unexpected("clean") }
+func (s sealSystemd) Start(context.Context, string) error   { return s.unexpected("start") }
+func (s sealSystemd) Restart(context.Context, string) error { return s.unexpected("restart") }
+func (s sealSystemd) Enable(context.Context, string) error  { return s.unexpected("enable") }
 
 func (s sealSystemd) JournalTail(context.Context, string) (string, error) {
 	return "", s.unexpected("journal")

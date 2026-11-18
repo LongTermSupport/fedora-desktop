@@ -245,8 +245,11 @@ and written under `Deps.Root`.
   `firewall.json` records, and only those, are removed in both configurations, then the
   record; the drop-in is deleted (its directory only when empty) with a daemon-reload; the
   stamp is deleted; `Status.Remove` is called (a migration-origin record's pointer is the
-  seam's to keep). With `--purge` also the homeserver's state (`systemctl clean`, when there
-  is one), `ctl/<team>/`, `approved.json` and `root/<team>/` last; the status directory stays.
+  seam's to keep). With `--purge` also the homeserver's state, when there is one: the
+  `StateDirectory=` link under `/var/lib/teamchat/` (removed as a link, never followed) and
+  the private directory under `/var/lib/private/teamchat/`, removed directly. systemd is not
+  asked: the template unit has no `ExecStart=` without the team's drop-in, which is gone by
+  then, so it refuses `systemctl clean` ("bad unit file setting"). Then `ctl/<team>/`, `approved.json` and `root/<team>/` last; the status directory stays.
   A failed remove is finished by the next.
 - **HS15. A reload is owed until it has succeeded.** Whether systemd must reload does not
   depend on whether the drop-in's bytes on disk match the render: a reload can fail, or a
@@ -276,4 +279,4 @@ Decisions where the design is silent (n2d-H):
 | n2d-H13 | "Not installed" is none of `root/<team>/`, `ctl/<team>/`, the drop-in or the stamp; it is asked under the lock, as `installed`, a step of its own.                                                    |
 | n2d-H14 | Remove deletes the drop-in directory only when it is empty: another file there is the owner's override and stays.                                                                                     |
 | n2d-H15 | `--purge` also deletes `approved.json`: a purged team that comes back is approved again. `root/<team>/` goes last, so a purge that failed is still installed and the next one finishes it.            |
-| n2d-H16 | The purge's `systemctl clean` runs only when the homeserver's private state directory is there, so a purge after a plain remove of a team never started reports nothing for it.                       |
+| n2d-H16 | The purge removes the homeserver's state only when its link or private directory is there, so a purge after a plain remove of a team never started reports nothing for it.                            |

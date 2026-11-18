@@ -656,17 +656,6 @@ func (m *Manager) healthState(ctx context.Context, unit string) (health.UnitStat
 	return st, nil
 }
 
-// cleanState is `systemctl clean --what=state` (SD6, n2f-D4).
-func (m *Manager) cleanState(ctx context.Context, unit string) error {
-	if err := checkUnit(unit); err != nil {
-		return err
-	}
-	if _, err := m.run.Run(ctx, program(execx.Cmd{Name: "/usr/bin/systemctl", Args: []string{"clean", "--what=state", unit}})); err != nil {
-		return fmt.Errorf("systemctl clean %s: %w", unit, err)
-	}
-	return nil
-}
-
 // journalTail is the unit's last 20 journal lines, only ever shown (SD6).
 func (m *Manager) journalTail(ctx context.Context, unit string) (string, error) {
 	if err := checkUnit(unit); err != nil {
@@ -745,10 +734,6 @@ func (h hostUnits) State(ctx context.Context, unit string) (host.UnitState, erro
 
 func (h hostUnits) JournalTail(ctx context.Context, unit string) (string, error) {
 	return h.m.journalTail(ctx, unit)
-}
-
-func (h hostUnits) CleanState(ctx context.Context, unit string) error {
-	return h.m.cleanState(ctx, unit)
 }
 
 // healthUnits is the Manager as health.Units.

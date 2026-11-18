@@ -70,8 +70,8 @@ const (
 // docker) by reclaim, the disk-space menu; netpolicy creates, holds the network policy of and
 // starts a ccy session's container (and runs one under docker unprotected); nmcli is run inside
 // a container by lxcfreeze, for the hotspot by ftpcamera and for its VPN profiles by nord.
-// systemctl is the desktop's units through sudo in systemd and `clean --what=state` of a
-// teamchat homeserver as root in teamchat/units (whose other unit calls are D-Bus). lxc-ls,
+// systemctl is the desktop's units through sudo in systemd (teamchat/units reaches systemd
+// over D-Bus only). lxc-ls,
 // lxc-info and lxc-attach are the freeze tool's through sudo in lxcfreeze, and teamchat-admin's
 // as root in teamchat/host/lxc/lxccmd, which may not link lxcfreeze's TUI or sudo. A program absent
 // from the table is unowned: any package may run it.
@@ -80,7 +80,7 @@ var commandOwners = map[string][]string{
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {systemdPkg, "internal/teamchat/units"},
+	"systemctl":    {systemdPkg},
 	"busctl":       {systemdPkg, "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
