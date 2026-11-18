@@ -5,19 +5,10 @@
 # The [ratchet] table is the repository owner's signature (Plan 00191 Task 3.8).
 
 [ratchet]
-high_water = 12
+high_water = 10
 decided_by = "repository-owner"
 decided_on = 2026-11-03
 reason = "raising the ceiling by one, to 30, for the gosec G401/G505 exclusion of Synapse's HMAC-SHA1 registration MAC in internal/teamchat/matrix (the repository owner's decision 3 on pull request 124, Plan 00246 Task 8.2); the test-file G301/G302/G306 exclusions of teamchat join entries already recorded and raise nothing. The ceiling was raised by two on 2026-10-29 for the tagliatelle exclusions of internal/netpolicy/podman.go (podman inspect's own field names, Plan 00232) and internal/containerimages/oldrange_records.go (c/storage's own mapped-layers key, Plan 00235)."
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::goconst+dupword"
-path = ".golangci.yml"
-justification = "goconst and dupword flag repeated literals and repeated words; a test spells out the argv it expects, and naming each repeated literal (gum, fzf) as a constant, or flagging a list like A A B, hides what is asserted. Scope: the exclusion for path _test.go only; production code is held to both."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-10-27
-review_by = 2026-11-26
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G204"
@@ -36,15 +27,6 @@ decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
 review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::govet.disable::fieldalignment"
-path = ".golangci.yml"
-justification = "Off repo-wide: fieldalignment's own Doc says its diagnostics very rarely indicate a significant problem, and vet and gopls leave it off by default. The repository owner's ruling of 2026-11-18 on Go QA (a check runs on all code or is off repo-wide; noisy checks are turned off; Q40 answered: drop fieldalignment). The 103 struct reorders of Plan 00245 stay. qa/lintconfig holds this."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
 
 [[exception]]
 rule = "golangci.yml::gosec.excludes::G301"

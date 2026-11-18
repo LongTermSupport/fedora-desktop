@@ -110,8 +110,8 @@ func TestFieldalignmentControl(t *testing.T) {
 	}
 }
 
-// TestFieldalignmentProjectConfig holds the owner's choice: fieldalignment is off, both halves.
-// govet's enable-all would otherwise turn it back on, so the test fails if the disable goes.
+// TestFieldalignmentProjectConfig holds the owner's choice: fieldalignment is off, both halves,
+// so the test fails if govet's settings turn it back on (by name or by enable-all).
 func TestFieldalignmentProjectConfig(t *testing.T) {
 	config, err := filepath.Abs(filepath.Join("..", "..", ".golangci.yml"))
 	if err != nil {

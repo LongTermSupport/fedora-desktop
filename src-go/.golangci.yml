@@ -1,6 +1,8 @@
-# golangci-lint v2, strict. The version is pinned in /.qa-versions (GOLANGCI_LINT).
+# golangci-lint v2. The version is pinned in /.qa-versions (GOLANGCI_LINT).
 # Every finding fails the gate; nothing is suppressed in code (nolint is banned by
-# R-QA-SUPPRESSION), so a rule that is wrong for this module is turned off HERE, with why.
+# R-QA-SUPPRESSION). The repository owner's ruling of 2026-11-18: Go's own defaults plus the
+# checks major Go projects run, each on for all code or off for all code with its reason here;
+# no list of per-path exceptions.
 version: "2"
 
 run:
@@ -8,70 +10,33 @@ run:
   tests: true
 
 linters:
-  default: all
-  disable:
-    # Deprecated in golangci-lint 2.x; default: all still selects them beside their
-    # successors (wsl_v5, gomodguard_v2), which stay enabled.
-    - wsl
-    - gomodguard
-    # Whitespace style (blank lines around returns and statements): layout is gofumpt's,
-    # and these flag idiomatic code, not defects.
-    - wsl_v5
-    - nlreturn
-    # `if err := f(); err != nil` is idiomatic Go that keeps err scoped to its check.
-    - noinlineerr
-    - exhaustruct_v5
-    # Forbids any global, including the sentinel errors and compiled regexps idiomatic Go
-    # keeps at package level.
-    - gochecknoglobals
-    # Demands every struct field be set in a literal: fights the zero-value idiom.
-    - exhaustruct
-    # Forbids non-stdlib imports unless listed; the module's dependencies are reviewed
-    # in go.mod instead.
-    - depguard
-    # Line length is gofumpt's and the reviewer's call, not a count.
-    - lll
-    # Bans the short names (r, w, t, ok) idiomatic Go uses in small scopes.
-    - varnamelen
-    # Requires t.Parallel() everywhere; tests that drive a fake terminal or change the
-    # working directory must not run in parallel.
-    - paralleltest
-    - tparallel
-    # Demands black-box test packages only; white-box tests of unexported logic are wanted.
-    - testpackage
-    # Flags every TODO; the plan tracks work, and none may be committed anyway.
-    - godox
-    # Wants every comment to end in a period, including list items and code references.
-    - godot
-    # Rejects every magic number including exit codes, column widths and retry counts
-    # that read best as literals beside their one use.
-    - mnd
-    # Forbids returning interfaces; the seams (Runner, Prompter) are constructed behind
-    # them on purpose.
-    - ireturn
-    # Bans package-level init and globals the tests never touch; too broad here.
-    - gochecknoinits
-    # Wants wrapped errors from every external package call even when the caller adds the
-    # context itself.
-    - wrapcheck
-    # Prints to stdout/stderr are this module's output, not debugging leftovers.
-    - forbidigo
-    # Prefers err113 sentinel-only errors; fmt.Errorf with %w is the house style.
-    - err113
-    # Not applicable: no HTTP handlers, no SQL, no protobuf.
-    - noctx
-    - rowserrcheck
-    - sqlclosecheck
-    - protogetter
-    # One JSON key case per module fights every wire format this code reads or writes (Claude's,
-    # pingbus's, podman's, rclone's, Matrix's); Go itself takes keys as the format gives them.
-    - tagliatelle
+  # errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    # Each is enabled by at least one major Go project.
+    - errorlint
+    - bodyclose
+    - exhaustive
+    - misspell
+    - unconvert
+    - usestdlibvars
+    - predeclared
+    - testifylint
+    - nolintlint
+    - unparam
+    - gocritic
+    - revive
+    - gosec
+    # Narrow, precise bug patterns. One that starts to need exceptions is turned off.
+    - nilerr
+    - nilnil
+    - errchkjson
+    - durationcheck
+    - thelper
+    # The one complexity measure.
+    - gocognit
   exclusions:
     rules:
-      # A test spells out the argv it expects; naming each repeated literal ("gum", "fzf")
-      # as a constant, or flagging a list like "A A B", hides what is asserted.
-      - path: _test\.go
-        linters: [goconst, dupword]
       # G204: the runner exists to launch a command from a variable; it is the one place that
       # may. Every other package reaches a program through it, so a G204 elsewhere is real.
       - path: internal/execx/
@@ -83,17 +48,6 @@ linters:
         linters: [gosec]
         text: "G204"
   settings:
-    cyclop:
-      max-complexity: 15
-    funlen:
-      lines: 80
-      statements: 50
-    gocognit:
-      min-complexity: 20
-    nestif:
-      min-complexity: 4
-    revive:
-      enable-all-rules: false
     gosec:
       excludes:
         # Reading a path from a variable (G304, G703) and a file or directory mode (G301, G302,
@@ -107,15 +61,21 @@ linters:
         - G501
         - G505
         - G703
+    gocognit:
+      min-complexity: 20
     errcheck:
       check-type-assertions: true
       check-blank: true
     govet:
-      enable-all: true
-      disable:
-        # More noise than signal: its own Doc says it very rarely finds a real problem, and vet
-        # and gopls leave it off. qa/lintconfig holds this.
-        - fieldalignment
+      # vet's own analyzers plus the ones gopls runs by default. shadow and fieldalignment stay
+      # off: more noise than signal (qa/lintconfig holds fieldalignment).
+      enable:
+        - nilness
+        - unusedwrite
+        - atomicalign
+        - deepequalerrors
+        - sortslice
+        - timeformat
     exhaustive:
       # A switch over an enum lists every member: a default would let a new member fall
       # through unhandled.
