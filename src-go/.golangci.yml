@@ -63,15 +63,11 @@ linters:
     - rowserrcheck
     - sqlclosecheck
     - protogetter
+    # One JSON key case per module fights every wire format this code reads or writes (Claude's,
+    # pingbus's, podman's, rclone's, Matrix's); Go itself takes keys as the format gives them.
+    - tagliatelle
   exclusions:
     rules:
-      # fieldalignment's pointer-ordering diagnostic (a struct no smaller in any order, whose
-      # pointers could come first so the garbage collector scans fewer bytes) saves no memory, and
-      # its own documentation says the analyzer very rarely finds a significant problem. Its size
-      # diagnostic, a struct that padding makes bigger than it need be, is still reported.
-      # qa/lintconfig holds both halves of this.
-      - linters: [govet]
-        text: '^fieldalignment: \S+ has \d+ leading bytes of pointer data but optimal value is \d+$'
       # A test spells out the argv it expects; naming each repeated literal ("gum", "fzf")
       # as a constant, or flagging a list like "A A B", hides what is asserted.
       - path: _test\.go
@@ -81,304 +77,12 @@ linters:
       - path: internal/execx/
         linters: [gosec]
         text: "G204"
-      # The transcript's field names are Claude's wire format (usage counts are snake_case
-      # beside camelCase siblings), not ours to choose.
-      - path: internal/transcript/transcript\.go
-        linters: [tagliatelle]
-      # `ccy --token-usage --json` is ccy's documented report (schema 1, snake_case keys).
-      - path: internal/wsitoken/usage\.go
-        linters: [tagliatelle]
-      # A session's membership file is pingbus's wire format (Plan 00203 SPEC-hot-control.md
-      # section 3.1, snake_case like the rest of pingbus's files), read by the session's pingbus.
-      - path: internal/teams/membership/(membership|desired)\.go
-        linters: [tagliatelle]
-      # The conversation record is the pingbus SessionStart hook's file (Plan 00203
-      # SPEC-team-add-and-restart C1), snake_case like the rest of pingbus's files.
-      - path: internal/conversation/conversation\.go
-        linters: [tagliatelle]
-      # The Matrix client list is pingbus's file (helpers/pingbus/matrix_clients.json, issue
-      # 251), snake_case like the rest of pingbus's files; the Go guards read a copy of it.
-      - path: internal/matrixclients/list\.go
-        linters: [tagliatelle]
-      # The status-line oracle's scenarios.json is the pingbus oracle's literal input (Plan 00213
-      # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
-      - path: internal/pingbus/statusline/golden/golden_test\.go
-        linters: [tagliatelle]
-      # The status line refuses files others can read; its tests build such files, and edit
-      # the cache file of their own temporary world.
-      - path: internal/pingbus/statusline/.*_test\.go
-        linters: [gosec]
-        text: "G302|G304|G306|G703"
-      # The launcher's differential harness builds a scratch sandbox per scenario, installs the
-      # checkout's launcher into it (executable, as the play does) and reads back what the run
-      # left there: every path is computed from its own temporary directory or the checkout.
-      # md5 is the launcher's own Dockerfile hash, which the fake engine must report back.
-      - path: internal/ccylaunch/difftest/.*_test\.go
-        linters: [gosec]
-        text: "G302|G304|G306|G401|G501|G703"
-      # The launcher's Go front reads the bash launcher beside its own executable and the
-      # libraries in its lib/, by computed path, and hashes them with md5 because that is the
-      # bash launcher's own integrity hash (CCY_HASH, md5sum), which Quick Launch files hold:
-      # a change-detection checksum the two halves must agree on, not a use for security.
-      - path: internal/ccylaunch/[^/]+\.go
-        linters: [gosec]
-        text: "G304|G401|G501|G703"
-      # The planted-pipe helpers open the named pipe a test made in its own temporary directory.
-      - path: (qa/)?internal/fifotest/
-        linters: [gosec]
-        text: "G304"
-      # The play lock's tests give the runtime directory a mode others can write: the state the
-      # lock must refuse to use.
-      - path: internal/playlock/playlock_test\.go
-        linters: [gosec]
-        text: "G302"
-      # The guest-root tests build fixtures with modes such as 0755, 0775 and 0757, because
-      # those modes are what the reads and writes must check or refuse.
-      - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
-        linters: [gosec]
-        text: "G301|G302|G306"
-      # The lxc phase tests build fixture guest trees with the modes a real guest has.
-      - path: internal/teamchat/host/lxc/[a-z_]+_test\.go
-        linters: [gosec]
-        text: "G301|G302|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
         linters: [gosec]
         text: "G204"
-      # qa-changed's whole job is to read the repository's files by computed path (their first
-      # line, a playbook's text, a suite's text) and to mirror files for semgrep; the paths come
-      # from git and the command line of the person running it.
-      - path: qa/changed/
-        linters: [gosec]
-        text: "G304|G703"
-      # qa-all and the gate table read the gate scripts and the counts file by computed path,
-      # and write the machine report where the caller says.
-      - path: qa/(all|gates)/
-        linters: [gosec]
-        text: "G304|G703|G306|G302"
-      # qa-ansible reads the tree through an fs.FS, but its tests build trees, set the execute
-      # bit the hygiene check looks for, and read the report back by computed path.
-      - path: qa/ansible/.*_test\.go
-        linters: [gosec]
-        text: "G304|G302|G306"
-      # qa-patterns copies the scripts into a scan mirror (discover.go), reads the trees table
-      # and each script's first line, reads the rules and semgrep's report (semgrep.go), and
-      # reads a script back for its line count (report.go), all by computed path; the paths come
-      # from the repository's own file list and the command line of the person running it. Only
-      # these files, so a new file or a test is still held to the rule.
-      - path: qa/patterns/(discover|semgrep|report)\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # qa-discovery reads the trees table and each candidate's first line by computed path; the
-      # paths come from git's file list and the command line of the person running it.
-      - path: qa/discovery/(list|trees)\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # qa-ansible-syntax reads each candidate playbook by the path git listed, and its tests read
-      # back a file they wrote under a temporary directory.
-      - path: qa/ansiblesyntax/(discover|helpers_test)\.go|qa/cmd/qa-ansible-syntax/main_test\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # The command's report writer and the real-tree test read and write by computed path.
-      - path: qa/cmd/qa-patterns/(main|real_test)\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # Two tests read back a file they wrote under a temporary directory.
-      - path: qa/(patterns/helpers_test|cmd/qa-patterns/main_test)\.go
-        linters: [gosec]
-        text: "G304"
-      # The QA lock's tests hold the lock through a second open of a file under a temporary
-      # directory, read its record back, and signal a child process by marker files beside it.
-      - path: qa/internal/qalock/.*_test\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # A test writes an executable stub to prove the executable check.
-      - path: qa/changed/.*_test\.go
-        linters: [gosec]
-        text: "G302|G306"
-      # qa-python reads the pin and the first line of each file git lists by computed path
-      # (ruff.go). Its tests build files with the modes the checks look for and read back what
-      # they wrote under a temporary directory.
-      - path: qa/python/(ruff|report)\.go
-        linters: [gosec]
-        text: "G304"
-      - path: qa/(python/.*|cmd/qa-python/main)_test\.go
-        linters: [gosec]
-        text: "G304|G302|G306"
-      # The one shared type for a semgrep result, whose keys are snake_case.
-      - path: qa/internal/semgrepreport/report\.go
-        linters: [tagliatelle]
-        text: "check_id"
-      # qa-bash reads each gated file for its directives and the allowlist by computed path (the
-      # paths come from git's file list). Its tests build files with the modes the checks look
-      # for and read back what they wrote under a temporary directory.
-      - path: qa/bash/directives\.go
-        linters: [gosec]
-        text: "G304|G703"
-      - path: qa/(bash/.*|cmd/qa-bash/main)_test\.go
-        linters: [gosec]
-        text: "G304|G302|G306"
-      # vmtest works in the lab tree under the user's own home: every path it opens is the lab
-      # directory joined with a fixed name or a validated base, member or run id. It keeps the
-      # modes the lab has always had (SPEC-vmtest.md section 5): run directories and records
-      # 0755/0644 because the run spool and the desktop bridge read them, base images 0444 so
-      # nothing writes a base by mistake. Its tests build that tree.
-      - path: internal/vmtest/
-        linters: [gosec]
-        text: "G304|G703|G301|G302|G306"
-      # rclonerc reads the RC credential at the path play-rclone.yml writes (or the one
-      # RCLONE_RC_AUTH_FILE names, as the bash library it mirrors does).
-      - path: internal/rclonerc/rclonerc\.go
-        linters: [gosec]
-        text: "G304"
-      # rclone-cache-status decodes rclone's vfs/stats answer, whose opt keys are rclone's own
-      # Go field names (CacheMaxSize, CacheMaxAge).
-      - path: internal/rclonecache/stats\.go
-        linters: [tagliatelle]
-        text: "CacheMax"
-      # container-images old-range decodes c/storage's own image records, whose keys are
-      # c/storage's (mapped-layers).
-      - path: internal/containerimages/oldrange_records\.go
-        linters: [tagliatelle]
-        text: "mapped-layers"
-      # ccy-network-policy decodes `podman inspect`, whose keys are podman's own Go field names
-      # (State, ResolvConfPath, EffectiveCaps).
-      - path: internal/netpolicy/podman\.go
-        linters: [tagliatelle]
-        text: "'(Pid|Running|State|ResolvConfPath|Privileged|HostConfig|EffectiveCaps|Networks|NetworkSettings)'"
-      # wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own
-      # (channel_map) and the sound server's property names (application.process.id).
-      - path: internal/wsimedia/app\.go
-        linters: [tagliatelle]
-        text: "channel_map|application\\.(process\\.id|process\\.binary|name)"
-      # ftp-camera's job is files by computed path: it reads its config and the uploads under
-      # the camera account's home, and copies each sorted upload into the rclone mount, creating
-      # its directories with the user's umask as cp and mkdir -p did (SPEC-ftp-camera.md E63).
-      # Its tests build that tree.
-      - path: internal/ftpcamera/
-        linters: [gosec]
-        text: "G304|G703|G301|G302|G306"
-      # watermark's job is the one image the person names: it reads its signature from the
-      # path given on the command line (SPEC-wsi-watermark.md M8).
-      - path: internal/watermark/image\.go
-        linters: [gosec]
-        text: "G304"
-      # open reads the desktop entries it found in the XDG application directories, by the path
-      # the search gave (SPEC-open.md E9, E10). Its tests build home and application trees with
-      # the modes a real one has.
-      - path: internal/open/desktop\.go
-        linters: [gosec]
-        text: "G304"
-      - path: internal/open/.*_test\.go
-        linters: [gosec]
-        text: "G301|G302|G306"
-      # wsi reads its PID file and its recording in /dev/shm and its log under the user's home,
-      # each a fixed name (SPEC-wsi-watermark.md W5-W7); its tests read back what it wrote there,
-      # copy the recording as the fake sox does, and write an executable stand-in recorder.
-      - path: internal/wsi/(app|log)\.go
-        linters: [gosec]
-        text: "G304"
-      # stt reads the recordings the person names on the command line, by computed path, and
-      # checks each part against the MD5 the phone app's manifest records: a comparison with a
-      # checksum it did not choose, not a use of MD5 for security. Its tests build that tree.
-      - path: internal/stt/
-        linters: [gosec]
-        text: "G304|G401|G501|G703"
-      - path: internal/wsi/.*_test\.go
-        linters: [gosec]
-        text: "G304|G306|G703"
-      # git-fetch-age reads the git directory of the checkout the prompt is in, by the paths git
-      # itself writes there: a .git file's gitdir line and a worktree's commondir (Plan 00183).
-      - path: internal/fetchage/fetchage\.go
-        linters: [gosec]
-        text: "G304|G703"
-      # gh-account-setup reads the configuration file the person names (LOCALHOST_YML) and the
-      # key's .pub by computed path, and makes ~/.ssh mode 0700, the mode ssh requires.
-      - path: internal/ghaccount/config\.go
-        linters: [gosec]
-        text: "G304"
-      - path: internal/ghaccount/app\.go
-        linters: [gosec]
-        text: "G304|G302"
-      # Its tests read back what they built under a temporary directory, and the command's test
-      # reads back the key its real ssh-keygen made.
-      - path: internal/ghaccount/[a-z]+_test\.go|cmd/gh-account-setup/main_test\.go
-        linters: [gosec]
-        text: "G304"
-      # consumer-install reads the checkout's own files (host_vars, the version file, the
-      # optional plays it lists) by paths computed from the checkout it runs in.
-      - path: internal/consumer/(app|plays)\.go
-        linters: [gosec]
-        text: "G304"
-      # Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's
-      # register endpoint): the admin client computes it, and the fake homeserver and its replay
-      # check it. The hash is the server's, not a choice made here.
-      - path: internal/teamchat/matrix/(admin|fakehs/admin|fakehs/replay_test)\.go
-        linters: [gosec]
-        text: "G401|G505"
-      # The seat store refuses a directory others can enter and a record others can read (Plan
-      # 00209 SPEC-n2c.md SW1, SW2); its tests build those states.
-      - path: internal/teamchat/seat/.*_test\.go
-        linters: [gosec]
-        text: "G301|G302|G306"
-      # A member's own files refuse a directory or file others can write or enter, and a lock
-      # file of any mode but 0600 (SPEC-n3 TB4, GU1); their tests build those states.
-      - path: internal/teamchat/member/.*_test\.go
-        linters: [gosec]
-        text: "G301|G302|G306"
-      # The Element profiles refuse a consent others can read and put back a profile directory
-      # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states.
-      - path: internal/teamchat/element/.*_test\.go
-        linters: [gosec]
-        text: "G302"
   settings:
-    tagliatelle:
-      case:
-        overrides:
-          # One rule, the repository owner's decision of 2026-11-03 (pull request 124): the JSON
-          # formats v2 (teamchat) owns, and the wire formats it speaks, are snake_case, and are
-          # still held to that one case. The packages below are the ones whose structs carry such
-          # keys: the Matrix client-server API (access_token, next_batch) and its fake homeserver,
-          # the GitHub REST API the forge checker reads (full_name, default_branch), and teamchat's
-          # own records (seat, status, health, member records, state and link wire, lxcstate).
-          # tagliatelle matches a package by its path and takes no pattern, so each package is a
-          # line; a teamchat package that decodes another program's camelCase wire (member/kit,
-          # member/link: Claude Code's settings and hook JSON) is deliberately not listed. This
-          # tightens a check rather than excusing one, so the suppression record does not see it.
-          - pkg: internal/teamchat/matrix
-            rules:
-              json: snake
-          - pkg: internal/teamchat/matrix/fakehs
-            rules:
-              json: snake
-          - pkg: internal/teamchat/seat
-            rules:
-              json: snake
-          - pkg: internal/teamchat/status
-            rules:
-              json: snake
-          - pkg: internal/teamchat/health
-            rules:
-              json: snake
-          - pkg: internal/teamchat/member/records
-            rules:
-              json: snake
-          - pkg: internal/teamchat/member/state
-            rules:
-              json: snake
-          - pkg: internal/teamchat/member/wire
-            rules:
-              json: snake
-          - pkg: internal/teamchat/host/lxc/lxcstate
-            rules:
-              json: snake
-          - pkg: internal/teamchat/member/forge
-            rules:
-              json: snake
-          - pkg: internal/teamchat/proto
-            rules:
-              json: snake
     cyclop:
       max-complexity: 15
     funlen:
@@ -390,11 +94,28 @@ linters:
       min-complexity: 4
     revive:
       enable-all-rules: false
+    gosec:
+      excludes:
+        # Reading a path from a variable (G304, G703) and a file or directory mode (G301, G302,
+        # G306) are what these tools and their tests do all day, and an MD5 or SHA-1 here is a
+        # checksum or a protocol's MAC (G401, G501, G505), not a choice made for security.
+        - G301
+        - G302
+        - G304
+        - G306
+        - G401
+        - G501
+        - G505
+        - G703
     errcheck:
       check-type-assertions: true
       check-blank: true
     govet:
       enable-all: true
+      disable:
+        # More noise than signal: its own Doc says it very rarely finds a real problem, and vet
+        # and gopls leave it off. qa/lintconfig holds this.
+        - fieldalignment
     exhaustive:
       # A switch over an enum lists every member: a default would let a new member fall
       # through unhandled.

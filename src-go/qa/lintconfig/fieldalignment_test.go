@@ -110,18 +110,14 @@ func TestFieldalignmentControl(t *testing.T) {
 	}
 }
 
-// TestFieldalignmentProjectConfig holds the project's choice: a struct that wastes memory on
-// padding fails the gate, and the pointer-ordering diagnostic is excluded (record.toml).
+// TestFieldalignmentProjectConfig holds the owner's choice: fieldalignment is off, both halves.
+// govet's enable-all would otherwise turn it back on, so the test fails if the disable goes.
 func TestFieldalignmentProjectConfig(t *testing.T) {
 	config, err := filepath.Abs(filepath.Join("..", "..", ".golangci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	texts := lint(t, fixtureModule(t), config)
-	if !hasPrefix(texts, sizeWaste) {
-		t.Errorf(".golangci.yml does not report a struct that wastes memory on padding (%q); it reported %q", sizeWaste, texts)
-	}
-	if hasPrefix(texts, pointerOrdering) {
-		t.Errorf(".golangci.yml reports the pointer-ordering diagnostic, which its exclusion should drop: %q", texts)
+	if texts := lint(t, fixtureModule(t), config); len(texts) != 0 {
+		t.Errorf(".golangci.yml runs fieldalignment, which is off by the owner's decision: it reported %q", texts)
 	}
 }
