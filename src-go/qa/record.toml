@@ -1,23 +1,13 @@
-# The project record (go-qa-ci docs/record.md): every configuration exception in src-go/.golangci.yml,
-# one entry per rule the suppression detector prints for it, and the generated-code header of
-# widthtable.go. An entry covers every exclusion in .golangci.yml the detector names with its rule,
-# so its justification names each one by its path pattern.
+# The project record (go-qa-ci docs/record.md): one entry per suppression the detector prints. A
+# check is on for all code or off for all code with its reason in src-go/.golangci.yml, which needs
+# no entry, so the one entry is the generated-code header of widthtable.go.
 # The [ratchet] table is the repository owner's signature (Plan 00191 Task 3.8).
 
 [ratchet]
-high_water = 10
+high_water = 1
 decided_by = "repository-owner"
 decided_on = 2026-11-03
 reason = "raising the ceiling by one, to 30, for the gosec G401/G505 exclusion of Synapse's HMAC-SHA1 registration MAC in internal/teamchat/matrix (the repository owner's decision 3 on pull request 124, Plan 00246 Task 8.2); the test-file G301/G302/G306 exclusions of teamchat join entries already recorded and raise nothing. The ceiling was raised by two on 2026-10-29 for the tagliatelle exclusions of internal/netpolicy/podman.go (podman inspect's own field names, Plan 00232) and internal/containerimages/oldrange_records.go (c/storage's own mapped-layers key, Plan 00235)."
-
-[[exception]]
-rule = "golangci.yml::exclusions.rules::gosec/G204"
-path = ".golangci.yml"
-justification = "gosec G204 guards against command injection through a program launched from a variable. Each module has exactly one process seam that exists to do that: internal/execx/ (src-go) and qa/internal/proc/proc.go (the qa module, which cannot import execx); every other package reaches a program through its seam, so a G204 anywhere else is still reported. Permanent by the owner's decision of 2026-11-17: starting a program from an argument vector is what each seam is defined to do, so G204 will always flag it; go-qa-ci records its own launcher file, internal/launch/launch.go, as permanent for the same reason (go-qa-ci docs/record.md, Configuration exceptions)."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-17
-permanent = true
 
 [[exception]]
 rule = "go::generated-header"
@@ -27,75 +17,3 @@ decided_by = "repository-owner"
 added_by_model = "claude-opus-5-5"
 decided_on = 2026-10-27
 review_by = 2026-11-26
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G301"
-path = ".golangci.yml"
-justification = "Off repo-wide: G301 flags a directory mode wider than 0750, and these tools and their tests make the directories their specifications name. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G302"
-path = ".golangci.yml"
-justification = "Off repo-wide: G302 flags a chmod wider than 0600, and these tools and their tests set the modes their specifications name, including the states the code must refuse. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G304"
-path = ".golangci.yml"
-justification = "Off repo-wide: G304 flags opening a file whose path is a variable, which is what these command-line tools do with the paths git, their tables and the person running them give. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G306"
-path = ".golangci.yml"
-justification = "Off repo-wide: G306 flags a WriteFile mode wider than 0600, and these tools and their tests write the modes their specifications name. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G401"
-path = ".golangci.yml"
-justification = "Off repo-wide: G401 flags MD5 and SHA-1, which this code uses only as checksums other programs fix (the launcher's CCY_HASH, the phone app's manifest) and as Synapse's HMAC-SHA1 registration MAC, never for a security choice of its own. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G501"
-path = ".golangci.yml"
-justification = "Off repo-wide: G501 flags importing crypto/md5, which this code uses only for checksums other programs fix (the launcher's CCY_HASH, the phone app's manifest). The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G505"
-path = ".golangci.yml"
-justification = "Off repo-wide: G505 flags importing crypto/sha1, which this code uses only for Synapse's HMAC-SHA1 registration MAC, fixed by that protocol. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true
-
-[[exception]]
-rule = "golangci.yml::gosec.excludes::G703"
-path = ".golangci.yml"
-justification = "Off repo-wide: G703 flags a path that flows from input into a file operation, which is what these command-line tools do with the paths git, their tables and the person running them give. The repository owner's ruling of 2026-11-18 on Go QA turns gosec's file-mode, file-path and weak-hash rules off instead of keeping a list of per-path exclusions."
-decided_by = "repository-owner"
-added_by_model = "claude-opus-5-5"
-decided_on = 2026-11-18
-permanent = true

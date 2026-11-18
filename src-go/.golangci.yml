@@ -35,24 +35,15 @@ linters:
     - thelper
     # The one complexity measure.
     - gocognit
-  exclusions:
-    rules:
-      # G204: the runner exists to launch a command from a variable; it is the one place that
-      # may. Every other package reaches a program through it, so a G204 elsewhere is real.
-      - path: internal/execx/
-        linters: [gosec]
-        text: "G204"
-      # The QA module cannot import execx (it is a separate module), so its process runner is
-      # its own one process seam, for the same reason.
-      - path: qa/internal/proc/proc\.go
-        linters: [gosec]
-        text: "G204"
   settings:
     gosec:
       excludes:
         # Reading a path from a variable (G304, G703) and a file or directory mode (G301, G302,
         # G306) are what these tools and their tests do all day, and an MD5 or SHA-1 here is a
         # checksum or a protocol's MAC (G401, G501, G505), not a choice made for security.
+        # A program started from an argument vector (G204) is how the process seams work, and
+        # project_seam_exec already confines process starts to them; gqaci_shell_exec forbids sh -c.
+        - G204
         - G301
         - G302
         - G304
