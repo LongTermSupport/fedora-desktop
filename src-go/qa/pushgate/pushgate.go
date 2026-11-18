@@ -12,6 +12,17 @@
 // so a pull request's run, which judges a merge of the commit rather than the commit, never
 // counts. Any run of the commit that completed with success passes it; otherwise the newest run
 // is named with its state (queued, in progress, failed, cancelled) and its URL.
+//
+// A docs-only range gets no CI run, because qa.yml's push trigger filters documentation out, so
+// it is judged locally instead. The range is the files changed between the protected branch's
+// tip on the remote (the ref line's old id) and the pushed commit, a rename counting both paths
+// and a deletion its path; it is docs-only when the push filter of qa.yml AT THE PUSHED COMMIT,
+// read the way GitHub reads it (filter.go), leaves out every one of them. Then, when the checkout
+// is that commit with nothing changed or untracked, ./scripts/qa-changed.bash --base <old tip>
+// runs over the range: a pass lets the push go, a failure refuses it. Whatever stops the gate
+// knowing (a new branch, qa.yml or its filter unreadable, a pattern outside the matcher, the
+// range not computable, the checkout elsewhere or dirty) fails closed: CI's run is required, as
+// for any other range, and stderr says why.
 package pushgate
 
 import (
@@ -71,6 +82,12 @@ other work branch runs no CI), wait for CI, then push that same commit to the pr
   git push origin <sha>:F44
   git push origin --delete ci/<topic>
 
+A docs-only range (every file it changes left out by the push filter of ` + QAWorkflow + `
+at the pushed commit, so CI never runs it) is judged locally instead, from a clean checkout of
+the commit: ./` + docsCheckScript + ` --base <the branch's tip on the remote>. Its pass
+lets the push go; its failure refuses it. When the gate cannot know (a new branch, an unreadable
+filter, a dirty checkout or one elsewhere), CI's run is required and stderr says why.
+
 A push to any other ref, a deletion, or a push that leaves a branch where it was is not judged.
 
 ` + ExemptEnv + `=<reason>  an owner's tool pushing without a verdict; the reason is printed.
@@ -102,6 +119,7 @@ func refuse(format string, args ...any) error {
 
 type gate struct {
 	env    Env
+	errOut *emit.Emitter
 	remote string
 	url    string
 	pol    *branchhygiene.Policy
@@ -133,7 +151,7 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 		errOut.Line("ERROR: qa-push-gate: " + err.Error())
 		return ExitCannotRun
 	}
-	g := &gate{env: env, remote: args[0], url: args[len(args)-1]}
+	g := &gate{env: env, errOut: errOut, remote: args[0], url: args[len(args)-1]}
 	judged := 0
 	for _, ref := range refs {
 		branch, passed, err := g.judgeRef(ctx, ref)
@@ -146,7 +164,7 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 			return ExitCannotRun
 		}
 		if passed != "" {
-			out.Line("✓ qa-push-gate: " + ref.RemoteRef + " at " + ref.LocalID[:short] + ": CI's QA run passed: " + passed)
+			out.Line("✓ qa-push-gate: " + ref.RemoteRef + " at " + ref.LocalID[:short] + ": " + passed)
 			judged++
 		}
 	}
@@ -166,8 +184,9 @@ func (g *gate) refused(errOut *emit.Emitter, ref prepush.Ref, branch, msg string
 	errOut.Line("  See CLAUDE/QA.md#" + RuleID)
 }
 
-// judgeRef answers the protected branch a ref moves and the URL of CI's passing run of its new
-// tip; a ref that moves no protected branch answers "", "".
+// judgeRef answers the protected branch a ref moves and the verdict that lets it move (CI's
+// passing run of its new tip, or the local docs check of a docs-only range); a ref that moves no
+// protected branch answers "", "".
 func (g *gate) judgeRef(ctx context.Context, ref prepush.Ref) (string, string, error) {
 	if ref.Deletes() || ref.LocalID == ref.RemoteID {
 		return "", "", nil
@@ -184,8 +203,14 @@ func (g *gate) judgeRef(ctx context.Context, ref prepush.Ref) (string, string, e
 	if err != nil {
 		return branch, "", err
 	}
+	if verdict, ok, err := g.localDocsVerdict(ctx, ref); err != nil || ok {
+		return branch, verdict, err
+	}
 	passed, err := g.ciVerdict(ctx, repo, ref.LocalID)
-	return branch, passed, err
+	if err != nil {
+		return branch, "", err
+	}
+	return branch, "CI's QA run passed: " + passed, nil
 }
 
 // protected is the branch name when ref is a branch the policy exempts, else "".

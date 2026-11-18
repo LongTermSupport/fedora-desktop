@@ -61,12 +61,16 @@ type rig struct {
 	url      string
 }
 
+// newRig is a push whose range qa.yml runs for (it changes code as well as documentation), so
+// the gate asks CI, as every push did before docs-only ranges.
 func newRig(t *testing.T) *rig {
 	t.Helper()
-	return &rig{
+	r := &rig{
 		t: t, env: map[string]string{}, policy: policy, url: remoteURL,
 		runner: &fake{t: t, answers: map[string]proc.Result{}, errs: map[string]error{}},
 	}
+	r.rangeOf(tip, "src-go/main.go", "README.md")
+	return r
 }
 
 // listing is GitHub's answer listing these runs, each given as a JSON object's fields.
@@ -213,6 +217,7 @@ func TestEveryRefIsJudged(t *testing.T) {
 	r := newRig(t)
 	r.ci(run("completed", "success", "2026-11-11T10:00:00Z", "https://example.com/run/1"))
 	other := "5555555555555555555555555555555555555555"
+	r.rangeOf(other, "scripts/qa-all.bash")
 	r.runner.answers["gh api repos/owner/repo/actions/runs?head_sha="+other+"&event=push&per_page=100 --jq "+runsFilter] = proc.Result{Stdout: listing()}
 	code := r.run(pushF44 + "refs/heads/x " + other + " refs/heads/F43 " + old + "\n")
 	if code != ExitRefused {

@@ -5,7 +5,8 @@
 #     client project) in its message or its added lines (Plan 00245 Phase 3);
 #  2. no pushed commit's tree may hold a secret CI's gitleaks scan would find (issue #329);
 #  3. a protected branch moves only to a commit GitHub CI's QA workflow passed on a push
-#     (push-without-qa-verdict, CLAUDE/QA.md); other refs are not judged.
+#     (push-without-qa-verdict, CLAUDE/QA.md), or a docs-only range that a local qa-changed run
+#     passed; other refs are not judged.
 # Args and stdin are git's: REMOTE URL, then one "LOCALREF LOCALID REMOTEREF REMOTEID" line per ref.
 set -euo pipefail
 

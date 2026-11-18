@@ -3,7 +3,9 @@ name: QA
 # Server-side quality gate. The local git hooks (scripts/git-hooks) are
 # bypassable with --no-verify and run only on the contributor's clone; this
 # workflow is the non-bypassable layer, and its pass on a push is what lets a
-# protected branch move (rule push-without-qa-verdict, src-go/qa/pushgate).
+# protected branch move (rule push-without-qa-verdict, src-go/qa/pushgate). A
+# docs-only push runs nothing (the paths filter below); the push gate judges
+# such a range with a local qa-changed run instead.
 #
 # Diff gate, full after (issue #245): work reaches a protected branch through
 # ci/<topic>. A push of a ci/<topic> branch runs ./scripts/qa-changed.bash in
@@ -24,6 +26,25 @@ on:
     # push is a backup and costs no runner (src-go/qa/toolchain/qatrigger_test.go holds this).
     branches: ["F[0-9]*", "ci/**", "release-*"]
     tags: ["[0-9]*.[0-9]*.[0-9]*"]
+    # A branch push that changes only documentation runs nothing (actionsqaci.docsOnlyPush). The
+    # push gate reads this filter from this file to know such a range, and judges it locally with
+    # qa-changed instead (src-go/qa/pushgate). Markdown that is code is kept in: what plays deploy
+    # (files/), the extensions, the instruction Markdown agents read (CLAUDE.md, AGENTS.md,
+    # .claude/), the workflows' own tree, CHANGELOG.md (the release commit changes only it, and
+    # the release's tag job needs this run on it) and src-go/vendor/ (go-deps judges it byte for
+    # byte). GitHub applies no path filter to a tag push. A pull request is not filtered.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "files/**"
+      - "extensions/**"
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+      - ".claude/**"
+      - ".github/**"
+      - "CHANGELOG.md"
+      - "src-go/vendor/**"
   pull_request:
 
 permissions:

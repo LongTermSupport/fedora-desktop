@@ -34,10 +34,14 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
-// noRuns is GitHub through gh with no run of any commit; it records what it was asked.
+// noRuns is GitHub through gh with no run of any commit; it records what gh was asked. git
+// knows no commit, so the gate cannot read the range and asks CI.
 type noRuns struct{ asked []string }
 
 func (n *noRuns) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
+	if c.Argv[0] != "gh" {
+		return proc.Result{Code: 128, Stderr: "fatal: not a git repository"}, nil
+	}
 	n.asked = append(n.asked, strings.Join(c.Argv, " "))
 	return proc.Result{Stdout: `{"totalCount":0,"runs":[]}`}, nil
 }
