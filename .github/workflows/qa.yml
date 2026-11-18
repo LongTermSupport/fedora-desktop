@@ -346,6 +346,24 @@ jobs:
   # A gate listed in two places drifts; a gate listed once cannot. If you add a
   # suite, add a row to scripts/qa-gates.tsv (what qa-all.bash runs) and it reaches CI for free.
 
+  # actions-qa-ci judges the workflows and actions themselves (pinning, permissions, triggers such
+  # as actionsqaci.docsOnlyPush). It runs on a pull request only: the change it judges is the
+  # pull request's, and a push to a protected line has already been judged on its way there.
+  actions-qa-ci:
+    name: actions-qa-ci
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Judge the workflows
+        uses: LongTermSupport/actions-qa-ci@c692fb40e93f3ad63d59adf78a86d1a1d0111449 # v0.1.1
+
   gitleaks:
     name: gitleaks secret scan
     runs-on: ubuntu-latest
