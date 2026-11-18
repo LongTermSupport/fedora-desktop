@@ -188,7 +188,7 @@ func TestACommitCIHasNotPassedIsRefusedSayingWhy(t *testing.T) {
 
 func TestANonProtectedRefNeedsNoVerdict(t *testing.T) {
 	r := newRig(t)
-	if code := r.run("refs/heads/F44 " + tip + " refs/heads/ci/topic " + prepush.ZeroID + "\n" +
+	if code := r.run("refs/heads/F44 " + tip + " refs/heads/feat/topic " + prepush.ZeroID + "\n" +
 		"refs/tags/44.1.0 " + tip + " refs/tags/44.1.0 " + prepush.ZeroID + "\n"); code != ExitOK {
 		t.Fatalf("exit %d: %s", code, r.text())
 	}

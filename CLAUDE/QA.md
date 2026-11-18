@@ -19,7 +19,8 @@ runs the full `qa-all.bash` in CI; a red run there is fixed forward, by the same
 `qa-all.bash` is required before a push:
 
 ```bash
-git push origin HEAD:refs/heads/ci/<topic>   # 1. CI runs qa-changed.bash (diff mode) on this commit
+git push origin origin/F44:refs/heads/ci/<topic>   # 1a. start the branch at the line's tip
+git push origin HEAD:refs/heads/ci/<topic>   # 1b. CI runs qa-changed.bash (diff mode) on this commit
 gh run watch --interval 60                   # 2. or: gh run list --commit <sha>
 git push origin <sha>:F44                    # 3. the same commit, once CI is green; qa-all runs on F44
 git push origin --delete ci/<topic>          # 4. the branch is merged now, so it may go
@@ -2989,6 +2990,7 @@ reads the host) are covered by `qa-changed.bash` before each commit.
 #306), wait for CI, then push that same commit:
 
 ```bash
+git push origin origin/F44:refs/heads/ci/<topic>   # the line's tip first (ci-branch-not-at-line-tip)
 git push origin HEAD:refs/heads/ci/<topic>
 gh run watch --interval 60         # or: gh run list --commit <sha>
 git push origin <sha>:F44
@@ -3001,6 +3003,31 @@ by the owner's tools (`scripts/release.bash`, whose release pull request CI judg
 `scripts/mark-branches-superseded.bash`, which stamps retired branches), and it is an exception
 awaiting the owner's decision (issue #187). An agent never sets it, and never pushes with
 `--no-verify`.
+
+### ci-branch-not-at-line-tip
+
+**What it is.** A push that creates a `ci/` branch at a commit other than a protected line's
+tip. Run by the same `pre-push` gate (`src-go/qa/pushgate/cibranch.go`). The tips are the
+remote-tracking refs the checkout has of the remote, one per protected line
+(`refs/remotes/<remote>/<line>`). When none is known (never fetched, or a push to a URL), every
+start is refused until `git fetch`. Moving an existing `ci/` branch is not judged. A `git` that
+cannot list the tips is exit 2.
+
+**Why it exists.** qa.yml's push trigger has a `paths` filter (see
+[push-without-qa-verdict](#push-without-qa-verdict)). For a new branch, GitHub diffs against
+the parent of the deepest commit the push carries. Work is pushed to its own branch after every
+commit, so a `ci/` branch created at that commit carries no commit. GitHub then sees no changed
+file and starts no QA run, and the commit can never move a protected line. Created at the line's
+tip, the branch takes the commit as a fast-forward, which GitHub diffs against that tip, the
+same base diff-mode QA uses. The creating push carries no commit either, so it starts no run.
+
+**How to fix a refusal.** Start the branch at the tip of the line the commit is built on, then
+push the commit to it. The refusal prints both commands with the known tips:
+
+```bash
+git push origin origin/F44:refs/heads/ci/<topic>
+git push origin HEAD:refs/heads/ci/<topic>
+```
 
 ### summary-count-omits-failure-source
 
@@ -3735,6 +3762,7 @@ vim files/home/.local/bin/wsi-stream
 # 4. Commit, push to a branch for CI, and move F44 once CI passes that commit
 git add files/home/.local/bin/wsi-stream
 git commit -m "fix: update wsi-stream"
+git push origin origin/F44:refs/heads/ci/wsi-stream
 git push origin HEAD:refs/heads/ci/wsi-stream
 gh run watch --interval 60
 git push origin "$(git rev-parse HEAD)":F44

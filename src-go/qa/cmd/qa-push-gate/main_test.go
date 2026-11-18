@@ -62,6 +62,7 @@ func TestACommitAlreadyOnACIBranchIsStillJudgedForF44(t *testing.T) {
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
 	work := git(t, repo, "rev-parse", "HEAD")
 	git(t, repo, "config", "core.hooksPath", filepath.Join(scripts, "git-hooks"))
+	git(t, repo, "push", "-q", "origin", published+":refs/heads/ci/topic")
 	git(t, repo, "push", "-q", "origin", "HEAD:refs/heads/ci/topic")
 	git(t, repo, "push", "-q", "origin", work+":F44")
 	line := read(t, filepath.Join(scripts, "qa-push-gate.stdin"))

@@ -76,8 +76,11 @@ const usageText = `usage: qa-push-gate REMOTE [URL]   (git's pre-push arguments;
 The pre-push gate on CI's QA verdict (rule ` + RuleID + `). A protected branch (one exempt in
 ` + branchhygiene.PolicyFile + `) moves only to a commit that GitHub CI's QA workflow (` + QAWorkflow + `)
 completed with success on a push. Push the commit to a ci/<topic> branch first (a push to any
-other work branch runs no CI), wait for CI, then push that same commit to the protected branch:
+other work branch runs no CI), wait for CI, then push that same commit to the protected branch.
+The ci/ branch starts at the line's tip (rule ` + CIBranchRuleID + `): created at a commit the
+remote already holds, it carries no commit, and qa.yml's push filter would see no changed file:
 
+  git push origin origin/F44:refs/heads/ci/<topic>
   git push origin HEAD:refs/heads/ci/<topic>
   gh run watch --interval 60   (or: gh run list --commit <sha>)
   git push origin <sha>:F44
@@ -155,6 +158,14 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 	g := &gate{env: env, errOut: errOut, remote: args[0], url: args[len(args)-1]}
 	judged := 0
 	for _, ref := range refs {
+		if err := g.ciBranchStart(ctx, ref); err != nil {
+			if c, ok := errors.AsType[*ciStartRefusal](err); ok {
+				g.ciStartRefused(c)
+				return ExitRefused
+			}
+			errOut.Line("ERROR: qa-push-gate: " + ref.RemoteRef + ": " + err.Error())
+			return ExitCannotRun
+		}
 		branch, passed, err := g.judgeRef(ctx, ref)
 		if refused, ok := errors.AsType[*refusal](err); ok {
 			g.refused(errOut, ref, branch, refused.msg)
@@ -178,7 +189,12 @@ func judge(ctx context.Context, args []string, env Env, out, errOut *emit.Emitte
 func (g *gate) refused(errOut *emit.Emitter, ref prepush.Ref, branch, msg string) {
 	errOut.Line("✗ qa-push-gate [" + RuleID + "]: " + ref.RemoteRef + " at " + ref.LocalID[:short] + ": " + msg)
 	errOut.Line("  " + branch + " is protected: it moves only to a commit CI passed on a push. Push the commit")
-	errOut.Line("  to a branch, wait for CI, then push that same commit to " + branch + ":")
+	errOut.Line("  to a ci/ branch started at " + branch + "'s tip, wait for CI, then push that same commit to " + branch + ":")
+	start := ref.RemoteID
+	if start == prepush.ZeroID {
+		start = "<the line's tip>"
+	}
+	errOut.Line("    git push " + g.remote + " " + start + ":refs/heads/ci/<topic>")
 	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":refs/heads/ci/<topic>")
 	errOut.Line("    gh run watch --interval 60    (or: gh run list --commit " + ref.LocalID + ")")
 	errOut.Line("    git push " + g.remote + " " + ref.LocalID + ":" + branch)
