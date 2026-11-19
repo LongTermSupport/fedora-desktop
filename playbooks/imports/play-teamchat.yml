@@ -55,7 +55,8 @@
 #   teamchat_lxc_members     optional list, DESIGN-v2-C-host.md 3.8 and 3.9: one seat each, of a
 #                            team declared present; the play checks the shape, teamchat-admin the
 #                            rest. A team with a present member is served on the LXC bridge, and
-#                            its url names the bridge's address.
+#                            its LXC seats are given its bridge address (https), so its url is
+#                            free: a name or any address, for its seats on other machines.
 #   teamchat_site            optional: the machine's handle site, handed to `lxc apply` with the
 #                            members; an entry's own site wins.
 #   teamchat_carry_max_archive_bytes
@@ -114,8 +115,8 @@
     # The present phase follows tc_scoped_present, widened like `team apply`.
     tc_lxc_absent_teams: "{{ ((tc_present if teamchat_only_teams is not defined else tc_present | selectattr('team', 'in', teamchat_only_teams) | list) + tc_scoped_absent) | map(attribute='team') | list }}"
     tc_lxc_present_teams: "{{ tc_scoped_present | map(attribute='team') | list }}"
-    # A present-phase line whose guest check could not reach its team (lxc.WhyReach). The url is
-    # held on the LXC bridge, so a running guest that cannot reach it is a fault, never offline.
+    # A present-phase line whose guest check could not reach its team (lxc.WhyReach). A guest is
+    # given the team's LXC bridge address, so a running guest that cannot reach it is a fault, never offline.
     tc_reach_re: "\toffline: guest check reach$"
     # A held-back line (SKIPPED or DEFERRED), shown in a task of its own (C 3.9.3).
     tc_held_re: "^(SKIPPED|DEFERRED)\t"
@@ -168,7 +169,7 @@
           container, a user, a checkout and a whole-number seat, a state of present or absent if it
           has one, and no two with the same team, container, checkout and seat;
           teamchat_address (the teamchat0 bus address) is not built in this play yet and must be
-          unset or empty: a team with an LXC member names the LXC bridge's address in its url.
+          unset or empty: the LXC path does not need it, its seats being given the bridge address.
         quiet: true
       tags: [always]
 

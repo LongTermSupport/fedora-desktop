@@ -48,8 +48,8 @@ const (
 	whyMoved         = "the seat moved off its old user; it returns at the next apply"
 )
 
-// WhyReach is the why of a seat whose guest check could not reach its team. The url is held on
-// the LXC bridge (X5), so a running guest that cannot reach it is a fault the play fails on
+// WhyReach is the why of a seat whose guest check could not reach its team. A guest is given the
+// team's address on the LXC bridge (X5), so a running guest that cannot reach it is a fault the play fails on
 // (play-teamchat.yml's tc_reach_re), not a stopped container (n3b-D1).
 const WhyReach = whyCheck + "reach"
 
@@ -402,18 +402,21 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 	return nil
 }
 
-// bridgeURL is the present phase's refusal of a team whose url is off the LXC bridge (X5): its
-// guests could never reach it, and each guest check would be offline with the run green.
+// bridgeURL is the present phase's refusal of a team its guests cannot reach (X5): one whose last
+// apply recorded no listen address on the LXC bridge, or whose url is plain http. Each guest check
+// would be offline with the run green. The url itself may be a name or any address: the guests
+// are given the bridge's (declare.LXCSeatURL).
 func (r *run) bridgeURL(in declare.Input) error {
 	if r.req.Phase != PhasePresent {
 		return nil
 	}
-	problem, err := in.BridgeURLProblem(r.d.BridgeNet)
+	listen := func() ([]netip.Addr, error) { return r.d.Listen(in.ID()) }
+	problem, err := in.LXCURLProblem(listen, r.d.BridgeNet)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: stepValidate, Err: err}
 	}
 	if problem != "" {
-		return invalid(fmt.Errorf("team %s's url %s: %s; name the bridge's address in the url", in.ID(), in.Team.URL, problem))
+		return invalid(fmt.Errorf("team %s's url %s: %s; its guests reach it on the LXC bridge", in.ID(), in.Team.URL, problem))
 	}
 	return nil
 }

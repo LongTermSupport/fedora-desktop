@@ -400,12 +400,13 @@ teamchat_lxc_members:
 - **The entries are approved with their team.** They are security fields: a new or changed entry
   is refused (exit 70) until the team is approved: name the team in `teamchat_approve_teams`
   for the run that adds or changes the entry.
-- **The team's `url` names the LXC bridge's address**, `https://<bridge address>:<port>`. A team
-  with a present LXC member is served on the bridge as well as its declared networks, and the
-  homeserver's certificate names the bridge's address. `team apply` and `lxc apply` refuse a url
-  whose host is not an address inside the bridge's subnet (a name included), naming the subnet,
-  since no guest could reach it. `teamchat_address` (the `teamchat0` bus address a url would
-  otherwise default to) is not built in the play, which refuses it.
+- **LXC seats reach the team on the bridge.** A team with a present LXC member is served on the
+  bridge as well as its declared networks, and the homeserver's certificate names the bridge's
+  address. Each LXC seat is given `https://<bridge address>:<port>`; every other seat is given
+  the team's `url`, which may therefore be a name or any address the other machines reach. The
+  `url` must be https. `team apply` and `lxc apply` refuse a team whose listen set has no address
+  inside the bridge's subnet, or whose `url` is plain http, since no guest could reach it.
+  `teamchat_address` (the `teamchat0` bus address) is not built in the play, which refuses it.
 - **The container**: privileged (an `lxc.idmap` is refused), on the host bridge, its address
   inside the bridge's subnet. The checkout's `.git/config` gives the handle (an `insteadOf`
   rewrite is refused); `.claude/ccy/ccy.env.local`, if present, must be the agent user's. A

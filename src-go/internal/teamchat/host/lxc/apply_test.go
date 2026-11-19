@@ -394,11 +394,21 @@ func TestATeamNotServedOnTheBridgeIsRefused(t *testing.T) {
 	}
 }
 
-// X5: a listen set that cannot be read fails the phase before any change.
+// X5: a listen set that cannot be read fails the phase before any change. It is read only for a
+// url off the bridge: a url on the bridge is judged as it always was.
 func TestAListenSetThatCannotBeReadFails(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.listenErr = errors.New("units.json is not there")
+	if _, err := w.apply(PhasePresent); err != nil {
+		t.Fatalf("a url on the bridge read the listen set: %v", err)
+	}
+	w = newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.decl.Teams[0].URL = "https://chat.example.com:8448"
+	w.approveAll()
 	w.listenErr = errors.New("units.json is not there")
 	_, err := w.apply(PhasePresent)
 	if err == nil || !strings.Contains(err.Error(), "units.json is not there") {

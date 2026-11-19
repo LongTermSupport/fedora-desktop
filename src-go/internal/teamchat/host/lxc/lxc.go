@@ -193,6 +193,7 @@ type Deps struct {
 	OwnerGID  int                                                // the LXC record's group
 	Bridge    string                                             // wire.Bridge
 	BridgeNet func() (netip.Prefix, error)                       // the bridge's subnet, asked while a team has a present member (X5)
+	Listen    func(paths.TeamID) ([]netip.Addr, error)           // the listen set the team's last apply recorded (X5)
 	Refresh   func(ctx context.Context, team paths.TeamID) error // the status record, after a change
 	Guard     teamlock.Guard                                     // what the team must hold true when the lock is taken (restore.Guard: no restore under way)
 }

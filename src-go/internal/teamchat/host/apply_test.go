@@ -704,11 +704,12 @@ func TestLXCMemberWithTheURLOnTheBridge(t *testing.T) {
 
 // X5: a plain http url (loopback only, X12) cannot serve a guest, which refuses plain http off
 // loopback, so a team with a present LXC member and one is refused at step 2 before anything is
-// written.
+// written (here X6 refuses it first, as loopback is no listen address; declare.LXCURLProblem
+// holds the rest).
 func TestLXCMemberNeedsAnHTTPSURL(t *testing.T) {
 	w := newWorld(t)
 	_, err := w.apply(approved(w, lxcDoc("http://127.0.0.1:8448")))
-	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), "plain http, which a guest refuses off loopback") {
+	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), "127.0.0.1") {
 		t.Fatalf("got %v", err)
 	}
 	if _, statErr := os.Stat(w.at(paths.StampFile(ops(t)))); !errors.Is(statErr, fs.ErrNotExist) {

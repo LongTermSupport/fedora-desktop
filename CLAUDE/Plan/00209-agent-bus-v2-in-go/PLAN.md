@@ -372,7 +372,8 @@ Tasks 0.1 to 0.6 and 1.1 to 1.4a, in full: [DONE-n0-n1.md](DONE-n0-n1.md).
     a seat not `left` (one run, as D 5.7 step 5 needs); a present team redeclared unstamped is
     passed by with its leaving seats `DEFERRED`. A team with a present LXC member must name an
     address inside the bridge's subnet in its `url` (`team apply` and `lxc apply` refuse
-    otherwise); the present phase fails on a `reach` line, and the held-back lines show in a task
+    otherwise; superseded by Plan 00257 B1: LXC seats are given the bridge address and the
+    `url` is free, see DESIGN-v2-C-host.md 3.5.1); the present phase fails on a `reach` line, and the held-back lines show in a task
     of their own. The play's LXC Jinja is rendered by ansible in the gate
     `test-teamchat-play-jinja.bash`. Report: `subagent-reports/261117-lxc-play-fix-report.md`.
 

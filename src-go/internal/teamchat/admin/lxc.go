@@ -240,12 +240,20 @@ func (r lxcRoster) Park(ctx context.Context, team paths.TeamID, handle string) e
 	return err
 }
 
-// Reach is guest check's stdin from the applied team.json: its URL and the team CA certificate
-// that URL is pinned to (X15).
+// Reach is guest check's stdin from the applied team.json: the url an LXC seat is given, the
+// team's address on the LXC bridge (X5), and the team CA certificate that url is pinned to (X15),
+// so the guest checks the url its bundle will carry.
 func (r lxcRoster) Reach(_ context.Context, team paths.TeamID) ([]byte, error) {
 	decl, _, err := readTeamFile(r.sys.Host.Root, team)
 	if err != nil {
 		return nil, err
+	}
+	if r.sys.LXCURL == nil {
+		return nil, errors.New("the LXC seats' url has no provider")
+	}
+	base, err := r.sys.LXCURL(decl)
+	if err != nil {
+		return nil, fmt.Errorf("the url of team %s's LXC seats: %w", team, err)
 	}
 	caPEM, err := teamCAPEM(r.sys.TeamCA, decl)
 	if err != nil {
@@ -253,6 +261,6 @@ func (r lxcRoster) Reach(_ context.Context, team paths.TeamID) ([]byte, error) {
 	}
 	return proto.Obj(
 		proto.M("v", proto.Int(seat.BundleVersion)), proto.M("team", proto.Str(team.String())),
-		proto.M("base_url", proto.Str(decl.URL)), proto.M("tls_ca", proto.Str(caPEM)),
+		proto.M("base_url", proto.Str(base)), proto.M("tls_ca", proto.Str(caPEM)),
 	).Compact(), nil
 }

@@ -92,6 +92,8 @@ func (m machine) system(digest string) (*admin.System, error) {
 	root, run, stateOwnerUID := m.root, m.root+paths.AdminRunDir, m.stateOwnerUID
 	// The team CA is read from the host's files at each issue (Plan 00246 X15, S16).
 	teamCA := func(team paths.TeamID) (string, error) { return host.CAPEM(root, team, stateOwnerUID) }
+	// X5: an LXC seat is given the team's address on the bridge, read from the applied files.
+	lxcURL := admin.LXCURL(host.AppliedLXCURL(root, hostnet.Network{Proc: m.proc, BridgeName: Bridge}.Bridge))
 	ownerGroup := sync.OnceValues(m.ownerGroup)
 	systemd := units.NewManager(m.dial, m.runner)
 	child := admin.ExecChild{Runner: m.runner, Self: self, Lookup: m.lookupUser}
@@ -140,8 +142,9 @@ func (m machine) system(digest string) (*admin.System, error) {
 			},
 		},
 		Child:      child,
-		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCA},
+		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d, CA: teamCA, LXCURL: lxcURL},
 		TeamCA:     teamCA,
+		LXCURL:     lxcURL,
 		OwnerGroup: ownerGroup,
 		Open:       ctl.Config{Root: root}.Opener(),
 		Place:      ctl.Config{Root: root}.Placer(),

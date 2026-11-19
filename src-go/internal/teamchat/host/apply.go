@@ -415,8 +415,9 @@ func (a *applying) listenText() []string {
 }
 
 // urlHost holds the team's url to X12 and to the team's port by declare's rule, `declare check`'s
-// own, and to X6: an IP
-// literal must be one of the listen addresses, a DNS name is the owner's to point at the host.
+// own, and to X6: an IP literal must be one of the listen addresses, a DNS name is the owner's to
+// point at the host. A team with a present LXC member is held to X5: its guests reach it at its
+// listen address on the bridge over https (declare.LXCSeatURL), whatever the url names.
 func (a *applying) urlHost() error {
 	if problem := declare.URLProblem(a.in.Team.URL, a.in.Team.Port); problem != "" {
 		return a.refuse("url %s: %s", a.in.Team.URL, problem)
@@ -429,12 +430,12 @@ func (a *applying) urlHost() error {
 	if parseErr == nil && !slices.Contains(a.listen, host) {
 		return a.refuse("url host %s is not a listen address of this host (%v)", host, a.listen)
 	}
-	problem, err := a.in.BridgeURLProblem(a.d.Network.Bridge)
+	problem, err := a.in.LXCURLProblem(func() ([]netip.Addr, error) { return a.listen, nil }, a.d.Network.Bridge)
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
 	if problem != "" {
-		return a.refuse("url %s: the team has a present LXC member, whose guest reaches it on the LXC bridge: %s; name the bridge's address in the url", a.in.Team.URL, problem)
+		return a.refuse("url %s: the team has a present LXC member, whose guest reaches it on the LXC bridge: %s", a.in.Team.URL, problem)
 	}
 	return nil
 }

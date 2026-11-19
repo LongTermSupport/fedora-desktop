@@ -126,7 +126,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 			Origin:    func(context.Context, paths.TeamID) (string, error) { return "v2", nil },
 			Guard:     teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
 			Kit:       kit, HostKit: t.TempDir(), HostUIDs: map[int]bool{0: true}, OwnerGID: os.Getgid(), Bridge: "lxcbr0",
-			BridgeNet: w.Bridge,
+			BridgeNet: w.Bridge, Listen: host.AppliedListen(w.root),
 		}, nil
 	}
 	return sys
@@ -482,9 +482,13 @@ func TestLXCRosterParksAndReturns(t *testing.T) {
 // setTeamURL rewrites the applied alpha team.json's default URL to url.
 func setTeamURL(t *testing.T, w *world, url string) {
 	t.Helper()
+	const defaultURL = "https://192.0.2.10:8448"
+	if url == defaultURL {
+		return
+	}
 	name := w.root + paths.TeamDeclaration(alpha(t))
 	raw := string(testfiles.Read(t, w.root, name))
-	changed := strings.Replace(raw, "https://192.0.2.10:8448", url, 1)
+	changed := strings.Replace(raw, defaultURL, url, 1)
 	if changed == raw {
 		t.Fatalf("team.json does not name the default URL: %s", raw)
 	}

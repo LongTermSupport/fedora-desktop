@@ -116,61 +116,78 @@ func addrs(s ...string) []netip.Addr {
 	return out
 }
 
+// lxcInput is the sample input with url and one LXC member in state, or none when state is "".
+func lxcInput(t *testing.T, url, state string) Input {
+	t.Helper()
+	return inputWith(t, func(d map[string]any) {
+		docTeam(d)["url"] = url
+		delete(d, "lxc_members")
+		if state != "" {
+			member := lxcEntry("alpha")
+			member["state"] = state
+			d["lxc_members"] = []any{member}
+		}
+	})
+}
+
 // X5: a team with a present LXC member is reached by its guests on the LXC bridge, at the team's
 // listen address there, over https. The url serves the team's other seats and may be a name or
 // any address; a team with no listen address on the bridge, or a plain http url (loopback only,
 // X12), would pass every run with no member joined (each guest check offline), so it is refused.
 func TestLXCURLProblem(t *testing.T) {
+	// asks is how often the bridge and the listen set are asked: the listen set only for an https
+	// url off the bridge, so a team whose url names the bridge is judged as it always was.
+	type asks struct{ bridge, listen int }
 	cases := []struct {
 		name, url, bridge, want string
 		listen                  []netip.Addr
-		absent, none            bool
+		member                  string // the member's state; "" is none at all
+		asks                    asks
 	}{
-		{name: "on the bridge", url: "https://203.0.113.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1")},
-		{name: "an IPv6 bridge", url: "https://[2001:db8::1]:8448", bridge: "2001:db8::/64", listen: addrs("2001:db8::1")},
-		{name: "another address", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1")},
-		{name: "a name", url: "https://chat.example.com:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1")},
+		{name: "on the bridge", url: "https://203.0.113.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1"), member: "present", asks: asks{1, 0}},
+		{name: "an IPv6 bridge", url: "https://[2001:db8::1]:8448", bridge: "2001:db8::/64", listen: addrs("2001:db8::1"), member: "present", asks: asks{1, 0}},
+		{name: "another address", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1"), member: "present", asks: asks{1, 1}},
+		{name: "a name", url: "https://chat.example.com:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1"), member: "present", asks: asks{1, 1}},
 		{
-			name: "no listen address on the bridge", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10"),
+			name: "no listen address on the bridge", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10"), member: "present", asks: asks{1, 1},
 			want: "the team has no listen address inside the LXC bridge's subnet 203.0.113.0/24",
 		},
 		{
-			name: "plain http", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1"),
+			name: "plain http", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1"), member: "present", asks: asks{1, 0},
 			want: "the url is plain http, which a guest refuses off loopback; an LXC member needs an https url",
 		},
-		{name: "only an absent member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", absent: true},
-		{name: "no member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", none: true},
+		{name: "only an absent member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", member: "absent"},
+		{name: "no member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			asked := 0
-			in := inputWith(t, func(d map[string]any) {
-				docTeam(d)["url"] = c.url
-				member := lxcEntry("alpha")
-				if c.absent {
-					member["state"] = "absent"
-				}
-				d["lxc_members"] = []any{member}
-				if c.none {
-					delete(d, "lxc_members")
-				}
-			})
-			got, err := in.LXCURLProblem(c.listen, bridgeAt(c.bridge, &asked))
-			if err != nil {
-				t.Fatal(err)
+			var got asks
+			listen := func() ([]netip.Addr, error) {
+				got.listen++
+				return c.listen, nil
 			}
-			if got != c.want {
-				t.Fatalf("problem %q, want %q", got, c.want)
+			problem, err := lxcInput(t, c.url, c.member).LXCURLProblem(listen, bridgeAt(c.bridge, &got.bridge))
+			if err != nil || problem != c.want {
+				t.Fatalf("problem %q, %v; want %q", problem, err, c.want)
 			}
-			if wantAsked := map[bool]int{true: 0, false: 1}[c.absent || c.none]; asked != wantAsked {
-				t.Fatalf("the bridge was asked %d times, want %d", asked, wantAsked)
+			if got != c.asks {
+				t.Fatalf("asked %+v, want %+v", got, c.asks)
 			}
 		})
 	}
 	boom := errors.New("the bridge is gone")
 	in := inputWith(t, func(d map[string]any) { d["lxc_members"] = []any{lxcEntry("alpha")} })
-	if _, err := in.LXCURLProblem(nil, func() (netip.Prefix, error) { return netip.Prefix{}, boom }); !errors.Is(err, boom) {
+	noListen := func() ([]netip.Addr, error) { return nil, boom }
+	if _, err := in.LXCURLProblem(noListen, func() (netip.Prefix, error) { return netip.Prefix{}, boom }); !errors.Is(err, boom) {
 		t.Fatalf("a bridge failure: %v", err)
+	}
+	in = inputWith(t, func(d map[string]any) {
+		d["lxc_members"] = []any{lxcEntry("alpha")}
+		docTeam(d)["url"] = "https://chat.example.com:8448"
+	})
+	asked := 0
+	if _, err := in.LXCURLProblem(noListen, bridgeAt("203.0.113.1/24", &asked)); !errors.Is(err, boom) {
+		t.Fatalf("a listen set failure: %v", err)
 	}
 }
 
