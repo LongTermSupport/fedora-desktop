@@ -100,6 +100,9 @@ type Config struct {
 	// Log, when set, gets a line for each failure that is not a client's. It never gets a
 	// client's bytes.
 	Log io.Writer
+	// admitted, when set, is told each connection's admission once it is decided: its source
+	// and why it was refused ("" when admitted). A test's point to wait on, never a policy.
+	admitted func(src netip.Addr, why string)
 }
 
 // Server is a running terminator.
@@ -289,6 +292,9 @@ func (s *Server) stop(err error) {
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	src := sourceOf(conn)
 	release, why := s.admit(src)
+	if s.cfg.admitted != nil {
+		s.cfg.admitted(src, why)
+	}
 	if why != "" {
 		s.refused("a connection from %s refused: %s", src, why)
 		s.closeConn(conn)

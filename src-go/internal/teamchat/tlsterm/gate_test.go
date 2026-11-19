@@ -125,8 +125,13 @@ func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 func TestT9AFloodAtTheCapHoldsNoSlot(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
+	const flood = 8
+	// decided is told each connection the terminator has decided on, so the other source dials
+	// only once every flood connection is held or refused: the race is closed, not timed.
+	decided := make(chan netip.Addr, flood+2)
 	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
 		c.MaxConns, c.MaxPerSource = 2, 1
+		c.admitted = func(src netip.Addr, _ string) { decided <- src }
 	})
 	addr := srv.Addrs()[0]
 	const flooder = "127.0.0.3"
@@ -134,7 +139,9 @@ func TestT9AFloodAtTheCapHoldsNoSlot(t *testing.T) {
 	check(t, err)
 	t.Cleanup(func() { check(t, held.Close()) })
 	echo(t, held, "held")
-	const flood = 8
+	if src := <-decided; src != netip.MustParseAddr(flooder) {
+		t.Fatalf("the held connection was decided from %s", src)
+	}
 	var wg sync.WaitGroup
 	for range flood {
 		wg.Go(func() {
@@ -145,6 +152,11 @@ func TestT9AFloodAtTheCapHoldsNoSlot(t *testing.T) {
 				closeClosed(t, c)
 			}
 		})
+	}
+	for range flood {
+		if src := <-decided; src != netip.MustParseAddr(flooder) {
+			t.Fatalf("a flood connection was decided from %s", src)
+		}
 	}
 	other, err := client(t, addr, k.ca, nil)
 	check(t, err)

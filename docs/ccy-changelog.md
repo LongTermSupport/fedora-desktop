@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.33 — container 2.84.39
+
+- **The terminator's flood test is deterministic** (Plan 00257). `teamchat tls` has an
+  unexported admission hook that tests wait on, so `TestT9AFloodAtTheCapHoldsNoSlot` dials the
+  other source only once every flood connection is held or refused. Nothing a member or an
+  owner sees changes.
+
 ## 3.122.32 — container 2.84.38
 
 - **No LXC member's session starts with its container** (Plan 00257, the owner's order). Its
