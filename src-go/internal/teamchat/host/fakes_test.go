@@ -404,7 +404,8 @@ type fakeNetwork struct {
 }
 
 // Route answers as the production adapter does: the interface that holds a host prefix, else
-// the longest route that covers the network, the route of length 0 being the default.
+// the longest route that covers the network, the route of length 0 being the default, and
+// another interface a longer route inside the network goes by.
 func (n *fakeNetwork) Route(network netip.Prefix) (Route, bool, error) {
 	if err := n.w.call("route"); err != nil {
 		return Route{}, false, err
@@ -422,7 +423,13 @@ func (n *fakeNetwork) Route(network netip.Prefix) (Route, bool, error) {
 			best, found = r, true
 		}
 	}
-	return Route{Interface: best.iface, Default: found && best.prefix.Bits() == 0}, found, nil
+	r := Route{Interface: best.iface, Default: found && best.prefix.Bits() == 0}
+	for _, inner := range n.routes {
+		if inner.prefix.Bits() > network.Bits() && network.Contains(inner.prefix.Addr()) && inner.iface != best.iface {
+			r.Split = inner.iface
+		}
+	}
+	return r, found, nil
 }
 
 func (n *fakeNetwork) Interfaces() ([]Interface, error) { return n.ifaces, n.w.call("interfaces") }

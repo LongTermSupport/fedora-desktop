@@ -134,9 +134,12 @@ type Listener struct {
 }
 
 // Route is the interface that routes a network (SPEC-cross-network X3) and whether it does so by
-// the default route, the route of prefix length 0.
+// the default route, the route of prefix length 0. The route covers the network whole; Split
+// names another interface that routes part of it by a longer route, "" when none does
+// (Plan 00257 HOST-7).
 type Route struct {
 	Interface string
+	Split     string
 	Default   bool
 }
 
@@ -147,9 +150,10 @@ type Network interface {
 	Listeners() ([]Listener, error)
 	Bridge() (netip.Prefix, error)
 	// Route is the interface that routes network: the one that holds it when it is a host
-	// prefix of the host's own address, else the best route of the main table (the longest
-	// prefix, then the lowest metric), read as Firewall.Zone reads it. found is false when no
-	// route covers the network.
+	// prefix of the host's own address, else the best route of the main table that covers the
+	// whole network (the longest prefix, then the lowest metric), with Split naming another
+	// interface a longer route inside the network goes by. found is false when no route covers
+	// the network.
 	Route(network netip.Prefix) (Route, bool, error)
 }
 
@@ -381,6 +385,9 @@ func (a *applying) serve(network netip.Prefix, own bool, ifaces []Interface) (ne
 		return netip.Addr{}, a.fail(StepRefusals, err)
 	case !found:
 		return netip.Addr{}, a.refuse("network %s: no route covers it", network)
+	case route.Split != "":
+		return netip.Addr{}, a.refuse("network %s: part of it is routed by interface %s, not %s, where no rule of the team "+
+			"admits it; declare each part routed by one interface as its own network", network, route.Split, route.Interface)
 	case route.Default && !own:
 		return netip.Addr{}, a.refuse("network %s: only the default route covers it; add a route (a VPN, a static route) "+
 			"so the homeserver is not reached by the default interface", network)

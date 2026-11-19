@@ -103,3 +103,34 @@ func TestRouteFailsOnWhatItCannotRead(t *testing.T) {
 		t.Fatal("Route succeeded when the interfaces could not be read")
 	}
 }
+
+const (
+	dest203    = "007100CB" // 203.0.113.0
+	dest203top = "807100CB" // 203.0.113.128
+	mask25     = "80FFFFFF"
+)
+
+// Plan 00257 HOST-7: a network is judged whole, never by its first address. Only a route that
+// covers all of it routes it, and a route inside it through another interface is named, so the
+// apply can refuse a network whose members would arrive on an interface no rule admits.
+func TestHOST7ANetworkIsJudgedWhole(t *testing.T) {
+	split := routeWorld(t, routeHeader+
+		route4("eth0", mask0, "0003", "100", mask0)+
+		route4("eth0", dest203, "0001", "100", mask25)+
+		route4("vpn0", dest203top, "0001", "100", mask25), "")
+	wantRoute(t, split, "203.0.113.0/24", host.Route{Interface: "eth0", Default: true, Split: "vpn0"})
+	inside := routeWorld(t, routeHeader+
+		route4("eth1", dest203, "0001", "100", mask24)+
+		route4("vpn0", dest203top, "0001", "100", mask25), "")
+	wantRoute(t, inside, "203.0.113.0/24", host.Route{Interface: "eth1", Split: "vpn0"})
+	same := routeWorld(t, routeHeader+
+		route4("eth1", dest203, "0001", "100", mask24)+
+		route4("eth1", dest203top, "0001", "100", mask25), "")
+	wantRoute(t, same, "203.0.113.0/24", host.Route{Interface: "eth1"})
+	wantRoute(t, inside, "203.0.113.128/25", host.Route{Interface: "vpn0"})
+	// The IPv6 table's host route of the host's own address, on loopback, splits nothing.
+	own := routeWorld(t, routeHeader,
+		route6(dest2001, "20", "00000400", "00000001", "eth2")+
+			route6(dest2001[:len(dest2001)-1]+"1", "80", "00000000", "00000001", "lo"))
+	wantRoute(t, own, "2001:db8::/32", host.Route{Interface: "eth2"})
+}

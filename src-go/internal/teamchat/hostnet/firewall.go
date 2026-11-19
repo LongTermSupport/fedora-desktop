@@ -172,20 +172,29 @@ func (f Firewall) route(addr netip.Addr) (string, bool, error) {
 // lookupRoute is the best usable route of proc's tables covering addr: the longest prefix, then
 // the lowest metric; the first of equals wins.
 func lookupRoute(proc string, addr netip.Addr) (route, bool, error) {
-	var routes []route
-	var err error
-	if addr.Is4() {
-		routes, err = readRoutes(proc+"/net/route", true, parseRoute4)
-	} else {
-		routes, err = readRoutes(proc+"/net/ipv6_route", false, parseRoute6)
-	}
+	routes, err := routesOf(proc, addr)
 	if err != nil {
 		return route{}, false, err
 	}
+	best, found := bestRoute(routes, func(p netip.Prefix) bool { return p.Contains(addr) })
+	return best, found, nil
+}
+
+// routesOf is the usable routes of proc's table of addr's family.
+func routesOf(proc string, addr netip.Addr) ([]route, error) {
+	if addr.Is4() {
+		return readRoutes(proc+"/net/route", true, parseRoute4)
+	}
+	return readRoutes(proc+"/net/ipv6_route", false, parseRoute6)
+}
+
+// bestRoute is the route whose prefix covers says yes to: the longest prefix, then the lowest
+// metric; the first of equals wins.
+func bestRoute(routes []route, covers func(netip.Prefix) bool) (route, bool) {
 	var best *route
 	for i := range routes {
 		r := &routes[i]
-		if !r.prefix.Contains(addr) {
+		if !covers(r.prefix) {
 			continue
 		}
 		if best == nil || r.prefix.Bits() > best.prefix.Bits() ||
@@ -194,9 +203,9 @@ func lookupRoute(proc string, addr netip.Addr) (route, bool, error) {
 		}
 	}
 	if best == nil {
-		return route{}, false, nil
+		return route{}, false
 	}
-	return *best, true, nil
+	return *best, true
 }
 
 // readRoutes is a route table's usable routes; a host without IPv6 has no ipv6_route, which is

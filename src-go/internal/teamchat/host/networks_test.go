@@ -419,3 +419,19 @@ func TestAMemberNetworkRoutedThroughTheDefaultInterfaceIsServedByIt(t *testing.T
 		t.Errorf("with no explicit route: got %v, want a refusal naming %s", err, member)
 	}
 }
+
+// Plan 00257 HOST-7: a declared network part of which another interface routes is refused, as
+// drift, naming that interface: its members there would arrive where no rule admits them.
+func TestHOST7ANetworkSplitAcrossInterfacesIsRefused(t *testing.T) {
+	w := newWorld(t)
+	withSecondNIC(w)
+	w.net.ifaces = append(w.net.ifaces, Interface{Name: "vpn0", Addrs: addrs("198.51.100.200")})
+	w.net.routes = append(w.net.routes, fakeRoute{netip.MustParsePrefix("203.0.113.128/25"), "vpn0"})
+	doc := teamDoc()
+	docTeam(doc)["networks"] = []any{"192.0.2.0/24", "203.0.113.0/24"}
+	_, err := w.apply(approved(w, doc))
+	got := stepOf(t, err)
+	if got.Step != StepRefusals || !got.Drift || !strings.Contains(got.Error(), "vpn0") || !strings.Contains(got.Error(), "203.0.113.0/24") {
+		t.Errorf("got %v", err)
+	}
+}

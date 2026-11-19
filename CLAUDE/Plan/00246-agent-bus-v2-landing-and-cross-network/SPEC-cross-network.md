@@ -33,6 +33,10 @@ install are listed last, under "Owner questions".
   sorted. A network whose route is the default route is refused with the CIDR named, unless it
   is the host's own bus address or the bridge; the owner adds a route (a VPN, a static route)
   instead. (Direction 6: "not the intention that the home server would be on the internet".)
+  A network is routed by a route that covers it whole, never judged by its first address, and
+  one part of which a longer route sends by another interface is refused naming that interface
+  (Plan 00257 HOST-7): its members there would arrive where no rule of the team admits them.
+  The host's own IPv6 addresses, listed as host routes on loopback, split nothing.
 - **X4** The homeserver, the TLS terminator (section 3), the unit's IP filter and the firewall
   rules are functions of the effective networks alone: the filter allows loopback, each listen
   address as a host prefix and each effective network; the firewall has one rich rule per
