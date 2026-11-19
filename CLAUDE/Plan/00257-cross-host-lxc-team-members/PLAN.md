@@ -102,7 +102,8 @@ Related plans:
 - [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
 - [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
   installed by a play).
-- [ ] ⬜ **Task B.5**: host units and the TLS terminator.
+- [x] ✅ **Task B.5**: host units and the TLS terminator. HOST-4 deferred to the suspend work
+  (`subagent-reports/b5-report.md`).
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).
