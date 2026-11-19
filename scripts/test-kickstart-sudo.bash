@@ -3,21 +3,20 @@
 # host's declared choice, set last in a main run (Q15).
 #
 #   1. The first-boot wrapper (the AUTOSTART_SCRIPT heredoc of fedora-install/ks.cfg, read from
-#      the file, never copied here) removes the kickstart's rule after run.bash whether it passed
-#      or failed, after a failed clone too, and does nothing once setup is complete; a removal
-#      that fails says so on stderr, naming the file. The path is read from the %post line that
-#      writes the rule.
-#   2. The localhost.yml the kickstart writes declares passwordless_sudo_for_unattended_deploys,
-#      false.
-#   3. Only the final play touches the grant or the kickstart's rule, so a play run on its own
+#      the file, never copied here) removes the kickstart's rule with `sudo -n` (never a prompt)
+#      after run.bash whether it passed or failed, after a failed clone too, and does nothing once
+#      setup is complete; a refused removal says why on stderr, naming the file. The path is read
+#      from the %post line that writes the rule.
+#   2. Only the final play touches the grant or the kickstart's rule, so a play run on its own
 #      (no final play) leaves the grant as it was and never half-revokes it; and the final play
-#      is the last one playbook-main.yml imports, so no become task follows a revocation.
-#   4. The final play's expressions, rendered by the real ansible over provisioning_profile x
-#      install_audience x the switch (true, false, undeclared): a developer desktop must declare
-#      the switch (the assertion fails otherwise); the grant is present exactly for a developer
-#      desktop whose switch is true; the kickstart's rule is removed on every host, as nothing in
-#      the run follows it (a reboot at the end of first boot can kill the wrapper before its own
-#      removal runs). play-basic-configs.yml asserts the same declaration, early.
+#      is the last one playbook-main.yml imports, so no later play follows a revocation.
+#   3. The final play's conditions, rendered by the real ansible over provisioning_profile x
+#      install_audience x the switch (true, false, undeclared) x whether the /etc/sudoers block
+#      and the kickstart's rule exist when it starts. Its tasks are then walked in the play's
+#      order, as a run without the sudo password meets them: every privileged task must find a
+#      grant still in place (none left stranded by an earlier revocation), and the play must end
+#      with the block present exactly for a developer desktop whose switch is true (undeclared is
+#      false) and the kickstart's rule gone on every host.
 #
 # Nothing here contacts a host or changes one: ansible renders against localhost with a
 # throwaway config, and every write lands in a temp directory. `set -e` is not used: every case
@@ -27,10 +26,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KS="${KS_CFG:-$REPO_ROOT/fedora-install/ks.cfg}"
 PLAYS="$REPO_ROOT/playbooks"
-FINAL="$PLAYS/imports/play-ZZZ-passwordless-sudo.yml"
-BASIC="$PLAYS/imports/play-basic-configs.yml"
-ASSERT_TASKS="$REPO_ROOT/tasks/assert-passwordless-sudo-declared.yml"
-SWITCH=passwordless_sudo_for_unattended_deploys
+FINAL="${FINAL_PLAY:-$PLAYS/imports/play-ZZZ-passwordless-sudo.yml}"
 PASSED=0
 FAILED=0
 
@@ -102,9 +98,9 @@ first_boot() {
     ERR=$(cat "$work/$1.err")
 }
 
-removal="sudo rm -f $RULE"
+removal="sudo -n rm -f $RULE"
 first_boot passed checkout
-check "run.bash passed: the rule is removed after it" "$(paste -sd'|' "$LOG")" "run.bash|$removal"
+check "run.bash passed: the rule is removed after it, never by a prompt" "$(paste -sd'|' "$LOG")" "run.bash|$removal"
 FAKE_RUN_RC=1 first_boot failed checkout
 check "run.bash failed: the rule is removed after it" "$(paste -sd'|' "$LOG")" "run.bash|$removal"
 FAKE_CLONE_RC=128 first_boot noclone none
@@ -114,79 +110,103 @@ check "cloned on first login: the rule is removed after run.bash" "$(paste -sd'|
 first_boot complete complete
 check "setup already complete: nothing runs" "$(paste -sd'|' "$LOG")" ""
 FAKE_SUDO_RC=1 first_boot nosudo checkout
-check "a failed removal is reported" "$([[ "$ERR" == *ERROR*"$RULE"*"still grants passwordless sudo"* ]] && echo named)" named
+check "a refused removal says no passwordless rule is in effect, naming the file" \
+    "$([[ "$ERR" == *"no passwordless rule is in effect"*"$RULE"* ]] && echo named)" named
 
-# --- 2. the localhost.yml the kickstart writes -----------------------------------------------
-heredoc LOCALHOST_SUDO "$KS" > "$work/localhost-sudo.yml"
-check "the kickstart's localhost.yml declares the switch false" \
-    "$(python3 -I -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get(sys.argv[2]))' "$work/localhost-sudo.yml" "$SWITCH")" False
-
-# --- 3. only the final play touches the grant ------------------------------------------------
+# --- 2. only the final play touches the grant ------------------------------------------------
 touching=$(cd "$REPO_ROOT" && grep -rlE 'passwordless sudo for|99-fedora-desktop-setup' playbooks tasks | sort | paste -sd' ')
 check "only the final play touches the grant or the kickstart's rule" "$touching" "playbooks/imports/play-ZZZ-passwordless-sudo.yml"
 check "the final play is the last one playbook-main.yml imports" \
     "$(awk '/import_playbook/ { last = $NF } END { print last }' "$PLAYS/playbook-main.yml")" "imports/play-ZZZ-passwordless-sudo.yml"
-for play in "$BASIC" "$FINAL"; do
-    check "$(basename "$play") asserts the declaration" \
-        "$(grep -c 'import_tasks: .*/tasks/assert-passwordless-sudo-declared.yml' "$play")" 1
-done
 
-# --- 4. the final play's expressions, rendered by ansible ------------------------------------
+# --- 3. the final play, rendered by ansible and walked in order ------------------------------
 printf '[defaults]\nretry_files_enabled = False\nstdout_callback = ansible.builtin.default\n' > "$work/ansible.cfg"
 printf 'all:\n  hosts:\n    localhost:\n      ansible_connection: local\n      ansible_python_interpreter: "{{ ansible_playbook_python }}"\n' > "$work/inventory.yml"
 mkdir -p "$work/tmp"
-run_ansible() {
-    env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 ANSIBLE_CONFIG="$work/ansible.cfg" \
-        ANSIBLE_LOCAL_TEMP="$work/tmp" ANSIBLE_REMOTE_TEMP="$work/tmp" "$@" </dev/null 2>&1
-}
 
-# render PROFILE AUDIENCE SWITCH prints "assert=<ok|failed> grant=<state> rule=<removed|kept>",
-# the final play's own vars and conditions evaluated by ansible.
-python3 -I - "$FINAL" "$ASSERT_TASKS" "$work/render.yml" <<'EOF'
-import sys, yaml
-final, asserts, out = sys.argv[1:4]
+# One play per case, each the final play's own vars with the case's facts, printing
+# "RESULT <case> <task>,<task>,..." where a task is slurp|stat (a probe), block:<state> or
+# rule:absent when it runs, and skip when it does not. The probes' results are the case's facts.
+python3 -I - "$FINAL" "$work/render.yml" <<'EOF'
+import base64, itertools, json, sys, yaml
+final, out = sys.argv[1:3]
 play = yaml.safe_load(open(final))[0]
-tasks = {t["name"]: t for t in play["tasks"] if "name" in t}
-grant = next(t for t in play["tasks"] if "ansible.builtin.blockinfile" in t)
-rule = next(t for t in play["tasks"] if "ansible.builtin.file" in t)
-check = yaml.safe_load(open(asserts))[0]
-render = [{
-    "hosts": "localhost", "gather_facts": False, "vars": play["vars"],
-    "tasks": [
-        {"name": "assertion", "ansible.builtin.set_fact": {"held": "{{ " + " and ".join(
-            "(" + c + ")" for c in check["ansible.builtin.assert"]["that"]) + " }}"},
-         "when": check.get("when", True)},
-        {"name": "print", "ansible.builtin.debug": {"msg": "RESULT assert={{ 'failed' if (held is defined and not held | bool) else 'ok' }} grant="
-            + grant["ansible.builtin.blockinfile"]["state"] + " rule={{ 'removed' if (" + str(rule.get("when", True)) + ") else 'kept' }}"}},
-    ],
-}]
-yaml.safe_dump(render, open(out, "w"))
+
+def runs(task):
+    when = task.get("when", True)
+    return "{{ (" + (when if isinstance(when, str) else str(when)) + ") | bool }}"
+
+steps = []
+for t in play["tasks"]:
+    if "ansible.builtin.slurp" in t or "ansible.builtin.stat" in t:
+        steps.append("probe")
+    elif "ansible.builtin.blockinfile" in t:
+        steps.append("{{ 'block:' ~ (" + t["ansible.builtin.blockinfile"]["state"].strip("{} ") + ") if " + runs(t)[3:-3] + " else 'skip' }}")
+    elif "ansible.builtin.file" in t:
+        steps.append("{{ 'rule:' ~ '" + t["ansible.builtin.file"]["state"] + "' if " + runs(t)[3:-3] + " else 'skip' }}")
+    else:
+        steps.append("unknown:" + next(k for k in t if k != "name"))
+
+plays = []
+for profile, audience, switch, block, rule in itertools.product(
+        ("desktop", "server"), ("developer", "consumer"), ("true", "false", "undeclared"), (0, 1), (0, 1)):
+    case = f"{profile}/{audience}/{switch}/block={block}/rule={rule}"
+    sudoers = "root ALL=(ALL) ALL\n" + ("## BEGIN passwordless sudo for yourname\n" if block else "")
+    facts = dict(play["vars"], provisioning_profile=profile, install_audience=audience, user_login="yourname",
+                 sudoers_file={"content": base64.b64encode(sudoers.encode()).decode()},
+                 first_boot_rule_stat={"stat": {"exists": bool(rule)}})
+    if switch != "undeclared":
+        facts["passwordless_sudo_for_unattended_deploys"] = switch == "true"
+    plays.append({"name": case, "hosts": "localhost", "gather_facts": False, "vars": facts,
+                  "tasks": [{"ansible.builtin.debug": {"msg": "RESULT " + case + " " + ",".join(steps)}}]})
+yaml.safe_dump(plays, open(out, "w"))
 EOF
-render() {
-    local extra=(-e "provisioning_profile=$1" -e "install_audience=$2" -e user_login=yourname)
-    [[ "$3" == undeclared ]] || extra+=(-e "{\"$SWITCH\": $3}")
-    run_ansible ansible-playbook -i "$work/inventory.yml" "$work/render.yml" "${extra[@]}" \
-        | grep -m 1 -o 'RESULT [^"]*' | cut -d' ' -f2-
+
+env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 ANSIBLE_CONFIG="$work/ansible.cfg" \
+    ANSIBLE_LOCAL_TEMP="$work/tmp" ANSIBLE_REMOTE_TEMP="$work/tmp" \
+    ansible-playbook -i "$work/inventory.yml" "$work/render.yml" </dev/null > "$work/render.out" 2>&1
+grep -o 'RESULT [^"]*' "$work/render.out" > "$work/results"
+check "ansible rendered every case" "$(wc -l < "$work/results")" 48
+
+# walk CASE STEPS: replay the tasks against the case's grants. A run without the sudo password
+# has only the block and the kickstart's rule; with neither at the start, run.bash asked for the
+# password and nothing can strand. Prints "<block>,<rule>" at the end, or "stranded at task N".
+walk() {
+    local block rule password=no i=0 step
+    block=$(case_field "$1" block)
+    rule=$(case_field "$1" rule)
+    [[ $block == 1 || $rule == 1 ]] || password=yes
+    IFS=, read -ra steps <<< "$2"
+    for step in "${steps[@]}"; do
+        i=$((i + 1))
+        [[ $step == skip ]] && continue
+        if [[ $password == no && $block == 0 && $rule == 0 ]]; then
+            echo "stranded at task $i ($step)"
+            return
+        fi
+        case "$step" in
+            block:present) block=1 ;;
+            block:absent) block=0 ;;
+            rule:absent) rule=0 ;;
+            probe) ;;
+            *) echo "unknown task $step"; return ;;
+        esac
+    done
+    echo "block=$block,rule=$rule"
 }
 
-for profile in desktop server; do
-    for audience in developer consumer; do
-        for switch in true false undeclared; do
-            developer_desktop=$([[ $profile == desktop && $audience == developer ]] && echo y)
-            want_assert=ok
-            [[ -n "$developer_desktop" && $switch == undeclared ]] && want_assert=failed
-            want_grant=absent want_rule=removed
-            if [[ -n "$developer_desktop" && $switch == true ]]; then want_grant=present; fi
-            # an undeclared developer desktop never reaches the grant: only the assertion counts.
-            got=$(render "$profile" "$audience" "$switch")
-            if [[ $want_assert == failed ]]; then
-                check "$profile/$audience/$switch: the declaration is required" "${got%% *}" "assert=failed"
-            else
-                check "$profile/$audience/$switch" "$got" "assert=ok grant=$want_grant rule=$want_rule"
-            fi
-        done
-    done
-done
+# case_field CASE NAME prints the 0|1 after NAME= in CASE.
+case_field() {
+    local rest="${1#*"$2"=}"
+    echo "${rest%%/*}"
+}
+
+while read -r _ case steps; do
+    IFS=/ read -r profile audience switch _ <<< "$case"
+    want_block=0
+    [[ $profile == desktop && $audience == developer && $switch == true ]] && want_block=1
+    check "$case" "$(walk "$case" "$steps")" "block=$want_block,rule=0"
+done < "$work/results"
 
 printf '\npassed: %d   failed: %d\n' "$PASSED" "$FAILED"
 [[ "$FAILED" == 0 ]]

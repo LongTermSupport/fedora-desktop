@@ -45,9 +45,10 @@ Force it **off** with `--interactive` (useful for piped-stdin smoke tests).
   `sudo -k -n true` probe and then fails on `dnf`. The probe cannot detect that — a known
   limitation, stated rather than implied.
 
-  **The playbooks never grant `NOPASSWD` on the server profile.** `play-basic-configs.yml`
-  writes its passwordless-sudo block only for the desktop profile and **removes** it under
-  `server`, so the credential above has to be one you own: your own sudoers drop-in
+  **The playbooks never grant `NOPASSWD` on the server profile.**
+  `play-ZZZ-passwordless-sudo.yml` writes its passwordless-sudo block only for a developer
+  desktop that declares `passwordless_sudo_for_unattended_deploys: true` and **removes** it
+  under `server`, so the credential above has to be one you own: your own sudoers drop-in
   (`docs/headless-server-install.md` Step 0a, which the play never touches) or the password
   file. A server box that relied on the play-written block from an earlier run must supply
   one of those, or its `become` tasks fail with `Missing sudo password` once the block goes.

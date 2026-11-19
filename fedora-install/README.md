@@ -170,10 +170,9 @@ The wizard:
 
 The kickstart's passwordless sudo lasts for this first login only: the terminal removes
 `/etc/sudoers.d/99-fedora-desktop-setup` once `run.bash` ends, whether it passed or failed.
-After that, `passwordless_sudo_for_unattended_deploys` in `localhost.yml` decides. The
-kickstart writes it `false`, so sudo asks for your password. Set it `true` only on a host whose
-deploys an agent runs unattended. A `localhost.yml` pulled from your config repo must declare
-it too, or the main playbook stops and names the line to add (see
+After that, `passwordless_sudo_for_unattended_deploys` in `localhost.yml` decides. Left out,
+it is `false`, and sudo asks for your password. Set it `true` only on a host whose deploys an
+agent runs unattended (see
 [docs/playbooks.md](../docs/playbooks.md#play-zzz-passwordless-sudoyml)).
 
 ---

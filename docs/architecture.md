@@ -218,7 +218,8 @@ Static files are organized by destination:
 
 - Vault encryption for sensitive data
 - SSH key generation and management
-- Passwordless sudo configuration on the desktop profile only; the server profile removes it
+- Passwordless sudo only on a developer desktop that declares
+  `passwordless_sudo_for_unattended_deploys: true`; every other host has it removed
 - GitHub CLI multi-account support
 - Vault password file (**plaintext**, gitignored) — it holds the key that decrypts the vaulted
   values, so it is by definition not itself encrypted

@@ -248,7 +248,7 @@ fi
 blanketOut=""
 if blanketOut="$(sudo -n true 2>&1)"; then
     bad "sudo -n true also succeeds: this user has a wider passwordless grant" \
-        "the server profile removes NOPASSWD:ALL (play-basic-configs.yml); find the other grant with: sudo -l"
+        "the server profile removes NOPASSWD:ALL (play-ZZZ-passwordless-sudo.yml); find the other grant with: sudo -l"
 elif [[ "${blanketOut}" == *"a password is required"* ]]; then
     ok "sudo -n true needs a password (${blanketOut}), so the passwordless grant is not blanket"
 elif [[ "${blanketOut}" == *"is not allowed to"* || "${blanketOut}" == *"not in the sudoers file"* ||

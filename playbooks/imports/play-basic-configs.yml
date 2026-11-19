@@ -124,10 +124,7 @@
         state: absent
       tags: packages
 
-    # Passwordless sudo itself is set by play-ZZZ-passwordless-sudo.yml, the last play of a main
-    # run; this early check makes an undeclared developer desktop fail before the run changes much.
-    - name: Passwordless sudo is declared
-      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/assert-passwordless-sudo-declared.yml"
+    # Passwordless sudo is set by play-ZZZ-passwordless-sudo.yml, the last play of a main run.
 
     - name: Vim Colours
       block:
