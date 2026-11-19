@@ -136,6 +136,8 @@ The bootstrap script:
     - Calls `agent-bus-install`; after the VPN play because a team may listen on a WireGuard address.
 31. **play-gsettings.yml**: GNOME settings
 32. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+33. **play-ZZZ-passwordless-sudo.yml**: Passwordless sudo as host_vars declares it, last so
+    revoking it strands no later play
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 
@@ -216,7 +218,8 @@ Static files are organized by destination:
 
 - Vault encryption for sensitive data
 - SSH key generation and management
-- Passwordless sudo configuration on the desktop profile only; the server profile removes it
+- Passwordless sudo only on a developer desktop that declares
+  `passwordless_sudo_for_unattended_deploys: true`; every other host has it removed
 - GitHub CLI multi-account support
 - Vault password file (**plaintext**, gitignored) — it holds the key that decrypts the vaulted
   values, so it is by definition not itself encrypted

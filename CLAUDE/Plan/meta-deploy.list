@@ -52,3 +52,10 @@ playbooks/imports/play-teamchat.yml
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
 # entered and names what the box showed when a line stays in it.
 playbooks/imports/play-claude-yolo.yml
+# Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
+# Run it only while this host's environment/localhost/host_vars/localhost.yml declares
+# `passwordless_sudo_for_unattended_deploys: true` (this host's unattended deploys need
+# passwordless sudo). With it, the play keeps the /etc/sudoers grant as it is and removes
+# /etc/sudoers.d/99-fedora-desktop-setup if a kickstart left one. Without the line, or with
+# `false`, it REMOVES passwordless sudo, and meta-deploy.bash can no longer run unattended here.
+playbooks/imports/play-ZZZ-passwordless-sudo.yml

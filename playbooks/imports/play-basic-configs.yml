@@ -124,25 +124,7 @@
         state: absent
       tags: packages
 
-    # Passwordless sudo is a workstation convenience: one human at the keyboard, and a
-    # password prompt on every dnf is friction with no security payoff. A server has no such
-    # human and is reached by automation, where a permanent NOPASSWD:ALL is the whole ladder
-    # from any process running as this user to root. So the server profile REMOVES this
-    # play's block rather than merely not writing it: a box provisioned as a desktop and later
-    # rebuilt as a server ends up in the state its current profile declares, and nothing
-    # downstream has to undo what this play did. Only this play's own marker-wrapped block is
-    # touched — a rule the operator wrote themselves (docs/headless-server-install.md Step 0a)
-    # is theirs and stays. Headless runs supply their credential through the preflight
-    # contract (NOPASSWD the operator owns, or RUN_BASH_SUDO_PASSWORD_FILE), never through
-    # this block. A consumer install (Plan 00228 Decision 8) removes it too: a non-technical
-    # user's account should not be a silent path to root.
-    - name: Passwordless Sudo (developer desktop grants it, server and consumer remove it)
-      ansible.builtin.blockinfile:
-        dest: /etc/sudoers
-        marker: "## {mark} passwordless sudo for {{ user_login}}"
-        block: "{{ user_login }}    ALL=(ALL)    NOPASSWD: ALL"
-        state: "{{ 'absent' if provisioning_profile == 'server' or install_audience == 'consumer' else 'present' }}"
-        validate: visudo -cf %s
+    # Passwordless sudo is set by play-ZZZ-passwordless-sudo.yml, the last play of a main run.
 
     - name: Vim Colours
       block:

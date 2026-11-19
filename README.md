@@ -173,7 +173,8 @@ The main playbook configures these essentials without any interaction:
   commands first ([details](docs/configuration.md#bash-environment))
 - [Kitty terminal](docs/kitty.md) with managed configuration and keybindings
 - Docker helper functions
-- Passwordless sudo for your user
+- Passwordless sudo for your user, where `localhost.yml` sets
+  `passwordless_sudo_for_unattended_deploys: true`
 
 ### Agentic Development with CCY
 

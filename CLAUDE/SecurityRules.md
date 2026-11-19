@@ -95,6 +95,6 @@ lastfm_api_key: !vault |
 - **Principle of least privilege** — Minimal permissions required
 - **No credentials in logs** — Sanitise output
 - **No secrets in `argv`** — `/proc` is world-readable, so a command line is not private. Pass a secret by environment-variable name or on stdin
-- **Passwordless sudo** configured for main user
+- **Passwordless sudo** for the main user only where the host declares `passwordless_sudo_for_unattended_deploys: true` (a developer desktop whose deploys an agent runs unattended); never on a server or consumer install
 - **SSH key authentication** for GitHub
 - **Proper file permissions** on sensitive files (`mode: 0600`)

@@ -89,7 +89,7 @@ docker run -v /:/host -it alpine chroot /host sh
 
 …and own the host. This is not a bug. It is the inherent design of a root daemon accessed via a Unix socket.
 
-On a developer workstation configured by this repo, the user already has passwordless sudo (see `CLAUDE/SecurityRules.md`). Docker-group membership is not a meaningful escalation over that baseline in this context. It **is** meaningful on shared or production systems, where this repo is not intended to run.
+On a developer workstation configured by this repo, the user is an administrator who can sudo, and has passwordless sudo where the host declares `passwordless_sudo_for_unattended_deploys: true`. Docker-group membership is not a meaningful escalation over that baseline in this context. It **is** meaningful on shared or production systems, where this repo is not intended to run.
 
 ### Rules of thumb
 

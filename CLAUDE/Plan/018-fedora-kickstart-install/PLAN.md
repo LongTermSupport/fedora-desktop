@@ -7,6 +7,11 @@
 
 > Branch: F43
 > Target: Fedora 43
+>
+> Current behaviour, superseding goal 4 and the passwordless-sudo item: first boot is the GNOME
+> autostart wrapper in `fedora-install/ks.cfg`, not a systemd unit. The kickstart's
+> `99-fedora-desktop-setup` rule lasts for first boot only, and passwordless sudo afterwards is
+> `passwordless_sudo_for_unattended_deploys` (see `play-ZZZ-passwordless-sudo.yml`).
 
 ## Goal
 

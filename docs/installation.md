@@ -231,7 +231,8 @@ The main playbook installs and configures:
 - Preflight sanity checks (Fedora version validation)
 - Basic packages (vim, wget, htop, btop, bash-completion, ripgrep, etc.)
 - DNF optimization (10 parallel downloads, fastest mirror)
-- Passwordless sudo for your user
+- Passwordless sudo for your user, only where `localhost.yml` sets
+  `passwordless_sudo_for_unattended_deploys: true`
 - RPM Fusion repositories
 
 **Development Tools**
