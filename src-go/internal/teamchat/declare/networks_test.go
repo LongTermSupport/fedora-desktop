@@ -108,51 +108,126 @@ func TestEffectiveNetworksOfAnIPv6BusAddress(t *testing.T) {
 	}
 }
 
-// X5: a team with a present LXC member is reached by its guests on the LXC bridge, so its url's
-// host is an address inside the bridge's subnet. A url elsewhere, or a name, would pass every run
-// with no member joined (each guest check offline), so it is refused, naming the subnet.
-func TestBridgeURLProblem(t *testing.T) {
+func addrs(s ...string) []netip.Addr {
+	out := make([]netip.Addr, 0, len(s))
+	for _, a := range s {
+		out = append(out, netip.MustParseAddr(a))
+	}
+	return out
+}
+
+// lxcInput is the sample input with url and one LXC member in state, or none when state is "".
+func lxcInput(t *testing.T, url, state string) Input {
+	t.Helper()
+	return inputWith(t, func(d map[string]any) {
+		docTeam(d)["url"] = url
+		delete(d, "lxc_members")
+		if state != "" {
+			member := lxcEntry("alpha")
+			member["state"] = state
+			d["lxc_members"] = []any{member}
+		}
+	})
+}
+
+// X5: a team with a present LXC member is reached by its guests on the LXC bridge, at the team's
+// listen address there, over https. The url serves the team's other seats and may be a name or
+// any address; a team with no listen address on the bridge, or a plain http url (loopback only,
+// X12), would pass every run with no member joined (each guest check offline), so it is refused.
+func TestLXCURLProblem(t *testing.T) {
+	// asks is how often the bridge and the listen set are asked: the listen set only for an https
+	// url off the bridge, so a team whose url names the bridge is judged as it always was.
+	type asks struct{ bridge, listen int }
 	cases := []struct {
 		name, url, bridge, want string
-		absent, none            bool
+		listen                  []netip.Addr
+		member                  string // the member's state; "" is none at all
+		asks                    asks
 	}{
-		{name: "on the bridge", url: "https://203.0.113.1:8448", bridge: "203.0.113.1/24"},
-		{name: "an IPv6 bridge", url: "https://[2001:db8::1]:8448", bridge: "2001:db8::/64"},
-		{name: "off the bridge", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", want: "192.0.2.10 is not inside the LXC bridge's subnet 203.0.113.0/24"},
-		{name: "a name", url: "https://chat.example.com:8448", bridge: "203.0.113.1/24", want: "chat.example.com is a name, not an address inside the LXC bridge's subnet 203.0.113.0/24"},
-		{name: "only an absent member", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", absent: true},
-		{name: "no member", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", none: true},
+		{name: "on the bridge", url: "https://203.0.113.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1"), member: "present", asks: asks{1, 0}},
+		{name: "an IPv6 bridge", url: "https://[2001:db8::1]:8448", bridge: "2001:db8::/64", listen: addrs("2001:db8::1"), member: "present", asks: asks{1, 0}},
+		{name: "another address", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1"), member: "present", asks: asks{1, 1}},
+		{name: "a name", url: "https://chat.example.com:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10", "203.0.113.1"), member: "present", asks: asks{1, 1}},
+		{
+			name: "no listen address on the bridge", url: "https://192.0.2.10:8448", bridge: "203.0.113.1/24", listen: addrs("192.0.2.10"), member: "present", asks: asks{1, 1},
+			want: "the team has no listen address inside the LXC bridge's subnet 203.0.113.0/24",
+		},
+		{
+			name: "plain http", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", listen: addrs("203.0.113.1"), member: "present", asks: asks{1, 0},
+			want: "the url is plain http, which a guest refuses off loopback; an LXC member needs an https url",
+		},
+		{name: "only an absent member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24", member: "absent"},
+		{name: "no member", url: "http://127.0.0.1:8448", bridge: "203.0.113.1/24"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			asked := 0
-			in := inputWith(t, func(d map[string]any) {
-				docTeam(d)["url"] = c.url
-				member := lxcEntry("alpha")
-				if c.absent {
-					member["state"] = "absent"
-				}
-				d["lxc_members"] = []any{member}
-				if c.none {
-					delete(d, "lxc_members")
-				}
-			})
-			got, err := in.BridgeURLProblem(bridgeAt(c.bridge, &asked))
-			if err != nil {
-				t.Fatal(err)
+			var got asks
+			listen := func() ([]netip.Addr, error) {
+				got.listen++
+				return c.listen, nil
 			}
-			if got != c.want {
-				t.Fatalf("problem %q, want %q", got, c.want)
+			problem, err := lxcInput(t, c.url, c.member).LXCURLProblem(listen, bridgeAt(c.bridge, &got.bridge))
+			if err != nil || problem != c.want {
+				t.Fatalf("problem %q, %v; want %q", problem, err, c.want)
 			}
-			if wantAsked := map[bool]int{true: 0, false: 1}[c.absent || c.none]; asked != wantAsked {
-				t.Fatalf("the bridge was asked %d times, want %d", asked, wantAsked)
+			if got != c.asks {
+				t.Fatalf("asked %+v, want %+v", got, c.asks)
 			}
 		})
 	}
 	boom := errors.New("the bridge is gone")
 	in := inputWith(t, func(d map[string]any) { d["lxc_members"] = []any{lxcEntry("alpha")} })
-	if _, err := in.BridgeURLProblem(func() (netip.Prefix, error) { return netip.Prefix{}, boom }); !errors.Is(err, boom) {
+	noListen := func() ([]netip.Addr, error) { return nil, boom }
+	if _, err := in.LXCURLProblem(noListen, func() (netip.Prefix, error) { return netip.Prefix{}, boom }); !errors.Is(err, boom) {
 		t.Fatalf("a bridge failure: %v", err)
+	}
+	in = inputWith(t, func(d map[string]any) {
+		d["lxc_members"] = []any{lxcEntry("alpha")}
+		docTeam(d)["url"] = "https://chat.example.com:8448"
+	})
+	asked := 0
+	if _, err := in.LXCURLProblem(noListen, bridgeAt("203.0.113.1/24", &asked)); !errors.Is(err, boom) {
+		t.Fatalf("a listen set failure: %v", err)
+	}
+}
+
+// X5: an LXC seat's url. A url already on the bridge is kept byte for byte (a team of LXC members
+// alone is served exactly as before); any other is the team's listen address inside the bridge's
+// subnet, at the team's port, over https.
+func TestLXCSeatURL(t *testing.T) {
+	subnet := netip.MustParsePrefix("203.0.113.0/24")
+	cases := []struct {
+		name, url, want string
+		port            int
+		listen          []netip.Addr
+		subnet          netip.Prefix
+	}{
+		{name: "on the bridge", url: "https://203.0.113.1:8448", port: 8448, listen: addrs("203.0.113.1"), subnet: subnet, want: "https://203.0.113.1:8448"},
+		{name: "on the bridge at 443", url: "https://203.0.113.1", port: 443, listen: addrs("203.0.113.1"), subnet: subnet, want: "https://203.0.113.1"},
+		{name: "a name", url: "https://chat.example.com:8448", port: 8448, listen: addrs("192.0.2.10", "203.0.113.1"), subnet: subnet, want: "https://203.0.113.1:8448"},
+		{name: "another address", url: "https://192.0.2.10:9000", port: 9000, listen: addrs("192.0.2.10", "203.0.113.1"), subnet: subnet, want: "https://203.0.113.1:9000"},
+		{name: "an IPv6 bridge", url: "https://chat.example.com:8448", port: 8448, listen: addrs("192.0.2.10", "2001:db8::1"), subnet: netip.MustParsePrefix("2001:db8::/64"), want: "https://[2001:db8::1]:8448"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := LXCSeatURL(Team{URL: c.url, Port: c.port}, c.listen, c.subnet)
+			if err != nil || got != c.want {
+				t.Fatalf("LXCSeatURL = %q, %v; want %q", got, err, c.want)
+			}
+		})
+	}
+	for name, team := range map[string]Team{
+		"plain http":  {URL: "http://127.0.0.1:8448", Port: 8448},
+		"not a url":   {URL: "https://[::1", Port: 8448},
+		"off the set": {URL: "https://chat.example.com:8448", Port: 8448},
+	} {
+		listen := addrs("203.0.113.1")
+		if name == "off the set" {
+			listen = addrs("192.0.2.10")
+		}
+		if got, err := LXCSeatURL(team, listen, subnet); err == nil {
+			t.Errorf("%s: LXCSeatURL = %q, no error", name, got)
+		}
 	}
 }
 

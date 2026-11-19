@@ -298,6 +298,7 @@ func (w *world) sys() *System {
 		},
 		Child:      inProcessChild{w: w},
 		Bundles:    w,
+		LXCURL:     host.AppliedLXCURL(w.root, w.Bridge),
 		OwnerGroup: w.ownerGroup,
 		Open:       w.open,
 		Pin:        func() (host.Pin, error) { return w.pin(), nil },

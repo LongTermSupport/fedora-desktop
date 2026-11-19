@@ -126,7 +126,7 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 			Origin:    func(context.Context, paths.TeamID) (string, error) { return "v2", nil },
 			Guard:     teamlock.All(restore.Guard(w.root), carry.Guard(w.root)),
 			Kit:       kit, HostKit: t.TempDir(), HostUIDs: map[int]bool{0: true}, OwnerGID: os.Getgid(), Bridge: "lxcbr0",
-			BridgeNet: w.Bridge,
+			BridgeNet: w.Bridge, Listen: host.AppliedListen(w.root),
 		}, nil
 	}
 	return sys
@@ -482,11 +482,37 @@ func TestLXCRosterParksAndReturns(t *testing.T) {
 // setTeamURL rewrites the applied alpha team.json's default URL to url.
 func setTeamURL(t *testing.T, w *world, url string) {
 	t.Helper()
+	const defaultURL = "https://192.0.2.10:8448"
+	if url == defaultURL {
+		return
+	}
 	name := w.root + paths.TeamDeclaration(alpha(t))
 	raw := string(testfiles.Read(t, w.root, name))
-	changed := strings.Replace(raw, "https://192.0.2.10:8448", url, 1)
+	changed := strings.Replace(raw, defaultURL, url, 1)
 	if changed == raw {
 		t.Fatalf("team.json does not name the default URL: %s", raw)
+	}
+	f := testfiles.OpenFile(t, w.root, name, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if _, err := f.WriteString(changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// worldBridgeURL is the url of alpha's LXC seats once it listens on the world's bridge.
+const worldBridgeURL = "https://198.51.100.1:8448"
+
+// listenOnTheBridge rewrites the applied alpha units.json's listen set to hold the world's bridge
+// address beside its own, as a team apply with a present LXC member records it.
+func listenOnTheBridge(t *testing.T, w *world) {
+	t.Helper()
+	name := w.root + paths.UnitsRecord(alpha(t))
+	raw := string(testfiles.Read(t, w.root, name))
+	changed := strings.Replace(raw, `"listen":["192.0.2.10"]`, `"listen":["192.0.2.10","198.51.100.1"]`, 1)
+	if changed == raw {
+		t.Fatalf("units.json does not hold the default listen set: %s", raw)
 	}
 	f := testfiles.OpenFile(t, w.root, name, os.O_WRONLY|os.O_TRUNC, 0o600)
 	if _, err := f.WriteString(changed); err != nil {
@@ -512,36 +538,59 @@ func reachFacts(t *testing.T, w *world, sys *System, url string) map[string]any 
 	return facts
 }
 
-// Reach is guest check's stdin: v 2, team, base_url and tls_ca, nothing else (Plan 00246 X15). A
-// team whose URL is plain http has no CA to carry and none is asked for.
-func TestLXCRosterReach(t *testing.T) {
-	w := newWorld(t)
-	w.applied(t)
-	ca := newTeamCA(t)
-	sys := w.sys()
-	sys.TeamCA = ca.get
-	facts := reachFacts(t, w, sys, "http://127.0.0.1:8448")
-	if facts["v"] != 2.0 || facts["team"] != "alpha" || facts["base_url"] != "http://127.0.0.1:8448" || facts["tls_ca"] != "" || len(facts) != 4 {
-		t.Fatalf("reach %v", facts)
-	}
-	if len(ca.asked) != 0 {
-		t.Errorf("the CA was asked for %v for a plain http team", ca.asked)
+// Reach is guest check's stdin: v 2, team, base_url and tls_ca, nothing else (Plan 00246 X15).
+// Its base_url is the LXC seats' url (X5): the team's listen address on the bridge, whatever the
+// url, which serves the team's other seats, names; a url already on the bridge is kept as it is.
+func TestLXCRosterReachIsTheBridgeURL(t *testing.T) {
+	for _, url := range []string{httpsURL, "https://192.0.2.10:8448", worldBridgeURL} {
+		w := newWorld(t)
+		w.applied(t)
+		listenOnTheBridge(t, w)
+		ca := newTeamCA(t)
+		sys := w.sys()
+		sys.TeamCA = ca.get
+		facts := reachFacts(t, w, sys, url)
+		if facts["v"] != 2.0 || facts["team"] != "alpha" || facts["base_url"] != worldBridgeURL || facts["tls_ca"] != ca.pem || len(facts) != 4 {
+			t.Fatalf("%s: reach %v", url, facts)
+		}
+		if len(ca.asked) != 1 || ca.asked[0] != alpha(t) {
+			t.Errorf("%s: the CA was asked for %v, want alpha once", url, ca.asked)
+		}
 	}
 }
 
-// Reach for an https team carries the team's CA certificate, asked for by team.
-func TestLXCRosterReachCarriesTheTeamCA(t *testing.T) {
-	w := newWorld(t)
-	w.applied(t)
-	ca := newTeamCA(t)
-	sys := w.sys()
-	sys.TeamCA = ca.get
-	facts := reachFacts(t, w, sys, httpsURL)
-	if facts["v"] != 2.0 || facts["base_url"] != httpsURL || facts["tls_ca"] != ca.pem || len(facts) != 4 {
-		t.Fatalf("reach %v", facts)
+// Reach fails, asking for no CA, for a team no guest could reach: one with no listen address on
+// the bridge, or a plain http one (loopback only, which a guest refuses off loopback), and when
+// the LXC seats' url has no provider.
+func TestLXCRosterReachFailsOffTheBridge(t *testing.T) {
+	cases := map[string]struct {
+		url      string
+		onBridge bool
+		noURL    bool
+	}{
+		"no listen address on the bridge": {url: httpsURL},
+		"plain http":                      {url: "http://127.0.0.1:8448", onBridge: true},
+		"no provider":                     {url: httpsURL, onBridge: true, noURL: true},
 	}
-	if len(ca.asked) != 1 || ca.asked[0] != alpha(t) {
-		t.Errorf("the CA was asked for %v, want alpha once", ca.asked)
+	for name, c := range cases {
+		w := newWorld(t)
+		w.applied(t)
+		if c.onBridge {
+			listenOnTheBridge(t, w)
+		}
+		setTeamURL(t, w, c.url)
+		ca := newTeamCA(t)
+		sys := w.sys()
+		sys.TeamCA = ca.get
+		if c.noURL {
+			sys.LXCURL = nil
+		}
+		if reach, err := (lxcRoster{sys: sys}).Reach(t.Context(), alpha(t)); err == nil {
+			t.Errorf("%s: Reach answered %s", name, reach)
+		}
+		if len(ca.asked) != 0 {
+			t.Errorf("%s: the CA was asked for %v", name, ca.asked)
+		}
 	}
 }
 
@@ -550,6 +599,7 @@ func TestLXCRosterReachCarriesTheTeamCA(t *testing.T) {
 func TestLXCRosterReachFailsWithoutTheTeamCA(t *testing.T) {
 	w := newWorld(t)
 	w.applied(t)
+	listenOnTheBridge(t, w)
 	setTeamURL(t, w, httpsURL)
 	for name, provider := range map[string]TeamCA{
 		"not made":    (&teamCA{err: errors.New("the team CA is not made yet")}).get,

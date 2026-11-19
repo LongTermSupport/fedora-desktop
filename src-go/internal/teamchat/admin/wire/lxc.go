@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
@@ -51,6 +52,7 @@ func (m machine) lxcDeps(clock systemClock, ownerGroup func() (int, error)) (*lx
 		Origin:    health.Stamps{Root: root}.Origin, V1: v1NotBuilt{}, Guard: teamlock.All(restore.Guard(root), carry.Guard(root), carry.DrillImportGuard(root, m.stateOwnerUID)),
 		Kit: kit, HostKit: root + paths.HostKitDir(kit).String(), HostUIDs: uids, OwnerGID: gid, Bridge: Bridge,
 		BridgeNet: hostnet.Network{Proc: m.proc, BridgeName: Bridge}.Bridge,
+		Listen:    host.AppliedListen(root),
 	}, nil
 }
 

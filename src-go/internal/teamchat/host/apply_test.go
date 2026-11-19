@@ -655,19 +655,87 @@ func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	}
 }
 
-// X5: a team with a present LXC member names the bridge's address in its url. A url the host
-// answers on elsewhere (here the bus address) would apply green and leave every guest check
-// offline, so it is refused at step 2, naming the subnet, before anything is written.
-func TestLXCMemberNeedsTheURLOnTheBridge(t *testing.T) {
+// lxcDoc is teamDoc with one present LXC member and the url given.
+func lxcDoc(url string) map[string]any {
 	doc := teamDoc()
 	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
+	docTeam(doc)["url"] = url
+	return doc
+}
+
+// X5: a team with a present LXC member is served on the bridge, and its LXC seats reach it at
+// its listen address there; its url serves every other seat, so it may be a name or the host's
+// other address. The leaf names the bridge's address beside the url's name, so the LXC seats'
+// url verifies against the same pinned CA, and the LXC seats' url is the bridge's address.
+func TestLXCMemberLeavesTheURLFree(t *testing.T) {
+	for url, wantDNS := range map[string]string{"https://chat.example.com:8448": "chat.example.com", "https://192.0.2.10:8448": ""} {
+		w := newWorld(t)
+		if _, err := w.apply(approved(w, lxcDoc(url))); err != nil {
+			t.Fatalf("%s: %v", url, err)
+		}
+		names, err := AppliedLeafNames(w.root)(ops(t))
+		if err != nil || !sameNames(names, []string{"192.0.2.10", "198.51.100.1"}, wantDNS) {
+			t.Fatalf("%s: leaf names %+v, %v", url, names, err)
+		}
+		team, err := declare.DecodeTeamFile([]byte(w.read(paths.TeamDeclaration(ops(t)))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := AppliedLXCURL(w.root, w.net.Bridge)(team)
+		if err != nil || got != "https://198.51.100.1:8448" {
+			t.Fatalf("%s: the LXC seats' url %q, %v", url, got, err)
+		}
+	}
+}
+
+// X5: a team of LXC members alone, whose url names the bridge's address, is served as it always
+// was: its LXC seats' url is the url itself.
+func TestLXCMemberWithTheURLOnTheBridge(t *testing.T) {
 	w := newWorld(t)
-	_, err := w.apply(approved(w, doc))
-	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), "192.0.2.10 is not inside the LXC bridge's subnet 198.51.100.0/24") {
+	if _, err := w.apply(approved(w, lxcDoc("https://198.51.100.1:8448"))); err != nil {
+		t.Fatal(err)
+	}
+	team, err := declare.DecodeTeamFile([]byte(w.read(paths.TeamDeclaration(ops(t)))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := AppliedLXCURL(w.root, w.net.Bridge)(team); err != nil || got != "https://198.51.100.1:8448" {
+		t.Fatalf("the LXC seats' url %q, %v", got, err)
+	}
+}
+
+// X5: a plain http url (loopback only, X12) cannot serve a guest, which refuses plain http off
+// loopback, so a team with a present LXC member and one is refused at step 2 before anything is
+// written (here X6 refuses it first, as loopback is no listen address; declare.LXCURLProblem
+// holds the rest).
+func TestLXCMemberNeedsAnHTTPSURL(t *testing.T) {
+	w := newWorld(t)
+	_, err := w.apply(approved(w, lxcDoc("http://127.0.0.1:8448")))
+	if e := stepOf(t, err); e.Step != StepRefusals || !e.Drift || !strings.Contains(err.Error(), "127.0.0.1") {
 		t.Fatalf("got %v", err)
 	}
 	if _, statErr := os.Stat(w.at(paths.StampFile(ops(t)))); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("a refused apply stamped the team: %v", statErr)
+	}
+}
+
+// X5: the LXC seats' url of a team never applied, or applied with no listen address on the
+// bridge, is an error, never a guess.
+func TestAppliedLXCURLFailures(t *testing.T) {
+	w := newWorld(t)
+	team := declare.Team{ID: ops(t), URL: "https://chat.example.com:8448", Port: 8448}
+	if _, err := AppliedLXCURL(w.root, w.net.Bridge)(team); err == nil {
+		t.Fatal("a team never applied has an LXC url")
+	}
+	if _, err := w.apply(approved(w, teamDoc())); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := AppliedLXCURL(w.root, w.net.Bridge)(team); err == nil {
+		t.Fatalf("a team with no listen address on the bridge has the LXC url %q", got)
+	}
+	boom := errors.New("the bridge is gone")
+	if _, err := AppliedLXCURL(w.root, func() (netip.Prefix, error) { return netip.Prefix{}, boom })(team); !errors.Is(err, boom) {
+		t.Fatalf("a bridge failure: %v", err)
 	}
 }
 

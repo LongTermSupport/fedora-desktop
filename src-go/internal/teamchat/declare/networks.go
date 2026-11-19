@@ -2,10 +2,13 @@ package declare
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
 )
 
 // EffectiveNetworks is the one set of networks a team's homeserver is reached from (X3, X4, X5).
@@ -51,11 +54,14 @@ func (in Input) EffectiveNetworks(bridge func() (netip.Prefix, error)) (Effectiv
 	return out, nil
 }
 
-// BridgeURLProblem is why the team's url cannot serve its present LXC members, "" when it can
-// (X5). Their guests reach the homeserver on the LXC bridge, so the url's host must be an address
-// inside the bridge's subnet: a url elsewhere, or a name, passes every apply with each guest check
-// offline and no member joined. bridge is asked only while a present LXC member needs it.
-func (in Input) BridgeURLProblem(bridge func() (netip.Prefix, error)) (string, error) {
+// LXCURLProblem is why the team cannot serve its present LXC members, "" when it can (X5). Their
+// guests reach the homeserver at LXCSeatURL, its listen address on the LXC bridge over https: a
+// team with no listen address there, or a plain http url (loopback only, X12), passes every apply
+// with each guest check offline and no member joined. The url serves the team's other seats and
+// may be a name or any address. listen is the team's listen set, asked only when the url is not
+// already on the bridge (so a team whose url names the bridge is judged as it always was); bridge
+// is asked only while a present LXC member needs it.
+func (in Input) LXCURLProblem(listen func() ([]netip.Addr, error), bridge func() (netip.Prefix, error)) (string, error) {
 	if !in.hasPresentLXC() {
 		return "", nil
 	}
@@ -63,19 +69,57 @@ func (in Input) BridgeURLProblem(bridge func() (netip.Prefix, error)) (string, e
 	if err != nil {
 		return "", fmt.Errorf("the LXC bridge's subnet: %w", err)
 	}
-	subnet = subnet.Masked()
-	u, err := url.Parse(in.Team.URL)
+	if base, problem := urlOnBridge(in.Team, subnet); base != "" || problem != "" {
+		return problem, nil
+	}
+	addrs, err := listen()
 	if err != nil {
-		return "", fmt.Errorf("url %q: %w", in.Team.URL, err)
+		return "", fmt.Errorf("the team's listen set: %w", err)
 	}
-	addr, isAddr := parseAddr(u.Hostname())
+	_, problem := listenURL(in.Team, addrs, subnet)
+	return problem, nil
+}
+
+// LXCSeatURL is the base url a seat of kind lxc is given (X5): the team's url when its host is
+// already an address inside the bridge's subnet, kept byte for byte, else https at the team's
+// listen address inside that subnet and the team's port. Every other seat kind is given the url.
+// A plain http url, or no listen address inside the subnet, is an error: no guest could reach it.
+func LXCSeatURL(team Team, listen []netip.Addr, subnet netip.Prefix) (string, error) {
+	base, problem := urlOnBridge(team, subnet)
+	if base == "" && problem == "" {
+		base, problem = listenURL(team, listen, subnet)
+	}
+	if problem != "" {
+		return "", errors.New(problem)
+	}
+	return base, nil
+}
+
+// urlOnBridge is the team's url when it is https at an address inside subnet, or why no https url
+// can serve a guest; both empty when the url is https elsewhere.
+func urlOnBridge(team Team, subnet netip.Prefix) (string, string) {
+	u, err := url.Parse(team.URL)
 	switch {
-	case !isAddr:
-		return fmt.Sprintf("%s is a name, not an address inside the LXC bridge's subnet %s", u.Hostname(), subnet), nil
-	case !subnet.Contains(addr.Unmap()):
-		return fmt.Sprintf("%s is not inside the LXC bridge's subnet %s", addr, subnet), nil
+	case err != nil:
+		return "", fmt.Sprintf("url %q: %v", team.URL, err)
+	case u.Scheme != "https":
+		return "", "the url is plain http, which a guest refuses off loopback; an LXC member needs an https url"
 	}
-	return "", nil
+	if addr, isAddr := parseAddr(u.Hostname()); isAddr && subnet.Masked().Contains(addr.Unmap()) {
+		return team.URL, ""
+	}
+	return "", ""
+}
+
+// listenURL is https at the team's first listen address inside subnet and its port, or why there
+// is none.
+func listenURL(team Team, listen []netip.Addr, subnet netip.Prefix) (string, string) {
+	subnet = subnet.Masked()
+	i := slices.IndexFunc(listen, func(a netip.Addr) bool { return subnet.Contains(a.Unmap()) })
+	if i < 0 {
+		return "", fmt.Sprintf("the team has no listen address inside the LXC bridge's subnet %s", subnet)
+	}
+	return "https://" + net.JoinHostPort(listen[i].Unmap().String(), strconv.Itoa(team.Port)), ""
 }
 
 // parseAddr is host as an IP address, and whether it is one rather than a name.

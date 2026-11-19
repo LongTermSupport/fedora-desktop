@@ -32,10 +32,12 @@ import (
 // file reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1). LXC is the
 // `lxc apply` and `lxc restart` seams; the verbs give it the Roster and Refresh themselves.
 type System struct {
-	Host       host.Deps
-	Child      Child
-	Bundles    Bundles
-	TeamCA     TeamCA
+	Host    host.Deps
+	Child   Child
+	Bundles Bundles
+	TeamCA  TeamCA
+	// LXCURL is the base url the reach facts give an LXC guest (X5); the bundles are given the same.
+	LXCURL     LXCURL
 	OwnerGroup func() (int, error)
 	Open       Opener
 	// Place is the child's writer of a carried team's files (SC-C2), which the Opener cannot

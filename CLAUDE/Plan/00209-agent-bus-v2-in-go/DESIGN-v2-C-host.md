@@ -724,9 +724,15 @@ whole declaration (`teamchat_teams`, `teamchat_lxc_members`, `teamchat_site`) an
 absent ones in scope, every seat of whose LXC record leaves before `team remove` (which refuses
 a team whose record holds a seat not `left`). The absent phase passes by a present team with no
 stamp (a team's first play, or one redeclared after its removal), its leaving seats `DEFERRED`.
-A team with a present LXC member names an address inside the bridge's subnet in its `url`
-(X5): `team apply` and `lxc apply --phase present` refuse any other, and the play fails the
-present phase on a `reach` line.
+A team with a present LXC member is served on the bridge (X3), and its LXC seats reach it there
+(X5): a seat of kind `lxc` is given `https://<bridge listen address>:<port>` in its bundle and in
+`guest check`'s reach facts (`declare.LXCSeatURL`; a `url` already on the bridge is kept as it
+is), and every other seat kind the team's `url`. The leaf names every listen address, so both
+verify against the one pinned CA. The `url` is therefore free: a name, or any address, for the
+team's seats on other machines. `team apply` and `lxc apply --phase present` refuse a team with
+a present LXC member whose listen set (for `lxc apply`, the one `units.json` records) has no
+address inside the bridge's subnet, or whose `url` is plain http; the play fails the present
+phase on a `reach` line.
 
 Every `teamchat-admin` step reports changed only on a `^CHANGED\t` line. `teamchat_only_teams`
 scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`

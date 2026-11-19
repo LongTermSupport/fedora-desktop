@@ -168,6 +168,51 @@ func AppliedLeafNames(root string) func(paths.TeamID) (pki.Names, error) {
 	}
 }
 
+// AppliedListen is the listen set the last apply under root recorded for a team in units.json:
+// what its homeserver is reached on, the LXC bridge's address among them while it has a present
+// LXC member (X3, X5).
+func AppliedListen(root string) func(paths.TeamID) ([]netip.Addr, error) {
+	return func(team paths.TeamID) ([]netip.Addr, error) {
+		units, err := readUnits(root, team)
+		if err != nil {
+			return nil, err
+		}
+		return listenAddrs(units)
+	}
+}
+
+// AppliedLXCURL is the base url the LXC seats of an applied team are given (X5):
+// declare.LXCSeatURL over the listen set its last apply under root recorded and the bridge's
+// subnet. The leaf names every listen address (leafNames), so the url verifies against the team's
+// CA as the team's url does.
+func AppliedLXCURL(root string, bridge func() (netip.Prefix, error)) func(declare.Team) (string, error) {
+	listen := AppliedListen(root)
+	return func(team declare.Team) (string, error) {
+		addrs, err := listen(team.ID)
+		if err != nil {
+			return "", err
+		}
+		subnet, err := bridge()
+		if err != nil {
+			return "", fmt.Errorf("the LXC bridge's subnet: %w", err)
+		}
+		return declare.LXCSeatURL(team, addrs, subnet)
+	}
+}
+
+// listenAddrs is units.json's listen set as addresses.
+func listenAddrs(units unitsRecord) ([]netip.Addr, error) {
+	listen := make([]netip.Addr, 0, len(units.listen))
+	for _, text := range units.listen {
+		a, err := netip.ParseAddr(text)
+		if err != nil {
+			return nil, fmt.Errorf("units.json: %w", err)
+		}
+		listen = append(listen, a)
+	}
+	return listen, nil
+}
+
 // appliedListen is what the last apply under root recorded of a team's reach: team.json, and the
 // listen set of units.json.
 func appliedListen(root string, team paths.TeamID) (declare.Team, []netip.Addr, error) {
@@ -187,13 +232,9 @@ func appliedListen(root string, team paths.TeamID) (declare.Team, []netip.Addr, 
 	if err != nil {
 		return declare.Team{}, nil, fmt.Errorf("%s: %w", file, err)
 	}
-	listen := make([]netip.Addr, 0, len(units.listen))
-	for _, text := range units.listen {
-		a, err := netip.ParseAddr(text)
-		if err != nil {
-			return declare.Team{}, nil, fmt.Errorf("units.json: %w", err)
-		}
-		listen = append(listen, a)
+	listen, err := listenAddrs(units)
+	if err != nil {
+		return declare.Team{}, nil, err
 	}
 	return declared, listen, nil
 }

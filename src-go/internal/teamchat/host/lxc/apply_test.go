@@ -340,22 +340,82 @@ func TestGuestOnTheBridgeIsInsideTheEffectiveNetworks(t *testing.T) {
 	hasLine(t, r, lineOf(t, "CHANGED", "c1", "joined as ")+firstHandle)
 }
 
-// X5: a guest reaches its team on the bridge, so a team whose url is off the bridge's subnet is
-// a declaration error, refused before any change: without the refusal every guest check would
-// be offline (`reach`), the run green and no member joined.
-func TestURLOffTheBridgeIsRefused(t *testing.T) {
+// X5: a guest reaches its team at the team's listen address on the bridge, so the url, which
+// serves the team's other seats, may be a name or an address off the bridge: the seat joins.
+func TestAURLOffTheBridgeServesTheGuests(t *testing.T) {
+	for _, url := range []string{"https://chat.example.com:8448", "https://198.51.100.1:8448"} {
+		w := newWorld(t)
+		w.addBox("c1")
+		w.declare([]string{"t1"}, w.member("t1", "c1"))
+		w.decl.Teams[0].URL = url
+		w.approveAll()
+		r, err := w.apply(PhasePresent)
+		if err != nil {
+			t.Fatalf("%s: %v", url, err)
+		}
+		hasLine(t, r, lineOf(t, "CHANGED", "c1", "joined as ")+firstHandle)
+	}
+}
+
+// X5: a team with no listen address on the bridge, as its last apply recorded, or a plain http
+// url (loopback only), cannot serve a guest, so it is a declaration error, refused before any
+// change: without the refusal every guest check would be offline (`reach`), the run green and no
+// member joined.
+func TestATeamNotServedOnTheBridgeIsRefused(t *testing.T) {
+	cases := map[string]struct {
+		url    string
+		listen []netip.Addr
+		want   string
+	}{
+		"no listen address on the bridge": {
+			url: "https://chat.example.com:8448", listen: []netip.Addr{netip.MustParseAddr("198.51.100.1")},
+			want: "no listen address inside the LXC bridge's subnet " + allowNet,
+		},
+		"plain http": {
+			url: "http://127.0.0.1:8448", listen: []netip.Addr{netip.MustParseAddr(bridgeAddr)},
+			want: "plain http, which a guest refuses off loopback",
+		},
+	}
+	for name, c := range cases {
+		w := newWorld(t)
+		w.addBox("c1")
+		w.declare([]string{"t1"}, w.member("t1", "c1"))
+		w.decl.Teams[0].URL = c.url
+		w.listen = c.listen
+		w.approveAll()
+		_, err := w.apply(PhasePresent)
+		herr, ok := errors.AsType[*host.Error](err)
+		if !ok || !herr.Drift || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%s: err %v", name, err)
+		}
+		if len(w.roster.joins) != 0 || slices.Contains(w.lxc.verbs(), "c1 guest check") {
+			t.Fatalf("%s: a refused team was acted on: joins %v, calls %v", name, w.roster.joins, w.lxc.verbs())
+		}
+	}
+}
+
+// X5: a listen set that cannot be read fails the phase before any change. It is read only for a
+// url off the bridge: a url on the bridge is judged as it always was.
+func TestAListenSetThatCannotBeReadFails(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
-	w.decl.Teams[0].URL = "http://198.51.100.1:8448"
+	w.listenErr = errors.New("units.json is not there")
+	if _, err := w.apply(PhasePresent); err != nil {
+		t.Fatalf("a url on the bridge read the listen set: %v", err)
+	}
+	w = newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.decl.Teams[0].URL = "https://chat.example.com:8448"
 	w.approveAll()
+	w.listenErr = errors.New("units.json is not there")
 	_, err := w.apply(PhasePresent)
-	herr, ok := errors.AsType[*host.Error](err)
-	if !ok || !herr.Drift || !strings.Contains(err.Error(), "198.51.100.1 is not inside the LXC bridge's subnet "+allowNet) {
+	if err == nil || !strings.Contains(err.Error(), "units.json is not there") {
 		t.Fatalf("err %v", err)
 	}
-	if len(w.roster.joins) != 0 || slices.Contains(w.lxc.verbs(), "c1 guest check") {
-		t.Fatalf("a refused team was acted on: joins %v, calls %v", w.roster.joins, w.lxc.verbs())
+	if len(w.roster.joins) != 0 {
+		t.Fatalf("joins %v", w.roster.joins)
 	}
 }
 
@@ -365,7 +425,8 @@ func TestGuestOutsideTheEffectiveNetworksIsRefused(t *testing.T) {
 	w.networks = []string{"203.0.113.0/24"}
 	w.bridge = netip.MustParsePrefix("198.51.100.0/24")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
-	w.decl.Teams[0].URL = "http://198.51.100.1:8448" // on this bridge, so the guest's address is what is judged
+	w.decl.Teams[0].URL = "https://198.51.100.1:8448" // on this bridge, so the guest's address is what is judged
+	w.listen = []netip.Addr{netip.MustParseAddr("198.51.100.1")}
 	w.approveAll()
 	_, err := w.apply(PhasePresent)
 	herr, ok := errors.AsType[*host.Error](err)
