@@ -39,7 +39,7 @@ Related plans:
 
 ### Phase 0: report and decision
 
-- [ ] 🔄 **Task 0.1**: the report ([REPORT.md](REPORT.md), research in `research/`). It covers the
+- [x] ✅ **Task 0.1**: the report ([REPORT.md](REPORT.md), research in `research/`). It covers the
   architecture weaknesses of v1 and v2, cited; prior art from the owner's GitHub stars, with
   licences; and keep, adapt or replace, with the smallest path to adding seats freely between
   machines, LXC guests included.
