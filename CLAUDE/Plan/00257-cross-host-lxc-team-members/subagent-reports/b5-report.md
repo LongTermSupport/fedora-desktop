@@ -15,7 +15,7 @@ Findings from `reports/audit-host.md`, `audit-admin.md`, `audit-security.md` and
 | SEC-5             | fixed    | `290c17617` | `TestT10TheAdminAPIIsRefusedAndNeverReachesTheUpstream`, `TestT10TheMatrixAPIIsRelayed`, `TestT10ALaterRequestIsJudgedToo`, `TestT10AmbiguousFramingIsRefused`, `TestT10ASilentClientIsClosedAtRequestLimit`     |
 | ADMIN-1           | fixed    | `3d510b900` | six `TestADMIN1*` tests; the red is `TestTheOpenerIsOpenAndTheDefaultsAreTheRealOnes`, which bootstrapped against an in-process listener that is no team's unit                                                  |
 | HOST-7            | fixed    | `6bf1bc170` | `TestHOST7ANetworkIsJudgedWhole` (hostnet), `TestHOST7ANetworkSplitAcrossInterfacesIsRefused` (host)                                                                                                             |
-| HOST-4            | deferred | none        | none                                                                                                                                                                                                             |
+| HOST-4            | Task B.2d | none        | none                                                                                                                                                                                                             |
 
 Red before green: each test was seen failing before its fix, except HOST-7, whose tests needed
 the new `Route.Split` field to compile. Its red is by reading: at the parent commit,
@@ -93,7 +93,8 @@ the connection is closed. A refused later request is never sent, and the connect
 the answers to the earlier requests have gone through. The upstream is dialled only after a
 first request has passed, which must arrive within `RequestLimit` (10 s) of the handshake.
 
-One source address holds at most `MaxPerSource` connections (default 64, a quarter of 256).
+One source address holds at most `MaxPerSource` connections (default 64, a quarter of 256;
+since the B.5 review fixes, the team's `connections_per_source`, default 256).
 Every refusal is logged: the first of each minute at once, and the count of the rest at the end
 of that minute.
 
@@ -108,7 +109,11 @@ addresses, do not count as a split.
 
 Docs: SPEC-cross-network X3.
 
-### HOST-4: deferred
+### HOST-4: Task B.2d (not deferred)
+
+Coordinator ruling, under the owner's "all weaknesses resolved": HOST-4 is not deferred. It is
+Task B.2d of PLAN.md, with the design below.
+
 
 The fix needs three new pieces:
 
@@ -117,7 +122,6 @@ The fix needs three new pieces:
   reported as its own problem ("the host's address moved: run team apply");
 - a declaration rule that requires a DNS name or a static address on a host that suspends.
 
-That is more than a small change. It belongs with the suspend work (B.2) or a task of its own.
 HOST-1 already removes the part that made every resume look like an outage.
 
 ## Defence Before Fix
@@ -165,9 +169,9 @@ regression test:
 - The SI3 check in `carry/import.go` confirms that the base units and the Tuwunel binary are
   installed, but not the member program the terminator now needs. An import onto a host without
   that program fails at the render of the apply that follows, with a clear message.
-- The per-source default of 64 is a judgement call. A host whose members all reach the bus
-  through one NAT address (rootless containers through pasta, a VPN that masquerades) is held to
-  64 connections, about 30 seats. `MaxPerSource` is a field of `tlsterm.Config`, not yet a flag
-  of `teamchat tls`.
-- `docs/agent-bus-cross-network.md` (B.11's file) does not describe the request gate or the
-  per-source bound yet.
+- The per-source default of 64 was a judgement call. Resolved by the B.5 review fixes
+  (`b5-fix-report.md`, coordinator ruling): the cap is the team's `connections_per_source`
+  (default 256, `teamchat tls --per-source`), and dead connections are reclaimed by a liveness
+  check before a refusal.
+- `docs/agent-bus-cross-network.md` did not describe the request gate or the per-source bound;
+  the B.5 review fixes describe both.

@@ -99,11 +99,28 @@ Related plans:
 - [ ] ⬜ **Task B.2b**: delivery across an outage: catch-up, the outbox policy, failed takes.
 - [ ] ⬜ **Task B.2c**: the suspend and outage proof: a real-Tuwunel gate and an end-to-end test
   that freezes the homeserver and cuts the network.
+- [ ] ⬜ **Task B.2d**: a team's listen address moves while the bus host is suspended (HOST-4,
+  `reports/audit-host.md`). Nothing in the host layer handles suspend and resume: if the bus
+  host comes back with another address on the serving interface (a DHCP lease, a re-made VPN
+  interface), the terminator stays bound to the old literal, the leaf names it, the bundles
+  carry the old url, and only a new `team apply` re-derives them; the health tick probes the
+  recorded addresses and does not re-derive. Design (from B.5's report):
+  - a unit that runs at resume (`After=suspend.target`) and a boot equivalent, which runs the
+    health tick at once;
+  - the tick compares the live interface addresses with each team's `units.json` listen set
+    and reports a moved address as its own problem ("the host's address moved: run team
+    apply");
+  - a declaration rule: a team's url on a host that suspends is a DNS name or a static address.
+    Coordinator ruling (under the owner's "all weaknesses resolved"): HOST-4 is not deferred; it
+    is this task.
 - [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
 - [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
   installed by a play).
-- [x] ✅ **Task B.5**: host units and the TLS terminator. HOST-4 deferred to the suspend work
-  (`subagent-reports/b5-report.md`).
+- [x] ✅ **Task B.5**: host units and the TLS terminator (`subagent-reports/b5-report.md`); the
+  review's fixes in `subagent-reports/b5-fix-report.md`. HOST-4 is Task B.2d. Coordinator
+  ruling (under the owner's "all weaknesses resolved"): the terminator's per-source connection
+  cap is a per-team setting, `connections_per_source` (default 256), and a source at its cap
+  has its dead connections reclaimed by a liveness check before a new one is refused.
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).

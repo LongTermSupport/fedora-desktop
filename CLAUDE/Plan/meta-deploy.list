@@ -46,6 +46,15 @@
 # teamchat-admin and member program, the health unit's text, and re-applies every present team
 # (a new member program widens the run): each terminator is restarted onto the new program and
 # its request gate, and team apply writes the health unit's drop-in of the listen addresses.
+# With the B.5 review's fixes (ccy 3.122.28, container 2.84.34) each terminator also starts with
+# its team's per-source connection cap (connections_per_source, default 256), and teamchat-ctl
+# sends the admin token only to the homeserver unit's own system cgroup.
+# WARNING: team apply now judges each declared network whole (HOST-7). A team whose network has
+# a longer route inside it through another interface (a broad VPN prefix that holds a podman or
+# LXC bridge subnet, say) is refused with exit 70 naming the network and both interfaces, though
+# it applied before; that team is left as it was and the play fails. The fix is in host_vars:
+# split the declared network so no part of it is routed through another interface, or remove
+# the overlapping route; then run this again.
 playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
