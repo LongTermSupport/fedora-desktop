@@ -514,8 +514,8 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "")+whyUnitDown)
-	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != whyUnitDown {
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", unitDownC1(t)))
+	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != unitDownC1(t) {
 		t.Fatalf("entry %+v", e)
 	}
 	w.busErr = nil

@@ -37,7 +37,6 @@ const (
 	whyStoppedDuring = "offline: container stopped during the apply"
 	whyBundle        = "offline: bundle not placed"
 	whyMembership    = "offline: membership pending"
-	whyUnitDown      = "offline: unit down; ccy-teams restart starts it"
 	whySeatHeld      = "seat held; the new identity is placed at the next apply"
 	whyBundleFailed  = "bundle not placed; reissued at the next apply"
 	whyFailed        = "the last apply failed for this member"
@@ -1273,10 +1272,16 @@ func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
 	case err == nil:
 		m.complete = true
 	case !refused(err) && unitDown(err) && !r.gone(ctx, g.name, err):
-		r.offline(m, whyUnitDown)
+		r.offline(m, whyUnitDown(m))
 	default:
 		r.step(ctx, g, m, "unit", err)
 	}
+}
+
+// whyUnitDown is the why of a seat whose unit is down, naming the command that starts it: v2
+// LXC seats are not ccy-teams rows, so the start is `lxc restart --member` (SU3).
+func whyUnitDown(m *member) string {
+	return "offline: unit down; teamchat-admin lxc restart --member " + m.box.String() + "/" + m.key.String() + " starts it"
 }
 
 // errUnreachable is the guest's systemd that could not be dialled.

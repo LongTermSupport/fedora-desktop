@@ -785,6 +785,13 @@ func TestUnitChangedIsReloadedNotStartedAndServiceOffRemoves(t *testing.T) {
 	}
 }
 
+// unitDownC1 is the why of the fixture seat in c1 with its unit down: the command that starts
+// it, spelled with the seat's own container and key so the reader can run it as it stands.
+func unitDownC1(t *testing.T) string {
+	t.Helper()
+	return "offline: unit down; teamchat-admin lxc restart --member c1/" + keyOf(t, "t1").String() + " starts it"
+}
+
 func TestUnitRefusedIsOffline(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
@@ -794,7 +801,7 @@ func TestUnitRefusedIsOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: unit down; ccy-teams restart starts it"))
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", unitDownC1(t)))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
