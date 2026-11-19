@@ -353,10 +353,13 @@ func newSAWorld(t *testing.T, guestAddr string) *saWorld {
 	return w
 }
 
-// saInstalled is what the play installs on a host: both base units, as newGuest writes them.
+// saInstalled is what the play installs on a host: both base units, as newGuest writes them, and
+// the member program the terminator runs.
 func saInstalled(t *testing.T, root string) {
 	t.Helper()
-	for path, text := range map[string]string{paths.ServerUnitTemplateFile: "[Unit]\n", paths.TLSUnitTemplateFile: "[Unit]\n"} {
+	for path, text := range map[string]string{
+		paths.ServerUnitTemplateFile: "[Unit]\n", paths.TLSUnitTemplateFile: "[Unit]\n", paths.MemberBinaryPath: "the member program\n",
+	} {
 		if err := os.MkdirAll(filepath.Dir(root+path), 0o700); err != nil {
 			t.Fatal(err)
 		}

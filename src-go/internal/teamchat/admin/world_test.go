@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,6 +168,12 @@ func bareWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(w.root+paths.TLSUnitTemplateFile, []byte("[Unit]\nDescription=v2 team TLS terminator %i\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(w.root+paths.MemberBinaryPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.root+paths.MemberBinaryPath, []byte("the member program\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {

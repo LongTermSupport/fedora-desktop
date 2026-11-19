@@ -74,6 +74,7 @@ func spec(t *testing.T, in declare.Input) renderSpec {
 		team: in.Team, listen: addrs("192.0.2.10"), networks: prefixes("192.0.2.0/24", "192.0.2.10/32"),
 		devices: []string{deviceUnit("eth0")},
 		regKey:  regKey, pin: pin(t), baseUnit: []byte("[Unit]\nDescription=base\n"),
+		tlsBase: []byte("[Unit]\nDescription=terminator\n"), program: digest([]byte("the member program")),
 	}
 }
 

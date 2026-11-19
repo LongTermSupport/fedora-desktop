@@ -795,6 +795,9 @@ declaration check uses. Steps, each failing the verb with the step named:
     touch a running unit, so a change there needs only `daemon-reload` and drops nobody's sync (C6).
     The answer is one of: nothing to do; write without restart (`team.json` only, for example a
     rename or a description change, below); write and reload; write and restart; first start.
+    `units.json` also keeps the TLS terminator's restart set (Plan 00246 X18c): its base unit, its
+    drop-in and the member program it runs, judged after step 09 against what it was last started
+    on, never against the drop-in's bytes on disk.
 04. First apply only, before the homeserver ever starts: create the `root/<team>/` and
     `ctl/<team>/` directories, the registration secret (3.2.2), and `root/<team>/server-name`
     (link-not-replace). From this point the `server_name` is fixed, whether or not the rest of

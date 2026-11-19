@@ -37,6 +37,34 @@ func TestUnitsRecordRoundTrip(t *testing.T) {
 	}
 }
 
+// HOST-2: the terminator's restart set round-trips last, and a record without it is still read.
+func TestUnitsRecordKeepsTheTerminatorsSet(t *testing.T) {
+	team := mustTeam(t, "ops")
+	u := sampleUnits(t)
+	if u.digests.Terminator == nil {
+		t.Fatal("the render made no terminator set")
+	}
+	raw := u.encode(team)
+	if !strings.Contains(string(raw), `"listen":["192.0.2.10"],"terminator":{"base_unit":"`) {
+		t.Errorf("shape %s", raw)
+	}
+	old := u
+	old.digests.Terminator = nil
+	back, err := decodeUnits(old.encode(team), team)
+	if err != nil || back.digests.Terminator != nil {
+		t.Errorf("a record without the terminator's set: %+v, %v", back, err)
+	}
+	for name, bad := range map[string]string{
+		"short digest": strings.Replace(string(raw), `"terminator":{"base_unit":"`, `"terminator":{"base_unit":"ab`, 1),
+		"missing key":  strings.Replace(string(raw), `"program":`, `"programme":`, 1),
+		"not a set":    strings.Replace(string(raw), `"terminator":{`, `"terminator":[{`, 1),
+	} {
+		if _, err := decodeUnits([]byte(bad), team); err == nil {
+			t.Errorf("%s: decoded %s", name, bad)
+		}
+	}
+}
+
 func TestUnitsRecordRefusals(t *testing.T) {
 	team := mustTeam(t, "ops")
 	good := string(sampleUnits(t).encode(team))

@@ -88,6 +88,7 @@ func newGuest(t *testing.T) *importWorld {
 	}
 	g.put(paths.ServerUnitTemplateFile, "[Unit]\n")
 	g.put(paths.TLSUnitTemplateFile, "[Unit]\n")
+	g.put(paths.MemberBinaryPath, "the member program\n")
 	g.put(paths.ServerBinary(mustVersion(t, "1.9.4")), "tuwunel")
 	return &importWorld{sealWorld: g}
 }

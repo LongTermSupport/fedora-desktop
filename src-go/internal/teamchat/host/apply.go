@@ -504,8 +504,13 @@ func (a *applying) render(_ context.Context) error {
 	if err == nil && !found {
 		err = fmt.Errorf("the base unit %s is not installed", paths.ServerUnitTemplateFile)
 	}
+	var terminatorBase []byte
 	if err == nil {
-		err = tlsBaseInstalled(a.d.Root)
+		terminatorBase, err = tlsBase(a.d.Root)
+	}
+	var program string
+	if err == nil {
+		program, err = programDigest(a.d.Root)
 	}
 	if err != nil {
 		return a.fail(StepRender, err)
@@ -521,7 +526,7 @@ func (a *applying) render(_ context.Context) error {
 	}
 	a.r, err = render(renderSpec{
 		team: a.in.Team, listen: a.listen, networks: a.networks, devices: devices, regKey: a.regKey, pin: a.d.Pin,
-		baseUnit: base,
+		baseUnit: base, tlsBase: terminatorBase, program: program,
 	})
 	if err != nil {
 		return a.fail(StepRender, err)

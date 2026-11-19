@@ -2,8 +2,15 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"maps"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,9 +67,12 @@ func (d tlsDropInSpec) text() []byte {
 }
 
 // terminate is the step after the homeserver is ready and bound to loopback alone: the
-// terminator's drop-in written when it differs and systemd reloaded for it, the unit started, or
-// restarted when its drop-in changed or its leaf was made again (a unit reads its credentials only
-// at its start), enabled, and its bound addresses held to the listen set (X18, X4).
+// terminator's drop-in written when it differs; systemd reloaded and the unit restarted when what
+// it was last started on, which units.json records, is not this render's (its base unit, its
+// drop-in, its program: HOST-2, HOST-3) or its leaf was made again (a unit reads its credentials
+// only at its start); started when it is not running; enabled; and its bound addresses held to
+// the listen set (X18, X4). The record is written after the start, so a write whose reload or
+// restart failed is finished by the next apply, whatever the bytes on disk say.
 func (a *applying) terminate(ctx context.Context) error {
 	if err := a.convergeTLS(ctx); err != nil {
 		return a.fail(StepTerminator, err)
@@ -72,6 +82,7 @@ func (a *applying) terminate(ctx context.Context) error {
 
 func (a *applying) convergeTLS(ctx context.Context) error {
 	changed := string(a.tlsDropIn) != string(a.r.tlsDropIn)
+	owed := changed || a.units == nil || !maps.Equal(a.units.digests.Terminator, a.r.digests.Terminator)
 	if changed {
 		file := a.path(paths.TLSDropInFile(a.team))
 		if err := MkdirShared(filepath.Dir(file)); err != nil {
@@ -82,6 +93,8 @@ func (a *applying) convergeTLS(ctx context.Context) error {
 		}
 		a.tlsDropIn = a.r.tlsDropIn
 		a.note("tls drop-in written")
+	}
+	if owed {
 		if err := a.d.Systemd.DaemonReload(ctx); err != nil {
 			return err
 		}
@@ -91,7 +104,7 @@ func (a *applying) convergeTLS(ctx context.Context) error {
 		return err
 	}
 	switch {
-	case st.Active == active && (changed || a.leafMade):
+	case st.Active == active && (owed || a.leafMade):
 		err = a.d.Systemd.Restart(ctx, a.tlsUnit)
 		a.noteIf(err, "tls unit restarted")
 	case st.Active != active:
@@ -114,12 +127,31 @@ func awaitBound(ctx context.Context, d Deps, unit string, port int, want []strin
 	return waitUnit(ctx, d, unit, func(context.Context) error { return boundAs(d, unit, port, want) })
 }
 
-// tlsBaseInstalled is nil when the terminator's base unit is installed under root, which the
-// render needs as it needs the homeserver's.
-func tlsBaseInstalled(root string) error {
-	_, found, err := state.ReadFile(root+paths.TLSUnitTemplateFile, fileMax)
+// tlsBase is the terminator's base unit installed under root, which the render needs as it needs
+// the homeserver's.
+func tlsBase(root string) ([]byte, error) {
+	text, found, err := state.ReadFile(root+paths.TLSUnitTemplateFile, fileMax)
 	if err == nil && !found {
 		err = fmt.Errorf("the base unit %s is not installed", paths.TLSUnitTemplateFile)
 	}
-	return err
+	return text, err
+}
+
+// programDigest is the SHA-256 of the program the terminator runs, paths.MemberBinaryPath under
+// root, its links followed: the play re-points that link at each build, and a running terminator
+// keeps the program it was started with (HOST-2).
+func programDigest(root string) (string, error) {
+	f, err := os.Open(root + paths.MemberBinaryPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("the terminator's program %s is not installed", paths.MemberBinaryPath)
+	}
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	if err = errors.Join(err, f.Close()); err != nil {
+		return "", fmt.Errorf("the terminator's program %s: %w", paths.MemberBinaryPath, err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

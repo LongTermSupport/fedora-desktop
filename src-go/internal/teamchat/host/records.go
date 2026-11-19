@@ -23,12 +23,17 @@ var (
 )
 
 var (
-	restartKeys = []string{digestBaseUnit, digestConfig, digestExecStart}
-	reloadKeys  = []string{digestIPAllow, digestMemory, digestSocketBind}
+	restartKeys    = []string{digestBaseUnit, digestConfig, digestExecStart}
+	reloadKeys     = []string{digestIPAllow, digestMemory, digestSocketBind}
+	terminatorKeys = []string{digestBaseUnit, digestDropIn, digestProgram}
 )
 
+// terminatorKey is units.json's member holding the terminator's restart set; a record written
+// before it was kept lacks it.
+const terminatorKey = "terminator"
+
 // unitsRecord is units.json (C 3.2.2): the digest sets, version, port and listen set last
-// started.
+// started, and the terminator's restart set when it has one.
 type unitsRecord struct {
 	digests digests
 	version paths.ServerVersion
@@ -37,12 +42,16 @@ type unitsRecord struct {
 }
 
 func (u unitsRecord) encode(team paths.TeamID) []byte {
-	return proto.Obj(
+	members := []proto.Member{
 		proto.M("v", proto.Int(recordVersion)), proto.M("team", proto.Str(team.String())),
 		proto.M("restart", digestObject(u.digests.Restart)), proto.M("reload", digestObject(u.digests.Reload)),
 		proto.M("tuwunel", proto.Str(u.version.String())), proto.M("port", proto.Int(int64(u.port))),
 		proto.M("listen", strArray(u.listen)),
-	).Compact()
+	}
+	if u.digests.Terminator != nil {
+		members = append(members, proto.M(terminatorKey, digestObject(u.digests.Terminator)))
+	}
+	return proto.Obj(members...).Compact()
 }
 
 func digestObject(set map[string]string) proto.Value {
@@ -84,13 +93,16 @@ func DecodeUnits(raw []byte, team paths.TeamID) (Units, error) {
 }
 
 func decodeUnits(raw []byte, team paths.TeamID) (unitsRecord, error) {
-	r, err := readRecord(raw, team, "units.json", "restart", "reload", "tuwunel", "port", "listen")
+	r, err := readRecordOptional(raw, team, "units.json", []string{terminatorKey}, "restart", "reload", "tuwunel", "port", "listen")
 	if err != nil {
 		return unitsRecord{}, err
 	}
 	u := unitsRecord{
 		digests: digests{Restart: r.digestSet("restart", restartKeys), Reload: r.digestSet("reload", reloadKeys)},
 		port:    r.port("port"),
+	}
+	if _, found := r.fields[terminatorKey]; found {
+		u.digests.Terminator = r.digestSet(terminatorKey, terminatorKeys)
 	}
 	if version, perr := paths.ParseServerVersion(r.str("tuwunel")); perr == nil {
 		u.version = version
@@ -232,12 +244,17 @@ type record struct {
 // readRecord parses raw as an object with exactly `v`, `team` and keys, `v` 1 and `team` this
 // team.
 func readRecord(raw []byte, team paths.TeamID, name string, keys ...string) (*record, error) {
+	return readRecordOptional(raw, team, name, nil, keys...)
+}
+
+// readRecordOptional is readRecord of an object that may also hold each of optional.
+func readRecordOptional(raw []byte, team paths.TeamID, name string, optional []string, keys ...string) (*record, error) {
 	v, err := proto.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	r := &record{name: name}
-	r.fields = r.object(name, v, append([]string{"v", "team"}, keys...))
+	r.fields = r.object(name, v, append([]string{"v", "team"}, keys...), optional...)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -250,8 +267,8 @@ func readRecord(raw []byte, team paths.TeamID, name string, keys ...string) (*re
 	return r, r.err
 }
 
-// object is v's members when v is an object with exactly keys.
-func (r *record) object(at string, v proto.Value, keys []string) map[string]proto.Value {
+// object is v's members when v is an object with exactly keys, and any of optional.
+func (r *record) object(at string, v proto.Value, keys []string, optional ...string) map[string]proto.Value {
 	if v.Kind() != proto.KindObject {
 		r.fail(at, "is not an object")
 		return nil
@@ -260,7 +277,13 @@ func (r *record) object(at string, v proto.Value, keys []string) map[string]prot
 	for _, m := range v.Members() {
 		fields[m.Key] = m.Val
 	}
-	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, slices.Sorted(slices.Values(keys))) {
+	want := slices.Clone(keys)
+	for _, k := range optional {
+		if _, found := fields[k]; found {
+			want = append(want, k)
+		}
+	}
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 		r.fail(at, fmt.Sprintf("has the keys %q, not %q", got, keys))
 		return nil
 	}

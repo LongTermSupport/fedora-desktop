@@ -39,11 +39,17 @@ const (
 	digestIPAllow    = "ip_address_allow"
 	digestSocketBind = "socket_bind_allow"
 	digestMemory     = "memory_high"
+	// digestDropIn and digestProgram are the terminator's: its team's drop-in, and the member
+	// binary its ExecStart= runs.
+	digestDropIn  = "drop_in"
+	digestProgram = "program"
 )
 
-// digests are the restart and reload digest sets units.json keeps.
+// digests are the restart and reload digest sets of the homeserver units.json keeps, and the
+// terminator's restart set: what its running process was started on (HOST-2, HOST-3). A record
+// written before it kept the terminator's set has none, which matches no render.
 type digests struct {
-	Restart, Reload map[string]string
+	Restart, Reload, Terminator map[string]string
 }
 
 func (d digests) sameRestart(o digests) bool { return maps.Equal(d.Restart, o.Restart) }
@@ -52,8 +58,8 @@ func (d digests) sameReload(o digests) bool { return maps.Equal(d.Reload, o.Relo
 
 // renderSpec is what one render reads: the team, the listen addresses and effective networks
 // derived at apply time (X3, X4), which are the terminator's alone (X18), the device unit of each
-// interface carrying a listen address, the registration key, the pin and the installed base
-// unit's text.
+// interface carrying a listen address, the registration key, the pin, the installed base unit's
+// text, the terminator's installed base unit's text and the digest of the program it runs.
 type renderSpec struct {
 	team     declare.Team
 	listen   []netip.Addr
@@ -62,6 +68,8 @@ type renderSpec struct {
 	regKey   string
 	pin      Pin
 	baseUnit []byte
+	tlsBase  []byte
+	program  string
 }
 
 // rendered is a team's files in memory and their digest sets: the homeserver's config and
@@ -95,6 +103,9 @@ func render(s renderSpec) (rendered, error) {
 		Reload: map[string]string{
 			digestIPAllow: digest([]byte(d.ipAllow())), digestSocketBind: digest([]byte(d.socketBind())),
 			digestMemory: digest([]byte(d.memory())),
+		},
+		Terminator: map[string]string{
+			digestBaseUnit: digest(s.tlsBase), digestDropIn: digest(r.tlsDropIn), digestProgram: s.program,
 		},
 	}
 	return r, nil

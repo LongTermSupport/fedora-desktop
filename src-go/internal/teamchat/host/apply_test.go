@@ -519,6 +519,7 @@ func TestFailedBackupStopsTheApply(t *testing.T) {
 
 // HS5, HS7, X4: a changed network is a firewall change and a restart of the terminator, which has
 // to listen where the networks are, and never the homeserver's restart, backup or rewrite.
+// units.json is written for the terminator's new restart set (HOST-3).
 func TestAChangedNetworkIsTheFirewallAndTheTerminatorAlone(t *testing.T) {
 	w := applied(t)
 	doc := teamDoc()
@@ -532,7 +533,7 @@ func TestAChangedNetworkIsTheFirewallAndTheTerminatorAlone(t *testing.T) {
 	}
 	want := []string{
 		"firewall added public 203.0.113.0/24 tcp:8448", "firewall removed public 192.0.2.0/24 tcp:8448",
-		"tls drop-in written", "tls unit restarted", "team.json written", "stamp written",
+		"tls drop-in written", "tls unit restarted", "team.json written", "units.json written", "stamp written",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)

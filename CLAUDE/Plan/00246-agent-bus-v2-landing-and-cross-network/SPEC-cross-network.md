@@ -161,8 +161,14 @@ install are listed last, under "Owner questions".
   `127.0.0.1` alone, its filter allows loopback alone and it waits for no device; units.json's
   digest sets lose the device-unit digest with them.
 - **X18c** `team apply` starts the terminator after the homeserver is ready and its bound
-  addresses are loopback exactly, restarts it when its drop-in changed or its leaf was made again
-  (a unit reads its credentials only at its start), enables it (its base unit's `[Install]`
+  addresses are loopback exactly, reloads systemd and restarts it when what it was last started
+  on is not this render's, or its leaf was made again (a unit reads its credentials only at its
+  start). What it was started on is units.json's `terminator` digest set (the digest of the
+  terminator's base unit, of its drop-in, and of the member program `teamchat` its `ExecStart=`
+  runs), written after the start, so a drop-in written whose reload or restart failed, a changed
+  base unit and a new member program each reach a running terminator at the next apply (Plan
+  00257 HOST-2, HOST-3); a units.json written before it kept that set restarts it once. It
+  enables it (its base unit's `[Install]`
   `WantedBy=multi-user.target` makes that start it at boot), and holds its bound addresses on
   the port to the listen set exactly. `serve` starts it after the homeserver and makes the same
   check from units.json's listen set; `team remove` stops and disables it before the homeserver

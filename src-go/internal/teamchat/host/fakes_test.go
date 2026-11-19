@@ -137,6 +137,10 @@ func newWorld(t *testing.T) *world {
 	}
 	w.write(paths.ServerUnitTemplateFile, "[Unit]\nDescription=v2 team homeserver %i\n")
 	w.write(paths.TLSUnitTemplateFile, "[Unit]\nDescription=v2 team TLS terminator %i\n")
+	if err := os.MkdirAll(w.at(filepath.Dir(paths.MemberBinaryPath)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.write(paths.MemberBinaryPath, "the member program, build one\n")
 	w.sd = &fakeSystemd{w: w, units: map[string]*UnitState{}}
 	w.fw = &fakeFirewall{w: w, present: map[bool]map[string]bool{true: {}, false: {}}, zone: "public"}
 	w.net = &fakeNetwork{w: w, ifaces: []Interface{

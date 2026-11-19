@@ -38,8 +38,9 @@
 #   tuwunel  the pinned Tuwunel and the server pin (step 3)
 #   units    the units, the resolver files and the tmpfiles entry (step 4)
 #   teams    approve, remove and apply the teams, both LXC phases, and the timers (steps 5 and
-#            6); with teamchat_only_teams it applies one team. A run without units does not re-apply
-#            every team for a base unit change; run units with it after a units change.
+#            6); with teamchat_only_teams it applies one team. A run without units (or member) does
+#            not re-apply every team for a base unit change (or a new member program, which the TLS
+#            terminators run); run units and member with it after such a change.
 #
 # Inputs (inventory variables of the target; the names are paths.HostVar*):
 #   teamchat_owner_group     required: the group that may read the status records. Made if absent.
@@ -456,12 +457,15 @@
         force: true
       tags: [admin]
 
+    # A changed link is a new member program, which every team's TLS terminator runs; the teams
+    # step below widens to every present team for it, as for a changed base unit.
     - name: Point the Kit's Current Link at This Build
       ansible.builtin.file:
         src: "{{ tc_tree.stdout }}"
         dest: "{{ tc_kit_root }}/current"
         state: link
         force: true
+      register: tc_kit_current
       tags: [member]
 
     - name: Link the Member Program
@@ -603,16 +607,22 @@
       when: tc_units_written.changed
       tags: [units]
 
-    # A base unit's text is shared by every team, so one that changed reaches an unscoped team at
-    # its next restart unplanned: every present team is applied, whatever the scope says
-    # (DESIGN-v2-C-host.md 3.2.3). Tagged units: only a run that writes the units can change one.
-    - name: Apply Every Present Team Because a Base Unit Changed
+    # A base unit's text is shared by every team, and so is the member program every team's TLS
+    # terminator runs, so one that changed reaches an unscoped team at its next restart unplanned:
+    # every present team is applied, whatever the scope says (DESIGN-v2-C-host.md 3.2.3), and team
+    # apply restarts each unit whose base unit or program is not the one units.json says it was
+    # started on. Tagged units and member: only a run that writes the units or links a new
+    # program can change one.
+    - name: Apply Every Present Team Because a Base Unit or the Member Program Changed
       ansible.builtin.set_fact:
         tc_scoped_present: "{{ tc_present }}"
       when:
         - teamchat_only_teams is defined
-        - tc_units_written.results | selectattr('changed') | map(attribute='item.item') | select('match', '^teamchat-(server|tls)@') | list | length > 0
-      tags: [units]
+        - >-
+          (tc_units_written is defined and tc_units_written.results is defined
+          and tc_units_written.results | selectattr('changed') | map(attribute='item.item') | select('match', '^teamchat-(server|tls)@') | list | length > 0)
+          or (tc_kit_current is defined and tc_kit_current is changed)
+      tags: [units, member]
 
     # Teams. teamchat-admin judges the declaration; the play only hands each team's entry over.
     # SELinux: the team units run as init_t, which may not connect to an unreserved port, so on

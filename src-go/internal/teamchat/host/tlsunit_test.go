@@ -217,6 +217,110 @@ func TestAStoppedTerminatorIsStarted(t *testing.T) {
 	}
 }
 
+// HOST-2: the terminator's base unit is shared by every team and its program is the member
+// binary the play re-points; a change of either reaches a running terminator only by a restart,
+// which the apply after the change owes it though the team's drop-in is the same.
+func TestAChangedTerminatorBaseUnitOrProgramRestartsTheTerminator(t *testing.T) {
+	for name, change := range map[string]func(w *world){
+		"base unit": func(w *world) {
+			w.write(paths.TLSUnitTemplateFile, "[Unit]\nDescription=v2 team TLS terminator %i, build two\n")
+		},
+		"program": func(w *world) { w.write(paths.MemberBinaryPath, "the member program, build two\n") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := applied(t)
+			change(w)
+			was := len(startedUnits(w))
+			lines, err := w.apply(w.cur)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(lines, "tls unit restarted") || !w.called("daemon-reload") {
+				t.Errorf("lines %q, calls %q", lines, w.log)
+			}
+			if got := startedUnits(w)[was:]; !slices.Equal(got, []string{paths.TLSUnit(ops(t))}) {
+				t.Errorf("restarted %q", got)
+			}
+			if lines, err = w.apply(w.cur); err != nil || len(lines) != 0 {
+				t.Errorf("the apply after the restart changed %q: %v", lines, err)
+			}
+		})
+	}
+}
+
+// HOST-2: a host with no member program has no terminator to run, which the render refuses
+// before anything changes, as it refuses a missing base unit.
+func TestNoTerminatorProgramIsRefusedBeforeAnyChange(t *testing.T) {
+	w := newWorld(t)
+	if gone, err := removeFile(w.at(paths.MemberBinaryPath)); err != nil || !gone {
+		t.Fatalf("the program was not removed: %v", err)
+	}
+	_, err := w.apply(approved(w, teamDoc()))
+	if got := stepOf(t, err); got.Step != StepRender || !strings.Contains(got.Error(), paths.MemberBinaryPath) {
+		t.Errorf("got %v", err)
+	}
+	if w.exists(paths.TLSDropInFile(ops(t))) || len(startedUnits(w)) != 0 {
+		t.Error("something changed before the refusal")
+	}
+}
+
+// HOST-3: a drop-in written whose reload or restart did not happen is finished by the next apply.
+// What the terminator was started on is judged by units.json, written after it was, never by the
+// bytes on disk.
+func TestATerminatorDropInWrittenButNotStartedIsRepaired(t *testing.T) {
+	for _, fault := range []string{"daemon-reload", "restart"} {
+		t.Run(fault, func(t *testing.T) {
+			w := newWorld(t)
+			withSecondNIC(w)
+			if _, err := w.apply(approved(w, teamDoc())); err != nil {
+				t.Fatal(err)
+			}
+			wide := teamDoc()
+			docTeam(wide)["networks"] = []any{"192.0.2.0/24", "203.0.113.0/24"}
+			in := approved(w, wide)
+			w.faults[fault] = errFault
+			if _, err := w.apply(in); stepOf(t, err).Step != StepTerminator {
+				t.Fatalf("the faulted apply: %v", err)
+			}
+			delete(w.faults, fault)
+			was := len(startedUnits(w))
+			lines, err := w.apply(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(lines, "tls drop-in written") || !slices.Contains(lines, "tls unit restarted") || !w.called("daemon-reload") {
+				t.Errorf("lines %q, calls %q", lines, w.log)
+			}
+			if got := startedUnits(w)[was:]; !slices.Equal(got, []string{paths.TLSUnit(ops(t))}) {
+				t.Errorf("restarted %q", got)
+			}
+		})
+	}
+}
+
+// HOST-2: a units.json written before it recorded the terminator is read, and the next apply
+// restarts the terminator once, since what it runs is not known.
+func TestAUnitsRecordWithoutTheTerminatorRestartsItOnce(t *testing.T) {
+	w := applied(t)
+	file := paths.UnitsRecord(ops(t))
+	u, err := decodeUnits([]byte(w.read(file)), ops(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.digests.Terminator = nil
+	w.write(file, string(u.encode(ops(t))))
+	if strings.Contains(w.read(file), `"terminator"`) {
+		t.Fatalf("the old record still names the terminator: %s", w.read(file))
+	}
+	lines, err := w.apply(w.cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(lines, []string{"tls unit restarted", "units.json written"}) {
+		t.Errorf("lines %q", lines)
+	}
+}
+
 // X18, H 7.21: the terminator's bound addresses are exactly the listen set, as the homeserver's
 // are loopback alone; any other is the apply's failure, at the step that names it.
 func TestTheBoundAddressesOfBothUnitsAreAsserted(t *testing.T) {
