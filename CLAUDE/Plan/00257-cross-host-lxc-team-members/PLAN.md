@@ -1,77 +1,109 @@
 # Plan 00257: cross host lxc team members
 
-**Status**: In Progress (report only, on the owner's Q44 instruction of 2026-11-19 11:36Z: the architecture weaknesses of v1 and v2, prior art from the owner's GitHub stars, and keep/adapt/replace; no code until the owner decides)
+**Status**: In Progress (owner GO on Q44, 2026-11-19 11:57Z: audit teamchat end to end and fix every weakness; Phase A, the audit, is running)
 **Created**: 2026-11-19
 **Owner**: joseph
 **Priority**: High
 
 ## Overview
 
-An LXC container on any host is to join any v2 (`teamchat`) team through a per-container step,
-with the team's homeserver on the same host or on another one (owner, Q44). Today `lxc apply`
-issues and places an LXC seat in one root process on the bus host itself
-(Plan 00209 DESIGN-v2-C-host.md 3.9), so a container on another host cannot be a member.
+The owner's ruling on Q44 has two parts:
 
-[ARCHITECTURE.md](ARCHITECTURE.md) compares per-seat placement on the container's host (A) with
-a per-host teamchat proxy (B), and recommends A.
+- An LXC container on any host joins any v2 (`teamchat`) team.
+- teamchat as a whole is audited and fixed properly. In the owner's words: "It CANNOT BE SHIT.
+  IT MUST BE SOLID. all weaknesses resolved (line count does not need to be reduced necessarily
+  but debloating is definitely OK)."
+
+[REPORT.md](REPORT.md) is the zoom-out that led to that GO: weaknesses W1-W9 and the prior art.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the earlier, narrower note. This plan is now the audit and
+the fixes.
+
+Approved design (owner, through the coordinator):
+
+1. **Lift B1.** LXC seats get the bridge address in their bundle, and every other seat gets the
+   team's `url`, which may then be a name.
+2. **Join codes.** `teamchat-admin member invite` mints a single-use code, and
+   `teamchat seat join <code>` redeems it on any machine. This replaces ssh, sudo and the
+   credential pipe.
+3. **LXC on another host** joins as an ordinary client: a static binary and a user unit.
+4. **Suspending the bus host is a feature.** Members must ride out the homeserver's suspend
+   and resume cleanly. This is a hard requirement, and it gets a test.
 
 Related plans:
 
+- Plan 00209 is v2's design.
 - Plan 00246 Task 8.8 built cross-network ccy pool seats: url-keyed seats, TLS with the team
-  CA, and `seat place-issued`. This plan reuses that issuance path for LXC guests.
-- Plan 00220's overlay is dropped from the bus (Plan 00209 direction 7). Its remote-seat
-  needs are met by 00246 for ccy seats, and by this plan for LXC.
+  CA, and `seat place-issued`.
+- Plan 00220's overlay is dropped from the bus (Plan 00209 direction 7).
 
 ## Goals
 
-- A container on a host that runs no homeserver for the team is placed as a member of that
-  team, by one owner step per container.
-- The local `lxc apply` path (the bus host's own containers) is unchanged.
+- Every weakness resolved: W1-W9 (REPORT.md) and every audit finding of HIGH or above. Each
+  MEDIUM is either fixed or recorded with the owner's agreement.
+- One team holds LXC members on its own host and seats on any other machine. A seat on another
+  machine is added with one join code.
+- Members ride out a suspend and resume of the bus host with no lost, duplicated or wedged
+  delivery, proven by a test.
 
 ## Non-Goals
 
-- A teamchat proxy, unless the owner chooses B.
-- Docker or VM guests.
+- Any degrade. Every current capability survives, and dropping one needs the owner's yes.
 - Any v1 change: v1 is feature-frozen.
-- Any member kind other than LXC.
+- Docker or VM guests.
+- A teamchat proxy (REPORT.md: not needed).
+
+## Rules (owner, through the coordinator)
+
+- Test-first, in small pull requests merged with `--merge` (no squash), each with CI green and
+  an independent review.
+- Journal as the work goes.
+- No estate hostnames or IPs in the repository or in upstream issues. Never read vault or
+  secret files.
+- Milestone notes go to the coordinator: audit ready, each pull request merged, done. Anything
+  needing the owner goes through the coordinator.
 
 ## Tasks
 
 ### Phase 0: report and decision
 
-- [x] ✅ **Task 0.1**: the report ([REPORT.md](REPORT.md), research in `research/`). It covers the
-  architecture weaknesses of v1 and v2, cited; prior art from the owner's GitHub stars, with
-  licences; and keep, adapt or replace, with the smallest path to adding seats freely between
-  machines, LXC guests included.
-- [ ] ⬜ **Task 0.2**: the owner's decision on REPORT.md (it supersedes the narrower A-versus-B
-  choice in ARCHITECTURE.md), through the coordinator (Q44). Phases 1-2 are held until then.
+- [x] ✅ **Task 0.1**: the report ([REPORT.md](REPORT.md), research in `research/`).
+- [x] ✅ **Task 0.2**: the owner's decision: GO (Q44, 11:57Z).
 
-### Phase 1: common work (if the owner keeps v2)
+### Phase A: audit
 
-- [ ] ⬜ **Task 1.1**: a spec for placing the kit and the session unit into a local guest whose
-  team's homeserver is remote: `lxc apply` steps 02-05 with no child, the url and CA taken
-  from the issued document.
-- [ ] ⬜ **Task 1.2**: tests first (RED), then the placement (GREEN), under the existing fakes
-  of `host/lxc`.
-- [ ] ⬜ **Task 1.3**: the guest seat keyed on the team url (as pool seats are), tests first.
+- [ ] 🔄 **Task A.1**: Fable agents audit eight areas: admin, host, LXC, engine, link,
+  security, durability and cross-cutting. Their reports go in `reports/audit-*.md`, ranked by
+  severity.
+- [ ] ⬜ **Task A.2**: the findings merged into one ranked list, [reports/AUDIT.md](reports/AUDIT.md),
+  with each finding assigned to a fix pull request. Milestone note to the coordinator.
 
-### Phase 2: per-container step (after Task 0.2)
+### Phase B: fixes (one pull request each, test-first)
 
-- [ ] ⬜ **Task 2.1**: the issuance side for a remote LXC seat, and the owner's one command per
-  container.
-- [ ] ⬜ **Task 2.2**: the play side on the container's host: programs only, no team.
-- [ ] ⬜ **Task 2.3**: docs, and acceptance on a second host queued in `meta-deploy.list`.
+- [ ] ⬜ **Task B.1**: lift B1, giving each seat kind its own base url.
+- [ ] ⬜ **Task B.2**: members ride out the bus host's suspend and resume, with a test that
+  suspends the homeserver.
+- [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
+- [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
+  installed by a play).
+- [ ] ⬜ **Task B.5 onward**: the audit's other findings, grouped by area. To be listed after
+  Task A.2.
+- [ ] ⬜ **Task B.n**: docs against code (W9).
 
-### Phase 3: review
+### Phase C: review
 
-- [ ] ⬜ **Task 3.1**: the `qa-reviewer` agent over the finished work.
+- [ ] ⬜ **Task C.1**: the `qa-reviewer` agent over the finished work. Host acceptance queued
+  in `meta-deploy.list`.
 
 ## Success Criteria
 
-- [ ] A container on host Y holds a working seat on a team whose homeserver runs on host X:
-  it sends, receives, and goes offline without blocking the team.
-- [ ] The bus host's own `lxc apply` passes its existing tests unchanged.
+- [ ] A container on host Y holds a working seat on a team whose homeserver runs on host X,
+  while that team also has LXC members on host X.
+- [ ] A seat on another machine is added with one join code: no ssh from the bus host, no
+  piped password.
+- [ ] A test suspends the homeserver and resumes it, and every member catches up with no lost
+  or duplicated message.
+- [ ] No audit finding of HIGH or above remains open.
 
 ## Delivery & Milestones
 
-- Architecture note: ARCHITECTURE.md.
+- Report: REPORT.md. Architecture note: ARCHITECTURE.md.
