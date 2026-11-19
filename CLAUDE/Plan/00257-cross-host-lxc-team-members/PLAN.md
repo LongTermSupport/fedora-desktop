@@ -22,12 +22,27 @@ Approved design (owner, through the coordinator):
 
 1. **Lift B1.** LXC seats get the bridge address in their bundle, and every other seat gets the
    team's `url`, which may then be a name.
+
 2. **Join codes.** `teamchat-admin member invite` mints a single-use code, and
    `teamchat seat join <code>` redeems it on any machine. This replaces ssh, sudo and the
    credential pipe.
+
 3. **LXC on another host** joins as an ordinary client: a static binary and a user unit.
+
 4. **Suspending the bus host is a feature.** Members must ride out the homeserver's suspend
    and resume cleanly. This is a hard requirement, and it gets a test.
+
+5. **Members that lose connectivity handle it smoothly** (owner, Q44, 12:03Z). For example, an
+   off-host member when the bus host suspends or the VPN drops:
+
+   - The status line shows that a seat's team connection is lost.
+   - Reconnection is automatic: deterministic attempts in a loop, with backoff.
+
+   Today the member's own link already retries 1 s doubling to 30 s, timed on the boot clock,
+   and shows `(down)` after 15 s (`member/teamsync/teamsync.go:26-32, 328-367`,
+   `member/statusline/segment.go:131-155`). The work is to prove it end to end and close the
+   gaps the audit finds. The mechanism stays the member's own loop, not cron: it wakes
+   instantly on activity, and a dead link process is already shown in red.
 
 Related plans:
 
@@ -80,8 +95,9 @@ Related plans:
 ### Phase B: fixes (one pull request each, test-first)
 
 - [ ] ⬜ **Task B.1**: lift B1, giving each seat kind its own base url.
-- [ ] ⬜ **Task B.2**: members ride out the bus host's suspend and resume, with a test that
-  suspends the homeserver.
+- [ ] ⬜ **Task B.2**: members ride out the bus host's suspend and resume, and a lost
+  connection: `(down)` on the status line, automatic reconnect, queued sends delivered once.
+  Tested by suspending the homeserver and by cutting the network path.
 - [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
 - [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
   installed by a play).
