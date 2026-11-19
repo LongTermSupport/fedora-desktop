@@ -86,24 +86,29 @@ Related plans:
 
 ### Phase A: audit
 
-- [ ] 🔄 **Task A.1**: Fable agents audit eight areas: admin, host, LXC, engine, link,
-  security, durability and cross-cutting. Their reports go in `reports/audit-*.md`, ranked by
-  severity.
-- [ ] ⬜ **Task A.2**: the findings merged into one ranked list, [reports/AUDIT.md](reports/AUDIT.md),
-  with each finding assigned to a fix pull request. Milestone note to the coordinator.
+- [x] ✅ **Task A.1**: Fable agents audited eight areas: admin, host, LXC, engine, link,
+  security, durability and cross-cutting. Reports: `reports/audit-*.md`. Totals: 0 critical (2
+  conditional), 24 high.
+- [x] ✅ **Task A.2**: the merged list, [reports/AUDIT.md](reports/AUDIT.md). Each finding is
+  assigned to a fix pull request, and owner decisions D1-D5 are listed.
 
-### Phase B: fixes (one pull request each, test-first)
+### Phase B: fixes (one pull request each, test-first; order and findings in AUDIT.md)
 
-- [ ] ⬜ **Task B.1**: lift B1, giving each seat kind its own base url.
-- [ ] ⬜ **Task B.2**: members ride out the bus host's suspend and resume, and a lost
-  connection: `(down)` on the status line, automatic reconnect, queued sends delivered once.
-  Tested by suspending the homeserver and by cutting the network path.
+- [ ] 🔄 **Task B.1**: seat url per kind (lifts B1).
+- [ ] ⬜ **Task B.2a**: clocks and deadlines across a suspend; time sync on the bus host.
+- [ ] ⬜ **Task B.2b**: delivery across an outage: catch-up, the outbox policy, failed takes.
+- [ ] ⬜ **Task B.2c**: the suspend and outage proof: a real-Tuwunel gate and an end-to-end test
+  that freezes the homeserver and cuts the network.
 - [ ] ⬜ **Task B.3**: join codes (`member invite`, `seat join`).
 - [ ] ⬜ **Task B.4**: LXC on another host as an ordinary client (static binary plus user unit,
   installed by a play).
-- [ ] ⬜ **Task B.5 onward**: the audit's other findings, grouped by area. To be listed after
-  Task A.2.
-- [ ] ⬜ **Task B.n**: docs against code (W9).
+- [ ] ⬜ **Task B.5**: host units and the TLS terminator.
+- [ ] ⬜ **Task B.6**: LXC apply robustness.
+- [ ] ⬜ **Task B.7**: durability (D1 for restore).
+- [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).
+- [ ] ⬜ **Task B.9**: policy and admin (D3 for the approval list).
+- [ ] ⬜ **Task B.10**: debloat and tests.
+- [ ] ⬜ **Task B.11**: docs against code (W9).
 
 ### Phase C: review
 
