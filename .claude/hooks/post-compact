@@ -16,8 +16,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- relay hot path (generated; Plan 00290) ---
-if [[ "${1:-}" != "--no-relay" && "${BASH_SOURCE[0]}" == "/workspace/.claude/hooks/"* ]]; then
-    _rl_dir="/workspace/.claude/hooks-daemon/untracked"
+_rl_src="${BASH_SOURCE[0]}"
+if [[ "${1:-}" != "--no-relay" && "$_rl_src" == /*/.claude/hooks/* ]]; then
+    _rl_root="${_rl_src%/.claude/hooks/*}"
+    _rl_dir="$_rl_root/.claude/hooks-daemon/untracked"
     _rl_sfx="-${HOSTNAME:-localhost}"; _rl_sfx="${_rl_sfx// /-}"
     if [[ "$_rl_sfx" == *[[:upper:]]* ]]; then
         for _rl_c in Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz; do
@@ -25,7 +27,15 @@ if [[ "${1:-}" != "--no-relay" && "${BASH_SOURCE[0]}" == "/workspace/.claude/hoo
         done
     fi
     _rl_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-$_rl_dir/events$_rl_sfx}"
-    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-/workspace/.claude/hooks-daemon/untracked/bin/hooks-relay}"
+    if [[ -z "${HOOKS_DAEMON_EVENTS_DIR:-}" && ! -d "$_rl_events_dir" ]]; then
+        _rl_loc="$_rl_dir/events$_rl_sfx.location"
+        if [[ -r "$_rl_loc" ]] \
+            && { IFS= read -r _rl_loc_dir && IFS= read -r _rl_loc_events; } < "$_rl_loc" \
+            && [[ "$_rl_loc_dir" == "$_rl_dir" && -n "$_rl_loc_events" ]]; then
+            _rl_events_dir="$_rl_loc_events"
+        fi
+    fi
+    _rl_bin="${HOOKS_DAEMON_RELAY_BINARY:-$_rl_dir/bin/hooks-relay}"
     _rl_sock="$_rl_events_dir/post-compact.sock"
     if [[ -S "$_rl_sock" ]]; then
         _rl_magic=""
@@ -36,7 +46,7 @@ if [[ "${1:-}" != "--no-relay" && "${BASH_SOURCE[0]}" == "/workspace/.claude/hoo
             shopt -s execfail
             set +e
             _rl_exec_relay() {
-                HOOKS_DAEMON_RELAY_DAEMON_ROOT="/workspace/.claude/hooks-daemon" \
+                HOOKS_DAEMON_RELAY_DAEMON_ROOT="${_rl_dir%/*}" \
                     exec "$_rl_bin" "$_rl_sock" --fallback "$1" \
                     --timeout-ms "30000"
             }

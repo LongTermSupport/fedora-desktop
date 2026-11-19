@@ -182,6 +182,7 @@ they are not routed. Run the verb directly (on a self-install the wrapper is
 .claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep    # plan-tree drift (--lint <PLAN.md>, --check-staged)
 .claude/hooks-daemon/bin/hooks-daemon reference-repos     # freshness of reference clones (--json, --all)
 .claude/hooks-daemon/bin/hooks-daemon housekeeping --list # the housekeeping pass, step by step
+.claude/hooks-daemon/bin/hooks-daemon branch-preflight   # every blocker to creating a branch, with its fix (--json; exit 4 = refused)
 ```
 
 Detail per capability: [check.md](check.md), [regen-docs.md](regen-docs.md),

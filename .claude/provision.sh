@@ -25,7 +25,18 @@
 #   2. Fetches that one TAG (vX.Y.Z, depth 1) into .claude/hooks-daemon/.
 #   3. Builds the venv through the clone own venv build path and lock
 #      (scripts/venv_bootstrap.sh repair).
-#   4. Starts the daemon through init.sh, as a hook would.
+#   4. Provisions the relay binary through the clone's own
+#      scripts/install/relay_provision.sh, the step install and upgrade run
+#      (Plan 00608): the binary built or downloaded for the tag, and the
+#      forwarders regenerated for the transport. A failure WARNS and never
+#      aborts: the bash transport still enforces every rule. Nothing is done
+#      when daemon.transport.relay_enabled is false.
+#   5. Starts the daemon through init.sh, as a hook would.
+#
+# A clone at the expected version gets the relay step too, but only when its
+# binary is missing or defective (relay_deploy --check). A synced clone gets it
+# for the new tag. A --background run never builds or downloads: it reports a
+# missing relay and names `hooks-daemon transport on`.
 #
 # A clone that is already there is SYNCED to the expected version instead
 # (a pull changed daemon.expected_version, so the gitignored clone is behind or
@@ -58,7 +69,10 @@
 #
 # What it never does:
 #   - write a tracked file (everything it creates is under the gitignored
-#     .claude/hooks-daemon/);
+#     .claude/hooks-daemon/), with one exception it reports: the relay step
+#     regenerates the forwarders under .claude/hooks/ when they lack the relay
+#     guard, which a project that never ran install or upgrade with the relay
+#     on has not got;
 #   - take the clone URL from the environment or from project config: the URL
 #     is the constant below, the same one install.sh trusts;
 #   - keep a fetched tag whose version.py does not name the version asked for;
@@ -883,7 +897,8 @@ _provision_sync_clone() {
     if [[ -n "$SYNC_VENV_NOTE" ]]; then
         _provision_say "Note: $SYNC_VENV_NOTE."
     fi
-    _provision_say "No tracked file was changed."
+    _provision_relay_after_build
+    _provision_closing_notes --says-no-tracked-change
 }
 
 # ------------------------------------------------------------------
@@ -1020,6 +1035,139 @@ _provision_venv_is_current() {
         "$venv_sh" "$DAEMON_DIR" "$venv_dir" > /dev/null 2>&1
 }
 
+# ------------------------------------------------------------------
+# The relay binary (Plan 00608)
+# ------------------------------------------------------------------
+# install_version.sh and upgrade_version.sh put the relay binary in place through
+# the clone's scripts/install/relay_provision.sh; provision does the same, so a
+# provisioned checkout does not run on the fallback transport for want of a
+# binary. The step WARNS and never aborts: a failure prints the helper's banner
+# and is recorded for the closing lines, because the bash transport enforces every
+# rule. The helper is the clone's own, sourced in a child shell so none of its
+# names reach this script.
+_PROVISION_RELAY_FAILED=false
+_PROVISION_FORWARDERS_CHANGED=false
+readonly RELAY_CHECK_MISSING_EXIT_CODE=3
+readonly RELAY_CHECK_OLD_CLI_EXIT_CODE=2
+
+# The tracked forwarders' state, to tell whether the relay step rewrote them.
+_provision_hooks_state() {
+    local state="" content=""
+    if ! state="$(git -C "$PROJECT_PATH" status --porcelain -- .claude/hooks 2> /dev/null)"; then
+        state=""
+    fi
+    # The status lines alone cannot tell a rewrite of an already-modified
+    # forwarder (its line is the same before and after); its content can.
+    if ! content="$(git -C "$PROJECT_PATH" diff HEAD -- .claude/hooks 2> /dev/null)"; then
+        content=""
+    fi
+    printf '%s\n%s' "$state" "$content"
+}
+
+# Provision the relay binary and regenerate the forwarders. $1 is the venv
+# interpreter. Always returns 0.
+_provision_relay_provision() {
+    local python_cmd="$1"
+    local helper="$DAEMON_DIR/scripts/install/relay_provision.sh"
+    if [[ ! -f "$helper" ]]; then
+        _provision_say "The relay binary step was skipped: $TAG predates scripts/install/relay_provision.sh."
+        _provision_say "To put the relay binary in place, run: $DAEMON_DIR/bin/hooks-daemon transport on"
+        return 0
+    fi
+    local before after rc=0
+    before="$(_provision_hooks_state)"
+    _provision_say "Provisioning the relay binary (daemon.transport) ..."
+    bash -c 'source "$1" || { echo "The relay step could not source its helper: $1"; exit 2; }
+        provision_relay_binary "$2" "$3" "$4" "$5"; exit "${RELAY_PROVISION_FAILED:-2}"' \
+        _ "$helper" "$python_cmd" "$DAEMON_DIR" "$PROJECT_PATH" "$TAG" || rc=$?
+    if ((rc != 0)); then
+        _PROVISION_RELAY_FAILED=true
+    fi
+    after="$(_provision_hooks_state)"
+    if [[ "$before" != "$after" ]]; then
+        _PROVISION_FORWARDERS_CHANGED=true
+    fi
+    return 0
+}
+
+# Is the relay binary missing or defective? $1 is the venv interpreter. Prints
+# the CLI's answer. Returns 0 when it is, 1 when it is not, 2 when the clone's
+# CLI cannot say (argparse rejects --check on a release before it: the caller then
+# provisions), and 3 when the check itself failed (the output says why).
+_provision_relay_needed() {
+    local python_cmd="$1" rc=0
+    "$python_cmd" -m claude_code_hooks_daemon.install.relay_deploy --check \
+        --daemon-dir "$DAEMON_DIR" --project-root "$PROJECT_PATH" 2>&1 || rc=$?
+    case "$rc" in
+        0) return 1 ;;
+        "$RELAY_CHECK_MISSING_EXIT_CODE") return 0 ;;
+        "$RELAY_CHECK_OLD_CLI_EXIT_CODE") return 2 ;;
+        *) return 3 ;;
+    esac
+}
+
+# The relay step for a clone that is already in place at its version: provision
+# only a binary that is missing or defective; a background run reports it instead.
+_provision_relay_ensure() {
+    local python_cmd="$1" needed=0 answer
+    answer="$(_provision_relay_needed "$python_cmd")" || needed=$?
+    if ((needed == 1)); then
+        return 0
+    fi
+    if ((needed == 3)); then
+        _provision_say "The relay check failed, so the relay binary was not provisioned: $answer"
+        _PROVISION_RELAY_FAILED=true
+        return 0
+    fi
+    if [[ "$BACKGROUND" == true ]]; then
+        if ((needed == 0)); then
+            _provision_say "$answer"
+            _provision_say "The relay is on, but its binary is not usable, so hooks run on the slower fallback transport. A background run does not build or download it."
+            _provision_say "Provision it by running: $DAEMON_DIR/bin/hooks-daemon transport on"
+        fi
+        return 0
+    fi
+    if ((needed == 0)); then
+        _provision_say "$answer"
+    fi
+    _provision_relay_provision "$python_cmd"
+}
+
+# The relay step for a clone that was just built or moved to $TAG. The venv
+# interpreter is resolved again: the one in hand may belong to a clone that is no
+# longer the live one. A background sync only reports.
+_provision_relay_after_build() {
+    PYTHON_CMD=""
+    local python_cmd=""
+    if _resolve_python_cmd && [[ -n "$PYTHON_CMD" && -f "$PYTHON_CMD" ]]; then
+        python_cmd="$PYTHON_CMD"
+    fi
+    if [[ -z "$python_cmd" ]]; then
+        _provision_say "The relay binary step was skipped: no venv interpreter resolves. Run: $DAEMON_DIR/bin/hooks-daemon transport on"
+        return 0
+    fi
+    if [[ "$BACKGROUND" == true ]]; then
+        _provision_relay_ensure "$python_cmd"
+        return 0
+    fi
+    _provision_relay_provision "$python_cmd"
+}
+
+# The lines that close a run: the relay step's failure repeated, so it is the last
+# thing read, and what the run did to tracked files, truthfully.
+_provision_closing_notes() {
+    if [[ "$_PROVISION_RELAY_FAILED" == true ]]; then
+        _provision_say "WARNING: the relay binary is NOT provisioned (the banner above says why)."
+        _provision_say "Hooks run on the slower bash transport; every rule is still enforced."
+        _provision_say "To fix it, run: $DAEMON_DIR/bin/hooks-daemon transport on"
+    fi
+    if [[ "$_PROVISION_FORWARDERS_CHANGED" == true ]]; then
+        _provision_say "Note: the relay step regenerated tracked forwarders under .claude/hooks/ (see git status); commit them."
+    elif [[ "${1:-}" == --says-no-tracked-change ]]; then
+        _provision_say "No tracked file was changed."
+    fi
+}
+
 # The clone is at the expected version. That says nothing about its venv, which a
 # pull that changed the lock file leaves stale (Plan 00581): a foreground run
 # repairs it through the bootstrap repair; a background run only reports it,
@@ -1032,11 +1180,13 @@ _provision_equal_version() {
     venv_dir="$(dirname "$(dirname "$python_cmd")")"
     if _provision_venv_is_current "$venv_dir"; then
         _provision_say "The daemon clone is already at $TAG, the expected version: nothing to do."
+        _provision_relay_ensure "$python_cmd"
         return 0
     fi
     if [[ "$BACKGROUND" == true ]]; then
         _provision_say "The daemon clone is at $TAG, but its venv ($venv_dir) is stale: it was not built for the current pyproject.toml and uv.lock. A background run does not rebuild it."
         _provision_say "Repair it by running: $DAEMON_DIR/bin/hooks-daemon repair"
+        _provision_relay_ensure "$python_cmd"
         return 0
     fi
     local bootstrap="$DAEMON_DIR/scripts/venv_bootstrap.sh"
@@ -1047,6 +1197,7 @@ _provision_equal_version() {
             "  $DAEMON_DIR/bin/hooks-daemon repair"
     fi
     _provision_say "The venv was rebuilt for the current pyproject.toml and uv.lock."
+    _provision_relay_ensure "$python_cmd"
 }
 
 # ------------------------------------------------------------------
@@ -1067,6 +1218,7 @@ if _daemon_clone_present; then
         fi
         if [[ "$PRESENT_VERSION" == "$VERSION" ]]; then
             _provision_equal_version "$PYTHON_CMD"
+            _provision_closing_notes
             exit 0
         fi
         if [[ "$BACKGROUND" == true ]]; then
@@ -1168,6 +1320,13 @@ if ! bash "$BOOTSTRAP" repair "$DAEMON_DIR"; then
 fi
 
 # ------------------------------------------------------------------
+# Step 4b: the relay binary, as install and upgrade provide it (Plan 00608)
+# ------------------------------------------------------------------
+# Before the start deadline below is set, so the build and download take none of
+# the daemon's start budget. A failure warns and never stops the provision.
+_provision_relay_after_build
+
+# ------------------------------------------------------------------
 # Step 5: start the daemon, the way a hook would
 # ------------------------------------------------------------------
 # start_daemon waits until a deadline measured from the start of the script,
@@ -1182,7 +1341,7 @@ fi
 
 _provision_say ""
 _provision_say "PROVISIONED: hooks daemon $TAG is running for this checkout."
-_provision_say "No tracked file was changed."
+_provision_closing_notes --says-no-tracked-change
 SETTINGS="$PROJECT_PATH/.claude/settings.json"
 if [[ -f "$SETTINGS" ]] && grep -q '\.claude/hooks/' "$SETTINGS"; then
     _provision_say "No session restart is needed: the hooks are already registered in"

@@ -1071,16 +1071,24 @@ _hooks_daemon_event_takes_context() {
 #
 # _hooks_daemon_last_build_note() - Name the last venv build and its log.
 #
-# Reads untracked/.venv-bootstrap.result (venv.sh venv_write_build_result) with
+# Reads the newest untracked/.venv-bootstrap-<fingerprint>.result (venv.sh venv_write_build_result) with
 # plain bash: no subprocess, so the stop hook's hot path stays cheap. Prints
 # nothing when no build has recorded a result.
 #
 # Args:
 #   $1 - the daemon directory
 _hooks_daemon_last_build_note() {
-    local record="$1/untracked/.venv-bootstrap.result" key value
+    # One record per view (keyed by the venv fingerprint, like the build log);
+    # the stop hook cannot tell which view it is cheaply: the newest wins.
+    local record="" candidate key value
     local result="" finished="" log=""
-    [[ -f "$record" ]] || return 0
+    for candidate in "$1/untracked"/.venv-bootstrap-*.result; do
+        [[ -f "$candidate" ]] || continue
+        if [[ -z "$record" || "$candidate" -nt "$record" ]]; then
+            record="$candidate"
+        fi
+    done
+    [[ -n "$record" ]] || return 0
     while IFS='=' read -r key value; do
         case "$key" in
             result) result="$value" ;;
@@ -2271,7 +2279,12 @@ if [[ -z "${CLAUDE_HOOKS_SOCKET_PATH:-}" ]] && [[ ! -S "$SOCKET_PATH" ]]; then
             # is_daemon_running finds no PID, `cli start` then sees a live
             # socket that is "not ours" and refuses it, and every forwarder
             # reports daemon_startup_failed while status shows RUNNING.
-            if [[ -z "${CLAUDE_HOOKS_PID_PATH:-}" ]]; then
+            # Only when the PID path ITSELF overflows (paths.pid_path_for
+            # decides on the PID path's own length, 104 = _UNIX_SOCKET_PATH_LIMIT):
+            # its socket is one character longer, so at exactly the limit the
+            # socket falls back while the PID file stays in the untracked dir,
+            # and following the socket would look where nothing was written.
+            if [[ -z "${CLAUDE_HOOKS_PID_PATH:-}" ]] && ((${#PID_PATH} > 104)); then
                 PID_PATH="${_discovered_path%.sock}.pid"
             fi
         fi
@@ -3705,8 +3718,8 @@ send_request_stdin() {
     # constants/timeout.py (pinned equal by tests/unit/constants/test_event_budgets.py).
     local _event_socket_wait
     case "$event_name" in
-        WorktreeCreate) _event_socket_wait=90;;
-        WorktreeRemove) _event_socket_wait=70;;
+        WorktreeCreate) _event_socket_wait=510;;
+        WorktreeRemove) _event_socket_wait=180;;
         *) _event_socket_wait=30;;
     esac
 
@@ -3729,6 +3742,19 @@ send_request_stdin() {
         && [[ "${HOOKS_DAEMON_NC_UNIX_CAPABLE:-0}" == "1" ]] \
         && command -v nc > /dev/null; then
         local _nc_events_dir="${HOOKS_DAEMON_EVENTS_DIR:-${events_dir_override:-$_untracked_dir/events${_hostname_suffix}}}"
+        # Plan 00609: when the natural events dir does not exist the daemon
+        # bound in its AF_UNIX-overflow fallback root and published where, in
+        # a location file recording the untracked dir it was written for (a
+        # copied checkout must not trust another's).
+        if [[ -z "${HOOKS_DAEMON_EVENTS_DIR:-}" && -z "$events_dir_override" && ! -d "$_nc_events_dir" ]]; then
+            local _nc_loc="$_untracked_dir/events${_hostname_suffix}.location"
+            local _nc_loc_dir="" _nc_loc_events=""
+            if [[ -r "$_nc_loc" ]] \
+                && { IFS= read -r _nc_loc_dir && IFS= read -r _nc_loc_events; } < "$_nc_loc" \
+                && [[ "$_nc_loc_dir" == "$_untracked_dir" && -n "$_nc_loc_events" ]]; then
+                _nc_events_dir="$_nc_loc_events"
+            fi
+        fi
         local _nc_sock="$_nc_events_dir/${event_sock_name}.sock"
         if [[ -S "$_nc_sock" ]]; then
             local _nc_payload _nc_response _nc_stderr _nc_rc
@@ -3885,12 +3911,17 @@ daemon_root = sys.argv[5] if len(sys.argv) > 5 else ''
 def _last_build_note(root):
     '''Name the last venv build and its log: one small file read, no subprocess.'''
     fields = {}
+    # One record per view (keyed by the venv fingerprint, like the build log);
+    # the newest of any view is named.
+    untracked = os.path.join(root, 'untracked')
     try:
-        with open(os.path.join(root, 'untracked', '.venv-bootstrap.result')) as handle:
+        records = [os.path.join(untracked, name) for name in os.listdir(untracked)
+                   if name.startswith('.venv-bootstrap-') and name.endswith('.result')]
+        with open(max(records, key=os.path.getmtime)) as handle:
             for line in handle:
                 key, _, value = line.rstrip('\n').partition('=')
                 fields[key] = value
-    except OSError:
+    except (OSError, ValueError):
         return ''
     if not fields.get('result'):
         return ''

@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-11-15 (v3.74.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
+> Generated on 2026-11-19 (v3.75.0) by `generate-docs`. Regenerate: `.claude/hooks-daemon/bin/hooks-daemon generate-docs`
 
 ## Plan Mode
 
@@ -64,7 +64,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 39 | reference_repo_freshness | BLOCKING | Gate a read of a governed reference repo on a cached freshness reading |
 | 39 | resume_guard | BLOCKING | Gate a SendMessage that would cold-resume a large stopped agent |
 | 39 | subagent_context_budget | BLOCKING | Advise a subagent past ``soft_tokens``; past ``hard_tokens`` allow only its handoff |
-| 40 | branch_creation_guard | BLOCKING | Hold the open work branches at ``branches.wip.cap``; warn on likely duplicates |
+| 40 | branch_creation_guard | BLOCKING | Hold the open work branches to ``branches.wip.cap`` (``wip.creation_grace`` past it |
 | 40 | gh_issue_comments | BLOCKING | Ensure gh issue view commands always include --comments flag |
 | 40 | gh_pr_comments | BLOCKING | Ensure gh pr view commands always include --comments flag |
 | 40 | global_npm_advisor | NON-TERMINAL | Advise on global npm/yarn package installations |
