@@ -35,8 +35,9 @@ its own deploy route runs stage A's play.
 - **Gate B binds only the host run of the ccy hot reissue (Task 4.4).** Plan 00209 Task 3.1
   says so in its own words: "N3's LXC seats are token seats, so gate B binds only the ccy hot
   reissue's host run (Task 4.4)". Gate B is about the first deploy that gives a process a pool
-  seat's password. X30's remote seat is a pool seat, so it is issued with `--credential password` (X23): `seat place-issued` refuses a token bundle (issue #248). Gate B therefore
-  binds X30's host run too, and was met on 2026-10-30 (the owner confirmed INT6).
+  seat's password. X30's remote seat is a pool seat, so it is issued with
+  `--credential password` (X23): `seat place-issued` refuses a token bundle (issue #248). Gate
+  B therefore binds X30's host run too, and was met on 2026-10-30 (the owner confirmed INT6).
 
 ### Who does what
 

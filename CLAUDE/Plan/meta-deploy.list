@@ -42,13 +42,16 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00257 B.5 (ccy 3.122.25, container 2.84.32): the teamchat host play installs the new
-# teamchat-admin and member program, the health unit's text, and re-applies every present team
-# (a new member program widens the run): each terminator is restarted onto the new program and
-# its request gate, and team apply writes the health unit's drop-in of the listen addresses.
-# With the B.5 review's fixes (ccy 3.122.28, container 2.84.34) each terminator also starts with
-# its team's per-source connection cap (connections_per_source, default 256), and teamchat-ctl
-# sends the admin token only to the homeserver unit's own system cgroup.
+# Plan 00257 B.5 and its reviews' fixes (now at ccy 3.122.32, container 2.84.38): the teamchat
+# host play installs the new teamchat-admin and member program, the health unit's text, and
+# re-applies every present team (a new member program widens the run): each terminator is
+# restarted onto the new program and its request gate, and team apply writes the health unit's
+# drop-in of the listen addresses. The new teamchat-tls@.service runs each terminator with
+# LimitNOFILE=2112: it holds 1024 connections, at most 256 from one source address by default
+# (lower where a team declares connections_per_source). A connection over either bound is
+# refused at once; nothing is reclaimed, and a dead connection (a suspended member host) is freed
+# by the 2-minute idle limit. teamchat-ctl sends the admin token only to the homeserver unit's
+# own system cgroup.
 # WARNING: team apply now judges each declared network whole (HOST-7). A team whose network has
 # a longer route inside it through another interface (a broad VPN prefix that holds a podman or
 # LXC bridge subnet, say) is refused with exit 70 naming the network and both interfaces, though
@@ -63,7 +66,9 @@ playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
-# entered and names what the box showed when a line stays in it.
+# entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.32,
+# container 2.84.38) adds Start its session in its LXC container to an LXC member's menu (Plan
+# 00257 B.12).
 playbooks/imports/play-claude-yolo.yml
 # Plan 00257 B.12: the v1 agent-bus play rewrites each LXC member's agent-bus-claude-<user>
 # unit (service: true) with no [Install] and Restart=no, and DISABLES AND STOPS one an earlier

@@ -130,9 +130,10 @@ install are listed last, under "Owner questions".
   dropped by the client after a minute idle, so a healthy member is never cut by it.
   One source address holds at most the team's `connections_per_source` of those connections
   (1 to 256, default `tlsterm.DefaultMaxPerSource`, 256, a quarter of the slots;
-  `teamchat tls --per-source`), so one client, which needs no credential to finish a
-  handshake, never holds every slot, by default or at any declared value, and each refusal is logged, the first of each minute at
-  once and the count of the rest at its end (Plan 00257 SEC-4). The source's share is checked
+  `teamchat tls --per-source`), so one source address, which needs no credential to finish a
+  handshake, never holds every slot, by default or at any declared value (a client with
+  several source addresses is not bounded by it), and each refusal is logged, the first of
+  each minute at once and the count of the rest at its end (Plan 00257 SEC-4). The source's share is checked
   before a slot is taken, and a connection over either bound is closed at once, unserved: no
   connection waits. A connection a suspended or vanished member host left behind is dead but
   held until `tlsterm.IdleLimit` (2 minutes) closes it, which frees its share; a seat that
