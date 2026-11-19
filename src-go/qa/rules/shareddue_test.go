@@ -14,3 +14,10 @@ func TestSharedDue(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SharedDue,
 		"fix/internal/teamchat/member/teamsync", "fix/internal/teamchat/member/noreports")
 }
+
+// Any package's limits that share a value are a shared due: a test naming that due by AwaitDue or
+// Armed is flagged, in the package's own and its external tests, however the value is spelt; a
+// due one limit alone has, a test's own constant and a timer named by its arming function are not.
+func TestSharedDueAcrossLimits(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SharedDue, "fix/internal/sharedlimits")
+}

@@ -25,6 +25,9 @@ func (f *Fake) BlockUntil(_ context.Context, _ int) error { return nil }
 // AwaitDue waits until a waiter due d from now is armed.
 func (f *Fake) AwaitDue(_ context.Context, _ time.Duration) error { return nil }
 
+// AwaitDueFrom waits until a waiter due d from now, armed in the function fn, is armed.
+func (f *Fake) AwaitDueFrom(_ context.Context, _ time.Duration, _ string) error { return nil }
+
 // Armed is whether a waiter due d from now is armed: a timer named by when it is due.
 func (f *Fake) Armed(d time.Duration) bool { return len(f.waiters) > 0 && f.waiters[0] == d }
 

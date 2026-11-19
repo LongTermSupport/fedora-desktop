@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.27 — container 2.84.33
+
+- **teamchat's tests name each fake-clock timer by the function that arms it** where two limits
+  share a value (`clock.(*Fake).AwaitDueFrom`, rule `project_shared_due`). A terminator test
+  could be answered by the handshake's 10 s bound while it meant the first request's, and failed
+  now and then on a loaded host.
+
 ## 3.122.26 — container 2.84.32
 
 - **A line typed into a session counts as entered only when its box is seen empty or busy**

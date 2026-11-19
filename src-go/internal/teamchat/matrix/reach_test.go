@@ -174,7 +174,7 @@ func TestReachAnAddressThatHangsEndsAtTheBound(t *testing.T) {
 	defer cancel()
 	got := make(chan error, 1)
 	go func() { got <- w.reach(ctx, ca, addr, w.clk) }()
-	if err := w.clk.AwaitDue(ctx, ReachLimit); err != nil {
+	if err := w.clk.AwaitDueFrom(ctx, ReachLimit, "Reach"); err != nil {
 		t.Fatalf("the bound was never armed: %v", err)
 	}
 	w.clk.Advance(ReachLimit)

@@ -527,7 +527,7 @@ func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	until(t, func() bool { return w.team(a) != nil })
 	// The adds' wait, armed at the launch; the engine's status.json timer (SL1) is not this
 	// test's.
-	check(t, w.clk.AwaitDue(t.Context(), addsWait))
+	check(t, w.clk.AwaitDueFrom(t.Context(), addsWait, "(*link).run"))
 	w.clk.Advance(addsWait)
 	w.next(wire.KindReady)
 	if !strings.Contains(w.log.String(), "1 of 2 adds") {
@@ -592,7 +592,7 @@ func TestTheFirstMessageIsTheLaunch(t *testing.T) {
 func TestNoLaunchInTenSeconds(t *testing.T) {
 	w := newLinkWorld(t)
 	w.start()
-	check(t, w.clk.AwaitDue(t.Context(), addsWait))
+	check(t, w.clk.AwaitDueFrom(t.Context(), addsWait, "(*link).run"))
 	w.clk.Advance(addsWait)
 	if code := w.exited(); code != int(exits.ExitConfig) {
 		t.Fatalf("exit %d", code)

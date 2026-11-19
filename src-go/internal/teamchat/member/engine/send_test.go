@@ -946,7 +946,7 @@ func TestSD3_7ARequestEndedWhileFailingAnswersQueued(t *testing.T) {
 	a := <-got
 	queued(t, a)
 	f.notices.setSendErr(nil)
-	check(t, w.clk.AwaitDue(t.Context(), retryHold))
+	check(t, w.clk.AwaitDueFrom(t.Context(), retryHold, "(*Engine).holdLocked"))
 	w.clk.Advance(30 * time.Second)
 	w.until(w.sendsLeft(ops))
 	if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {

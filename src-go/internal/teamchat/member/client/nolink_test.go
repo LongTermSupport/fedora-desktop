@@ -144,7 +144,7 @@ func TestWaitAcrossARestart(t *testing.T) {
 		w.clk.Advance(d)
 	}
 	// The dial at 7 s fails before the link listens, so the fourth wait is the 5 s cap.
-	if err := w.clk.AwaitDue(t.Context(), 5*time.Second); err != nil {
+	if err := w.clk.AwaitDueFrom(t.Context(), 5*time.Second, "conn.serve"); err != nil {
 		t.Fatal(err)
 	}
 	l := w.listen(record1, doneAck)

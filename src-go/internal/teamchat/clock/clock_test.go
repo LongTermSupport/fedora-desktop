@@ -293,6 +293,39 @@ func TestAnAmbiguousDueIsRefusedNamingBothWaiters(t *testing.T) {
 	check(t, <-slept)
 }
 
+// armFirst and armSecond arm a waiter each, as two places in the code under test arm two limits
+// of one value.
+func armFirst(f *clock.Fake, d time.Duration)  { f.AfterFunc(d, func() {}) }
+func armSecond(f *clock.Fake, d time.Duration) { f.AfterFunc(d, func() {}) }
+
+// AwaitDueFrom names a timer by its due and the function that armed it: another function's
+// waiter of the same due neither answers it nor makes it ambiguous, and it waits for its own
+// (project_shared_due).
+func TestAwaitDueFromNamesTheTimerByWhereItIsArmed(t *testing.T) {
+	f := clock.NewFake(0, 0)
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	armFirst(f, time.Second)
+	if err := f.AwaitDueFrom(ended, time.Second, "armSecond"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("another function's waiter answered: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- f.AwaitDueFrom(t.Context(), time.Second, "armSecond") }()
+	armSecond(f, time.Second)
+	check(t, <-done)
+	check(t, f.AwaitDueFrom(ended, time.Second, "armFirst"))
+	if err := f.AwaitDueFrom(ended, time.Second, "First"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a part of a name answered: %v", err)
+	}
+	if err := f.AwaitDueFrom(ended, 2*time.Second, "armFirst"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("another due answered: %v", err)
+	}
+	armSecond(f, time.Second)
+	if err := f.AwaitDueFrom(ended, time.Second, "armSecond"); !errors.Is(err, clock.ErrAmbiguousDue) {
+		t.Fatalf("two waiters of one function and due: %v", err)
+	}
+}
+
 // lock's three tries, 50 ms apart, run on the fake: the acquire sleeps twice, then is busy.
 func TestTheFakeDrivesLocksThreeTries(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")

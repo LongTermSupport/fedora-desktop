@@ -292,7 +292,7 @@ func TestT10ASilentClientIsClosedAtRequestLimit(t *testing.T) {
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { closeClosed(t, c) })
-	check(t, clk.AwaitDue(t.Context(), RequestLimit))
+	check(t, clk.AwaitDueFrom(t.Context(), RequestLimit, "(*Server).firstRequest"))
 	clk.Advance(RequestLimit)
 	if !closed(t, c) {
 		t.Fatal("a client that sent no request was left open")

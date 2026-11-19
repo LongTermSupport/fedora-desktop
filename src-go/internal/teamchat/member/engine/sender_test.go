@@ -455,7 +455,7 @@ func TestN3dD4TheRecoveryIsAnchoredOnTheLastPosted(t *testing.T) {
 			f.notices.sendErrs = []error{nil, matrix.StatusError("PUT", "/send", 502, "")}
 			f.notices.mu.Unlock()
 			w.e.SetHealth(ops, up(w.clk.WallMS()))
-			check(t, w.clk.AwaitDue(t.Context(), retryHold))
+			check(t, w.clk.AwaitDueFrom(t.Context(), retryHold, "(*Engine).holdLocked"))
 			first := h.own(t, agent(ops, 1))
 			if len(first) != 1 {
 				t.Fatalf("main holds %d own events before the recovery, want the first send", len(first))
@@ -492,7 +492,7 @@ func TestN3dD4ANewTokenRecoversBeforeTheRetry(t *testing.T) {
 	// The client's three tries by the txn all land and lose their answer.
 	h.srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: "/send/", DropAfter: true, Times: 3})
 	w.e.SetHealth(ops, up(startWall))
-	check(t, w.clk.AwaitDue(t.Context(), retryHold))
+	check(t, w.clk.AwaitDueFrom(t.Context(), retryHold, "(*Engine).holdLocked"))
 	w.newDevice(ops, h)
 	w.clk.Advance(retryHold)
 	w.until(w.sendsLeft(ops))

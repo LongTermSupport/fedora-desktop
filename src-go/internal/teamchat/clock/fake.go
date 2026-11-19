@@ -37,6 +37,7 @@ type waiter struct {
 	seq  uint64
 	fire func()
 	at   string // where it was armed: the first caller outside this package
+	fn   string // the function that armed it, that caller's full name
 }
 
 // NewFake is a fake standing at boot (boot and mono alike) and wallMS.
@@ -89,7 +90,8 @@ func (f *Fake) AfterFunc(d time.Duration, fn func()) func() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.seq++
-	w := &waiter{due: f.mono + d, seq: f.seq, fire: fn, at: armedAt()}
+	at, by := armedAt()
+	w := &waiter{due: f.mono + d, seq: f.seq, fire: fn, at: at, fn: by}
 	f.waiters = append(f.waiters, w)
 	f.signal()
 	return func() bool { return f.disarm(w) }
@@ -115,9 +117,24 @@ func (f *Fake) Waiters() int {
 // never on a count of waiters, which a timer it did not mean can make (project_fakeclock_count).
 // A due two waiters share is refused (ErrAmbiguousDue), naming where each was armed.
 func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
+	return f.await(ctx, d, "")
+}
+
+// AwaitDueFrom is AwaitDue for the waiter due d that the function fn armed: its name, or its
+// name's end after a dot ("firstRequest", "(*Server).firstRequest"; a closure is
+// "firstRequest.func1"). Where two limits of the code under test have one value, the timers
+// they arm one after the other are due the same time from the instant each is armed, and
+// AwaitDue can be answered by the one the test does not mean (project_shared_due); the function
+// that arms a timer names it. Two waiters of fn due d are refused (ErrAmbiguousDue).
+func (f *Fake) AwaitDueFrom(ctx context.Context, d time.Duration, fn string) error {
+	return f.await(ctx, d, fn)
+}
+
+// await waits for one waiter due d, armed in fn when fn is not empty.
+func (f *Fake) await(ctx context.Context, d time.Duration, fn string) error {
 	for {
 		f.mu.Lock()
-		armed, err := f.dueLocked(d)
+		armed, err := f.dueLocked(d, fn)
 		changed := f.changed
 		f.mu.Unlock()
 		if armed || err != nil {
@@ -137,21 +154,22 @@ func (f *Fake) AwaitDue(ctx context.Context, d time.Duration) error {
 func (f *Fake) Armed(d time.Duration) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.dueLocked(d)
+	return f.dueLocked(d, "")
 }
 
 // armedAt is the file and line of the first caller outside this package (its own tests
-// included), which is where a test or the code under test armed a waiter.
-func armedAt() string {
+// included), which is where a test or the code under test armed a waiter, and that caller's
+// function.
+func armedAt() (string, string) {
 	pcs := make([]uintptr, 16)
 	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs)])
 	for {
 		fr, more := frames.Next()
 		if !strings.HasPrefix(fr.Function, thisPackage+".") {
-			return filepath.Base(fr.File) + ":" + strconv.Itoa(fr.Line)
+			return filepath.Base(fr.File) + ":" + strconv.Itoa(fr.Line), fr.Function
 		}
 		if !more {
-			return "unknown"
+			return "unknown", ""
 		}
 	}
 }
@@ -199,13 +217,13 @@ func (f *Fake) StepWall(ms int64) {
 	f.wall += ms
 }
 
-// dueLocked is whether one waiter is due d from now, and the refusal when more than one is; the
-// caller holds mu.
-func (f *Fake) dueLocked(d time.Duration) (bool, error) {
+// dueLocked is whether one waiter is due d from now, armed in fn when fn is not empty, and the
+// refusal when more than one is; the caller holds mu.
+func (f *Fake) dueLocked(d time.Duration, fn string) (bool, error) {
 	due := f.mono + d
 	var at []string
 	for _, w := range f.waiters {
-		if w.due == due {
+		if w.due == due && (fn == "" || strings.HasSuffix(w.fn, "."+fn)) {
 			at = append(at, w.at)
 		}
 	}

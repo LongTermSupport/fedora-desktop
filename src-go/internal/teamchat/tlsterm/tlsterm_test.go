@@ -326,7 +326,7 @@ func TestT3AHandshakeThatNeverEndsIsClosed(t *testing.T) {
 	conn, err := net.Dial("tcp", srv.Addrs()[0].String())
 	check(t, err)
 	t.Cleanup(func() { check(t, conn.Close()) })
-	check(t, clk.AwaitDue(t.Context(), HandshakeLimit))
+	check(t, clk.AwaitDueFrom(t.Context(), HandshakeLimit, "(*Server).handshake"))
 	clk.Advance(HandshakeLimit)
 	if !closed(t, conn) {
 		t.Fatal("the silent client was not closed")

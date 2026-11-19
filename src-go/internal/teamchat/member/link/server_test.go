@@ -314,7 +314,7 @@ func peerClosed(c *net.UnixConn) bool {
 func TestASilentClientIsClosed(t *testing.T) {
 	w := newServerWorld(t)
 	c := w.dial(t)
-	check(t, w.clk.AwaitDue(t.Context(), readLimit))
+	check(t, w.clk.AwaitDueFrom(t.Context(), readLimit, "(*server).handle"))
 	w.clk.Advance(readLimit)
 	if lines := readAll(t, c); lines != nil {
 		t.Fatalf("lines %q", lines)
@@ -399,7 +399,7 @@ func TestAClosedConnectionReturns(t *testing.T) {
 func TestALateAckReturns(t *testing.T) {
 	w := newServerWorld(t)
 	c := w.handOut(t)
-	check(t, w.clk.AwaitDue(t.Context(), ackWait))
+	check(t, w.clk.AwaitDueFrom(t.Context(), ackWait, "(*server).settle"))
 	w.clk.Advance(ackWait)
 	if acked, back := w.settled(t); acked != 0 || back != 1 {
 		t.Fatalf("acked %d back %d", acked, back)
