@@ -63,7 +63,11 @@ Related plans:
 ## Non-Goals
 
 - Any degrade. Every current capability survives, and dropping one needs the owner's yes.
-- Any v1 change: v1 is feature-frozen.
+- Any v1 change: v1 is feature-frozen. **Overridden for the session auto-start (Task B.12):**
+  the owner's order, relayed by the coordinator, is that no LXC member session starts when
+  its container boots, in either generation, so v1's `helpers/agent_bus_lxc/members.py` no
+  longer enables or starts the unit, and v1 ccy-teams gains the on-demand start. Nothing
+  else in v1 changes under this plan.
 - Docker or VM guests.
 - A teamchat proxy (REPORT.md: not needed).
 
