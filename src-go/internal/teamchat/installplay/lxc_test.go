@@ -206,8 +206,8 @@ func stringVar(t *testing.T, p play, name string) string {
 	return s
 }
 
-// X5: the team's url is held on the LXC bridge, so a running guest that cannot reach it is a
-// fault: the present phase fails on its line (lxc.WhyReach), and on no other offline line (a
+// X5: an LXC seat is given the team's listen address on the LXC bridge, so a running guest that
+// cannot reach it is a fault: the present phase fails on its line (lxc.WhyReach), and on no other offline line (a
 // stopped container never fails a run, n3b-D1). Both phases' held-back lines, and only those,
 // are shown in a task of their own after the present phase (C 3.9.3).
 func TestThePlayFailsOnAnUnreachableTeamAndShowsTheHeldBackLines(t *testing.T) {

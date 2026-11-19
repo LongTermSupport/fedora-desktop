@@ -719,8 +719,9 @@
     # the guest check, the joins, the bundles, the desired memberships and each service seat's
     # session unit, written from the host side. A stopped or missing container, or a member whose
     # guest check finds gh signed out, is offline: a SKIPPED or DEFERRED line, never a failure
-    # (n3b-D1). A running guest that cannot reach its team fails the play: the url is held on the
-    # LXC bridge (team apply refuses one elsewhere), so that is a fault, not a stopped container.
+    # (n3b-D1). A running guest that cannot reach its team fails the play: an LXC seat is given the
+    # team's listen address on the LXC bridge (team apply refuses a team with a present LXC member
+    # and no bridge address), so that is a fault, not a stopped container.
     # A running container's wrong facts fail the play, naming the entry.
     - name: Place and Join the Declared LXC Members
       ansible.builtin.command:
