@@ -1,6 +1,7 @@
 # B.5 second fix round: the terminator's slots, and the review of b5-fix-review.md
 
-In progress. Each section is filled as its commit lands.
+Branch `plan-xhost-lxc-members`. Commits: b3eabaec0 (step 0), e67a8301d (the reclaim removed),
+and the minors commit that carries this report's last sections.
 
 ## Step 0: 1024 slots, 256 per source (review item 5)
 
@@ -33,12 +34,12 @@ per-team `connections_per_source`, `--per-source`, and the request-gate fixes.
 `admit` now checks the source's share first, under the lock, then takes a slot without
 waiting; either full is a refusal at once, logged as T9 logs.
 
-| Item | Outcome | Test (RED seen against the reclaim code at b3eabaec0) |
-| ---- | ------- | ----------------------------------------------------- |
-| 1. a waiter holds a global slot | gone by construction: nothing waits, and the share is checked before the slot | `TestT9AFloodAtTheCapHoldsNoSlot`: RED, the other source was refused (`EOF`) while the flood's connections held the slots |
-| 2. two reclaims restore each other's keepalive | gone by construction: no probe, no restore | none needed: the code path no longer exists |
-| 3. the probe cannot see a connection with unacknowledged data | no probe; docs now say exactly what happens: over the cap a connection is refused at once, dead connections are freed by the 2-minute idle limit, the member's link backs off and reconnects (docs/agent-bus-cross-network.md, SPEC X18, PLAN.md, changelog, package doc T9/T9a) | n/a |
-| 4. the production probe is never tested on a dead peer | no probe left. A loopback peer always acknowledges, so no unit test could have made a dead one. PLAN.md B.2c now expects the lab test to suspend a member's host behind the terminator and see every seat reconnect while its old connections are still held | n/a |
+| Item                                                          | Outcome                                                                                                                                                                                                                                                                          | Test (RED seen against the reclaim code at b3eabaec0)                                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 1. a waiter holds a global slot                               | gone by construction: nothing waits, and the share is checked before the slot                                                                                                                                                                                                    | `TestT9AFloodAtTheCapHoldsNoSlot`: RED, the other source was refused (`EOF`) while the flood's connections held the slots |
+| 2. two reclaims restore each other's keepalive                | gone by construction: no probe, no restore                                                                                                                                                                                                                                       | none needed: the code path no longer exists                                                                               |
+| 3. the probe cannot see a connection with unacknowledged data | no probe; docs now say exactly what happens: over the cap a connection is refused at once, dead connections are freed by the 2-minute idle limit, the member's link backs off and reconnects (docs/agent-bus-cross-network.md, SPEC X18, PLAN.md, changelog, package doc T9/T9a) | n/a                                                                                                                       |
+| 4. the production probe is never tested on a dead peer        | no probe left. A loopback peer always acknowledges, so no unit test could have made a dead one. PLAN.md B.2c now expects the lab test to suspend a member's host behind the terminator and see every seat reconnect while its old connections are still held                     | n/a                                                                                                                       |
 
 Evidence that the ride-out works without the reclaim (the coordinator's condition for removing
 it; neither shows a failure):
@@ -59,3 +60,35 @@ first (the log says "1 connections are held from it", not "all 1 connections are
 
 DBF: a wait that holds a shared resource, and a probe whose restore races another, are design
 defects of one mechanism, now removed; no analyzer expresses either class.
+
+## Minors
+
+- **AUDIT.md B.2d row** (review nit 6): `reports/AUDIT.md` has a B.2d row for HOST-4, and the
+  parenthetical on the B.5 row is gone.
+- **Whitespace before a chunk extension** (nit 7): RFC 9112 section 7.1.1 is
+  `chunk-ext = *( BWS ";" BWS chunk-ext-name [ BWS "=" BWS chunk-ext-val ] )`, so spaces and
+  tabs between the size and `;` are allowed. `chunkSize` now trims them before the `;` only; a
+  space after a size with no extension (`5 `), a space before the size, a sign or a prefix stay
+  refused. RED: `TestT10AChunkSizeMayHaveWhitespaceBeforeItsExtension` (`5 ;x=1`, `5\t;x=1`,
+  `5 \t ;x=1` were refused: `unexpected EOF`); `TestT10AChunkSizeIsHexDigitsAlone` now also
+  refuses `5\t`, ` ;x=1` and `5 x;y=1`. By my reading of hyper's chunked decoder (the HTTP
+  server under Tuwunel; read, not run), it also takes whitespace after the size before a `;`, so
+  the two read one size one way. DBF: a parse looser or stricter than the RFC's grammar is not a
+  code shape an analyzer can name; held by the tests.
+- **ADMIN-1 with a dashed team id** (nit 8): `TestADMIN1ATeamIDWithADash`. The unit is started by
+  its plain name (`paths.ServerUnit`, `teamchat-server@ops-a.service`); systemd names a unit's
+  cgroup by the unit's own name (only the template prefix in the default slice's name is
+  escaped, `system-teamchat\x2dserver.slice`), so the expected path keeps the instance's `-`:
+  `/system.slice/system-teamchat\x2dserver.slice/teamchat-server@ops-a.service`. The test pins
+  that path, and that a process in it is accepted while one in a cgroup with an escaped instance
+  (`ops\x2da`) is not. It was green on its first run: the code was already right, as the
+  reviewer read it; this is a pin, not a fix.
+
+## Notes for the coordinator
+
+- No owner decision was needed beyond the coordinator's two rulings.
+- Dogfood: `mkplan.bash --journal` takes the plan number (`00257`), not the folder name the brief
+  gave; its error says so plainly, so no fault is logged.
+- `leakcheck.Poll` waits unbounded in a world with a network goroutine (its doc says so), so a
+  wrong expectation in a terminator test hangs to the package timeout instead of failing at
+  once. Documented behaviour, not logged as a fault.

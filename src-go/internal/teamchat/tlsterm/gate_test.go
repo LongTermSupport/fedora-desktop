@@ -406,14 +406,15 @@ func TestT10AnAdminRequestAfterABodyIsRefused(t *testing.T) {
 	}
 }
 
-// T10: a chunk size is hexadecimal digits alone (RFC 9112 7.1): a sign or a space around it is
-// refused, and its line never reaches the homeserver.
+// T10: a chunk size is hexadecimal digits alone (RFC 9112 7.1): a sign, a prefix or a space
+// before it, or a space after it with no extension, is refused, and its line never reaches the
+// homeserver.
 func TestT10AChunkSizeIsHexDigitsAlone(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
 	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
 	head := "PUT /_matrix/client/v3/x HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
-	for _, size := range []string{"+5", " 5", "5 ", "5 ;x=1", "\t5", "0x5", ""} {
+	for _, size := range []string{"+5", " 5", "5 ", "5\t", "\t5", "0x5", "", " ;x=1", "5 x;y=1"} {
 		c, err := client(t, srv.Addrs()[0], k.ca, nil)
 		check(t, err)
 		_, err = c.Write([]byte(head + size + "\r\nhello\r\n0\r\n\r\n"))
@@ -427,6 +428,30 @@ func TestT10AChunkSizeIsHexDigitsAlone(t *testing.T) {
 			t.Errorf("size %q: the homeserver saw %q, want the head alone", size, all)
 		}
 		closeClosed(t, c)
+	}
+}
+
+// T10: whitespace (BWS: spaces and tabs) between a chunk size and its extension's ";" is
+// allowed by RFC 9112 7.1.1 (chunk-ext = *( BWS ";" BWS ext-name ... )), so the chunk is relayed.
+func TestT10AChunkSizeMayHaveWhitespaceBeforeItsExtension(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
+	c, err := client(t, srv.Addrs()[0], k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, c.Close()) })
+	for _, size := range []string{"5 ;x=1", "5\t;x=1", "5 \t ;x=1"} {
+		req := "PUT /_matrix/client/v3/x HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" +
+			size + "\r\nhello\r\n0\r\n\r\n"
+		_, err := c.Write([]byte(req))
+		check(t, err)
+		got := make([]byte, len(req))
+		testconn.Bound(t, c)
+		_, err = io.ReadFull(c, got)
+		check(t, err)
+		if string(got) != req {
+			t.Fatalf("size %q: relayed %q, sent %q", size, got, req)
+		}
 	}
 }
 

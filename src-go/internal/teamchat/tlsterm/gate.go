@@ -242,13 +242,14 @@ func relayBody(dst io.Writer, br *bufio.Reader, h head) error {
 	}
 }
 
-// chunkSize is the size a chunk's size line gives: hexadecimal digits alone before any
-// extension (RFC 9112 section 7.1), at most 15 of them so it fits an int64. A sign, a space or a
-// prefix is refused, so the gate and the homeserver cannot read one size two ways.
+// chunkSize is the size a chunk's size line gives: hexadecimal digits alone (RFC 9112 section
+// 7.1), at most 15 of them so it fits an int64, then the line's end or an extension, which may
+// follow the digits after spaces and tabs (BWS, section 7.1.1). A sign, a prefix, or a space with
+// no extension after it is refused, so the gate and the homeserver cannot read one size two ways.
 func chunkSize(line []byte) (int64, error) {
 	text := string(line[:len(line)-2])
 	if i := strings.IndexByte(text, ';'); i >= 0 {
-		text = text[:i]
+		text = strings.TrimRight(text[:i], " \t")
 	}
 	if text == "" || len(text) > 15 || strings.TrimLeft(text, "0123456789abcdefABCDEF") != "" {
 		return 0, refuse(400, "a chunk's size is not hexadecimal")

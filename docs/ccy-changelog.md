@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.31 — container 2.84.37
+
+- **The TLS terminator relays a chunk whose size has spaces or tabs before its extension's `;`**
+  (`5 ;name=value`), which RFC 9112 section 7.1.1 allows; a space after a size with no extension
+  is still refused.
+
 ## 3.122.30 — container 2.84.36
 
 - **The TLS terminator refuses a connection over its bounds at once**: the liveness check that

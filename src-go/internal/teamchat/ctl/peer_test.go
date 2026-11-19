@@ -154,6 +154,34 @@ func TestADMIN1TheUnitsCgroupIsSystemdsPath(t *testing.T) {
 	}
 }
 
+// A team id with a dash (b5-fix-review nit 8): the unit is started by its plain name,
+// teamchat-server@ops-a.service, and systemd names its cgroup by the unit's name as it stands
+// (only the template prefix in the slice name is escaped), so the instance keeps its "-"
+// unescaped. A process in that cgroup is accepted, and one in a cgroup whose instance is
+// escaped (\x2d) is not the unit's.
+func TestADMIN1ATeamIDWithADash(t *testing.T) {
+	team := mustTeamID("ops-a")
+	const want = "/system.slice/system-teamchat\\x2dserver.slice/teamchat-server@ops-a.service"
+	if got := serverCgroup(team); got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+	for _, c := range []struct {
+		cgroup string
+		ok     bool
+	}{
+		{want, true},
+		{"/system.slice/system-teamchat\\x2dserver.slice/teamchat-server@ops\\x2da.service", false},
+	} {
+		p := newProc(t)
+		p.socket(hsAddr, clientAddr, "61200")
+		p.process("812", c.cgroup, "61200")
+		err := ProcPeer{Proc: p.root, Sleep: (&sleeps{}).sleep}.Check(t.Context(), team, fakeConn{local: clientAddr, remote: hsAddr})
+		if (err == nil) != c.ok {
+			t.Errorf("cgroup %s: %v", c.cgroup, err)
+		}
+	}
+}
+
 // A socket not listed yet is waited for, a bounded number of times, then refused.
 func TestADMIN1AnUnlistedSocketIsWaitedForThenRefused(t *testing.T) {
 	p := newProc(t)
