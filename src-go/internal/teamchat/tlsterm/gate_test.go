@@ -90,43 +90,24 @@ func answered(t *testing.T, c net.Conn) (int, string, bool) {
 }
 
 // T9 (Plan 00257 SEC-4): one source holds at most MaxPerSource connections, so it cannot fill
-// every slot; another source is still served, and the refusal is logged. The source's held
-// connection answers the liveness check, so the new one is refused once ProbeLimit is up.
+// every slot; another source is still served, and the refusal is logged.
 func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
 	log := &lockedLog{}
-	clk := clock.NewFake(0, fixedNow.UnixMilli())
-	probed := make(chan int, 4)
-	srv := serve(t, k, up.addr, clk, func(c *Config) {
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
 		c.MaxConns, c.MaxPerSource, c.Log = 4, 1, log
-		c.Probe = func(conns []net.Conn) { probed <- len(conns) }
 	})
 	addr := srv.Addrs()[0]
 	first, err := client(t, addr, k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { check(t, first.Close()) })
 	echo(t, first, "held")
-	// The second's handshake waits on the check, so it is dialled beside the test.
-	type dialed struct {
-		conn *tls.Conn
-		err  error
-	}
-	got := make(chan dialed, 1)
-	go func() {
-		c, derr := client(t, addr, k.ca, nil)
-		got <- dialed{c, derr}
-	}()
-	if n := <-probed; n != 1 {
-		t.Fatalf("the liveness check was given %d connections, want the source's 1", n)
-	}
-	check(t, clk.AwaitDueFrom(t.Context(), ProbeLimit, "(*Server).reclaim"))
-	clk.Advance(ProbeLimit)
-	if second := <-got; second.err == nil {
-		if !closed(t, second.conn) {
+	if second, cerr := client(t, addr, k.ca, nil); cerr == nil {
+		if !closed(t, second) {
 			t.Fatal("a second connection from the same source was served beyond MaxPerSource")
 		}
-		closeClosed(t, second.conn)
+		closeClosed(t, second)
 	}
 	other, err := clientFrom(t, addr, "127.0.0.2", k.ca)
 	check(t, err)
@@ -138,17 +119,47 @@ func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 	}
 }
 
+// T9 (b5-fix-review item 1): a source at its cap that floods the terminator holds no slot with the
+// connections it is refused, so with every slot but its own share free, another source is still
+// served while the flood goes on.
+func TestT9AFloodAtTheCapHoldsNoSlot(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
+		c.MaxConns, c.MaxPerSource = 2, 1
+	})
+	addr := srv.Addrs()[0]
+	const flooder = "127.0.0.3"
+	held, err := clientFrom(t, addr, flooder, k.ca)
+	check(t, err)
+	t.Cleanup(func() { check(t, held.Close()) })
+	echo(t, held, "held")
+	const flood = 8
+	var wg sync.WaitGroup
+	for range flood {
+		wg.Go(func() {
+			if c, cerr := clientFrom(t, addr, flooder, k.ca); cerr == nil {
+				if !closed(t, c) {
+					t.Error("a connection past the source's cap was served")
+				}
+				closeClosed(t, c)
+			}
+		})
+	}
+	other, err := client(t, addr, k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, other.Close()) })
+	echo(t, other, "another source, during the flood")
+	wg.Wait()
+}
+
 // T9 at the defaults (the coordinator's ruling on the B.5 fixes): with nothing configured, one
 // source holds DefaultMaxPerSource connections and no more, and those leave slots for another
 // source, which is still served.
 func TestT9AtTheDefaultsOneSourceLeavesSlotsForOthers(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
-	clk := clock.NewFake(0, fixedNow.UnixMilli())
-	probed := make(chan int, 1)
-	srv := serve(t, k, up.addr, clk, func(c *Config) {
-		c.Probe = func(conns []net.Conn) { probed <- len(conns) }
-	})
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
 	if srv.cfg.maxPerSource() >= srv.cfg.maxConns() {
 		t.Fatalf("by default one source holds %d of %d slots: all of them", srv.cfg.maxPerSource(), srv.cfg.maxConns())
 	}
@@ -159,25 +170,11 @@ func TestT9AtTheDefaultsOneSourceLeavesSlotsForOthers(t *testing.T) {
 		t.Cleanup(func() { check(t, c.Close()) })
 		echo(t, c, "held "+strconv.Itoa(i))
 	}
-	type dialed struct {
-		conn *tls.Conn
-		err  error
-	}
-	got := make(chan dialed, 1)
-	go func() {
-		c, derr := client(t, addr, k.ca, nil)
-		got <- dialed{c, derr}
-	}()
-	if n := <-probed; n != DefaultMaxPerSource {
-		t.Fatalf("the liveness check was given %d connections, want the source's %d", n, DefaultMaxPerSource)
-	}
-	check(t, clk.AwaitDueFrom(t.Context(), ProbeLimit, "(*Server).reclaim"))
-	clk.Advance(ProbeLimit)
-	if over := <-got; over.err == nil {
-		if !closed(t, over.conn) {
+	if over, err := client(t, addr, k.ca, nil); err == nil {
+		if !closed(t, over) {
 			t.Fatal("a connection past the default per-source cap was served")
 		}
-		closeClosed(t, over.conn)
+		closeClosed(t, over)
 	}
 	other, err := clientFrom(t, addr, "127.0.0.2", k.ca)
 	check(t, err)
@@ -185,35 +182,22 @@ func TestT9AtTheDefaultsOneSourceLeavesSlotsForOthers(t *testing.T) {
 	echo(t, other, "another source")
 }
 
-// T9a (Plan 00257 B.5 review): several seats behind one address (a NAT) reconnect after their
-// host was suspended. Their old connections are dead but not yet timed out; the liveness check
-// finds them dead, they are reclaimed, and every new connection is admitted.
-func TestT9aSeatsBehindOneAddressReconnectAfterASuspend(t *testing.T) {
+// T9a (Plan 00257 B.5, the suspend ride-out): several seats behind one address (a NAT) reconnect
+// after their host was suspended. Their old connections are dead but still held, since nothing
+// has told the terminator; at the default cap the source is far under it, so every new
+// connection is admitted at once and served beside the dead ones.
+func TestT9aSeatsBehindOneAddressRideOutASuspend(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
-	const seats = 3
-	var once sync.Once
-	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
-		c.MaxPerSource = seats
-		// The suspended host answers no probe: the first check finds every connection it is
-		// given dead, and closes each, as a failed keepalive does.
-		c.Probe = func(conns []net.Conn) {
-			once.Do(func() {
-				for _, conn := range conns {
-					if err := conn.Close(); err != nil {
-						t.Errorf("closing a dead connection: %v", err)
-					}
-				}
-			})
-		}
-	})
+	const seats = 8
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
 	addr := srv.Addrs()[0]
-	old := make([]net.Conn, 0, seats)
 	for i := range seats {
 		c, err := client(t, addr, k.ca, nil)
 		check(t, err)
+		// The old connection is dead: its host sends nothing more and never closes it.
+		t.Cleanup(func() { check(t, c.Close()) })
 		echo(t, c, "before the suspend "+strconv.Itoa(i))
-		old = append(old, c)
 	}
 	for i := range seats {
 		c, err := client(t, addr, k.ca, nil)
@@ -221,43 +205,52 @@ func TestT9aSeatsBehindOneAddressReconnectAfterASuspend(t *testing.T) {
 		t.Cleanup(func() { check(t, c.Close()) })
 		echo(t, c, "after the resume "+strconv.Itoa(i))
 	}
-	for _, c := range old {
-		if !closed(t, c) {
-			t.Fatal("a dead connection was not reclaimed")
+	if got := held(srv, netip.MustParseAddr("127.0.0.1")); got != 2*seats {
+		t.Fatalf("the source holds %d connections, want the dead and the new, %d", got, 2*seats)
+	}
+}
+
+// T9a: a source at its cap is refused at once, with no wait and no clock moved; once its dead
+// connection has moved no byte for IdleLimit it is closed (T8), and the same source is admitted
+// again. (One connection at the cap, so its idle timer is the one due at IdleLimit.)
+func TestT9aASourceAtItsCapIsAdmittedAgainAtIdleLimit(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	srv := serve(t, k, up.addr, clk, func(c *Config) { c.MaxPerSource = 1 })
+	addr := srv.Addrs()[0]
+	dead, err := client(t, addr, k.ca, nil)
+	check(t, err)
+	echo(t, dead, "before the suspend")
+	<-up.accepted
+	if over, cerr := client(t, addr, k.ca, nil); cerr == nil {
+		if !closed(t, over) {
+			t.Fatal("a connection past the source's cap was served")
 		}
-		closeClosed(t, c)
+		closeClosed(t, over)
 	}
+	check(t, clk.AwaitDueFrom(t.Context(), IdleLimit, "(*idleTimer).touch"))
+	clk.Advance(IdleLimit)
+	if !awaitClose(t, dead, clk) {
+		t.Fatal("a dead connection idle for IdleLimit was left open")
+	}
+	closeClosed(t, dead)
+	leakcheck.Poll(t, func() bool { return held(srv, netip.MustParseAddr("127.0.0.1")) == 0 })
+	again, err := client(t, addr, k.ca, nil)
+	check(t, err)
+	t.Cleanup(func() { check(t, again.Close()) })
+	echo(t, again, "after the resume")
 }
 
-// T9a: the production liveness check is a short keepalive, which fails a dead connection
-// within ProbeLimit; the check leaves a live connection serving, its keepalive given back.
-func TestT9aTheLivenessCheckIsAShortKeepalive(t *testing.T) {
-	failsAfter := probeKeepAlive.Idle + probeKeepAlive.Interval*time.Duration(probeKeepAlive.Count)
-	if failsAfter >= ProbeLimit {
-		t.Fatalf("a dead connection fails after %v of probes, not within ProbeLimit %v", failsAfter, ProbeLimit)
-	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	check(t, err)
-	t.Cleanup(func() { check(t, ln.Close()) })
-	testconn.Bound(t, ln)
-	dialed, err := net.Dial("tcp", ln.Addr().String())
-	check(t, err)
-	t.Cleanup(func() { check(t, dialed.Close()) })
-	accepted, err := ln.Accept()
-	check(t, err)
-	t.Cleanup(func() { check(t, accepted.Close()) })
-	s := &Server{cfg: Config{Clock: clock.NewFake(0, 0)}}
-	s.keepaliveProbe([]net.Conn{accepted})
-	s.restoreKeepalive([]net.Conn{accepted})
-	got := make([]byte, 1)
-	_, err = dialed.Write([]byte("x"))
-	check(t, err)
-	testconn.Bound(t, accepted)
-	_, err = io.ReadFull(accepted, got)
-	check(t, err)
+// held is how many connections src holds at the terminator.
+func held(s *Server, src netip.Addr) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.perSource[src]
 }
 
-// T9: the slots full is a refusal logged too, never a silent close.
+// T9: the slots full is a refusal logged too, never a silent close; the second connection is
+// from another source, under its own share, so it is the slots that refuse it.
 func TestT9FullSlotsAreLogged(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
@@ -267,7 +260,7 @@ func TestT9FullSlotsAreLogged(t *testing.T) {
 	check(t, err)
 	t.Cleanup(func() { check(t, first.Close()) })
 	echo(t, first, "held")
-	if second, cerr := client(t, srv.Addrs()[0], k.ca, nil); cerr == nil {
+	if second, cerr := clientFrom(t, srv.Addrs()[0], "127.0.0.2", k.ca); cerr == nil {
 		closed(t, second)
 		closeClosed(t, second)
 	}

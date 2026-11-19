@@ -132,12 +132,13 @@ install are listed last, under "Owner questions".
   (1 to 256, default `tlsterm.DefaultMaxPerSource`, 256, a quarter of the slots;
   `teamchat tls --per-source`), so one client, which needs no credential to finish a
   handshake, never holds every slot, by default or at any declared value, and each refusal is logged, the first of each minute at
-  once and the count of the rest at its end (Plan 00257 SEC-4). A source at its cap has its
-  held connections checked for life first (Plan 00257 B.5 review): a short TCP keepalive (1 s
-  idle, two probes 1 s apart) fails a connection a suspended or vanished host left behind, its
-  relay ends and frees its share, and the new connection waits for a share at most
-  `tlsterm.ProbeLimit` (4 s) before it is refused. Connections that all answer keep their shares
-  and get their usual keepalive back. The terminator relays the Matrix API only (Plan 00257 SEC-5): it reads
+  once and the count of the rest at its end (Plan 00257 SEC-4). The source's share is checked
+  before a slot is taken, and a connection over either bound is closed at once, unserved: no
+  connection waits. A connection a suspended or vanished member host left behind is dead but
+  held until `tlsterm.IdleLimit` (2 minutes) closes it, which frees its share; a seat that
+  reconnects meanwhile is admitted beside it while its source is under its cap, and otherwise
+  is refused and its link backs off and retries (Plan 00257 B.5, the suspend ride-out). The
+  terminator relays the Matrix API only (Plan 00257 SEC-5): it reads
   each HTTP/1.1 request's line and headers before a byte of it goes on, relays a target under
   `/_matrix/` or `/.well-known/matrix/` with no dot segment, finds each body by its own framing
   (one length or chunked; anything two readers could read two ways is refused), and answers any

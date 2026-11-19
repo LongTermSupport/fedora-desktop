@@ -78,10 +78,11 @@ anything but loopback.
   within 10 seconds of its handshake is closed. It holds at most 1024 connections, and one
   source address at most the team's `connections_per_source` (1 to 256, default 256), so by
   default no one address holds every slot: set it lower to leave more for other addresses, but
-  above what the members behind one address (a NAT, a VPN that masquerades) need. When a source is at its cap, its connections
-  are checked for life first (a short TCP keepalive probe), so those a suspended or vanished
-  member host left behind are reclaimed and its reconnecting seats are let in; a source whose
-  connections all answer is refused, and each refusal is logged. The leaf and its key reach it as systemd
+  above what the members behind one address (a NAT, a VPN that masquerades) need. A connection
+  over either bound is refused at once, and each refusal is logged. Connections a suspended or
+  vanished member host left behind stay held until they have moved no byte for 2 minutes, and
+  are then closed; a seat that reconnects meanwhile is let in while its address is under its
+  cap, and otherwise its link backs off and retries until those dead connections are freed. The leaf and its key reach it as systemd
   credentials, it has its own dynamic uid, and it never holds the CA key. `team apply` starts it
   once the homeserver is ready and checks that it listens on exactly the listen addresses.
 - A stopped terminator cuts every member off while the homeserver still answers on loopback, so

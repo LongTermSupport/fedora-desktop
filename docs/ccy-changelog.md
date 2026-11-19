@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.30 — container 2.84.36
+
+- **The TLS terminator refuses a connection over its bounds at once**: the liveness check that
+  made a source at its cap wait for its dead connections is gone. Dead connections are freed by
+  the 2-minute idle limit while a member's link backs off and reconnects.
+
 ## 3.122.29 — container 2.84.35
 
 - **The TLS terminator holds up to 1024 connections**, and one source address at most 256 of

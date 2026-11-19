@@ -98,7 +98,10 @@ Related plans:
 - [ ] ⬜ **Task B.2a**: clocks and deadlines across a suspend; time sync on the bus host.
 - [ ] ⬜ **Task B.2b**: delivery across an outage: catch-up, the outbox policy, failed takes.
 - [ ] ⬜ **Task B.2c**: the suspend and outage proof: a real-Tuwunel gate and an end-to-end test
-  that freezes the homeserver and cuts the network.
+  that freezes the homeserver and cuts the network. It also suspends a member's host (a VM in
+  the lab) behind the TLS terminator and resumes it: every seat on it reconnects through the
+  terminator while its old connections are still held there (dead, until the 2-minute idle
+  limit), with no lost or duplicated message.
 - [ ] ⬜ **Task B.2d**: a team's listen address moves while the bus host is suspended (HOST-4,
   `reports/audit-host.md`). Nothing in the host layer handles suspend and resume: if the bus
   host comes back with another address on the serving interface (a DHCP lease, a re-made VPN
@@ -119,9 +122,14 @@ Related plans:
 - [x] ✅ **Task B.5**: host units and the TLS terminator (`subagent-reports/b5-report.md`); the
   review's fixes in `subagent-reports/b5-fix-report.md`. HOST-4 is Task B.2d. Coordinator
   ruling (under the owner's "all weaknesses resolved"): the terminator's per-source connection
-  cap is a per-team setting, `connections_per_source` (default 256), and a source at its cap
-  has its dead connections reclaimed by a liveness check before a new one is refused. The
-  second review (`subagent-reports/b5-fix-review.md` item 5) found the default per-source cap
+  cap is a per-team setting, `connections_per_source` (default 256). Its earlier ruling that a
+  source at its cap has its dead connections reclaimed by a liveness check was withdrawn by the
+  coordinator after the second review: with 1024 slots the cap binds only at 256 connections
+  from one address, a ride-out at most briefly doubles a NAT's seats' connections, the
+  keepalive probe cannot see a connection with unacknowledged data (a `/sync` answered after the
+  suspend), and the reclaim raced twice. Over its cap a connection is refused at once; dead
+  connections are freed by the 2-minute idle limit while the member's link backs off and
+  reconnects (journal, `subagent-reports/b5-fix2-report.md`). The second review (`subagent-reports/b5-fix-review.md` item 5) found the default per-source cap
   equal to every slot, so SEC-4 was off by default; the owner-side decision was the
   coordinator's ruling (c): the terminator holds 1024 connections (`DefaultMaxConns`) and one
   source 256 by default (`DefaultMaxPerSource`), so by default no one address holds every slot
