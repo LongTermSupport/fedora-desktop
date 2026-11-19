@@ -187,7 +187,7 @@ func TestLXCApplyARefusalBesideAStoppedTargetIsRefused(t *testing.T) {
 	decl := lxcDecl(t, lxcEntry("box-1", 1), lxcEntry("box-2", 2))
 	boxes := stopped("box-1")
 	boxes.states["box-2"] = lxccmd.Running
-	boxes.cfg["box-2"] = map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0", "lxc.start.auto": "1"}
+	boxes.cfg["box-2"] = map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0"}
 	sys := w.lxcSys(t, decl, boxes)
 	withGuest(t, sys, "[remote \"origin\"]\n\turl = https://example.com/o/thing.git\n[url \"https://example.com/\"]\n\tinsteadOf = https://example.org/\n")
 	out := w.lxcVerb(sys, decl,

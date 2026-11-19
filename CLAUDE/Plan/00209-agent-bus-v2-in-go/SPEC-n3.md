@@ -282,8 +282,9 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   `DEFERRED<TAB>..<TAB>offline: container stopped during the apply` (`SKIPPED` with a recorded
   handle, LX2; section 3.1), never the phase's failure (OF1); a
   pid that changed while the container still runs is the same, retried at the next apply.
-- **LX4. The reads** (step 03): the container config (`lxc.idmap` refused, network link,
-  `lxc.start.auto`); for `service: true` the start-auto setting, systemd as init, `tmux` on the
+- **LX4. The reads** (step 03): the container config (`lxc.idmap` refused, network link;
+  `lxc.start.auto` is never read: whether the container starts with the host is its owner's
+  choice, coordinator ruling, Plan 00257); for `service: true` systemd as init, `tmux` on the
   guest `PATH`; `/etc/passwd` (1 MiB; uid and gid nonzero, uid not the desktop user's, name and
   home by their grammars); the checkout's `.git/config` (`origin`, `insteadOf` refused) and
   `.claude/ccy/ccy.env.local` (owned by the uid of one of the agent users whose entries name
@@ -451,7 +452,7 @@ on, and the phase exits 0 for them. It is an error only for a seat the operator 
 other error the other decides the exit (n3b-D3). `--only-teams` targets teams, never seats.
 
 What is not offline stays a failure of that seat alone (70 for a refused fact): a running
-container's wrong facts (`lxc.idmap`, `lxc.start.auto`, systemd not init, no `tmux`, a uid of 0 or
+container's wrong facts (`lxc.idmap`, systemd not init, no `tmux`, a uid of 0 or
 a host uid, `insteadOf`, a changed origin, the source address, the guest check's other codes), and
 the host's own faults (an unapproved entry, an unreadable record, `lxc-ls` or `lxc-info` failing).
 

@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
@@ -339,10 +340,30 @@ func tmuxOnlyAt(content string) func(t *testing.T, b *box) {
 	}
 }
 
+// Whether a container starts with the host is its owner's choice (coordinator ruling, Plan
+// 00257): a service seat in a container that does not is placed like any other, and the apply
+// neither asks the setting nor changes it.
+func TestAContainerThatDoesNotStartAtBootTakesAServiceSeat(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.lxc.boxes["c1"].cfg["lxc.start.auto"] = "0"
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc restart --member starts it"))
+	if slices.Contains(guestfacts.ConfigKeys, "lxc.start.auto") {
+		t.Fatalf("the apply reads lxc.start.auto: %v", guestfacts.ConfigKeys)
+	}
+	if got := w.lxc.boxes["c1"].cfg["lxc.start.auto"]; got != "0" {
+		t.Fatalf("lxc.start.auto is %q after the apply", got)
+	}
+}
+
 func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 	for _, tc := range []refusedFact{
 		{"idmap", func(_ *testing.T, b *box) { b.cfg["lxc.idmap"] = "u 0 100000 65536" }},
-		{"start.auto", func(_ *testing.T, b *box) { b.cfg["lxc.start.auto"] = "0" }},
 		{"init not systemd", func(_ *testing.T, b *box) { b.exe = &guestroot.Info{Dev: 1, Ino: 1} }},
 		{"tmux only through a link", tmuxOnlyAt("->/usr/bin/tmux")},
 		{"tmux only where the unit does not run it", tmuxOnlyAt("tmux")},

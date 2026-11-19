@@ -587,7 +587,7 @@ func (w *world) addBox(name string) *box {
 	b := &box{
 		state: lxccmd.Running, dir: newGuest(w.t),
 		addrs: []netip.Addr{netip.MustParseAddr(agentAddr)},
-		cfg:   map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0", "lxc.start.auto": "1"},
+		cfg:   map[string]string{"lxc.idmap": "", "lxc.net.0.link": "lxcbr0"},
 		owned: map[string]uint32{},
 	}
 	w.lxc.boxes[name] = b

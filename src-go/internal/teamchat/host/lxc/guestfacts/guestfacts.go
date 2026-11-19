@@ -212,18 +212,16 @@ func GroupName(data []byte, gid int) (string, error) {
 
 // The container settings the apply reads (n3-D22), the keys lxccmd.Config is asked for.
 const (
-	KeyIdmap     = "lxc.idmap"
-	KeyLink      = "lxc.net.0.link"
-	KeyStartAuto = "lxc.start.auto"
+	KeyIdmap = "lxc.idmap"
+	KeyLink  = "lxc.net.0.link"
 )
 
 // ConfigKeys are the keys ParseConfig takes, each exactly once.
-var ConfigKeys = []string{KeyIdmap, KeyLink, KeyStartAuto}
+var ConfigKeys = []string{KeyIdmap, KeyLink}
 
 // Config is the container settings the apply reads (n3-D22): the map is lxccmd.Config's.
 type Config struct {
-	Link      string
-	StartAuto bool
+	Link string
 }
 
 var ifname = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
@@ -250,15 +248,7 @@ func ParseConfig(kv map[string]string) (Config, error) {
 	if !ifname.MatchString(kv[KeyLink]) {
 		return Config{}, refuse(containerConfig, "%s is not an interface name", KeyLink)
 	}
-	var auto bool
-	switch kv[KeyStartAuto] {
-	case "1":
-		auto = true
-	case "0", "":
-	default:
-		return Config{}, refuse(containerConfig, "%s is not 0 or 1", KeyStartAuto)
-	}
-	return Config{Link: kv[KeyLink], StartAuto: auto}, nil
+	return Config{Link: kv[KeyLink]}, nil
 }
 
 const guestSource = "the guest's address"

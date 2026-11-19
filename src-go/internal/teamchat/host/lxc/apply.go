@@ -952,12 +952,10 @@ func (r *run) heldHandles(team paths.TeamID) map[string]lxcstate.Entry {
 	return holder
 }
 
-// service is the facts a session unit needs (SU1): start.auto, systemd as init (n3-D17), tmux
-// where the unit runs it, and the unit's group.
+// service is the facts a session unit needs (SU1): systemd as init (n3-D17), tmux where the
+// unit runs it, and the unit's group. Whether the container starts with the host is its owner's
+// choice, never asked (coordinator ruling, Plan 00257).
 func (r *run) service(g *guestBox, m *member) error {
-	if !g.cfg.StartAuto {
-		return fmt.Errorf("%w: %s is not 1; the container's own play owns its config", guestfacts.ErrRefused, guestfacts.KeyStartAuto)
-	}
 	root := g.rootOf(m)
 	exe, err := root.InitExe()
 	if err != nil {

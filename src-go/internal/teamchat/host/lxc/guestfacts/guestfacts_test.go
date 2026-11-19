@@ -3,6 +3,7 @@ package guestfacts
 import (
 	"errors"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 
@@ -313,31 +314,24 @@ func TestPasswdNoAccountIsItsOwnRefusal(t *testing.T) {
 }
 
 func TestParseConfig(t *testing.T) {
-	kv := map[string]string{KeyIdmap: "", KeyLink: "lxcbr0", KeyStartAuto: "1"}
-	c, err := ParseConfig(kv)
-	if err != nil || c != (Config{Link: "lxcbr0", StartAuto: true}) {
+	c, err := ParseConfig(map[string]string{KeyIdmap: "", KeyLink: "lxcbr0"})
+	if err != nil || c != (Config{Link: "lxcbr0"}) {
 		t.Fatalf("config %+v, %v", c, err)
 	}
-	for _, auto := range []string{"0", ""} {
-		kv[KeyStartAuto] = auto
-		if c, err := ParseConfig(kv); err != nil || c.StartAuto {
-			t.Errorf("start.auto %q: %+v, %v", auto, c, err)
-		}
-	}
-	if len(ConfigKeys) != 3 {
+	// The container's boot setting is its owner's choice, never read (Plan 00257).
+	if !slices.Equal(ConfigKeys, []string{KeyIdmap, KeyLink}) {
 		t.Fatalf("ConfigKeys %v", ConfigKeys)
 	}
 	for name, c := range map[string]struct {
 		kv   map[string]string
 		want string
 	}{
-		"idmap":       {map[string]string{KeyIdmap: "u 0 100000 65536", KeyLink: "br0", KeyStartAuto: "1"}, KeyIdmap},
-		"no link":     {map[string]string{KeyIdmap: "", KeyLink: "", KeyStartAuto: "1"}, KeyLink},
-		"bad link":    {map[string]string{KeyIdmap: "", KeyLink: "a/b", KeyStartAuto: "1"}, KeyLink},
-		"long link":   {map[string]string{KeyIdmap: "", KeyLink: strings.Repeat("a", 16), KeyStartAuto: "1"}, KeyLink},
-		"bad auto":    {map[string]string{KeyIdmap: "", KeyLink: "br0", KeyStartAuto: "yes"}, KeyStartAuto},
-		"missing key": {map[string]string{KeyLink: "br0", KeyStartAuto: "1"}, KeyIdmap},
-		"extra key":   {map[string]string{KeyIdmap: "", KeyLink: "br0", KeyStartAuto: "1", "lxc.other": ""}, "lxc.other"},
+		"idmap":       {map[string]string{KeyIdmap: "u 0 100000 65536", KeyLink: "br0"}, KeyIdmap},
+		"no link":     {map[string]string{KeyIdmap: "", KeyLink: ""}, KeyLink},
+		"bad link":    {map[string]string{KeyIdmap: "", KeyLink: "a/b"}, KeyLink},
+		"long link":   {map[string]string{KeyIdmap: "", KeyLink: strings.Repeat("a", 16)}, KeyLink},
+		"missing key": {map[string]string{KeyLink: "br0"}, KeyIdmap},
+		"start.auto":  {map[string]string{KeyIdmap: "", KeyLink: "br0", "lxc.start.auto": "1"}, "lxc.start.auto"},
 	} {
 		_, err := ParseConfig(c.kv)
 		refused(t, name, err, c.want)

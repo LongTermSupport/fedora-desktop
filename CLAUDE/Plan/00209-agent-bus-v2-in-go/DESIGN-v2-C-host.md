@@ -1910,10 +1910,10 @@ any group but the agent user's own, and refuses to run as uid 0.
     missing, its line saying `container missing` (3.9.3). Neither fails the phase, under any
     `--only-teams` scope: the other entries are applied as if alone.
 03. For each running container, read from the host side and change nothing yet:
-    - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
-      unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
-    - for an entry with `service: true`, v1's pre-checks, all host-side: the config has
-      `lxc.start.auto = 1` (so the supervised session comes back with the host), the guest's init
+    - the container config (a host file, root-owned): network link; an unprivileged
+      (`lxc.idmap`) container is refused by name, as v1 does. `lxc.start.auto` is not read:
+      whether the container starts with the host is its owner's choice (Plan 00257);
+    - for an entry with `service: true`, v1's pre-checks, all host-side: the guest's init
       is systemd (the host's `/proc/<init pid>/exe`, opened `O_PATH`, has the device and inode of
       the guest's `/usr/lib/systemd/systemd` opened as below, so no magic link inside the guest is
       resolved), and `tmux` is in the guest's
@@ -3042,9 +3042,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 6. D's migration declares coordinators like any other, before or after their members exist
    (3.6.4).
 7. D names the play that owns an LXC container's config (the repository's LXC container play,
-   or none). The `service: true` pre-check (3.9.2 step 3) names `lxc.start.auto = 1` and that
-   play's variable for it; if no play owns the container's config, D says so and the message
-   names the setting only, as v1 did. v2 never edits a container config itself.
+   or none). v2 never edits a container config itself, and no `service: true` pre-check reads
+   `lxc.start.auto` (Plan 00257: the container's boot setting is its owner's choice).
 
 ## 8. Host checks
 

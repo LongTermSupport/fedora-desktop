@@ -160,8 +160,9 @@ Notes on the table:
    `Restart=no`. Start it from ccy-teams: Enter on the member's row, then **Start its session
    in its LXC container**. It then runs until it ends or is stopped. A unit an earlier play
    enabled is disabled and stopped by the next run. The play refuses the entry, before
-   changing anything, unless the container starts at host boot (`lxc.start.auto = 1` in its
-   config), runs systemd as its init and has tmux. To watch or type into the session:
+   changing anything, unless the container runs systemd as its init and has tmux. Whether the
+   container starts with the host is up to its owner: membership neither needs nor changes
+   `lxc.start.auto`. To watch or type into the session:
    `sudo lxc-attach -n <container> -- runuser -u <agent-user> -- tmux -L agent-bus-claude attach`.
    Leave it out for a member someone starts by hand; turning it off, or the user leaving its
    last team, stops and removes the unit.
@@ -419,8 +420,8 @@ teamchat_lxc_members:
 - **The container**: privileged (an `lxc.idmap` is refused), on the host bridge, its address
   inside the bridge's subnet. The checkout's `.git/config` gives the handle (an `insteadOf`
   rewrite is refused); `.claude/ccy/ccy.env.local`, if present, must be the agent user's. A
-  `service: true` seat also needs `lxc.start.auto = 1`, systemd as the guest's init and `tmux`
-  on the guest's `PATH`. The container's own configuration stays with the play that makes it.
+  `service: true` seat also needs systemd as the guest's init and `tmux` on the guest's `PATH`;
+  `lxc.start.auto` is the container owner's choice, never read or changed. The container's own configuration stays with the play that makes it.
 - **A stopped or missing container fails nothing.** Its seats print `SKIPPED` or `DEFERRED` lines
   and are placed by the next run that finds the container running; so is a seat whose guest check
   finds `gh` not logged in. The play shows these held-back lines in a task of their own. A running

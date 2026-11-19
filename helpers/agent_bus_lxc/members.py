@@ -27,9 +27,10 @@ missing one stops the run with the command for each (gh_login_refusal):
      agent user in its checkout under tmux (socket `agent-bus-claude`, so a person can attach).
      It runs only on demand, from the member's row in ccy-teams (owner, Plan 00257): it has
      no [Install] section and Restart=no, this play never enables or starts it, and one an
-     earlier play enabled is disabled and stopped. It needs the container to start at host boot
-     (`lxc.start.auto = 1`), systemd as its init and tmux installed, each checked before any
-     change. Without it, or once the user is in no team, the unit is stopped and removed.
+     earlier play enabled is disabled and stopped. It needs systemd as the container's init and
+     tmux installed, each checked before any change; whether the container starts with the host
+     is its owner's choice, which this play neither needs nor changes. Without it, or once the
+     user is in no team, the unit is stopped and removed.
 
 The handle `<repo>.<seat>+<host>.lxc` is derived from the repository as ccy derives a podman
 seat's (derive.py): `<host>` and `<seat>` are overrides an entry may carry, and are otherwise
@@ -1002,8 +1003,6 @@ class Host:
     #: `derive.ROOT_READ_PY probe` for (container, user, checkout) as root, from the host's
     #: side: what it printed. A failure raises MemberError.
     read_checkout: Callable[[str, str, str], str]
-    #: Whether lxc-autostart starts the container at host boot (`lxc.start.auto = 1`).
-    autostarts: Callable[[str], bool]
     #: The team's member record (L8), parsed, or None when there is none.
     read_record: Callable[[str], Mapping | None]
     #: The team's member record written (None: removed); whether that changed anything.
@@ -1215,11 +1214,8 @@ def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable
 
 
 def _check_service(host: Host, guest, container: str) -> str:
-    """Step 7's requirements, before any change: the container starts at host boot, runs
-    systemd and has tmux. Returns tmux's path in the container."""
-    if not host.autostarts(container):
-        raise MemberError(f"LXC container {container} does not start at host boot, which service: true "
-                          "requires of it: set lxc.start.auto = 1 in its config, then run the play again")
+    """Step 7's requirements, before any change: the container runs systemd and has tmux.
+    Returns tmux's path in the container."""
     out = guest.root(["sh", "-c", SERVICE_NEEDS_SH],
                      f"LXC container {container}: service: true needs systemd as the container's init "
                      "and tmux installed in it (install tmux there); the check")
@@ -1629,17 +1625,6 @@ def _container_state(name: str) -> str | None:
     return out.decode().strip()
 
 
-def _autostarts(name: str) -> bool:
-    """`lxc-info -c lxc.start.auto`: `lxc.start.auto = 1` when lxc-autostart starts it at boot."""
-    code, out, err = _run(["lxc-info", "-n", name, "-c", "lxc.start.auto"])
-    if code != 0:
-        raise _failed(f"lxc-info -n {name} -c lxc.start.auto", code, err)
-    _key, sep, value = out.decode().partition("=")
-    if not sep:
-        raise MemberError(f"lxc-info -n {name} -c lxc.start.auto printed {out.decode().strip()!r}")
-    return value.strip() == "1"
-
-
 def _agent_bus(argv: Sequence[str]) -> bytes:
     code, out, err = _run([WRAPPER, *argv])
     if code != 0:
@@ -1730,7 +1715,7 @@ def real_host() -> Host:
                 is_bridge=lambda dev: pathlib.Path(f"/sys/class/net/{dev}/bridge").is_dir(),
                 team_active=system.team_active, bus_address=system.bus_address, team_file=_team_file,
                 kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest,
-                read_checkout=read_checkout, autostarts=_autostarts,
+                read_checkout=read_checkout,
                 read_record=_read_record, write_record=_write_record, record_teams=_record_teams,
                 now=time.time)
 

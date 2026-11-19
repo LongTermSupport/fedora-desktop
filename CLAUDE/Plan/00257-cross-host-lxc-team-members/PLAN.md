@@ -78,6 +78,10 @@ Related plans:
 - Journal as the work goes.
 - No estate hostnames or IPs in the repository or in upstream issues. Never read vault or
   secret files.
+- Coordinator ruling: whether an LXC container starts with the host (`lxc.start.auto`) is the
+  container owner's choice, declared elsewhere. Team membership never requires it and never
+  changes it, in either generation: `service: true` no longer asks it (v1 `members.py`, v2
+  `lxc apply`).
 - Milestone notes go to the coordinator: audit ready, each pull request merged, done. Anything
   needing the owner goes through the coordinator.
 

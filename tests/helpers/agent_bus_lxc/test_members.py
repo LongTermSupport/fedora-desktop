@@ -309,8 +309,6 @@ class Fixture(unittest.TestCase):
         self.unreadable: str | None = None
         self.remote_config = '[remote "origin"]\n\turl = https://github.com/Example-Org/Proj.git\n'
         self.env_local: str | None = "export HOOKS_DAEMON_HOSTNAME=box\n"
-        #: The containers lxc-autostart starts at boot (lxc.start.auto = 1).
-        self.autostart = {"devbox"}
         #: The member records (L8), by team, as the host keeps them; and the clock.
         self.records: dict[str, dict] = {}
         self.clock = 1_792_000_000.0
@@ -331,7 +329,6 @@ class Fixture(unittest.TestCase):
             kit_tar=lambda: members.kit_tar(self.kit_parent),
             guest=lambda name: self.guest,
             read_checkout=self.read_checkout,
-            autostarts=lambda name: name in self.autostart,
             read_record=lambda team: self.records.get(team),
             write_record=self.write_record,
             record_teams=lambda: sorted(self.records),
@@ -1236,12 +1233,14 @@ class ServiceTest(Fixture):
         self.run_phase("absent", both, teams_present=(TEAM, OTHER_TEAM))
         self.assertTrue(self.unit_file().exists())
 
-    def test_a_container_that_does_not_start_at_boot_is_refused_before_any_change(self) -> None:
-        self.autostart = set()
-        with self.assertRaisesRegex(members.MemberError, "lxc.start.auto = 1"):
-            self.run_phase("present", [entry(service=True)])
-        self.assertEqual(self.bus.calls, [])
-        self.assertFalse(self.unit_file().exists())
+    def test_a_container_that_does_not_start_at_boot_takes_a_session_unit(self) -> None:
+        """Whether a container starts with the host is its owner's choice (coordinator ruling,
+        Plan 00257): membership neither requires nor changes it, and nothing asks it."""
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)",
+                      self.run_phase("present", [entry(service=True)]))
+        self.assertTrue(self.unit_file().exists())
+        self.assertFalse(hasattr(members, "_autostarts"))
+        self.assertNotIn("autostarts", {f.name for f in dataclasses.fields(members.Host)})
 
     def test_systemd_and_tmux_are_required_before_any_change(self) -> None:
         for attr, value, words in (("systemd", False, "systemd"), ("tmux", None, "tmux")):
@@ -1253,7 +1252,6 @@ class ServiceTest(Fixture):
                 setattr(self.guest, attr, True if attr == "systemd" else "/usr/bin/tmux")
 
     def test_an_entry_without_service_asks_nothing_of_the_container(self) -> None:
-        self.autostart = set()
         self.guest.tmux = None
         self.run_phase("present", [entry()])
         self.assertEqual([call[0] for call in self.guest.systemctl], ["show"])
@@ -1989,17 +1987,6 @@ class LxcGuestTest(unittest.TestCase):
     def test_root(self) -> None:
         self.guest.root(["getent", "group", "x"], "what")
         self.assertEqual(self.calls, [(self.PREFIX + ["getent", "group", "x"], b"")])
-
-    def test_autostart_is_read_from_the_containers_config(self) -> None:
-        for printed, starts in ((b"lxc.start.auto = 1\n", True), (b"lxc.start.auto = 0\n", False),
-                                (b"lxc.start.auto =\n", False)):
-            with self.subTest(printed=printed):
-                self.answer = (0, printed, b"")
-                self.assertIs(members._autostarts("devbox"), starts)
-        self.assertEqual(self.calls[0][0], ["lxc-info", "-n", "devbox", "-c", "lxc.start.auto"])
-        self.answer = (1, b"", b"no such container")
-        with self.assertRaisesRegex(members.MemberError, "no such container"):
-            members._autostarts("devbox")
 
     def test_agent_runs_as_the_user_in_its_directory(self) -> None:
         self.guest.agent("agent", "/home/<user>", CHECKOUT, ["python3", "-I", "-c", "S", "a"], "what",
