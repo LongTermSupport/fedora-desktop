@@ -113,11 +113,26 @@ func TestADMIN1ASquatterIsRefused(t *testing.T) {
 		{"the unit is not running", func(p procTree) { p.socket(hsAddr, clientAddr, "61200") }},
 		{"the uid of another team's unit", func(p procTree) {
 			p.socket(hsAddr, clientAddr, "61300")
-			p.process("9", strings.Replace(unitCgroup, "@alpha", "@beta", 1), "61300")
+			p.process("9", serverCgroup(mustTeamID("beta")), "61300")
 		}},
 		{"a process outside the unit", func(p procTree) {
 			p.socket(hsAddr, clientAddr, "61200")
 			p.process("7", "/user.slice/x.scope", "61200")
+		}},
+		// A local user's own unit of the same name, in the subtree its user manager owns: the
+		// socket and the process are both that user's.
+		{"a user unit of the same name", func(p procTree) {
+			p.socket(hsAddr, clientAddr, "1000")
+			p.process("7", "/user.slice/user-1000.slice/user@1000.service/app.slice/"+paths.ServerUnit(mustTeamID("alpha")), "1000")
+		}},
+		{"a cgroup under the unit's own", func(p procTree) {
+			p.socket(hsAddr, clientAddr, "1000")
+			p.process("7", unitCgroup+"/payload", "1000")
+		}},
+		{"the unit's path in a cgroup v1 line", func(p procTree) {
+			p.socket(hsAddr, clientAddr, "1000")
+			p.write("7/cgroup", "1:name=systemd:"+unitCgroup+"\n0::/user.slice/user-1000.slice/session-3.scope\n")
+			p.write("7/status", "Name:\tx\nUid:\t1000\t1000\t1000\t1000\n")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -128,6 +143,14 @@ func TestADMIN1ASquatterIsRefused(t *testing.T) {
 				t.Errorf("got %v", err)
 			}
 		})
+	}
+}
+
+// The unit's cgroup is the one systemd gives a template's instance: the template's prefix escaped
+// as a unit name (a "-" is \x2d) in its own slice under system.slice.
+func TestADMIN1TheUnitsCgroupIsSystemdsPath(t *testing.T) {
+	if got := serverCgroup(mustTeamID("alpha")); got != unitCgroup {
+		t.Errorf("got %s, want %s", got, unitCgroup)
 	}
 }
 

@@ -24,9 +24,10 @@ import (
 // HTTP on loopback, where any local process may hold the team's port while the homeserver is
 // down (Plan 00257 ADMIN-1). Before a byte is sent on a connection, the child holds the other end
 // to the team's own homeserver: the kernel's table of the child's network names the socket that
-// accepted the connection and the uid that owns it, which must be the uid a process of the
-// team's unit runs as (its DynamicUser=, which no process outside the unit holds). A socket the
-// child cannot judge is refused, so nothing is sent to a listener it could not name.
+// accepted the connection and the uid that owns it, which must be the uid of a process in the
+// system cgroup systemd gives the team's unit, by its exact path (serverCgroup), which only
+// systemd can make. A socket the child cannot judge is refused, so nothing is sent to a
+// listener it could not name.
 
 // PeerCheck holds that conn, which the child opened to the homeserver of team on loopback, is
 // accepted by that homeserver; any error refuses the connection before it carries a byte.
@@ -62,7 +63,7 @@ func (p ProcPeer) Check(ctx context.Context, team paths.TeamID, conn net.Conn) e
 			return err
 		}
 		if found {
-			runs, err := unitRunsAs(p.Proc, unit, uid)
+			runs, err := unitRunsAs(p.Proc, serverCgroup(team), uid)
 			if err != nil {
 				return err
 			}
@@ -136,9 +137,9 @@ func tcpAddr(ap netip.AddrPort) string {
 	return strings.ToUpper(hex.EncodeToString(out[:])) + ":" + fmt.Sprintf("%04X", ap.Port())
 }
 
-// unitRunsAs is whether a process of unit, by its cgroup, runs with effective uid uid. A process
+// unitRunsAs is whether a process in the cgroup unitCgroup runs with effective uid uid. A process
 // that ends while it is read is passed by.
-func unitRunsAs(proc, unit string, uid int) (bool, error) {
+func unitRunsAs(proc, unitCgroup string, uid int) (bool, error) {
 	entries, err := os.ReadDir(proc)
 	if err != nil {
 		return false, err
@@ -148,7 +149,7 @@ func unitRunsAs(proc, unit string, uid int) (bool, error) {
 			continue
 		}
 		dir := proc + "/" + e.Name()
-		inUnit, err := inCgroupOf(dir, unit)
+		inUnit, err := inCgroupOf(dir, unitCgroup)
 		if gone(err) || err == nil && !inUnit {
 			continue
 		}
@@ -176,20 +177,48 @@ func gone(err error) bool {
 
 var errGone = errors.New("the process ended")
 
-// inCgroupOf is whether the process at dir is in unit's own cgroup: a line of its cgroup file
-// whose path ends in the unit's name.
-func inCgroupOf(dir, unit string) (bool, error) {
+// inCgroupOf is whether the process at dir sits in the cgroup want itself: its cgroup v2 line
+// (`0::<path>`) is exactly want. Only systemd, as root, makes cgroups under /system.slice; a
+// unit of the same name a user starts sits under its user@<uid>.service, which a match on the
+// name alone would take for the team's.
+func inCgroupOf(dir, want string) (bool, error) {
 	raw, err := procFile(dir + "/cgroup")
 	if err != nil {
 		return false, err
 	}
 	for line := range strings.SplitSeq(string(raw), "\n") {
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) == 3 && strings.HasSuffix(parts[2], "/"+unit) {
-			return true, nil
+		if path, ok := strings.CutPrefix(line, "0::"); ok {
+			return path == want, nil
 		}
 	}
 	return false, nil
+}
+
+// serverCgroup is the cgroup v2 path systemd gives team's homeserver unit, an instance of the
+// system template teamchat-server@.service: the default slice of a template's instance is
+// system-<template prefix, escaped as a unit name>.slice under system.slice (systemd's
+// unit_set_default_slice, src/core/unit.c; the escaping is systemd-escape's, systemd.unit(5)
+// "String Escaping for Inclusion in Unit Names", so "-" is \x2d). The unit sets no Slice=.
+func serverCgroup(team paths.TeamID) string {
+	unit := paths.ServerUnit(team)
+	prefix := unit[:strings.IndexByte(unit, '@')]
+	return "/system.slice/system-" + unitEscape(prefix) + ".slice/" + unit
+}
+
+// unitEscape escapes s as systemd-escape does a unit name's text: every byte but an ASCII
+// letter, digit, ":", "_" or a "." that does not lead becomes \xNN.
+func unitEscape(s string) string {
+	var b strings.Builder
+	for i := range len(s) {
+		c := s[i]
+		keep := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == ':' || c == '_' || c == '.' && i > 0
+		if keep {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, `\x%02x`, c)
+		}
+	}
+	return b.String()
 }
 
 // effectiveUID is the effective uid of the process at dir, its status file's second Uid.
