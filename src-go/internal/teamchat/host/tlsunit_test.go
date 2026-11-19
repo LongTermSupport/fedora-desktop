@@ -21,7 +21,7 @@ After=sys-subsystem-net-devices-eth0.device
 Wants=sys-subsystem-net-devices-eth0.device
 
 [Service]
-ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10
+ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --per-source 256 --listen 192.0.2.10
 LoadCredential=leaf.crt:/var/lib/teamchat-tls/ops/leaf.crt
 LoadCredential=leaf.key:/var/lib/teamchat-tls/ops/leaf.key
 IPAddressDeny=any
@@ -40,6 +40,27 @@ func TestTheTerminatorsDropInIsGolden(t *testing.T) {
 	}
 }
 
+// The terminator is started with the team's declared per-source cap (Plan 00257 B.5 review), and
+// a changed cap is a changed drop-in, so the next apply restarts the terminator onto it.
+func TestTheTerminatorIsGivenTheTeamsPerSourceCap(t *testing.T) {
+	s := spec(t, input(t, teamDoc()))
+	before, err := render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.team.ConnectionsPerSource = 40
+	r, err := render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if line := lineWith(t, string(r.tlsDropIn), "ExecStart="); !strings.Contains(line, " --per-source 40 ") {
+		t.Errorf("ExecStart: %s", line)
+	}
+	if r.digests.Terminator[digestDropIn] == before.digests.Terminator[digestDropIn] {
+		t.Error("a changed cap left the terminator's digest set as it was")
+	}
+}
+
 // The terminator is given every listen address, in the order they are derived, and holds the
 // CA's key nowhere: only the leaf and its key are credentials.
 func TestTheTerminatorIsGivenEveryListenAddressAndOnlyTheLeaf(t *testing.T) {
@@ -51,7 +72,7 @@ func TestTheTerminatorIsGivenEveryListenAddressAndOnlyTheLeaf(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(r.tlsDropIn)
-	if line := lineWith(t, text, "ExecStart="); line != "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10 --listen 203.0.113.9" {
+	if line := lineWith(t, text, "ExecStart="); line != "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --per-source 256 --listen 192.0.2.10 --listen 203.0.113.9" {
 		t.Errorf("ExecStart: %s", line)
 	}
 	if got := strings.Count(text, "LoadCredential="); got != 2 || strings.Contains(text, "ca.key") || strings.Contains(text, "ca.crt") {

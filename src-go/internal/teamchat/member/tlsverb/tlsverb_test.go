@@ -101,6 +101,32 @@ func deps(f *terminator) Deps {
 
 var listenArgs = []string{"--team", "ops", "--port", "8448", "--listen", "192.0.2.10", "--listen", "192.0.2.11"}
 
+// V6 (Plan 00257 B.5 review): the terminator is given the team's per-source cap from
+// --per-source, and the terminator's own default, every slot, without it; the declaration's
+// bound and default are the terminator's slots.
+func TestV6TheTerminatorIsGivenThePerSourceCap(t *testing.T) {
+	if tlsterm.DefaultMaxConns != paths.MaxConnectionsPerSource || tlsterm.DefaultMaxPerSource != paths.MaxConnectionsPerSource {
+		t.Fatalf("the declaration's bound %d is not the terminator's slots %d and default %d",
+			paths.MaxConnectionsPerSource, tlsterm.DefaultMaxConns, tlsterm.DefaultMaxPerSource)
+	}
+	for _, c := range []struct {
+		args []string
+		want int
+	}{
+		{append([]string{"--per-source", "40"}, listenArgs...), 40},
+		{listenArgs, 0},
+	} {
+		f := newTerminator()
+		e, stderr := env(good(t))
+		if code := Serve(e, parsed(t, c.args...), deps(f)); code != term.ExitOK {
+			t.Fatalf("%q: exit %d: %s", c.args, code, stderr)
+		}
+		if f.cfg.MaxPerSource != c.want {
+			t.Errorf("%q: MaxPerSource %d, want %d", c.args, f.cfg.MaxPerSource, c.want)
+		}
+	}
+}
+
 // V1: the terminator is given the leaf and its key, every listen address on the team's port,
 // and the homeserver's loopback address on that port as its upstream.
 func TestV1ItServesTheLeafOnEveryListenAddressToTheLoopbackHomeserver(t *testing.T) {

@@ -93,6 +93,12 @@ func validPort(s string) bool {
 	return err == nil && n > 0 && strconv.FormatUint(n, 10) == s
 }
 
+// validPerSource is a terminator's per-source cap: a whole number, 1 to every slot it has.
+func validPerSource(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n >= 1 && n <= paths.MaxConnectionsPerSource && strconv.Itoa(n) == s
+}
+
 // homeserverAddr is the address every team's homeserver binds, which the terminator may not.
 var homeserverAddr = netip.MustParseAddr("127.0.0.1")
 
@@ -115,21 +121,22 @@ var HookEvents = []string{"session-start", "user-prompt-submit", "stop", "sessio
 var historyRooms = []string{"main", roomQuestions}
 
 var (
-	checkTeam   = &checker{validTeam, "--{} takes a team id"}
-	checkUser   = &checker{validUser, "--{} takes a user name"}
-	checkKey    = &checker{validKey, "--{} takes a seat key: 16 lowercase hex"}
-	checkCount  = &checker{validCount, "--{} takes a whole number"}
-	checkPort   = &checker{validPort, "--{} takes a port, 1 to 65535"}
-	checkListen = &checker{validListen, "--{} takes one IP address in canonical form, not a wildcard and not the homeserver's own 127.0.0.1"}
-	checkDir    = &checker{absDir, msgDir}
-	checkList   = &checker{validList, "--{} takes a comma-separated list with no empty item"}
-	checkKind   = &checker{func(s string) bool { return slices.Contains(Kinds, Kind(s)) }, "--{} is one of ccy, lxc, host, other"}
-	checkRoom   = &checker{oneOf(historyRooms...), "--{} is main or questions"}
-	checkAnswer = &checker{proto.IsAnswerVerb, "--{} is one of ack, nack, done, blocked"}
-	checkBranch = &checker{proto.ValidBranch, "--{} takes a branch name"}
-	checkEvent  = &checker{proto.ValidEventID, "<{}> is an event id: $ and 43 characters"}
-	checkQ      = &checker{proto.ValidQuestion, "<{}> is a question as Q<n>, such as Q4"}
-	checkHook   = &checker{oneOf(HookEvents...), "<{}> is one of session-start, user-prompt-submit, stop, session-end"}
+	checkTeam      = &checker{validTeam, "--{} takes a team id"}
+	checkUser      = &checker{validUser, "--{} takes a user name"}
+	checkKey       = &checker{validKey, "--{} takes a seat key: 16 lowercase hex"}
+	checkCount     = &checker{validCount, "--{} takes a whole number"}
+	checkPort      = &checker{validPort, "--{} takes a port, 1 to 65535"}
+	checkPerSource = &checker{validPerSource, "--{} takes a whole number, 1 to 256"}
+	checkListen    = &checker{validListen, "--{} takes one IP address in canonical form, not a wildcard and not the homeserver's own 127.0.0.1"}
+	checkDir       = &checker{absDir, msgDir}
+	checkList      = &checker{validList, "--{} takes a comma-separated list with no empty item"}
+	checkKind      = &checker{func(s string) bool { return slices.Contains(Kinds, Kind(s)) }, "--{} is one of ccy, lxc, host, other"}
+	checkRoom      = &checker{oneOf(historyRooms...), "--{} is main or questions"}
+	checkAnswer    = &checker{proto.IsAnswerVerb, "--{} is one of ack, nack, done, blocked"}
+	checkBranch    = &checker{proto.ValidBranch, "--{} takes a branch name"}
+	checkEvent     = &checker{proto.ValidEventID, "<{}> is an event id: $ and 43 characters"}
+	checkQ         = &checker{proto.ValidQuestion, "<{}> is a question as Q<n>, such as Q4"}
+	checkHook      = &checker{oneOf(HookEvents...), "<{}> is one of session-start, user-prompt-submit, stop, session-end"}
 )
 
 // The verbs' names that the code names.
@@ -195,6 +202,8 @@ var (
 
 	portFlag   = Flag{Name: "port", Value: "N", Required: true, check: checkPort}
 	listenFlag = Flag{Name: "listen", Value: "A", Required: true, Repeat: true, check: checkListen}
+	// perSourceFlag is the team's connections_per_source; without it the terminator's default.
+	perSourceFlag = Flag{Name: "per-source", Value: "N", check: checkPerSource}
 )
 
 // table is B 2.2.1's verbs in its order: the agent verbs, then the lifecycle ones. An agent verb
@@ -253,8 +262,8 @@ var table = []Verb{
 	{Name: "reach", Flags: []Flag{required(teamFlag)}, Does: "an unauthenticated GET of the team homeserver's versions, so a route is proven from the member side"},
 	{
 		Name:  "tls",
-		Flags: []Flag{required(teamFlag), portFlag, listenFlag},
-		Does:  "the team's TLS terminator: accepts TLS on each --listen address at --port and relays to the homeserver on loopback; the unit teamchat-tls@T runs it",
+		Flags: []Flag{required(teamFlag), portFlag, perSourceFlag, listenFlag},
+		Does:  "the team's TLS terminator: accepts TLS on each --listen address at --port and relays the Matrix API to the homeserver on loopback, at most --per-source connections from one address; the unit teamchat-tls@T runs it",
 	},
 	{
 		Name:  "seat disconnected",

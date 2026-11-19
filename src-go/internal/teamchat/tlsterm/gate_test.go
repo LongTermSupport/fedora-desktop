@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -89,25 +90,43 @@ func answered(t *testing.T, c net.Conn) (int, string, bool) {
 }
 
 // T9 (Plan 00257 SEC-4): one source holds at most MaxPerSource connections, so it cannot fill
-// every slot; another source is still served, and the refusal is logged.
+// every slot; another source is still served, and the refusal is logged. The source's held
+// connection answers the liveness check, so the new one is refused once ProbeLimit is up.
 func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 	leakcheck.Check(t)
 	k, up := newKeys(t), newUpstream(t)
 	log := &lockedLog{}
-	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	probed := make(chan int, 4)
+	srv := serve(t, k, up.addr, clk, func(c *Config) {
 		c.MaxConns, c.MaxPerSource, c.Log = 4, 1, log
+		c.Probe = func(conns []net.Conn) { probed <- len(conns) }
 	})
 	addr := srv.Addrs()[0]
 	first, err := client(t, addr, k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { check(t, first.Close()) })
 	echo(t, first, "held")
-	second, err := client(t, addr, k.ca, nil)
-	if err == nil {
-		if !closed(t, second) {
+	// The second's handshake waits on the check, so it is dialled beside the test.
+	type dialed struct {
+		conn *tls.Conn
+		err  error
+	}
+	got := make(chan dialed, 1)
+	go func() {
+		c, derr := client(t, addr, k.ca, nil)
+		got <- dialed{c, derr}
+	}()
+	if n := <-probed; n != 1 {
+		t.Fatalf("the liveness check was given %d connections, want the source's 1", n)
+	}
+	check(t, clk.AwaitDueFrom(t.Context(), ProbeLimit, "(*Server).reclaim"))
+	clk.Advance(ProbeLimit)
+	if second := <-got; second.err == nil {
+		if !closed(t, second.conn) {
 			t.Fatal("a second connection from the same source was served beyond MaxPerSource")
 		}
-		closeClosed(t, second)
+		closeClosed(t, second.conn)
 	}
 	other, err := clientFrom(t, addr, "127.0.0.2", k.ca)
 	check(t, err)
@@ -117,6 +136,78 @@ func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 	if !strings.Contains(log.String(), "1 connections are held from it") {
 		t.Errorf("the refusal's log: %q", log.String())
 	}
+}
+
+// T9a (Plan 00257 B.5 review): several seats behind one address (a NAT) reconnect after their
+// host was suspended. Their old connections are dead but not yet timed out; the liveness check
+// finds them dead, they are reclaimed, and every new connection is admitted.
+func TestT9aSeatsBehindOneAddressReconnectAfterASuspend(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	const seats = 3
+	var once sync.Once
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), func(c *Config) {
+		c.MaxPerSource = seats
+		// The suspended host answers no probe: the first check finds every connection it is
+		// given dead, and closes each, as a failed keepalive does.
+		c.Probe = func(conns []net.Conn) {
+			once.Do(func() {
+				for _, conn := range conns {
+					if err := conn.Close(); err != nil {
+						t.Errorf("closing a dead connection: %v", err)
+					}
+				}
+			})
+		}
+	})
+	addr := srv.Addrs()[0]
+	old := make([]net.Conn, 0, seats)
+	for i := range seats {
+		c, err := client(t, addr, k.ca, nil)
+		check(t, err)
+		echo(t, c, "before the suspend "+strconv.Itoa(i))
+		old = append(old, c)
+	}
+	for i := range seats {
+		c, err := client(t, addr, k.ca, nil)
+		check(t, err)
+		t.Cleanup(func() { check(t, c.Close()) })
+		echo(t, c, "after the resume "+strconv.Itoa(i))
+	}
+	for _, c := range old {
+		if !closed(t, c) {
+			t.Fatal("a dead connection was not reclaimed")
+		}
+		closeClosed(t, c)
+	}
+}
+
+// T9a: the production liveness check is a short keepalive, which fails a dead connection
+// within ProbeLimit; the check leaves a live connection serving, its keepalive given back.
+func TestT9aTheLivenessCheckIsAShortKeepalive(t *testing.T) {
+	failsAfter := probeKeepAlive.Idle + probeKeepAlive.Interval*time.Duration(probeKeepAlive.Count)
+	if failsAfter >= ProbeLimit {
+		t.Fatalf("a dead connection fails after %v of probes, not within ProbeLimit %v", failsAfter, ProbeLimit)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	check(t, err)
+	t.Cleanup(func() { check(t, ln.Close()) })
+	testconn.Bound(t, ln)
+	dialed, err := net.Dial("tcp", ln.Addr().String())
+	check(t, err)
+	t.Cleanup(func() { check(t, dialed.Close()) })
+	accepted, err := ln.Accept()
+	check(t, err)
+	t.Cleanup(func() { check(t, accepted.Close()) })
+	s := &Server{cfg: Config{Clock: clock.NewFake(0, 0)}}
+	s.keepaliveProbe([]net.Conn{accepted})
+	s.restoreKeepalive([]net.Conn{accepted})
+	got := make([]byte, 1)
+	_, err = dialed.Write([]byte("x"))
+	check(t, err)
+	testconn.Bound(t, accepted)
+	_, err = io.ReadFull(accepted, got)
+	check(t, err)
 }
 
 // T9: the slots full is a refusal logged too, never a silent close.
@@ -248,6 +339,57 @@ func TestT10ALaterRequestIsJudgedToo(t *testing.T) {
 	}
 }
 
+// T10: an admin request after one with a body, framed by its length or chunked, is judged at
+// the body's end: none of its bytes reach the homeserver, and the request before it does whole.
+func TestT10AnAdminRequestAfterABodyIsRefused(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
+	for _, allowed := range []string{
+		request("a body that holds GET /_synapse/admin/v1/users HTTP/1.1"),
+		"PUT /_matrix/client/v3/x HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" +
+			"5\r\nhello\r\n0\r\n\r\n",
+	} {
+		c, err := client(t, srv.Addrs()[0], k.ca, nil)
+		check(t, err)
+		_, err = c.Write([]byte(allowed + "GET /_synapse/admin/v1/users HTTP/1.1\r\nHost: x\r\n\r\n"))
+		check(t, err)
+		testconn.Bound(t, c)
+		all, err := io.ReadAll(c)
+		if err != nil && !strings.Contains(err.Error(), "reset") {
+			check(t, err)
+		}
+		if string(all) != allowed {
+			t.Errorf("the homeserver saw %q, want only the allowed request", all)
+		}
+		closeClosed(t, c)
+	}
+}
+
+// T10: a chunk size is hexadecimal digits alone (RFC 9112 7.1): a sign or a space around it is
+// refused, and its line never reaches the homeserver.
+func TestT10AChunkSizeIsHexDigitsAlone(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
+	head := "PUT /_matrix/client/v3/x HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+	for _, size := range []string{"+5", " 5", "5 ", "5 ;x=1", "\t5", "0x5", ""} {
+		c, err := client(t, srv.Addrs()[0], k.ca, nil)
+		check(t, err)
+		_, err = c.Write([]byte(head + size + "\r\nhello\r\n0\r\n\r\n"))
+		check(t, err)
+		testconn.Bound(t, c)
+		all, err := io.ReadAll(c)
+		if err != nil && !strings.Contains(err.Error(), "reset") {
+			check(t, err)
+		}
+		if string(all) != head {
+			t.Errorf("size %q: the homeserver saw %q, want the head alone", size, all)
+		}
+		closeClosed(t, c)
+	}
+}
+
 // T10: framing two readers could read two ways is refused before it reaches the homeserver.
 func TestT10AmbiguousFramingIsRefused(t *testing.T) {
 	leakcheck.Check(t)
@@ -263,6 +405,7 @@ func TestT10AmbiguousFramingIsRefused(t *testing.T) {
 		{"a bare LF", "GET /_matrix/client/versions HTTP/1.1\nHost: x\n\n"},
 		{"HTTP/2 preface", "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"},
 		{"CONNECT", "CONNECT /_matrix/client/v3 HTTP/1.1\r\n\r\n"},
+		{"HTTP/1.0 chunked", "POST /_matrix/client/v3/x HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"},
 	} {
 		name, req := c.name, c.req
 		c, err := client(t, srv.Addrs()[0], k.ca, nil)

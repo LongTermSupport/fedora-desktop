@@ -1,4 +1,4 @@
-// Package tlsverb is `teamchat tls --team T --port P --listen A...`, the process of the unit
+// Package tlsverb is `teamchat tls --team T --port P [--per-source N] --listen A...`, the process of the unit
 // teamchat-tls@T (Plan 00246 SPEC-cross-network X18): it reads the team's leaf certificate and
 // its key from the unit's credentials, then runs the terminator (package tlsterm) on each listen
 // address at the team's port, relaying to the homeserver on loopback at that port, until the
@@ -28,8 +28,9 @@ import (
 const credentialLimit = 64 << 10
 
 const (
-	flagPort   = "port"
-	flagListen = "listen"
+	flagPort      = "port"
+	flagListen    = "listen"
+	flagPerSource = "per-source"
 )
 
 const (
@@ -97,10 +98,28 @@ func config(e cli.Env, inv cli.Invocation, clk tlsterm.Clock) (tlsterm.Config, e
 	if err != nil {
 		return tlsterm.Config{}, err
 	}
+	perSource, err := perSourceOf(inv, team)
+	if err != nil {
+		return tlsterm.Config{}, err
+	}
 	return tlsterm.Config{
 		Listen: listen, Upstream: netip.AddrPortFrom(loopbackHomeserver, port), CertPEM: cert, KeyPEM: key,
-		Clock: clk, Log: e.Stderr,
+		Clock: clk, MaxPerSource: perSource, Log: e.Stderr,
 	}, nil
+}
+
+// perSourceOf is the team's per-source cap, a flag the parser has already held to 1-256; 0, the
+// terminator's default, without it.
+func perSourceOf(inv cli.Invocation, team paths.TeamID) (int, error) {
+	text, given := inv.Flag(flagPerSource)
+	if !given {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 1 || n > paths.MaxConnectionsPerSource {
+		return 0, exits.New(exits.CodeRuntime, &team, msgFlag, exits.Name(flagPerSource))
+	}
+	return n, nil
 }
 
 // credential is one of the unit's credential files, which must hold something. A file that is

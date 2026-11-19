@@ -57,6 +57,7 @@ type head struct {
 func readHead(br *bufio.Reader) (head, error) {
 	var h head
 	first := true
+	var version string
 	var lengths, encodings []string
 	for {
 		line, err := readLine(br)
@@ -73,7 +74,7 @@ func readHead(br *bufio.Reader) (head, error) {
 		text := string(line[:len(line)-2])
 		if first {
 			first = false
-			if err := judgeLine(text); err != nil {
+			if version, err = judgeLine(text); err != nil {
 				return head{}, err
 			}
 			continue
@@ -94,14 +95,16 @@ func readHead(br *bufio.Reader) (head, error) {
 			return head{}, refuse(400, "a protocol upgrade is not relayed")
 		}
 	}
-	return h, h.frame(lengths, encodings)
+	return h, h.frame(version, lengths, encodings)
 }
 
 // frame is how the body is found (RFC 9112 section 6): chunked, a single length, or none; any
 // framing two readers could read two ways is refused, so the homeserver never sees a request
-// the gate did not judge.
-func (h *head) frame(lengths, encodings []string) error {
+// the gate did not judge. A transfer encoding in an HTTP/1.0 request is faulty framing (6.1).
+func (h *head) frame(version string, lengths, encodings []string) error {
 	switch {
+	case len(encodings) > 0 && version == "HTTP/1.0":
+		return refuse(400, "an HTTP/1.0 request with a transfer encoding is not relayed")
 	case len(encodings) > 0 && len(lengths) > 0:
 		return refuse(400, "a request with both a length and a transfer encoding is not relayed")
 	case len(encodings) > 1 || len(encodings) == 1 && !strings.EqualFold(strings.TrimSpace(encodings[0]), "chunked"):
@@ -120,16 +123,17 @@ func (h *head) frame(lengths, encodings []string) error {
 	return nil
 }
 
-// judgeLine holds the request line to `METHOD target HTTP/1.x` with a target the gate relays.
-func judgeLine(line string) error {
+// judgeLine holds the request line to `METHOD target HTTP/1.x` with a target the gate relays,
+// and answers its version.
+func judgeLine(line string) (string, error) {
 	parts := strings.Split(line, " ")
 	if len(parts) != 3 || parts[0] == "" || (parts[2] != "HTTP/1.1" && parts[2] != "HTTP/1.0") {
-		return refuse(400, "the request line is not an HTTP/1.1 request")
+		return "", refuse(400, "the request line is not an HTTP/1.1 request")
 	}
 	if parts[0] == "CONNECT" {
-		return refuse(405, "CONNECT is not relayed")
+		return "", refuse(405, "CONNECT is not relayed")
 	}
-	return judgeTarget(parts[1])
+	return parts[2], judgeTarget(parts[1])
 }
 
 // judgeTarget holds a request target to an origin form under one of allowedTargets, with no dot
@@ -212,13 +216,12 @@ func relayBody(dst io.Writer, br *bufio.Reader, h head) error {
 		if err != nil {
 			return unexpected(err)
 		}
-		if _, err := dst.Write(line); err != nil {
+		size, err := chunkSize(line)
+		if err != nil {
 			return err
 		}
-		sizeText, _, _ := strings.Cut(string(line[:len(line)-2]), ";")
-		size, err := strconv.ParseInt(strings.TrimSpace(sizeText), 16, 64)
-		if err != nil || size < 0 {
-			return refuse(400, "a chunk's size is not hexadecimal")
+		if _, err := dst.Write(line); err != nil {
+			return err
 		}
 		if size == 0 {
 			return relayTrailers(dst, br)
@@ -237,6 +240,20 @@ func relayBody(dst io.Writer, br *bufio.Reader, h head) error {
 			return err
 		}
 	}
+}
+
+// chunkSize is the size a chunk's size line gives: hexadecimal digits alone before any
+// extension (RFC 9112 section 7.1), at most 15 of them so it fits an int64. A sign, a space or a
+// prefix is refused, so the gate and the homeserver cannot read one size two ways.
+func chunkSize(line []byte) (int64, error) {
+	text := string(line[:len(line)-2])
+	if i := strings.IndexByte(text, ';'); i >= 0 {
+		text = text[:i]
+	}
+	if text == "" || len(text) > 15 || strings.TrimLeft(text, "0123456789abcdefABCDEF") != "" {
+		return 0, refuse(400, "a chunk's size is not hexadecimal")
+	}
+	return strconv.ParseInt(text, 16, 64)
 }
 
 // relayTrailers copies a chunked body's trailer lines through its empty last line.

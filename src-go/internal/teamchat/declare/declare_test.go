@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 // teamEntry is a present team that passes every rule.
@@ -101,7 +103,8 @@ func checkDefaults(t *testing.T, d Declaration) {
 	t.Helper()
 	a := d.Teams[0]
 	if a.ID.String() != "alpha" || a.Name != "alpha" || a.ServerName != "alpha.teamchat.internal" ||
-		a.URL != "https://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" {
+		a.URL != "https://192.0.2.10:8448" || a.State != StatePresent || a.Trust.Org != "example-org" ||
+		a.ConnectionsPerSource != paths.MaxConnectionsPerSource {
 		t.Fatalf("defaults not filled: %+v", a)
 	}
 	m := d.LXC[0]
@@ -183,6 +186,11 @@ func teamRefusals() []refusal {
 		{"missing humans", "teamchat_teams[0].humans", "", func(d map[string]any) { delete(team0(d), "humans") }},
 		{"missing state", "teamchat_teams[0].state", "", func(d map[string]any) { delete(team0(d), "state") }},
 		{"string port", "teamchat_teams[0].port", "", func(d map[string]any) { team0(d)["port"] = "8448" }},
+		{"no connections per source", "teamchat_teams[0].connections_per_source", "", func(d map[string]any) { team0(d)["connections_per_source"] = 0 }},
+		{"connections per source past the slots", "teamchat_teams[0].connections_per_source", "", func(d map[string]any) {
+			team0(d)["connections_per_source"] = paths.MaxConnectionsPerSource + 1
+		}},
+		{"connections per source as text", "teamchat_teams[0].connections_per_source", "", func(d map[string]any) { team0(d)["connections_per_source"] = "40" }},
 		{"number name", "teamchat_teams[0].name", "", func(d map[string]any) { team0(d)["name"] = 7 }},
 		{"null coordinator", "teamchat_teams[0].coordinator", "", func(d map[string]any) { team0(d)["coordinator"] = nil }},
 		{"bad team id", "teamchat_teams[0].team", "Alpha", func(d map[string]any) { team0(d)["team"] = "Alpha" }},
@@ -454,6 +462,7 @@ func TestExplicitValuesKept(t *testing.T) {
 	team0(d)["name"] = "Alpha team"
 	team0(d)["server_name"] = "alpha.example.org"
 	team0(d)["url"] = "https://[2001:db8::1]:8448"
+	team0(d)["connections_per_source"] = 40
 	m := lxc0(d)
 	m["site"], m["seat"], m["human_text"], m["service"], m["state"] = "desk", 3, false, true, "absent"
 	got, err := Decode(encode(t, d))
@@ -461,7 +470,7 @@ func TestExplicitValuesKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := got.Teams[0]
-	if a.Name != "Alpha team" || a.ServerName != "alpha.example.org" || a.URL != "https://[2001:db8::1]:8448" {
+	if a.Name != "Alpha team" || a.ServerName != "alpha.example.org" || a.URL != "https://[2001:db8::1]:8448" || a.ConnectionsPerSource != 40 {
 		t.Fatalf("explicit values: %+v", a)
 	}
 	if l := got.LXC[0]; l.Site != "desk" || l.Seat != 3 || l.HumanText || !l.Service || l.State != StateAbsent {

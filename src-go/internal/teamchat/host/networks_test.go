@@ -178,7 +178,7 @@ func TestASecondNetworkChangesOnlyWhatItShould(t *testing.T) {
 	for prefix, want := range map[string]string{
 		"After=":          "After=" + devices,
 		"Wants=":          "Wants=" + devices,
-		"ExecStart=":      "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10 --listen 203.0.113.9",
+		"ExecStart=":      "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --per-source 256 --listen 192.0.2.10 --listen 203.0.113.9",
 		"IPAddressAllow=": "IPAddressAllow=127.0.0.1/32 ::1/128 192.0.2.10/32 203.0.113.9/32 192.0.2.0/24 203.0.113.0/24",
 	} {
 		if line := lineWith(t, got.tlsDropIn, prefix); line != want {
@@ -276,7 +276,7 @@ func TestListenAddressesAreDerivedFromTheNetworks(t *testing.T) {
 			if got := lineWith(t, tls, "After="); got != "After="+strings.Join(devices, " ") {
 				t.Errorf("terminator drop-in: %s", got)
 			}
-			want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen " + strings.Join(c.listen, " --listen ")
+			want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --per-source 256 --listen " + strings.Join(c.listen, " --listen ")
 			if got := lineWith(t, tls, "ExecStart="); got != want {
 				t.Errorf("terminator drop-in: %s, want %s", got, want)
 			}
@@ -410,7 +410,7 @@ func TestAMemberNetworkRoutedThroughTheDefaultInterfaceIsServedByIt(t *testing.T
 	if err := applied(w, routes(true)); err != nil {
 		t.Fatalf("a member network with an explicit route through the default route's interface: %v", err)
 	}
-	want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --listen 192.0.2.10"
+	want := "ExecStart=/usr/local/bin/teamchat tls --team ops --port 8448 --per-source 256 --listen 192.0.2.10"
 	if got := lineWith(t, w.read(paths.TLSDropInFile(ops(t))), "ExecStart="); got != want {
 		t.Errorf("terminator drop-in: %s, want %s", got, want)
 	}

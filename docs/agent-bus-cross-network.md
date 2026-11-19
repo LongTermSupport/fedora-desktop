@@ -24,6 +24,11 @@ the list:
   network, the address of the interface that routes it. A network whose route is the default
   route is refused, naming the CIDR, unless it is the host's own bus address or the bridge: a
   homeserver is not meant to be on the internet, so add a route (a VPN, a static one) instead.
+- A network is judged whole: one with a longer route inside it through another interface (a
+  broad VPN prefix that holds a podman or LXC bridge subnet, for example) is refused, naming the
+  network and both interfaces, even if it applied before this check existed. Declare each part
+  that one interface routes as its own network, or remove the overlapping route, then run the
+  play again.
 - The unit's IP filter and the firewall rules are functions of the effective networks alone: the
   filter denies every address but loopback, each listen address and each effective network (the
   drop-in carries `IPAddressDeny=any` as well as the allow, since systemd grants whatever no rule
@@ -66,7 +71,17 @@ anything but loopback.
   another address fails, with an error naming the pinned CA's fingerprint and the host.
 - The homeserver binds loopback only and stays plain there. A small per-team unit,
   `teamchat-tls@<team>` (the command `teamchat tls`), accepts TLS on each listen address and
-  relays the bytes to the homeserver on loopback. The leaf and its key reach it as systemd
+  relays the Matrix API to the homeserver on loopback, and nothing else: it reads each request's
+  line and headers first and relays only HTTP/1.1 requests under `/_matrix/` and
+  `/.well-known/matrix/`, so the homeserver's admin API is reached on loopback only. A refused
+  request is answered (403 or 400) and the connection closed. A client that sends no request
+  within 10 seconds of its handshake is closed. It holds at most 256 connections, and one
+  source address at most the team's `connections_per_source` (1 to 256, default 256): set it
+  lower to keep one address from holding every slot, higher than the members behind one
+  address (a NAT, a VPN that masquerades) need. When a source is at its cap, its connections
+  are checked for life first (a short TCP keepalive probe), so those a suspended or vanished
+  member host left behind are reclaimed and its reconnecting seats are let in; a source whose
+  connections all answer is refused, and each refusal is logged. The leaf and its key reach it as systemd
   credentials, it has its own dynamic uid, and it never holds the CA key. `team apply` starts it
   once the homeserver is ready and checks that it listens on exactly the listen addresses.
 - A stopped terminator cuts every member off while the homeserver still answers on loopback, so

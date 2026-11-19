@@ -446,7 +446,7 @@ func poolDerived(t *testing.T, team TeamID) map[string]string {
 // inbox socket's environment and shape check (its path is sampled as InboxSocket). (A kit's text is sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
-	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "IsInboxSocket" || ident == "InboxEnvOf" || ident == "CheckoutKeyOf" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "ErrInvalid" ||
+	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "IsInboxSocket" || ident == "InboxEnvOf" || ident == "CheckoutKeyOf" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "MaxConnectionsPerSource" || ident == "ErrInvalid" ||
 		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 

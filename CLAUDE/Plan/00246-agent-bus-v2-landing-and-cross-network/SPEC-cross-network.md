@@ -128,10 +128,16 @@ install are listed last, under "Owner questions".
   Every byte read or written puts the deadline 2 minutes ahead again. The limit is above the
   member's matrix client's own waits, a sync long-poll of at most 30 s and a pooled connection
   dropped by the client after a minute idle, so a healthy member is never cut by it.
-  One source address holds at most `tlsterm.DefaultMaxPerSource` (64) of those connections, so
-  one client, which needs no credential to finish a handshake, cannot hold every slot, and each
-  refusal is logged, the first of each minute at once and the count of the rest at its end
-  (Plan 00257 SEC-4). The terminator relays the Matrix API only (Plan 00257 SEC-5): it reads
+  One source address holds at most the team's `connections_per_source` of those connections
+  (1 to 256, default `tlsterm.DefaultMaxPerSource`, 256; `teamchat tls --per-source`), so a
+  team that declares it lower keeps one client, which needs no credential to finish a
+  handshake, from holding every slot, and each refusal is logged, the first of each minute at
+  once and the count of the rest at its end (Plan 00257 SEC-4). A source at its cap has its
+  held connections checked for life first (Plan 00257 B.5 review): a short TCP keepalive (1 s
+  idle, two probes 1 s apart) fails a connection a suspended or vanished host left behind, its
+  relay ends and frees its share, and the new connection waits for a share at most
+  `tlsterm.ProbeLimit` (4 s) before it is refused. Connections that all answer keep their shares
+  and get their usual keepalive back. The terminator relays the Matrix API only (Plan 00257 SEC-5): it reads
   each HTTP/1.1 request's line and headers before a byte of it goes on, relays a target under
   `/_matrix/` or `/.well-known/matrix/` with no dot segment, finds each body by its own framing
   (one length or chunked; anything two readers could read two ways is refused), and answers any
@@ -166,7 +172,8 @@ install are listed last, under "Owner questions".
   twice `tlsterm.DefaultMaxConns`.
 - **X18b** The drop-in holds everything that is a function of the effective networks (X4): the
   device units of the interfaces carrying a listen address (`After=`, `Wants=`), `ExecStart=`
-  naming `teamchat tls` with the team, the port and each listen address, a `LoadCredential=` for
+  naming `teamchat tls` with the team, the port, the team's per-source cap (`--per-source`) and
+  each listen address, a `LoadCredential=` for
   `leaf.crt` and for `leaf.key` (never the CA's key), `IPAddressDeny=any` with `IPAddressAllow=`
   (loopback, each listen address as a host prefix and each effective network) and
   `SocketBindDeny=any` with `SocketBindAllow=tcp:<port>`. systemd grants what no rule denies, so

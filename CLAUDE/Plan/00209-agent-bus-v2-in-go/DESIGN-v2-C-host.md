@@ -1678,6 +1678,7 @@ teamchat_teams:
     description: "<what the team is for>"   # 1-120 characters
     networks: ["<cidr>"]                # 0-32 canonical CIDRs; the listen addresses are derived from them (3.2.5)
     url: http://<bus_ip>:<port>         # optional; the members' base URL; default from teamchat_address
+    connections_per_source: <n>         # optional, 1-256, default 256: the most connections the terminator lets one source address hold (Plan 00246 X18)
     humans: ["<name>"]                  # 1-16
     coordinator: <handle>               # optional; at most one per team
     trust:                              # area A owns the meaning AND the shape; this shape is an example

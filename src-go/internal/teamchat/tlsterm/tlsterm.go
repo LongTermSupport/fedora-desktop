@@ -26,9 +26,15 @@
 //	   member's matrix client's own waits (a 30 s sync long-poll, a minute's idle pool), so a
 //	   healthy connection is never cut by it.
 //	T9 One source address holds at most MaxPerSource connections at once, so one client, which
-//	   needs no credential to complete a handshake, cannot fill every slot (Plan 00257 SEC-4). Each
-//	   refusal is logged: the first of each RefusalWindow at once, naming the source and why, and
-//	   the count of the rest when the window ends.
+//	   needs no credential to complete a handshake, cannot fill every slot (Plan 00257 SEC-4); a
+//	   team sets it (connections_per_source, `teamchat tls --per-source`). Each refusal is
+//	   logged: the first of each RefusalWindow at once, naming the source and why, and the count
+//	   of the rest when the window ends.
+//	T9a A source at its cap has its held connections checked for life before a new one is
+//	   refused (Plan 00257 B.5 review): a short keepalive (Probe) fails those a suspended or
+//	   vanished host left behind, whose relays then end and free their shares, and the new
+//	   connection waits for a share at most ProbeLimit. Members behind one address reconnecting
+//	   after a suspend are admitted, not refused until IdleLimit ends their old connections.
 //	T10 Only the Matrix API is relayed (Plan 00257 SEC-5): each request's line and headers are
 //	   read and judged before a byte of it reaches the upstream, by the request gate (gate.go),
 //	   and the upstream is dialled only once the first request has passed, within RequestLimit of
@@ -59,10 +65,15 @@ const (
 	// DefaultMaxConns is the number of connections held at once when none is configured.
 	DefaultMaxConns = 256
 	// DefaultMaxPerSource is the number one source address holds at once when none is
-	// configured: a quarter of the slots, room for a host of many members behind one address.
-	DefaultMaxPerSource = DefaultMaxConns / 4
+	// configured (Plan 00257 B.5 review, the coordinator's ruling): every slot, so members behind
+	// one address are never refused by default; a team declares a lower cap
+	// (connections_per_source) to keep one address from holding them all.
+	DefaultMaxPerSource = DefaultMaxConns
 	// RefusalWindow is how often a refusal is logged at most; the rest are counted (T9).
 	RefusalWindow = time.Minute
+	// ProbeLimit is how long a source at its cap waits for the liveness check to reclaim one of
+	// its connections.
+	ProbeLimit = 4 * time.Second
 	// maxConnsLimit is the most a configuration may ask for, well inside a unit's descriptors.
 	maxConnsLimit = 4096
 )
@@ -87,6 +98,8 @@ type Config struct {
 	// MaxPerSource is the most connections one source address holds at once; 0 is
 	// DefaultMaxPerSource.
 	MaxPerSource int
+	// Probe is the liveness check of a source's held connections; nil is the keepalive probe.
+	Probe func(conns []net.Conn)
 	// Log, when set, gets a line for each failure that is not a client's. It never gets a
 	// client's bytes.
 	Log io.Writer
@@ -103,9 +116,13 @@ type Server struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// live, perSource and fatal are under mu.
+	// live, perSource, bySource, released and fatal are under mu. bySource holds each source's
+	// admitted connections, for the liveness check; released is closed and replaced at each
+	// release, for a reclaim waiting on one.
 	live      map[net.Conn]struct{}
 	perSource map[netip.Addr]int
+	bySource  map[netip.Addr]map[net.Conn]struct{}
+	released  chan struct{}
 	fatal     error
 	once      sync.Once
 	mu        sync.Mutex
@@ -133,6 +150,7 @@ func Start(ctx context.Context, cfg Config) (*Server, error) {
 	s := &Server{
 		cfg: cfg, tls: tlsConfig, slots: make(chan struct{}, cfg.maxConns()),
 		done: ctx.Done(), cancel: cancel, live: map[net.Conn]struct{}{}, perSource: map[netip.Addr]int{},
+		bySource: map[netip.Addr]map[net.Conn]struct{}{}, released: make(chan struct{}),
 	}
 	for _, addr := range cfg.Listen {
 		ln, lerr := (&net.ListenConfig{}).Listen(ctx, "tcp", addr.String())
@@ -278,7 +296,7 @@ func (s *Server) stop(err error) {
 // request, the upstream, the relay.
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	src := sourceOf(conn)
-	release, why := s.admit(src)
+	release, why := s.admit(src, conn)
 	if why != "" {
 		s.refused("a connection from %s refused: %s", src, why)
 		s.closeConn(conn)
@@ -326,29 +344,84 @@ func sourceOf(conn net.Conn) netip.Addr {
 	return ap.Addr().Unmap()
 }
 
-// admit takes a slot and a share of src's, and answers their release, or why there is none.
-func (s *Server) admit(src netip.Addr) (func(), string) {
+// admit takes a slot and a share of src's for conn, and answers their release, or why there is
+// none. A source at its cap first has its held connections checked for life (reclaim), so those
+// a suspended or vanished host left behind free their shares; it is refused only if none does.
+func (s *Server) admit(src netip.Addr, conn net.Conn) (func(), string) {
 	select {
 	case s.slots <- struct{}{}:
 	default:
 		return nil, fmt.Sprintf("all %d connections are held", s.cfg.maxConns())
 	}
-	s.mu.Lock()
-	if n := s.perSource[src]; n >= s.cfg.maxPerSource() {
-		s.mu.Unlock()
-		<-s.slots
-		return nil, fmt.Sprintf("%d connections are held from it", n)
-	}
-	s.perSource[src]++
-	s.mu.Unlock()
-	return func() {
+	for checked := false; ; checked = true {
 		s.mu.Lock()
-		if s.perSource[src]--; s.perSource[src] <= 0 {
-			delete(s.perSource, src)
+		n := s.perSource[src]
+		if n < s.cfg.maxPerSource() {
+			s.perSource[src]++
+			if s.bySource[src] == nil {
+				s.bySource[src] = map[net.Conn]struct{}{}
+			}
+			s.bySource[src][conn] = struct{}{}
+			s.mu.Unlock()
+			return func() { s.release(src, conn) }, ""
+		}
+		held := make([]net.Conn, 0, len(s.bySource[src]))
+		for c := range s.bySource[src] {
+			held = append(held, c)
 		}
 		s.mu.Unlock()
-		<-s.slots
-	}, ""
+		if checked {
+			<-s.slots
+			return nil, fmt.Sprintf("%d connections are held from it, and each answered the liveness check", n)
+		}
+		s.reclaim(src, held)
+	}
+}
+
+// release gives back conn's share of src and its slot, and wakes a reclaim waiting on src.
+func (s *Server) release(src netip.Addr, conn net.Conn) {
+	s.mu.Lock()
+	if s.perSource[src]--; s.perSource[src] <= 0 {
+		delete(s.perSource, src)
+	}
+	delete(s.bySource[src], conn)
+	if len(s.bySource[src]) == 0 {
+		delete(s.bySource, src)
+	}
+	close(s.released)
+	s.released = make(chan struct{})
+	s.mu.Unlock()
+	<-s.slots
+}
+
+// reclaim checks held, src's connections, for life and waits, at most ProbeLimit, until src
+// holds fewer than its cap: a dead one fails under the check and its relay releases its share.
+func (s *Server) reclaim(src netip.Addr, held []net.Conn) {
+	probe := s.cfg.Probe
+	if probe == nil {
+		probe = s.keepaliveProbe
+		defer s.restoreKeepalive(held)
+	}
+	expired := make(chan struct{})
+	stop := s.cfg.Clock.AfterFunc(ProbeLimit, func() { close(expired) })
+	defer stop()
+	probe(held)
+	for {
+		s.mu.Lock()
+		room := s.perSource[src] < s.cfg.maxPerSource()
+		released := s.released
+		s.mu.Unlock()
+		if room {
+			return
+		}
+		select {
+		case <-released:
+		case <-expired:
+			return
+		case <-s.done:
+			return
+		}
+	}
 }
 
 // firstRequest is the connection's first request head, read within RequestLimit of the
@@ -633,5 +706,31 @@ func (s *Server) logf(format string, args ...any) {
 	}
 	if _, err := fmt.Fprintf(s.cfg.Log, "tlsterm: "+format+"\n", args...); err != nil {
 		s.logFailed = true
+	}
+}
+
+// probeKeepAlive is the liveness check's keepalive: a probe once a connection has been idle a
+// second, which a dead peer (a host suspended, or gone behind a NAT) never answers, so the kernel
+// fails the connection after Count probes a second apart and its relay ends.
+var probeKeepAlive = net.KeepAliveConfig{Enable: true, Idle: time.Second, Interval: time.Second, Count: 2}
+
+// heldKeepAlive is the keepalive an accepted connection holds otherwise: Go's listener's.
+var heldKeepAlive = net.KeepAliveConfig{Enable: true, Idle: 15 * time.Second, Interval: 15 * time.Second, Count: 9}
+
+// keepaliveProbe is the production liveness check: the short keepalive on each connection.
+func (s *Server) keepaliveProbe(conns []net.Conn) { s.setKeepAlive(conns, probeKeepAlive) }
+
+// restoreKeepalive gives each connection its usual keepalive once a check is over.
+func (s *Server) restoreKeepalive(conns []net.Conn) { s.setKeepAlive(conns, heldKeepAlive) }
+
+func (s *Server) setKeepAlive(conns []net.Conn, cfg net.KeepAliveConfig) {
+	for _, c := range conns {
+		tc, ok := c.(*net.TCPConn)
+		if !ok {
+			continue
+		}
+		if err := tc.SetKeepAliveConfig(cfg); err != nil && !errors.Is(err, net.ErrClosed) {
+			s.logf("setting the keepalive of a connection from %s: %v", sourceOf(c), err)
+		}
 	}
 }

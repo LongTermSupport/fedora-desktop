@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.28 — container 2.84.34
+
+- **The TLS terminator's per-source cap is the team's own** (`connections_per_source`, 1 to 256,
+  default 256; `teamchat tls --per-source`), and a source at its cap has its connections checked
+  for life (a short TCP keepalive) before a new one is refused, so seats behind one address that
+  reconnect after their host was suspended are let in.
+- **The terminator's request gate is stricter**: a chunk size must be hexadecimal digits alone,
+  and an HTTP/1.0 request with a transfer encoding is refused.
+
 ## 3.122.27 — container 2.84.33
 
 - **teamchat's tests name each fake-clock timer by the function that arms it** where two limits

@@ -48,6 +48,7 @@ const (
 	keySite, keySeat, keyHumanText, keyService = "site", "seat", "human_text", "service"
 	keyLXCMembers, keyAddress, keyVersion      = "lxc_members", "address", "v"
 	keyColour, keyCarriedFrom                  = "colour", "carried_from"
+	keyConnectionsPerSource                    = "connections_per_source"
 )
 
 // HostVarSite is the machine's site, the host_vars key beside paths' HostVar names (paths is
@@ -88,6 +89,9 @@ type Team struct {
 	Trust       proto.Forge
 	// Colour is the colour override as stored hex (n3e-D4), empty when the team declares none.
 	Colour string
+	// ConnectionsPerSource is the most connections the team's terminator lets one source
+	// address hold (1 to paths.MaxConnectionsPerSource, its default for a present team).
+	ConnectionsPerSource int
 	// CarriedFrom is free text naming where the team was carried from, empty when it declares
 	// none. Only its presence has effect: a first `team apply` of a marked team is refused until
 	// `team import` has placed it (SPEC-carry SG6).
@@ -218,7 +222,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 
 var teamOptional = []string{
 	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyNetworks, keyURL,
-	keyHumans, keyCoordinator, keyTrust, keyColour, keyCarriedFrom,
+	keyHumans, keyCoordinator, keyTrust, keyColour, keyCarriedFrom, keyConnectionsPerSource,
 }
 
 // readTeam reads one team entry (DR3).
@@ -299,6 +303,7 @@ func readValues(t *Team, f fields, address string) error {
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
 		{keyTrust, func(n node) error { t.Trust, err = n.trust(); return err }},
 		{keyColour, func(n node) error { t.Colour, err = n.colour(); return err }},
+		{keyConnectionsPerSource, func(n node) error { t.ConnectionsPerSource, err = connectionsPerSource(n); return err }},
 		{keyCarriedFrom, func(n node) error {
 			t.CarriedFrom, err = n.checked(proto.ValidDescription, "is not 1-120 characters, trimmed, free of control characters")
 			return err
@@ -319,6 +324,9 @@ func readValues(t *Team, f fields, address string) error {
 	}
 	if t.ServerName == "" {
 		t.ServerName = paths.ServerName(t.ID)
+	}
+	if t.ConnectionsPerSource == 0 {
+		t.ConnectionsPerSource = paths.MaxConnectionsPerSource
 	}
 	if t.URL == "" {
 		if address == "" {
@@ -345,6 +353,18 @@ func defaultURL(address string, port int) string {
 		host = "[" + address + "]"
 	}
 	return "https://" + host + ":" + strconv.Itoa(port)
+}
+
+// connectionsPerSource is a team's per-source cap: 1 to paths.MaxConnectionsPerSource.
+func connectionsPerSource(n node) (int, error) {
+	i, err := n.integer()
+	if err != nil {
+		return 0, err
+	}
+	if i < 1 || i > paths.MaxConnectionsPerSource {
+		return 0, n.fail("is not 1-" + strconv.Itoa(paths.MaxConnectionsPerSource))
+	}
+	return int(i), nil
 }
 
 func port(n node) (int, error) {

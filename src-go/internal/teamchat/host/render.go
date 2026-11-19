@@ -93,6 +93,7 @@ func render(s renderSpec) (rendered, error) {
 		return rendered{}, err
 	}
 	d, tls := dropInSpecs(s.team.ID, s.team.Port, s.pin, s.listen, s.networks, s.devices)
+	tls.perSource = s.team.ConnectionsPerSource
 	config := renderConfig(s)
 	r := rendered{config: config, dropIn: d.text(), tlsDropIn: tls.text(), teamFile: s.team.Canonical()}
 	r.digests = digests{

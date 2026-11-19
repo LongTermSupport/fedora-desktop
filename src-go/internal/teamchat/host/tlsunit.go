@@ -28,11 +28,14 @@ import (
 
 // tlsDropInSpec is what the terminator's drop-in says.
 type tlsDropInSpec struct {
-	team     paths.TeamID
-	port     int
-	listen   []netip.Addr
-	networks []netip.Prefix
-	devices  []string
+	team paths.TeamID
+	port int
+	// perSource is the team's connections_per_source; 0, a team no declaration filled, is
+	// paths.MaxConnectionsPerSource, the declaration's default.
+	perSource int
+	listen    []netip.Addr
+	networks  []netip.Prefix
+	devices   []string
 }
 
 func (d tlsDropInSpec) unit() string {
@@ -43,11 +46,16 @@ func (d tlsDropInSpec) unit() string {
 	return "[Unit]\nAfter=" + devices + "\nWants=" + devices + "\n"
 }
 
-// execStart is the verb `teamchat tls` with the team, the port and each listen address; none of
-// it is secret, the leaf and its key come as credentials.
+// execStart is the verb `teamchat tls` with the team, the port, the per-source cap and each
+// listen address; none of it is secret, the leaf and its key come as credentials.
 func (d tlsDropInSpec) execStart() string {
-	args := make([]string, 0, 6+2*len(d.listen))
-	args = append(args, paths.MemberBinaryPath, "tls", "--team", d.team.String(), "--port", strconv.Itoa(d.port))
+	perSource := d.perSource
+	if perSource == 0 {
+		perSource = paths.MaxConnectionsPerSource
+	}
+	args := make([]string, 0, 8+2*len(d.listen))
+	args = append(args, paths.MemberBinaryPath, "tls", "--team", d.team.String(), "--port", strconv.Itoa(d.port),
+		"--per-source", strconv.Itoa(perSource))
 	for _, a := range d.listen {
 		args = append(args, "--listen", a.String())
 	}
