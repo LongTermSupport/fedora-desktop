@@ -42,7 +42,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00257 B.5 (ccy 3.122.24, container 2.84.31): the teamchat host play installs the new
+# Plan 00257 B.5 (ccy 3.122.25, container 2.84.32): the teamchat host play installs the new
 # teamchat-admin and member program, the health unit's text, and re-applies every present team
 # (a new member program widens the run): each terminator is restarted onto the new program and
 # its request gate, and team apply writes the health unit's drop-in of the listen addresses.

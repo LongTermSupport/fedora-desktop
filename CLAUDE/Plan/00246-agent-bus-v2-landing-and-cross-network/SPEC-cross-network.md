@@ -124,6 +124,18 @@ install are listed last, under "Owner questions".
   Every byte read or written puts the deadline 2 minutes ahead again. The limit is above the
   member's matrix client's own waits, a sync long-poll of at most 30 s and a pooled connection
   dropped by the client after a minute idle, so a healthy member is never cut by it.
+  One source address holds at most `tlsterm.DefaultMaxPerSource` (64) of those connections, so
+  one client, which needs no credential to finish a handshake, cannot hold every slot, and each
+  refusal is logged, the first of each minute at once and the count of the rest at its end
+  (Plan 00257 SEC-4). The terminator relays the Matrix API only (Plan 00257 SEC-5): it reads
+  each HTTP/1.1 request's line and headers before a byte of it goes on, relays a target under
+  `/_matrix/` or `/.well-known/matrix/` with no dot segment, finds each body by its own framing
+  (one length or chunked; anything two readers could read two ways is refused), and answers any
+  other first request 403 (`M_FORBIDDEN`) or 400 and closes; a refused later request is never
+  sent and ends the connection once the answers before it are through. The upstream is dialled
+  only once a first request has passed, within `tlsterm.RequestLimit` (10 s) of the handshake.
+  So the homeserver's admin routes (`/_synapse/admin/`, `/_tuwunel/`) are reached on loopback
+  only, by root's `teamchat-ctl` child.
   Every remote member reaches Tuwunel from `127.0.0.1`, the terminator's side of the relay
   (review S5 of pull request 128, read from the source at the pinned v1.9.4,
   `files/usr/local/share/agent-bus/tuwunel.pin`). The login limits do not merge members: they

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.122.24 — container 2.84.31
+## 3.122.25 — container 2.84.32
 
 - **teamchat host fixes** (Plan 00257 Task B.5). The image's `teamchat` is built from packages
   this work changes: the TLS terminator (`teamchat tls`, which runs on the bus host, not in the

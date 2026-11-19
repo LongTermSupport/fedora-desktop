@@ -18,16 +18,26 @@
 //	T3 A client that does not finish its handshake in HandshakeLimit is closed.
 //	T4 An upstream that does not answer closes the client's connection, and the failure is logged.
 //	T5 At most MaxConns connections are held at once, handshaking or relayed; the next is closed
-//	   unserved.
+//	   unserved, and the refusal is logged (T9).
 //	T6 Close ends every listener, relay and goroutine, and is safe to call twice.
 //	T7 A configuration that cannot serve is refused naming why, and holds nothing.
 //	T8 A relay that moves no byte either way for IdleLimit is closed, both ends, and its slot is
 //	   free; every read and write puts the deadline IdleLimit ahead again. IdleLimit is above the
 //	   member's matrix client's own waits (a 30 s sync long-poll, a minute's idle pool), so a
 //	   healthy connection is never cut by it.
+//	T9 One source address holds at most MaxPerSource connections at once, so one client, which
+//	   needs no credential to complete a handshake, cannot fill every slot (Plan 00257 SEC-4). Each
+//	   refusal is logged: the first of each RefusalWindow at once, naming the source and why, and
+//	   the count of the rest when the window ends.
+//	T10 Only the Matrix API is relayed (Plan 00257 SEC-5): each request's line and headers are
+//	   read and judged before a byte of it reaches the upstream, by the request gate (gate.go),
+//	   and the upstream is dialled only once the first request has passed, within RequestLimit of
+//	   the handshake. A refused first request is answered and closed; a refused later one closes
+//	   the connection. The homeserver's admin routes are reached on loopback only.
 package tlsterm
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -48,6 +58,11 @@ const (
 	IdleLimit = 2 * time.Minute
 	// DefaultMaxConns is the number of connections held at once when none is configured.
 	DefaultMaxConns = 256
+	// DefaultMaxPerSource is the number one source address holds at once when none is
+	// configured: a quarter of the slots, room for a host of many members behind one address.
+	DefaultMaxPerSource = DefaultMaxConns / 4
+	// RefusalWindow is how often a refusal is logged at most; the rest are counted (T9).
+	RefusalWindow = time.Minute
 	// maxConnsLimit is the most a configuration may ask for, well inside a unit's descriptors.
 	maxConnsLimit = 4096
 )
@@ -69,6 +84,9 @@ type Config struct {
 	Clock Clock
 	// MaxConns is the most connections held at once; 0 is DefaultMaxConns.
 	MaxConns int
+	// MaxPerSource is the most connections one source address holds at once; 0 is
+	// DefaultMaxPerSource.
+	MaxPerSource int
 	// Log, when set, gets a line for each failure that is not a client's. It never gets a
 	// client's bytes.
 	Log io.Writer
@@ -85,11 +103,20 @@ type Server struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// live and fatal are under mu.
-	live  map[net.Conn]struct{}
-	fatal error
-	once  sync.Once
-	mu    sync.Mutex
+	// live, perSource and fatal are under mu.
+	live      map[net.Conn]struct{}
+	perSource map[netip.Addr]int
+	fatal     error
+	once      sync.Once
+	mu        sync.Mutex
+
+	// refusing, refusedMore, refusalStop and refusalsEnded are the refusal log's window, under
+	// refusalMu.
+	refusalStop   func() bool
+	refusedMore   int
+	refusalMu     sync.Mutex
+	refusing      bool
+	refusalsEnded bool
 
 	logMu     sync.Mutex
 	logFailed bool
@@ -105,7 +132,7 @@ func Start(ctx context.Context, cfg Config) (*Server, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	s := &Server{
 		cfg: cfg, tls: tlsConfig, slots: make(chan struct{}, cfg.maxConns()),
-		done: ctx.Done(), cancel: cancel, live: map[net.Conn]struct{}{},
+		done: ctx.Done(), cancel: cancel, live: map[net.Conn]struct{}{}, perSource: map[netip.Addr]int{},
 	}
 	for _, addr := range cfg.Listen {
 		ln, lerr := (&net.ListenConfig{}).Listen(ctx, "tcp", addr.String())
@@ -166,6 +193,12 @@ func (s *Server) shutdown() {
 		for _, c := range held {
 			s.closeConn(c)
 		}
+		s.refusalMu.Lock()
+		s.refusalsEnded = true
+		if s.refusalStop != nil {
+			s.refusalStop()
+		}
+		s.refusalMu.Unlock()
 	})
 }
 
@@ -174,6 +207,15 @@ func (c Config) maxConns() int {
 		return DefaultMaxConns
 	}
 	return c.MaxConns
+}
+
+// maxPerSource is the configured bound of one source, never above the slots.
+func (c Config) maxPerSource() int {
+	n := c.MaxPerSource
+	if n == 0 {
+		n = DefaultMaxPerSource
+	}
+	return min(n, c.maxConns())
 }
 
 // check is the configuration's refusals, and the TLS configuration it serves.
@@ -185,6 +227,8 @@ func (c Config) check() (*tls.Config, error) {
 		return nil, errors.New("tlsterm: a terminator needs a Clock")
 	case c.MaxConns < 0 || c.MaxConns > maxConnsLimit:
 		return nil, fmt.Errorf("tlsterm: %d connections is not between 0 and %d", c.MaxConns, maxConnsLimit)
+	case c.MaxPerSource < 0 || c.MaxPerSource > maxConnsLimit:
+		return nil, fmt.Errorf("tlsterm: %d connections a source is not between 0 and %d", c.MaxPerSource, maxConnsLimit)
 	case !c.Upstream.IsValid() || !c.Upstream.Addr().IsLoopback() || c.Upstream.Port() == 0:
 		return nil, fmt.Errorf("tlsterm: the upstream %s is not a loopback address and a port", c.Upstream)
 	}
@@ -230,15 +274,17 @@ func (s *Server) stop(err error) {
 	s.cancel()
 }
 
-// handle serves one accepted connection: a slot, the handshake, the upstream, the relay.
+// handle serves one accepted connection: a slot and its source's share, the handshake, the first
+// request, the upstream, the relay.
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	default:
+	src := sourceOf(conn)
+	release, why := s.admit(src)
+	if why != "" {
+		s.refused("a connection from %s refused: %s", src, why)
 		s.closeConn(conn)
 		return
 	}
+	defer release()
 	if !s.track(conn) {
 		s.closeConn(conn)
 		return
@@ -247,6 +293,13 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	tc := tls.Server(conn, s.tls)
 	if !s.handshake(ctx, tc) {
 		s.closeConn(conn)
+		return
+	}
+	in := &source{r: tc}
+	br := bufio.NewReaderSize(in, maxLine)
+	first, ok := s.firstRequest(conn, tc, br, src)
+	if !ok {
+		s.closeConn(tc)
 		return
 	}
 	up, err := s.dial(ctx)
@@ -261,7 +314,103 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 	defer s.untrack(up)
-	s.relay(tc, up)
+	s.relay(tc, up, in, br, first, src)
+}
+
+// sourceOf is the address a connection comes from, one bucket for any it cannot read.
+func sourceOf(conn net.Conn) netip.Addr {
+	ap, err := netip.ParseAddrPort(conn.RemoteAddr().String())
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ap.Addr().Unmap()
+}
+
+// admit takes a slot and a share of src's, and answers their release, or why there is none.
+func (s *Server) admit(src netip.Addr) (func(), string) {
+	select {
+	case s.slots <- struct{}{}:
+	default:
+		return nil, fmt.Sprintf("all %d connections are held", s.cfg.maxConns())
+	}
+	s.mu.Lock()
+	if n := s.perSource[src]; n >= s.cfg.maxPerSource() {
+		s.mu.Unlock()
+		<-s.slots
+		return nil, fmt.Sprintf("%d connections are held from it", n)
+	}
+	s.perSource[src]++
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		if s.perSource[src]--; s.perSource[src] <= 0 {
+			delete(s.perSource, src)
+		}
+		s.mu.Unlock()
+		<-s.slots
+	}, ""
+}
+
+// firstRequest is the connection's first request head, read within RequestLimit of the
+// handshake; the raw connection is closed when the limit is up, which ends the read. A refused
+// one is answered, and logged.
+func (s *Server) firstRequest(raw net.Conn, tc *tls.Conn, br *bufio.Reader, src netip.Addr) (head, bool) {
+	stop := s.cfg.Clock.AfterFunc(RequestLimit, func() { s.closeConn(raw) })
+	defer stop()
+	h, err := readHead(br)
+	if r, refused := errors.AsType[*refusal](err); refused {
+		s.refused("a request from %s refused: %s", src, r.why)
+		if _, werr := tc.Write(answer(r)); werr != nil && !errors.Is(werr, net.ErrClosed) {
+			s.logf("answering a refused request from %s: %v", src, werr)
+		}
+		return head{}, false
+	}
+	return h, err == nil
+}
+
+// source is the client's side as the gate reads it: each read that moved a byte touches the
+// relay's idle timer once the relay has one.
+type source struct {
+	r    io.Reader
+	idle *idleTimer
+}
+
+func (s *source) Read(p []byte) (int, error) {
+	n, err := s.r.Read(p)
+	if n > 0 && s.idle != nil {
+		s.idle.touch()
+	}
+	return n, err
+}
+
+// refused logs a refusal: the first of a RefusalWindow at once, the count of the rest when the
+// window ends (T9).
+func (s *Server) refused(format string, args ...any) {
+	s.refusalMu.Lock()
+	if s.refusalsEnded {
+		s.refusalMu.Unlock()
+		return
+	}
+	if s.refusing {
+		s.refusedMore++
+		s.refusalMu.Unlock()
+		return
+	}
+	s.refusing = true
+	s.refusalStop = s.cfg.Clock.AfterFunc(RefusalWindow, s.endRefusalWindow)
+	s.refusalMu.Unlock()
+	s.logf(format, args...)
+}
+
+// endRefusalWindow says how many refusals the window counted, and opens the next.
+func (s *Server) endRefusalWindow() {
+	s.refusalMu.Lock()
+	n := s.refusedMore
+	s.refusing, s.refusedMore, s.refusalStop = false, 0, nil
+	s.refusalMu.Unlock()
+	if n > 0 {
+		s.logf("%d more refused in the last %v", n, RefusalWindow)
+	}
 }
 
 // handshake is whether the client completed its handshake in HandshakeLimit.
@@ -282,18 +431,21 @@ func (s *Server) dial(ctx context.Context) (net.Conn, error) {
 	return (&net.Dialer{}).DialContext(ctx, "tcp", s.cfg.Upstream.String())
 }
 
-// relay copies each way until both have ended, a half-close passed on, and closes both. A failed
-// copy ends the relay at once, and so does IdleLimit with no byte moved either way: closing
-// both ends makes each copy fail, so the relay ends and its slot is free.
-func (s *Server) relay(client, upstream net.Conn) {
+// relay copies each way until both have ended, a half-close passed on, and closes both: the
+// client's requests through the gate, from first on, the upstream's answers as they come. A
+// failed copy or a refused request ends the relay at once, and so does IdleLimit with no byte
+// moved either way: closing both ends makes each copy fail, so the relay ends and its slot is
+// free.
+func (s *Server) relay(client, upstream net.Conn, in *source, br *bufio.Reader, first head, src netip.Addr) {
 	idle := &idleTimer{clock: s.cfg.Clock, expire: func() {
 		s.closeConn(client)
 		s.closeConn(upstream)
 	}}
 	idle.touch()
 	defer idle.end()
+	in.idle = idle
 	var wg sync.WaitGroup
-	wg.Go(func() { s.pipe(upstream, client, idle) })
+	wg.Go(func() { s.forward(upstream, client, br, first, idle, src) })
 	s.pipe(client, upstream, idle)
 	wg.Wait()
 	s.closeConn(client)
@@ -311,6 +463,43 @@ func (s *Server) pipe(dst, src net.Conn, idle *idleTimer) {
 		s.closeConn(src)
 		return
 	}
+	s.halfClose(dst, src)
+}
+
+// forward relays the client's requests to dst, each judged by the gate before its bytes go,
+// starting with h, until the client ends between two requests, which is passed on as a
+// half-close; a refused request, a broken one or a failed write closes both.
+func (s *Server) forward(dst, client net.Conn, br *bufio.Reader, h head, idle *idleTimer, src netip.Addr) {
+	w := touchWriter{dst, idle}
+	for {
+		_, err := w.Write(h.raw)
+		if err == nil {
+			err = relayBody(w, br, h)
+		}
+		if err == nil {
+			h, err = readHead(br)
+		}
+		if errors.Is(err, io.EOF) {
+			s.halfClose(dst, client)
+			return
+		}
+		if r, ok := errors.AsType[*refusal](err); ok {
+			// The refused request's bytes never go; the upstream's answers to the requests
+			// before it still reach the client, and the relay then ends.
+			s.refused("a request from %s refused: %s", src, r.why)
+			s.halfClose(dst, client)
+			return
+		}
+		if err != nil {
+			s.closeConn(dst)
+			s.closeConn(client)
+			return
+		}
+	}
+}
+
+// halfClose passes the end of src's writing on to dst, or closes both when dst cannot.
+func (s *Server) halfClose(dst, src net.Conn) {
 	cw, ok := dst.(interface{ CloseWrite() error })
 	if !ok || cw.CloseWrite() != nil {
 		s.closeConn(dst)

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -129,16 +131,25 @@ func client(t *testing.T, addr netip.AddrPort, ca []byte, mutate func(*tls.Confi
 	return tc, nil
 }
 
+// request is one HTTP/1.1 request the gate relays (T10), carrying body: what a member's client
+// sends, and what the echo upstream sends back byte for byte.
+func request(body string) string {
+	return "POST /_matrix/client/v3/echo HTTP/1.1\r\nHost: 192.0.2.10:8448\r\nContent-Length: " +
+		strconv.Itoa(len(body)) + "\r\n\r\n" + body
+}
+
+// echo sends one request carrying text and reads it back from the echo upstream.
 func echo(t *testing.T, c net.Conn, text string) {
 	t.Helper()
-	_, err := c.Write([]byte(text))
+	sent := request(text)
+	_, err := c.Write([]byte(sent))
 	check(t, err)
-	got := make([]byte, len(text))
+	got := make([]byte, len(sent))
 	testconn.Bound(t, c)
 	_, err = io.ReadFull(c, got)
 	check(t, err)
-	if string(got) != text {
-		t.Fatalf("echoed %q, sent %q", got, text)
+	if string(got) != sent {
+		t.Fatalf("echoed %q, sent %q", got, sent)
 	}
 }
 
@@ -208,7 +219,7 @@ func TestT1RelaysBothWaysOverTLS13(t *testing.T) {
 		t.Fatalf("version %#x, want TLS 1.3", v)
 	}
 	echo(t, c, "hello")
-	blob := bytes.Repeat([]byte("0123456789abcdef"), 1<<16)
+	blob := []byte(request(strings.Repeat("0123456789abcdef", 1<<16)))
 	errc := make(chan error, 1)
 	go func() {
 		_, werr := c.Write(blob)
@@ -251,13 +262,13 @@ func TestT1RelaysAHalfClose(t *testing.T) {
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { check(t, c.Close()) })
-	_, err = c.Write([]byte("last words"))
+	_, err = c.Write([]byte(request("last words")))
 	check(t, err)
 	check(t, c.CloseWrite())
 	testconn.Bound(t, c)
 	all, err := io.ReadAll(c)
 	check(t, err)
-	if string(all) != "last words" {
+	if string(all) != request("last words") {
 		t.Fatalf("read %q after the half-close", all)
 	}
 }
@@ -331,6 +342,8 @@ func TestT4AnUpstreamThatIsDownClosesTheClient(t *testing.T) {
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
 	t.Cleanup(func() { check(t, c.Close()) })
+	_, err = c.Write([]byte(request("anyone")))
+	check(t, err)
 	if !closed(t, c) {
 		t.Fatal("the client was left open with no upstream")
 	}
@@ -364,8 +377,8 @@ func TestT5MaxConnsBoundsTheRelays(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		if _, werr := third.Write([]byte("again")); werr == nil {
-			got := make([]byte, len("again"))
+		if _, werr := third.Write([]byte(request("again"))); werr == nil {
+			got := make([]byte, len(request("again")))
 			testconn.Bound(t, third)
 			if _, rerr := io.ReadFull(third, got); rerr == nil {
 				break
