@@ -1,6 +1,6 @@
 # Plan 00257: cross host lxc team members
 
-**Status**: In Progress (architecture note written; awaiting the owner's choice of A or B; common work started)
+**Status**: In Progress (report only, on the owner's Q44 instruction of 2026-11-19 11:36Z: the architecture weaknesses of v1 and v2, prior art from the owner's GitHub stars, and keep/adapt/replace; no code until the owner decides)
 **Created**: 2026-11-19
 **Owner**: joseph
 **Priority**: High
@@ -37,20 +37,25 @@ Related plans:
 
 ## Tasks
 
-### Phase 0: decision
+### Phase 0: report and decision
 
-- [ ] ⬜ **Task 0.1**: the owner chooses A or B (ARCHITECTURE.md), through the coordinator (Q44).
+- [ ] 🔄 **Task 0.1**: the report ([REPORT.md](REPORT.md), research in `research/`). It covers the
+  architecture weaknesses of v1 and v2, cited; prior art from the owner's GitHub stars, with
+  licences; and keep, adapt or replace, with the smallest path to adding seats freely between
+  machines, LXC guests included.
+- [ ] ⬜ **Task 0.2**: the owner's decision on REPORT.md (it supersedes the narrower A-versus-B
+  choice in ARCHITECTURE.md), through the coordinator (Q44). Phases 1-2 are held until then.
 
-### Phase 1: common work (needed by A and by B)
+### Phase 1: common work (if the owner keeps v2)
 
-- [ ] 🔄 **Task 1.1**: a spec for placing the kit and the session unit into a local guest whose
+- [ ] ⬜ **Task 1.1**: a spec for placing the kit and the session unit into a local guest whose
   team's homeserver is remote: `lxc apply` steps 02-05 with no child, the url and CA taken
   from the issued document.
 - [ ] ⬜ **Task 1.2**: tests first (RED), then the placement (GREEN), under the existing fakes
   of `host/lxc`.
 - [ ] ⬜ **Task 1.3**: the guest seat keyed on the team url (as pool seats are), tests first.
 
-### Phase 2: per-container step (after Task 0.1)
+### Phase 2: per-container step (after Task 0.2)
 
 - [ ] ⬜ **Task 2.1**: the issuance side for a remote LXC seat, and the owner's one command per
   container.
