@@ -32,12 +32,17 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_members.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_members.inc.bash"
+
 PLAN_USAGE="usage: $(basename "$0") [-y|--yes] [-h|--help]
-Read-only check that no LXC member session is enabled or wanted at boot, then an optional
-reboot of each member container, asked per container at the terminal, default no (-y does
-not answer it: a container is never rebooted unasked)."
+Check that no LXC member session is enabled or wanted at boot, then an optional reboot of each
+member container, asked per container at the terminal, default no (-y does not answer it: a
+container is never rebooted unasked)."
 plan_parse_common_flags "$@"
-plan_mode gather
+# deploy, not gather: the run may reboot a container, which is a change (R7).
+plan_mode deploy
 plan_require_host "it inspects this host's LXC containers"
 plan_prime_sudo
 plan_start_log auto
@@ -47,6 +52,9 @@ unitDir=/etc/systemd/system
 bootWait=120
 failed=0
 unknown=0
+offlineReport="${PLAN_RUN_DIR}/offline-members-report.md"
+declare -A unitsOf=()
+v1Wanted=0 v1Found=0 v2Wanted=0 v2Found=0
 
 evidence() { printf 'EVIDENCE %s\n' "$*"; }
 bad() {
@@ -72,43 +80,60 @@ members() {
         jq -r '.plays[0].tasks[0].hosts.localhost.msg'
 }
 
-# inside runs a command in a container as root, its stdin closed.
-inside() {
-    local container="$1"
-    shift
-    sudo -n lxc-attach -n "${container}" --clear-env -- env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin "$@" </dev/null
+# ask runs a shell probe in a container as root, its stdin closed, and prints the one word the
+# probe printed. An lxc-attach that fails, or a probe that prints no word, is exit 1: the
+# question was not answered, which is never read as an answer.
+ask() {
+    local container="$1" probe="$2" said=""
+    said="$(sudo -n lxc-attach -n "${container}" --clear-env -- env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin sh -c "${probe}" </dev/null)" || return 1
+    [[ -n "${said}" ]] || return 1
+    printf '%s\n' "${said}"
 }
 
-running() { [[ "$(sudo -n lxc-info -n "$1" -s -H </dev/null)" == "RUNNING" ]]; }
+# running is whether container runs now, asked of lxc-ls itself so the boot wait below sees a
+# container that stopped again (ready-wait-ignores-child-exit).
+running() {
+    local name
+    while IFS= read -r name; do
+        [[ "${name}" != "$1" ]] || return 0
+    done < <(sudo -n lxc-ls -1 --running </dev/null)
+    return 1
+}
 
 # checkUnit judges one unit in a container: present, not enabled, no wants link.
 checkUnit() {
-    local container="$1" unit="$2" state="" rc=0
-    if ! inside "${container}" test -f "${unitDir}/${unit}"; then
+    local container="$1" unit="$2" said=""
+    if ! said="$(ask "${container}" "if test -f '${unitDir}/${unit}'; then echo present; else echo absent; fi")"; then
+        unsure "${container}: could not look for ${unit} (lxc-attach failed)"
+        return 0
+    fi
+    if [[ "${said}" != present ]]; then
         bad "${container}: ${unit} is not present in ${unitDir}"
         return 0
     fi
     evidence "${container}: ${unit} present"
     # is-enabled exits non-zero for every state but enabled; its word is the answer.
-    state="$(inside "${container}" systemctl is-enabled "${unit}")" || rc=$?
-    if [[ -z "${state}" ]]; then
-        unsure "${container}: systemctl is-enabled ${unit} said nothing (exit ${rc})"
-    elif [[ "${state}" == enabled* ]]; then
-        bad "${container}: ${unit} is ${state}"
+    if ! said="$(ask "${container}" "systemctl is-enabled '${unit}' || true")"; then
+        unsure "${container}: systemctl is-enabled ${unit} did not answer"
+    elif [[ "${said}" == enabled* ]]; then
+        bad "${container}: ${unit} is ${said}"
     else
-        evidence "${container}: systemctl is-enabled ${unit} = ${state}"
+        evidence "${container}: systemctl is-enabled ${unit} = ${said}"
     fi
-    if inside "${container}" test -L "${wantsDir}/${unit}"; then
+    if ! said="$(ask "${container}" "if test -L '${wantsDir}/${unit}'; then echo linked; else echo none; fi")"; then
+        unsure "${container}: could not look for a wants link for ${unit} (lxc-attach failed)"
+    elif [[ "${said}" == linked ]]; then
         bad "${container}: ${wantsDir}/${unit} exists (a wants link)"
     else
         evidence "${container}: no wants link for ${unit}"
     fi
+    unitsOf["${container}"]+="${unit} "
 }
 
-# booted is whether container's systemd has finished starting (running or degraded).
+# booted is whether container's systemd has finished booting (running or degraded).
 booted() {
-    local said="" rc=0
-    said="$(inside "$1" systemctl is-system-running)" || rc=$?
+    local said=""
+    said="$(ask "$1" "systemctl is-system-running || true")" || return 1
     [[ "${said}" == running || "${said}" == degraded ]]
 }
 
@@ -137,9 +162,35 @@ askReboot() {
     return 1
 }
 
-# rebootProof reboots container (after asking) and checks no claude runs as any of users.
+# afterBoot is the boot proof for one container: each of its checked units is inactive (which
+# also proves the probe could see the unit), and no claude runs as any of its users.
+afterBoot() {
+    local container="$1" users="$2" user="" unit="" said="" found="" rc=0
+    for unit in ${unitsOf["${container}"]:-}; do
+        if ! said="$(ask "${container}" "systemctl is-active '${unit}' || true")"; then
+            unsure "${container}: systemctl is-active ${unit} did not answer after boot"
+        elif [[ "${said}" == inactive ]]; then
+            evidence "${container}: ${unit} is inactive after boot"
+        else
+            bad "${container}: ${unit} is ${said} after boot"
+        fi
+    done
+    for user in ${users}; do
+        rc=0
+        found="$(sudo -n lxc-attach -n "${container}" --clear-env -- pgrep -u "${user}" -x claude </dev/null)" || rc=$?
+        if ((rc == 0)); then
+            bad "${container}: claude runs as ${user} after boot (pids ${found//$'\n'/ })"
+        elif ((rc == 1)); then
+            evidence "${container}: pgrep -u ${user} -x claude finds nothing after boot"
+        else
+            unsure "${container}: pgrep -u ${user} -x claude failed (exit ${rc})"
+        fi
+    done
+}
+
+# rebootProof reboots container (after asking) and runs afterBoot once it has booted.
 rebootProof() {
-    local container="$1" users="$2" user="" waited=0 found="" rc=0
+    local container="$1" users="$2" waited=0
     if ! askReboot "${container}"; then
         evidence "${container}: reboot not chosen; the boot proof was not run"
         return 0
@@ -159,17 +210,7 @@ rebootProof() {
         waited=$((waited + 2))
     done
     evidence "${container}: booted after ${waited}s"
-    for user in ${users}; do
-        rc=0
-        found="$(inside "${container}" pgrep -u "${user}" -x claude)" || rc=$?
-        if ((rc == 0)); then
-            bad "${container}: claude runs as ${user} after boot (pids ${found//$'\n'/ })"
-        elif ((rc == 1)); then
-            evidence "${container}: pgrep -u ${user} -x claude finds nothing after boot"
-        else
-            unsure "${container}: pgrep -u ${user} -x claude failed (exit ${rc})"
-        fi
-    done
+    afterBoot "${container}" "${users}"
 }
 
 declared="$(members)"
@@ -177,39 +218,67 @@ if [[ -z "${declared//[[:space:]]/}" ]]; then
     unsure "no LXC member is declared (agent_bus_lxc_members, teamchat_lxc_members)"
     exit 2
 fi
+mapfile -t names < <(awk 'NF { print $2 }' <<<"${declared}" | sort -u)
+# A container that is not running is an offline member: named in the report, never judged.
+if ! running="$(plan_lxc_online_named "${offlineReport}" "${names[@]}")"; then
+    unsure "lxc-info could not read a declared container (see above)"
+    exit 2
+fi
 containers=()
+mapfile -t containers <<<"${running}"
+isOnline() { [[ " ${containers[*]} " == *" $1 "* ]]; }
+
 while read -r gen container user service; do
     [[ -n "${gen}" ]] || continue
     evidence "declared: ${gen} ${user}@${container} service=${service}"
-    if ! running "${container}"; then
-        unsure "${container}: not running, so its units cannot be read"
-        continue
-    fi
-    [[ " ${containers[*]} " == *" ${container} "* ]] || containers+=("${container}")
-    if [[ "${gen}" == v1 && "${service}" == True ]]; then
+    isOnline "${container}" || continue
+    if [[ "${service}" == True && "${gen}" == v1 ]]; then
+        v1Wanted=$((v1Wanted + 1))
         checkUnit "${container}" "agent-bus-claude-${user}.service"
+        v1Found=$((v1Found + 1))
+    elif [[ "${service}" == True ]]; then
+        v2Wanted=$((v2Wanted + 1))
     fi
 done <<<"${declared}"
 
 for container in "${containers[@]}"; do
-    units="$(inside "${container}" find "${unitDir}" -maxdepth 1 -name 'teamchat-session-*.service' -printf '%f\n')"
+    [[ -n "${container}" ]] || continue
+    # The listing ends in a line "end" only when find succeeded, so a failed find, or one that
+    # failed part way, is never read as fewer units.
+    if ! units="$(ask "${container}" "find '${unitDir}' -maxdepth 1 -name 'teamchat-session-*.service' -printf '%f\\n' && echo end")" ||
+        [[ "${units##*$'\n'}" != end ]]; then
+        unsure "${container}: could not list ${unitDir} for teamchat-session units (lxc-attach or find failed)"
+        continue
+    fi
     for unit in ${units}; do
+        [[ "${unit}" != end ]] || continue
         checkUnit "${container}" "${unit}"
+        v2Found=$((v2Found + 1))
     done
 done
 
+evidence "COVERAGE v1: ${v1Found} unit(s) checked for ${v1Wanted} online service member(s)"
+evidence "COVERAGE v2: ${v2Found} unit(s) checked for ${v2Wanted} online service member(s)"
+if ((v2Wanted > 0 && v2Found == 0)); then
+    unsure "v2 declares ${v2Wanted} online service member(s), but no teamchat-session unit was found"
+fi
+
 for container in "${containers[@]}"; do
+    [[ -n "${container}" ]] || continue
     users="$(awk -v c="${container}" '$2 == c { print $3 }' <<<"${declared}" | sort -u | tr '\n' ' ')"
     rebootProof "${container}" "${users}"
 done
 
 if ((failed)); then
     printf '==> FAIL: a member session is enabled, wanted at boot, or ran after boot\n' >&2
-    exit 1
+    PLAN_FAILED_LEGS="no-autostart"
+    plan_finish
 fi
 if ((unknown)); then
+    # plan_finish has no third status: COULD NOT ESTABLISH is exit 2, said here.
+    plan_list_reports
     printf '==> COULD NOT ESTABLISH: see the lines above\n' >&2
     exit 2
 fi
 printf '==> PASS: no LXC member session is enabled or wanted at boot\n'
-exit 0
+plan_finish

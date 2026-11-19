@@ -25,7 +25,7 @@ missing one stops the run with the command for each (gh_login_refusal):
   7. with `service: true` (Plan 00203 gap 9), a session unit inside the container: the system
      unit `agent-bus-claude-<user>.service` (render_member_unit) runs `agent-bus-claude` as the
      agent user in its checkout under tmux (socket `agent-bus-claude`, so a person can attach).
-     It is started only on demand, by ccy-teams' Start its session (owner, Plan 00257): it has
+     It runs only on demand, from the member's row in ccy-teams (owner, Plan 00257): it has
      no [Install] section and Restart=no, this play never enables or starts it, and one an
      earlier play enabled is disabled and stopped. It needs the container to start at host boot
      (`lxc.start.auto = 1`), systemd as its init and tmux installed, each checked before any
