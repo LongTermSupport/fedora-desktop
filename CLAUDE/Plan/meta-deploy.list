@@ -55,12 +55,28 @@
 # it applied before; that team is left as it was and the play fails. The fix is in host_vars:
 # split the declared network so no part of it is routed through another interface, or remove
 # the overlapping route; then run this again.
+# Plan 00257 B.12 (owner: no LXC member session starts with its container): lxc apply rewrites
+# each v2 LXC seat's session unit with no [Install] and Restart=no, and where an earlier apply
+# made the seat's wants link it removes the link and STOPS that running session. From now on a
+# v2 LXC seat's session starts only on demand (teamchat-admin lxc restart --member).
 playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
 # entered and names what the box showed when a line stays in it.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00257 B.12: the v1 agent-bus play rewrites each LXC member's agent-bus-claude-<user>
+# unit (service: true) with no [Install] and Restart=no, and DISABLES AND STOPS one an earlier
+# run enabled, so a running v1 LXC member session ends here. It never starts one again: the
+# only start is ccy-teams, Enter on the member's row, Start its session in its LXC container
+# (installed by play-claude-yolo.yml above).
+playbooks/imports/play-agent-bus.yml
+# Plan 00257 B.12 proof, read-only: for each declared LXC member container, its session units
+# are present, not enabled and not linked in multi-user.target.wants. It then ASKS, per running
+# container, whether to reboot it (default no; this question is put at the terminal even under
+# meta-deploy), and only on yes reboots it and checks no claude runs for its members' users.
+# Exit 2 means it could not establish the answer (a container not running, say).
+00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
 # Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
 # Run it only while this host's environment/localhost/host_vars/localhost.yml declares
 # `passwordless_sudo_for_unattended_deploys: true` (this host's unattended deploys need
