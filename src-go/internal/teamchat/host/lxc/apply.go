@@ -1292,6 +1292,10 @@ func unitDown(err error) bool {
 	return errors.Is(err, guestbus.ErrSystemd) || errors.Is(err, guestbus.ErrGone) || errors.Is(err, errUnreachable)
 }
 
+// maxWants bounds the listing of the guest's multi-user.target.wants, which holds one entry a
+// unit wanted at boot.
+const maxWants = 4096
+
 func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	text, err := unit.Render(unit.Session{
 		User: m.decl.User, Group: m.group, Home: m.acct.Home, Checkout: m.decl.Checkout, Team: m.team.ID, Seat: m.decl.Seat,
@@ -1312,19 +1316,25 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	if err != nil {
 		return err
 	}
-	unlinked, err := w.Remove(path.Dir(link), path.Base(link))
-	if errors.Is(err, fs.ErrNotExist) {
-		unlinked, err = false, nil
+	// A wants link an earlier apply made goes only once its session is stopped, so a stop that
+	// fails leaves the link for the next apply to find and stop again.
+	wanted, _, err := root.ReadDir(path.Dir(link), anyName, maxWants)
+	if err != nil {
+		return err
 	}
+	unlinked := slices.Contains(wanted, path.Base(link))
 	// Only a joined seat's unit is known reloaded; any other's reload is made again.
 	retry := m.prior.Status != lxcstate.StatusJoined
-	if err != nil || !wrote && !unlinked && !retry {
-		return err
+	if !wrote && !unlinked && !retry {
+		return nil
 	}
 	err = r.systemd(ctx, root, func(s guestbus.Systemd) error {
 		if unlinked {
 			if stopErr := s.Stop(ctx, m.unitName()); stopErr != nil {
 				return stopErr
+			}
+			if _, rmErr := w.Remove(path.Dir(link), path.Base(link)); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+				return rmErr
 			}
 		}
 		return s.Reload(ctx)

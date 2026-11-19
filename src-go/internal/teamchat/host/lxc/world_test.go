@@ -740,9 +740,10 @@ func unitFileOf(t *testing.T, team string) string {
 	return paths.GuestUnitFile(mustTeam(t, team), checkout, 1)
 }
 
-func wantsOf(t *testing.T, team string) string {
+// wantsOf is the wants link of the fixture seat of team t1, the one team its tests give one.
+func wantsOf(t *testing.T) string {
 	t.Helper()
-	return paths.GuestUnitWantsLink(mustTeam(t, team), checkout, 1)
+	return paths.GuestUnitWantsLink(mustTeam(t, "t1"), checkout, 1)
 }
 
 // lineOf is the output line of agent1's seat 1 of the fixture checkout in c and team t1.

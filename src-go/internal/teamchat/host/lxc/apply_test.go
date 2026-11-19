@@ -103,7 +103,7 @@ func placedUnit(t *testing.T, w *world, b *box) {
 	if text, ok := guestFile(t, b, unitFileOf(t, "t1")); !ok || !strings.Contains(text, "Group=agents") {
 		t.Fatalf("unit %q", text)
 	}
-	if _, err := os.Lstat(filepath.Join(b.dir, wantsOf(t, "t1"))); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(b.dir, wantsOf(t))); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a wants link was made: %v", err)
 	}
 	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
@@ -116,7 +116,7 @@ func placedUnit(t *testing.T, w *world, b *box) {
 func TestAWantsLinkIsRemovedAndItsSessionStopped(t *testing.T) {
 	w := placed(t)
 	b := w.lxc.boxes["c1"]
-	link := filepath.Join(b.dir, wantsOf(t, "t1"))
+	link := filepath.Join(b.dir, wantsOf(t))
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +141,41 @@ func TestAWantsLinkIsRemovedAndItsSessionStopped(t *testing.T) {
 	if _, err := w.apply(PhasePresent); err != nil || len(w.bus.calls) != 0 {
 		t.Fatalf("a converged unit was touched again: %v %v", w.bus.calls, err)
 	}
+}
+
+// A wants link whose session cannot be stopped is kept, so the next apply still finds it and
+// stops the session then: the stop comes first, and the link goes only once it has worked.
+func TestAFailedStopKeepsTheWantsLinkAndTheNextApplyStopsIt(t *testing.T) {
+	w := placed(t)
+	b := w.lxc.boxes["c1"]
+	link := filepath.Join(b.dir, wantsOf(t))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(unitFileOf(t, "t1"), link); err != nil {
+		t.Fatal(err)
+	}
+	w.bus.err = &guestbus.SystemdError{Name: "org.freedesktop.systemd1.NoSuchUnit"}
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", unitDownC1(t)))
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("the wants link went though its session was not stopped: %v", err)
+	}
+	w.bus.err, w.bus.calls = nil, nil
+	r, err = w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.bus.calls, []string{"Stop " + unitOf(t, "t1"), "Reload"}) {
+		t.Fatalf("systemd %v", w.bus.calls)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the wants link was not removed once its session stopped: %v", err)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit stopped and its wants link removed: it no longer starts with the container"))
 }
 
 func TestPresentConvergedChangesNothing(t *testing.T) {
@@ -776,7 +811,7 @@ func TestUnitChangedIsReloadedNotStartedAndServiceOffRemoves(t *testing.T) {
 	if _, ok := guestFile(t, b, unitFileOf(t, "t1")); ok {
 		t.Fatal("the unit was not removed")
 	}
-	if _, err := os.Lstat(filepath.Join(b.dir, wantsOf(t, "t1"))); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(b.dir, wantsOf(t))); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the wants link was not removed: %v", err)
 	}
 	w.bus.calls = nil
