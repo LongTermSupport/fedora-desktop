@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.26 — container 2.84.32
+
+- **A line typed into a session counts as entered only when its box is seen empty or busy**
+  (issue #288). `ccy-sessions` set-going, shutdown, `ccy --stop` and the team wind-down type
+  through one submitter, which took any screen not showing typed text as "entered". A screen
+  with no input box (a dialog, Claude Code's editor, a redraw) is no longer taken: the
+  submitter keeps looking, and a screen that still has no box gets no further Enter; set-going
+  reports it as a fault, and shutdown and the wind-down leave it to their bounded waits. When a
+  line stays in the box after every Enter, the failure now quotes the box and the line Claude
+  Code shows above it, such as "Removed 1 invisible character · review and press Enter to
+  send". A line Claude Code holds for review is read as text still to enter, so the next Enter
+  sends it. A new Go rule, `project_screen_state_compared`, makes every reader of the box name
+  each state it can be in. No image rebuild.
+
 ## 3.122.25 — container 2.84.32
 
 - **teamchat host fixes** (Plan 00257 Task B.5). The image's `teamchat` is built from packages

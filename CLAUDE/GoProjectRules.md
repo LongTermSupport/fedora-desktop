@@ -85,6 +85,7 @@ and the per-rule pages are not written; this catalogue stands in for them.
 | `project_class_without_detail`    | a log or report line that prints a failed call's class (`matrix.Class`) where its detail, the cause an operator acts on, is available                                                  | teamchat `teamsync`: "down: the homeserver did not answer usably" for a seat whose pinned CA refused the server (fedora-desktop#265)                                                |
 | `project_start_decision`          | a recorded session's start (resume or fresh) decided outside `conversation.StartPlan`, so the restore, its check and a team restart disagree on when a record starts fresh             | `ccy-sessions` restore: a declared session that never took a turn was unrestorable (fedora-desktop#270)                                                                             |
 | `project_stdin_seam`              | a read of stdin outside `internal/stdinread` and the ui prompt seam, so an open pipe nothing writes to holds the command silently for ever                                             | teamchat `client/send.go` `readStdin` (`thread --close`'s Python twin waited minutes; issue #260)                                                                                   |
+| `project_screen_state_compared`   | what Claude's input box shows judged by `==` or `!=` against one `screen.State`, so every other screen, one the reader does not know included, takes the opposite verdict              | `ccy-sessions` set-going: a `/compact` held by Claude Code for review taken as submitted (fedora-desktop#288)                                                                       |
 
 Each rule's doc string (`<driver> help project_<name>`, the driver built from `src-go/qa/driver`;
 `go vet -vettool=<driver> help ...` does not reach it) says what it does and
@@ -2411,6 +2412,61 @@ do not decide a start, and the rule would flag reads that carry no hazard.
   `sessions.TestAMarkedRecordWhoseSessionNeverTookATurnStartsFresh` and
   `restart.TestAStoppedMarkedSessionThatNeverTookATurnIsStartedFresh` reproduce the defect.
 
+### project_screen_state_compared
+
+**What it is about.** `screen.ClaudeState` reads a pane into one of a few states, but Claude
+Code draws more screens than the reader knows: a line held for review, a redraw, a dialog, the
+external editor. A verdict asked as `state != screen.Typed` (or `== screen.Ready`, its else
+being the verdict) puts every other state, any the reader does not know included, on one side.
+
+**Why it exists.** fedora-desktop#288: set-going's `/compact` stayed in the box, held by Claude
+Code ("Removed 1 invisible character · review and press Enter to send"), and a person's Enter
+sent it. How it got past `tmuxccy.Submit` is not established: a held line reads `Typed`, which
+the check entered again. What is proven is the check's shape: `ClaudeState(pane) != screen.Typed`
+took every screen it did not read as typed, one with no box drawn included, as taken.
+
+**What it flags**, outside test files and inside package `screen` too: an `==` or `!=`
+comparison with an operand of type `internal/screen`'s `State`, matched through `types.Info`.
+A `switch` over a `State` is the exhaustive linter's (`.golangci.yml`): a missing member or a
+`default` is refused, so a member added to `screen` is a decision at every consumer.
+
+**Not caught**: a `State` converted to a string and compared, a `State` looked up in a slice
+(`slices.Contains`), and a verdict on a screen kept in another type (`restore.State`, the
+restore's verdict on a pane). No instance of the first two exists in either module (searched at
+the sweep); they are left to review because each needs a data-flow rule for a form nothing uses.
+
+**How to fix a violation.** Switch over the `State`, naming every member, and decide each.
+
+**The next wider rule, not built:** every type that holds a verdict on a pane's screen
+(`restore.State` beside `screen.State`). Not built: `restore.Judge` maps every pane it cannot
+read to a named verdict of its own, and its one `==` (`sessions/verify.go`, the unattended stop's
+detail) decides a message, not whether text was taken; the owner decides whether it is wanted.
+
+- Red, fixture: `testdata/src/fix/internal/badscreenstate` (Submit's check as it was, its
+  positive form, a held value, a tagless switch, two states compared; an exhaustive switch, a
+  plain string, a printed state and a test file clean) and `fix/internal/screen` (a comparison
+  inside the package is judged).
+- Red, real tree: eight findings, `tmuxccy/submit.go:69` (the defect), `screen/screen.go:94`,
+  `sessclose/sessclose.go:390`, `:441` and `:582`, `teams/winddown/compact.go:96` and `:159`,
+  and `teams/winddown/windstep.go:296`; the `ccyteamstest` build adds none.
+- Green: every site is an exhaustive switch; the sweep over both modules and the tagged builds
+  is clean. Seven keep their behaviour; Submit takes a box only when it is seen empty or busy,
+  never a screen with no box (`tmuxccy.ErrBoxNotDrawn`, no further Enter), and names what the
+  box showed when it gives up. `screen.TestALineHeldForReviewIsStillTyped` reads two captures
+  of Claude Code 2.1.325 (a line held for review, then sent with the notice left above the empty
+  box); `tmuxccy.TestSubmitEntersALineHeldForReviewAgain` drives Submit through them, and
+  `TestSubmitNamesTheHeldStateWhenItGivesUp`, `TestSubmitDoesNotTakeAScreenWithNoBoxAsTaken` and
+  `TestSubmitStopsAtAScreenThatDrawsNoBox` were red on the old Submit. These four tests pin the
+  behaviour #288 reported: a held line is entered again, and a screen with no box is never
+  taken as submitted.
+- Why the seven other sites are in scope: each decided an action by one state with every other
+  state, one added later included, on the opposite side (`screen.go:94` whether a box is drawn,
+  `sessclose` whether a close may type or has ended, `winddown` whether a compaction or a step
+  may type). None was seen to misjudge a screen today; the rule holds them because a state added
+  to `screen` would land on whichever side the comparison's else gives it, unchosen. The sweep
+  and Submit's fix share one commit because Submit's comparison is one of the eight findings and
+  the gate is not green until every site is a switch.
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -3214,9 +3270,11 @@ submits by a carriage return written to the child's PTY, not tmux: outside this 
 its submits are re-checked by its own state machine (`mark_own_line_typed`, `WOULD_RESUBMIT`).
 
 **How to fix a violation.** Submit with `tmuxccy.Tmux.Submit(ctx, name, text, SubmitPace)`:
-it types the text, pauses, presses Enter, reads the box until the text has left it (a pane
-gone counts as left) and presses Enter again while it has not, up to `SubmitEnters`; text still
-there is `tmuxccy.ErrNotSubmitted`, which the caller reports as a failure, never as taken.
+it types the text, pauses, presses Enter, reads the box until it is seen empty or busy (a pane
+gone counts as left) and presses Enter again while it still holds the text, up to
+`SubmitEnters`; text still there is `tmuxccy.ErrNotSubmitted` (a `*NotSubmittedError` saying
+what the box showed), which the caller reports as a failure, never as taken. A screen with no
+box after an Enter is `tmuxccy.ErrBoxNotDrawn`, never taken (fedora-desktop#288).
 
 **The next wider rule, not built:** any text written into a TUI (a tmux pane or a PTY, in any
 language) and submitted with one unchecked Enter. Not built: its one other instance, the

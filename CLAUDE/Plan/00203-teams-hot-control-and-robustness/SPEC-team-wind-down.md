@@ -85,8 +85,10 @@ the agent working against the wind-down.
   so. Amended by fedora-desktop#264: each line (`/goal clear`, the wind-down, `/compact`) is
   submitted through `tmuxccy.Tmux.Submit`, which reads the box after each Enter and presses
   Enter again while the line is still there, up to 5 Enters; a line still there then fails the
-  job (`<line> stayed in its input box after 5 Enters`, with how far it got, W7). The poll of
-  grace and one more Enter above stay as a second line of defence.
+  job (`<line> stayed in its input box after 5 Enters (its box shows "<box line>"[, above it: "<Claude Code's line above the box>"])`, with how far it got, W7). The poll of grace and one
+  more Enter above stay as a second line of defence. Amended by fedora-desktop#288: the line
+  has left the box only when the box is seen empty or busy; a screen with no box after the
+  Enter gets no further Enter and is left to the next phase's bounded looks (W6).
 - W6. Bounds: up to 300 s for a session to become idle before the first keystroke (D2), and up
   to 30 s for each typed line to leave the box. A pane is read once a second. The jobs are
   watched together, so one slow session does not delay the others.

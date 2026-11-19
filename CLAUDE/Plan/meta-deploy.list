@@ -48,4 +48,7 @@
 # its request gate, and team apply writes the health unit's drop-in of the listen addresses.
 playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
+# The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
+# launcher's front), whose typed-line submitter no longer takes a screen with no input box as
+# entered and names what the box showed when a line stays in it.
 playbooks/imports/play-claude-yolo.yml

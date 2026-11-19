@@ -6,6 +6,7 @@ package screen
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -91,8 +92,10 @@ var pickerSigns = []string{"Resume session", "Enter to resume · Esc to cancel"}
 // starting with one of pickerSigns, and no framed input box (a conversation that quotes the
 // header still has its box drawn below).
 func AtConversationPicker(pane string) bool {
-	if ClaudeState(pane) != NotDrawn {
+	switch ClaudeState(pane) {
+	case Ready, Busy, Typed:
 		return false
+	case NotDrawn:
 	}
 	for line := range strings.SplitSeq(Plain(pane), "\n") {
 		line = strings.TrimSpace(line)
@@ -193,6 +196,29 @@ func InputLine(screen string) string {
 		return ""
 	}
 	return rawLines[i]
+}
+
+// AboveTheBox is the nearest line above the box's top rule with something on it, as shown and
+// trimmed ("" when no framed box is drawn): where Claude Code puts a notice such as "Removed 1
+// invisible character · review and press Enter to send" when it holds a line back.
+func AboveTheBox(screen string) string {
+	_, plain, i := inputBox(screen)
+	for k := i - 2; k >= 0; k-- {
+		if line := strings.TrimSpace(plain[k]); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// LastLine is the screen's lowest line with something on it, as shown and trimmed.
+func LastLine(screen string) string {
+	for _, line := range slices.Backward(strings.Split(Plain(screen), "\n")) {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // inputBox splits the screen into its raw and plain lines and finds the framed box line in

@@ -295,11 +295,14 @@ func (w *WindDown) waitIdle(j *job, state screen.State, now time.Time) {
 	if now.Before(j.idleBy) {
 		return
 	}
-	if state == screen.Busy {
+	switch state {
+	case screen.Busy:
 		j.fail(j.after("it stayed busy for " + seconds(w.Waits.Idle)))
-		return
+	case screen.NotDrawn:
+		j.fail(j.after("its input box was not drawn within " + seconds(w.Waits.Idle)))
+	case screen.Ready, screen.Typed:
+		j.fail(j.after("it was not idle within " + seconds(w.Waits.Idle)))
 	}
-	j.fail(j.after("its input box was not drawn within " + seconds(w.Waits.Idle)))
 }
 
 // reenter gives a line left in the box one poll of grace (a line slow to clear is not entered
@@ -326,8 +329,8 @@ func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, note stri
 // A line no Enter submitted fails the job, saying which line stayed in the box.
 func (w *WindDown) typeLine(ctx context.Context, j *job, text string, next phase) error {
 	err := j.tmux.Submit(ctx, j.pane, text, tmuxccy.SubmitPace{Pause: w.Waits.Submit, Sleep: w.Sleep})
-	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
-		stuck := " stayed in its input box after " + strconv.Itoa(tmuxccy.SubmitEnters) + " Enters"
+	if held, ok := errors.AsType[*tmuxccy.NotSubmittedError](err); ok {
+		stuck := " stayed in its input box after " + strconv.Itoa(tmuxccy.SubmitEnters) + " Enters (" + held.Shows + ")"
 		switch next {
 		case phaseGoal:
 			j.fail("/goal clear" + stuck + "; the wind-down was not typed")
@@ -338,7 +341,9 @@ func (w *WindDown) typeLine(ctx context.Context, j *job, text string, next phase
 		}
 		return nil
 	}
-	if err != nil {
+	// A screen with no box after the Enter is left to the next phase's looks, which wait a bounded
+	// time for the box and judge it as they find it.
+	if err != nil && !errors.Is(err, tmuxccy.ErrBoxNotDrawn) {
 		return err
 	}
 	now := w.Now()

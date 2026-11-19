@@ -494,14 +494,18 @@ func (c *Closer) look(ctx context.Context, j *job, pane string) error {
 	if err := c.answerBackgroundWork(ctx, j, pane); err != nil {
 		return err
 	}
-	if j.typed && state == screen.Typed && !j.reentered {
-		j.reentered = true
-		return c.Tmux.SendEnter(ctx, j.Name)
+	if !j.typed {
+		return c.ready(ctx, j, state, exitCommand)
 	}
-	if j.typed {
-		return nil
+	switch state {
+	case screen.Typed:
+		if !j.reentered {
+			j.reentered = true
+			return c.Tmux.SendEnter(ctx, j.Name)
+		}
+	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
-	return c.ready(ctx, j, state, exitCommand)
+	return nil
 }
 
 // ready types line at a ready box, presses Escape once on a busy one, and fails over unsent
@@ -527,7 +531,11 @@ func (c *Closer) ready(ctx context.Context, j *job, state screen.State, line str
 // box is never interrupted, and unsent text never typed over (W1, W2).
 func (c *Closer) waitTurn(ctx context.Context, j *job, state screen.State) error {
 	j.last = state
-	j.busy = j.busy || state == screen.Busy
+	switch state {
+	case screen.Busy:
+		j.busy = true
+	case screen.Ready, screen.Typed, screen.NotDrawn:
+	}
 	if !j.quiet.Idle(state, c.Now(), c.Waits.Settle) {
 		return nil
 	}
@@ -565,14 +573,16 @@ func (c *Closer) stayed(j *job, note string) {
 }
 
 // typeLine submits the line, each Enter on its own after the submit pause, checking the box took
-// it (tmuxccy.Submit), and starts the wait that follows it.
+// it (tmuxccy.Submit), and starts the wait that follows it. A screen with no box after the Enter
+// (/exit's question, its held window, Claude Code ending) is left to that wait, which reads each
+// screen it knows and is bounded.
 func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
 	at := c.Now()
 	err := c.Tmux.Submit(ctx, j.Name, line, tmuxccy.SubmitPace{Pause: c.Waits.Submit, Sleep: c.Sleep})
 	if errors.Is(err, tmuxccy.ErrNotSubmitted) {
 		return errors.New(err.Error() + "; it is still running: attach it (ccy-sessions)")
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, tmuxccy.ErrBoxNotDrawn) {
 		return err
 	}
 	if line == exitCommand {
@@ -590,7 +600,8 @@ func (c *Closer) typeLine(ctx context.Context, j *job, line string) error {
 // compacting watches a typed /compact until its end (C4-C6).
 func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) error {
 	now := c.Now()
-	if state == screen.Typed {
+	switch state {
+	case screen.Typed:
 		if !j.compactReentered {
 			j.compactReentered, j.stuckBy = true, now.Add(c.Waits.Settle)
 			return c.Tmux.SendEnter(ctx, j.Name)
@@ -599,6 +610,7 @@ func (c *Closer) compacting(ctx context.Context, j *job, state screen.State) err
 			j.done(Failed, "its /compact stayed in its input box after a second Enter, so "+j.left())
 		}
 		return nil
+	case screen.Ready, screen.Busy, screen.NotDrawn:
 	}
 	idle := j.quiet.Idle(state, now, c.Waits.Settle)
 	if j.file == "" {
@@ -743,7 +755,13 @@ type Quiet struct {
 func (q *Quiet) Reset() { *q = Quiet{} }
 
 // Saw records a look made elsewhere: a busy one counts as the busy look.
-func (q *Quiet) Saw(state screen.State) { q.sawBusy = q.sawBusy || state == screen.Busy }
+func (q *Quiet) Saw(state screen.State) {
+	switch state {
+	case screen.Busy:
+		q.sawBusy = true
+	case screen.Ready, screen.Typed, screen.NotDrawn:
+	}
+}
 
 // Idle is whether the box is idle and empty again at now.
 func (q *Quiet) Idle(state screen.State, now time.Time, settle time.Duration) bool {

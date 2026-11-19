@@ -102,6 +102,60 @@ func TestInputLineEmptyEdgeCases(t *testing.T) {
 	}
 }
 
+// The fixtures are tmux captures of Claude Code 2.1.325 holding a line back
+// (fedora-desktop#288): a line typed with a zero-width space and entered is held, cleaned, in
+// the box under "Removed 1 invisible character · review and press Enter to send", which is
+// still text to enter; the next Enter sends it, and the notice stays above the empty box a
+// while after.
+func TestALineHeldForReviewIsStillTyped(t *testing.T) {
+	cases := map[string]State{"held-for-review.txt": Typed, "held-for-review-then-sent.txt": Ready}
+	for name, want := range cases {
+		raw, err := os.ReadFile(filepath.Clean(filepath.Join("testdata", name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ClaudeState(string(raw)); got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+		if got := AboveTheBox(string(raw)); got != "Removed 1 invisible character · review and press Enter to send" {
+			t.Errorf("%s: above the box %q", name, got)
+		}
+	}
+}
+
+// AboveTheBox is the nearest line above the box with something on it, as shown: Claude Code's
+// notice when it holds a line, which a caller names when it gives up.
+func TestAboveTheBoxIsTheNearestShownLine(t *testing.T) {
+	cases := map[string]string{
+		"a notice":         lines("● done", "\x1b[38;5;246m   Removed 2 invisible characters · nothing left to send\x1b[39m", rule, "❯ ", rule),
+		"blank lines skip": lines("● done", "", "  ", rule, "❯ x", rule),
+		"no box":           lines("Building image...", "> "),
+		"nothing above":    lines(rule, "❯ ", rule),
+	}
+	want := map[string]string{
+		"a notice":         "Removed 2 invisible characters · nothing left to send",
+		"blank lines skip": "● done",
+		"no box":           "",
+		"nothing above":    "",
+	}
+	for name, pane := range cases {
+		if got := AboveTheBox(pane); got != want[name] {
+			t.Errorf("%s: got %q, want %q", name, got, want[name])
+		}
+	}
+}
+
+// LastLine is the screen's last line with something on it, as shown: what a pane with no box
+// was showing.
+func TestLastLineIsTheLowestShownLine(t *testing.T) {
+	if got := LastLine(lines("Resume this session with:", "\x1b[1mclaude --resume 1234\x1b[0m", "", "")); got != "claude --resume 1234" {
+		t.Fatalf("got %q", got)
+	}
+	if got := LastLine(""); got != "" {
+		t.Fatalf("empty screen: got %q", got)
+	}
+}
+
 // InputLine gives the raw box line, escapes and all, so that a box judged typed can be shown
 // as it was.
 func TestInputLineIsTheRawBoxLine(t *testing.T) {
