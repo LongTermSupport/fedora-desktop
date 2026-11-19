@@ -393,10 +393,16 @@ teamchat_lxc_members:
     checkout: /home/<agent-user>/<repo>
     seat: 1                           # required, 1-9999; (team, container, checkout, seat) is the member
     human_text: true                  # optional, default true
-    service: false                    # optional: a supervised session unit in the guest
+    service: false                    # optional: a session unit in the guest, run only on demand
     state: present                    # optional: present (default) or absent
 ```
 
+- **A `service: true` seat's session runs only on demand.** Its unit has no `[Install]` section
+  and `Restart=no`, and `lxc apply` only places and reloads it: nothing starts it at boot or at
+  an apply. Start it, or start it again, with
+  `teamchat-admin lxc restart --member <container>/<seat key>`; the seat key is the last part
+  of the seat's name in the play's `lxc apply` lines. ccy-teams shows no v2 LXC seat rows, so
+  it has no start line for one.
 - **One entry is one seat.** A container may hold any number of entries, for any users and
   checkouts; a coordinator and a worker on one checkout are two entries with two seats. There is
   no `role`: the team's `coordinator` names the coordinator's handle.
