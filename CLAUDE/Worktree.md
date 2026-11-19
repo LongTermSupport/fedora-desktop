@@ -34,9 +34,9 @@ The cap reached 28 branches on 2026-11-10 (owner: "no more branch sprawl"). Each
 Never meet the cap by exempting branches or raising it. Fix the cause.
 
 - **Rescue copies kept as branches** (`rescue/*`, `wip-rescue/*`). A copy made during a
-  recovery goes to `refs/archive/<name>` (`git push origin <ref>:refs/archive/<name>`) or a
-  bundle under `untracked/deleted-branches/`, never to a branch. The cap counts branches only,
-  so an archive ref costs nothing, and it stays on GitHub.
+  recovery goes to `refs/archive/<name>` (`git push origin <ref>:refs/archive/<name>`), never
+  to a branch. The cap counts branches only, so an archive ref costs nothing, and it stays on
+  GitHub.
 - **Stacked PR chains**, one branch per slice, each waiting on the one below. Do not stack. Put
   each piece of a stream as commits on that stream's one branch and PR, or land the bottom of the
   stack before starting the next. A stack that exists is collapsed: retarget the top PR to F44
@@ -59,8 +59,11 @@ Never meet the cap by exempting branches or raising it. Fix the cause.
   local `--no-ff` merge and a passing full QA run when its CI is stale against F44.
 
 The daemon commands, in order: `branch-sweep` (report), `worktree-reap`, `branch-sweep --clean`
-(local, bundled), `branch-sweep --clean --remote` (only branches merged into F44),
-`delete-branch` (local, proven against `--protected-ref`). An agent may delete a remote branch
+(a dry run: it prints what it would delete and the proof; add `--apply` to delete),
+`branch-sweep --clean --remote --apply` (only branches merged into F44), `delete-branch` (local,
+proven against `--protected-ref`, which takes only F44 or a declared integration line). No
+recovery bundle is written: each delete prints the `git branch <name> <sha>` line that restores
+it, and unproven work is never deleted by these commands. An agent may delete a remote branch
 only when it is merged into F44. Any other remote delete is the owner's, after its tip is in
 `refs/archive/`.
 
