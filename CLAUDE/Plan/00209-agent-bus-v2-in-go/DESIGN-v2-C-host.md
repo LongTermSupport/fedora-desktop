@@ -2178,23 +2178,26 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 
 #### 3.9.4 The supervised session in a guest
 
-`service: true` gives the seat a supervised session: B's `teamchat run --claude --kind lxc` in a tmux
-pane, restarted on exit (area B owns what runs and its arguments, B 2.2). One unit and one tmux
+`service: true` gives the seat a session unit: B's `teamchat run --claude --kind lxc` in a tmux
+pane (area B owns what runs and its arguments, B 2.2). One unit and one tmux
 server and session per seat, so a user with several seats has several units, each started,
-restarted, failed and removed alone (names: 3.9.1). v1 wrote a system unit
+failed and removed alone (names: 3.9.1). **The session starts only on demand** (owner, Plan
+00257: a member's session never starts with its container): `lxc restart --member` starts it.
+The unit has no `[Install]` section and `Restart=no`; no apply makes a wants link, starts or
+restarts it; an apply that finds the wants link an earlier apply made removes it and stops the
+session. v1 wrote a system unit
 with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file,
-`/etc/systemd/system/teamchat-session-<team>-<repo>-<seat>-<key>.service`, and its wants link, an absolute link in
-`/etc/systemd/system/multi-user.target.wants/` made by `symlinkat` to a temporary name and
-`renameat2`, into the guest from the host side (3.9.1's rules), so the unit also starts at the
-next boot with no `systemctl enable` (DC13 (b) relies on that). It asks the guest's own systemd to
-reload and start the unit over the guest's private manager socket, `run/systemd/private` below
+`/etc/systemd/system/teamchat-session-<team>-<repo>-<seat>-<key>.service`, into the guest from the
+host side (3.9.1's rules). It asks the guest's own systemd to
+reload the unit (and `lxc restart` to start it) over the guest's private manager socket, `run/systemd/private` below
 the guest root: opened `O_PATH` through the root fd (3.9.2 step 03's flags), `fstat`ed as a socket
 owned by root, and connected through `/proc/self/fd/<n>`, never by a `connect` to a
 `/proc/<init pid>/root/...` path. That is a host process speaking peer-to-peer
 D-Bus (DC17) to a process that already runs as the guest's root, with no guest program run. Host
 check H-C9 proves this on a real privileged container. If it cannot be made to work, the fallback
-is decision DC13 (start at the next container start only); running the guest's `systemctl` as root
-is not an option. A unit whose text is unchanged is not restarted; a seat that leaves, or whose
+is decision DC13 (start at the next container start only, which Plan 00257's ruling withdrew);
+running the guest's `systemctl` as root is not an option. A unit whose text changed is reloaded,
+not restarted (a session started on demand takes it at its next start); a seat that leaves, or whose
 entry turns `service: false`, has its unit stopped, disabled and removed. The unit text is C's
 alone (area B places no unit):
 
@@ -2217,11 +2220,7 @@ Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<key> HOME=<home>
 Environment=PATH=<home>/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/tmux -S /run/teamchat-session-<key>/tmux.sock new-session -d -s teamchat-session-<team>-<repo>-<seat>-<key> /usr/local/bin/teamchat run --claude --kind lxc --key <key> --resume-recorded -- claude
 TimeoutStopSec=30
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+Restart=no
 ```
 
 - The pane runs `teamchat run` directly, with no launcher script or environment file between them

@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.32 — container 2.84.38
+
+- **No LXC member's session starts with its container** (Plan 00257, the owner's order). Its
+  unit has no `[Install]` section and `Restart=no`; neither the agent-bus play nor `lxc apply`
+  enables, links or starts it, and each removes the boot start an earlier run set up, stopping
+  that session. ccy-teams has a new line on an LXC member's menu, Start its session in its LXC
+  container, which is the one start of a v1 member's session; a v2 seat's is
+  `teamchat-admin lxc restart --member`.
+
 ## 3.122.31 — container 2.84.37
 
 - **The TLS terminator relays a chunk whose size has spaces or tabs before its extension's `;`**

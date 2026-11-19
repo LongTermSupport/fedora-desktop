@@ -143,12 +143,14 @@ func TestEveryMemberKindIsOfferedTheSameRoleActionInTheSameWords(t *testing.T) {
 }
 
 // sharedShape is a member menu's lines with its role line written ROLE, the member's own handle
-// and seat as one word, and the ccy seat's own lines (attach, restore, and adding its running
-// session to another team) left out: what every kind shares, in its order.
+// and seat as one word, and each kind's own lines (a ccy seat's attach, restore, and adding its
+// running session to another team; an LXC member's start of its session) left out: what every
+// kind shares, in its order.
 func sharedShape(labels []string, handle, roleLine string) []string {
 	var shape []string
 	for _, l := range labels {
-		if strings.HasPrefix(l, "Attach ") || strings.Contains(l, "after a reboot") || l == "Add this session to another team" {
+		if strings.HasPrefix(l, "Attach ") || strings.Contains(l, "after a reboot") || l == "Add this session to another team" ||
+			l == "Start its session in its LXC container" {
 			continue
 		}
 		if l == roleLine {

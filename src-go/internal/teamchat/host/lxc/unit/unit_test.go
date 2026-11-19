@@ -40,6 +40,25 @@ func TestRenderIsTheDesignsUnit(t *testing.T) {
 	}
 }
 
+// The owner's order (Plan 00257): a member's session never starts with its container and never
+// by itself. The unit has no [Install] section, so nothing can enable it or want it at boot, and
+// Restart=no, so a session that ends stays down until it is started on demand. This is the
+// detector of the class: a session unit that starts at boot.
+func TestRenderNeverStartsAtBootOrByItself(t *testing.T) {
+	text, err := Render(session(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{"[Install]", "WantedBy=", "RequiredBy=", "UpheldBy=", "Alias=", "Also=", "Restart=always", "Restart=on-"} {
+		if bytes.Contains(text, []byte(banned)) {
+			t.Errorf("the unit holds %q:\n%s", banned, text)
+		}
+	}
+	if !bytes.Contains(text, []byte("\nRestart=no\n")) {
+		t.Errorf("the unit is not Restart=no:\n%s", text)
+	}
+}
+
 func TestRenderRefusesAValueOutsideItsGrammar(t *testing.T) {
 	cases := map[string]struct {
 		edit  func(*Session)

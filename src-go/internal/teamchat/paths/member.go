@@ -45,8 +45,8 @@ func GuestUnitFile(team TeamID, checkout string, seat int) string {
 	return systemdDir + "/" + SessionUnit(team, checkout, seat)
 }
 
-// GuestUnitWantsLink is the unit's link in multi-user.target.wants, so it starts at the next
-// boot (n3-D3, DC13 (b)).
+// GuestUnitWantsLink is the unit's link in multi-user.target.wants that an earlier apply made
+// (n3-D3); apply removes it, since the session starts only on demand (Plan 00257).
 func GuestUnitWantsLink(team TeamID, checkout string, seat int) string {
 	return systemdDir + "/multi-user.target.wants/" + SessionUnit(team, checkout, seat)
 }

@@ -71,7 +71,8 @@ const (
 // starts a ccy session's container (and runs one under docker unprotected); nmcli is run inside
 // a container by lxcfreeze, for the hotspot by ftpcamera and for its VPN profiles by nord.
 // systemctl is the desktop's units through sudo in systemd (teamchat/units reaches systemd
-// over D-Bus only). lxc-ls,
+// over D-Bus only), and an LXC member's session unit started inside its container by lxcfreeze
+// (ccy-teams' Start its session; nothing else may start it). lxc-ls,
 // lxc-info and lxc-attach are the freeze tool's through sudo in lxcfreeze, and teamchat-admin's
 // as root in teamchat/host/lxc/lxccmd, which may not link lxcfreeze's TUI or sudo. A program absent
 // from the table is unowned: any package may run it.
@@ -80,7 +81,7 @@ var commandOwners = map[string][]string{
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {systemdPkg},
+	"systemctl":    {systemdPkg, lxcfreezePkg},
 	"busctl":       {systemdPkg, "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},

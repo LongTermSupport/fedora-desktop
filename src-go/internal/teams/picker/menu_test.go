@@ -541,6 +541,7 @@ func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
 	want := []string{
+		"Start its session in its LXC container",
 		"Make proj.box+role.lxc the coordinator (alpha has none)",
 		"Open alpha in Element",
 		"Start a ccy session in alpha, in this folder",

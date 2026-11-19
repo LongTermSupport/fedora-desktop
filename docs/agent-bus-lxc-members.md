@@ -153,12 +153,15 @@ Notes on the table:
    The optional keys are `host` and `seat` (overrides), `role`, `human_text`, `repo`,
    `state` and `service`; the comments in `localhost.yml.dist` describe each.
 
-   **`service: true` keeps the session running by itself.** The play installs
+   **`service: true` gives the session a unit, started only on demand.** The play installs
    `agent-bus-claude-<agent-user>.service` inside the container: it runs `agent-bus-claude`
-   as the agent user in `checkout`, under tmux, and systemd restarts it after a crash, a
-   container restart or a host reboot. The play refuses the entry, before changing anything,
-   unless the container starts at host boot (`lxc.start.auto = 1` in its config), runs
-   systemd as its init and has tmux. To watch or type into the session:
+   as the agent user in `checkout`, under tmux. It never starts with the container and the
+   play never starts it: the unit has no `[Install]` section (nothing enables it) and
+   `Restart=no`. Start it from ccy-teams: Enter on the member's row, then **Start its session
+   in its LXC container**. It then runs until it ends or is stopped. A unit an earlier play
+   enabled is disabled and stopped by the next run. The play refuses the entry, before
+   changing anything, unless the container starts at host boot (`lxc.start.auto = 1` in its
+   config), runs systemd as its init and has tmux. To watch or type into the session:
    `sudo lxc-attach -n <container> -- runuser -u <agent-user> -- tmux -L agent-bus-claude attach`.
    Leave it out for a member someone starts by hand; turning it off, or the user leaving its
    last team, stops and removes the unit.

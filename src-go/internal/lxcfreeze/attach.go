@@ -3,6 +3,7 @@ package lxcfreeze
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
@@ -17,6 +18,20 @@ const tmuxProgram = "tmux"
 // into that session the way it does a desktop one. sudo must be ready (sudo.Ready) first.
 func (l *Lister) InContainer(lxcPath, container, user string) execx.Runner {
 	return containerTmux{l: l, lxcPath: lxcPath, container: container, user: user}
+}
+
+// StartUnit starts a system unit inside a running container as root: `sudo -n lxc-attach -P
+// <lxcPath> -n <container> --clear-env -- env -i PATH=<guest path> systemctl start -- <unit>`.
+// It is ccy-teams' Start its session for an LXC member, the one start of play-agent-bus.yml's
+// `service: true` unit, which nothing enables. A failure carries systemd's own words. sudo
+// must be ready (sudo.Ready) first.
+func (l *Lister) StartUnit(ctx context.Context, lxcPath, container, unit string) error {
+	res, err := l.Sudo.Capture(ctx, "lxc-attach", "-P", lxcPath, "-n", container, "--clear-env", "--",
+		"env", "-i", "PATH="+guestPath, "systemctl", "start", "--", unit)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(res.Stderr)))
+	}
+	return nil
 }
 
 type containerTmux struct {

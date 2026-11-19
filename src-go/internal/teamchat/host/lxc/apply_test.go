@@ -96,17 +96,50 @@ func placedKit(t *testing.T, b *box) {
 	}
 }
 
-// placedUnit checks agent1's unit file and wants link in b, and the systemd calls.
+// placedUnit checks agent1's unit file in b, that it has no wants link, and the systemd calls:
+// a reload, and never a start (owner, Plan 00257: the session starts only on demand).
 func placedUnit(t *testing.T, w *world, b *box) {
 	t.Helper()
 	if text, ok := guestFile(t, b, unitFileOf(t, "t1")); !ok || !strings.Contains(text, "Group=agents") {
 		t.Fatalf("unit %q", text)
 	}
-	if target, err := os.Readlink(filepath.Join(b.dir, wantsOf(t, "t1"))); err != nil || target != unitFileOf(t, "t1") {
-		t.Fatalf("wants link %q %v", target, err)
+	if _, err := os.Lstat(filepath.Join(b.dir, wantsOf(t, "t1"))); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a wants link was made: %v", err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
+	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
 		t.Fatalf("systemd %v", w.bus.calls)
+	}
+}
+
+// A unit an earlier apply placed with a wants link (so it started with its container, and was
+// started by the apply): the link is removed and the running session stopped, once.
+func TestAWantsLinkIsRemovedAndItsSessionStopped(t *testing.T) {
+	w := placed(t)
+	b := w.lxc.boxes["c1"]
+	link := filepath.Join(b.dir, wantsOf(t, "t1"))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(unitFileOf(t, "t1"), link); err != nil {
+		t.Fatal(err)
+	}
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the wants link was not removed: %v", err)
+	}
+	if !slices.Equal(w.bus.calls, []string{"Stop " + unitOf(t, "t1"), "Reload"}) {
+		t.Fatalf("systemd %v", w.bus.calls)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit stopped and its wants link removed: it no longer starts with the container"))
+	if _, ok := guestFile(t, b, unitFileOf(t, "t1")); !ok {
+		t.Fatal("the unit itself was removed")
+	}
+	w.bus.calls = nil
+	if _, err := w.apply(PhasePresent); err != nil || len(w.bus.calls) != 0 {
+		t.Fatalf("a converged unit was touched again: %v %v", w.bus.calls, err)
 	}
 }
 
@@ -716,16 +749,20 @@ func TestOtherTeamsSeatsKeptOutsideOnlyTeams(t *testing.T) {
 	}
 }
 
-func TestUnitChangedRestartsAndServiceOffRemoves(t *testing.T) {
+// A changed unit is reloaded, never started or restarted: a session started on demand keeps
+// running, and takes the new unit at its next start.
+func TestUnitChangedIsReloadedNotStartedAndServiceOffRemoves(t *testing.T) {
 	w := placed(t)
 	b := w.lxc.boxes["c1"]
 	writeTree(t, b.dir, map[string]string{unitFileOf(t, "t1")[1:]: "old text"})
-	if _, err := w.apply(PhasePresent); err != nil {
+	r, err := w.apply(PhasePresent)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Restart " + unitOf(t, "t1")}) {
+	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
 		t.Fatalf("systemd %v", w.bus.calls)
 	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit updated; it takes effect at its next start"))
 	w.bus.calls = nil
 	m := w.member("t1", "c1")
 	m.Service = false
@@ -771,9 +808,9 @@ func TestUnitRefusedIsOffline(t *testing.T) {
 	}
 }
 
-// A unit start that failed is started again by the next apply, though its file and link are
-// unchanged, and only then is the seat recorded joined; a joined seat's unit is left alone.
-func TestUnitStartFailedIsRetried(t *testing.T) {
+// A unit reload that failed is made again by the next apply, though the file is unchanged, and
+// only then is the seat recorded joined; a joined seat's unit is left alone. No apply starts it.
+func TestUnitReloadFailedIsRetried(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
 	w.declare([]string{"t1"}, w.member("t1", "c1"))
@@ -782,23 +819,23 @@ func TestUnitStartFailedIsRetried(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 	if e := w.entry("c1"); e.Status == lxcstate.StatusJoined {
-		t.Fatalf("a seat whose unit did not start was recorded %+v", e)
+		t.Fatalf("a seat whose unit was not reloaded was recorded %+v", e)
 	}
 	w.bus.err, w.bus.calls = nil, nil
 	r, err := w.apply(PhasePresent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
+	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
 		t.Fatalf("systemd %v", w.bus.calls)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit started"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit placed; teamchat-admin lxc restart --member starts it"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
 		t.Fatalf("entry %+v", e)
 	}
 	w.bus.calls = nil
 	if _, err := w.apply(PhasePresent); err != nil || len(w.bus.calls) != 0 {
-		t.Fatalf("a joined seat's unit was started again: %v %v", w.bus.calls, err)
+		t.Fatalf("a joined seat's unit was touched again: %v %v", w.bus.calls, err)
 	}
 }
 

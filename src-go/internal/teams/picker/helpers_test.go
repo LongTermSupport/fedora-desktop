@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcsession"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/restart"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -73,6 +74,7 @@ func newRig(t *testing.T) rig {
 	p.Shutdown = shutdown.New(h, kit, b)
 	p.Restart = restart.New(h, kit, b)
 	p.WindDown = winddown.New(h, kit, b)
+	p.LxcSession = lxcsession.New(h, kit)
 	p.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	ses := &fakeSessions{}
 	p.Session = ses

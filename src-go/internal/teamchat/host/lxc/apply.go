@@ -135,7 +135,7 @@ func seatText(c paths.ContainerName, checkout string, seat int) string {
 	return c.String() + "/" + paths.LXCRepoLabel(checkout) + "-" + strconv.Itoa(seat)
 }
 
-// The seat's unit, its file and its wants link (SU1).
+// The seat's unit, its file and the wants link an earlier apply made, which apply removes (SU1).
 func (m *member) unitName() string { return paths.SessionUnit(m.id.Team, m.id.Checkout, m.id.Seat) }
 
 func (m *member) unitFile() string { return paths.GuestUnitFile(m.id.Team, m.id.Checkout, m.id.Seat) }
@@ -1253,10 +1253,12 @@ func (r *run) failAll(ms []*member, step string, err error) {
 	}
 }
 
-// unit is step 09 for one seat (SU1, SU2): its unit written with its wants link, then Reload and
-// Start (new, or the seat not recorded joined) or Restart (changed); a joined seat's unchanged
-// unit is left alone; `service: false`
-// stops and removes it. systemd refusing, or gone, is the unit down: offline, never a failure.
+// unit is step 09 for one seat (SU1, SU2): its unit written, then Reload (new, changed, or the
+// seat not recorded joined); a joined seat's unchanged unit is left alone. No apply starts or
+// restarts it and none makes a wants link (owner, Plan 00257): the session starts only on
+// demand (`lxc restart --member`). A wants link an earlier apply made is removed and its
+// session stopped. `service: false` stops and removes the unit. systemd refusing, or gone, is
+// the unit down: offline, never a failure.
 func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
 	if g.gone || m.done || !m.settled {
 		return
@@ -1305,29 +1307,35 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	if err != nil {
 		return err
 	}
-	if _, err = w.MkdirAll(path.Dir(link)); err != nil {
-		return err
+	unlinked, err := w.Remove(path.Dir(link), path.Base(link))
+	if errors.Is(err, fs.ErrNotExist) {
+		unlinked, err = false, nil
 	}
-	linked, err := w.Symlink(path.Dir(link), path.Base(link), file)
-	// Only a joined seat's unit is known started; any other's start is made again.
+	// Only a joined seat's unit is known reloaded; any other's reload is made again.
 	retry := m.prior.Status != lxcstate.StatusJoined
-	if err != nil || !wrote && !linked && !retry {
+	if err != nil || !wrote && !unlinked && !retry {
 		return err
-	}
-	how, start := "unit started", guestbus.Systemd.Start
-	if existed && wrote {
-		how, start = "unit restarted", guestbus.Systemd.Restart
 	}
 	err = r.systemd(ctx, root, func(s guestbus.Systemd) error {
-		if reloadErr := s.Reload(ctx); reloadErr != nil {
-			return reloadErr
+		if unlinked {
+			if stopErr := s.Stop(ctx, m.unitName()); stopErr != nil {
+				return stopErr
+			}
 		}
-		return start(s, ctx, m.unitName())
+		return s.Reload(ctx)
 	})
-	if err == nil {
-		r.line(m, Changed, how)
+	if err != nil {
+		return err
 	}
-	return err
+	switch {
+	case unlinked:
+		r.line(m, Changed, "unit stopped and its wants link removed: it no longer starts with the container")
+	case existed && wrote:
+		r.line(m, Changed, "unit updated; it takes effect at its next start")
+	default:
+		r.line(m, Changed, "unit placed; teamchat-admin lxc restart --member starts it")
+	}
+	return nil
 }
 
 // removeUnit stops and removes the seat's unit and its wants link, when it has one; no other
@@ -1346,7 +1354,7 @@ func (r *run) removeUnit(ctx context.Context, g *guestBox, m *member) error {
 		if _, err := w.Remove(path.Dir(file), path.Base(file)); err != nil {
 			return err
 		}
-		if _, err := w.Remove(path.Dir(link), path.Base(link)); err != nil {
+		if _, err := w.Remove(path.Dir(link), path.Base(link)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return s.Reload(ctx)

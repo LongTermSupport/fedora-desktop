@@ -27,6 +27,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcsession"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/restart"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -62,6 +63,8 @@ type Picker struct {
 	Restart *restart.Restart
 	// WindDown is the team row's "Wind down the team's sessions"; teams.Wire sets it.
 	WindDown *winddown.WindDown
+	// LxcSession is an LXC member row's "Start its session in its LXC container"; teams.Wire sets it.
+	LxcSession *lxcsession.Starter
 	// Settings is the team row's "Edit settings"; teams.Wire sets it.
 	Settings *settings.Settings
 	// Session is the Running sessions view's hot control (Tab); teams.Wire sets it.

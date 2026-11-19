@@ -135,6 +135,13 @@ Related plans:
   source 256 by default (`DefaultMaxPerSource`), so by default no one address holds every slot
   (`subagent-reports/b5-fix2-report.md`). The homeserver takes 1024 upstream connections: Tuwunel
   raises its own soft descriptor limit to the hard one at start (`maximize_fd_limit`).
+- [ ] 🔄 **Task B.12**: no LXC member session starts with its container (owner's order: "there
+  is no need for claude to start as soon as the LXC container boots ... remove that
+  completely"). Both bus generations: the member's session unit has no `[Install]` and
+  `Restart=no`, apply never enables, links or starts it, and removes an earlier wants link
+  (stopping that session). The only start is on demand: ccy-teams' Start its session in its LXC
+  container (v1), `teamchat-admin lxc restart --member` (v2). Host proof:
+  `lxc-no-autostart-acceptance.bash`. Report: `subagent-reports/lxc-no-autostart-report.md`.
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).

@@ -37,6 +37,15 @@ func world(t *testing.T) harness {
 	return harness{World: w, app: Wire(w.Host)}
 }
 
+// Plan 00257 (owner): an LXC member's session starts only from its row's menu, so the picker
+// is wired with the start.
+func TestThePickerIsWiredToStartAnLxcMembersSession(t *testing.T) {
+	h := newHarness(t)
+	if h.app.Picker.LxcSession == nil || h.app.Picker.LxcSession.AppliedDir != h.Host.AppliedDir {
+		t.Fatalf("picker LxcSession %+v", h.app.Picker.LxcSession)
+	}
+}
+
 // Plan 00203 M5: the picker's Running sessions view changes a session through the very
 // `ccy-teams session` command the App dispatches, so the picker and the command line cannot
 // differ.

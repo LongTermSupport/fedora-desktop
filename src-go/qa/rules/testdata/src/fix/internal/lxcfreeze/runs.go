@@ -17,6 +17,10 @@ func ownNmcliInside(ctx context.Context, s *sudo.Sudo, name string) (string, err
 	return s.Capture(ctx, "lxc-attach", "-n", name, "--", "nmcli", "device", "status")
 }
 
+func ownSystemctlInside(ctx context.Context, s *sudo.Sudo, name string) (string, error) {
+	return s.Capture(ctx, "lxc-attach", "-n", name, "--", "env", "-i", "PATH=/usr/bin", "systemctl", "start", "--", "u.service")
+}
+
 func insideOther(ctx context.Context, s *sudo.Sudo, name string) (string, error) {
 	return s.Capture(ctx, "lxc-attach", "-n", name, "--", "git", "log") // want `"git" is owned by internal/gitx`
 }

@@ -1147,50 +1147,74 @@ class SecondContainerTest(Fixture):
 
 
 class ServiceTest(Fixture):
-    """Plan 00203 gap 9: an entry with `service: true` gets its session supervised inside the
-    container: a system unit, enabled in the container's multi-user.target, that runs
-    `agent-bus-claude` as the agent user under tmux and restarts it on any exit; the container
-    must start at host boot (lxc.start.auto) and run systemd, and tmux must be there."""
+    """Plan 00203 gap 9, as the owner ruled in Plan 00257: an entry with `service: true` gets a
+    system unit in the container that runs `agent-bus-claude` as the agent user under tmux. It
+    is started only on demand (ccy-teams' Start its session): never enabled, no [Install], no
+    restart on exit, and the play never starts it. The container must run systemd, and tmux
+    must be there."""
 
     UNIT = "agent-bus-claude-agent.service"
 
     def unit_file(self) -> pathlib.Path:
         return pathlib.Path(self.guest.unit_dir) / self.UNIT
 
-    def test_the_session_is_supervised_and_a_second_run_changes_nothing(self) -> None:
+    def test_the_unit_is_placed_never_enabled_or_started_and_a_second_run_changes_nothing(self) -> None:
         changed = self.run_phase("present", [entry(service=True)])
         text = self.unit_file().read_text(encoding="utf-8")
         unit = parse_unit(text)
         service = unit["Service"]
         self.assertEqual(service["User"], ["agent"])
         self.assertEqual(service["WorkingDirectory"], [CHECKOUT])
-        self.assertEqual(service["Restart"], ["always"])
+        self.assertEqual(service["Restart"], ["no"])
         self.assertEqual(service["Type"], ["forking"])
         self.assertIn("/usr/bin/tmux -L agent-bus-claude new-session -d -s agent-bus-claude "
                       f"{members.GUEST_BIN}/agent-bus-claude", service["ExecStart"][0])
-        self.assertEqual(unit["Unit"]["StartLimitIntervalSec"], ["0"])
-        self.assertEqual(unit["Install"]["WantedBy"], ["multi-user.target"])
         self.assertEqual(stat.S_IMODE(self.unit_file().stat().st_mode), 0o644)
-        self.assertEqual(self.guest.units[self.UNIT], {"enabled": True, "active": True})
-        self.assertIn(f"container devbox: {self.UNIT} installed", changed)
-        self.assertIn(f"container devbox: {self.UNIT} enabled", changed)
-        self.assertIn(f"container devbox: {self.UNIT} started", changed)
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": False, "active": False})
+        self.assertEqual([line for line in changed if self.UNIT in line],
+                         [f"container devbox: {self.UNIT} installed"])
+        self.assertNotIn("enable", [call[0] for call in self.guest.systemctl])
+        self.assertNotIn("start", [call[0] for call in self.guest.systemctl])
 
         self.guest.systemctl.clear()
         self.assertEqual(self.run_phase("present", [entry(service=True)]), [])
         self.assertEqual([call[0] for call in self.guest.systemctl], ["show"])
 
-    def test_a_changed_unit_restarts_the_session(self) -> None:
-        self.run_phase("present", [entry(service=True)])
-        changed = self.run_phase("present", [entry(service=True, checkout="/srv/other")])
-        self.assertIn(f"container devbox: {self.UNIT} restarted (its unit changed)", changed)
-        self.assertIn(("daemon-reload",), self.guest.systemctl)
+    def test_the_rendered_unit_never_starts_at_boot_or_by_itself(self) -> None:
+        """The class this guards (Plan 00257, owner): a member session that starts with its
+        container. No [Install] (so nothing can enable it), no WantedBy, Restart=no."""
+        text = members.render_member_unit("agent", "/srv/agent-home", CHECKOUT, "/usr/bin/tmux")
+        unit = parse_unit(text)
+        self.assertNotIn("Install", unit)
+        self.assertNotIn("WantedBy", text)
+        self.assertNotIn("[Install]", text)
+        self.assertEqual(unit["Service"]["Restart"], ["no"])
 
-    def test_a_session_that_stopped_is_started(self) -> None:
+    def test_a_changed_unit_is_reloaded_and_a_running_session_is_left_running(self) -> None:
         self.run_phase("present", [entry(service=True)])
-        self.guest.units[self.UNIT]["active"] = False
-        self.assertEqual(self.run_phase("present", [entry(service=True)]),
-                         [f"container devbox: {self.UNIT} started"])
+        self.guest.units[self.UNIT]["active"] = True  # started on demand
+        self.guest.systemctl.clear()
+        changed = self.run_phase("present", [entry(service=True, checkout="/srv/other")])
+        self.assertEqual(changed, [f"container devbox: {self.UNIT} updated"])
+        self.assertIn(("daemon-reload",), self.guest.systemctl)
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": False, "active": True})
+
+    def test_a_stopped_session_is_left_stopped(self) -> None:
+        self.run_phase("present", [entry(service=True)])
+        self.assertEqual(self.run_phase("present", [entry(service=True)]), [])
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": False, "active": False})
+
+    def test_an_enabled_running_unit_is_disabled_and_stopped(self) -> None:
+        """A unit an earlier play enabled and started at boot: its wants link goes and it stops."""
+        self.unit_file().parent.mkdir(parents=True)
+        self.unit_file().write_text("old\n", encoding="utf-8")
+        self.guest.units[self.UNIT] = {"enabled": True, "active": True}
+        changed = self.run_phase("present", [entry(service=True)])
+        self.assertIn(("disable", "--now", self.UNIT), self.guest.systemctl)
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": False, "active": False})
+        self.assertIn(f"container devbox: {self.UNIT} disabled and stopped: it no longer starts "
+                      "with the container", changed)
+        self.assertNotIn("start", [call[0] for call in self.guest.systemctl])
 
     def test_turning_the_service_off_removes_the_unit(self) -> None:
         self.run_phase("present", [entry(service=True)])

@@ -49,6 +49,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcsession"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
@@ -164,6 +165,7 @@ func Wire(h *host.Host) *App {
 	list.Restart = again
 	calm := winddown.New(h, kit, b)
 	list.WindDown = calm
+	list.LxcSession = lxcsession.New(h, kit)
 	list.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut

@@ -22,13 +22,14 @@ missing one stops the run with the command for each (gh_login_refusal):
      as ~/.config/pingbus/<team>/ (directory 0700, files 0600);
   5. ~/.config/pingbus/env lists the team in PINGBUS_TEAMS and sets HOOKS_DAEMON_HOSTNAME;
   6. `pingbus config check` as the agent user, on every run;
-  7. with `service: true` (Plan 00203 gap 9), the session supervised inside the container: the
-     system unit `agent-bus-claude-<user>.service` (render_member_unit), enabled in the
-     container's multi-user.target, runs `agent-bus-claude` as the agent user in its checkout
-     under tmux (socket `agent-bus-claude`, so a person can attach) and restarts it on any exit.
-     It needs the container to start at host boot (`lxc.start.auto = 1`), systemd as its init
-     and tmux installed, each checked before any change. Without it, or once the user is in no
-     team, the unit is stopped and removed.
+  7. with `service: true` (Plan 00203 gap 9), a session unit inside the container: the system
+     unit `agent-bus-claude-<user>.service` (render_member_unit) runs `agent-bus-claude` as the
+     agent user in its checkout under tmux (socket `agent-bus-claude`, so a person can attach).
+     It is started only on demand, by ccy-teams' Start its session (owner, Plan 00257): it has
+     no [Install] section and Restart=no, this play never enables or starts it, and one an
+     earlier play enabled is disabled and stopped. It needs the container to start at host boot
+     (`lxc.start.auto = 1`), systemd as its init and tmux installed, each checked before any
+     change. Without it, or once the user is in no team, the unit is stopped and removed.
 
 The handle `<repo>.<seat>+<host>.lxc` is derived from the repository as ccy derives a podman
 seat's (derive.py): `<host>` and `<seat>` are overrides an entry may carry, and are otherwise
@@ -949,10 +950,10 @@ def service_unit(user: str) -> str:
 
 
 def render_member_unit(user: str, home: str, checkout_path: str, tmux: str) -> str:
-    """Step 7's unit: `agent-bus-claude` as `user` in its checkout, under tmux, restarted on any
-    exit (the tmux server ends with the session, and with it the unit's main process), with a
-    delay growing from 10 s to 5 min and no start limit, so a session that cannot start yet (a
-    homeserver still starting, Claude logged out) is retried, slowly, until it can."""
+    """Step 7's unit: `agent-bus-claude` as `user` in its checkout, under tmux. It is started
+    only on demand (ccy-teams' Start its session), never at boot and never by this play (owner,
+    Plan 00257): no [Install] section, so nothing can enable it, and Restart=no, so a session
+    that ends stays down until it is started again."""
     for what, value in (("checkout", checkout_path), ("home", home), ("tmux", tmux)):
         if not _UNIT_VALUE_RE.fullmatch(value):
             raise MemberError(f"{user}'s {what} {value!r} is not an absolute path of letters, digits and "
@@ -967,7 +968,6 @@ def render_member_unit(user: str, home: str, checkout_path: str, tmux: str) -> s
         f"Description=Agent team member session of {user} (agent-bus-claude under tmux)",
         "After=network-online.target",
         "Wants=network-online.target",
-        "StartLimitIntervalSec=0",
         "",
         "[Service]",
         "Type=forking",
@@ -977,13 +977,7 @@ def render_member_unit(user: str, home: str, checkout_path: str, tmux: str) -> s
         f"Environment=PATH={home}/.local/bin:{GUEST_PATH}",
         f"ExecStart={tmux} {tmux_args} new-session -d -s {SERVICE_TMUX} {GUEST_BIN}/agent-bus-claude",
         f"ExecStop={tmux} {tmux_args} kill-server",
-        "Restart=always",
-        "RestartSec=10s",
-        "RestartSteps=6",
-        "RestartMaxDelaySec=5min",
-        "",
-        "[Install]",
-        "WantedBy=multi-user.target",
+        "Restart=no",
     ]) + "\n"
 
 
@@ -1224,9 +1218,8 @@ def _check_service(host: Host, guest, container: str) -> str:
     """Step 7's requirements, before any change: the container starts at host boot, runs
     systemd and has tmux. Returns tmux's path in the container."""
     if not host.autostarts(container):
-        raise MemberError(f"LXC container {container} does not start at host boot, so its supervised session "
-                          "(service: true) would not come back after a reboot: set lxc.start.auto = 1 in "
-                          "its config, then run the play again")
+        raise MemberError(f"LXC container {container} does not start at host boot, which service: true "
+                          "requires of it: set lxc.start.auto = 1 in its config, then run the play again")
     out = guest.root(["sh", "-c", SERVICE_NEEDS_SH],
                      f"LXC container {container}: service: true needs systemd as the container's init "
                      "and tmux installed in it (install tmux there); the check")
@@ -1247,25 +1240,22 @@ def _systemctl(guest, container: str, *args: str) -> None:
 
 
 def _ensure_service(guest, member: Member, home: str, tmux: str, emit: Callable[[str], None]) -> None:
-    """Step 7: the unit as rendered, enabled and running; restarted when it changed."""
+    """Step 7: the unit as rendered, never enabled and never started here; ccy-teams starts it
+    on demand. A unit an earlier play enabled is disabled and stopped (its wants link goes), so
+    it no longer starts with the container. A session started on demand is left running; a
+    changed unit takes effect at its next start."""
     unit = service_unit(member.user)
     label = f"container {member.container}: {unit}"
     state = _service_state(guest, member.container, unit)
     text = render_member_unit(member.user, home, str(member.checkout), tmux)
     wrote = guest.root(_python(guest, UNIT_WRITE_PY, f"{guest.unit_dir}/{unit}"), f"{label}: writing it",
                        stdin=text.encode()).strip() == b"changed"
+    if state["UnitFileState"] == "enabled":
+        _systemctl(guest, member.container, "disable", "--now", unit)
+        emit(f"{label} disabled and stopped: it no longer starts with the container")
     if wrote:
         _systemctl(guest, member.container, "daemon-reload")
         emit(f"{label} {'installed' if state['LoadState'] == 'not-found' else 'updated'}")
-    if state["UnitFileState"] != "enabled":
-        _systemctl(guest, member.container, "enable", unit)
-        emit(f"{label} enabled")
-    if wrote and state["ActiveState"] == "active":
-        _systemctl(guest, member.container, "restart", unit)
-        emit(f"{label} restarted (its unit changed)")
-    elif state["ActiveState"] != "active":
-        _systemctl(guest, member.container, "start", unit)
-        emit(f"{label} started")
 
 
 def _drop_service(guest, container: str, user: str, emit: Callable[[str], None]) -> None:

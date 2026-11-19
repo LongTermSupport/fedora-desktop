@@ -522,8 +522,8 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if _, err = w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
-		t.Fatalf("an unchanged unit last found down was not started: %v", w.bus.calls)
+	if !slices.Equal(w.bus.calls, []string{"Reload"}) {
+		t.Fatalf("an unchanged unit last found down was not reloaded, or was started: %v", w.bus.calls)
 	}
 }
 

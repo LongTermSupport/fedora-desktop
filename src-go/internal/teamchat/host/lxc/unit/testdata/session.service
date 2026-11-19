@@ -16,8 +16,4 @@ Environment=XDG_RUNTIME_DIR=/run/teamchat-session-e4b3edb4f90f1516 HOME=/srv/age
 Environment=PATH=/srv/agent1/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/tmux -S /run/teamchat-session-e4b3edb4f90f1516/tmux.sock new-session -d -s teamchat-session-alpha-repo-1-2-e4b3edb4f90f1516 /usr/local/bin/teamchat run --claude --kind lxc --key e4b3edb4f90f1516 --resume-recorded -- claude
 TimeoutStopSec=30
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+Restart=no

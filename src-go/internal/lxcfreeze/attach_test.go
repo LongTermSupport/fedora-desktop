@@ -49,3 +49,30 @@ func TestInContainerRefusesAnyOtherProgram(t *testing.T) {
 		t.Fatalf("err %v calls %v", err, f.Calls())
 	}
 }
+
+// A session unit is started inside a container as root through sudo lxc-attach, with a cleared
+// environment: a plain systemctl start, which needs the unit loaded, not enabled.
+func TestStartUnitStartsTheUnitAsRootThroughLxcAttach(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, execx.Result{})
+	if err := newLister(f).StartUnit(context.Background(), "/srv/lxc", "box", "agent-bus-claude-agent.service"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"sudo", "-n", "lxc-attach", "-P", "/srv/lxc", "-n", "box", "--clear-env", "--",
+		"env", "-i", "PATH=" + guestPath, "systemctl", "start", "--", "agent-bus-claude-agent.service",
+	}
+	calls := f.Calls()
+	if len(calls) != 1 || !slices.Equal(append([]string{calls[0].Name}, calls[0].Args...), want) {
+		t.Fatalf("ran %v", calls)
+	}
+}
+
+func TestStartUnitKeepsSystemdsRefusal(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach"}, exit1("Unit agent-bus-claude-agent.service not found.\n"))
+	err := newLister(f).StartUnit(context.Background(), "/srv/lxc", "box", "agent-bus-claude-agent.service")
+	if err == nil || !strings.Contains(err.Error(), "Unit agent-bus-claude-agent.service not found.") {
+		t.Fatalf("err %v", err)
+	}
+}

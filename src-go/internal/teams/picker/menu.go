@@ -31,6 +31,7 @@ const (
 	// takeover that replaces the team's coordinator. It is destructive, so it is listed last.
 	actDemote     = "demote"
 	actLxc        = "lxc-add"
+	actStartLxc   = "start-lxc"
 	actElementAll = "element-all"
 	actShutdown   = "shutdown"
 	actRestart    = "restart"
@@ -44,6 +45,9 @@ const (
 
 // windDownLabel is the team row's wind-down line (Plan 00203 SPEC-team-wind-down.md W12).
 const windDownLabel = "Wind down the team's sessions (clear goals, save and push work, stop)"
+
+// lxcMemberKind is an LXC member's row (its handle's type).
+const lxcMemberKind = board.Kind("lxc")
 
 // backToList is the last line of every question: leaving it does nothing and shows the list.
 const backToList = "Back to the list"
@@ -198,6 +202,10 @@ func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	handleless := row.Handle == "" || row.Handle == "-"
 	seat := row.Kind.IsSession() && row.Dir != "-"
 	acts := r.seatOwnActions(row)
+	if row.Kind == lxcMemberKind && !handleless {
+		// The one start of its session, which never starts with its container (Plan 00257).
+		acts = append(acts, action{actStartLxc, "Start its session in its LXC container", "start its session"})
+	}
 	if !handleless {
 		acts = append(acts, r.roleAction(row))
 	}
