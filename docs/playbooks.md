@@ -854,7 +854,8 @@ nmcli connection down vpn-name
 
 - On a developer desktop, keeps `NOPASSWD: ALL` for the user when host_vars says
   `passwordless_sudo_for_unattended_deploys: true` (a host whose deploys an agent runs
-  unattended), and removes it when it says false or says nothing
+  unattended), and removes it when it says false or says nothing; any other value stops the
+  play before it changes anything
 - On the **server** profile and a consumer install it removes that grant, because a permanent
   `NOPASSWD:ALL` on a box reached by automation is a ladder to root (headless runs get their
   credential from the preflight contract instead — see

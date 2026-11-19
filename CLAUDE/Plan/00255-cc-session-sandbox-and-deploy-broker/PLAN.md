@@ -175,9 +175,10 @@ Each has a recommendation; nothing past Phase 0 starts until D1-D3 are answered.
 
 - [ ] ⬜ **Task 4.1**: cc seals by default (D9); the opt-in flag goes.
 - [ ] ⬜ **Task 4.2**: Only after Phase 3 acceptance passes and the owner confirms plays through
-  the broker are working for them: `play-basic-configs.yml` removes the passwordless sudo block
-  on this desktop too (D2), through a variable the developer profile sets, so a server or
-  consumer install is unchanged.
+  the broker are working for them: this desktop's host_vars sets
+  `passwordless_sudo_for_unattended_deploys: false` (D2; Q15 made the grant that declared
+  choice, applied by `play-ZZZ-passwordless-sudo.yml`), so a server or consumer install is
+  unchanged.
 - [ ] ⬜ **Task 4.3**: Acceptance: the owner's terminal asks for the sudo password; a sealed
   session's broker play still runs; `meta-deploy.bash` still runs.
 

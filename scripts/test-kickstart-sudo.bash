@@ -11,12 +11,14 @@
 #      (no final play) leaves the grant as it was and never half-revokes it; and the final play
 #      is the last one playbook-main.yml imports, so no later play follows a revocation.
 #   3. The final play's conditions, rendered by the real ansible over provisioning_profile x
-#      install_audience x the switch (true, false, undeclared) x whether the /etc/sudoers block
+#      install_audience x the switch (true, false, undeclared, a typo, which stops the play
+#      before any change) x whether the /etc/sudoers block
 #      and the kickstart's rule exist when it starts. Its tasks are then walked in the play's
 #      order, as a run without the sudo password meets them: every privileged task must find a
 #      grant still in place (none left stranded by an earlier revocation), and the play must end
 #      with the block present exactly for a developer desktop whose switch is true (undeclared is
-#      false) and the kickstart's rule gone on every host.
+#      false) and the kickstart's rule gone on every host. The probes those cases stand in for
+#      must read /etc/sudoers and the kickstart's rule, into the variables the removals read.
 #
 # Nothing here contacts a host or changes one: ansible renders against localhost with a
 # throwaway config, and every write lands in a temp directory. `set -e` is not used: every case
@@ -110,8 +112,8 @@ check "cloned on first login: the rule is removed after run.bash" "$(paste -sd'|
 first_boot complete complete
 check "setup already complete: nothing runs" "$(paste -sd'|' "$LOG")" ""
 FAKE_SUDO_RC=1 first_boot nosudo checkout
-check "a refused removal says no passwordless rule is in effect, naming the file" \
-    "$([[ "$ERR" == *"no passwordless rule is in effect"*"$RULE"* ]] && echo named)" named
+check "a refused removal says passwordless sudo is already off, naming the file" \
+    "$([[ "$ERR" == *"Passwordless sudo is already off"*"$RULE"* ]] && echo named)" named
 
 # --- 2. only the final play touches the grant ------------------------------------------------
 touching=$(cd "$REPO_ROOT" && grep -rlE 'passwordless sudo for|99-fedora-desktop-setup' playbooks tasks | sort | paste -sd' ')
@@ -125,11 +127,14 @@ printf 'all:\n  hosts:\n    localhost:\n      ansible_connection: local\n      a
 mkdir -p "$work/tmp"
 
 # One play per case, each the final play's own vars with the case's facts, printing
-# "RESULT <case> <task>,<task>,..." where a task is slurp|stat (a probe), block:<state> or
-# rule:absent when it runs, and skip when it does not. The probes' results are the case's facts.
-python3 -I - "$FINAL" "$work/render.yml" <<'EOF'
+# "RESULT <case> <task>,<task>,..." where a task is check:<ok|failed> (the switch's type),
+# probe (slurp or stat), block:<state> or rule:absent when it runs, and skip when it does not.
+# The probes' results are the case's facts, so what the probes read is checked separately:
+# "PROBES <slurp src> <stat path> <registers>", registers "used" when each probe's register is
+# the variable a removal's condition reads.
+python3 -I - "$FINAL" "$work/render.yml" "$work/probes" <<'EOF'
 import base64, itertools, json, sys, yaml
-final, out = sys.argv[1:3]
+final, out, probes = sys.argv[1:4]
 play = yaml.safe_load(open(final))[0]
 
 def runs(task):
@@ -138,7 +143,10 @@ def runs(task):
 
 steps = []
 for t in play["tasks"]:
-    if "ansible.builtin.slurp" in t or "ansible.builtin.stat" in t:
+    if "ansible.builtin.assert" in t:
+        steps.append("{{ 'check:failed' if (" + runs(t)[3:-3] + ") and not ("
+                     + t["ansible.builtin.assert"]["that"] + ") else 'check:ok' }}")
+    elif "ansible.builtin.slurp" in t or "ansible.builtin.stat" in t:
         steps.append("probe")
     elif "ansible.builtin.blockinfile" in t:
         steps.append("{{ 'block:' ~ (" + t["ansible.builtin.blockinfile"]["state"].strip("{} ") + ") if " + runs(t)[3:-3] + " else 'skip' }}")
@@ -147,15 +155,25 @@ for t in play["tasks"]:
     else:
         steps.append("unknown:" + next(k for k in t if k != "name"))
 
+slurp = next(t for t in play["tasks"] if "ansible.builtin.slurp" in t)
+stat = next(t for t in play["tasks"] if "ansible.builtin.stat" in t)
+block_when = next(t for t in play["tasks"] if "ansible.builtin.blockinfile" in t).get("when", "")
+rule_when = next(t for t in play["tasks"] if "ansible.builtin.file" in t).get("when", "")
+used = slurp.get("register", "-") in block_when and stat.get("register", "-") in rule_when
+stat_path = stat["ansible.builtin.stat"]["path"].replace("{{ first_boot_rule }}", play["vars"]["first_boot_rule"])
+open(probes, "w").write(f"PROBES {slurp['ansible.builtin.slurp']['src']} {stat_path} {'used' if used else 'unused'}\n")
+
 plays = []
 for profile, audience, switch, block, rule in itertools.product(
-        ("desktop", "server"), ("developer", "consumer"), ("true", "false", "undeclared"), (0, 1), (0, 1)):
+        ("desktop", "server"), ("developer", "consumer"), ("true", "false", "undeclared", "typo"), (0, 1), (0, 1)):
     case = f"{profile}/{audience}/{switch}/block={block}/rule={rule}"
     sudoers = "root ALL=(ALL) ALL\n" + ("## BEGIN passwordless sudo for yourname\n" if block else "")
     facts = dict(play["vars"], provisioning_profile=profile, install_audience=audience, user_login="yourname",
                  sudoers_file={"content": base64.b64encode(sudoers.encode()).decode()},
                  first_boot_rule_stat={"stat": {"exists": bool(rule)}})
-    if switch != "undeclared":
+    if switch == "typo":
+        facts["passwordless_sudo_for_unattended_deploys"] = "ture"
+    elif switch != "undeclared":
         facts["passwordless_sudo_for_unattended_deploys"] = switch == "true"
     plays.append({"name": case, "hosts": "localhost", "gather_facts": False, "vars": facts,
                   "tasks": [{"ansible.builtin.debug": {"msg": "RESULT " + case + " " + ",".join(steps)}}]})
@@ -166,7 +184,9 @@ env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 ANSIBLE_CONFIG="$work/ansible.cfg"
     ANSIBLE_LOCAL_TEMP="$work/tmp" ANSIBLE_REMOTE_TEMP="$work/tmp" \
     ansible-playbook -i "$work/inventory.yml" "$work/render.yml" </dev/null > "$work/render.out" 2>&1
 grep -o 'RESULT [^"]*' "$work/render.out" > "$work/results"
-check "ansible rendered every case" "$(wc -l < "$work/results")" 48
+check "ansible rendered every case" "$(wc -l < "$work/results")" 64
+check "the probes read /etc/sudoers and the kickstart's rule, and the removals read their results" \
+    "$(cat "$work/probes")" "PROBES /etc/sudoers $RULE used"
 
 # walk CASE STEPS: replay the tasks against the case's grants. A run without the sudo password
 # has only the block and the kickstart's rule; with neither at the start, run.bash asked for the
@@ -188,7 +208,8 @@ walk() {
             block:present) block=1 ;;
             block:absent) block=0 ;;
             rule:absent) rule=0 ;;
-            probe) ;;
+            probe | check:ok) ;;
+            check:failed) echo "stopped at task $i, before any change"; return ;;
             *) echo "unknown task $step"; return ;;
         esac
     done
@@ -203,9 +224,10 @@ case_field() {
 
 while read -r _ case steps; do
     IFS=/ read -r profile audience switch _ <<< "$case"
-    want_block=0
-    [[ $profile == desktop && $audience == developer && $switch == true ]] && want_block=1
-    check "$case" "$(walk "$case" "$steps")" "block=$want_block,rule=0"
+    want="block=0,rule=0"
+    [[ $profile == desktop && $audience == developer && $switch == true ]] && want="block=1,rule=0"
+    [[ $switch == typo ]] && want="stopped at task 1, before any change"
+    check "$case" "$(walk "$case" "$steps")" "$want"
 done < "$work/results"
 
 printf '\npassed: %d   failed: %d\n' "$PASSED" "$FAILED"
