@@ -18,6 +18,9 @@ const (
 	HealthTimerFile   = systemdDir + "/" + HealthTimer
 	BackupServiceFile = systemdDir + "/" + BackupService
 	BackupTimerFile   = systemdDir + "/" + BackupTimer
+	// HealthDropInFile is the health unit's drop-in that team apply and team remove render: every
+	// applied team's listen addresses, which the tick probes through each terminator.
+	HealthDropInFile = systemdDir + "/" + HealthService + ".d/teams.conf"
 )
 
 // TmpfilesFile is the host's systemd-tmpfiles entry: the directories the units write under /run and

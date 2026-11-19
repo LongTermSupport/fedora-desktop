@@ -163,8 +163,8 @@ func unpaired(lines []string) []string {
 	return out
 }
 
-// filteredUnits is every unit text the Go code makes, judged for its filter: madeUnits and a
-// team's two drop-ins, the homeserver's and the terminator's. A drop-in is judged alone: its base
+// filteredUnits is every unit text the Go code makes, judged for its filter: madeUnits, a
+// team's two drop-ins, the homeserver's and the terminator's, and the health unit's drop-in. A drop-in is judged alone: its base
 // unit is installed by a play (or, for the terminator's, by nothing yet), so a deny there is not
 // the drop-in's code's to promise, and the drop-in that allows must deny.
 func filteredUnits(t *testing.T) []unit {
@@ -183,7 +183,8 @@ func filteredUnits(t *testing.T) []unit {
 	server, terminator := host.DropIns(team, 8448, pin, listen, networks, []string{"sys-subsystem-net-devices-eth0.device"})
 	return append(madeUnits(t),
 		unit{"the homeserver's drop-in", strings.Split(string(server), "\n")},
-		unit{"the terminator's drop-in", strings.Split(string(terminator), "\n")})
+		unit{"the terminator's drop-in", strings.Split(string(terminator), "\n")},
+		unit{"the health unit's drop-in", strings.Split(string(host.HealthDropIn(listen)), "\n")})
 }
 
 // B3 of PR #128's review, as a class: every unit text v2's Go makes that allows addresses or
@@ -221,6 +222,7 @@ func TestTheFilterCheckDiscriminates(t *testing.T) {
 // section or a --property= argument), and why each is, or is not, one of madeUnits.
 var unitSources = []struct{ file, why string }{
 	{"backup/units.go", "the backup service, in madeUnits"},
+	{"host/healthfilter.go", "the health unit's drop-in of every applied team's listen addresses, which extends the health service unitfiles makes, in madeUnits; the drop-in's filter is judged alone, in filteredUnits"},
 	{"host/lxc/unit/unit.go", "a seat's session unit, which runs inside an LXC guest (C 3.9.4): not a host unit D 4.2 names"},
 	{"host/render.go", "a team's drop-in, which extends the base unit that carries the six paths; its filter is judged alone, in filteredUnits"},
 	{"host/tlsunit.go", "the terminator's per-team drop-in, which extends the base unit teamchat-tls@ that unitfiles makes, in madeUnits; the drop-in's filter is judged alone, in filteredUnits"},

@@ -129,8 +129,9 @@ func terminatorUnit() string {
 // root is writable: the tick renews a team's leaf there as team apply writes it (S12, X31), and
 // systemd takes no pattern for one directory per team. That root holds leaves alone, so the admin
 // state, with the CA key the tick reads to sign and the approvals it must not change, stays
-// read-only under ProtectSystem=strict. The IP filter is left for a drop-in to widen to the teams'
-// listen addresses the reach probe dials (S13).
+// read-only under ProtectSystem=strict. The IP filter allows loopback here; the drop-in team apply
+// and team remove render (paths.HealthDropInFile, host.HealthDropIn) widens it to every applied
+// team's listen addresses, which the reach probe dials (S13, Plan 00257 HOST-1).
 const healthService = `[Unit]
 Description=Health of every ` + paths.Product + ` team
 
@@ -154,8 +155,9 @@ ProtectControlGroups=yes
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID CAP_SYS_PTRACE
 SystemCallFilter=~ptrace process_vm_readv process_vm_writev
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# a drop-in may add IPAddressAllow= lines (the teams' listen addresses the reach probe dials):
-# systemd adds each to this list, and the deny of any stays
+# team apply renders teamchat-health.service.d/teams.conf with IPAddressAllow= lines (every
+# applied team's listen addresses, which the reach probe dials): systemd adds each to this list,
+# and the deny of any stays
 IPAddressDeny=any
 IPAddressAllow=localhost
 ` + v1names.InaccessiblePaths + "\n"

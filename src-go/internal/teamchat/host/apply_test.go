@@ -90,6 +90,7 @@ func TestFirstApply(t *testing.T) {
 		"drop-in written",
 		"unit started", "unit enabled", "tls drop-in written", "tls unit started", "tls unit enabled",
 		"human alice created", "team.json written", "units.json written", "stamp written",
+		"health drop-in written",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)

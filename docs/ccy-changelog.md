@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.24 — container 2.84.31
+
+- **teamchat host fixes** (Plan 00257 Task B.5). The image's `teamchat` is built from packages
+  this work changes: the TLS terminator (`teamchat tls`, which runs on the bus host, not in the
+  container) relays only the Matrix API and refuses the homeserver's admin routes, bounds the
+  connections each source address may hold and logs each refusal, and the shared host path
+  names gain the health unit's drop-in. Nothing a ccy session does changes; the image is
+  rebuilt once so its `teamchat` is this source's.
+
 ## 3.122.23 — container 2.84.30
 
 - **Go structs reordered so padding wastes no memory** (Plan 00245). govet's fieldalignment

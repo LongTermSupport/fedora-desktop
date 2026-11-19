@@ -141,7 +141,7 @@ func TestRemove(t *testing.T) {
 	want := []string{
 		"tls unit stopped", "tls unit disabled", "unit stopped", "unit disabled",
 		"firewall removed public 192.0.2.0/24 tcp:8448", "firewall removed public 192.0.2.10/32 tcp:8448",
-		"tls drop-in removed", "drop-in removed", "stamp removed", "status record removed",
+		"tls drop-in removed", "drop-in removed", "stamp removed", "health drop-in written", "status record removed",
 	}
 	if !slices.Equal(lines, want) {
 		t.Errorf("lines %q\nwant %q", lines, want)

@@ -21,8 +21,9 @@ ProtectControlGroups=yes
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID CAP_SYS_PTRACE
 SystemCallFilter=~ptrace process_vm_readv process_vm_writev
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# a drop-in may add IPAddressAllow= lines (the teams' listen addresses the reach probe dials):
-# systemd adds each to this list, and the deny of any stays
+# team apply renders teamchat-health.service.d/teams.conf with IPAddressAllow= lines (every
+# applied team's listen addresses, which the reach probe dials): systemd adds each to this list,
+# and the deny of any stays
 IPAddressDeny=any
 IPAddressAllow=localhost
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">

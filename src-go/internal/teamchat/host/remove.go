@@ -65,6 +65,7 @@ func (r *removing) run(ctx context.Context) error {
 		{StepUnit, r.stopUnit},
 		{StepFirewall, r.firewall},
 		{StepFiles, r.files},
+		{StepHealthFilter, r.healthFilter},
 		{StepStatus, r.status},
 		{StepPurge, r.purgeState},
 	}
@@ -217,6 +218,13 @@ func RemoveDropIn(dropIn string) (bool, error) {
 		return true, err
 	}
 	return true, nil
+}
+
+// healthFilter renders the health unit's drop-in without the team, whose stamp is gone.
+func (r *removing) healthFilter(ctx context.Context) error {
+	lines, err := syncHealthFilter(ctx, r.d)
+	r.changed = append(r.changed, lines...)
+	return err
 }
 
 func (r *removing) status(ctx context.Context) error {

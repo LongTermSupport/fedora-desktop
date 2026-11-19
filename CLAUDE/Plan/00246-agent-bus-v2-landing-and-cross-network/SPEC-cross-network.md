@@ -273,7 +273,11 @@ the builder takes where this text is silent goes in its report.
   each team's `tls/` directory), or under `ProtectSystem=strict` every renewal fails with "the
   leaf cannot be written" and shows as a problem while the leaf is valid; and its
   `IPAddressAllow=localhost` must also allow the listen addresses (or the effective networks),
-  as the terminator's drop-in has them, or X32's probe of a non-loopback address is refused. The
+  as the terminator's drop-in has them, or X32's probe of a non-loopback address is refused
+  (**as built**, Plan 00257 HOST-1: `team apply` and `team remove` render
+  `teamchat-health.service.d/teams.conf`, `IPAddressDeny=any` with `IPAddressAllow=` every
+  applied team's listen addresses as host prefixes, the union of their units.json listen sets,
+  under a host-wide lock, reloading systemd until the text on disk is recorded as loaded). The
   code that writes that unit must add its text to `madeUnits` in
   `internal/teamchat/v1names/units_test.go`, which judges every unit text the Go code makes.
 - **X32** (S13) **A probe through the terminator.** X18c's "not built" is built: the health tick

@@ -63,8 +63,11 @@ const (
 	StepTerminator = "terminator"
 	StepBootstrap  = "bootstrap"
 	StepRecords    = "records"
-	StepStatus     = "status"
-	StepPurge      = "purge"
+	// StepHealthFilter is the health unit's drop-in of every applied team's listen addresses
+	// (Plan 00257 HOST-1), after the records in apply and after the files in remove.
+	StepHealthFilter = "health filter"
+	StepStatus       = "status"
+	StepPurge        = "purge"
 	// StepLXCSeats is `team remove` refusing a team whose LXC record holds a seat not yet left.
 	StepLXCSeats = "lxc seats"
 )
@@ -967,6 +970,11 @@ func (a *applying) records(ctx context.Context) error {
 	}
 	if err := a.d.Status.Refresh(ctx, a.team, !a.stamped, nil); err != nil {
 		return a.fail(StepRecords, err)
+	}
+	lines, err := syncHealthFilter(ctx, a.d)
+	a.changed = append(a.changed, lines...)
+	if err != nil {
+		return a.fail(StepHealthFilter, err)
 	}
 	return nil
 }
