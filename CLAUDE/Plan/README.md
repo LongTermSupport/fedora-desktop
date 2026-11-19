@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00257-cross-host-lxc-team-members](00257-cross-host-lxc-team-members/) - In Progress (architecture note: per-seat placement (A) versus a per-host proxy (B), A recommended; owner's choice open). Owner Q44: an LXC container on any host joins any v2 team, with the homeserver on the same host or another one.
+
 - [00256-ccy-session-idle-stand-down](00256-ccy-session-idle-stand-down/) - In Progress (triage script queued for the host; owner decisions 1-5 after). Issue #270 Problem 2: `--idle-stand-down DURATION` ends an idle ccy session as `ccy --stop` does, stops its compose services, keeps its record; `ccy-sessions wake NAME`, and `stood-down` in `--list` and `verify-restore`.
 
 - [00255-cc-session-sandbox-and-deploy-broker](00255-cc-session-sandbox-and-deploy-broker/) - In Progress (host triage read into RESEARCH.md §13; owner decisions D1-D9 open). Issue #101, options 3 + 4: a root-owned deploy broker runs committed plays at a commit on GitHub for cc agents, then cc seals each session (Matrix clients' data, browsers, password store and keyring hidden; the session bus filtered), and passwordless sudo goes last, so the owner can run plays at every step.
