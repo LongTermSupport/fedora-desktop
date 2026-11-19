@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -78,9 +79,11 @@ func newWorld(t *testing.T) *world {
 	w := &world{t: t, hs: hs, team: team, port: port, dir: root + paths.CtlState(team)}
 	w.cfg = Config{
 		Root: root, Now: fixedNow, Rand: rand.NewChaCha8([32]byte{1}),
-		Admin: func(base string) (*matrix.Admin, error) {
-			return matrix.NewAdmin(matrix.Config{BaseURL: base, Clock: noSleep{}})
+		Admin: func(base string, dial Dial) (*matrix.Admin, error) {
+			return matrix.NewAdmin(matrix.Config{BaseURL: base, Clock: noSleep{}, Dial: dial})
 		},
+		// The fake homeserver runs in this process, no team's unit: the check is ADMIN-1's tests'.
+		Peer: func(context.Context, paths.TeamID, net.Conn) error { return nil },
 	}
 	w.mkdir(w.dir, 0o700)
 	w.hidden = append(w.hidden, hs.RegistrationKey())
@@ -639,7 +642,7 @@ func TestAPortOutsideTheRangeIsRefusedBeforeAnyFile(t *testing.T) {
 func TestTheAdminMakerFailingFails(t *testing.T) {
 	w := newWorld(t)
 	boom := errors.New("no client")
-	w.cfg.Admin = func(string) (*matrix.Admin, error) { return nil, boom }
+	w.cfg.Admin = func(string, Dial) (*matrix.Admin, error) { return nil, boom }
 	if _, err := w.open(""); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
 	}
@@ -759,7 +762,10 @@ func TestTheMemberMakerReachesTheSameServerAsAMember(t *testing.T) {
 
 func TestTheOpenerIsOpenAndTheDefaultsAreTheRealOnes(t *testing.T) {
 	w := newWorld(t)
-	cfg := Config{Root: w.cfg.Root}
+	cfg := Config{Root: w.cfg.Root, Peer: w.cfg.Peer}
+	if Config.withDefaults(Config{}).Peer == nil {
+		t.Error("the default config has no listener check")
+	}
 	o, err := cfg.Opener()(t.Context(), w.team, w.port, w.key())
 	if err != nil {
 		w.errs = append(w.errs, err)

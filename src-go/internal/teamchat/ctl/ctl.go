@@ -8,6 +8,10 @@
 // fresh temporary file (0600, exclusive), synced, linked to its name (an existing name fails,
 // never replaced), the temporary unlinked and the directory synced (OP4). No error holds the
 // password, the token or the registration key (OP5).
+//
+// The homeserver is reached on loopback over plain HTTP, where any local process may hold the
+// team's port while the homeserver is down; every connection to it is held to the team's own
+// homeserver unit before it carries a byte (peer.go, Plan 00257 ADMIN-1).
 package ctl
 
 import (
@@ -17,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -54,14 +60,20 @@ const (
 // geteuid is the child's effective uid; a variable so a test can stand in another owner.
 var geteuid = os.Geteuid
 
+// Dial is how a client reaches the homeserver: matrix.Config.Dial.
+type Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+
 // Config is what Open reads and writes with: the state root's prefix (paths.CtlStateRoot under
-// it; "" on a host), the clock and its sleep, the random source, and the admin client maker.
+// it; "" on a host), the clock and its sleep, the random source, the admin client maker (given
+// the dial its connections take, nil for a direct one) and the check of the listener every
+// connection to the team's homeserver reaches before it carries a byte (ADMIN-1).
 type Config struct {
 	Root  string
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration) error
 	Rand  io.Reader
-	Admin func(baseURL string) (*matrix.Admin, error)
+	Admin func(baseURL string, dial Dial) (*matrix.Admin, error)
+	Peer  PeerCheck
 }
 
 // Opener is Open as the admin.Opener the child serves through (OP6).
@@ -82,20 +94,29 @@ func (cfg Config) withDefaults() Config {
 		cfg.Rand = rand.Reader
 	}
 	if cfg.Admin == nil {
-		cfg.Admin = func(base string) (*matrix.Admin, error) { return matrix.NewAdmin(matrix.Config{BaseURL: base}) }
+		cfg.Admin = func(base string, dial Dial) (*matrix.Admin, error) {
+			return matrix.NewAdmin(matrix.Config{BaseURL: base, Dial: dial})
+		}
+	}
+	if cfg.Peer == nil {
+		cfg.Peer = ProcPeer{Proc: "/proc", Sleep: cfg.Sleep}.Check
 	}
 	return cfg
 }
 
 // Open is one team as the child reaches it (OP1): the admin client on 127.0.0.1:port with the
-// team's admin token, apply's paths under ctl/<team>/, and a member-client maker. With a
+// team's admin token, apply's paths under ctl/<team>/, and a member-client maker. Every
+// connection either client opens is held by cfg.Peer to the team's own homeserver before it
+// carries a byte (ADMIN-1). With a
 // registration key (team apply) it runs bootstrap step 1 first (OP3); without one, the token
 // must be there (OP2). A refusal is an *apply.Error of team apply's admin step with Drift set
 // (exit 70); any other failure is the files' or the homeserver's.
 func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey string) (_ admin.Opened, err error) {
 	cfg = cfg.withDefaults()
 	base := "http://" + loopback + ":" + strconv.Itoa(port)
-	anon, err := cfg.Admin(base)
+	refusal := &peerRefusal{}
+	dial := cfg.checkedDial(team, refusal)
+	anon, err := cfg.Admin(base, dial)
 	if err != nil {
 		return admin.Opened{}, fmt.Errorf("the admin client: %w", err)
 	}
@@ -110,7 +131,7 @@ func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey s
 	b := bootstrap{dir: d, anon: anon, team: team, rand: cfg.Rand}
 	token, err := b.token(ctx, regKey)
 	if err != nil {
-		return admin.Opened{}, err
+		return admin.Opened{}, refusal.explain(err)
 	}
 	client, err := anon.WithToken(token)
 	if err != nil {
@@ -125,11 +146,50 @@ func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey s
 			Now:        cfg.Now,
 		},
 		Member: func(token string) (*matrix.Client, error) {
-			return matrix.NewMember(matrix.Config{BaseURL: base, Token: token})
+			return matrix.NewMember(matrix.Config{BaseURL: base, Token: token, Dial: dial})
 		},
 		Restore: restoreFiles{path: d.path, team: team, rand: cfg.Rand},
 		Staged:  cfg.staged,
 	}, nil
+}
+
+// checkedDial is a direct dial whose connection cfg.Peer holds to team's homeserver, closed and
+// refused when it is not; the refusal is kept in refused, since the client reports a failed
+// dial by its class alone.
+func (cfg Config) checkedDial(team paths.TeamID, refused *peerRefusal) Dial {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		if err := cfg.Peer(ctx, team, conn); err != nil {
+			refused.set(err)
+			return nil, errors.Join(err, conn.Close())
+		}
+		return conn, nil
+	}
+}
+
+// peerRefusal is the last listener cfg.Peer refused, for the error that failed because of it.
+type peerRefusal struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (p *peerRefusal) set(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.err = err
+}
+
+// explain is err with the refusal that caused it before it, or err alone when there was none.
+func (p *peerRefusal) explain(err error) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err == nil {
+		return err
+	}
+	return fmt.Errorf("%w: %w", p.err, err)
 }
 
 // refused is a refusal of bootstrap step 1 (exit 70).

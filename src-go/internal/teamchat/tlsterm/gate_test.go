@@ -43,6 +43,15 @@ func (l *lockedLog) String() string {
 	return l.buf.String()
 }
 
+// closeClosed closes a client the terminator has closed already: the close's alert may find the
+// connection gone, which is no failure of the test's.
+func closeClosed(t *testing.T, c net.Conn) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Logf("closing a connection the terminator closed: %v", err)
+	}
+}
+
 // clientFrom is client from the local address from, a second source on loopback.
 func clientFrom(t *testing.T, addr netip.AddrPort, from string, ca []byte) (*tls.Conn, error) {
 	t.Helper()
@@ -98,7 +107,7 @@ func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 		if !closed(t, second) {
 			t.Fatal("a second connection from the same source was served beyond MaxPerSource")
 		}
-		check(t, second.Close())
+		closeClosed(t, second)
 	}
 	other, err := clientFrom(t, addr, "127.0.0.2", k.ca)
 	check(t, err)
@@ -122,7 +131,7 @@ func TestT9FullSlotsAreLogged(t *testing.T) {
 	echo(t, first, "held")
 	if second, cerr := client(t, srv.Addrs()[0], k.ca, nil); cerr == nil {
 		closed(t, second)
-		check(t, second.Close())
+		closeClosed(t, second)
 	}
 	leakcheck.Poll(t, func() bool { return strings.Contains(log.String(), "all 1 connections are held") })
 }
@@ -177,7 +186,7 @@ func TestT10TheAdminAPIIsRefusedAndNeverReachesTheUpstream(t *testing.T) {
 		if status != http.StatusForbidden || !strings.Contains(body, "M_FORBIDDEN") || !shut {
 			t.Errorf("%s: %d %s, closed %v", target, status, body, shut)
 		}
-		check(t, c.Close())
+		closeClosed(t, c)
 	}
 	select {
 	case <-up.accepted:
@@ -225,7 +234,7 @@ func TestT10ALaterRequestIsJudgedToo(t *testing.T) {
 	srv := serve(t, k, up.addr, clock.NewFake(0, fixedNow.UnixMilli()), nil)
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
-	t.Cleanup(func() { check(t, c.Close()) })
+	t.Cleanup(func() { closeClosed(t, c) })
 	allowed := request("first")
 	_, err = c.Write([]byte(allowed + "GET /_synapse/admin/v1/users HTTP/1.1\r\nHost: x\r\n\r\n"))
 	check(t, err)
@@ -264,7 +273,7 @@ func TestT10AmbiguousFramingIsRefused(t *testing.T) {
 		if status < 400 || status == http.StatusForbidden || !shut {
 			t.Errorf("%s: %d, closed %v", name, status, shut)
 		}
-		check(t, c.Close())
+		closeClosed(t, c)
 	}
 	select {
 	case <-up.accepted:
@@ -282,7 +291,7 @@ func TestT10ASilentClientIsClosedAtRequestLimit(t *testing.T) {
 	srv := serve(t, k, up.addr, clk, nil)
 	c, err := client(t, srv.Addrs()[0], k.ca, nil)
 	check(t, err)
-	t.Cleanup(func() { check(t, c.Close()) })
+	t.Cleanup(func() { closeClosed(t, c) })
 	check(t, clk.AwaitDue(t.Context(), RequestLimit))
 	clk.Advance(RequestLimit)
 	if !closed(t, c) {

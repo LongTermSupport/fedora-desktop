@@ -109,7 +109,13 @@ the state root (`paths.CtlStateRoot` under a test root), the clock and the rando
 - **OP1. The client.** The admin client is `matrix.NewAdmin` on `http://127.0.0.1:<port>`, the
   port from the request's `team.json` (the child never reads root's files). `Opened` carries
   `apply.Deps` (`RosterPath`, `RoomsPath`, `GuestDir` under `ctl/<team>/`, the clock) and a
-  member-client maker for CO2.
+  member-client maker for CO2. Every connection either client opens is held, before it carries
+  a byte, to the team's own homeserver (Plan 00257 ADMIN-1): the child's `/proc/net/tcp` names
+  the socket that accepted it and its owner's uid, which must be the effective uid of a process
+  in the cgroup of `teamchat-server@<team>.service` (its `DynamicUser=`); the accepted socket is
+  waited for at most a second. A connection that fails it is closed, nothing is sent, and the
+  failure names the unit. The restore's staging client is exempt: it runs in the staging unit's
+  own network (RU2).
 - **OP2. The token.** `admin.token` is read by the trust rule: at most 4096 printable ASCII
   bytes without a space, else refused (78) without quoting it. For every op but `team.apply`,
   a missing token is 78: "team <t> has no admin token: run team apply".

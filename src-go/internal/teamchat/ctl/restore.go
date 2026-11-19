@@ -181,7 +181,9 @@ func (d *dir) replace(name string, data []byte, rnd io.Reader) error {
 // staged is Open's Staged: the admin client of the staging server on port with token, given
 // once it answers versions, probed every stagedPoll for up to admin.StagedWait.
 func (cfg Config) staged(ctx context.Context, port int, token string) (*matrix.Admin, error) {
-	anon, err := cfg.Admin("http://" + loopback + ":" + strconv.Itoa(port))
+	// The staging server is in the staging unit's own network (RU2), where nothing else listens;
+	// its connections are direct.
+	anon, err := cfg.Admin("http://"+loopback+":"+strconv.Itoa(port), nil)
 	if err != nil {
 		return nil, fmt.Errorf("the staging server's admin client: %w", err)
 	}
