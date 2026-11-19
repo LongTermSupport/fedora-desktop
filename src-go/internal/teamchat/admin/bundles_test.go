@@ -109,6 +109,73 @@ func TestSeatBundlesIsTheIssuedBundle(t *testing.T) {
 	}
 }
 
+// lxcHandle is a seat of kind lxc: its handle's type, which is the member's kind (MO3).
+const lxcHandle = "thing.2+box-1.lxc"
+
+// lxcURLs stands in for the applied team's LXC seats' url (host.AppliedLXCURL in production): it
+// answers url, or err, and records the teams it was asked for.
+type lxcURLs struct {
+	url   string
+	err   error
+	asked []declare.Team
+}
+
+func (l *lxcURLs) get(team declare.Team) (string, error) {
+	l.asked = append(l.asked, team)
+	return l.url, l.err
+}
+
+// TestSeatBundlesGivesAnLXCSeatTheBridgeURL is X5: a seat of kind lxc is given the LXC seats'
+// url, the team's listen address on the bridge, pinned to the same team CA; every other seat
+// kind is given the team's url, and the LXC url is never asked for it.
+func TestSeatBundlesGivesAnLXCSeatTheBridgeURL(t *testing.T) {
+	ca := newTeamCA(t)
+	team := alphaTeam(t, httpsURL)
+	cred := apply.Credential{Kind: apply.CredToken, Secret: "syt_tok~1"}
+	for handle, want := range map[string]string{lxcHandle: "https://198.51.100.1:8448", sampleHandle: httpsURL, "thing.1+desk.host": httpsURL, "thing.1+lab.vm": httpsURL} {
+		urls := &lxcURLs{url: "https://198.51.100.1:8448"}
+		sb := seatBundlesWith(t, ca.get)
+		sb.LXCURL = urls.get
+		v, err := sb.Bundle(t.Context(), team, handle, sampleRoom, cred)
+		if err != nil {
+			t.Fatalf("%s: %v", handle, err)
+		}
+		issued, err := seat.DecodeIssued(v.Compact())
+		if err != nil {
+			t.Fatalf("%s: %v", handle, err)
+		}
+		if issued.Seat.BaseURL != want || issued.Seat.TLSCA != ca.pem {
+			t.Errorf("%s: base_url %q, want %q; tls_ca the team's: %t", handle, issued.Seat.BaseURL, want, issued.Seat.TLSCA == ca.pem)
+		}
+		wantAsked := map[bool]int{true: 1, false: 0}[handle == lxcHandle]
+		if len(urls.asked) != wantAsked || (wantAsked == 1 && urls.asked[0].ID != team.ID) {
+			t.Errorf("%s: the LXC url was asked for %v, want %d asks", handle, urls.asked, wantAsked)
+		}
+	}
+}
+
+// TestSeatBundlesFailsWithoutTheLXCURL: an LXC seat whose url cannot be had (none recorded on
+// the bridge, no provider) is issued no bundle rather than the team's url, which its guest might
+// not reach.
+func TestSeatBundlesFailsWithoutTheLXCURL(t *testing.T) {
+	cred := apply.Credential{Kind: apply.CredToken, Secret: "s3cret-value"}
+	errNone := errors.New("no listen address inside the LXC bridge's subnet")
+	for name, provider := range map[string]func(declare.Team) (string, error){
+		"none on the bridge": (&lxcURLs{err: errNone}).get,
+		"no provider":        nil,
+	} {
+		sb := seatBundles(t)
+		sb.LXCURL = provider
+		_, err := sb.Bundle(t.Context(), alphaTeam(t, httpsURL), lxcHandle, sampleRoom, cred)
+		if err == nil || strings.Contains(err.Error(), cred.Secret) {
+			t.Errorf("%s: %v", name, err)
+		}
+		if name == "none on the bridge" && !errors.Is(err, errNone) {
+			t.Errorf("%s: %v does not carry the provider's error", name, err)
+		}
+	}
+}
+
 // TestSeatBundlesAsksForTheCAOnlyForHTTPS: the provider is asked for the team's CA exactly when
 // the base URL is https; a loopback team makes no CA and asks for none (X12, X15).
 func TestSeatBundlesAsksForTheCAOnlyForHTTPS(t *testing.T) {

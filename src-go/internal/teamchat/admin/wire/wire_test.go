@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/carry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -257,6 +258,31 @@ func TestTeamCAIsTheHostsCA(t *testing.T) {
 	for name, ca := range providers {
 		if _, err := ca(team); err == nil || errors.Is(err, ErrTeamCANotMade) || !strings.Contains(err.Error(), "ca.key") {
 			t.Errorf("%s of a CA without its key = %v, want a refusal naming ca.key", name, err)
+		}
+	}
+}
+
+// X5: the production System's LXC seats' url, and the one its seat bundles give an LXC seat, is
+// read from the host's applied files: a team never applied has none, never the team's url.
+func TestLXCURLIsTheHostsAppliedOne(t *testing.T) {
+	root := t.TempDir()
+	sys := build(t, &fakeMachine{root: root, owner: ownerOf(t, root)})
+	bundles, ok := sys.Bundles.(admin.SeatBundles)
+	if !ok {
+		t.Fatalf("Bundles is a %T, want the seat side's", sys.Bundles)
+	}
+	team, err := paths.ParseTeamID("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl := declare.Team{ID: team, URL: "https://chat.example.com:8448", Port: 8448}
+	for name, provider := range map[string]func(declare.Team) (string, error){"System.LXCURL": sys.LXCURL, "SeatBundles.LXCURL": bundles.LXCURL} {
+		if provider == nil {
+			t.Errorf("%s is not wired", name)
+			continue
+		}
+		if got, err := provider(decl); err == nil {
+			t.Errorf("%s of a team never applied = %q", name, got)
 		}
 	}
 }

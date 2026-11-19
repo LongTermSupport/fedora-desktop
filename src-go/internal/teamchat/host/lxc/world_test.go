@@ -42,6 +42,8 @@ const (
 	runID     = "00112233aabbccdd"
 	agentAddr = "192.0.2.5"
 	allowNet  = "192.0.2.0/24"
+	// bridgeAddr is the host's address on the bridge, inside allowNet.
+	bridgeAddr = "192.0.2.1"
 )
 
 func mustTeam(t *testing.T, s string) paths.TeamID {
@@ -547,6 +549,10 @@ type world struct {
 	networks  []string
 	bridge    netip.Prefix
 	bridgeErr error
+	// listen and listenErr are the answer of the listen set the team's last apply recorded
+	// (Deps.Listen).
+	listen    []netip.Addr
+	listenErr error
 }
 
 func newWorld(t *testing.T) *world {
@@ -567,6 +573,8 @@ func newWorld(t *testing.T) *world {
 		v1:     &fakeV1{},
 		// The default team declares the network its guests are on, and the bridge is that one.
 		networks: []string{allowNet}, bridge: netip.MustParsePrefix(allowNet),
+		// The team listens on the bridge, at the address its url names.
+		listen: []netip.Addr{netip.MustParseAddr(bridgeAddr)},
 	}
 	w.bus = &fakeBus{log: &w.log}
 	w.lxc.log = &w.log
@@ -589,7 +597,7 @@ func (w *world) addBox(name string) *box {
 func (w *world) team(id string) declare.Team {
 	return declare.Team{
 		ID: mustTeam(w.t, id), State: declare.StatePresent, Name: id, Port: 8448,
-		URL: "http://192.0.2.1:8448", Networks: w.networks, // on the bridge (allowNet), X5
+		URL: "https://" + bridgeAddr + ":8448", Networks: w.networks, // on the bridge (allowNet), X5
 
 	}
 }
@@ -647,6 +655,7 @@ func (w *world) deps() Deps {
 		OwnerGID:  os.Getgid(),
 		Bridge:    "lxcbr0",
 		BridgeNet: func() (netip.Prefix, error) { return w.bridge, w.bridgeErr },
+		Listen:    func(paths.TeamID) ([]netip.Addr, error) { return w.listen, w.listenErr },
 		Guard:     teamlock.Unguarded,
 		Refresh: func(_ context.Context, team paths.TeamID) error {
 			w.refresh = append(w.refresh, team.String())
