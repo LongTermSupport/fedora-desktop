@@ -122,16 +122,16 @@ install are listed last, under "Owner questions".
   terminator unit has the IP filter and the socket bind of X4; the leaf and its key reach it as
   credentials; it holds no CA key. (Chosen because the repo does not say what Tuwunel's TLS
   keys accept; see the owner questions.)
-  The terminator holds at most `tlsterm.DefaultMaxConns` (256) connections at once, and a
+  The terminator holds at most `tlsterm.DefaultMaxConns` (1024) connections at once, and a
   relayed connection that moves no byte either way for `tlsterm.IdleLimit` (2 minutes) is
   closed, both ends, which frees its slot, so an idle host cannot hold every slot (review S6).
   Every byte read or written puts the deadline 2 minutes ahead again. The limit is above the
   member's matrix client's own waits, a sync long-poll of at most 30 s and a pooled connection
   dropped by the client after a minute idle, so a healthy member is never cut by it.
   One source address holds at most the team's `connections_per_source` of those connections
-  (1 to 256, default `tlsterm.DefaultMaxPerSource`, 256; `teamchat tls --per-source`), so a
-  team that declares it lower keeps one client, which needs no credential to finish a
-  handshake, from holding every slot, and each refusal is logged, the first of each minute at
+  (1 to 256, default `tlsterm.DefaultMaxPerSource`, 256, a quarter of the slots;
+  `teamchat tls --per-source`), so one client, which needs no credential to finish a
+  handshake, never holds every slot, by default or at any declared value, and each refusal is logged, the first of each minute at
   once and the count of the rest at its end (Plan 00257 SEC-4). A source at its cap has its
   held connections checked for life first (Plan 00257 B.5 review): a short TCP keepalive (1 s
   idle, two probes 1 s apart) fails a connection a suspended or vanished host left behind, its

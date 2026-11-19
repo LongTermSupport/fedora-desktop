@@ -75,10 +75,10 @@ anything but loopback.
   line and headers first and relays only HTTP/1.1 requests under `/_matrix/` and
   `/.well-known/matrix/`, so the homeserver's admin API is reached on loopback only. A refused
   request is answered (403 or 400) and the connection closed. A client that sends no request
-  within 10 seconds of its handshake is closed. It holds at most 256 connections, and one
-  source address at most the team's `connections_per_source` (1 to 256, default 256): set it
-  lower to keep one address from holding every slot, higher than the members behind one
-  address (a NAT, a VPN that masquerades) need. When a source is at its cap, its connections
+  within 10 seconds of its handshake is closed. It holds at most 1024 connections, and one
+  source address at most the team's `connections_per_source` (1 to 256, default 256), so by
+  default no one address holds every slot: set it lower to leave more for other addresses, but
+  above what the members behind one address (a NAT, a VPN that masquerades) need. When a source is at its cap, its connections
   are checked for life first (a short TCP keepalive probe), so those a suspended or vanished
   member host left behind are reclaimed and its reconnecting seats are let in; a source whose
   connections all answer is refused, and each refusal is logged. The leaf and its key reach it as systemd

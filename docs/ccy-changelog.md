@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.29 — container 2.84.35
+
+- **The TLS terminator holds up to 1024 connections**, and one source address at most 256 of
+  them by default (`connections_per_source`, 1 to 256), so by default no one address holds every
+  slot. The terminator's descriptor limit grows with it.
+
 ## 3.122.28 — container 2.84.34
 
 - **The TLS terminator's per-source cap is the team's own** (`connections_per_source`, 1 to 256,

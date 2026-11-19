@@ -40,7 +40,7 @@ RestrictAddressFamilies=AF_INET AF_INET6
 IPAccounting=yes
 IPAddressDeny=any
 SocketBindDeny=any
-LimitNOFILE=576
+LimitNOFILE=2112
 InaccessiblePaths=-/run/dbus
 InaccessiblePaths=<D 4.2's six v1 paths, each with its "-">
 

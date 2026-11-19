@@ -63,12 +63,12 @@ const (
 	// IdleLimit is how long a relay may move no byte either way before it is closed.
 	IdleLimit = 2 * time.Minute
 	// DefaultMaxConns is the number of connections held at once when none is configured.
-	DefaultMaxConns = 256
+	DefaultMaxConns = 1024
 	// DefaultMaxPerSource is the number one source address holds at once when none is
-	// configured (Plan 00257 B.5 review, the coordinator's ruling): every slot, so members behind
-	// one address are never refused by default; a team declares a lower cap
-	// (connections_per_source) to keep one address from holding them all.
-	DefaultMaxPerSource = DefaultMaxConns
+	// configured (Plan 00257 B.5 review, the coordinator's ruling): room for many members behind
+	// one address (a NAT) across a suspend, and a quarter of the slots, so by default no one
+	// address holds them all; a team may declare a lower cap (connections_per_source).
+	DefaultMaxPerSource = 256
 	// RefusalWindow is how often a refusal is logged at most; the rest are counted (T9).
 	RefusalWindow = time.Minute
 	// ProbeLimit is how long a source at its cap waits for the liveness check to reclaim one of

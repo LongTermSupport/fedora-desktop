@@ -138,6 +138,53 @@ func TestT9OneSourceCannotHoldEverySlot(t *testing.T) {
 	}
 }
 
+// T9 at the defaults (the coordinator's ruling on the B.5 fixes): with nothing configured, one
+// source holds DefaultMaxPerSource connections and no more, and those leave slots for another
+// source, which is still served.
+func TestT9AtTheDefaultsOneSourceLeavesSlotsForOthers(t *testing.T) {
+	leakcheck.Check(t)
+	k, up := newKeys(t), newUpstream(t)
+	clk := clock.NewFake(0, fixedNow.UnixMilli())
+	probed := make(chan int, 1)
+	srv := serve(t, k, up.addr, clk, func(c *Config) {
+		c.Probe = func(conns []net.Conn) { probed <- len(conns) }
+	})
+	if srv.cfg.maxPerSource() >= srv.cfg.maxConns() {
+		t.Fatalf("by default one source holds %d of %d slots: all of them", srv.cfg.maxPerSource(), srv.cfg.maxConns())
+	}
+	addr := srv.Addrs()[0]
+	for i := range DefaultMaxPerSource {
+		c, err := client(t, addr, k.ca, nil)
+		check(t, err)
+		t.Cleanup(func() { check(t, c.Close()) })
+		echo(t, c, "held "+strconv.Itoa(i))
+	}
+	type dialed struct {
+		conn *tls.Conn
+		err  error
+	}
+	got := make(chan dialed, 1)
+	go func() {
+		c, derr := client(t, addr, k.ca, nil)
+		got <- dialed{c, derr}
+	}()
+	if n := <-probed; n != DefaultMaxPerSource {
+		t.Fatalf("the liveness check was given %d connections, want the source's %d", n, DefaultMaxPerSource)
+	}
+	check(t, clk.AwaitDueFrom(t.Context(), ProbeLimit, "(*Server).reclaim"))
+	clk.Advance(ProbeLimit)
+	if over := <-got; over.err == nil {
+		if !closed(t, over.conn) {
+			t.Fatal("a connection past the default per-source cap was served")
+		}
+		closeClosed(t, over.conn)
+	}
+	other, err := clientFrom(t, addr, "127.0.0.2", k.ca)
+	check(t, err)
+	t.Cleanup(func() { check(t, other.Close()) })
+	echo(t, other, "another source")
+}
+
 // T9a (Plan 00257 B.5 review): several seats behind one address (a NAT) reconnect after their
 // host was suspended. Their old connections are dead but not yet timed out; the liveness check
 // finds them dead, they are reclaimed, and every new connection is admitted.

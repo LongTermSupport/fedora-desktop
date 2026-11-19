@@ -199,8 +199,8 @@ func ParseServerVersion(s string) (ServerVersion, error) {
 }
 
 // MaxConnectionsPerSource is the most connections a team's terminator lets one source address
-// hold, which is all its slots (tlsterm.DefaultMaxConns): a team's connections_per_source is 1
-// to it, and it is the default.
+// hold (tlsterm.DefaultMaxPerSource, a quarter of its slots): a team's connections_per_source is
+// 1 to it, and it is the default.
 const MaxConnectionsPerSource = 256
 
 // ParsePort checks a declared port: 1 to 65535.

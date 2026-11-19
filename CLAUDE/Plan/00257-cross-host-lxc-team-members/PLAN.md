@@ -120,7 +120,13 @@ Related plans:
   review's fixes in `subagent-reports/b5-fix-report.md`. HOST-4 is Task B.2d. Coordinator
   ruling (under the owner's "all weaknesses resolved"): the terminator's per-source connection
   cap is a per-team setting, `connections_per_source` (default 256), and a source at its cap
-  has its dead connections reclaimed by a liveness check before a new one is refused.
+  has its dead connections reclaimed by a liveness check before a new one is refused. The
+  second review (`subagent-reports/b5-fix-review.md` item 5) found the default per-source cap
+  equal to every slot, so SEC-4 was off by default; the owner-side decision was the
+  coordinator's ruling (c): the terminator holds 1024 connections (`DefaultMaxConns`) and one
+  source 256 by default (`DefaultMaxPerSource`), so by default no one address holds every slot
+  (`subagent-reports/b5-fix2-report.md`). The homeserver takes 1024 upstream connections: Tuwunel
+  raises its own soft descriptor limit to the hard one at start (`maximize_fd_limit`).
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).

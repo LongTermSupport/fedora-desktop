@@ -35,8 +35,7 @@ its own deploy route runs stage A's play.
 - **Gate B binds only the host run of the ccy hot reissue (Task 4.4).** Plan 00209 Task 3.1
   says so in its own words: "N3's LXC seats are token seats, so gate B binds only the ccy hot
   reissue's host run (Task 4.4)". Gate B is about the first deploy that gives a process a pool
-  seat's password. X30's remote seat is a pool seat, so it is issued with `--credential
-  password` (X23): `seat place-issued` refuses a token bundle (issue #248). Gate B therefore
+  seat's password. X30's remote seat is a pool seat, so it is issued with `--credential password` (X23): `seat place-issued` refuses a token bundle (issue #248). Gate B therefore
   binds X30's host run too, and was met on 2026-10-30 (the owner confirmed INT6).
 
 ### Who does what
@@ -232,7 +231,7 @@ do not care:
    loopback alone, so a guest's member reaches it only through the terminator, which must
    therefore outlive the guests at shutdown as the homeserver does); the bus server's hardening lines; `RestrictAddressFamilies=AF_INET AF_INET6`;
    `IPAddressDeny=any`; `SocketBindDeny=any`; a descriptor limit above twice
-   `tlsterm.DefaultMaxConns` (256, so above 512); and, as the homeserver's unit, `[Install]`
+   `tlsterm.DefaultMaxConns` (1024, so above 2048); and, as the homeserver's unit, `[Install]`
    `WantedBy=multi-user.target`, so an enabled instance starts at boot (fedora-desktop#247). The drop-ins keep their own denies as well: the
    B3 fix put `IPAddressDeny=any` and `SocketBindDeny=any` in both drop-ins, because systemd
    never applies one template's base text to another template's drop-in, and a drop-in is judged

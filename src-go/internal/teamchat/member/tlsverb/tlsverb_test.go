@@ -102,12 +102,17 @@ func deps(f *terminator) Deps {
 var listenArgs = []string{"--team", "ops", "--port", "8448", "--listen", "192.0.2.10", "--listen", "192.0.2.11"}
 
 // V6 (Plan 00257 B.5 review): the terminator is given the team's per-source cap from
-// --per-source, and the terminator's own default, every slot, without it; the declaration's
-// bound and default are the terminator's slots.
+// --per-source, and the terminator's own default without it; the declaration's bound and default
+// are the terminator's default per source, which is below its slots, so by default one source
+// never holds every slot (SEC-4).
 func TestV6TheTerminatorIsGivenThePerSourceCap(t *testing.T) {
-	if tlsterm.DefaultMaxConns != paths.MaxConnectionsPerSource || tlsterm.DefaultMaxPerSource != paths.MaxConnectionsPerSource {
-		t.Fatalf("the declaration's bound %d is not the terminator's slots %d and default %d",
-			paths.MaxConnectionsPerSource, tlsterm.DefaultMaxConns, tlsterm.DefaultMaxPerSource)
+	if tlsterm.DefaultMaxPerSource != paths.MaxConnectionsPerSource {
+		t.Fatalf("the declaration's bound %d is not the terminator's default per source %d",
+			paths.MaxConnectionsPerSource, tlsterm.DefaultMaxPerSource)
+	}
+	if tlsterm.DefaultMaxPerSource >= tlsterm.DefaultMaxConns {
+		t.Fatalf("the default per source %d is not below the terminator's slots %d: one source holds them all",
+			tlsterm.DefaultMaxPerSource, tlsterm.DefaultMaxConns)
 	}
 	for _, c := range []struct {
 		args []string

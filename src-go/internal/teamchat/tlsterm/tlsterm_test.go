@@ -55,7 +55,7 @@ func newUpstream(t *testing.T) *upstream {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	check(t, err)
-	u := &upstream{addr: netip.MustParseAddrPort(ln.Addr().String()), accepted: make(chan struct{}, 64)}
+	u := &upstream{addr: netip.MustParseAddrPort(ln.Addr().String()), accepted: make(chan struct{}, maxConnsLimit)}
 	var wg sync.WaitGroup
 	testconn.Bound(t, ln)
 	wg.Go(func() {
