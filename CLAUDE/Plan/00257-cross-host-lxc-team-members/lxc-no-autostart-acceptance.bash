@@ -11,8 +11,12 @@
 # no (askReboot). Only on yes is it rebooted; once it has booted, `pgrep -u <user> -x claude` must find nothing for
 # each of its members' users.
 #
+# A container that is not running is offline: named in the report and not judged.
+#
 # Exit 0: proven. Exit 1: a member session would start, or did start, at boot. Exit 2: COULD NOT
-# ESTABLISH (nothing declared, a container not running, a probe that did not answer).
+# ESTABLISH (nothing declared; nothing judged, as when every container is offline; fewer units
+# found than online service members declared, per generation; a probe that did not answer; an
+# lxc-stop or lxc-start that failed during the reboot).
 set -euo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repoRoot="${scriptDir}"
@@ -54,7 +58,7 @@ failed=0
 unknown=0
 offlineReport="${PLAN_RUN_DIR}/offline-members-report.md"
 declare -A unitsOf=()
-v1Wanted=0 v1Found=0 v2Wanted=0 v2Found=0
+v1Wanted=0 v1Found=0 v2Wanted=0 v2Found=0 unitFound=0 bootsProven=0
 
 evidence() { printf 'EVIDENCE %s\n' "$*"; }
 bad() {
@@ -100,9 +104,11 @@ running() {
     return 1
 }
 
-# checkUnit judges one unit in a container: present, not enabled, no wants link.
+# checkUnit judges one unit in a container: present, not enabled, no wants link. unitFound
+# says whether the unit was found (so judged), for the coverage count.
 checkUnit() {
     local container="$1" unit="$2" said=""
+    unitFound=0
     if ! said="$(ask "${container}" "if test -f '${unitDir}/${unit}'; then echo present; else echo absent; fi")"; then
         unsure "${container}: could not look for ${unit} (lxc-attach failed)"
         return 0
@@ -112,6 +118,7 @@ checkUnit() {
         return 0
     fi
     evidence "${container}: ${unit} present"
+    unitFound=1
     # is-enabled exits non-zero for every state but enabled; its word is the answer.
     if ! said="$(ask "${container}" "systemctl is-enabled '${unit}' || true")"; then
         unsure "${container}: systemctl is-enabled ${unit} did not answer"
@@ -195,8 +202,16 @@ rebootProof() {
         evidence "${container}: reboot not chosen; the boot proof was not run"
         return 0
     fi
-    sudo -n lxc-stop -n "${container}" </dev/null
-    sudo -n lxc-start -n "${container}" </dev/null
+    # A failed lxc-stop or lxc-start is COULD NOT ESTABLISH, never its own exit code (which
+    # could read as the exit-1 verdict).
+    if ! sudo -n lxc-stop -n "${container}" </dev/null; then
+        unsure "${container}: lxc-stop failed, so the boot proof was not run"
+        return 0
+    fi
+    if ! sudo -n lxc-start -n "${container}" </dev/null; then
+        unsure "${container}: lxc-start failed after lxc-stop, so the boot proof was not run"
+        return 0
+    fi
     until booted "${container}"; do
         if ! running "${container}"; then
             unsure "${container}: stopped again after lxc-start, before it booted"
@@ -211,6 +226,7 @@ rebootProof() {
     done
     evidence "${container}: booted after ${waited}s"
     afterBoot "${container}" "${users}"
+    bootsProven=$((bootsProven + 1))
 }
 
 declared="$(members)"
@@ -235,7 +251,7 @@ while read -r gen container user service; do
     if [[ "${service}" == True && "${gen}" == v1 ]]; then
         v1Wanted=$((v1Wanted + 1))
         checkUnit "${container}" "agent-bus-claude-${user}.service"
-        v1Found=$((v1Found + 1))
+        v1Found=$((v1Found + unitFound))
     elif [[ "${service}" == True ]]; then
         v2Wanted=$((v2Wanted + 1))
     fi
@@ -253,14 +269,19 @@ for container in "${containers[@]}"; do
     for unit in ${units}; do
         [[ "${unit}" != end ]] || continue
         checkUnit "${container}" "${unit}"
-        v2Found=$((v2Found + 1))
+        v2Found=$((v2Found + unitFound))
     done
 done
 
+# Coverage is judged per generation against the online service members declared: fewer units
+# found than members is a proof not made, never a pass.
 evidence "COVERAGE v1: ${v1Found} unit(s) checked for ${v1Wanted} online service member(s)"
 evidence "COVERAGE v2: ${v2Found} unit(s) checked for ${v2Wanted} online service member(s)"
-if ((v2Wanted > 0 && v2Found == 0)); then
-    unsure "v2 declares ${v2Wanted} online service member(s), but no teamchat-session unit was found"
+if ((v1Found < v1Wanted)); then
+    unsure "v1 declares ${v1Wanted} online service member(s), but only ${v1Found} agent-bus-claude unit(s) were found"
+fi
+if ((v2Found < v2Wanted)); then
+    unsure "v2 declares ${v2Wanted} online service member(s), but only ${v2Found} teamchat-session unit(s) were found"
 fi
 
 for container in "${containers[@]}"; do
@@ -268,6 +289,15 @@ for container in "${containers[@]}"; do
     users="$(awk -v c="${container}" '$2 == c { print $3 }' <<<"${declared}" | sort -u | tr '\n' ' ')"
     rebootProof "${container}" "${users}"
 done
+
+# A run that judged no unit and proved no boot made no proof, whatever else it saw.
+if ((v1Found + v2Found + bootsProven == 0)); then
+    if [[ -z "${running}" ]]; then
+        unsure "every declared container is offline (named above), so nothing was judged"
+    else
+        unsure "no member unit was found and no reboot was proven, so nothing was judged"
+    fi
+fi
 
 if ((failed)); then
     printf '==> FAIL: a member session is enabled, wanted at boot, or ran after boot\n' >&2

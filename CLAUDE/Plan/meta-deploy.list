@@ -66,9 +66,9 @@ playbooks/imports/play-teamchat.yml
 # The ccy image is rebuilt once for the teamchat it carries; nothing a session does changes.
 # The same run installs issue #288's Go commands (ccy 3.122.26: ccy-sessions, ccy-teams and the
 # launcher's front), whose typed-line submitter no longer takes a screen with no input box as
-# entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.32,
-# container 2.84.38) adds Start its session in its LXC container to an LXC member's menu (Plan
-# 00257 B.12).
+# entered and names what the box showed when a line stays in it. Its ccy-teams (ccy 3.122.34,
+# container 2.84.40) adds Start its session in its LXC container to an LXC member's menu, shown
+# only on this host's LXC member whose entry has service: true (Plan 00257 B.12).
 playbooks/imports/play-claude-yolo.yml
 # Plan 00257 B.12: the v1 agent-bus play rewrites each LXC member's agent-bus-claude-<user>
 # unit (service: true) with no [Install] and Restart=no, and DISABLES AND STOPS one an earlier
@@ -76,11 +76,14 @@ playbooks/imports/play-claude-yolo.yml
 # only start is ccy-teams, Enter on the member's row, Start its session in its LXC container
 # (installed by play-claude-yolo.yml above).
 playbooks/imports/play-agent-bus.yml
-# Plan 00257 B.12 proof, read-only: for each declared LXC member container, its session units
-# are present, not enabled and not linked in multi-user.target.wants. It then ASKS, per running
-# container, whether to reboot it (default no; this question is put at the terminal even under
-# meta-deploy), and only on yes reboots it and checks no claude runs for its members' users.
-# Exit 2 means it could not establish the answer (a container not running, say).
+# Plan 00257 B.12 proof. Its checks are read-only: in each declared LXC member container that
+# is running, the session units are present, not enabled and not linked in
+# multi-user.target.wants. A stopped container is reported offline and skipped. It then ASKS,
+# per running container, whether to reboot it (default no; asked at the terminal even under
+# meta-deploy) and reboots only on the owner's yes, then checks no claude runs for its members'
+# users. Exit 2 means it could not establish the answer: nothing judged (every container
+# offline, say), fewer units found than members declared, a probe that did not answer, or a
+# failed lxc-stop or lxc-start.
 00257-cross-host-lxc-team-members/lxc-no-autostart-acceptance.bash
 # Q15 (last, since it can remove the passwordless sudo the runs above may need): passwordless sudo is now the host's declared choice, applied by this new last play.
 # Run it only while this host's environment/localhost/host_vars/localhost.yml declares
