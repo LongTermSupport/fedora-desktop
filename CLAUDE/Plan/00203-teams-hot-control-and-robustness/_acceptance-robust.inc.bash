@@ -251,7 +251,8 @@ check_seat_check_waits() {
 
 # check_lxc_members — the member unit of each present agent_bus_lxc_members entry with
 # service: true (members.py's agent-bus-claude-<user>.service), in its online container: never
-# started at boot (Plan 00257 B.12), so not enabled, no wants link and Restart=no; whether it
+# started at boot (Plan 00257 B.12), so loaded, static or disabled, no wants link and
+# Restart=no (a missing or masked unit fails); whether it
 # runs, and whether the container starts at boot, is not judged. Only the declared containers
 # are asked, never every container lxc-ls lists. A container that is not running is offline
 # (plan_lxc_online_named): named, not judged, never a failure. With every declared one offline,
@@ -260,10 +261,13 @@ check_seat_check_waits() {
 R9_NOT_JUDGED=0
 R9_OFFLINE=0
 # r9_unit_judged — whether a member unit is as Plan 00257 B.12 requires: $1 its sorted
-# `systemctl show` Restart and UnitFileState (each line then a space), $2 the wants links to it
-# (one a line, "" for none). Restart=no, not enabled in any form, no wants link.
+# `systemctl show` LoadState, Restart and UnitFileState (each line then a space), $2 the wants
+# links to it (one a line, "" for none). The unit must exist (a missing one reads not-found
+# with an empty UnitFileState, a masked one masked), be static or disabled, Restart=no, and
+# have no wants link.
 r9_unit_judged() {
-    [[ "$1" == "Restart=no UnitFileState="* && "$1" != *"UnitFileState=enabled"* && -z "$2" ]]
+    [[ ("$1" == "LoadState=loaded Restart=no UnitFileState=static " ||
+        "$1" == "LoadState=loaded Restart=no UnitFileState=disabled ") && -z "$2" ]]
 }
 check_lxc_members() {
     local members="${PLAN_RUN_DIR}/lxc-members.json" args pairs containers online container user unit state links
@@ -294,7 +298,7 @@ check_lxc_members() {
         fi
         unit="agent-bus-claude-${user}.service"
         state="$(sudo -n lxc-attach -n "${container}" --clear-env -- systemctl show \
-            --property=UnitFileState --property=Restart "${unit}")" || return 1
+            --property=LoadState --property=UnitFileState --property=Restart "${unit}")" || return 1
         state="$(sort <<<"${state}" | tr '\n' ' ')" || return 1
         links="$(sudo -n lxc-attach -n "${container}" --clear-env -- \
             find /etc/systemd/system -path '*.wants/*' -name "${unit}")" || return 1

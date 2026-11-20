@@ -67,7 +67,8 @@ Built on `fix/teams-server-robustness`; design and evidence in
 - [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
   R9 judges the running containers only; each stopped one is named offline, never a failure
   (the owner's rule, Plan 00211 Task 2.8). Plan 00257 Task B.12 superseded the unit's boot
-  start: R9 now proves it is not enabled, has no wants link and has `Restart=no`.
+  start: R9 now proves it is loaded, static or disabled (a missing or masked unit fails), has
+  no wants link and has `Restart=no`.
 - [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
 - [ ] 🔄 **Task 2.6** (owner, urgent): play-agent-bus.yml never fails because an LXC member's
   container is not running: a joined one is skipped, any other deferred to the first run with it
