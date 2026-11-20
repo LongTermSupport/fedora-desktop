@@ -1312,11 +1312,14 @@ LastPass CLI password manager:
 **Setup**: accounts come from `lastpass_accounts` in host_vars, a mapping of name to email
 (`default: user@example.com` for one account); its shape and the login behaviour are in
 [Configuration → LastPass Accounts](configuration.md#lastpass-accounts). Undeclared, a run at
-a terminal prompts for it and saves it; a run with no terminal stops, naming the variable.
+a terminal prompts for it and saves it; an unattended run stops before installing anything,
+naming the variable.
 
-- A run at a terminal asks whether to log in (proving password and MFA), then logs every
-  account out at the end of the play
-- A run with no terminal installs and configures only, and says how to log in by hand
+- An unattended run (`run.bash --yes`, which exports `ASSUME_YES`; `RUN_BASH_HEADLESS` on; or
+  no terminal) never asks, logs in or logs out: it installs and configures, and says how to
+  log in by hand
+- Otherwise the play asks whether to log in (proving password and MFA), then logs every
+  account out again, even when the login failed
 - The shell exports `LPASS_AGENT_DISABLE=1`: no key agent, every command asks for the
   master password
 
