@@ -5,11 +5,11 @@
 # Accounts come from lastpass_accounts in host_vars, a mapping of name to email; one
 # account is {default: user@example.com}. See docs/configuration.md#lastpass-accounts.
 #
-# An unattended run never asks, logs in or logs out. It is unattended when run.bash --yes
-# exported ASSUME_YES=true or RUN_BASH_HEADLESS is set to on, or when there is no terminal
-# (Ansible then answers every pause with an empty answer at once). Such a run stops before
-# installing anything when lastpass_accounts is not declared; otherwise it installs
-# lastpass-cli, writes the shell blocks and prints how to log in by hand.
+# The play never logs in or out: it installs lastpass-cli, writes the shell blocks and prints
+# how to log in by hand. It asks only for undeclared accounts, and only at a terminal. A run is
+# unattended when run.bash --yes exported ASSUME_YES=true, RUN_BASH_HEADLESS is set to on, or
+# there is no terminal (Ansible then answers every pause with an empty answer at once); such a
+# run stops before installing anything when lastpass_accounts is not declared.
 - hosts: desktop
   name: LastPass Configuration
   vars:
@@ -134,11 +134,10 @@
 
         - name: Reload variables
           ansible.builtin.include_vars: "{{ vault_file }}"
-        # A person just answered at a terminal, so the login below needs no second question.
+
         - name: Update lastpass_configured
           ansible.builtin.set_fact:
             lastpass_configured: true
-            lastpass_accounts_just_entered: true
       when: not lastpass_configured
 
     # Names become alias, function and directory names, and emails are passed to the shell.
@@ -273,94 +272,10 @@
               ========================================================================
       when: lastpass_accounts | length > 1 or 'default' not in lastpass_accounts
 
-    # SETUP LOGIN: a self-contained block. It asks "Type y" (not asked of a person who just
-    # entered the accounts), logs in and syncs every account, and in always logs out every
-    # account holding a session, so a failed login or sync still fails the play after the
-    # logout. The lpass tasks unset LPASS_AGENT_DISABLE: login and sync need the agent.
-    - name: Log in to LastPass to prove the password and MFA, then log out
-      when: not (lastpass_unattended | bool)
-      block:
-        - name: Ask whether to log in to LastPass now
-          ansible.builtin.pause:
-            prompt: |2
-
-              ========================================================================
-              LASTPASS LOGIN
-              ========================================================================
-
-              Log in to every configured LastPass account now? It asks for each master
-              password (and MFA), proves they work and syncs the vault; every account is
-              logged out again at the end of this play.
-
-              Type y to log in, or press ENTER to skip
-          register: lastpass_login_answer
-          when: not (lastpass_accounts_just_entered | default(false))
-
-        - name: Decide whether this run logs in to LastPass
-          ansible.builtin.set_fact:
-            lastpass_login_now: >-
-              {{ (lastpass_accounts_just_entered | default(false))
-                 or ((lastpass_login_answer.user_input | default('') | trim | lower) in ['y', 'yes']) }}
-
-        - name: Log in to every LastPass account and sync
-          when: lastpass_login_now | bool
-          block:
-            # lpass status --quiet: exit 0 logged in, 1 not; anything else fails the play.
-            - name: Check which LastPass accounts are logged in before the login
-              ansible.builtin.shell: |
-                set -euo pipefail
-                unset LPASS_AGENT_DISABLE
-                LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status --quiet
-              args:
-                executable: /bin/bash
-              register: lastpass_before_login
-              changed_when: false
-              failed_when: lastpass_before_login.rc not in [0, 1]
-              loop: "{{ lastpass_accounts | dict2items }}"
-
-            - name: Login to LastPass accounts
-              ansible.builtin.shell: |
-                set -euo pipefail
-                unset LPASS_AGENT_DISABLE
-                export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
-                lpass login {{ item.item.value | quote }}
-                lpass sync
-              args:
-                executable: /bin/bash
-              when: item.rc != 0
-              changed_when: item.rc != 0
-              loop: "{{ lastpass_before_login.results }}"
-          always:
-            - name: Check which LastPass accounts hold a session
-              ansible.builtin.shell: |
-                set -euo pipefail
-                unset LPASS_AGENT_DISABLE
-                LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status --quiet
-              args:
-                executable: /bin/bash
-              register: lastpass_session
-              changed_when: false
-              failed_when: lastpass_session.rc not in [0, 1]
-              loop: "{{ lastpass_accounts | dict2items }}"
-
-            # Only an account the check found logged in is logged out, so the logout changes it.
-            - name: Log out of every LastPass account
-              ansible.builtin.shell: |
-                set -euo pipefail
-                unset LPASS_AGENT_DISABLE
-                LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }} lpass logout --force
-              args:
-                executable: /bin/bash
-              when: item.rc == 0
-              changed_when: item.rc == 0
-              loop: "{{ lastpass_session.results }}"
-
-    - name: Say how to log in to LastPass by hand
+    # The play never logs in: a person logs in by hand, when they need it.
+    - name: Say how to log in to LastPass
       ansible.builtin.debug:
         msg: >-
-          LastPass login skipped: {{ 'this run is unattended (run.bash --yes, or
-          RUN_BASH_HEADLESS)' if (lastpass_unattended | bool) else 'no answer was given (a
-          run with no terminal cannot be asked)' }}. lastpass-cli is installed and the shell
-          configuration is written. Log in by hand in a new shell with
+          lastpass-cli is installed and the shell configuration is written. This play does not
+          log in. Run, in a new shell, when you need it:
           {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}lpass login {{ lastpass_accounts.default }}{% else %}lpass-login NAME (one of {{ lastpass_accounts.keys() | join(', ') }}){% endif %}.
-      when: not (lastpass_login_now | default(false) | bool)
