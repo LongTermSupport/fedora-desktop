@@ -63,3 +63,34 @@ def test_text_that_quotes_a_substituted_script_runs_nothing(handler, cwd, comman
 )
 def test_a_substituted_script_that_runs_is_still_denied(handler, cwd, command):
     assert handler.matches(_bash(command, cwd)) is True
+
+
+def test_a_substituted_script_after_a_cd_resolves_against_the_new_directory(handler, tmp_path):
+    """`cd sub && bash -c "$(cat f)"` reads sub/f, not f beside the starting directory."""
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "rescue.bash").write_text(MUTATING_SCRIPT)
+    assert handler.matches(_bash('cd sub && bash -c "$(cat rescue.bash)"', tmp_path)) is True
+    assert handler.matches(_bash('cd sub && eval "$(< rescue.bash)"', tmp_path)) is True
+
+
+def test_a_substituted_script_in_the_starting_directory_is_not_found_after_a_cd(handler, cwd):
+    """After `cd sub` the file named is sub/rescue.bash, which does not exist."""
+    (cwd / "sub").mkdir()
+    assert handler.matches(_bash('cd sub && bash -c "$(cat rescue.bash)"', cwd)) is False
+
+
+def test_the_whole_command_data_check_is_evaluated_once(handler, cwd, monkeypatch):
+    """`is_plain_data_command(command)` takes the whole command: one answer, however many segments."""
+    import hidden_git_mutation
+
+    calls: list[str] = []
+    real = hidden_git_mutation.is_plain_data_command
+
+    def counting(command: str) -> bool:
+        calls.append(command)
+        return real(command)
+
+    monkeypatch.setattr(hidden_git_mutation, "is_plain_data_command", counting)
+    handler.matches(_bash("true && true && true && true", cwd))
+    assert len(calls) <= 1
