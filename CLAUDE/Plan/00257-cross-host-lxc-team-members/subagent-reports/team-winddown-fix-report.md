@@ -188,3 +188,56 @@ Both runs printed the same fourteen `project_tmux_gone_text` findings at seven s
 `tmuxccy/panes.go:23` (2), `:96` (3), `tmuxccy/submit.go:93` (2), `tmuxccy/tmuxccy.go:130` (2),
 `:160` (3), `sessclose/sessclose.go:504` (1), `teams/winddown/windstep.go:220` (1). The command
 is now in the rule's catalogue entry in `CLAUDE/GoProjectRules.md`.
+
+## Fix round, part 4
+
+The independent review of part 3 (`team-winddown-fix3-review.md`, committed with this round) found
+one should-fix item, one wrong report and two nits. All four are done. B.13 stays ticked; its
+line, SPEC-team-close TC2, TC4 and TC12, `docs/agent-bus.md` and the shutdown help text now say
+that a holder is closed only while its run is live, and name the crashed-holder case. Each test
+below was seen failing before its code (`untracked/scratch/b13-fix4-red-shutdown.log` and
+`b13-fix4-red-seat.log`).
+
+| Item                                                | State | Tests                                                                                                                                         |
+| --------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. a crashed holder's reused name is closed         | fixed | `shutdown` `TestALeftoverHoldingDoesNotMakeAReusedNameTheTeams`; `seat` `TestKeeperLiveIsTheSessionsSeatLockHeld`                             |
+| 2. a crashed holder reported as outside tmux, exit 1 | fixed | `shutdown` `TestACrashedHoldersSeatHasNoSession`, `TestAV2HostSeatHeldOutsideCcyTmuxIsOutOfReach` (its holder now keeps its seat lock)         |
+| 3. nit: `seatsweep.Desired.Read` a dead export      | fixed | `seatsweep` `TestDesiredReadGivesTheMembership` (now of `read`)                                                                               |
+| 4. nit: `checkouts()` skips a strange pool entry    | fixed | `shutdown` `TestAPoolEntryThatIsNotACheckoutIsNotSkipped` (a name no checkout has; a file under a checkout's name)                            |
+
+### Items 1 and 2
+
+- **One live-keeper test:** `seat.KeeperLive(store, session, team)` is the store's own
+  `keeperLive` (the session's seat lock of the team held; missing, free or refused is not live),
+  read without a store opened for allocation. A take's `sessionHolds` now asks `keeperLive` first,
+  so the store and the shutdown share one test. `ReadHoldings` and `KeeperLive` share `readOnly`
+  (no store means nothing, nothing made).
+- **The shutdown's v2 host path** splits the team's complete holdings by `KeeperLive`
+  (`byKeeper`). Only live holdings reach `closeHolders`, so a later session under a crashed
+  holder's name is never typed into.
+- **The four cases of a complete holding:**
+  - live on ccy's tmux and lock held: closed;
+  - lock held, no session on ccy's tmux: not reachable, exit 1 (`whyV2HeldOffTmux`, as before);
+  - lock free: a crashed holder, listed under "No session running", exit 0 (`whyV2Ended`). It
+    names the session, says when a live ccy session under that name is a later one and not the
+    team's, and says that the seat sweep keeps the seat for that session's restore while its
+    session record remains, then releases it;
+  - a seat lock that cannot be probed: every member left is not reachable once, exit 1.
+- **Why exit 0 for a crashed holder:** nothing runs, so there is nothing to shut down and nothing
+  the person can do here; the seat store settles the holding itself (TC4, TC14).
+- **Image:** `src-go/internal/teamchat/seat/` is an image source path, so CCY 3.122.42 and
+  container 2.84.42 move together, with one changelog entry.
+
+DBF: a design gap (a record taken as proof of a live holder without asking the keeper). No
+detector can tell which fact decides liveness; the shared `seat.KeeperLive` is the structural guard.
+
+### Items 3 and 4
+
+- `Desired.Read` is now `read`, called only by `Desires` and its test.
+- `checkouts()` returns an error naming each pool entry that is not a checkout's pool (a name no
+  checkout has, or a non-directory), worded as the seat sweep words it. The holdings are then
+  unreadable, and each member is named once as not reachable.
+
+DBF: item 3 is YAGNI cleanup, with no class. Item 4 is the "skip what does not parse" pattern in
+one function. The class (a `continue` on a parse error) is too general for a detector without
+false positives, so it gets a test.

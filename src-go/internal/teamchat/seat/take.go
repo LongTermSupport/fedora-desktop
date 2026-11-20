@@ -225,12 +225,9 @@ func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) e
 // What decides is the host's: held/ and the session record. The lock only adds a live keeper,
 // so a lock its container made refused, like a deleted one, holds nothing (n2c-D14).
 func (s *Store) sessionHolds(session paths.SessionName, team paths.TeamID) (bool, error) {
-	got, err := s.probe(s.store.SessionSeat(session, team))
-	if err != nil {
-		return false, err
-	}
-	if got.state == lockHeld {
-		return true, nil
+	live, err := s.keeperLive(session, team)
+	if err != nil || live {
+		return live, err
 	}
 	restorable, err := s.sessions.Restorable(session)
 	if err != nil {

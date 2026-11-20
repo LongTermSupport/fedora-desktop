@@ -193,7 +193,7 @@ func (d Desired) Desires(session paths.SessionName, s seat.Seat) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("pool seat %s is not a handle", s.Name)
 	}
-	desired, found, err := d.Read(session)
+	desired, found, err := d.read(session)
 	if err != nil {
 		return false, err
 	}
@@ -203,9 +203,9 @@ func (d Desired) Desires(session paths.SessionName, s seat.Seat) (bool, error) {
 	return slices.Contains(desired.Seats, state.DesiredSeat{Team: s.Team, Seat: h.Seat}), nil
 }
 
-// Read is the session's desired.json, read capped and never through a link; found is false when
+// read is the session's desired.json, read capped and never through a link; found is false when
 // the session has none.
-func (d Desired) Read(session paths.SessionName) (state.Desired, bool, error) {
+func (d Desired) read(session paths.SessionName) (state.Desired, bool, error) {
 	data, err := readCapped(d.Store.DesiredFile(session), state.MaxDesired)
 	if errors.Is(err, fs.ErrNotExist) {
 		return state.Desired{}, false, nil

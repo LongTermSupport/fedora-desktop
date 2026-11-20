@@ -373,23 +373,23 @@ func TestDesiredRefusesWhatItCannotJudge(t *testing.T) {
 	}
 }
 
-// Read is the session's desired membership as the file holds it, for a reader beside the sweep
-// (ccy-teams shutdown finds a v2 host seat's session by it); a session with none is not found.
+// read is the session's desired membership as the file holds it, which Desires judges; a session
+// with none is not found, and a file naming another session is refused.
 func TestDesiredReadGivesTheMembership(t *testing.T) {
 	w := newWorld(t)
 	d := Desired{Store: w.store}
 	s1 := mustSession(t, "s1")
-	if _, found, err := d.Read(s1); err != nil || found {
+	if _, found, err := d.read(s1); err != nil || found {
 		t.Fatalf("no desired.json: found %v, %v", found, err)
 	}
 	w.desire("s1", `{"team":"ops","seat":"1"}`)
-	got, found, err := d.Read(s1)
+	got, found, err := d.read(s1)
 	if err != nil || !found || len(got.Seats) != 1 || got.Seats[0].Team != mustTeam(t, "ops") || got.Seats[0].Seat != "1" {
 		t.Fatalf("got %+v, %v, %v", got, found, err)
 	}
 	w.write(w.store.DesiredFile(mustSession(t, "s2")),
 		`{"v":1,"session":"s1","generation":2,"written_ms":1,"seats":[],"farewell":[],"inbound":"accept"}`)
-	if _, _, err = d.Read(mustSession(t, "s2")); err == nil || !strings.Contains(err.Error(), "names session s1") {
+	if _, _, err = d.read(mustSession(t, "s2")); err == nil || !strings.Contains(err.Error(), "names session s1") {
 		t.Fatalf("another session's file: %v", err)
 	}
 }

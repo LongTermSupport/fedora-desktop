@@ -200,10 +200,14 @@ said in WHERE; its members are the record's, an LXC seat's row naming its contai
 its session was on the bus at the last health check. A v2 team's menu offers only what reaches it: **Shut down every session of
 `<team>`** (its LXC seats' sessions, each closed on the seat's own tmux server in its running
 container, as above, and each ccy session on this host that holds a seat of the team in the
-owner's seat store, as its holding record names it; a member whose seat nothing holds has nothing
-to shut down when its seat is in this host's seat store, and is named as not reachable from here
-otherwise, as is a seat held by a session outside ccy's tmux, a seat whose holding record cannot
-be read, and an LXC member no entry of the team's LXC record names) and,
+owner's seat store, as its holding record names it, while its run is live (its seat lock of the
+team held); a member whose seat nothing holds has nothing to shut down when its seat is in this
+host's seat store, and is named as not reachable from here otherwise, as is a seat held by a live
+session outside ccy's tmux, a seat whose holding record cannot be read, and an LXC member no
+entry of the team's LXC record names; a seat whose holder crashed or did not survive a reboot
+(its seat lock free) has no session, even when a later ccy session has the same tmux name, and
+the seat sweep keeps it for that session's restore while its session record remains, then
+releases it) and,
 on an LXC seat's row where its container runs, its unit file is placed (`service: true`) and its
 session does not run, **Start its session in its LXC container**, which runs `sudo teamchat-admin lxc start --member <container>/<seat key>` and says so (systemd's start, which leaves a session
 that already runs as it is: a start never ends one). `ccy-teams restart` and `wind-down` act

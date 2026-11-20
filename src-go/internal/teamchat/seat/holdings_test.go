@@ -105,6 +105,38 @@ func TestReadHoldingsIsHoldingsReadOnly(t *testing.T) {
 	}
 }
 
+// KeeperLive is the store's live-keeper test read without a store opened for allocation: the
+// session's seat lock of the team held is true; missing or free (a crashed run's) is false, as
+// is a seat store that does not exist, which reading does not make.
+func TestKeeperLiveIsTheSessionsSeatLockHeld(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.writeRecord(fmt.Sprintf(recordFmt, w.hs.URL()))
+	w.take("s1")
+	s1 := mustSession(t, "s1")
+	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || live {
+		t.Fatalf("no lock file: live %v, %v", live, err)
+	}
+	end := w.keep("s1", "")
+	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || !live {
+		t.Fatalf("lock held: live %v, %v", live, err)
+	}
+	end()
+	if live, err := KeeperLive(w.store.store, s1, w.seat.Team); err != nil || live {
+		t.Fatalf("lock free: live %v, %v", live, err)
+	}
+	missing, err := paths.SeatStore(t.TempDir() + "/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live, err := KeeperLive(missing, s1, w.seat.Team); err != nil || live {
+		t.Errorf("no seat store: live %v, %v", live, err)
+	}
+	if _, err = os.Stat(missing.Root()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("reading made the seat store: %v", err)
+	}
+}
+
 // HeldBy is the complete holdings whose record names the session: what Verbs.end acts on and
 // ccy-teams shutdown closes. An incomplete holding names no session, so it is no one's.
 func TestHeldByIsTheSessionsCompleteHoldings(t *testing.T) {

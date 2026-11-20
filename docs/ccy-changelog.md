@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.42 — container 2.84.42
+
+- **Shutting down a v2 (teamchat) team closes a host seat's holder only while its run is live**
+  (Plan 00257 SPEC-team-close TC2, TC12). A holding outlives a crashed or rebooted session, and
+  tmux reuses names, so a later ccy session under the holder's name was sent `/compact` and
+  `/exit`. A session is now closed only when its seat lock of the team is held, the seat store's
+  own live-keeper test. A seat whose holder's run ended is named "no session running" (exit 0),
+  with what the seat sweep does with the holding, instead of a session outside tmux (exit 1). A
+  seat store pool entry that is not a checkout's pool is now an error, not skipped. The image is
+  rebuilt: the seat store package it builds from gained the shared live-keeper reader.
+
 ## 3.122.41 — container 2.84.41
 
 - **Shutting down a v2 (teamchat) team finds its host seats by the seat store's holdings**

@@ -25,6 +25,20 @@ const (
 		"no session can be named for it; the seat sweep settles it, or end the session where it runs"
 )
 
+// whyV2Ended is why a v2 host seat whose holding names a session with no live keeper (its seat
+// lock free: the run crashed, or the host rebooted) has no session to shut down, and what the
+// seat store does with the holding; reused is a live ccy session under that name now, a later
+// one tmux gave the same name.
+func whyV2Ended(session string, reused bool) string {
+	why := whyNoSession + " on this host: the seat's holding names session " + session +
+		", whose run ended without releasing it (its seat lock is free: a crash or a reboot)"
+	if reused {
+		why += ", and the live ccy session " + session + " is a later one under the same name, not the team's"
+	}
+	return why + "; the seat sweep keeps the seat for that session's restore while its session record " +
+		"remains, and releases it once the record is gone"
+}
+
 // resolveV2Lxc sorts a v2 team's LXC seats (SPEC-team-close TC2-TC4): every entry of its LXC
 // record that is not left. One the last apply deferred, or whose container is not running now,
 // is offline; one whose container runs is closed in its session on the seat's own tmux server

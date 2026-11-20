@@ -53,16 +53,48 @@ func (s *Store) Holdings() ([]Holding, error) {
 // shutdown asks it): no part beyond where the store is, and nothing made; a seat store that does
 // not exist holds nothing.
 func ReadHoldings(store paths.Store, checkout paths.CheckoutKey) ([]Holding, error) {
+	var holdings []Holding
+	err := readOnly(store, checkout, func(s *Store) error {
+		var err error
+		holdings, err = s.Holdings()
+		return err
+	})
+	return holdings, err
+}
+
+// KeeperLive is the store's live-keeper test (keeperLive, which a take's sessionHolds asks first)
+// read without a store opened for allocation, as ReadHoldings reads: whether the session's seat
+// lock of the team is held now. ccy-teams shutdown asks it, so a holding a crashed run left, which
+// the store keeps for a restore, never makes a later session under the same name the holder. A
+// seat store that does not exist has no keeper, and nothing is made.
+func KeeperLive(store paths.Store, session paths.SessionName, team paths.TeamID) (bool, error) {
+	live := false
+	err := readOnly(store, paths.CheckoutKey{}, func(s *Store) error {
+		var err error
+		live, err = s.keeperLive(session, team)
+		return err
+	})
+	return live, err
+}
+
+// keeperLive is whether the session's seat lock of the team is held: its keeper runs now. A lock
+// that is missing, free or refused (n2c-D14) has no live keeper.
+func (s *Store) keeperLive(session paths.SessionName, team paths.TeamID) (bool, error) {
+	got, err := s.probe(s.store.SessionSeat(session, team))
+	return err == nil && got.state == lockHeld, err
+}
+
+// readOnly runs f on the seat store opened with no part made beyond where it is, for one
+// checkout; a seat store that does not exist runs nothing.
+func readOnly(store paths.Store, checkout paths.CheckoutKey, f func(*Store) error) error {
 	root, err := openDir(store.Root(), false)
 	if errors.Is(err, unix.ENOENT) {
-		return nil, nil
+		return nil
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	s := &Store{store: store, checkout: checkout, root: root}
-	holdings, err := s.Holdings()
-	return holdings, errors.Join(err, root.close())
+	return errors.Join(f(&Store{store: store, checkout: checkout, root: root}), root.close())
 }
 
 // HeldBy is the holdings the session holds: complete, their record naming it. It is the one

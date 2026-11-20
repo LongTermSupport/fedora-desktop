@@ -132,9 +132,13 @@ shut down.
 A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record whose
 container runs is closed in its session on the seat's own tmux server (tmux -S), and each
 ccy session on this host that holds a seat of the team (its holding record in the owner's
-seat store names the session) is closed as above. A v2 member whose seat nothing holds is
-named: with nothing to shut down when its seat is in this host's seat store, else as not
-reachable from here. A seat held by a session outside ccy's tmux, a seat whose holding
+seat store names the session, and its seat lock of the team is held: its run is live) is
+closed as above. A v2 member whose seat nothing holds is named: with nothing to shut down
+when its seat is in this host's seat store, else as not reachable from here. A seat whose
+holder's run ended without releasing it (a crash or a reboot: its seat lock is free) has no
+session, even when a later ccy session carries the same name; the seat sweep keeps such a
+seat for that session's restore while its session record remains, and releases it once the
+record is gone. A seat held by a live session outside ccy's tmux, a seat whose holding
 record cannot be read, and an LXC member no entry of the team's LXC record names are not
 reachable from here.
 

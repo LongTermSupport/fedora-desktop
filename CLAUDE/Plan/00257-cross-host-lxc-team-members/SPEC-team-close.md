@@ -22,13 +22,16 @@ Each expectation below is numbered and held by a test, written first.
   - a host seat: a live ccy or cc tmux session that a session record or a desired membership
     names for the seat (discover), on ccy's tmux server (`tmux -L ccy`); for a v2 team, the
     seat store's holding: a live session whose name a complete holding of the team's seat
-    records (`held/held.json`, `seat.HeldBy`, the same answer the launcher's exit acts on). A
-    desired membership (`Store.DesiredFile`) is never asked: it outlives its session and tmux
-    reuses names, so it could name a later, unrelated session. A v2 host seat held by a session
-    that is not on ccy's tmux (one started outside tmux holds its seats under its container's
-    name), or whose holding record cannot be read, is out of reach; a seat of this host's pool
-    that nothing holds has no session; a member whose seat is not in the pool is out of reach
-    (another machine);
+    records (`held/held.json`, `seat.HeldBy`, the same answer the launcher's exit acts on), and
+    only while that session's seat lock of the team is held (`seat.KeeperLive`, the store's own
+    live-keeper test, which a take asks first). A desired membership (`Store.DesiredFile`) is
+    never asked, and a holding with a free seat lock is a crashed or rebooted run's, which the
+    store keeps for a restore: both outlive their session and tmux reuses names, so either could
+    name a later, unrelated session. A v2 host seat held by a live session that is not on ccy's
+    tmux (one started outside tmux holds its seats under its container's name), or whose holding
+    record cannot be read, is out of reach; a crashed holder's seat and a seat of this host's
+    pool that nothing holds have no session; a member whose seat is not in the pool is out of
+    reach (another machine);
   - a v1 LXC seat: the tmux session `agent-bus-claude` on the server of the same name inside
     the running container, as the member's user, through `sudo lxc-attach`
     (`lxcfreeze.Lister.InContainer`, as the wind-down reaches it);
@@ -46,7 +49,8 @@ Each expectation below is numbered and held by a test, written first.
 - **TC4.** Not active, named under "nothing to shut down" and never a failure: a free seat, a
   parked one, an LXC member whose container is stopped or that the last apply deferred, and an
   LXC seat whose container runs with no session in it ("no session running in container C";
-  sessions start on demand only, Task B.12).
+  sessions start on demand only, Task B.12), and a v2 host seat whose holder's run ended
+  without releasing it (TC12's crashed holder).
 
 ## Confirmation
 
@@ -84,8 +88,15 @@ Each expectation below is numbered and held by a test, written first.
   of `/exit`), unreachable (sudo, `lxc-ls` or `lxc-attach` failed, or an LXC record or the seat
   store's holdings unreadable), out of reach (another machine, a seat no record names, a v2 LXC
   member no entry of the team's LXC record names, a missing record included, a v2 host seat held
-  by a session not on ccy's tmux, named with that session, or held with a record that cannot be
-  read). Each member is named once, with one reason. "Not there" is tmux's own answer only (exit
+  by a live session not on ccy's tmux (its seat lock held), named with that session, or held with
+  a record that cannot be read; a pool entry that is not a checkout's pool makes the holdings
+  unreadable, never skipped), or a crashed holder (a v2 host seat whose holding names a session
+  whose seat lock is free: it crashed or did not survive a reboot). A crashed holder's seat is
+  named under "no session running", exit 0, since nothing runs: with the session the holding
+  names, a live ccy session under that name said to be a later one, not the team's, and what the
+  seat store does with the holding (the seat sweep keeps it for that session's restore while its
+  session record remains, and releases it once the record is gone). Each member is named once,
+  with one reason. "Not there" is tmux's own answer only (exit
   1 and its exact wording); the same words from lxc-attach, runuser or env are unreachable.
 - **TC13.** The last line counts: `<team>: X exited cleanly, Y stopped, Z failed`, then `; N members not reachable from here` and `; N members offline` when there are any.
 
