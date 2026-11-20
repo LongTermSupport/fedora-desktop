@@ -160,13 +160,16 @@ Related plans:
   run's holding, which outlive their session) and closed.
   Reports: `subagent-reports/team-winddown-report.md`, review fixes
   `subagent-reports/team-winddown-fix-report.md`.
-- [ ] 🔄 **Task B.14**: the project hook guard judges what a line runs, not the words it
-  mentions (issue #294: a commit message, an echo or a grep that only names `dnf install` was
-  denied). The three project handlers are swept (`ansible_enforcement`, `hidden_git_mutation`,
-  `system_paths`); a line is judged as written unless it is all inert (no file written, no
-  substitution, exact option lists), in the module `_raw_command_judge`; three Semgrep rules
-  defend the class. Reports: `subagent-reports/ansible-guard-report.md`, reviews
-  `subagent-reports/ansible-guard-review*.md`. Issue #294 stays open until a review passes.
+- [ ] 🔄 **Task B.14**: the project hook guard and issue #294 (a commit message, an echo or a
+  grep that only names `dnf install` was denied). FROZEN at its simplest safe form after four
+  review rounds, each of which found real runs the original denied: `ansible_enforcement` judges
+  the raw text as the original did (original patterns verbatim, additions only add denials) in
+  the module `_raw_command_judge`; `hidden_git_mutation` and `system_paths` keep their round 1
+  fixes; three Semgrep rules defend the class. Known gap: a command that only mentions a blocked
+  tool in text is blocked too (workaround: write the text with the Write tool, pass it by path,
+  `git commit -F` or `--body-file`). Issue #294 stays open for a parser-grade approach. Reports:
+  `subagent-reports/ansible-guard-report.md` (section "Freeze"), reviews
+  `subagent-reports/ansible-guard-review*.md`.
 - [ ] ⬜ **Task B.6**: LXC apply robustness.
 - [ ] ⬜ **Task B.7**: durability (D1 for restore).
 - [ ] ⬜ **Task B.8**: agent-facing text (D2 for the unbuilt verbs).

@@ -139,3 +139,41 @@ A line that writes a file (an `echo ... >> meta-deploy.list`, a heredoc into `ca
 - The live (old) `ansible_enforcement` again denied every Bash command of mine that merely named `dnf install`, so each probe went through a file written with `Write`: #294's own symptom.
 - `Edit` was unavailable in this session; exact-string patch scripts under `untracked/scratch/guard4-patch-*.py` were used.
 - The sub-agent stop hook `subagent_report_path_verifier` misread a hyphenated filename in the round 3 review: logged on #353.
+## Freeze
+
+Decision (coordinator, agreed with the team coordinator's right-sizing ruling): the #294 guard is FROZEN at its simplest safe form; there is no round 5 of the inert/segment approach. Four rounds of an exception for text-only mentions each opened real-run bypasses the original denied, and the round 4 review (`ansible-guard-review4.md`) found three more (heredoc delimiter forms, `>&2f` writing a file, a bare `--pretty` hiding `--output=`). Commit of the code: `3a9da1f9c`. Issue #294 is commented and stays open.
+
+### The frozen form
+
+- `ansible_enforcement.py` judges the RAW text. The inert exception and everything that served it (the `TOOLS` allow-lists, the redirect and substitution scanner, the expansion check, `every_command_is_inert`, `INERT_COMMANDS`) are deleted: `_raw_command_judge.py` went from 469 lines to about 50.
+- Additions that ADD denials: options before the verb, `dnf5`, absolute or quoted tool names, pip variants, `systemctl --system`, quote-split words (`d''nf`). Each is purely additive by construction, not only by test: the 18 original patterns are the first entries of the handler's list, verbatim, so nothing an original pattern denies can pass. This also restores `dnf updateinfo list`, which the round 2 word boundary had freed and the original denied.
+- Kept: rule id `R-ANSIBLE-DIRECT-SYSTEM-CHANGE`, one `BLOCKED` headline, acceptance tests that are harmless if the guard misses them, `system_paths`' rule id and fixes, and `hidden_git_mutation`'s round 1 fix.
+- The deny message, the rule text and `get_claude_md` state the KNOWN LIMIT (issue #294): a command that only MENTIONS such a tool in text is blocked too; the workaround is a file written with the Write tool and passed by path (`git commit -F`, `gh ... --body-file`).
+- One more finding, fixed here: the daemon's `get_bash_command` joins a backslash-newline (`echo x\<newline>dnf install x` reads `echo xdnf install x`), so a raw-text search through it alone lets through a line the original's regex over the raw text denies. The handler judges the raw `tool_input` text first and the daemon's reading second.
+
+### Module choice (item 1)
+
+`_raw_command_judge.py` is kept, as a tiny module (the raw text, then each command-position segment, also with its words resolved), not folded back. Folding the search into the handler would make the handler a finding of `hook-regex-over-raw-command` or force a path exclusion on it; the module keeps a single named place that the rules trust, with the least code and no change to the rule set.
+
+### Tests (items 4 and 6)
+
+- `tests/test_ansible_enforcement.py` holds `ORIGINAL_FORBIDDEN_PATTERNS`, copied verbatim from `git show d3addfdf3^:.claude/hooks/handlers/pre_tool_use/ansible_enforcement.py`, and `original_denies` (case-insensitive `re.search`). The oracle never calls code under test. Invariant tests: every hand-list and generated line, and every probe template of review rounds 3 and 4 (332 templates in `tests/frozen_probe_shapes.py`, from `untracked/scratch/qarev-294/r3` and `r4`, each filled with 23 changes), that the original denied is denied. A separate test pins that the handler's list starts with the original patterns.
+- Tests of the removed exception are deleted (`round4_shapes.py`, `review_probe_shapes.py` and the inert, allow-list and judge-internals tests). The text-mention lines that used to be allowed are now expected DENY in one named list, `KNOWN_LIMIT_TEXT_MENTIONS`, each asserted to be denied by the original too.
+- RED: the new test file against the pre-freeze handler fails 315 tests (the mention cases, the oracle over the probe shapes, the message and the exception-is-gone tests). GREEN: `qa-hook-handlers.bash` 1975 passed.
+
+### Semgrep (items 5 and 6)
+
+- Item 5 (the `module.func(command)` look-alike): the taint rule gained a sink for `$MOD.$F(..., $X, ...)` where `$MOD` is a lower-case module the file imports (`import mod` or `from pkg import mod`; `re`, `fnmatch`, `json`, `logging`, `os`, `sys`, `shlex`, `textwrap`, `time` and `self` left out). Fixture: two new `ruleid` lines (a look-alike called through `import`, and through `from ... import`) and two `ok` lines (an object the file did not import, `os.path`). RED: the old rule file against the new fixture misses lines 273 and 279; GREEN: the whole gate passes (`proved:` names all four rules, `passed: 423 failed: 0`). Still not seen, and said so in the rule and QA.md: a callback parameter or `importlib`.
+- Item 6 (what protects the judge): the path exclusion was dead configuration on the taint rule (the judge takes `line`, not a taint source), so it is removed from that rule, and the rule file, QA.md, the `qa-gates.tsv` description, the script header and `run.go` now say what protects the judge: its NAME at the call site plus `hook-sanctioned-name-impostor`, which keeps the name from being defined or imported anywhere but `_raw_command_judge` (that rule keeps its path exclusion, which is needed: the module defines the name). The `checks.go` description only names the module and is still true.
+
+### Results
+
+- `qa-hook-handlers.bash`: 1975 passed. `qa-hook-handler-rules.bash`: `passed: 423 failed: 0`. `qa-python.bash` (ruff): 429 files OK. `cd src-go/qa && go test ./...`: every package ok (103 packages, no failure).
+- `qa-changed.bash --files` (12 files, dummy vault word): every check green (toolchain, bash, semgrep, ready-wait, stt, hook-handler-rules-files, walk-open, stdin-wait, ruff, docs, bash-limits, argv-leak, hook-handlers, gitleaks, suites test-qa-docs-exit-codes 6 and test-qa-changed 194) EXCEPT the `go` check (go-qa, whole, triggered by the one-string change in `src-go/qa/sttrules/run.go`), which failed twice on the same test in code this work does not touch: `TestRefreshProbesTheTerminator` in `src-go/internal/teamchat/health`, in the `teamchat-failpoints-test` stage, while another QA run shared the host. It passes alone (`-race -shuffle=on -count=2 -tags busfailpoints`, and `-count=3`) and `cd src-go/qa && go test ./...` passes; logged as issue 354. Logs: `untracked/scratch/guard-freeze-qa.log` and `-run1.log`.
+
+### Faults met (dogfooding)
+
+- The live guard denied every Bash command of mine that merely named a blocked tool in a commit message or a patch script, as #294 describes; files written with the Write tool and passed by path were the workaround.
+- The Edit tool was not available in this session; exact-string patch scripts under `untracked/scratch/` were used (each asserts that its search text occurs once).
+- The pre-commit private-name scan flagged one line of `ansible-guard-review4.md` (a review sentence about shell syntax probes); the line was reworded to commit the file, so the committed text differs from the reviewer's original on that one line.
+- `plan-qa --lint` without `--project-root` in a linked worktree: logged on #353.
