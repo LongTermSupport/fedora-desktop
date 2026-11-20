@@ -1,78 +1,158 @@
-// Package watchlist keeps the state of the repository watch list (CLAUDE/Watchlist.md): which
-// public repositories are watched, the commit last reviewed in each and the run that recorded
-// it, and a local mirror of each so a reviewer can read what changed. It reports and records;
-// judging what is worth adopting is the watchlist-scout agent's work. Spec: Plan 00200,
-// SPEC-watchlist.md, whose numbers the tests cite.
+// Package watchlist keeps the watch list (CLAUDE/Watchlist.md): the owner's GitHub stars and the
+// repositories added by hand, each cloned in full under its licence, triaged into a study group
+// or set aside, and studied in runs that record the commit each study read. It clones, fetches,
+// records and checks; judging what is worth adopting is the study agents' work. Spec: Plan 00258,
+// SPEC-watchlist-runs.md, whose item numbers (E, S, A, T, R, W, M, U, G) the tests cite.
 package watchlist
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
-// none is the list file's mark for "never reviewed" in the sha and run columns.
+// none is the list's mark for an empty column.
 const none = "-"
 
-const header = `# The watch list: public repositories scanned at intervals for ideas (CLAUDE/Watchlist.md).
-# Edited by the watchlist command (add, mark); read strictly, a malformed row is an error.
+// The enum values of the list's columns.
+const (
+	sourceStar  = "star"
+	sourceAdded = "added"
+
+	reuseLift      = "lift"
+	reuseWholeFile = "whole-file"
+	reuseCleanRoom = "clean-room"
+
+	stateNew       = "new"
+	stateStudy     = "study"
+	stateExcluded  = "excluded"
+	stateUnstarred = "unstarred"
+
+	licenceNone = "NONE"
+)
+
+const header = `# The watch list: the owner's GitHub stars and repositories added by hand (CLAUDE/Watchlist.md).
+# Written by the watchlist command (sync, add, set); read strictly, a malformed row is an error.
+# One row per repository, sorted by repo, tab-separated:
 #
-# url <TAB> branch <TAB> last_sha <TAB> run
-#   url       https://github.com/<owner>/<repo>, no .git suffix
-#   branch    the branch that is reviewed (the remote's default branch when added)
-#   last_sha  the commit last reviewed (40 hex digits), or - when never reviewed
-#   run       the run or document that recorded last_sha (no spaces), or - with it
+# repo <TAB> source <TAB> licence <TAB> reuse <TAB> state <TAB> group <TAB> licence_file <TAB> licence_sha
+#   repo          <owner>/<repo> on github.com
+#   source        star (from the owner's stars) or added (by watchlist add)
+#   licence       SPDX id, LicenseRef-<name>, NONE, or NOASSERTION (not yet verified)
+#   reuse         derived from licence: lift (MIT, Apache-2.0, ISC, 0BSD, BSD-*),
+#                 whole-file (MPL-2.0), clean-room (everything else)
+#   state         new (to triage), study, excluded (set aside) or unstarred
+#   group         the study group, lower-case kebab; - only when state is not study
+#   licence_file  the licence file at the clone's root, or -
+#   licence_sha   the first 16 hex digits of that file's sha256, or -
 `
 
 var (
-	urlPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)$`)
-	shaPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	runPattern = regexp.MustCompile(`^\S+$`)
+	repoPattern        = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+	licencePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+-]*$`)
+	groupPattern       = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	licenceFilePattern = regexp.MustCompile(`(?i)^(licen[cs]e|copying)`)
+	licenceSHAPattern  = regexp.MustCompile(`^[0-9a-f]{16}$`)
+	sources            = []string{sourceStar, sourceAdded}
+	states             = []string{stateNew, stateStudy, stateExcluded, stateUnstarred}
 )
 
-// Entry is one watched repository. LastSHA and Run are empty until it has been reviewed.
+// Entry is one repository on the list. Every field holds the column's text, "-" included.
 type Entry struct {
-	URL     string
-	Branch  string
-	LastSHA string
-	Run     string
-}
-
-// Name is owner/repo, as the list and the reports spell it.
-func (e Entry) Name() string {
-	owner, repo := splitURL(e.URL)
-	return owner + "/" + repo
-}
-
-// MirrorDir is where the local clone of the repository lives under root.
-func (e Entry) MirrorDir(root string) string {
-	owner, repo := splitURL(e.URL)
-	return filepath.Join(root, "untracked", "watchlist", owner+"__"+repo)
+	Repo        string
+	Source      string
+	Licence     string
+	Reuse       string
+	State       string
+	Group       string
+	LicenceFile string
+	LicenceSHA  string
 }
 
 // ListPath is the tracked list file under root.
 func ListPath(root string) string { return filepath.Join(root, "CLAUDE", "Watchlist.tsv") }
 
-func splitURL(url string) (string, string) {
-	m := urlPattern.FindStringSubmatch(url)
-	if m == nil {
-		return "", ""
+// CloneDir is where the clone of the repository lives under root: the excluded tree for an
+// excluded row, the starred tree otherwise, by licence then owner and repository.
+func (e Entry) CloneDir(root string) string {
+	tree := "starred-repos"
+	if e.State == stateExcluded {
+		tree = "starred-repos-excluded"
 	}
-	return m[1], m[2]
+	return filepath.Join(root, "untracked", tree, e.Licence, filepath.FromSlash(e.Repo))
 }
 
-// validateURL is W5: an https URL naming exactly an owner and a repository.
-func validateURL(url string) error {
-	m := urlPattern.FindStringSubmatch(url)
-	if m == nil || strings.HasSuffix(m[2], ".git") {
-		return fmt.Errorf("%q is not an https://github.com/<owner>/<repo> URL (no .git suffix, no slash, query or credentials)", url)
+// Reuse is what a licence allows (E5).
+func Reuse(licence string) string {
+	switch {
+	case licence == "MIT", licence == "Apache-2.0", licence == "ISC", licence == "0BSD", strings.HasPrefix(licence, "BSD-"):
+		return reuseLift
+	case licence == "MPL-2.0":
+		return reuseWholeFile
+	default:
+		return reuseCleanRoom
+	}
+}
+
+func checkRepo(repo string) error {
+	if !repoPattern.MatchString(repo) || strings.HasSuffix(repo, ".git") {
+		return fmt.Errorf("repo %q is not <owner>/<repo>", repo)
 	}
 	return nil
 }
 
-// Parse reads the list text; file names it in the errors (W4 to W8).
+func checkLicence(licence string) error {
+	if !licencePattern.MatchString(licence) {
+		return fmt.Errorf("licence %q is not an SPDX id, LicenseRef-<name>, NONE or NOASSERTION", licence)
+	}
+	return nil
+}
+
+func checkGroup(group string) error {
+	if group != none && !groupPattern.MatchString(group) {
+		return fmt.Errorf("group %q is not a lower-case kebab name or -", group)
+	}
+	return nil
+}
+
+// check is E1 to E9 for one entry.
+func (e Entry) check() error {
+	var errs []error
+	errs = append(errs, checkRepo(e.Repo))
+	if !slices.Contains(sources, e.Source) {
+		errs = append(errs, fmt.Errorf("source %q is not star or added", e.Source))
+	}
+	if err := checkLicence(e.Licence); err != nil {
+		errs = append(errs, err)
+	} else if want := Reuse(e.Licence); e.Reuse != want {
+		errs = append(errs, fmt.Errorf("reuse %q is inconsistent with licence %s, which is %s", e.Reuse, e.Licence, want))
+	}
+	if !slices.Contains(states, e.State) {
+		errs = append(errs, fmt.Errorf("state %q is not new, study, excluded or unstarred", e.State))
+	}
+	errs = append(errs, checkGroup(e.Group))
+	if e.State == stateStudy && e.Group == none {
+		errs = append(errs, errors.New("a study row needs a group"))
+	}
+	if (e.LicenceFile == none) != (e.LicenceSHA == none) {
+		errs = append(errs, errors.New("licence_file and licence_sha must both be - or both be set"))
+	}
+	if e.LicenceFile != none && (!licenceFilePattern.MatchString(e.LicenceFile) || strings.ContainsAny(e.LicenceFile, "/\\")) {
+		errs = append(errs, fmt.Errorf("licence_file %q is not a licence file name at the clone's root", e.LicenceFile))
+	}
+	if e.LicenceSHA != none && !licenceSHAPattern.MatchString(e.LicenceSHA) {
+		errs = append(errs, fmt.Errorf("licence_sha %q is not 16 lowercase hex digits", e.LicenceSHA))
+	}
+	return errors.Join(errs...)
+}
+
+// Parse reads the list text strictly; file names it in the errors.
 func Parse(data []byte, file string) ([]Entry, error) {
 	var entries []Entry
 	seen := map[string]int{}
@@ -80,13 +160,17 @@ func Parse(data []byte, file string) ([]Entry, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		e, err := parseRow(line)
-		if err != nil {
+		f := strings.Split(line, "\t")
+		if len(f) != 8 {
+			return nil, fmt.Errorf("%s:%d: want 8 tab-separated fields (repo, source, licence, reuse, state, group, licence_file, licence_sha), got %d", file, i+1, len(f))
+		}
+		e := Entry{Repo: f[0], Source: f[1], Licence: f[2], Reuse: f[3], State: f[4], Group: f[5], LicenceFile: f[6], LicenceSHA: f[7]}
+		if err := e.check(); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", file, i+1, err)
 		}
-		key := strings.ToLower(e.Name())
+		key := strings.ToLower(e.Repo)
 		if first, dup := seen[key]; dup {
-			return nil, fmt.Errorf("%s:%d: %s is already listed on line %d", file, i+1, e.Name(), first)
+			return nil, fmt.Errorf("%s:%d: %s is already listed on line %d", file, i+1, e.Repo, first)
 		}
 		seen[key] = i + 1
 		entries = append(entries, e)
@@ -94,44 +178,44 @@ func Parse(data []byte, file string) ([]Entry, error) {
 	return entries, nil
 }
 
-func parseRow(line string) (Entry, error) {
-	f := strings.Split(line, "\t")
-	if len(f) != 4 {
-		return Entry{}, fmt.Errorf("want 4 tab-separated fields (url, branch, last_sha, run), got %d", len(f))
-	}
-	if err := validateURL(f[0]); err != nil {
-		return Entry{}, err
-	}
-	if f[1] == "" || strings.ContainsAny(f[1], " \t") {
-		return Entry{}, fmt.Errorf("branch %q must be non-empty and hold no whitespace", f[1])
-	}
-	if (f[2] == none) != (f[3] == none) {
-		return Entry{}, errors.New("last_sha and run must both be - or both be set")
-	}
-	e := Entry{URL: f[0], Branch: f[1]}
-	if f[2] == none {
-		return e, nil
-	}
-	if !shaPattern.MatchString(f[2]) {
-		return Entry{}, fmt.Errorf("last_sha %q is not 40 lowercase hex digits or -", f[2])
-	}
-	if !runPattern.MatchString(f[3]) {
-		return Entry{}, fmt.Errorf("run %q must be a single token with no whitespace", f[3])
-	}
-	e.LastSHA, e.Run = f[2], f[3]
-	return e, nil
-}
-
-// Format is the list file text for entries: the header, then one row each, in order (W9).
+// Format is the list file text: the header, then one row per entry, sorted by repo.
 func Format(entries []Entry) []byte {
+	sorted := slices.Clone(entries)
+	slices.SortFunc(sorted, func(a, b Entry) int { return strings.Compare(a.Repo, b.Repo) })
 	var b strings.Builder
 	b.WriteString(header)
-	for _, e := range entries {
-		sha, run := none, none
-		if e.LastSHA != "" {
-			sha, run = e.LastSHA, e.Run
-		}
-		b.WriteString(strings.Join([]string{e.URL, e.Branch, sha, run}, "\t") + "\n")
+	for _, e := range sorted {
+		b.WriteString(strings.Join([]string{e.Repo, e.Source, e.Licence, e.Reuse, e.State, e.Group, e.LicenceFile, e.LicenceSHA}, "\t") + "\n")
 	}
 	return []byte(b.String())
+}
+
+// LicenceOf is the licence file of the clone at dir and the first 16 hex digits of its sha256
+// (E8, E9): the first regular file at the root, by name, whose name starts licence, license or
+// copying in any case; "-" and "-" when there is none. A directory such as LICENSES/ is not it.
+func LicenceOf(dir string) (string, string, error) {
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot list the clone %s: %w", dir, err)
+	}
+	for _, n := range names {
+		if !licenceFilePattern.MatchString(n.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, n.Name())
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return "", "", fmt.Errorf("cannot read the licence file: %w", statErr)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Clean(path))
+		if readErr != nil {
+			return "", "", fmt.Errorf("cannot read the licence file: %w", readErr)
+		}
+		sum := sha256.Sum256(data)
+		return n.Name(), hex.EncodeToString(sum[:])[:16], nil
+	}
+	return none, none, nil
 }

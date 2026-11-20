@@ -3,6 +3,8 @@ package watchlist_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,37 +17,41 @@ import (
 )
 
 const (
-	urlAlpha = "https://github.com/example-org/alpha"
-	urlBeta  = "https://github.com/example-org/beta"
-	shaC     = "cccccccccccccccccccccccccccccccccccccccc"
+	alpha     = "example-org/alpha"
+	beta      = "example-org/beta"
+	gamma     = "example-org/gamma"
+	mitText   = "MIT licence text"
+	oddHeader = "# a header Format would not write\n"
 )
 
 type world struct {
 	root string
-	git  *execx.Fake
+	fake *execx.Fake
 	out  bytes.Buffer
 	err  bytes.Buffer
 }
 
-// newWorld is a checkout holding the given list rows.
+// newWorld is a checkout holding the given list rows under a header Format would not write, so a
+// test can tell whether the list was rewritten.
 func newWorld(t *testing.T, rows ...string) *world {
 	t.Helper()
-	w := &world{root: t.TempDir(), git: &execx.Fake{}}
+	w := &world{root: t.TempDir(), fake: &execx.Fake{}}
 	if err := os.MkdirAll(filepath.Join(w.root, "CLAUDE"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	w.writeList(t, "# header\n"+strings.Join(rows, ""))
+	writeFile(t, w.listPath(), oddHeader+strings.Join(rows, ""))
+	// A clone writes a repository with an MIT LICENSE at its destination.
+	w.fake.OnFunc([]string{"git", "clone"}, func(c execx.Cmd) (execx.Result, error) {
+		dest := c.Args[len(c.Args)-1]
+		if err := os.MkdirAll(filepath.Join(dest, ".git"), 0o750); err != nil {
+			return execx.Result{}, err
+		}
+		return execx.Result{Stdout: []byte("Cloning into...\n")}, os.WriteFile(filepath.Join(dest, "LICENSE"), []byte(mitText), 0o600)
+	})
 	return w
 }
 
 func (w *world) listPath() string { return watchlist.ListPath(w.root) }
-
-func (w *world) writeList(t *testing.T, s string) {
-	t.Helper()
-	if err := os.WriteFile(w.listPath(), []byte(s), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func (w *world) list(t *testing.T) string {
 	t.Helper()
@@ -56,26 +62,65 @@ func (w *world) list(t *testing.T) string {
 	return string(b)
 }
 
-// mirror makes the clone directory of repo exist, as a clone would.
-func (w *world) mirror(t *testing.T, repo string) string {
+func (w *world) entries(t *testing.T) []watchlist.Entry {
 	t.Helper()
-	dir := filepath.Join(w.root, "untracked", "watchlist", repo)
+	got, err := watchlist.Parse([]byte(w.list(t)), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func entry(t *testing.T, entries []watchlist.Entry, repo string) watchlist.Entry {
+	t.Helper()
+	for _, e := range entries {
+		if e.Repo == repo {
+			return e
+		}
+	}
+	t.Fatalf("%s is not on the list", repo)
+	return watchlist.Entry{}
+}
+
+func shortSHA(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// cloneAt makes a clone of repo exist under the given licence and state, with an MIT LICENSE.
+func (w *world) cloneAt(t *testing.T, repo, licence, state string) string {
+	t.Helper()
+	dir := watchlist.Entry{Repo: repo, Licence: licence, State: state}.CloneDir(w.root)
+	writeFile(t, filepath.Join(dir, "LICENSE"), mitText)
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	return dir
 }
 
+// fetchesOK scripts every fetch, fast-forward and clean status to succeed, and every HEAD to be sha.
+func (w *world) fetchesOK(sha string) {
+	w.fake.On([]string{"git", "status"}, ok(""))
+	w.fake.On([]string{"git", "rev-parse", "--is-shallow-repository"}, ok("false\n"))
+	w.fake.On([]string{"git", "fetch"}, ok(""))
+	w.fake.On([]string{"git", "merge"}, ok(""))
+	w.fake.On([]string{"git", "rev-parse", "--verify", "HEAD"}, ok(sha+"\n"))
+}
+
+func (w *world) stars(json string) {
+	w.fake.On([]string{"gh", "api", "user/starred", "--paginate"}, ok(json))
+}
+
 func (w *world) run(args ...string) term.ExitCode {
 	w.out.Reset()
 	w.err.Reset()
-	app := watchlist.NewApp(w.root, w.git, &w.out, &w.err)
-	return app.Run(context.Background(), args)
+	return watchlist.NewApp(w.root, w.fake, &w.out, &w.err).Run(context.Background(), args)
 }
 
-func (w *world) ranGit(prefix ...string) bool {
-	for _, c := range w.git.Calls() {
-		if slices.Equal(c.Args[:min(len(prefix), len(c.Args))], prefix) {
+func (w *world) ran(prefix ...string) bool {
+	for _, c := range w.fake.Calls() {
+		argv := append([]string{c.Name}, c.Args...)
+		if slices.Equal(argv[:min(len(prefix), len(argv))], prefix) {
 			return true
 		}
 	}
@@ -86,32 +131,43 @@ func ok(out string) execx.Result { return execx.Result{Stdout: []byte(out)} }
 
 func refuse(msg string) execx.Result { return execx.Result{Stderr: []byte(msg), ExitCode: 128} }
 
-// head scripts the fetch and rev-parse of a mirror of branch main.
-func (w *world) head(sha string) {
-	w.git.On([]string{"git", "fetch", "origin"}, ok(""))
-	w.git.On([]string{"git", "rev-parse", "--verify", "refs/remotes/origin/main"}, ok(sha+"\n"))
+func mitRow(repo, state, group string) string {
+	return row(repo, "star", "MIT", "lift", state, group, "LICENSE", shortSHA(mitText))
 }
 
-// W1
 func TestHelpIsStdoutAndExitZero(t *testing.T) {
 	w := newWorld(t)
-	if code := w.run("--help"); code != term.ExitOK || !strings.Contains(w.out.String(), "watchlist") {
+	if code := w.run("--help"); code != term.ExitOK || !strings.Contains(w.out.String(), "run new") {
 		t.Fatalf("exit %d, out %q", code, w.out.String())
 	}
 }
 
-// W2
+// G3: mark is gone; every usage mistake is exit 64 on stderr.
 func TestUsageMistakesAreExit64(t *testing.T) {
 	for _, args := range [][]string{
 		{},
 		{"frobnicate"},
 		{"--nope", "sync"},
 		{"--root"},
+		{"mark", alpha, shaA, "--run", "r"},
 		{"add"},
-		{"mark", "example-org/alpha", shaA},
-		{"mark", "example-org/alpha", "--run", "r"},
-		{"sync", "a", "b"},
-		{"add", urlAlpha, "extra"},
+		{"add", "https://github.com/example-org/beta", "extra"},
+		{"set"},
+		{"set", alpha},
+		{"set", alpha, "--state"},
+		{"set", alpha, "--colour", "red"},
+		{"set", alpha, "--state", "new", "--state", "study"},
+		{"set", alpha, "stray"},
+		{"run"},
+		{"run", "frob"},
+		{"run", "new"},
+		{"run", "new", "baseline-20261120-1200"},
+		{"run", "new", "baseline-20261120-1200", "--mode"},
+		{"run", "new", "baseline-20261120-1200", "--mode", "baseline", "--x", "y"},
+		{"run", "rows"},
+		{"run", "rows", "a", "b", "c"},
+		{"run", "mark", "id"},
+		{"run", "status", "a", "b"},
 	} {
 		w := newWorld(t)
 		if code := w.run(args...); code != term.ExitUsage {
@@ -124,418 +180,466 @@ func TestUsageMistakesAreExit64(t *testing.T) {
 }
 
 func TestRootFlagNamesTheCheckout(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.mirror(t, "example-org__alpha")
-	w.head(shaA)
-	app := watchlist.NewApp(t.TempDir(), w.git, &w.out, &w.err)
-	if code := app.Run(context.Background(), []string{"--root", w.root, "sync"}); code != term.ExitOK {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	w.cloneAt(t, alpha, "MIT", "new")
+	w.fetchesOK(shaA)
+	app := watchlist.NewApp(t.TempDir(), w.fake, &w.out, &w.err)
+	if code := app.Run(context.Background(), []string{"--root", w.root, "sync", alpha}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
 }
 
-// W3, W4
 func TestAMissingListIsAnError(t *testing.T) {
 	w := newWorld(t)
 	if err := os.Remove(w.listPath()); err != nil {
 		t.Fatal(err)
 	}
-	if code := w.run("sync"); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
+	if code := w.run("sync"); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") || len(w.fake.Calls()) != 0 {
 		t.Fatalf("exit %d, err %q", code, w.err.String())
 	}
 }
 
-// W10, W11, W12
-func TestAddAppendsARowWithTheDefaultBranch(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.git.On([]string{"git", "ls-remote", "--symref", urlBeta, "HEAD"}, ok("ref: refs/heads/trunk\tHEAD\n"+shaA+"\tHEAD\n"))
-	if code := w.run("add", urlBeta); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, w.err.String())
-	}
-	if want := "added example-org/beta (trunk): initial full review pending\n"; w.out.String() != want {
-		t.Fatalf("out %q", w.out.String())
-	}
-	entries, err := watchlist.Parse([]byte(w.list(t)), "list")
-	if err != nil || len(entries) != 2 || entries[1].URL != urlBeta || entries[1].Branch != "trunk" || entries[1].LastSHA != "" {
-		t.Fatalf("list now %v, %v", entries, err)
-	}
-	if w.ranGit("clone") {
-		t.Fatal("add must not clone")
-	}
-}
-
-// W10
-func TestAddRefusesBadURLsAndDuplicatesWithoutRunningGit(t *testing.T) {
-	for _, u := range []string{
-		"http://github.com/example-org/beta", "git@github.com:example-org/beta.git",
-		"/srv/local/repo", "https://gitlab.com/example-org/beta", urlAlpha, "https://github.com/Example-Org/Alpha",
-	} {
-		w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-		before := w.list(t)
-		if code := w.run("add", u); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
-			t.Errorf("%s: exit %d, err %q", u, code, w.err.String())
-		}
-		if len(w.git.Calls()) != 0 {
-			t.Errorf("%s: git ran before the refusal", u)
-		}
-		if w.list(t) != before {
-			t.Errorf("%s: the list changed", u)
-		}
-	}
-}
-
-// W11
-func TestAddFailsLoudlyWhenTheRemoteAnswersBadly(t *testing.T) {
+// S1: a gh failure, or a reply that is not the stars, stops the command before any git or write.
+func TestSyncStopsWhenTheStarsCannotBeRead(t *testing.T) {
 	for name, res := range map[string]execx.Result{
-		"git refuses":      refuse("fatal: repository not found"),
-		"no default":       ok(shaA + "\tHEAD\n"),
-		"nothing at all":   ok(""),
-		"bare branch line": ok("ref: refs/heads/\tHEAD\n"),
+		"gh refuses":   refuse("HTTP 401: Bad credentials"),
+		"not json":     ok("<html>"),
+		"no full name": ok(`[{"license":null}]`),
+		"bad name":     ok(`[{"full_name":"no-slash","license":null}]`),
+		"bad licence":  ok(`[{"full_name":"example-org/x","license":{"spdx_id":"a b"}}]`),
 	} {
-		w := newWorld(t)
-		before := w.list(t)
-		w.git.On([]string{"git", "ls-remote"}, res)
-		if code := w.run("add", urlBeta); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
+		w := newWorld(t, mitRow(alpha, "study", "fleets"))
+		w.fake.On([]string{"gh"}, res)
+		if code := w.run("sync"); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
 			t.Errorf("%s: exit %d, err %q", name, code, w.err.String())
 		}
-		if w.list(t) != before {
-			t.Errorf("%s: the list changed", name)
+		if w.ran("git") || !strings.HasPrefix(w.list(t), oddHeader) {
+			t.Errorf("%s: went on after the stars failed", name)
 		}
 	}
 }
 
-// W13
-func TestSyncNamingAnUnknownRepoOrAnEmptyListIsAnError(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	if code := w.run("sync", "example-org/nope"); code != term.ExitFailure || !strings.Contains(w.err.String(), "example-org/nope") {
+// S1, S2, S4, S6, S7, S8: a new star is added as new, licence from GitHub (or NONE), cloned in
+// full, its licence file read; the list is written once.
+func TestSyncAddsAndClonesNewStars(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "excluded", "-"))
+	w.cloneAt(t, alpha, "MIT", "excluded")
+	w.fetchesOK(shaA)
+	w.stars(`[{"full_name":"example-org/alpha","license":{"spdx_id":"MIT"}}]` + "\n" +
+		`[{"full_name":"example-org/gamma","license":null},{"full_name":"example-org/beta","license":{"spdx_id":"Apache-2.0"}}]`)
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	want := "new example-org/beta\nnew example-org/gamma\ncloned example-org/beta\ncloned example-org/gamma\n"
+	if w.out.String() != want {
+		t.Fatalf("out %q\nwant %q", w.out.String(), want)
+	}
+	got := w.entries(t)
+	b := entry(t, got, beta)
+	wantB := watchlist.Entry{Repo: beta, Source: "star", Licence: "Apache-2.0", Reuse: "lift", State: "new", Group: "-", LicenceFile: "LICENSE", LicenceSHA: shortSHA(mitText)}
+	if b != wantB {
+		t.Fatalf("beta %+v", b)
+	}
+	if g := entry(t, got, gamma); g.Licence != "NONE" || g.Reuse != "clean-room" {
+		t.Fatalf("gamma %+v", g)
+	}
+	wantClone := []string{"git", "clone", "--quiet", "https://github.com/example-org/beta", filepath.Join(w.root, "untracked", "starred-repos", "Apache-2.0", "example-org", "beta")}
+	if !w.ran(wantClone...) {
+		t.Fatalf("calls %v", w.fake.Calls())
+	}
+	if !strings.HasPrefix(w.list(t), "# The watch list") {
+		t.Fatal("the list was not written in Format's form")
+	}
+	// S5: the excluded clone is fetched where it lives.
+	for _, c := range w.fake.Calls() {
+		if c.Args[0] == "fetch" && !strings.Contains(c.Dir, "starred-repos-excluded") {
+			t.Fatalf("fetched %q", c.Dir)
+		}
+	}
+}
+
+// S3: a star row absent from the stars becomes unstarred and keeps its clone; an added row is not a
+// star; an unstarred row starred again is new.
+func TestSyncMarksUnstarredAndRestarred(t *testing.T) {
+	w := newWorld(t,
+		mitRow(alpha, "study", "fleets"),
+		row(beta, "added", "MIT", "lift", "study", "fleets", "LICENSE", shortSHA(mitText)),
+		mitRow(gamma, "unstarred", "-"),
+	)
+	alphaDir := w.cloneAt(t, alpha, "MIT", "study")
+	w.cloneAt(t, beta, "MIT", "study")
+	w.cloneAt(t, gamma, "MIT", "unstarred")
+	w.fetchesOK(shaA)
+	w.stars(`[{"full_name":"example-org/gamma","license":{"spdx_id":"MIT"}}]`)
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	for _, line := range []string{"unstarred example-org/alpha\n", "restarred example-org/gamma\n", "unstudied example-org/beta\n"} {
+		if !strings.Contains(w.out.String(), line) {
+			t.Fatalf("out %q lacks %q", w.out.String(), line)
+		}
+	}
+	got := w.entries(t)
+	if a := entry(t, got, alpha); a.State != "unstarred" || a.Group != "fleets" {
+		t.Fatalf("alpha %+v", a)
+	}
+	if b := entry(t, got, beta); b.State != "study" {
+		t.Fatalf("an added row was unstarred: %+v", b)
+	}
+	if g := entry(t, got, gamma); g.State != "new" {
+		t.Fatalf("gamma %+v", g)
+	}
+	if _, err := os.Stat(alphaDir); err != nil {
+		t.Fatalf("the unstarred clone was not kept: %v", err)
+	}
+}
+
+// S3, with the paths table: an excluded star that is unstarred moves to starred-repos.
+func TestSyncMovesAnUnstarredExcludedClone(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "excluded", "-"))
+	old := w.cloneAt(t, alpha, "MIT", "excluded")
+	w.fetchesOK(shaA)
+	w.stars(`[]`)
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("old clone still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(w.root, "untracked", "starred-repos", "MIT", alpha, ".git")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// S8: nothing changed, nothing written.
+func TestSyncWritesNothingWhenNothingChanged(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "excluded", "-"))
+	w.cloneAt(t, alpha, "MIT", "excluded")
+	w.fetchesOK(shaA)
+	w.stars(`[{"full_name":"example-org/alpha","license":{"spdx_id":"MIT"}}]`)
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if !strings.HasPrefix(w.list(t), oddHeader) || w.out.Len() != 0 {
+		t.Fatalf("list rewritten or events printed: %q", w.out.String())
+	}
+	// Progress is on stderr.
+	if !strings.Contains(w.err.String(), alpha) {
+		t.Fatalf("no progress on stderr: %q", w.err.String())
+	}
+}
+
+// S5: fetched, then fast-forwarded to origin/HEAD, in the clone.
+func TestSyncFetchesAndFastForwardsEachClone(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	dir := w.cloneAt(t, alpha, "MIT", "new")
+	w.fetchesOK(shaA)
+	if code := w.run("sync", alpha); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	var seen []string
+	for _, c := range w.fake.Calls() {
+		if c.Dir != dir {
+			t.Fatalf("%v ran in %q", c.Args, c.Dir)
+		}
+		seen = append(seen, c.Args[0])
+	}
+	if !slices.Equal(seen, []string{"status", "rev-parse", "fetch", "merge"}) {
+		t.Fatalf("calls %v", seen)
+	}
+	if w.ran("gh") {
+		t.Fatal("a named sync read the stars")
+	}
+}
+
+// S9: a shallow clone is completed before it is fetched.
+func TestSyncUnshallowsAShallowClone(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	w.cloneAt(t, alpha, "MIT", "new")
+	w.fetchesOK(shaA)
+	w.fake.On([]string{"git", "rev-parse", "--is-shallow-repository"}, ok("true\n"))
+	if code := w.run("sync", alpha); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if w.out.String() != "unshallowed example-org/alpha\n" || !w.ran("git", "fetch", "--quiet", "--unshallow", "origin") {
+		t.Fatalf("out %q, calls %v", w.out.String(), w.fake.Calls())
+	}
+	w = newWorld(t, mitRow(alpha, "new", "-"))
+	w.cloneAt(t, alpha, "MIT", "new")
+	w.fetchesOK(shaA)
+	w.fake.On([]string{"git", "rev-parse", "--is-shallow-repository"}, ok("true\n"))
+	w.fake.On([]string{"git", "fetch", "--quiet", "--unshallow"}, refuse("fatal: unable to access"))
+	if code := w.run("sync", alpha); code != term.ExitFailure || !strings.Contains(w.err.String(), "unshallow") || w.ran("git", "merge") {
 		t.Fatalf("exit %d, err %q", code, w.err.String())
 	}
-	empty := newWorld(t)
-	if code := empty.run("sync"); code != term.ExitFailure || !strings.Contains(empty.err.String(), "the watch list is empty") {
-		t.Fatalf("exit %d, err %q", code, empty.err.String())
-	}
 }
 
-// W14, W15, W16, W20
-func TestSyncClonesAMissingMirrorAndReportsAnInitialReview(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.git.On([]string{"git", "clone"}, ok(""))
-	w.git.On([]string{"git", "rev-parse", "--verify", "refs/remotes/origin/main"}, ok(shaA+"\n"))
-	if code := w.run("sync"); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, w.err.String())
-	}
-	dir := filepath.Join(w.root, "untracked", "watchlist", "example-org__alpha")
-	want := "== example-org/alpha (main)\ninitial: full review\nhead: " + shaA + "\nmirror: " + dir + "\n"
-	if w.out.String() != want {
-		t.Fatalf("out %q\nwant %q", w.out.String(), want)
-	}
-	if w.ranGit("log") || w.ranGit("diff") {
-		t.Fatal("an initial review lists no range")
-	}
-	cloneArgs := []string{"clone", "--branch", "main", "--single-branch", urlAlpha, dir}
-	if !w.ranGit(cloneArgs...) {
-		t.Fatalf("calls %v", w.git.Calls())
-	}
-	if w.ranGit("fetch") {
-		t.Fatal("a fresh clone needs no fetch")
-	}
-}
-
-// W14, W17
-func TestSyncFetchesAnExistingMirrorAndReportsUnchanged(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
-	dir := w.mirror(t, "example-org__alpha")
-	w.head(shaA)
-	if code := w.run("sync"); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, w.err.String())
-	}
-	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaA + "\nmirror: " + dir + "\nunchanged\n"
-	if w.out.String() != want {
-		t.Fatalf("out %q", w.out.String())
-	}
-	fetch := w.git.Calls()[0]
-	if fetch.Dir != dir || !slices.Equal(fetch.Args, []string{"fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"}) {
-		t.Fatalf("fetch %v in %q", fetch.Args, fetch.Dir)
-	}
-	if w.ranGit("clone") {
-		t.Fatal("an existing mirror is not cloned again")
-	}
-}
-
-// W18
-func TestSyncListsTheCommitsAndPathsSinceTheLastReview(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
-	dir := w.mirror(t, "example-org__alpha")
-	w.head(shaB)
-	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaA, shaB}, ok(""))
-	w.git.On([]string{"git", "log", "--format=%h %s", shaA + ".." + shaB}, ok("bbb2222 second\naaa1111 first\n"))
-	w.git.On([]string{"git", "diff", "--name-only", shaA, shaB}, ok("src/x.go\nREADME.md\n"))
-	if code := w.run("sync", "example-org/alpha"); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, w.err.String())
-	}
-	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaB + "\nmirror: " + dir + "\n" +
-		"commits (2):\n  bbb2222 second\n  aaa1111 first\nchanged paths (2):\n  src/x.go\n  README.md\n"
-	if w.out.String() != want {
-		t.Fatalf("out %q\nwant %q", w.out.String(), want)
-	}
-}
-
-// W13: a repository is named by owner/repo or by URL, in any case.
-func TestSyncAcceptsTheNameInEitherFormAndSelectsOnlyThatRepo(t *testing.T) {
-	for _, name := range []string{"Example-Org/Beta", urlBeta, "https://github.com/EXAMPLE-ORG/BETA"} {
-		w := newWorld(t, row(urlAlpha, "main", "-", "-"), row(urlBeta, "main", "-", "-"))
-		w.mirror(t, "example-org__beta")
-		w.head(shaA)
-		if code := w.run("sync", name); code != term.ExitOK {
-			t.Fatalf("%s: exit %d: %s", name, code, w.err.String())
-		}
-		if !strings.Contains(w.out.String(), "== example-org/beta") || strings.Contains(w.out.String(), "alpha") {
-			t.Fatalf("%s: out %q", name, w.out.String())
-		}
-	}
-}
-
-// W19: the mirror still holds the reviewed commit (git keeps rewritten-away commits until a gc)
-// but the head does not descend from it: the remote rewrote its history.
-func TestSyncAfterAForcePushIsAnErrorEvenWhileTheMirrorHoldsTheOldCommit(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
-	w.mirror(t, "example-org__alpha")
-	w.head(shaB)
-	w.git.On([]string{"git", "cat-file", "-e", shaA + "^{commit}"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaA, shaB}, execx.Result{ExitCode: 1})
-	w.git.On([]string{"git", "log"}, ok("bbb2222 replacement\n"))
-	w.git.On([]string{"git", "diff"}, ok("x\n"))
-	if code := w.run("sync"); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(w.err.String(), "rewrote") || !strings.Contains(w.err.String(), shaA) ||
-		!strings.Contains(w.err.String(), "example-org/alpha") {
-		t.Fatalf("err %q", w.err.String())
-	}
-	if strings.Contains(w.out.String(), "commits (") || w.ranGit("log") || w.ranGit("diff") {
-		t.Fatalf("a range was listed across a rewrite: %q", w.out.String())
-	}
-}
-
-// W19
-func TestSyncWithALostLastShaIsAnErrorNotAFullReview(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
-	w.mirror(t, "example-org__alpha")
-	w.head(shaB)
-	w.git.On([]string{"git", "cat-file", "-e"}, refuse("fatal: Not a valid object name"))
-	if code := w.run("sync"); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(w.err.String(), "example-org/alpha") || !strings.Contains(w.err.String(), shaA) {
-		t.Fatalf("err %q", w.err.String())
-	}
-	if strings.Contains(w.out.String(), "initial") {
-		t.Fatalf("fell back to a full review: %q", w.out.String())
-	}
-}
-
-// W21
-func TestSyncAbortsOnTheFirstGitFailureAndNeverWritesTheList(t *testing.T) {
+// S5, G1: a clone that cannot fast-forward, or holds local changes, stops the command, naming the
+// repository and the remedy; later repositories are not touched and the list is not written.
+func TestSyncStopsOnACloneThatCannotFastForward(t *testing.T) {
 	stages := map[string]func(w *world){
-		"fetch": func(w *world) {
-			w.git.On([]string{"git", "fetch"}, refuse("fatal: unable to access"))
+		"merge refused": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "merge"}, refuse("fatal: Not possible to fast-forward, aborting."))
 		},
-		"rev-parse": func(w *world) {
-			w.git.On([]string{"git", "fetch"}, ok(""))
-			w.git.On([]string{"git", "rev-parse"}, refuse("fatal: bad ref"))
-		},
-		"log": func(w *world) {
-			w.head(shaB)
-			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-			w.git.On([]string{"git", "merge-base"}, ok(""))
-			w.git.On([]string{"git", "log"}, refuse("fatal: bad revision"))
-		},
-		"merge-base": func(w *world) {
-			w.head(shaB)
-			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-			w.git.On([]string{"git", "merge-base"}, refuse("fatal: Not a valid commit name"))
-		},
-		"diff": func(w *world) {
-			w.head(shaB)
-			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-			w.git.On([]string{"git", "merge-base"}, ok(""))
-			w.git.On([]string{"git", "log"}, ok(""))
-			w.git.On([]string{"git", "diff"}, refuse("fatal"))
+		"local changes": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "status"}, ok(" M README.md\n"))
 		},
 	}
-	for stage, script := range stages {
-		w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"), row(urlBeta, "main", shaA, "run-1"))
-		w.mirror(t, "example-org__alpha")
-		w.mirror(t, "example-org__beta")
-		before := w.list(t)
+	for name, script := range stages {
+		w := newWorld(t, mitRow(alpha, "new", "-"), mitRow(beta, "new", "-"))
+		w.cloneAt(t, alpha, "MIT", "new")
+		w.cloneAt(t, beta, "MIT", "new")
+		w.stars(`[{"full_name":"example-org/alpha","license":null},{"full_name":"example-org/gamma","license":null}]`)
 		script(w)
 		if code := w.run("sync"); code != term.ExitFailure {
-			t.Errorf("%s: exit %d", stage, code)
+			t.Errorf("%s: exit %d", name, code)
 		}
-		if !strings.HasPrefix(w.err.String(), "ERROR:") || !strings.Contains(w.err.String(), "example-org/alpha") {
-			t.Errorf("%s: err %q", stage, w.err.String())
+		if !strings.Contains(w.err.String(), alpha) || !strings.Contains(w.err.String(), "re-clone") {
+			t.Errorf("%s: err %q", name, w.err.String())
 		}
-		for _, c := range w.git.Calls() {
-			if c.Dir != "" && strings.Contains(c.Dir, "example-org__beta") {
-				t.Errorf("%s: a later repository was attempted", stage)
+		for _, c := range w.fake.Calls() {
+			if strings.Contains(c.Dir, "beta") || slices.Contains(c.Args, "clone") {
+				t.Errorf("%s: went on to %v", name, c.Args)
 			}
 		}
-		if w.list(t) != before {
-			t.Errorf("%s: sync wrote the list", stage)
+		if !strings.HasPrefix(w.list(t), oddHeader) {
+			t.Errorf("%s: the list was written", name)
 		}
 	}
 }
 
-// W14: git's progress and chatter never reach the payload stream.
-func TestSyncKeepsGitChatterOffStdout(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.git.On([]string{"git", "clone"}, execx.Result{
-		Stdout: []byte("Cloning into 'x'...\nremote: Counting objects\n"),
-		Stderr: []byte("progress: 100%\n"),
-	})
-	w.git.On([]string{"git", "rev-parse", "--verify", "refs/remotes/origin/main"}, ok(shaA+"\n"))
-	if code := w.run("sync"); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, w.err.String())
-	}
-	for _, chatter := range []string{"Cloning", "Counting", "progress"} {
-		if strings.Contains(w.out.String(), chatter) || strings.Contains(w.err.String(), chatter) {
-			t.Fatalf("git chatter %q leaked: out %q err %q", chatter, w.out.String(), w.err.String())
+// G1: each failing step names the repository and the step.
+func TestSyncFailuresNameTheRepositoryAndStep(t *testing.T) {
+	for step, script := range map[string]func(w *world){
+		"fetch": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "fetch"}, refuse("fatal: unable to access"))
+		},
+		"status": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "status"}, refuse("fatal: not a git repository"))
+		},
+		"head": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "rev-parse", "--verify"}, refuse("fatal: bad HEAD"))
+		},
+		"shallow": func(w *world) {
+			w.fetchesOK(shaA)
+			w.fake.On([]string{"git", "rev-parse", "--is-shallow-repository"}, refuse("fatal"))
+		},
+	} {
+		w := newWorld(t, mitRow(alpha, "study", "fleets"))
+		w.cloneAt(t, alpha, "MIT", "study")
+		script(w)
+		if code := w.run("sync", alpha); code != term.ExitFailure ||
+			!strings.Contains(w.err.String(), alpha) || !strings.Contains(w.err.String(), step) {
+			t.Errorf("%s: exit %d, err %q", step, code, w.err.String())
 		}
+	}
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	w.fake.On([]string{"git", "clone"}, refuse("fatal: could not read"))
+	if code := w.run("sync", alpha); code != term.ExitFailure || !strings.Contains(w.err.String(), "clone") {
+		t.Fatalf("clone: exit %d, err %q", code, w.err.String())
 	}
 }
 
-// W14: a directory left by a killed clone is named, not left to git's "not a repository".
+// S4: a directory left by a killed clone is named, not fetched.
 func TestSyncNamesAnInterruptedCloneDirectory(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	dir := filepath.Join(w.root, "untracked", "watchlist", "example-org__alpha")
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	dir := watchlist.Entry{Repo: alpha, Licence: "MIT", State: "new"}.CloneDir(w.root)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	w.head(shaA)
-	if code := w.run("sync"); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(w.err.String(), "not a git clone") || !strings.Contains(w.err.String(), dir) || w.ranGit("fetch") {
-		t.Fatalf("err %q, calls %v", w.err.String(), w.git.Calls())
-	}
-}
-
-// W21: a fetch that fails because the branch moved says what to edit.
-func TestSyncFetchFailureHintsAtARenamedBranch(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "master", shaA, "run-1"))
-	w.mirror(t, "example-org__alpha")
-	w.git.On([]string{"git", "fetch"}, refuse("fatal: couldn't find remote ref refs/heads/master"))
-	if code := w.run("sync"); code != term.ExitFailure || !strings.Contains(w.err.String(), "branch column") {
+	w.fetchesOK(shaA)
+	if code := w.run("sync", alpha); code != term.ExitFailure || !strings.Contains(w.err.String(), "not a git clone") || w.ran("git", "fetch") {
 		t.Fatalf("exit %d, err %q", code, w.err.String())
 	}
 }
 
-func TestSyncFailsLoudlyOnAFailedClone(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.git.On([]string{"git", "clone"}, refuse("fatal: could not read"))
-	if code := w.run("sync"); code != term.ExitFailure || !strings.Contains(w.err.String(), "example-org/alpha") {
+func TestSyncNamingAnUnknownRepoIsAnError(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	if code := w.run("sync", "example-org/nope"); code != term.ExitFailure || !strings.Contains(w.err.String(), "example-org/nope") {
 		t.Fatalf("exit %d, err %q", code, w.err.String())
 	}
 }
 
-// W22, W24
-func TestMarkRecordsTheReviewAtomically(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"), row(urlBeta, "main", shaA, "run-1"))
-	w.mirror(t, "example-org__alpha")
-	w.git.On([]string{"git", "cat-file", "-e", shaC + "^{commit}"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, ok(""))
-	if code := w.run("mark", "example-org/alpha", shaC, "--run", "scan-7"); code != term.ExitOK {
+// S6: a licence file that changed is reported; the row's licence stays until set changes it.
+func TestSyncReportsALicenceChange(t *testing.T) {
+	w := newWorld(t, row(alpha, "star", "MIT", "lift", "new", "-", "LICENSE", lsha))
+	dir := w.cloneAt(t, alpha, "MIT", "new")
+	writeFile(t, filepath.Join(dir, "COPYING"), "gpl")
+	w.fetchesOK(shaA)
+	if code := w.run("sync", alpha); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	if want := "marked example-org/alpha at " + shaC + " (run scan-7)\n"; w.out.String() != want {
+	if w.out.String() != "licence-changed example-org/alpha COPYING\n" {
 		t.Fatalf("out %q", w.out.String())
 	}
-	entries, err := watchlist.Parse([]byte(w.list(t)), "list")
-	if err != nil || len(entries) != 2 {
-		t.Fatalf("list %v, %v", entries, err)
-	}
-	if entries[0].LastSHA != shaC || entries[0].Run != "scan-7" || entries[1].LastSHA != shaA {
-		t.Fatalf("entries %+v", entries)
-	}
-	leftovers, globErr := filepath.Glob(w.listPath() + ".tmp.*")
-	if globErr != nil || len(leftovers) != 0 {
-		t.Fatalf("temporary files left: %v, %v", leftovers, globErr)
+	if a := entry(t, w.entries(t), alpha); a.Licence != "MIT" || a.LicenceFile != "COPYING" || a.LicenceSHA != shortSHA("gpl") {
+		t.Fatalf("alpha %+v", a)
 	}
 }
 
-// W22
-func TestMarkRefusesBadInputsAndLeavesTheListAlone(t *testing.T) {
-	cases := map[string][]string{
-		"unknown repo": {"mark", "example-org/nope", shaC, "--run", "r"},
-		"short sha":    {"mark", "example-org/alpha", "abc123", "--run", "r"},
-		"upper sha":    {"mark", "example-org/alpha", strings.ToUpper(shaC), "--run", "r"},
-		"run spaces":   {"mark", "example-org/alpha", shaC, "--run", "two words"},
-		"dash run":     {"mark", "example-org/alpha", shaC, "--run", "-"},
+// S7, R4: a study row reports moved from its newest done study, or unstudied; a row still at its
+// studied commit reports nothing.
+func TestSyncReportsMovedAndUnstudied(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "study", "fleets"), mitRow(beta, "study", "fleets"), mitRow(gamma, "study", "fleets"))
+	for _, r := range []string{alpha, beta, gamma} {
+		w.cloneAt(t, r, "MIT", "study")
 	}
-	for name, args := range cases {
-		w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-		w.mirror(t, "example-org__alpha")
-		w.git.On([]string{"git", "cat-file"}, ok(""))
-		before := w.list(t)
-		if code := w.run(args...); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
+	w.writeRun(t, "baseline-20261101-0900", mrow(alpha, "fleets", "baseline", "-", shaA, "done"), mrow(beta, "fleets", "baseline", "-", shaC, "done"))
+	w.writeRun(t, "diff-20261110-0900", mrow(alpha, "fleets", "diff", shaA, shaC, "pending"), mrow(beta, "fleets", "diff", shaC, shaB, "done"))
+	w.fetchesOK(shaB)
+	w.stars(`[{"full_name":"example-org/alpha","license":null},{"full_name":"example-org/beta","license":null},{"full_name":"example-org/gamma","license":null}]`)
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	want := "moved example-org/alpha " + shaA + ".." + shaB + "\nunstudied example-org/gamma\n"
+	if w.out.String() != want {
+		t.Fatalf("out %q\nwant %q", w.out.String(), want)
+	}
+}
+
+// A1
+func TestAddRefusesBadURLsAndDuplicatesBeforeAnyCall(t *testing.T) {
+	for _, u := range []string{
+		"http://github.com/example-org/beta", "git@github.com:example-org/beta.git", "example-org/beta",
+		"https://github.com/example-org/beta.git", "https://github.com/example-org/beta/",
+		"https://gitlab.com/example-org/beta", "https://github.com/example-org/alpha", "https://github.com/Example-Org/Alpha",
+	} {
+		w := newWorld(t, mitRow(alpha, "new", "-"))
+		if code := w.run("add", u); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
+			t.Errorf("%s: exit %d, err %q", u, code, w.err.String())
+		}
+		if len(w.fake.Calls()) != 0 || !strings.HasPrefix(w.list(t), oddHeader) {
+			t.Errorf("%s: went on after the refusal", u)
+		}
+	}
+}
+
+// A2
+func TestAddReadsTheLicenceAndClones(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	w.fake.On([]string{"gh", "api", "repos/example-org/beta"}, ok(`{"full_name":"example-org/beta","license":{"spdx_id":"MPL-2.0"}}`))
+	if code := w.run("add", "https://github.com/example-org/beta"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if w.out.String() != "cloned example-org/beta\nadded example-org/beta\n" {
+		t.Fatalf("out %q", w.out.String())
+	}
+	b := entry(t, w.entries(t), beta)
+	want := watchlist.Entry{Repo: beta, Source: "added", Licence: "MPL-2.0", Reuse: "whole-file", State: "new", Group: "-", LicenceFile: "LICENSE", LicenceSHA: shortSHA(mitText)}
+	if b != want {
+		t.Fatalf("beta %+v", b)
+	}
+	if !w.ran("git", "clone", "--quiet", "https://github.com/example-org/beta", filepath.Join(w.root, "untracked", "starred-repos", "MPL-2.0", "example-org", "beta")) {
+		t.Fatalf("calls %v", w.fake.Calls())
+	}
+}
+
+// A2, G1: a failed lookup or clone adds nothing; a renamed repository is refused.
+func TestAddFailsLoudly(t *testing.T) {
+	for name, script := range map[string]func(w *world){
+		"gh refuses": func(w *world) { w.fake.On([]string{"gh"}, refuse("HTTP 404: Not Found")) },
+		"renamed":    func(w *world) { w.fake.On([]string{"gh"}, ok(`{"full_name":"other/beta","license":null}`)) },
+		"clone fails": func(w *world) {
+			w.fake.On([]string{"gh"}, ok(`{"full_name":"example-org/beta","license":null}`))
+			w.fake.On([]string{"git", "clone"}, refuse("fatal"))
+		},
+	} {
+		w := newWorld(t)
+		script(w)
+		if code := w.run("add", "https://github.com/example-org/beta"); code != term.ExitFailure || !strings.Contains(w.err.String(), beta) {
 			t.Errorf("%s: exit %d, err %q", name, code, w.err.String())
 		}
-		if w.list(t) != before {
+		if !strings.HasPrefix(w.list(t), oddHeader) {
 			t.Errorf("%s: the list changed", name)
 		}
 	}
 }
 
-// W23: the sha must be on the branch the mirror tracks.
-func TestMarkRefusesAShaThatIsNotOnTheBranch(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	w.mirror(t, "example-org__alpha")
-	before := w.list(t)
-	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, execx.Result{ExitCode: 1})
-	if code := w.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure ||
-		!strings.Contains(w.err.String(), "origin/main") {
-		t.Fatalf("exit %d, err %q", code, w.err.String())
+// T1, T2, T3: a new licence re-derives reuse, moves the clone and re-reads its licence file.
+func TestSetLicenceMovesTheClone(t *testing.T) {
+	w := newWorld(t, row(alpha, "star", "NOASSERTION", "clean-room", "new", "-", "-", "-"))
+	old := w.cloneAt(t, alpha, "NOASSERTION", "new")
+	if code := w.run("set", alpha, "--licence", "BSD-2-Clause"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	if w.list(t) != before {
-		t.Fatal("the list changed")
+	a := entry(t, w.entries(t), alpha)
+	if a.Licence != "BSD-2-Clause" || a.Reuse != "lift" || a.LicenceFile != "LICENSE" || a.LicenceSHA != shortSHA(mitText) {
+		t.Fatalf("alpha %+v", a)
 	}
-}
-
-// W23: a review never moves backwards.
-func TestMarkRefusesAShaOlderThanTheLastReview(t *testing.T) {
-	w := newWorld(t, row(urlAlpha, "main", shaB, "run-1"))
-	w.mirror(t, "example-org__alpha")
-	before := w.list(t)
-	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, ok(""))
-	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaB, shaC}, execx.Result{ExitCode: 1})
-	if code := w.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure ||
-		!strings.Contains(w.err.String(), "last-checked") {
-		t.Fatalf("exit %d, err %q", code, w.err.String())
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("old clone still there: %v", err)
 	}
-	if w.list(t) != before {
-		t.Fatal("the list changed")
+	if _, err := os.Stat(a.CloneDir(w.root)); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.fake.Calls()) != 0 {
+		t.Fatal("set ran a program")
+	}
+	if !strings.Contains(w.out.String(), alpha) {
+		t.Fatalf("out %q", w.out.String())
 	}
 }
 
-// W23
-func TestMarkNeedsTheMirrorAndTheCommit(t *testing.T) {
-	noMirror := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	before := noMirror.list(t)
-	if code := noMirror.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure {
-		t.Fatalf("no mirror: exit %d", code)
+// T1, T2: excluded drops the group and moves the clone to the excluded tree; study takes a group.
+func TestSetState(t *testing.T) {
+	w := newWorld(t, mitRow(alpha, "new", "-"))
+	w.cloneAt(t, alpha, "MIT", "new")
+	if code := w.run("set", alpha, "--state", "study", "--group", "fleets"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	if noMirror.list(t) != before {
-		t.Fatal("no mirror: the list changed")
+	if a := entry(t, w.entries(t), alpha); a.State != "study" || a.Group != "fleets" {
+		t.Fatalf("alpha %+v", a)
 	}
-	noCommit := newWorld(t, row(urlAlpha, "main", "-", "-"))
-	noCommit.mirror(t, "example-org__alpha")
-	noCommit.git.On([]string{"git", "cat-file"}, refuse("fatal: Not a valid object name"))
-	if code := noCommit.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure || !strings.Contains(noCommit.err.String(), shaC) {
-		t.Fatalf("no commit: exit %d, err %q", code, noCommit.err.String())
+	if code := w.run("set", alpha, "--state", "excluded"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	if noCommit.list(t) != before {
-		t.Fatal("no commit: the list changed")
+	a := entry(t, w.entries(t), alpha)
+	if a.State != "excluded" || a.Group != "-" || !strings.Contains(a.CloneDir(w.root), "starred-repos-excluded") {
+		t.Fatalf("alpha %+v", a)
+	}
+	if _, err := os.Stat(filepath.Join(a.CloneDir(w.root), ".git")); err != nil {
+		t.Fatal(err)
+	}
+	// The group set earlier is gone, so study needs one again; one already set is enough.
+	if code := w.run("set", alpha, "--state", "study"); code != term.ExitFailure || !strings.Contains(w.err.String(), "group") {
+		t.Fatalf("exit %d, err %q", code, w.err.String())
+	}
+	if code := w.run("set", alpha, "--state", "unstarred", "--group", "tooling"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	if code := w.run("set", alpha, "--state", "study"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+}
+
+// T1, T2: refusals leave the list and the clone alone.
+func TestSetRefusals(t *testing.T) {
+	for name, args := range map[string][]string{
+		"unknown repo":        {"set", "example-org/nope", "--state", "new"},
+		"bad state":           {"set", alpha, "--state", "done"},
+		"bad licence":         {"set", alpha, "--licence", "a/b"},
+		"bad group":           {"set", alpha, "--group", "Fleets"},
+		"excluded with group": {"set", alpha, "--state", "excluded", "--group", "fleets"},
+		"study without group": {"set", alpha, "--state", "study"},
+		"target exists":       {"set", alpha, "--licence", "Apache-2.0"},
+		"no clone":            {"set", beta, "--licence", "Apache-2.0"},
+	} {
+		w := newWorld(t, mitRow(alpha, "new", "-"), mitRow(beta, "new", "-"))
+		dir := w.cloneAt(t, alpha, "MIT", "new")
+		w.cloneAt(t, alpha, "Apache-2.0", "new")
+		if code := w.run(args...); code != term.ExitFailure || !strings.HasPrefix(w.err.String(), "ERROR:") {
+			t.Errorf("%s: exit %d, err %q", name, code, w.err.String())
+		}
+		if !strings.HasPrefix(w.list(t), oddHeader) {
+			t.Errorf("%s: the list changed", name)
+		}
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("%s: the clone moved", name)
+		}
 	}
 }

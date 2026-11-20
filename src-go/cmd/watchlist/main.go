@@ -1,5 +1,5 @@
-// Command watchlist keeps the repository watch list: it mirrors the watched repositories,
-// reports what changed since each was last reviewed, and records a review.
+// Command watchlist keeps the watch list: it syncs the owner's stars into full clones sorted by
+// licence, and runs studies of them that record the commit each study read.
 package main
 
 import (
