@@ -12,13 +12,31 @@ from typing import Any, ClassVar
 # Add daemon to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
 
-from claude_code_hooks_daemon.core import Decision, Handler, HookResult
-from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
+from claude_code_hooks_daemon.core import Decision, GatingResult
+from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType, ToolPayload
+from claude_code_hooks_daemon.core.handler_bases import PreToolUseHandlerBase
+from claude_code_hooks_daemon.core.rule import Rule
 from claude_code_hooks_daemon.core.utils import get_file_path
 
 # Sentinel files whose presence at a directory confirms it is the project root.
 # Used by _resolve_project_root() to guard against a wrong parents[N] depth.
 _ROOT_SENTINELS = (".claude/settings.json", "CLAUDE.md")
+
+RULE_ID = "R-SYSTEM-PATH-DEPLOYED-FILE-EDIT"
+
+_RULE = Rule(
+    rule_id=RULE_ID,
+    blocked="a Write or Edit of a deployed system file under /etc, /var, /usr, /opt, /root or /home",
+    why="A deployed file edited in place bypasses version control and drifts from the project source",
+    fix="Edit the project file under files/ and deploy it with an Ansible playbook",
+    verbose=(
+        "WHY: files under /etc, /var, /usr, /opt, /root and /home are deployed from this\n"
+        "project by Ansible. An in-place edit is not version controlled, is not reproducible on a\n"
+        "fresh install and is overwritten by the next deploy.\n\n"
+        "DO INSTEAD: edit the project source (files/etc/..., files/var/local/..., files/usr/...)\n"
+        "and run the playbook that deploys it."
+    ),
+)
 
 
 def _resolve_project_root() -> str:
@@ -162,7 +180,7 @@ def _is_project_path(file_path: str) -> bool:
     return _realpath(file_path).startswith(real_root)
 
 
-class SystemPathsHandler(Handler):
+class SystemPathsHandler(PreToolUseHandlerBase):
     """Block Write/Edit operations on deployed system files.
 
     Enforces infrastructure-as-code principle: edit project files in files/
@@ -236,25 +254,24 @@ class SystemPathsHandler(Handler):
         reached = (_normalise(file_path), _realpath(file_path))
         return any(path.startswith(blocked) for path in reached for blocked in self.BLOCKED_PATHS)
 
-    def handle(self, hook_input: dict[str, Any]) -> HookResult:
+    def handle(self, hook_input: dict[str, Any]) -> GatingResult:
         """Block the operation with helpful message about infrastructure-as-code.
 
         Args:
             hook_input: Hook input dict
 
         Returns:
-            HookResult with deny decision and guidance on proper workflow
+            GatingResult denying under R-SYSTEM-PATH-DEPLOYED-FILE-EDIT, with guidance on proper workflow
         """
         file_path = get_file_path(hook_input)
         if not file_path:
-            return HookResult(decision=Decision.ALLOW)
+            return GatingResult(decision=Decision.ALLOW)
 
         # Determine the project equivalent path, of where a relative path lands
         project_path = self._get_project_path(_normalise(_absolute(file_path)))
 
-        return HookResult(
-            decision=Decision.DENY,
-            reason=(
+        return GatingResult.deny(
+            (
                 f"❌ BLOCKED: Direct editing of deployed system files is not allowed.\n\n"
                 f"Target: {file_path}\n\n"
                 f"This is a deployed file on the actual system filesystem. Directly editing\n"
@@ -269,8 +286,12 @@ class SystemPathsHandler(Handler):
                 f"  - Changes are reproducible across environments\n"
                 f"  - Configuration remains consistent\n\n"
                 f"See CLAUDE.md 'INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT' for details."
-            ),
-        )
+            )
+        ).under_rule(_RULE)
+
+    def get_rules(self) -> list[Rule]:
+        """Return the single Rule backing this handler's deny."""
+        return [_RULE]
 
     def get_claude_md(self) -> str | None:
         """Return CLAUDE.md guidance for this handler."""
@@ -287,24 +308,44 @@ class SystemPathsHandler(Handler):
         )
 
     def get_acceptance_tests(self) -> list[AcceptanceTest]:
-        """Return acceptance tests for SystemPathsHandler."""
+        """Return acceptance tests for SystemPathsHandler.
+
+        Each drives the Edit tool on a path that cannot exist: an Edit of a missing file
+        fails, so nothing changes even if the guard missed the denied one.
+        """
         return [
             AcceptanceTest(
-                title="Block Write to /etc/ system path",
-                command='echo "Write to /etc/hosts"',
+                title="Block Edit of a deployed /etc/ system path",
+                command="Use the Edit tool on /etc/zz-nonexistent-acceptance-safe-test.conf",
+                tool_payload=ToolPayload(
+                    tool_name="Edit",
+                    tool_input={
+                        "file_path": "/etc/zz-nonexistent-acceptance-safe-test.conf",
+                        "old_string": "a",
+                        "new_string": "b",
+                    },
+                ),
                 description="Blocks direct editing of deployed system config files",
                 expected_decision=Decision.DENY,
-                expected_message_patterns=[r"BLOCKED.*Direct editing", r"CORRECT APPROACH"],
-                safety_notes="Uses echo - safe to execute",
+                expected_message_patterns=[rf"BLOCKED \[{RULE_ID}\]", r"CORRECT APPROACH"],
+                safety_notes="The file does not exist, so an Edit that got through would fail",
                 test_type=TestType.BLOCKING,
             ),
             AcceptanceTest(
-                title="Allow Write to /workspace/ project path",
-                command='echo "Write to /workspace/files/etc/hosts"',
-                description="Permits editing project source files in /workspace/",
+                title="Allow Edit of a project path",
+                command="Use the Edit tool on untracked/scratch/zz-nonexistent-acceptance-safe-test.txt",
+                tool_payload=ToolPayload(
+                    tool_name="Edit",
+                    tool_input={
+                        "file_path": "untracked/scratch/zz-nonexistent-acceptance-safe-test.txt",
+                        "old_string": "a",
+                        "new_string": "b",
+                    },
+                ),
+                description="Permits editing project files",
                 expected_decision=Decision.ALLOW,
                 expected_message_patterns=[],
-                safety_notes="Uses echo - safe to execute",
+                safety_notes="The file does not exist, so the Edit fails after the guard allows it",
                 test_type=TestType.BLOCKING,
             ),
         ]

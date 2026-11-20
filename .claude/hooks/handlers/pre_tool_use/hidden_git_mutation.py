@@ -29,7 +29,7 @@ from claude_code_hooks_daemon.core.handler_bases import PreToolUseHandlerBase
 from claude_code_hooks_daemon.core.rule import Rule
 from claude_code_hooks_daemon.core.utils import get_bash_command
 from claude_code_hooks_daemon.utils.command_evasion import GIT_INVOCATION
-from claude_code_hooks_daemon.utils.command_position import command_position_segments
+from claude_code_hooks_daemon.utils.command_position import command_position_segments, is_plain_data_command
 
 RULE_ID = "R-UNTRACKED-SCRIPT-GIT-MUTATION"
 
@@ -222,9 +222,15 @@ def _changed_directory(tokens: list[str], cwd: str) -> str:
 
 def _operands(command: str, cwd: str) -> list[tuple[str, str]]:
     """(directory, operand) for each script file the command names to run."""
-    operands: list[tuple[str, str]] = [(cwd, match) for match in _SUBSTITUTED_FILE.findall(command)]
+    operands: list[tuple[str, str]] = []
+    start = cwd
     previous: list[str] = []
     for segment in command_position_segments(command):
+        # Per command-position segment: a commit message or a gh body that only quotes
+        # `bash -c "$(cat f)"` is blanked from its segment, so it names no script. A bare echo,
+        # printf or grep over literal words (is_plain_data_command) prints or searches its text.
+        if not is_plain_data_command(command):
+            operands.extend((start, match) for match in _SUBSTITUTED_FILE.findall(segment))
         tokens = _tokens(segment)
         cwd = _changed_directory(tokens, cwd)
         operand = _script_operand(tokens)
