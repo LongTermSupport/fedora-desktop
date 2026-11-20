@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.46"  # Container 2.84.43: closing a session gives a running turn up to 300 s, a pane with no prompt 30 s (Plan 00257 Q52). See docs/ccy-changelog.md.
+CCY_VERSION="3.122.47"  # Container 2.84.43: a close timeout is worded by a switch over every screen state (no behaviour change). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

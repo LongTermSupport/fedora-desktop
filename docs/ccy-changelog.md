@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.47 — container 2.84.43
+
+- **No behaviour change.** The wording of a close's timeout note (3.122.46) is now chosen by a
+  switch over every screen state, not by comparing with "busy", as the project rule
+  `project_screen_state_compared` requires. The image is unchanged.
+
 ## 3.122.46 — container 2.84.43
 
 - **Closing a session waits up to 300 s only for a turn it has seen running; a pane with no

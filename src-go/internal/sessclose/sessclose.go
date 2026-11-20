@@ -796,8 +796,10 @@ func (c *Closer) timedOut(ctx context.Context, j *job) {
 // notReady words a prompt wait that ran out from the box as last seen (C8, G2): a turn still
 // running, or no prompt within the bound in force; label is a container session's case.
 func (c *Closer) notReady(j *job) (label, late string) {
-	if j.last == screen.Busy {
+	switch j.last {
+	case screen.Busy:
 		return "busy past the bound: ", "a turn was still running after " + Seconds(c.Waits.Turn)
+	case screen.Ready, screen.Typed, screen.NotDrawn:
 	}
 	bound := c.Waits.Prompt
 	if j.inTurn {
