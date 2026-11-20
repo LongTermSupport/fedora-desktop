@@ -129,18 +129,6 @@ func TestAV2SeatOfflineOrDeferredIsNamedAndDoesNotFail(t *testing.T) {
 	}
 }
 
-// TC12: a v2 member that is not an LXC seat is named as out of reach, with why.
-func TestAV2HostMemberIsOutOfReach(t *testing.T) {
-	m := newMachine(t)
-	m.withV2(lxcstate.StatusJoined, "", teamtest.V2Member("proj.9+local.podman", "ccy", false))
-	m.withContainers(true)
-	m.withV2Session()
-	if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
-		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
-	}
-	m.errHas(t, "proj.9+local.podman", whyV2Host)
-}
-
 // TC12, the B.13 review's finding 4: a guest server lxc-attach cannot reach tmux on (runuser
 // could not execute it) is not reachable, never "no session running" with exit 0.
 func TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable(t *testing.T) {
@@ -157,4 +145,29 @@ func TestAV2SeatWhoseTmuxCannotBeReachedIsNotReachable(t *testing.T) {
 	}
 	m.errHas(t, v2Box+": not shut down: "+whyUnreachable, "failed to execute tmux")
 	m.errLacks(t, "no session running in container box")
+}
+
+// TC12, the B.13 review's finding 3: a v2 lxc-kind member with no LXC record, or none of its entries naming it, is not
+// reachable with that reason, never "no running session" with exit 0.
+func TestAV2LxcMemberNoLxcRecordNamesIsNotReachable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		record bool
+	}{{"no record file", false}, {"no entry for it", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMachine(t)
+			m.WriteV2Status(t, teamtest.V2Team, true, teamtest.V2Member(v2Box, status.KindLXC, false))
+			if tc.record {
+				m.WriteV2Lxc(t, teamtest.V2Team, teamtest.V2Seat(t, "box", "agent", "/srv/proj", 2, "proj.2+desk.lxc", lxcstate.StatusJoined, ""))
+			}
+			m.On("systemctl is-active teamchat-server@"+teamtest.V2Team+".service", "active\n", 0)
+			m.withContainers(true)
+			m.build()
+			if got := m.run(teamtest.V2Team, "--yes"); got != term.ExitFailure {
+				t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+			}
+			m.errHas(t, v2Box+": not shut down: "+whyV2NoLxcEntry)
+			m.errLacks(t, "Team ops has no running session.\nops: 0")
+		})
+	}
 }

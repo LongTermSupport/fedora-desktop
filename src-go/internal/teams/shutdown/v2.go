@@ -4,39 +4,29 @@ import (
 	"context"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
-// whyV2Host is a v2 member that is not an LXC seat: ccy-teams does not find its session.
-const whyV2Host = "a v2 (teamchat) member outside an LXC container: ccy-teams does not find its session; " +
-	"type /exit in it where it runs"
-
-// planForV2 is a v2 team's members that are not LXC seats, out of reach (TC12); its LXC seats
-// are read from its LXC record (resolveV2Lxc), and a parked or retired member has no session.
-func planForV2(snap *board.Snapshot, team string) plan {
-	var p plan
-	for _, row := range snap.Rows {
-		parked := strings.HasPrefix(row.State, "parked") || strings.HasPrefix(row.State, "retired")
-		if row.Team != team || !row.V2 || row.Kind == board.KindTeam || row.Kind == kindLxc || parked {
-			continue
-		}
-		p.unreached = append(p.unreached, unreached{row.Handle, whyV2Host})
-	}
-	return p
-}
+// Why a v2 member is out of reach.
+const (
+	whyV2Elsewhere = "no session on this host's ccy tmux holds it, and it is not a seat of this host's seat store " +
+		"(a session on another machine); end it where it runs"
+	whyV2NoLxcEntry = "an LXC member no entry of the team's LXC record names, so its container is not known here " +
+		"(teamchat-admin lxc apply writes the record)"
+)
 
 // resolveV2Lxc sorts a v2 team's LXC seats (SPEC-team-close TC2-TC4): every entry of its LXC
 // record that is not left. One the last apply deferred, or whose container is not running now,
 // is offline; one whose container runs is closed in its session on the seat's own tmux server
 // (`tmux -S`), through lxc-attach as the entry's user (its unit runs as that user), when it has
 // one there, and has nothing to shut down when it has none.
-func (s *Shutdown) resolveV2Lxc(ctx context.Context, team string, p *plan) {
+func (s *Shutdown) resolveV2Lxc(ctx context.Context, snap *board.Snapshot, team string, p *plan) {
 	id, err := paths.ParseTeamID(team)
 	if err != nil {
 		p.unreached = append(p.unreached, unreached{"the LXC seats of " + team, err.Error()})
@@ -47,6 +37,7 @@ func (s *Shutdown) resolveV2Lxc(ctx context.Context, team string, p *plan) {
 		p.unreached = append(p.unreached, unreached{"the LXC seats of " + team, whyUnreachable + err.Error()})
 		return
 	}
+	p.notReached(whyV2NoLxcEntry, unnamedLxcRows(snap, team, rec)...)
 	var live []lxcstate.Entry
 	for _, e := range rec.Members {
 		switch e.Status {
@@ -97,6 +88,29 @@ func (s *Shutdown) resolveV2Lxc(ctx context.Context, team string, p *plan) {
 			guest: &sessclose.Guest{Tmux: server, Session: session, Where: "container " + box},
 		})
 	}
+}
+
+// unnamedLxcRows is the team's LXC member rows no entry of its LXC record that is not left names
+// (TC12): by its handle, or by the handle's seat number for an entry the last apply deferred
+// before it had a handle. A missing record names none.
+func unnamedLxcRows(snap *board.Snapshot, team string, rec lxcstate.Record) []board.Row {
+	var rows []board.Row
+	for _, row := range v2Members(snap, team) {
+		if row.Kind != kindLxc {
+			continue
+		}
+		h, parsed := proto.ParseHandle(row.Handle)
+		named := slices.ContainsFunc(rec.Members, func(e lxcstate.Entry) bool {
+			if e.Status == lxcstate.StatusLeft {
+				return false
+			}
+			return e.Handle == row.Handle || e.Handle == "" && parsed && h.Seat == strconv.Itoa(e.Seat)
+		})
+		if !named {
+			rows = append(rows, row)
+		}
+	}
+	return rows
 }
 
 // v2Label is how a v2 LXC seat is named: its handle, or where it is while it has none.

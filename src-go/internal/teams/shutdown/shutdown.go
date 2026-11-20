@@ -31,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessclose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -75,6 +76,9 @@ type Shutdown struct {
 	AppliedDir string
 	// TeamchatRoot is the root a v2 team's LXC record is read under ("" on a host).
 	TeamchatRoot string
+	// SeatStore is the owner's teamchat seat store, where a v2 host session's desired membership
+	// is filed under its name.
+	SeatStore func() (paths.Store, error)
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -96,7 +100,14 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 		Kit: kit, Collect: b.Collect, Closer: sessclose.New(h.Tmux, h.Registry, h.Getenv), Bus: h.Bus,
 		Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath}, Sudo: h.Sudo, AppliedDir: h.AppliedDir,
 		TeamchatRoot: h.TeamchatRoot,
-		Term:         h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
+		SeatStore: func() (paths.Store, error) {
+			state, err := paths.StateHome(h.Getenv("HOME"), h.Getenv("XDG_STATE_HOME"))
+			if err != nil {
+				return paths.Store{}, err
+			}
+			return paths.SeatStore(state)
+		},
+		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
 }
@@ -119,8 +130,11 @@ An LXC member whose container is stopped is offline, and a seat whose session ha
 shut down.
 
 A v2 (teamchat) team is shut down the same way: each LXC seat of its LXC record whose
-container runs is closed in its session on the seat's own tmux server (tmux -S); a v2
-member outside an LXC container is named as not reachable from here.
+container runs is closed in its session on the seat's own tmux server (tmux -S), and each
+ccy session on this host whose desired membership (in the owner's seat store) names a seat
+of the team is closed as above. A v2 member with no session here is named: with nothing to
+shut down when its seat is in this host's seat store, else as not reachable from here; an
+LXC member no entry of the team's LXC record names is not reachable from here.
 
 Exit codes:
   0   every session exited cleanly or stopped, or nothing was shut down on request
@@ -182,8 +196,8 @@ func (s *Shutdown) forTeam(ctx context.Context, team string, yes, noCompact bool
 		p = planFor(snap, team)
 		s.resolveLxc(ctx, team, &p)
 	case snap.IsV2(team):
-		p = planForV2(snap, team)
-		s.resolveV2Lxc(ctx, team, &p)
+		s.resolveV2Host(snap, team, &p)
+		s.resolveV2Lxc(ctx, snap, team, &p)
 	default:
 		s.Term.PrintError("there is no team " + team + " on this machine; ccy-teams --list shows the teams.")
 		return term.ExitFailure
@@ -321,7 +335,7 @@ func (s *Shutdown) preview(team string, p plan, noCompact bool) {
 	}
 	for _, j := range p.jobs {
 		line := "  " + j.name + "   seat " + j.seat + " (" + j.handle + ") in " + term.AbbrevHome(j.dir, s.Home)
-		if j.guest != nil {
+		if j.where != "" {
 			line = "  " + j.name + "   " + j.where
 		}
 		if j.attached > 0 {

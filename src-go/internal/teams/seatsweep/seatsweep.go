@@ -193,21 +193,34 @@ func (d Desired) Desires(session paths.SessionName, s seat.Seat) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("pool seat %s is not a handle", s.Name)
 	}
-	data, err := readCapped(d.Store.DesiredFile(session), state.MaxDesired)
-	if errors.Is(err, fs.ErrNotExist) {
-		return true, nil
-	}
+	desired, found, err := d.Read(session)
 	if err != nil {
 		return false, err
+	}
+	if !found {
+		return true, nil
+	}
+	return slices.Contains(desired.Seats, state.DesiredSeat{Team: s.Team, Seat: h.Seat}), nil
+}
+
+// Read is the session's desired.json, read capped and never through a link; found is false when
+// the session has none.
+func (d Desired) Read(session paths.SessionName) (state.Desired, bool, error) {
+	data, err := readCapped(d.Store.DesiredFile(session), state.MaxDesired)
+	if errors.Is(err, fs.ErrNotExist) {
+		return state.Desired{}, false, nil
+	}
+	if err != nil {
+		return state.Desired{}, false, err
 	}
 	desired, err := state.DecodeDesired(data)
 	if err != nil {
-		return false, err
+		return state.Desired{}, false, err
 	}
 	if desired.Session != session {
-		return false, fmt.Errorf("the desired.json of session %s names session %s", session, desired.Session)
+		return state.Desired{}, false, fmt.Errorf("the desired.json of session %s names session %s", session, desired.Session)
 	}
-	return slices.Contains(desired.Seats, state.DesiredSeat{Team: s.Team, Seat: h.Seat}), nil
+	return desired, true, nil
 }
 
 // readCapped reads a regular file, never through a link, refusing one over limit bytes.

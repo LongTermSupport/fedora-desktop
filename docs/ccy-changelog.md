@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.39 — container 2.84.40
+
+- **Shutting down a v2 (teamchat) team closes its host seats too** (Plan 00257 SPEC-team-close
+  TC2, TC12). Each ccy session on this host whose desired membership, in the owner's seat store,
+  names a seat of the team is closed as any host seat is (`/compact`, then `/exit`). A member
+  with no session here has nothing to shut down when its seat is in this host's seat store, and
+  is not reachable from here otherwise. A v2 LXC member that no entry of the team's LXC record
+  names (a missing record included) is now not reachable, with the reason, instead of "no
+  running session" and exit 0. The image is unchanged.
+
 ## 3.122.38 — container 2.84.40
 
 - **A tmux server or session is read as gone only in tmux's own words** (Plan 00257
