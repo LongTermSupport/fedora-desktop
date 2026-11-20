@@ -200,7 +200,12 @@ take it over (Ctrl-T), close it (`/compact`, then `/exit`, as you would type the
 cleanly and its next resume starts from the summary; or without compacting, `/exit` only), or
 end it (Ctrl-X, which kills it and everything in it). Each asks first. `ccy --stop SESSION... [--no-compact]` is the same close from the command line, and `ccy-teams shutdown` closes a
 team's sessions the same way. A compaction not complete within 600 s fails the close and
-leaves the session running, named. A row of its own starts a new
+leaves the session running, named. Before `/compact` and before `/exit` the close waits for
+the prompt and never interrupts a turn: a session seen in a turn is given up to 300 s, counted
+from the start of that wait, to finish it; one never seen busy whose prompt is not ready within
+30 s (claude starting, a dialog, a hung screen) is not waited on longer. A session still not
+ready at its bound is stopped (its tmux session killed), and so is one still running 60 s after
+`/exit`. A row of its own starts a new
 `ccy` session in the current directory (Ctrl-N), and the last row is always Exit (Esc or
 `q` do the same). Each key is a shortcut, printed beside the line it chooses. Every yes/no
 question is the same picker, starting on Exit so Enter alone is the safe answer. A session

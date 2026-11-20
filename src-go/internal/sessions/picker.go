@@ -328,7 +328,7 @@ func (a *App) confirmEnd(ctx context.Context, name string) step {
 // default): /compact, then /exit once the compaction is recorded, or /exit alone, through
 // sessclose. A failure leaves the session running and says why; the list comes back either way.
 func (a *App) confirmClose(ctx context.Context, name string, noCompact bool) step {
-	turn := sessclose.TurnWait(a.Closer.Limits())
+	turn := sessclose.TurnWait(a.Closer.Limits(), sessclose.OnHost)
 	how := "It is compacted (/compact), then sent /exit. " + turn
 	if noCompact {
 		how = "It is sent /exit, without compacting. " + turn

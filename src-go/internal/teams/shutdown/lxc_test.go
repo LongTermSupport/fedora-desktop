@@ -120,6 +120,8 @@ func TestARunningLxcMemberIsCompactedThenExitedInItsContainer(t *testing.T) {
 	m.errHas(t,
 		"Team alpha: 2 sessions to shut down.",
 		"  agent@box   seat proj.box+role.lxc, its session agent-bus-claude in container box",
+		"A session still not ready at its bound is stopped (its tmux session killed) if it runs on this host, or left "+
+			"running in its LXC container and reported failed. One that has not ended",
 		"agent@box: exited cleanly; compacted first (its end read from its pane: it runs in container box, "+
 			"whose conversation this host does not read)",
 		"alpha: 2 exited cleanly, 0 stopped, 0 failed.",

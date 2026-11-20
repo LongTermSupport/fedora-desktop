@@ -147,7 +147,11 @@
 //     with the engine's words. Answered under CCY_LEGACY too: the bash asks them.
 //   - F23. `--stop SESSION... [--no-compact]` (stop.go, Plan 00191 Task 4.12) closes each named
 //     session on ccy's tmux server as a person would, through sessclose: /compact, its
-//     completion waited for, then /exit (only /exit with --no-compact). Every name is checked
+//     completion waited for, then /exit (only /exit with --no-compact). A turn is never
+//     interrupted: one seen running is given up to sessclose's turn bound (300 s) from the start
+//     of the wait, a prompt never seen busy its prompt bound (30 s); a session still not ready at
+//     its bound, or still running 60 s after /exit, is stopped (its tmux session killed), a
+//     compaction past 600 s left running. Every name is checked
 //     against the server first, so one that is not there closes nothing (exit 1); no name or
 //     another option is exit 64. One line per session on stderr; exit 0 only when every one
 //     exited or was stopped, 1 when any failed (a compaction that did not complete leaves its

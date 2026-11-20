@@ -516,6 +516,12 @@ func (c *closingFake) Close(_ context.Context, targets []sessclose.Target) []ses
 
 func (c *closingFake) Limits() sessclose.Waits { return sessclose.DefaultWaits }
 
+// hostTurnWait is what a close of a session on this host says of its waits and their bound
+// (sessclose C4, C8): ccy-sessions lists only this host's sessions.
+const hostTurnWait = "A session in the middle of a turn is given up to 300 s from the start of the wait to finish it, " +
+	"and is never interrupted while it runs; one never seen busy whose prompt is not ready within 30 s is not waited on " +
+	"longer. A session still not ready at its bound is stopped (its tmux session killed)."
+
 // Plan 00191 Task 4.12: a session's menu closes it through sessclose, compacting first or not,
 // after a yes/no; nothing is killed here, and the list comes back.
 func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
@@ -526,12 +532,12 @@ func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
 		said             string
 	}{
 		{
-			"Close it:", "Close ccy-a? It is compacted (/compact), then sent /exit. A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.", false,
+			"Close it:", "Close ccy-a? It is compacted (/compact), then sent /exit. " + hostTurnWait, false,
 			sessclose.Result{Outcome: sessclose.Exited, Note: "compacted first"},
 			"Closed 'ccy-a': exited cleanly; compacted first.",
 		},
 		{
-			"Close it without", "Close ccy-a? It is sent /exit, without compacting. A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.", true,
+			"Close it without", "Close ccy-a? It is sent /exit, without compacting. " + hostTurnWait, true,
 			sessclose.Result{Outcome: sessclose.Failed, Note: "its input box holds unsent text"},
 			"'ccy-a' was not closed: its input box holds unsent text.",
 		},
@@ -553,7 +559,7 @@ func TestCloseOnASessionClosesItThroughSessclose(t *testing.T) {
 		if h.count("tmux -L ccy kill-session") != 0 || rig.n != 4 {
 			t.Fatalf("%s: picks %d ran %v", tc.choice, rig.n, h.ran())
 		}
-		contains(t, "said", h.stderr(), tc.said, "A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.")
+		contains(t, "said", h.stderr(), tc.said, hostTurnWait)
 	}
 }
 

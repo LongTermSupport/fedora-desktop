@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.122.47"  # Container 2.84.43: a close timeout is worded by a switch over every screen state (no behaviour change). See docs/ccy-changelog.md.
+CCY_VERSION="3.122.48"  # Container 2.84.43: a close says what happens at its 30 s and 300 s bounds (wording and docs only). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -279,7 +279,7 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
-  --stop SESSION...      Close sessions as a person would: /compact, then /exit (--no-compact: /exit only)
+  --stop SESSION...      Close as a person would: /compact, /exit (--no-compact: /exit only); a turn 300 s, a prompt 30 s, then stopped
   --build-lock           Show the image build in progress (a launch waits for another's build
                          of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)

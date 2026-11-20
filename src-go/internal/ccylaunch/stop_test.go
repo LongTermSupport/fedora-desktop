@@ -70,7 +70,10 @@ func TestStopClosesThroughSessclose(t *testing.T) {
 			t.Fatalf("%q: asked %+v", tc.args, c.asked)
 		}
 		mustContain(t, "stderr", r.stderr.String(), "ccy-a: exited cleanly; compacted first",
-			"cc-b: stopped: it did not end within 60 s of /exit", "A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted.")
+			"cc-b: stopped: it did not end within 60 s of /exit",
+			"A session in the middle of a turn is given up to 300 s from the start of the wait to finish it, and is never "+
+				"interrupted while it runs; one never seen busy whose prompt is not ready within 30 s is not waited on longer. "+
+				"A session still not ready at its bound is stopped (its tmux session killed).")
 		if len(r.execer.Execs()) != 0 || r.stdout.Len() != 0 {
 			t.Fatalf("%q: handed over or printed on stdout %q", tc.args, r.stdout)
 		}

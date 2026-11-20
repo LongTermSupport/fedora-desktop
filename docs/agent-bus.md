@@ -174,8 +174,9 @@ answering or compacting at its end is named, never interrupted. Nothing is ended
 the team, then **Close every session of `<team>` (compact, then exit)**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
 closes each session as you would: `/compact` typed into its tmux pane (a turn running is
-waited for, up to 300 s, never interrupted; a pane with no prompt, starting or at a dialog, is
-given 30 s), and once its transcript records the compaction, `/exit`. Compacting at close, while the
+waited for, up to 300 s from the start of the wait, never interrupted; a pane with no prompt,
+starting or at a dialog, and never seen busy, is given 30 s; a session on this host still not
+ready at its bound is stopped, its tmux session killed), and once its transcript records the compaction, `/exit`. Compacting at close, while the
 prompt cache is warm, costs a cache read of the conversation; the next resume then starts from
 the summary instead of writing the whole conversation to the cache again. A session with
 nothing to compact since its last compaction gets `/exit` alone, and so does every session

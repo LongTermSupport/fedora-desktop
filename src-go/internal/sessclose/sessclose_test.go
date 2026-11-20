@@ -45,6 +45,8 @@ type fakeSession struct {
 	// it running after /exit.
 	server     string
 	ignoreExit bool
+	// script, when set, runs at the start of every look: a test's change of screen over time.
+	script func()
 }
 
 // world is a scripted tmux server, the session records, the transcripts and a clock that
@@ -184,6 +186,9 @@ func (w *world) fakeServer(key string, server ...string) {
 // look is a compaction (or, with turn, a turn) running on: busy for its looks, then ready, a
 // compaction's boundary written.
 func (w *world) look(s *fakeSession) {
+	if s.script != nil {
+		s.script()
+	}
 	if s.pane != paneBusy || s.busyLeft < 0 || s.stuck {
 		return
 	}
@@ -462,6 +467,94 @@ func TestABusySessionPastTheBoundIsStoppedNeverInterrupted(t *testing.T) {
 	}
 }
 
+// busyFrom draws no prompt on the session's pane until its look at the given second of the
+// wait (one look per poll), then a turn: busy for busyLooks looks, or for ever when stuck.
+func (w *world) busyFrom(name string, at, busyLooks int, stuck bool) {
+	s := w.find(name)
+	s.pane = paneStarting
+	looks := 0
+	s.script = func() {
+		looks++
+		if looks == at+1 {
+			s.pane, s.turn, s.busyLeft, s.stuck = paneBusy, true, busyLooks, stuck
+		}
+	}
+}
+
+// C4, C8 (Q52): a turn first seen at 29 s, inside the prompt bound, extends the wait to the turn
+// bound counted from the start of the wait (300 s), not from when the turn was seen (329 s).
+func TestATurnFirstSeenLateIsBoundFromTheStartOfTheWait(t *testing.T) {
+	w := newWorld(t, "ccy-proj")
+	w.busyFrom("ccy-proj", 29, 0, true)
+	start := w.now
+	r := one(t, w.close(Target{Name: "ccy-proj"}))
+	if r.Outcome != Stopped || w.find("ccy-proj") != nil || len(w.typedInto("ccy-proj")) != 0 {
+		t.Fatalf("result %+v typed %q", r, w.typedInto("ccy-proj"))
+	}
+	if r.Note != "a turn was still running after 300 s, so its tmux session was killed" {
+		t.Fatalf("note %q", r.Note)
+	}
+	if took := w.now.Sub(start); took < DefaultWaits.Turn || took > DefaultWaits.Turn+DefaultWaits.Poll {
+		t.Fatalf("stopped after %v, not at the turn bound from the start of the wait", took)
+	}
+}
+
+// C4, C8 (Q52): the turn bound is counted from the start of the wait: a turn first seen at 29 s
+// that ends at 295 s is waited for and the session closed; one that would end at 310 s is
+// stopped at 300 s, never waited for until then.
+func TestTheTurnBoundIsCountedFromTheStartOfTheWait(t *testing.T) {
+	for _, tc := range []struct {
+		endsAt int
+		want   Outcome
+	}{{295, Exited}, {310, Stopped}} {
+		w := newWorld(t, "ccy-proj")
+		w.busyFrom("ccy-proj", 29, tc.endsAt-29, false)
+		start := w.now
+		r := one(t, w.close(Target{Name: "ccy-proj"}))
+		if r.Outcome != tc.want {
+			t.Fatalf("turn ending at %d s: result %+v after %v", tc.endsAt, r, w.now.Sub(start))
+		}
+		if tc.want == Stopped && w.now.Sub(start) > DefaultWaits.Turn+DefaultWaits.Poll {
+			t.Fatalf("turn ending at %d s: stopped after %v", tc.endsAt, w.now.Sub(start))
+		}
+	}
+}
+
+// C4, C8 (Q52): after a compaction the wait for /exit starts again on the prompt bound, and a new
+// turn (a queued message) seen then earns the turn bound afresh, counted from the compaction's
+// end, even when the session was in a turn before its compaction.
+func TestANewTurnAfterTheCompactionGetsItsOwnTurnBound(t *testing.T) {
+	for _, stuck := range []bool{false, true} {
+		w := newWorld(t, "ccy-proj")
+		s := w.find("ccy-proj")
+		s.pane, s.busyLeft, s.turn = paneBusy, 10, true
+		var compactedAt time.Time
+		s.script = func() {
+			// The compaction was seen ended on the look one poll ago, with nothing typed since.
+			if _, ok := w.boundary["/t/ccy-proj.jsonl"]; ok && compactedAt.IsZero() && s.pane == paneReady {
+				compactedAt = w.now.Add(-DefaultWaits.Poll)
+				s.pane, s.turn, s.busyLeft, s.stuck = paneBusy, true, 120, stuck
+			}
+		}
+		r := one(t, w.close(Target{Name: "ccy-proj"}))
+		if compactedAt.IsZero() || !r.Compacted || s.escapes != 0 {
+			t.Fatalf("stuck %v: result %+v escapes %d", stuck, r, s.escapes)
+		}
+		if !stuck {
+			if r.Outcome != Exited || !slices.Equal(w.typedInto("ccy-proj"), []string{CompactText, "/exit"}) {
+				t.Fatalf("result %+v typed %q", r, w.typedInto("ccy-proj"))
+			}
+			continue
+		}
+		if r.Outcome != Stopped || r.Note != "a turn was still running after 300 s, so its tmux session was killed; compacted first" {
+			t.Fatalf("stuck: result %+v", r)
+		}
+		if took := w.now.Sub(compactedAt); took < DefaultWaits.Turn || took > DefaultWaits.Turn+DefaultWaits.Poll {
+			t.Fatalf("stuck: stopped %v after the compaction", took)
+		}
+	}
+}
+
 // C4: unsent text is never typed over, compacting or not.
 func TestUnsentTextIsLeftAlone(t *testing.T) {
 	for _, noCompact := range []bool{false, true} {
@@ -500,10 +593,20 @@ func TestLiveAndLimits(t *testing.T) {
 	}
 }
 
-// C4: TurnWait says, as a sentence, how long a turn is waited for.
+// C4, C8, G2: TurnWait says how long a turn and a prompt are waited for, and what happens at the
+// bound to a session where the caller's sessions run.
 func TestTurnWait(t *testing.T) {
-	if got := TurnWait(DefaultWaits); got != "A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted." {
-		t.Fatalf("%q", got)
+	const waits = "A session in the middle of a turn is given up to 300 s from the start of the wait to finish it, " +
+		"and is never interrupted while it runs; one never seen busy whose prompt is not ready within 30 s is not waited on longer."
+	for where, want := range map[Where]string{
+		OnHost:      waits + " A session still not ready at its bound is stopped (its tmux session killed).",
+		InContainer: waits + " A session still not ready at its bound is left running in its LXC container and reported failed.",
+		OnHostOrInContainer: waits + " A session still not ready at its bound is stopped (its tmux session killed) if it runs " +
+			"on this host, or left running in its LXC container and reported failed.",
+	} {
+		if got := TurnWait(DefaultWaits, where); got != want {
+			t.Fatalf("%v: %q", where, got)
+		}
 	}
 }
 

@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.122.48 — container 2.84.43
+
+- **A close now says what happens at its bounds** (Plan 00257 Q52 review). The Close question
+  and progress line in ccy-sessions, `ccy --stop`, its `--help` line and the `ccy-teams shutdown`
+  preview said a turn "is never interrupted", but a host session still not ready at the bound is
+  stopped. They now say: a turn is given up to 300 s from the start of the wait and is never
+  interrupted while it runs; a prompt never seen busy gets 30 s; a session still not ready then
+  is stopped (its tmux session killed) on the host, or left running in its LXC container and
+  reported failed. `docs/ccy.md` describes the same waits. No behaviour change; the image is
+  unchanged.
+
 ## 3.122.47 — container 2.84.43
 
 - **No behaviour change.** The wording of a close's timeout note (3.122.46) is now chosen by a

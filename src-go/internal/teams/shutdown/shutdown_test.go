@@ -79,7 +79,10 @@ func TestEverySessionIsSentExitAndItsSeatReleased(t *testing.T) {
 			"in its container, type /exit in its session",
 		"Each session is compacted (/compact, as if typed) and then sent /exit; one whose compaction has not completed within 600 s "+
 			"is left running and named. "+
-			"A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted. One that has not ended within 60 s of /exit is stopped (its tmux session killed). The homeserver keeps running.",
+			"A session in the middle of a turn is given up to 300 s from the start of the wait to finish it, and is never "+
+			"interrupted while it runs; one never seen busy whose prompt is not ready within 30 s is not waited on longer. "+
+			"A session still not ready at its bound is stopped (its tmux session killed). "+
+			"One that has not ended within 60 s of /exit is stopped (its tmux session killed). The homeserver keeps running.",
 		"ccy-proj: exited cleanly; seat 1@alpha released",
 		"proj.box+role.lxc: not shut down: no LXC member record of this host names it",
 		"alpha: 1 exited cleanly, 0 stopped, 0 failed; 1 member not reachable from here.",

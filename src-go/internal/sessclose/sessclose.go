@@ -275,9 +275,32 @@ func Seconds(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " s"
 }
 
-// TurnWait is the sentence a caller shows before a close: how long a turn is waited for (C4).
-func TurnWait(w Waits) string {
-	return "A session in the middle of a turn is given up to " + Seconds(w.Turn) + " to finish it; it is never interrupted."
+// Where is where the sessions a caller closes run, for TurnWait.
+type Where int
+
+// Where a caller's sessions run.
+const (
+	OnHost Where = iota
+	InContainer
+	OnHostOrInContainer
+)
+
+// TurnWait is the sentence a caller shows before a close: how long a turn and a prompt are
+// waited for, and what happens to a session still not ready at its bound where the caller's
+// sessions run (C4, C8, G2).
+func TurnWait(w Waits, where Where) string {
+	waits := "A session in the middle of a turn is given up to " + Seconds(w.Turn) + " from the start of the wait " +
+		"to finish it, and is never interrupted while it runs; one never seen busy whose prompt is not ready within " +
+		Seconds(w.Prompt) + " is not waited on longer. A session still not ready at its bound is "
+	const stopped, left = "stopped (its tmux session killed)", "left running in its LXC container and reported failed"
+	switch where {
+	case InContainer:
+		return waits + left + "."
+	case OnHostOrInContainer:
+		return waits + stopped + " if it runs on this host, or " + left + "."
+	case OnHost:
+	}
+	return waits + stopped + "."
 }
 
 // phase is how far a session's close has gone.

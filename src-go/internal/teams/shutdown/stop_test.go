@@ -39,7 +39,8 @@ func TestShutdownClosesThroughSessclose(t *testing.T) {
 		preview   string
 	}{
 		{[]string{"alpha", "--yes"}, false, "Each session is compacted (/compact, as if typed) and then sent /exit"},
-		{[]string{"alpha", "--yes", "--no-compact"}, true, "Each session is sent /exit, as if typed, without compacting. A session in the middle of a turn is given up to 300 s to finish it; it is never interrupted. One"},
+		{[]string{"alpha", "--yes", "--no-compact"}, true, "Each session is sent /exit, as if typed, without compacting. A session in the middle of a turn is given up to " +
+			"300 s from the start of the wait to finish it, and is never interrupted while it runs; one never seen busy"},
 	} {
 		m := newMachine(t)
 		m.noLxc()
